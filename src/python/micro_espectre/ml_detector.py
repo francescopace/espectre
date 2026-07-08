@@ -41,7 +41,7 @@ except ImportError:
 # Re-export for convenience
 __all__ = ['MLDetector', 'predict', 'is_motion', 'DEFAULT_SUBCARRIERS', 'FEATURE_NAMES']
 
-# ML-specific constants (unified with MVS for consistent UI)
+# ML-specific constants (shared 0-10 runtime scale for consistent UI)
 ML_DEFAULT_THRESHOLD = 5.0
 ML_MIN_THRESHOLD = 0.0
 ML_MAX_THRESHOLD = 10.0
@@ -187,7 +187,9 @@ class MLDetector(IDetector):
         self._motion_count = 0
         self._state = MotionState.IDLE
         self._current_probability = 0.0
-        self._use_amplitude_history = 'l1_delta' in FEATURE_NAMES
+        self._use_amplitude_history = any(
+            str(name).startswith('l1_') for name in FEATURE_NAMES
+        )
         if self._use_amplitude_history:
             self._amplitude_history = [None] * window_size
         else:
@@ -329,7 +331,7 @@ class MLDetector(IDetector):
         return self._threshold
     
     def set_threshold(self, threshold):
-        """Set threshold (range 0.0-10.0, unified with MVS)."""
+        """Set threshold (range 0.0-10.0 on the shared runtime scale)."""
         if ML_MIN_THRESHOLD <= threshold <= ML_MAX_THRESHOLD:
             self._threshold = threshold
             return True

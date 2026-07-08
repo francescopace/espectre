@@ -18,7 +18,7 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
       capabilities_(frontend_runtime_shim::state.capabilities),
       listener_(nullptr),
       detector_(nullptr),
-      mvs_detector_(config.segmentation_window_size, config.segmentation_threshold),
+      classic_detector_(config.segmentation_window_size, config.segmentation_threshold),
       ml_detector_(config.segmentation_window_size, config.segmentation_threshold) {
   frontend_runtime_shim::state.last_instance = this;
   if (frontend_runtime_shim::state.snapshot.threshold == SEGMENTATION_DEFAULT_THRESHOLD) {

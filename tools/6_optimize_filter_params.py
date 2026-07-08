@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ESPectre - Paired MVS filter parameter optimization.
+ESPectre - Paired variance filter parameter optimization.
 
 This is a secondary tuning helper that reuses the production-aligned paired
 sweep core instead of ad hoc latest-file selection or fixed thresholds.
@@ -27,8 +27,8 @@ from config import (
     LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
-from tools.lib.mvs_sweep_core import (
-    MVSFilterConfig,
+from tools.lib.variance_baseline_core import (
+    VarianceFilterConfig,
     evaluate_pairs,
     iter_paired_datasets,
     production_variant,
@@ -44,7 +44,7 @@ ARGS = None
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="ESPectre - Paired MVS filter parameter optimization",
+        description="ESPectre - Paired variance filter parameter optimization",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("chip", nargs="?", default=None, help="Optional chip filter, e.g. c6 or s3")
@@ -88,9 +88,40 @@ def ranking_key(row):
     )
 
 
+def passes_targets(row):
+    """Return True when the row meets the tuning targets."""
+    summary = row["summary"]
+    return summary["fp_rate"] <= TARGET_FP_RATE and summary["recall"] >= TARGET_RECALL
+
+
+def f1_ranking_key(row):
+    """Rank by pure quality once target gating is not part of the decision."""
+    summary = row["summary"]
+    return (
+        summary["f1"],
+        -summary["fp_rate"],
+        summary["recall"],
+    )
+
+
+def select_best_rows(rows):
+    """Return the best rows by target-gated ranking and by pure F1 ranking."""
+    target_rows = [row for row in rows if passes_targets(row)]
+    best_by_target = max(target_rows, key=f1_ranking_key) if target_rows else None
+    best_by_f1 = max(rows, key=f1_ranking_key)
+    return best_by_target, best_by_f1
+
+
+def describe_filter_context(*, enable_lowpass, lowpass_cutoff):
+    """Describe the base filter context used by a follow-up Hampel sweep."""
+    if enable_lowpass:
+        return f"base low-pass ON at {lowpass_cutoff:.1f} Hz"
+    return "base low-pass OFF"
+
+
 def print_header(pairs, chip_filter):
     print("\n==========================================================================")
-    print("  PAIRED MVS FILTER PARAMETER OPTIMIZATION")
+    print("  PAIRED VARIANCE FILTER PARAMETER OPTIMIZATION")
     print("==========================================================================")
     print(f"Pairs: {len(pairs)}")
     if chip_filter:
@@ -99,7 +130,7 @@ def print_header(pairs, chip_filter):
         print(f"Dataset filter: {ARGS.dataset_id}")
     print(f"Window size: {WINDOW_SIZE} packets")
     print(f"Selected band: {list(DEFAULT_SUBCARRIERS)}")
-    print("Threshold source: per-pair MVS startup calibration")
+    print("Threshold source: per-pair variance startup calibration")
     print(f"Targets: recall >{TARGET_RECALL:.0f}% | fp rate <{TARGET_FP_RATE:.1f}%")
     print()
 
@@ -129,33 +160,95 @@ def print_best(label, row):
     print()
 
 
-def run_lowpass_sweep(pairs):
-    configs = [("Production baseline", MVSFilterConfig(
-        enable_hampel=ENABLE_HAMPEL_FILTER,
-        enable_lowpass=ENABLE_LOWPASS_FILTER,
-        hampel_window=HAMPEL_WINDOW,
-        hampel_threshold=HAMPEL_THRESHOLD,
-        lowpass_cutoff=LOWPASS_CUTOFF,
-    ))]
+def _append_unique_config(configs, seen, label, filter_cfg):
+    """Append one filter configuration only once, preserving order."""
+    if filter_cfg in seen:
+        return
+    seen.add(filter_cfg)
+    configs.append((label, filter_cfg))
+
+
+def build_lowpass_sweep_configs():
+    """Return the variance-path filter sweep with explicit missing controls."""
+    configs = []
+    seen = set()
+    base_kwargs = {
+        "hampel_window": HAMPEL_WINDOW,
+        "hampel_threshold": HAMPEL_THRESHOLD,
+        "lowpass_cutoff": LOWPASS_CUTOFF,
+    }
+
+    _append_unique_config(
+        configs,
+        seen,
+        "Production baseline",
+        VarianceFilterConfig(
+            enable_hampel=ENABLE_HAMPEL_FILTER,
+            enable_lowpass=ENABLE_LOWPASS_FILTER,
+            **base_kwargs,
+        ),
+    )
+    _append_unique_config(
+        configs,
+        seen,
+        "No filter",
+        VarianceFilterConfig(enable_hampel=False, enable_lowpass=False, **base_kwargs),
+    )
+    _append_unique_config(
+        configs,
+        seen,
+        "Hampel only",
+        VarianceFilterConfig(enable_hampel=True, enable_lowpass=False, **base_kwargs),
+    )
+
     for cutoff in [5.0, 7.0, 9.0, 11.0, 13.0, 15.0]:
-        configs.append(
-            (
-                f"Hampel + lowpass {cutoff:.1f} Hz",
-                MVSFilterConfig(
-                    enable_hampel=ENABLE_HAMPEL_FILTER,
-                    enable_lowpass=True,
-                    hampel_window=HAMPEL_WINDOW,
-                    hampel_threshold=HAMPEL_THRESHOLD,
-                    lowpass_cutoff=float(cutoff),
-                ),
-            )
+        _append_unique_config(
+            configs,
+            seen,
+            f"Low-pass only {cutoff:.1f} Hz",
+            VarianceFilterConfig(
+                enable_hampel=False,
+                enable_lowpass=True,
+                hampel_window=HAMPEL_WINDOW,
+                hampel_threshold=HAMPEL_THRESHOLD,
+                lowpass_cutoff=float(cutoff),
+            ),
+        )
+        _append_unique_config(
+            configs,
+            seen,
+            f"Hampel + lowpass {cutoff:.1f} Hz",
+            VarianceFilterConfig(
+                enable_hampel=True,
+                enable_lowpass=True,
+                hampel_window=HAMPEL_WINDOW,
+                hampel_threshold=HAMPEL_THRESHOLD,
+                lowpass_cutoff=float(cutoff),
+            ),
         )
 
+    return configs
+
+
+def run_lowpass_sweep(pairs):
+    configs = build_lowpass_sweep_configs()
     rows = evaluate_configurations(pairs, configs)
-    print_rows("Low-pass sweep:", rows)
-    best = max(rows, key=ranking_key)
-    print_best("low-pass configuration", best)
-    return best
+    print_rows("Filter sweep:", rows)
+    best_by_target, best_by_f1 = select_best_rows(rows)
+    if best_by_target is not None:
+        print_best("filter configuration by target", best_by_target)
+    else:
+        print("Best filter configuration by target: none met the targets")
+        print()
+    if best_by_f1 is best_by_target:
+        print("Best filter configuration by F1: same as target winner")
+        print()
+    else:
+        print_best("filter configuration by F1", best_by_f1)
+    return {
+        "target_best": best_by_target,
+        "f1_best": best_by_f1,
+    }
 
 
 def run_hampel_sweep(pairs, *, enable_lowpass=False, lowpass_cutoff=LOWPASS_CUTOFF):
@@ -165,7 +258,7 @@ def run_hampel_sweep(pairs, *, enable_lowpass=False, lowpass_cutoff=LOWPASS_CUTO
             configs.append(
                 (
                     f"Hampel w={window} t={threshold:.1f}",
-                    MVSFilterConfig(
+                    VarianceFilterConfig(
                         enable_hampel=True,
                         enable_lowpass=enable_lowpass,
                         hampel_window=window,
@@ -176,10 +269,26 @@ def run_hampel_sweep(pairs, *, enable_lowpass=False, lowpass_cutoff=LOWPASS_CUTO
             )
 
     rows = evaluate_configurations(pairs, configs)
-    print_rows("Hampel sweep:", rows)
-    best = max(rows, key=ranking_key)
-    print_best("Hampel configuration", best)
-    return best
+    context_desc = describe_filter_context(
+        enable_lowpass=enable_lowpass,
+        lowpass_cutoff=lowpass_cutoff,
+    )
+    print_rows(f"Hampel sweep ({context_desc}):", rows)
+    best_by_target, best_by_f1 = select_best_rows(rows)
+    if best_by_target is not None:
+        print_best("Hampel configuration by target", best_by_target)
+    else:
+        print("Best Hampel configuration by target: none met the targets")
+        print()
+    if best_by_f1 is best_by_target:
+        print("Best Hampel configuration by F1: same as target winner")
+        print()
+    else:
+        print_best("Hampel configuration by F1", best_by_f1)
+    return {
+        "target_best": best_by_target,
+        "f1_best": best_by_f1,
+    }
 
 
 def main():
@@ -200,7 +309,8 @@ def main():
     print_header(pairs, args.chip)
 
     if args.all:
-        lowpass_best = run_lowpass_sweep(pairs)
+        lowpass_selection = run_lowpass_sweep(pairs)
+        lowpass_best = lowpass_selection["target_best"] or lowpass_selection["f1_best"]
         lowpass_cfg = lowpass_best["config"]
         run_hampel_sweep(
             pairs,

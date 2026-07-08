@@ -44,10 +44,10 @@ esphome::espectre::RuntimeConfig build_runtime_config() {
   esphome::espectre::RuntimeConfig config;
 #if CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_ML
   config.detection_algorithm = esphome::espectre::DetectionAlgorithm::ML;
-#elif CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_L1_DELTA
-  config.detection_algorithm = esphome::espectre::DetectionAlgorithm::L1_DELTA;
+#elif CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_CLASSIC
+  config.detection_algorithm = esphome::espectre::DetectionAlgorithm::CLASSIC;
 #else
-  config.detection_algorithm = esphome::espectre::DetectionAlgorithm::MVS;
+  config.detection_algorithm = esphome::espectre::DetectionAlgorithm::CLASSIC;
 #endif
   return config;
 }
@@ -56,11 +56,9 @@ const char *detector_name(const esphome::espectre::RuntimeConfig &config) {
   switch (config.detection_algorithm) {
     case esphome::espectre::DetectionAlgorithm::ML:
       return "ML";
-    case esphome::espectre::DetectionAlgorithm::L1_DELTA:
-      return "L1D";
-    case esphome::espectre::DetectionAlgorithm::MVS:
+    case esphome::espectre::DetectionAlgorithm::CLASSIC:
     default:
-      return "MVS";
+      return "Classic";
   }
 }
 

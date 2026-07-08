@@ -1,20 +1,27 @@
 """
-Micro-ESPectre - CSI Feature Extraction (Publish-Time)
+Micro-ESPectre - Shared Feature And L1-Delta Helpers
 
 Pure Python implementation for MicroPython.
-Extracts statistical features from turbulence buffer for ML-based motion detection.
-
-This module exposes the feature names used by the production MLP plus the
-legacy raw feature set used by experiments.
+Provides the production ML feature extraction helpers plus the allocation-free
+L1-delta tracker used by the classic detector and offline tooling.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 import math
 
+try:
+    from src.detector_interface import MotionState
+    from src.segmentation import SegmentationContext
+except ImportError:
+    from detector_interface import MotionState
+    from segmentation import SegmentationContext
+
 # Match the detector path: compare normalized profiles 10 packets apart
 # (~100 ms at 100 pps).
 L1_DELTA_LAG = 10
+L1_DELTA_STARTUP_THRESHOLD_FACTOR = 1.1
+L1_DELTA_STARTUP_GATE = True
 
 
 def calc_skewness(values, count, mean, std):
@@ -140,44 +147,28 @@ def calc_waveform_length(turbulence_buffer, buffer_count):
     return total
 
 
-RAW_FEATURES = [
-    'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_iqr',
-    'turb_skewness', 'turb_autocorr', 'turb_mad', 'waveform_length'
-]
-
-RELATIVE_FEATURES = [
-    'turb_std_over_mean',
-    'turb_max_over_mean',
-    'turb_min_over_mean',
-    'turb_iqr_over_mean',
-    'turb_mad_over_mean',
-    'waveform_length_over_mean',
-    'turb_skewness',
-    'turb_autocorr',
-]
-
-ROBUST_RELATIVE_FEATURES = [
-    'turb_std_over_mean',
-    'turb_p95_over_mean',
-    'turb_p05_over_mean',
-    'turb_iqr_over_mean',
-    'turb_mad_over_mean',
-    'waveform_length_over_mean',
-    'turb_skewness',
-    'turb_autocorr',
-]
-
-# Experimental feature candidates that are not part of production defaults.
-EXPERIMENTAL_FEATURES = [
+# Supported L1-delta features. The wider descriptor experiment was rejected;
+# only the three promoted features remain available to training/export flows.
+L1_DELTA_FEATURES = [
     'l1_delta',
+    'l1_delta_std',
+    'l1_delta_waveform_length',
 ]
 
-# Production feature set: gain-invariant turbulence-window statistics.
-DEFAULT_FEATURES = RELATIVE_FEATURES
+# Core-6 production set: three gain-invariant turbulence statistics plus the
+# three L1-delta profile-displacement features that survived ablation. Beats
+# the former relative-8 set on all promotion gates (see docs/EXPERIMENTS.md).
+CORE6_FEATURES = [
+    'turb_mad_over_mean',
+    'turb_skewness',
+    'turb_autocorr',
+]
+CORE6_FEATURES.extend(L1_DELTA_FEATURES)
 
-ALL_FEATURES = tuple(dict.fromkeys(
-    RAW_FEATURES + RELATIVE_FEATURES + ROBUST_RELATIVE_FEATURES + EXPERIMENTAL_FEATURES
-))
+# Production feature set.
+DEFAULT_FEATURES = CORE6_FEATURES
+
+ALL_FEATURES = tuple(DEFAULT_FEATURES)
 
 
 def normalize_amplitude_profile_into(amplitudes, count, out):
@@ -214,27 +205,32 @@ def _normalize_amplitude_profile(amplitudes):
     return out
 
 
-def calc_l1_delta(amplitude_history, buffer_count, lag=L1_DELTA_LAG):
+def l1_delta_series(amplitude_history, buffer_count, lag=L1_DELTA_LAG):
     """
-    Calculate the L1 normalized profile displacement over a sliding window.
+    Return the per-packet L1 normalized profile displacement series.
 
-    This matches the standalone `L1DeltaDetector` metric:
+    This is the raw `d` stream the shared L1-delta tracker averages into the
+    classic primary motion metric:
     1. normalize each per-packet amplitude profile by its mean
     2. compare each profile with the one `lag` packets earlier
-    3. average the mean absolute per-subcarrier displacement over the window
+    3. emit the mean absolute per-subcarrier displacement for that pair
+
+    Exposing the series (not just its mean) lets the ML feature path build a
+    full statistical descriptor on the L1-delta axis, mirroring what the
+    turbulence path already does on the turbulence buffer. Returns an empty
+    list when there is no comparable lagged profile.
     """
     if amplitude_history is None:
-        return 0.0
+        return []
     n = min(int(buffer_count), len(amplitude_history))
     if n < lag + 1:
-        return 0.0
+        return []
 
     normalized_profiles = [None] * n
     for i in range(n):
         normalized_profiles[i] = _normalize_amplitude_profile(amplitude_history[i])
 
-    delta_sum = 0.0
-    delta_count = 0
+    deltas = []
     for i in range(lag, n):
         current = normalized_profiles[i]
         reference = normalized_profiles[i - lag]
@@ -246,18 +242,142 @@ def calc_l1_delta(amplitude_history, buffer_count, lag=L1_DELTA_LAG):
         for j in range(width):
             diff = current[j] - reference[j]
             total += diff if diff >= 0.0 else -diff
-        delta_sum += total / width
-        delta_count += 1
+        deltas.append(total / width)
 
-    if delta_count == 0:
+    return deltas
+
+
+def calc_l1_delta(amplitude_history, buffer_count, lag=L1_DELTA_LAG):
+    """
+    Calculate the mean L1 normalized profile displacement over a sliding window.
+
+    Matches the shared L1-delta motion metric used by `ClassicDetector`
+    (mean of the per-packet displacement series). See `l1_delta_series` for the underlying
+    stream.
+    """
+    deltas = l1_delta_series(amplitude_history, buffer_count, lag)
+    if not deltas:
         return 0.0
-    return delta_sum / delta_count
+    return sum(deltas) / len(deltas)
+
+
+class L1DeltaTracker:
+    """Allocation-free L1-delta metric tracker without detector surface."""
+
+    def __init__(self, window_size=100, threshold=1.0, lag=L1_DELTA_LAG):
+        self.window_size = max(2, int(window_size))
+        self.threshold = threshold
+        self.lag = max(1, int(lag))
+
+        profile_width = SegmentationContext.AMPLITUDE_BUFFER_SIZE
+        self._profile_ring = [[0.0] * profile_width for _ in range(self.lag)]
+        self._profile_len = [0] * self.lag
+        self._current_profile = [0.0] * profile_width
+        self._amplitude_buffer = [0.0] * profile_width
+        self._delta_ring = [0.0] * self.window_size
+        self._delta_index = 0
+        self._delta_count = 0
+        self._delta_sum = 0.0
+
+        self._packet_count = 0
+        self._state = MotionState.IDLE
+        self._current_metric = 0.0
+        self.last_delta = 0.0
+
+    def _push_delta(self, delta):
+        if self._delta_count < self.window_size:
+            self._delta_count += 1
+        else:
+            self._delta_sum -= self._delta_ring[self._delta_index]
+        self._delta_ring[self._delta_index] = delta
+        self._delta_sum += delta
+        self._delta_index = (self._delta_index + 1) % self.window_size
+
+    def process_packet(self, csi_data, selected_subcarriers=None):
+        self._packet_count += 1
+        amplitude_count = SegmentationContext._fill_amplitude_buffer(
+            csi_data, selected_subcarriers, self._amplitude_buffer
+        )
+        profile = self._current_profile
+        profile_len = normalize_amplitude_profile_into(
+            self._amplitude_buffer, amplitude_count, profile
+        )
+
+        ring_slot = (self._packet_count - 1) % self.lag
+        reference = self._profile_ring[ring_slot]
+        reference_len = self._profile_len[ring_slot]
+
+        if profile_len > 0 and reference_len == profile_len:
+            total = 0.0
+            for i in range(profile_len):
+                diff = profile[i] - reference[i]
+                total += diff if diff >= 0 else -diff
+            self.last_delta = total / profile_len
+            self._push_delta(self.last_delta)
+
+        self._profile_ring[ring_slot] = profile
+        self._profile_len[ring_slot] = profile_len
+        self._current_profile = reference
+
+    def update_metric(self):
+        if self._delta_count >= self.window_size:
+            self._current_metric = self._delta_sum / self._delta_count
+        else:
+            self._current_metric = 0.0
+        return self._current_metric
+
+    def update_state(self):
+        metric = self.update_metric()
+        if self._state == MotionState.IDLE:
+            if metric > self.threshold:
+                self._state = MotionState.MOTION
+        elif metric < self.threshold:
+            self._state = MotionState.IDLE
+        return {
+            "motion_metric": metric,
+            "l1_delta": metric,
+            "threshold": self.threshold,
+            "state": self._state,
+        }
+
+    def set_threshold(self, threshold):
+        if 0.0 <= threshold <= 10.0:
+            self.threshold = threshold
+            return True
+        return False
+
+    def set_adaptive_threshold(self, threshold):
+        self.threshold = max(1e-6, min(10.0, threshold))
+
+    def is_ready(self):
+        return self._delta_count >= self.window_size
+
+    def reset(self):
+        for i in range(self.lag):
+            self._profile_len[i] = 0
+        self._delta_ring = [0.0] * self.window_size
+        self._delta_index = 0
+        self._delta_count = 0
+        self._delta_sum = 0.0
+        self._packet_count = 0
+        self._state = MotionState.IDLE
+        self._current_metric = 0.0
+        self.last_delta = 0.0
+
+    def get_state(self):
+        return self._state
+
+    def get_motion_metric(self):
+        return self._current_metric
+
+    @property
+    def total_packets(self):
+        return self._packet_count
 
 
 def extract_features_by_name(
     turbulence_buffer,
     buffer_count,
-    amplitudes=None,
     feature_names=None,
     amplitude_history=None,
 ):
@@ -278,8 +398,6 @@ def extract_features_by_name(
         return [0.0] * len(feature_names)
 
     turb_mean = sum(turb_list) / n
-    turb_min = min(turb_list)
-    turb_max = max(turb_list)
 
     var_sum = 0.0
     for i in range(n):
@@ -289,75 +407,54 @@ def extract_features_by_name(
     turb_std = math.sqrt(turb_var) if turb_var > 0 else 0.0
     abs_mean = abs(turb_mean)
     mean_denom = abs_mean if abs_mean > 1e-6 else 1e-6
-    waveform_denom = mean_denom * (n - 1)
 
-    # Sort once if any sort-dependent feature is requested.
-    _sorted = None
-    for name in feature_names:
-        if name in ('turb_iqr', 'turb_mad', 'turb_p95_over_mean', 'turb_p05_over_mean'):
-            _sorted = list(turb_list)
-            _sorted.sort()
-            break
-
-    turb_iqr = None
     turb_mad = None
-    turb_p95 = None
-    turb_p05 = None
-    waveform_length = None
+    l1_waveform_length = None
+    # L1-delta state is computed lazily so turbulence-only requests do not pay
+    # the profile-history cost.
+    _l1_series = None
+    _l1_ready = False
+    _l1_n = 0
+    _l1_mean = 0.0
+    _l1_std = 0.0
+    def _ensure_l1_series():
+        nonlocal _l1_series, _l1_ready, _l1_n, _l1_mean, _l1_std
+        if _l1_ready:
+            return
+        _l1_ready = True
+        _l1_series = l1_delta_series(amplitude_history, n)
+        _l1_n = len(_l1_series)
+        if _l1_n == 0:
+            return
+        _l1_mean = sum(_l1_series) / _l1_n
+        vs = 0.0
+        for value in _l1_series:
+            d = value - _l1_mean
+            vs += d * d
+        variance = vs / _l1_n
+        _l1_std = math.sqrt(variance) if variance > 0 else 0.0
+
     features = []
     for name in feature_names:
-        if name == 'turb_mean':
-            features.append(turb_mean)
-        elif name == 'turb_std':
-            features.append(turb_std)
-        elif name == 'turb_max':
-            features.append(turb_max)
-        elif name == 'turb_min':
-            features.append(turb_min)
-        elif name == 'turb_iqr':
-            if turb_iqr is None:
-                turb_iqr = calc_iqr(turb_list, n, sorted_values=_sorted)
-            features.append(turb_iqr)
+        if name == 'turb_mad_over_mean':
+            if turb_mad is None:
+                turb_mad = calc_mad(turb_list, n)
+            features.append(turb_mad / mean_denom)
         elif name == 'turb_skewness':
             features.append(calc_skewness(turb_list, n, turb_mean, turb_std))
         elif name == 'turb_autocorr':
             features.append(calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var))
-        elif name == 'turb_mad':
-            if turb_mad is None:
-                turb_mad = calc_mad(turb_list, n, sorted_values=_sorted)
-            features.append(turb_mad)
-        elif name == 'waveform_length':
-            if waveform_length is None:
-                waveform_length = calc_waveform_length(turb_list, n)
-            features.append(waveform_length)
-        elif name == 'turb_std_over_mean':
-            features.append(turb_std / mean_denom)
-        elif name == 'turb_max_over_mean':
-            features.append(turb_max / mean_denom)
-        elif name == 'turb_min_over_mean':
-            features.append(turb_min / mean_denom)
-        elif name == 'turb_p95_over_mean':
-            if turb_p95 is None:
-                turb_p95 = _interpolate_sorted_percentile(_sorted, n, 95.0)
-            features.append(turb_p95 / mean_denom)
-        elif name == 'turb_p05_over_mean':
-            if turb_p05 is None:
-                turb_p05 = _interpolate_sorted_percentile(_sorted, n, 5.0)
-            features.append(turb_p05 / mean_denom)
-        elif name == 'turb_iqr_over_mean':
-            if turb_iqr is None:
-                turb_iqr = calc_iqr(turb_list, n, sorted_values=_sorted)
-            features.append(turb_iqr / mean_denom)
-        elif name == 'turb_mad_over_mean':
-            if turb_mad is None:
-                turb_mad = calc_mad(turb_list, n, sorted_values=_sorted)
-            features.append(turb_mad / mean_denom)
-        elif name == 'waveform_length_over_mean':
-            if waveform_length is None:
-                waveform_length = calc_waveform_length(turb_list, n)
-            features.append(waveform_length / waveform_denom)
         elif name == 'l1_delta':
-            features.append(calc_l1_delta(amplitude_history, n))
+            _ensure_l1_series()
+            features.append(_l1_mean)
+        elif name == 'l1_delta_std':
+            _ensure_l1_series()
+            features.append(_l1_std)
+        elif name == 'l1_delta_waveform_length':
+            _ensure_l1_series()
+            if l1_waveform_length is None and _l1_n:
+                l1_waveform_length = calc_waveform_length(_l1_series, _l1_n)
+            features.append(l1_waveform_length if _l1_n else 0.0)
         else:
             raise ValueError(f"Unknown feature: {name}")
     return features

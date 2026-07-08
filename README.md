@@ -22,9 +22,8 @@ The shared detection pipeline covers:
 - CSI capture and normalization
 - AGC-active normalization and startup behavior
 - Adaptive thresholds and filtering
- - Motion detectors:
-  - `MVSDetector`, a project-developed moving-variance signal-processing algorithm
-  - `L1DeltaDetector`, a normalized profile-displacement detector with a more stable quiet baseline across sessions
+- Motion detectors:
+  - `ClassicDetector`, the default non-ML detector that fuses normalized profile displacement with a guarded moving-variance recovery vote
   - `MLDetector`, a project-trained neural model with open weights, open data, and an open-source training pipeline
 
 For the signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md).  
@@ -156,7 +155,7 @@ Use ESPectre only in spaces where you have the right to deploy it, inform affect
 | [TUNING.md](docs/TUNING.md) | Placement, thresholds, filters, calibration, and troubleshooting |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Internal architecture, SDK-oriented reuse, and web orchestration direction |
 | [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) | Shared BLE/MQTT protocol, payloads, commands, and privacy boundary |
-| [ALGORITHMS.md](docs/ALGORITHMS.md) | CSI theory, MVS, L1-Delta, ML detector, filters, and feature extraction |
+| [ALGORITHMS.md](docs/ALGORITHMS.md) | CSI theory, detectors, filters, and feature extraction |
 | [PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks, validation targets, resource usage, and caveats |
 | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md) | Dataset collection workflow for contributors |
 | [ML_TRAINING.md](docs/ML_TRAINING.md) | Training, validation, and model export workflow |

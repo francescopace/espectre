@@ -16,12 +16,8 @@ except ImportError:
     import src.config as config
 
 try:
-    from detector_interface import MotionState
-    from mvs_detector import MVSDetector as MVSDetectorNew
     from segmentation import SegmentationContext
 except ImportError:  # pragma: no cover
-    from src.detector_interface import MotionState
-    from src.mvs_detector import MVSDetector as MVSDetectorNew
     from src.segmentation import SegmentationContext
 
 
@@ -39,9 +35,9 @@ def calculate_variance_two_pass(values) -> float:
     return SegmentationContext.compute_variance_two_pass(values)
 
 
-class MVSDetector:
+class VarianceDetectorAdapter:
     """
-    Thin compatibility adapter around the production ``mvs_detector.MVSDetector``.
+    Tool-side moving-variance adapter built directly on `SegmentationContext`.
     """
 
     def __init__(
@@ -63,7 +59,7 @@ class MVSDetector:
         )
         self.track_data = track_data
 
-        self._detector = MVSDetectorNew(
+        self._context = SegmentationContext(
             window_size=window_size,
             threshold=threshold,
             enable_hampel=enable_hampel,
@@ -72,7 +68,6 @@ class MVSDetector:
             enable_lowpass=enable_lowpass,
             lowpass_cutoff=lowpass_cutoff,
         )
-        self._context = self._detector._context
 
         self.state = "IDLE"
         self.motion_packet_count = 0
@@ -85,10 +80,11 @@ class MVSDetector:
     def process_packet(self, packet_or_csi) -> None:
         """Process a single CSI packet or raw CSI array."""
         csi_data = packet_or_csi["csi_data"] if isinstance(packet_or_csi, dict) else packet_or_csi
-        self._detector.process_packet(csi_data, self.fixed_subcarriers)
-        state = self._detector.update_state()
-        raw_state = state.get("state", MotionState.IDLE)
-        new_state = "MOTION" if raw_state == MotionState.MOTION or str(raw_state).upper() == "MOTION" else "IDLE"
+        turbulence = self._context.calculate_spatial_turbulence(csi_data, self.fixed_subcarriers)
+        self._context.add_turbulence(turbulence)
+        state = self._context.update_state()
+        raw_state = state.get("state", self._context.STATE_IDLE)
+        new_state = "MOTION" if raw_state == self._context.STATE_MOTION or str(raw_state).upper() == "MOTION" else "IDLE"
 
         if self.track_data:
             self.moving_var_history.append(float(state.get("moving_variance", 0.0)))
@@ -100,8 +96,7 @@ class MVSDetector:
 
     def reset(self) -> None:
         """Reset detector state."""
-        self._detector.reset()
-        self._context = self._detector._context
+        self._context.reset(full=True)
         self.state = "IDLE"
         self.motion_packet_count = 0
         self.turbulence_buffer = []
@@ -114,17 +109,17 @@ class MVSDetector:
         return self.motion_packet_count
 
 
-def test_mvs_configuration(
+def test_variance_configuration(
     static_presence_packets,
     motion_packets,
     threshold,
     window_size,
 ) -> Tuple[int, int, float]:
-    """Test one MVS configuration and return ``(fp, tp, score)``."""
+    """Test one moving-variance configuration and return ``(fp, tp, score)``."""
     num_static_presence = len(static_presence_packets)
     num_motion = len(motion_packets)
 
-    detector = MVSDetector(window_size, threshold)
+    detector = VarianceDetectorAdapter(window_size, threshold)
     for pkt in static_presence_packets:
         detector.process_packet(pkt)
     fp = detector.get_motion_count()
@@ -160,4 +155,5 @@ def test_mvs_configuration(
         )
 
     return fp, tp, score
+
 

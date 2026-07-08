@@ -4,9 +4,9 @@
 
 | Version | Date | Status | Summary |
 |---------|------|--------|---------|
-| **v1.x** | 2025-11-09 | Released | First release demonstrating motion detection capabilities using the brand-new MVS algorithm |
+| **v1.x** | 2025-11-09 | Released | First release demonstrating motion detection capabilities using a brand-new algorithm |
 | **v2.x** | 2025-12-06 | Released | Home Assistant integration via ESPHome plus custom MicroPython-based firmware |
-| **v3.x** | 2026-08 (target) | Release Candidate | Reusable Wi-Fi sensing platform with Matter support, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
+| **v3.x** | 2026-08 (target) | New Detectors based on spectral features. Add Matter support, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
 | **v4.x** | 2026-12 (target) | Planned | Privacy-first web orchestration layer for multi-node sensing, secure onboarding, fleet visibility, history, alerting, and remote management |
 | **v5.x** | Future | Exploratory | Standards-ready sensing platform prepared for practical IEEE 802.11bf / Wi-Fi Sensing hardware support when embedded vendors expose it |
 

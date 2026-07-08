@@ -20,7 +20,7 @@ def _load_validator_module():
     return module
 
 
-def test_empty_separation_uses_two_feature_score(monkeypatch) -> None:
+def test_empty_separation_uses_turb_mean_score(monkeypatch) -> None:
     module = _load_validator_module()
     monkeypatch.setattr(module, "SEG_WINDOW_SIZE", 2)
 
@@ -60,18 +60,10 @@ def test_empty_separation_uses_two_feature_score(monkeypatch) -> None:
             return np.array([1.0, 1.0, 1.0, 1.0]), np.array([0.2, 0.2, 0.2])
         return np.array([5.0, 5.0, 5.0, 5.0]), np.array([0.2, 0.2, 0.2])
 
-    def fake_feature_series(values, feature_name, window_size=None):
-        if feature_name != "waveform_length_over_mean":
-            raise AssertionError(feature_name)
-        if values[0] == 1.0:
-            return [0.1, 0.1, 0.1]
-        return [0.9, 0.9, 0.9]
-
     monkeypatch.setattr(module, "_resolve_dataset_entry_path", fake_resolve)
     monkeypatch.setattr(module, "_load_cached_or_npz", fake_load)
     monkeypatch.setattr(module, "_filter_measurement_frames", fake_filter)
     monkeypatch.setattr(module, "_compute_turbulence_and_moving_variance_series", fake_compute)
-    monkeypatch.setattr(module, "_window_feature_series", fake_feature_series)
 
     results = module.validate_empty_sanity(dataset_info, npz_cache={})
     separation = next(r for r in results if r.name == "empty_separation_C5_bedroom")
@@ -190,21 +182,28 @@ def test_validate_pair_uses_threshold_activation_logic(monkeypatch) -> None:
     static_csi = np.zeros((4, 128), dtype=np.int8)
     motion_csi = np.ones((4, 128), dtype=np.int8)
     threshold = 0.5
+    detector = object()
 
     monkeypatch.setattr(module, "_filter_measurement_frames", lambda csi_data, data: csi_data)
     monkeypatch.setattr(
         module,
-        "estimate_runtime_threshold",
-        lambda packets, selected_subcarriers=None: threshold,
+        "build_calibrated_classic_detector",
+        lambda packets, selected_subcarriers=None: (detector, threshold),
     )
 
-    def fake_replay(csi_data, runtime_threshold):
-        assert runtime_threshold == threshold
+    def fake_replay(csi_data, replay_detector):
+        assert replay_detector is detector
         if csi_data is static_csi:
-            return np.array([0.10, 0.20, 0.30], dtype=np.float64)
-        return np.array([0.55, 0.70, 0.80], dtype=np.float64)
+            return {
+                "score_series": np.array([0.10, 0.20, 0.30], dtype=np.float64),
+                "state_series": np.array([0, 0, 0], dtype=np.int8),
+            }
+        return {
+            "score_series": np.array([0.55, 0.70, 0.80], dtype=np.float64),
+            "state_series": np.array([1, 1, 1], dtype=np.int8),
+        }
 
-    monkeypatch.setattr(module, "_replay_l1_metric_series", fake_replay)
+    monkeypatch.setattr(module, "_replay_classic_metrics", fake_replay)
 
     results, static_active, motion_active, returned_threshold, motion_peak_ratio = module.validate_pair(
         static_csi,
@@ -228,21 +227,28 @@ def test_validate_pair_fails_when_motion_stays_below_threshold(monkeypatch) -> N
     static_csi = np.zeros((4, 128), dtype=np.int8)
     motion_csi = np.ones((4, 128), dtype=np.int8)
     threshold = 0.5
+    detector = object()
 
     monkeypatch.setattr(module, "_filter_measurement_frames", lambda csi_data, data: csi_data)
     monkeypatch.setattr(
         module,
-        "estimate_runtime_threshold",
-        lambda packets, selected_subcarriers=None: threshold,
+        "build_calibrated_classic_detector",
+        lambda packets, selected_subcarriers=None: (detector, threshold),
     )
 
-    def fake_replay(csi_data, runtime_threshold):
-        assert runtime_threshold == threshold
+    def fake_replay(csi_data, replay_detector):
+        assert replay_detector is detector
         if csi_data is static_csi:
-            return np.array([0.10, 0.15, 0.20], dtype=np.float64)
-        return np.array([0.25, 0.30, 0.40], dtype=np.float64)
+            return {
+                "score_series": np.array([0.10, 0.15, 0.20], dtype=np.float64),
+                "state_series": np.array([0, 0, 0], dtype=np.int8),
+            }
+        return {
+            "score_series": np.array([0.25, 0.30, 0.40], dtype=np.float64),
+            "state_series": np.array([0, 0, 0], dtype=np.int8),
+        }
 
-    monkeypatch.setattr(module, "_replay_l1_metric_series", fake_replay)
+    monkeypatch.setattr(module, "_replay_classic_metrics", fake_replay)
 
     results, static_active, motion_active, returned_threshold, motion_peak_ratio = module.validate_pair(
         static_csi,

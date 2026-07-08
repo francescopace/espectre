@@ -1,8 +1,9 @@
 """
-Micro-ESPectre - Moving Variance Segmentation (MVS)
+Micro-ESPectre - Shared Moving-Variance Helpers
 
 Pure Python implementation compatible with both MicroPython and standard Python.
-Implements the MVS algorithm for motion detection using CSI turbulence variance.
+Implements the shared moving-variance primitives used by ClassicDetector,
+ML feature extraction, and offline variance baselines.
 Uses two-pass variance calculation for numerical stability (matches C++ implementation).
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -20,7 +21,7 @@ except ImportError:
 
 class SegmentationContext:
     """
-    Moving Variance Segmentation for motion detection
+    Shared moving-variance context for turbulence-driven detectors.
     
     Uses two-pass variance calculation for numerical stability.
     This matches the C++ implementation and avoids catastrophic cancellation
@@ -116,8 +117,7 @@ class SegmentationContext:
             except Exception as e:
                 print(f"[ERROR] Failed to initialize HampelFilter: {e}")
                 self.hampel_filter = None
-        
-        
+
     @staticmethod
     def compute_variance_two_pass(values):
         """
@@ -263,9 +263,9 @@ class SegmentationContext:
             float: Variance (0.0 if buffer not full)
         """
         n = self.buffer_count
-        # Match the C++ runtime: MVS is not considered ready until the full
-        # sliding window has been populated, so partial-buffer variance must
-        # not trigger early MOTION during warmup.
+        # Match the C++ runtime: the variance path is not considered ready until
+        # the full sliding window has been populated, so partial-buffer
+        # variance must not trigger early MOTION during warmup.
         if n < self.window_size:
             return 0.0
 

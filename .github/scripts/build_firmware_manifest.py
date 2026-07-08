@@ -44,7 +44,7 @@ def parse_esphome_asset(filename: str, version_prefix: str) -> dict | None:
         return None
 
     chip = parts[0]
-    algorithm = "mvs"
+    algorithm = "classic"
     build_type = "factory"
 
     if len(parts) >= 2 and parts[1] == "ml":

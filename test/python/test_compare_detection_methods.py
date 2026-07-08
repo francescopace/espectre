@@ -25,35 +25,25 @@ def _build_packet(seed: int) -> dict[str, list[int]]:
     return {"csi_data": csi_data}
 
 
-def test_compare_detection_methods_uses_detector_specific_runtime_thresholds(monkeypatch) -> None:
+def test_compare_detection_methods_uses_runtime_thresholds_for_current_methods(monkeypatch) -> None:
     module = _load_module()
     static_presence_packets = [_build_packet(seed) for seed in range(130)]
     motion_packets = [_build_packet(seed + 1000) for seed in range(130)]
-    calls = {}
+    calls = {"adaptive_threshold_inputs": []}
 
     monkeypatch.setattr(module, "ML_AVAILABLE", False)
 
-    def fake_estimate_runtime_threshold(packets, threshold_mode=None, selected_subcarriers=None):
-        calls["l1_packets"] = packets
-        calls["l1_threshold_mode"] = threshold_mode
-        calls["l1_selected_subcarriers"] = selected_subcarriers
-        return 1.23
+    def fake_calculate_adaptive_threshold(values, threshold_mode=None, auto_factor=None):
+        calls["adaptive_threshold_inputs"].append(
+            {
+                "values": values,
+                "threshold_mode": threshold_mode,
+                "auto_factor": auto_factor,
+            }
+        )
+        return 4.56
 
-    def fake_calibrate_startup_threshold(
-        packets,
-        *,
-        selected_band,
-        window_size,
-        filter_config=None,
-    ):
-        calls["mvs_packets"] = packets
-        calls["mvs_selected_band"] = selected_band
-        calls["mvs_window_size"] = window_size
-        calls["mvs_filter_config"] = filter_config
-        return 4.56, 0.78
-
-    monkeypatch.setattr(module, "estimate_runtime_threshold", fake_estimate_runtime_threshold)
-    monkeypatch.setattr(module, "calibrate_startup_threshold", fake_calibrate_startup_threshold)
+    monkeypatch.setattr(module, "calculate_adaptive_threshold", fake_calculate_adaptive_threshold)
 
     *_unused, method_thresholds, _results = module.compare_detection_methods(
         static_presence_packets,
@@ -62,42 +52,48 @@ def test_compare_detection_methods_uses_detector_specific_runtime_thresholds(mon
         0.99,
     )
 
-    # The comparison uses the caller-provided L1D threshold, which is already
+    # The comparison uses the caller-provided threshold, which is already
     # calibrated from the selected static capture outside this function.
-    assert method_thresholds["L1D"] == 0.99
-    assert method_thresholds["MVS"] == 4.56
-    assert calls["mvs_packets"] == static_presence_packets
-    assert calls["mvs_selected_band"] == tuple(module.DEFAULT_SUBCARRIERS)
-    assert calls["mvs_window_size"] == module.WINDOW_SIZE
-    assert calls["mvs_filter_config"] is None
+    assert method_thresholds["Classic"] == 0.99
+    assert method_thresholds["RSSI"] == 4.56
+    assert set(method_thresholds) == {"RSSI", "Classic"}
+    assert len(calls["adaptive_threshold_inputs"]) == 1
+    assert calls["adaptive_threshold_inputs"][0]["threshold_mode"] is None
+    assert calls["adaptive_threshold_inputs"][0]["auto_factor"] is None
 
 
-def test_compare_detection_methods_does_not_recompute_l1d_threshold(monkeypatch) -> None:
+def test_compare_detection_methods_adapts_classic_threshold_only_when_missing(monkeypatch) -> None:
     module = _load_module()
     static_presence_packets = [_build_packet(seed) for seed in range(130)]
     motion_packets = [_build_packet(seed + 2000) for seed in range(130)]
+    calls = []
 
     monkeypatch.setattr(module, "ML_AVAILABLE", False)
-    monkeypatch.setattr(
-        module,
-        "estimate_runtime_threshold",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("compare should use the precomputed L1D threshold")),
-    )
-    monkeypatch.setattr(
-        module,
-        "calibrate_startup_threshold",
-        lambda packets, *, selected_band, window_size, filter_config=None: (2.34, None),
-    )
+
+    def fake_calculate_adaptive_threshold(values, threshold_mode=None, auto_factor=None):
+        calls.append(
+            {
+                "values": values,
+                "threshold_mode": threshold_mode,
+                "auto_factor": auto_factor,
+            }
+        )
+        return 1.11 if len(calls) == 1 else 2.34
+
+    monkeypatch.setattr(module, "calculate_adaptive_threshold", fake_calculate_adaptive_threshold)
 
     *_unused, method_thresholds, _results = module.compare_detection_methods(
         static_presence_packets,
         motion_packets,
         module.WINDOW_SIZE,
-        0.99,
+        0.0,
     )
 
-    assert method_thresholds["L1D"] == 0.99
-    assert method_thresholds["MVS"] == 2.34
+    assert method_thresholds["RSSI"] == 1.11
+    assert method_thresholds["Classic"] == 2.34
+    assert len(calls) == 2
+    assert calls[0]["auto_factor"] is None
+    assert calls[1]["auto_factor"] == module.L1_DELTA_STARTUP_THRESHOLD_FACTOR
 
 
 def test_run_all_chips_passes_static_capture_to_context_resolver(monkeypatch, capsys) -> None:
@@ -155,8 +151,8 @@ def test_run_all_chips_passes_static_capture_to_context_resolver(monkeypatch, ca
             None,
             {},
             [
-                {"name": "MVS", "fp": 0, "tp": len(motion_packets), "fn": 0, "recall": 100.0, "precision": 100.0, "f1": 100.0},
-                {"name": "L1D", "fp": 0, "tp": len(motion_packets), "fn": 0, "recall": 100.0, "precision": 100.0, "f1": 100.0},
+                {"name": "Classic", "fp": 0, "tp": len(motion_packets), "fn": 0, "recall": 100.0, "precision": 100.0, "f1": 100.0},
+                {"name": "RSSI", "fp": 0, "tp": len(motion_packets), "fn": 0, "recall": 100.0, "precision": 100.0, "f1": 100.0},
             ],
         ),
     )

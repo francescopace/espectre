@@ -9,16 +9,7 @@ License: GPLv3
 
 import pytest
 import math
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-
-from tools.lib.repo_paths import python_src_dir
-
-sys.path.insert(0, str(python_src_dir()))
 
 from config import SEG_WINDOW_SIZE
 from segmentation import SegmentationContext

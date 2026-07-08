@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Comprehensive Grid Search for Fixed-Subcarrier MVS Parameters
+Classic Detector Parameter Grid Search
 Tests threshold and window-size combinations using the shared production
-subcarrier set.
+subcarrier set. This tool tunes parameters on the fixed production band; it
+does not search subcarrier combinations.
 
 Usage:
     python tools/2_analyze_system_tuning.py              # Use default C6 dataset
@@ -22,11 +23,20 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.lib.csi_analysis import test_mvs_configuration
 from tools.lib.csi_io import load_npz_as_packets
 from tools.lib.dataset_metadata import resolve_explicit_pair, select_dataset_interactively
-from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE, SEG_THRESHOLD
-from mvs_detector import MVSDetector as ProdMVSDetector
+from classic_detector import ClassicDetector
+from detector_interface import MotionState
+from config import (
+    DEFAULT_SUBCARRIERS,
+    ENABLE_HAMPEL_FILTER,
+    ENABLE_LOWPASS_FILTER,
+    HAMPEL_THRESHOLD,
+    HAMPEL_WINDOW,
+    LOWPASS_CUTOFF,
+    SEG_THRESHOLD,
+    SEG_WINDOW_SIZE,
+)
 
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
@@ -59,6 +69,69 @@ def _build_result_entry(base_fields, fp, tp, score, static_presence_count, motio
     return result
 
 
+def _score_configuration(fp, tp, static_presence_count, motion_count):
+    """Score one configuration with the shared tuning objective."""
+    fn = max(0, motion_count - tp)
+    recall = (tp / motion_count * 100.0) if motion_count > 0 else 0.0
+    precision = (tp / (tp + fp) * 100.0) if (tp + fp) > 0 else 0.0
+    fp_rate = (fp / static_presence_count * 100.0) if static_presence_count > 0 else 100.0
+    fn_rate = (fn / motion_count * 100.0) if motion_count > 0 else 100.0
+    f1_score = 0.0
+    if (precision + recall) > 0.0:
+        f1_score = 2.0 * precision * recall / (precision + recall)
+
+    if recall >= RECALL_TARGET_PCT and fp_rate <= FP_RATE_TARGET_PCT:
+        return 1_000_000.0 + f1_score * 100.0 - fp_rate
+    if recall >= RECALL_TARGET_PCT:
+        return 100_000.0 - (fp_rate - FP_RATE_TARGET_PCT) * 1_000.0 + f1_score * 10.0
+    return (
+        -1_000_000.0
+        - (RECALL_TARGET_PCT - recall) * 2_000.0
+        - fn_rate * 200.0
+        - fp_rate * 20.0
+        + precision
+    )
+
+
+def _is_motion_state(state):
+    """Accept the shared integer state contract and legacy string-like states."""
+    return state == MotionState.MOTION or str(state).upper() == "MOTION"
+
+
+def _evaluate_classic_configuration(static_presence_packets, motion_packets, threshold, window_size):
+    """
+    Evaluate one ClassicDetector configuration without resetting between phases.
+
+    This mirrors the runtime warm-buffer behavior: the quiet baseline fills the
+    detector state, then the motion packets are evaluated immediately after.
+    """
+    detector = ClassicDetector(
+        window_size=window_size,
+        threshold=threshold,
+        enable_lowpass=ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=LOWPASS_CUTOFF,
+        enable_hampel=ENABLE_HAMPEL_FILTER,
+        hampel_window=HAMPEL_WINDOW,
+        hampel_threshold=HAMPEL_THRESHOLD,
+    )
+
+    fp = 0
+    for pkt in static_presence_packets:
+        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        detector.update_state()
+        if _is_motion_state(detector.get_state()):
+            fp += 1
+
+    tp = 0
+    for pkt in motion_packets:
+        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        detector.update_state()
+        if _is_motion_state(detector.get_state()):
+            tp += 1
+
+    return fp, tp
+
+
 def load_dataset(chip="C6", dataset=None, interactive=False):
     """
     Load static-presence and motion datasets for the specified chip.
@@ -71,7 +144,7 @@ def load_dataset(chip="C6", dataset=None, interactive=False):
             chip=chip,
             num_sc=64,
             require_pair=True,
-            prompt="Select dataset for MVS grid search",
+            prompt="Select dataset for variance grid search",
         )
         pair = resolve_explicit_pair(dataset=selected.path.name, num_sc=64)
     else:
@@ -86,7 +159,7 @@ def load_dataset(chip="C6", dataset=None, interactive=False):
 
 
 def test_parameter_grid(static_presence_packets, motion_packets, quick=False):
-    """Test threshold/window-size combinations with fixed production subcarriers."""
+    """Test Classic threshold/window-size combinations on fixed production subcarriers."""
     thresholds = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0] if not quick else [1.0, 1.5, 2.0]
     window_sizes = [30, 50, 75, 100] if not quick else [SEG_WINDOW_SIZE]
 
@@ -96,16 +169,22 @@ def test_parameter_grid(static_presence_packets, motion_packets, quick=False):
     total_tests = len(thresholds) * len(window_sizes)
     test_count = 0
 
-    print(f"Testing {total_tests} fixed-subcarrier configurations...")
+    print(f"Testing {total_tests} Classic detector configurations...")
     print("Progress: ", end="", flush=True)
 
     for window_size in window_sizes:
         for threshold in thresholds:
-            fp, tp, score = test_mvs_configuration(
+            fp, tp = _evaluate_classic_configuration(
                 static_presence_packets,
                 motion_packets,
                 threshold,
                 window_size,
+            )
+            score = _score_configuration(
+                fp,
+                tp,
+                static_presence_count,
+                motion_count,
             )
             result = _build_result_entry({
                 "window_size": window_size,
@@ -136,19 +215,13 @@ def print_confusion_matrix(static_presence_packets, motion_packets, threshold, w
 
     num_baseline = len(static_presence_packets)
     num_movement = len(motion_packets)
-    detector = ProdMVSDetector(window_size=window_size, threshold=threshold)
-
-    for pkt in static_presence_packets:
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
-        detector.update_state()
-    fp = detector.get_motion_count()
+    fp, tp = _evaluate_classic_configuration(
+        static_presence_packets,
+        motion_packets,
+        threshold,
+        window_size,
+    )
     tn = num_baseline - fp
-
-    detector.motion_packet_count = 0
-    for pkt in motion_packets:
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
-        detector.update_state()
-    tp = detector.get_motion_count()
     fn = num_movement - tp
 
     recall = (tp / (tp + fn) * 100) if (tp + fn) > 0 else 0.0
@@ -249,7 +322,7 @@ def print_top_results(results, num_sc, top_n=20):
 def main():
     raw_args = __import__("sys").argv[1:]
     chip_explicit = "--chip" in raw_args
-    parser = argparse.ArgumentParser(description="Grid search for fixed-subcarrier MVS parameters")
+    parser = argparse.ArgumentParser(description="Grid search for Classic detector parameters on the fixed production band")
     parser.add_argument("--quick", action="store_true", help="Quick mode (fewer tests)")
     parser.add_argument("--chip", type=str, default="C6", help="Chip type to use: C6, S3, etc. (default: C6)")
     parser.add_argument("--dataset", type=str, default=None,
@@ -260,7 +333,7 @@ def main():
 
     print("")
     print("=" * 60)
-    print("     Fixed-Subcarrier MVS Parameter Grid Search")
+    print("        Classic Detector Parameter Grid Search")
     print("=" * 60)
     if args.quick:
         print("\nQUICK MODE: Testing reduced parameter space")

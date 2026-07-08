@@ -18,11 +18,18 @@ contaminated by movement without changing the clean-startup threshold. See
 docs/EXPERIMENTS.md, "L1-Delta Contaminated-Calibration Gate And Extension
 Sweep" (2026-07-06).
 
+Chunks discarded during extension that stayed within the floor anchor band
+of the accepted ring are treated as session quiet tail rather than motion:
+their peak is folded back into the threshold metric so the extension can
+never lower the threshold below a recurring quiet-tail bump ("tail rescue").
+Discarded chunks beyond the anchor band keep the plain contamination-repair
+behavior.
+
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-# Default multiplier for "auto" mode threshold (MVS compatibility).
+# Default multiplier for "auto" mode threshold (shared fallback).
 DEFAULT_ADAPTIVE_FACTOR = 1.3
 
 # Startup calibration consistency gate (benchmark-tuned on the paired
@@ -79,6 +86,7 @@ class StartupThresholdCalibrator:
         self._chunk_max = 0.0
         self._chunk_ring = []
         self._min_chunk_max = None
+        self._discarded_chunk_max = None
 
     def observe_detector(self, detector):
         """
@@ -115,7 +123,9 @@ class StartupThresholdCalibrator:
 
         # Close the chunk: slide the ring and track the session floor.
         if len(self._chunk_ring) >= self.gate_chunks:
-            self._chunk_ring.pop(0)
+            discarded = self._chunk_ring.pop(0)
+            if self._discarded_chunk_max is None or discarded > self._discarded_chunk_max:
+                self._discarded_chunk_max = discarded
         self._chunk_ring.append(self._chunk_max)
         if self._min_chunk_max is None or self._chunk_max < self._min_chunk_max:
             self._min_chunk_max = self._chunk_max
@@ -157,7 +167,15 @@ class StartupThresholdCalibrator:
         if not self.gate_enabled or not self._chunk_ring:
             return self.max_motion_metric or 0.0
         if self.gate_accepted:
-            return max(self._chunk_ring)
+            metric = max(self._chunk_ring)
+            # Tail rescue: discarded chunks within the anchor band of the
+            # accepted floor are quiet tail, not motion; keep their peak so
+            # the extension cannot end below a recurring tail bump.
+            if (self._discarded_chunk_max is not None
+                    and self._discarded_chunk_max
+                    <= self.gate_anchor_ratio * _median_of(self._chunk_ring)):
+                metric = max(metric, self._discarded_chunk_max)
+            return metric
         # Extension budget exhausted: robust fallback on the last ring.
         return _median_of(self._chunk_ring)
 

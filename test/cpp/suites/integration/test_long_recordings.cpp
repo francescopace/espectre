@@ -2,7 +2,7 @@
  * ESPectre - C++ Long Recording Tests
  *
  * Runs the same long recordings used by Python validation and prints
- * native MVS and ML metrics for manual comparison.
+ * native Classic and ML metrics for manual comparison.
  */
 
 #include "test_harness.h"
@@ -12,7 +12,7 @@
 #include <cstring>
 
 #include "utils.h"
-#include "mvs_detector.h"
+#include "classic_detector.h"
 #include "ml_detector.h"
 #include "threshold.h"
 
@@ -38,9 +38,9 @@ struct LongRunMetrics {
 
 struct ChipLongRunResults {
   const char *chip_name{nullptr};
-  LongRunMetrics mvs;
+  LongRunMetrics classic;
   LongRunMetrics ml;
-  bool has_mvs{false};
+  bool has_classic{false};
   bool has_ml{false};
 };
 
@@ -72,9 +72,9 @@ static void record_result(const char *algorithm, const LongRunMetrics &metrics) 
   }
 
   ChipLongRunResults &current = g_results[g_results_count - 1];
-  if (std::strcmp(algorithm, "mvs") == 0) {
-    current.mvs = metrics;
-    current.has_mvs = true;
+  if (std::strcmp(algorithm, "classic") == 0) {
+    current.classic = metrics;
+    current.has_classic = true;
   } else if (std::strcmp(algorithm, "ml") == 0) {
     current.ml = metrics;
     current.has_ml = true;
@@ -115,36 +115,29 @@ static void assert_metrics_are_valid(const LongRunMetrics &metrics) {
   TEST_ASSERT_TRUE(metrics.f1 >= 0.0f && metrics.f1 <= 100.0f);
 }
 
-static void assert_mvs_metrics_are_valid(const LongRunMetrics &metrics) {
-  assert_metrics_are_valid(metrics);
-  TEST_ASSERT_EQUAL_UINT8(HT20_SELECTED_BAND_SIZE, metrics.selected_band_size);
-  TEST_ASSERT_TRUE(metrics.adaptive_threshold >= 0.0f);
-  TEST_ASSERT_TRUE(metrics.adaptive_threshold <= 10.0f);
-}
-
 static void print_summary_table() {
   printf("\n");
   printf("=====================================================================================================================\n");
   printf("                                     LONG RECORDING SUMMARY (C++)\n");
   printf("=====================================================================================================================\n");
-  printf("| Chip   | MVS                     | ML                      |\n");
+  printf("| Chip   | Classic                 | ML                      |\n");
   printf("|--------|-------------------------|-------------------------|\n");
 
   for (int i = 0; i < g_results_count; i++) {
     const ChipLongRunResults &r = g_results[i];
-    char mvs_str[32] = "N/A";
+    char classic_str[32] = "N/A";
     char ml_str[32] = "N/A";
 
-    if (r.has_mvs) {
-      std::snprintf(mvs_str, sizeof(mvs_str), "%.1f%% R, %.1f%% FP",
-                    r.mvs.recall, r.mvs.fp_rate);
+    if (r.has_classic) {
+      std::snprintf(classic_str, sizeof(classic_str), "%.1f%% R, %.1f%% FP",
+                    r.classic.recall, r.classic.fp_rate);
     }
     if (r.has_ml) {
       std::snprintf(ml_str, sizeof(ml_str), "%.1f%% R, %.1f%% FP",
                     r.ml.recall, r.ml.fp_rate);
     }
 
-    printf("| %-6s | %-23s | %-23s |\n", r.chip_name, mvs_str, ml_str);
+    printf("| %-6s | %-23s | %-23s |\n", r.chip_name, classic_str, ml_str);
   }
 
   printf("---------------------------------------------------------------------------------------------------------------------\n");
@@ -187,35 +180,35 @@ static LongRunMetrics evaluate_ml_long_recording() {
   return metrics;
 }
 
-static LongRunMetrics evaluate_mvs_long_recording() {
+static LongRunMetrics evaluate_classic_long_recording() {
   LongRunMetrics metrics;
   const int warmup = DETECTOR_DEFAULT_WINDOW_SIZE;
   const int pkt_size = csi_test_data::packet_size();
 
-  MVSDetector calibration_detector(DETECTOR_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD);
-  calibration_detector.configure_lowpass(false);
-  calibration_detector.configure_hampel(true);
+  ClassicDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, CLASSIC_DEFAULT_THRESHOLD);
+  detector.configure_lowpass(false);
+  detector.configure_hampel(true);
 
-  float max_mv = 0.0f;
-  bool has_mv = false;
+  float max_metric = 0.0f;
+  bool has_metric = false;
   const int calibration_packets = std::min(csi_test_data::num_static_presence(),
                                            static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
   for (int i = 0; i < calibration_packets; i++) {
-    calibration_detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
-                                        HT20_SELECTED_BAND_SIZE);
-    calibration_detector.update_state();
-    if (calibration_detector.is_ready()) {
-      max_mv = std::max(max_mv, calibration_detector.get_motion_metric());
-      has_mv = true;
+    detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
+                            HT20_SELECTED_BAND_SIZE);
+    detector.update_state();
+    if (detector.is_ready()) {
+      max_metric = std::max(max_metric, detector.get_motion_metric());
+      has_metric = true;
     }
   }
 
-  const float calibrated_threshold =
-      has_mv ? (max_mv * get_threshold_factor(ThresholdMode::AUTO)) : 1.0f;
-
-  MVSDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, calibrated_threshold);
-  detector.configure_lowpass(false);
-  detector.configure_hampel(true);
+  detector.on_startup_calibration_complete();
+  const float calibrated_threshold = has_metric
+      ? (max_metric * get_threshold_factor(ThresholdMode::AUTO, detector.get_startup_threshold_factor()))
+      : CLASSIC_DEFAULT_THRESHOLD;
+  detector.set_threshold(calibrated_threshold);
+  detector.clear_buffer();
 
   metrics.selected_band_size = HT20_SELECTED_BAND_SIZE;
   std::copy(DEFAULT_SUBCARRIERS, DEFAULT_SUBCARRIERS + HT20_SELECTED_BAND_SIZE, metrics.selected_band.begin());
@@ -253,12 +246,12 @@ static LongRunMetrics evaluate_mvs_long_recording() {
 void setUp(void) {}
 void tearDown(void) {}
 
-void test_long_recording_mvs(void) {
+void test_long_recording_classic(void) {
   assert_dataset_metadata_is_valid();
-  LongRunMetrics actual = evaluate_mvs_long_recording();
-  print_metrics("MVS actual", actual);
-  assert_mvs_metrics_are_valid(actual);
-  record_result("mvs", actual);
+  LongRunMetrics actual = evaluate_classic_long_recording();
+  print_metrics("Classic actual", actual);
+  assert_metrics_are_valid(actual);
+  record_result("classic", actual);
 }
 
 void test_long_recording_ml(void) {
@@ -280,7 +273,7 @@ int run_tests_for_chip(csi_test_data::ChipType chip) {
   }
 
   UNITY_BEGIN();
-  RUN_TEST(test_long_recording_mvs);
+  RUN_TEST(test_long_recording_classic);
   RUN_TEST(test_long_recording_ml);
   return UNITY_END();
 }

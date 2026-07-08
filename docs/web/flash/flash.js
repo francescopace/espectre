@@ -9,7 +9,7 @@ const CHANNEL_LABELS = {
 };
 
 const ALGORITHM_LABELS = {
-    mvs: "MVS (default)",
+    classic: "Classic (default)",
     ml: "ML",
 };
 
@@ -121,7 +121,7 @@ function selectArtifact(manifest) {
             return false;
         }
         if (!algorithm) {
-            return artifact.algorithm === null || artifact.algorithm === "mvs";
+            return artifact.algorithm === null || artifact.algorithm === "classic";
         }
         return artifact.algorithm === algorithm;
     });

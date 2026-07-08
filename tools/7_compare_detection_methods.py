@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Detection Methods Comparison
-Compares RSSI, MVS, L1-Delta, and ML algorithms
+Compares RSSI, Classic, and ML algorithms
 
 Usage:
     python tools/7_compare_detection_methods.py              # Use C6 dataset
@@ -33,7 +33,6 @@ from tools.lib.dataset_metadata import (
     resolve_explicit_pair,
     select_dataset_interactively,
 )
-from tools.lib.mvs_sweep_core import calibrate_startup_threshold
 from tools.lib.ui import show_plot_window
 from config import (
     SEG_WINDOW_SIZE, SEG_THRESHOLD,
@@ -43,8 +42,8 @@ from config import (
 )
 from filters import HampelFilter, LowPassFilter
 from threshold import DEFAULT_ADAPTIVE_FACTOR, calculate_startup_threshold_from_max
-from l1_delta_detector import L1DeltaDetector as ProdL1DeltaDetector
-from mvs_detector import MVSDetector as ProdMVSDetector
+from classic_detector import ClassicDetector
+from features import L1_DELTA_STARTUP_THRESHOLD_FACTOR
 
 # Check if ML model is available (production implementation).
 ML_AVAILABLE = False
@@ -139,7 +138,7 @@ def load_test_dataset(chip=None, motion_start_packet=None):
 
 
 def resolve_context_aware_config_for_test(test_entry, static_presence_packets):
-    """Resolve the L1D threshold for a test split from its quiet prefix."""
+    """Resolve the threshold for a test split from its quiet prefix."""
     threshold = estimate_runtime_threshold(
         static_presence_packets,
         selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
@@ -159,7 +158,7 @@ def resolve_context_aware_config_for_test(test_entry, static_presence_packets):
 
 
 def resolve_context_aware_config(pair, static_presence_packets):
-    """Resolve the L1D threshold from the selected pair static capture."""
+    """Resolve the threshold from the selected pair static capture."""
     threshold = estimate_runtime_threshold(
         static_presence_packets,
         selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
@@ -240,11 +239,11 @@ def compute_method_results(methods, method_thresholds):
     return results
 
 
-class MVSDetectorAdapter:
-    """Compatibility wrapper around the production MVS detector."""
+class ClassicDetectorAdapter:
+    """Compatibility wrapper around the production ClassicDetector."""
 
     def __init__(self, window_size=SEG_WINDOW_SIZE, threshold=1.0, track_data=False):
-        self._detector = ProdMVSDetector(
+        self._detector = ClassicDetector(
             window_size=window_size,
             threshold=threshold,
             enable_lowpass=ENABLE_LOWPASS_FILTER,
@@ -252,36 +251,6 @@ class MVSDetectorAdapter:
             enable_hampel=ENABLE_HAMPEL_FILTER,
             hampel_window=HAMPEL_WINDOW,
             hampel_threshold=HAMPEL_THRESHOLD,
-        )
-        self._track_data = bool(track_data)
-        self.moving_var_history = []
-        self.state_history = []
-
-    def process_packet(self, packet):
-        csi_data = packet['csi_data'] if isinstance(packet, dict) else packet
-        self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
-        state = self._detector.update_state()
-        if self._track_data:
-            self.moving_var_history.append(float(state.get('moving_variance', 0.0)))
-            motion_state = state.get('state', 'IDLE')
-            self.state_history.append(str(motion_state).upper())
-
-    def get_motion_count(self):
-        return self._detector.get_motion_count()
-
-    def reset(self):
-        self._detector.reset()
-        self.moving_var_history = []
-        self.state_history = []
-
-
-class L1DeltaDetectorAdapter:
-    """Compatibility wrapper around the production L1-Delta detector."""
-
-    def __init__(self, window_size=SEG_WINDOW_SIZE, threshold=1.0, track_data=False):
-        self._detector = ProdL1DeltaDetector(
-            window_size=window_size,
-            threshold=threshold,
         )
         self._track_data = bool(track_data)
         self.metric_history = []
@@ -343,15 +312,14 @@ def compare_detection_methods(
     """
     Compare different detection methods on same data.
 
-    ``threshold`` is the production-aligned l1_delta startup threshold
-    calibrated from the selected static capture. MVS and RSSI also calibrate
-    from the same static capture using their own detector-specific paths.
+    ``threshold`` is the production-aligned Classic startup threshold
+    calibrated from the selected static capture. RSSI calibrates from the same
+    static capture using its own adaptive-threshold path.
     Returns metrics for each method.
     """
     methods = {
         'RSSI': {'static_presence': [], 'motion': []},
-        'MVS': {'static_presence': [], 'motion': []},
-        'L1D': {'static_presence': [], 'motion': []},
+        'Classic': {'static_presence': [], 'motion': []},
     }
     
     if ML_AVAILABLE:
@@ -367,41 +335,25 @@ def compare_detection_methods(
     
     methods['RSSI']['static_presence'] = np.array(methods['RSSI']['static_presence'])
     
-    # MVS static presence (state-machine threshold is metrics-neutral: the
-    # comparison threshold is self-calibrated in method_thresholds below).
-    start = time.perf_counter()
-    mvs_baseline = MVSDetectorAdapter(window_size, 1.0, track_data=True)
-    for pkt in static_presence_packets:
-        mvs_baseline.process_packet(pkt)
-    methods['MVS']['static_presence'] = np.array(mvs_baseline.moving_var_history)
-    
     # Process motion - simple metrics
     for pkt in motion_packets:
         methods['RSSI']['motion'].append(calculate_rssi(pkt['csi_data']))
     
     methods['RSSI']['motion'] = np.array(methods['RSSI']['motion'])
-    
-    # MVS motion
-    mvs_movement = MVSDetectorAdapter(window_size, 1.0, track_data=True)
-    for pkt in motion_packets:
-        mvs_movement.process_packet(pkt)
-    mvs_time = time.perf_counter() - start
-    timing['MVS'] = (mvs_time / num_packets) * 1e6
-    methods['MVS']['motion'] = np.array(mvs_movement.moving_var_history)
 
-    # L1-Delta static presence and motion (production support detector)
+    # Classic static presence and motion (production detector)
     start = time.perf_counter()
-    l1_baseline = L1DeltaDetectorAdapter(window_size, threshold, track_data=True)
+    classic_baseline = ClassicDetectorAdapter(window_size, threshold, track_data=True)
     for pkt in static_presence_packets:
-        l1_baseline.process_packet(pkt)
-    methods['L1D']['static_presence'] = np.array(l1_baseline.metric_history)
-    l1_movement = L1DeltaDetectorAdapter(window_size, threshold, track_data=True)
+        classic_baseline.process_packet(pkt)
+    methods['Classic']['static_presence'] = np.array(classic_baseline.metric_history)
+    classic_movement = ClassicDetectorAdapter(window_size, threshold, track_data=True)
     for pkt in motion_packets:
-        l1_movement.process_packet(pkt)
-    l1_time = time.perf_counter() - start
-    timing['L1D'] = (l1_time / num_packets) * 1e6
-    methods['L1D']['motion'] = np.array(l1_movement.metric_history)
-
+        classic_movement.process_packet(pkt)
+    classic_time = time.perf_counter() - start
+    timing['Classic'] = (classic_time / num_packets) * 1e6
+    methods['Classic']['motion'] = np.array(classic_movement.metric_history)
+    
     # Apply runtime filter chain to simple methods for fair comparison.
     for method_name in ('RSSI',):
         methods[method_name]['static_presence'] = apply_config_filters(methods[method_name]['static_presence'])
@@ -431,19 +383,12 @@ def compare_detection_methods(
         ml_time = time.perf_counter() - start
         timing['ML'] = (ml_time / num_packets) * 1e6
 
-    # Method-specific thresholds. MVS and L1D both reuse their shared runtime
-    # startup calibration paths so the comparison matches production behavior.
-    mvs_runtime_threshold, _mvs_calibration_max = calibrate_startup_threshold(
-        static_presence_packets,
-        selected_band=tuple(DEFAULT_SUBCARRIERS),
-        window_size=window_size,
-    )
+    # Method-specific thresholds.
     method_thresholds = {
         'RSSI': calculate_adaptive_threshold(methods['RSSI']['static_presence']),
-        'MVS': float(mvs_runtime_threshold),
-        'L1D': float(threshold) if threshold > 0 else calculate_adaptive_threshold(
-            methods['L1D']['static_presence'],
-            auto_factor=ProdL1DeltaDetector.STARTUP_THRESHOLD_FACTOR,
+        'Classic': float(threshold) if threshold > 0 else calculate_adaptive_threshold(
+            methods['Classic']['static_presence'],
+            auto_factor=L1_DELTA_STARTUP_THRESHOLD_FACTOR,
         ),
     }
     if ML_AVAILABLE and 'ML' in methods:
@@ -451,16 +396,16 @@ def compare_detection_methods(
 
     results = compute_method_results(methods, method_thresholds)
 
-    return methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results
+    return methods, classic_baseline, classic_movement, timing, ml_baseline, ml_movement, method_thresholds, results
 
 
-def plot_comparison(methods, mvs_baseline, mvs_movement,
+def plot_comparison(methods, classic_baseline, classic_movement,
                    threshold, timing,
                    ml_baseline=None, ml_movement=None,
                    method_thresholds=None, results=None):
     """Plot comparison of detection methods"""
     # Determine number of rows based on available methods
-    method_names = ['RSSI', 'MVS', 'L1D']
+    method_names = ['RSSI', 'Classic']
     if ML_AVAILABLE and 'ML' in methods:
         method_names.append('ML')
     
@@ -495,8 +440,8 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         ml_static_presence_offset = 0
         ml_motion_offset = 0
         if method_name == 'ML' and ml_baseline is not None and ml_movement is not None:
-            full_static_presence_len = len(methods['MVS']['static_presence'])
-            full_motion_len = len(methods['MVS']['motion'])
+            full_static_presence_len = len(methods['Classic']['static_presence'])
+            full_motion_len = len(methods['Classic']['motion'])
             ml_static_presence_offset = max(0, full_static_presence_len - len(static_presence_data))
             ml_motion_offset = max(0, full_motion_len - len(motion_data))
             static_presence_plot_data = np.concatenate([np.full(ml_static_presence_offset, np.nan), static_presence_data])
@@ -508,12 +453,9 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         time_movement = np.arange(len(motion_plot_data)) / 100.0
         
         # Colors
-        if method_name == 'MVS':
-            color, linewidth, linestyle = 'blue', 1.5, '-'
-        elif method_name == 'L1D':
-            color, linewidth, linestyle = 'purple', 1.5, '-'
+        if method_name == 'Classic':
+            color, linewidth, linestyle = 'orange', 1.8, '-'
         elif method_name == 'ML':
-            # Match MVS palette for visual consistency; dashed line keeps ML distinguishable.
             color, linewidth, linestyle = 'blue', 1.5, '--'
         else:
             color, linewidth, linestyle = 'green', 1.0, '-'
@@ -543,7 +485,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         ax_baseline.legend(fontsize=9)
         
         # Border for production detectors
-        if method_name in ('MVS', 'L1D', 'ML'):
+        if method_name in ('Classic', 'ML'):
             for spine in ax_baseline.spines.values():
                 spine.set_edgecolor('green')
                 spine.set_linewidth(3)
@@ -577,7 +519,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         ax_movement.grid(True, alpha=0.3)
         ax_movement.legend(fontsize=9)
         
-        if method_name in ('MVS', 'L1D', 'ML'):
+        if method_name in ('Classic', 'ML'):
             for spine in ax_movement.spines.values():
                 spine.set_edgecolor('green')
                 spine.set_linewidth(3)
@@ -589,7 +531,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
     show_plot_window(plt)
 
 
-def print_comparison_summary(methods, mvs_baseline, mvs_movement,
+def print_comparison_summary(methods, classic_baseline, classic_movement,
                            threshold, timing,
                            ml_baseline=None, ml_movement=None, ml_static_presence_states=0,
                            method_thresholds=None, results=None):
@@ -601,10 +543,10 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement,
     print(f"Configuration:")
     print(f"  Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
     print(f"  Window Size: {WINDOW_SIZE}")
-    print(f"  L1D context threshold: {threshold}")
+    print(f"  Classic runtime threshold: {threshold}")
     if method_thresholds:
         print("  Method thresholds:")
-        for method_name in ['RSSI', 'MVS', 'L1D']:
+        for method_name in ['RSSI', 'Classic']:
             if method_name in method_thresholds:
                 print(f"    - {method_name}: {method_thresholds[method_name]:.4f}")
         if 'ML' in method_thresholds:
@@ -633,8 +575,8 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement,
     print(f"   - Recall: {best_by_f1['recall']:.1f}%")
     print(f"   - Precision: {best_by_f1['precision']:.1f}%")
     
-    # Production detector comparison (MVS vs L1D vs ML)
-    prod_results = [r for r in results if r['name'] in ('MVS', 'L1D', 'ML')]
+    # Production detector comparison (Classic vs ML)
+    prod_results = [r for r in results if r['name'] in ('Classic', 'ML')]
 
     print("\n" + "-"*80)
     if len(prod_results) > 1:
@@ -709,31 +651,20 @@ def run_all_chips():
             WINDOW_SIZE,
             chip_threshold,
         )
-        methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
+        methods, classic_baseline, classic_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
         result_by_name = {r['name']: r for r in results}
         
-        # Calculate metrics for MVS, ML
+        # Calculate metrics for Classic and ML.
         num_baseline = len(static_presence_packets)
         num_movement = len(motion_packets)
+
+        classic_res = result_by_name.get('Classic', {'fp': 0, 'tp': 0})
+        classic_fp = classic_res['fp']
+        classic_tp = classic_res['tp']
+        classic_recall = classic_tp / num_movement * 100 if num_movement > 0 else 0
+        classic_precision = classic_tp / (classic_tp + classic_fp) * 100 if (classic_tp + classic_fp) > 0 else 0
+        classic_f1 = 2 * classic_precision * classic_recall / (classic_precision + classic_recall) if (classic_precision + classic_recall) > 0 else 0
         
-        # MVS metrics from adaptive-threshold evaluation path
-        mvs_res = result_by_name.get('MVS', {'fp': 0, 'tp': 0})
-        mvs_fp = mvs_res['fp']
-        mvs_tp = mvs_res['tp']
-        mvs_fn = num_movement - mvs_tp
-        mvs_recall = mvs_tp / num_movement * 100 if num_movement > 0 else 0
-        mvs_precision = mvs_tp / (mvs_tp + mvs_fp) * 100 if (mvs_tp + mvs_fp) > 0 else 0
-        mvs_f1 = 2 * mvs_precision * mvs_recall / (mvs_precision + mvs_recall) if (mvs_precision + mvs_recall) > 0 else 0
-
-        # L1D metrics from the runtime-calibrated l1_delta path
-        l1_res = result_by_name.get('L1D', {'fp': 0, 'tp': 0})
-        l1_fp = l1_res['fp']
-        l1_tp = l1_res['tp']
-        l1_recall = l1_tp / num_movement * 100 if num_movement > 0 else 0
-        l1_precision = l1_tp / (l1_tp + l1_fp) * 100 if (l1_tp + l1_fp) > 0 else 0
-        l1_f1 = 2 * l1_precision * l1_recall / (l1_precision + l1_recall) if (l1_precision + l1_recall) > 0 else 0
-
-
         # ML metrics from fixed-threshold evaluation path
         if ml_baseline and ml_movement:
             ml_res = result_by_name.get('ML', {'fp': 0, 'tp': 0})
@@ -750,8 +681,7 @@ def run_all_chips():
             'chip': chip,
             'context_source': context_cfg['context_source'],
             'num_baseline': num_baseline,
-            'mvs': {'recall': mvs_recall, 'fp': mvs_fp, 'precision': mvs_precision, 'f1': mvs_f1},
-            'l1d': {'recall': l1_recall, 'fp': l1_fp, 'precision': l1_precision, 'f1': l1_f1},
+            'classic': {'recall': classic_recall, 'fp': classic_fp, 'precision': classic_precision, 'f1': classic_f1},
             'ml': {'recall': ml_recall, 'fp': ml_fp, 'precision': ml_precision, 'f1': ml_f1},
         })
         print("done")
@@ -769,10 +699,10 @@ def run_all_chips():
         num_baseline = r['num_baseline']
         print(f"Context source ({chip}): {r['context_source']}")
         
-        for detector, data in [('MVS', r['mvs']), ('L1D', r['l1d']), ('ML', r['ml'])]:
+        for detector, data in [('Classic', r['classic']), ('ML', r['ml'])]:
             fp_rate = data['fp'] / num_baseline * 100 if num_baseline > 0 else 0
             # Highlight best detector per chip
-            best_f1 = max(r['mvs']['f1'], r['l1d']['f1'], r['ml']['f1'])
+            best_f1 = max(r['classic']['f1'], r['ml']['f1'])
             marker = "**" if data['f1'] == best_f1 and data['f1'] > 0 else ""
             print(f"{chip:<6} {marker}{detector:<8} {data['recall']:>9.1f}% {fp_rate:>9.1f}% {data['precision']:>9.1f}% {data['f1']:>9.1f}%")
         print()
@@ -785,7 +715,7 @@ def run_all_chips():
 def main():
     raw_args = sys.argv[1:]
     chip_explicit = '--chip' in raw_args
-    parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, MVS, L1-Delta, ML)')
+    parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, Classic, ML)')
     parser.add_argument('--chip', type=str, default='C6', help='Chip type: C6, S3, etc.')
     parser.add_argument('--dataset', type=str, default=None,
                         help='Dataset filename, stem, or dataset id; pair is resolved from metadata')
@@ -804,7 +734,7 @@ def main():
         return
     
     print("\n" + "="*60)
-    print("       Detection Methods Comparison (MVS vs L1D vs ML)")
+    print("       Detection Methods Comparison (Classic vs ML)")
     print("="*60 + "\n")
     
     chip = args.chip.upper()
@@ -873,7 +803,7 @@ def main():
     print(f"   Static presence: {len(static_presence_packets)} packets")
     print(f"   Motion:          {len(motion_packets)} packets\n")
     print(f"   Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
-    print(f"   L1D runtime threshold: {threshold:.6f}")
+    print(f"   Classic runtime threshold: {threshold:.6f}")
     print(f"   Confidence factor: {confidence_factor:.1f}\n")
     
     result = compare_detection_methods(
@@ -882,16 +812,16 @@ def main():
         WINDOW_SIZE,
         threshold,
     )
-    methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
+    methods, classic_baseline, classic_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
     
-    print_comparison_summary(methods, mvs_baseline, mvs_movement,
+    print_comparison_summary(methods, classic_baseline, classic_movement,
                             threshold, timing,
                             ml_baseline, ml_movement, 0,
                             method_thresholds, results)
     
     if args.plot:
         print("Generating comparison visualization...\n")
-        plot_comparison(methods, mvs_baseline, mvs_movement,
+        plot_comparison(methods, classic_baseline, classic_movement,
                        threshold, timing,
                        ml_baseline, ml_movement, method_thresholds, results)
 

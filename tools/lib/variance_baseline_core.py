@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Shared helpers for production-aligned MVS sweeps over paired datasets.
+Shared helpers for the historical moving-variance baseline over paired datasets.
 
-This module mirrors the paired Python/C++ validation path:
+This is the single public module for host-side variance-baseline tooling. It
+mirrors the paired Python/C++ validation path:
 - explicit static_presence -> motion pairs from dataset_info.json
 - startup calibration from packet 0 using CALIBRATION_BUFFER_SIZE
 - continuous baseline -> motion evaluation on a single warm context
@@ -54,7 +55,7 @@ class PairedDataset:
 
 
 @dataclass(frozen=True)
-class MVSFilterConfig:
+class VarianceFilterConfig:
     enable_hampel: bool = ENABLE_HAMPEL_FILTER
     enable_lowpass: bool = ENABLE_LOWPASS_FILTER
     hampel_window: int = HAMPEL_WINDOW
@@ -81,7 +82,7 @@ class SubcarrierEMANormConfig:
 
 
 @dataclass(frozen=True)
-class MVSVariantConfig:
+class VarianceVariantConfig:
     name: str
     baseline_tracking: Optional[BaselineTrackingConfig] = None
     subcarrier_ema_norm: Optional[SubcarrierEMANormConfig] = None
@@ -95,10 +96,10 @@ class PacketTrace:
 
 
 @dataclass
-class MVSEvaluationResult:
+class VarianceEvaluationResult:
     dataset: PairedDataset
     variant_name: str
-    filter_config: MVSFilterConfig
+    filter_config: VarianceFilterConfig
     startup_threshold: float
     final_threshold: float
     threshold_source: str
@@ -207,10 +208,10 @@ def build_segmentation_context(
     *,
     threshold: float,
     window_size: int = SEG_WINDOW_SIZE,
-    filter_config: Optional[MVSFilterConfig] = None,
+    filter_config: Optional[VarianceFilterConfig] = None,
 ) -> SegmentationContext:
     """Create one production-style segmentation context."""
-    cfg = filter_config or MVSFilterConfig()
+    cfg = filter_config or VarianceFilterConfig()
     return SegmentationContext(
         window_size=window_size,
         threshold=threshold,
@@ -227,7 +228,7 @@ def calibrate_startup_threshold(
     *,
     selected_band: tuple[int, ...] = DEFAULT_SUBCARRIERS,
     window_size: int = SEG_WINDOW_SIZE,
-    filter_config: Optional[MVSFilterConfig] = None,
+    filter_config: Optional[VarianceFilterConfig] = None,
 ) -> tuple[float, Optional[float]]:
     """Mirror production startup calibration from packet 0."""
     ctx = build_segmentation_context(threshold=1.0, window_size=window_size, filter_config=filter_config)
@@ -250,8 +251,8 @@ def calibrate_startup_threshold(
     return max(float(threshold), 1e-6), max_moving_variance
 
 
-def production_variant() -> MVSVariantConfig:
-    return MVSVariantConfig(name="baseline")
+def production_variant() -> VarianceVariantConfig:
+    return VarianceVariantConfig(name="baseline")
 
 
 def baseline_tracking_variant(
@@ -262,8 +263,8 @@ def baseline_tracking_variant(
     min_idle_samples: int = 24,
     margin_ratio: float = 0.98,
     transition_guard_packets: int = SEG_WINDOW_SIZE // 2,
-) -> MVSVariantConfig:
-    return MVSVariantConfig(
+) -> VarianceVariantConfig:
+    return VarianceVariantConfig(
         name="baseline_tracking",
         baseline_tracking=BaselineTrackingConfig(
             idle_percentile=idle_percentile,
@@ -282,15 +283,15 @@ def subcarrier_ema_norm_variant(
     margin_ratio: float = 0.75,
     transition_guard_packets: int = SEG_WINDOW_SIZE,
     warmup_packets: int = SEG_WINDOW_SIZE,
-) -> MVSVariantConfig:
-    return MVSVariantConfig(
+) -> VarianceVariantConfig:
+    return VarianceVariantConfig(
         name="subcarrier_ema_norm",
         subcarrier_ema_norm=SubcarrierEMANormConfig(
             alpha=alpha,
             margin_ratio=margin_ratio,
             transition_guard_packets=transition_guard_packets,
             warmup_packets=warmup_packets,
-        ),
+        )
     )
 
 
@@ -364,20 +365,18 @@ def _idle_reference_gate_reason(
 def evaluate_pair(
     pair: PairedDataset,
     *,
-    variant: Optional[MVSVariantConfig] = None,
-    filter_config: Optional[MVSFilterConfig] = None,
+    variant: Optional[VarianceVariantConfig] = None,
+    filter_config: Optional[VarianceFilterConfig] = None,
     window_size: int = SEG_WINDOW_SIZE,
     selected_band: tuple[int, ...] = DEFAULT_SUBCARRIERS,
     track_trace: bool = False,
     threshold_source: str = "calibrate",
-) -> MVSEvaluationResult:
+) -> VarianceEvaluationResult:
     """Evaluate one paired dataset with a continuous baseline -> motion pass."""
-    cfg = filter_config or MVSFilterConfig()
+    cfg = filter_config or VarianceFilterConfig()
     variant_cfg = variant or production_variant()
     static_presence_packets, motion_packets = load_paired_packets(pair)
 
-    # MVS always replays its own startup calibration from the selected static
-    # capture; detector thresholds are no longer stored in dataset metadata.
     startup_threshold, _calibration_mv = calibrate_startup_threshold(
         static_presence_packets,
         selected_band=selected_band,
@@ -545,7 +544,7 @@ def evaluate_pair(
         else 0.0
     )
 
-    return MVSEvaluationResult(
+    return VarianceEvaluationResult(
         dataset=pair,
         variant_name=variant_cfg.name,
         filter_config=cfg,
@@ -580,13 +579,13 @@ def evaluate_pair(
 def evaluate_pairs(
     pairs: list[PairedDataset],
     *,
-    variant: Optional[MVSVariantConfig] = None,
-    filter_config: Optional[MVSFilterConfig] = None,
+    variant: Optional[VarianceVariantConfig] = None,
+    filter_config: Optional[VarianceFilterConfig] = None,
     window_size: int = SEG_WINDOW_SIZE,
     selected_band: tuple[int, ...] = DEFAULT_SUBCARRIERS,
     track_trace: bool = False,
     threshold_source: str = "calibrate",
-) -> list[MVSEvaluationResult]:
+) -> list[VarianceEvaluationResult]:
     """Evaluate a list of paired datasets with the same configuration."""
     return [
         evaluate_pair(
@@ -602,7 +601,7 @@ def evaluate_pairs(
     ]
 
 
-def summarize_results(results: list[MVSEvaluationResult]) -> dict[str, Any]:
+def summarize_results(results: list[VarianceEvaluationResult]) -> dict[str, Any]:
     """Aggregate metrics across datasets and chips for reporting."""
     if not results:
         return {
@@ -699,3 +698,26 @@ def summarize_results(results: list[MVSEvaluationResult]) -> dict[str, Any]:
         "worst_fp_pair": max(results, key=lambda item: item.fp_rate),
         "worst_recall_pair": min(results, key=lambda item: item.recall),
     }
+
+
+__all__ = [
+    "BaselineTrackingConfig",
+    "PacketTrace",
+    "PairedDataset",
+    "SubcarrierEMANormConfig",
+    "VarianceEvaluationResult",
+    "VarianceFilterConfig",
+    "VarianceVariantConfig",
+    "baseline_tracking_variant",
+    "build_segmentation_context",
+    "calibrate_startup_threshold",
+    "coefficient_of_variation",
+    "evaluate_pair",
+    "evaluate_pairs",
+    "extract_subcarrier_amplitudes",
+    "iter_paired_datasets",
+    "load_paired_packets",
+    "production_variant",
+    "subcarrier_ema_norm_variant",
+    "summarize_results",
+]

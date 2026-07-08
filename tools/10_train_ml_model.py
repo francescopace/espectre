@@ -28,16 +28,14 @@ Usage:
     python tools/10_train_ml_model.py --device mps  # Force Apple GPU when available
     python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
     python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
-    python tools/10_train_ml_model.py --feature-swap waveform_length_over_mean=l1_delta --no-export
-                                                    # Simple one-slot feature swap experiment
 
 Configuration:
-  - TRAINING_FEATURES: Edit at top of file to change feature set
+  - TRAINING_FEATURES: Production Core-6 feature list
 
 Note: turbulence normalization now follows the shared production path:
 CV-normalized turbulence (`std/mean`) for every stream.
 
-To compare ML with MVS, use:
+To compare ML with the moving-variance baseline, use:
     python tools/7_compare_detection_methods.py
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -345,12 +343,20 @@ from config import (
     HAMPEL_WINDOW,
     SEG_WINDOW_SIZE,
 )
-from l1_delta_detector import L1DeltaDetector
+from classic_detector import ClassicDetector
 from segmentation import SegmentationContext
 from features import (
-    extract_features_by_name, DEFAULT_FEATURES, RAW_FEATURES, RELATIVE_FEATURES,
-    ROBUST_RELATIVE_FEATURES, ALL_FEATURES,
+    extract_features_by_name, DEFAULT_FEATURES,
 )
+
+
+def _needs_amplitude_history(feature_names):
+    """True when any requested feature is computed from the L1-delta stream.
+
+    All supported `l1_delta*` features require the per-packet amplitude-profile
+    history; every turbulence feature does not.
+    """
+    return any(str(name).startswith('l1_delta') for name in feature_names)
 
 # ============================================================================
 # Feature Selection
@@ -362,16 +368,6 @@ from features import (
 
 TRAINING_FEATURES = DEFAULT_FEATURES
 BINARY_TRAINING_LABELS = ('empty', 'static_presence', 'motion')
-HYBRID_FEATURES = RAW_FEATURES + [
-    name for name in RELATIVE_FEATURES if name not in RAW_FEATURES
-]
-FEATURE_SET_CHOICES = {
-    'production': DEFAULT_FEATURES,
-    'relative': RELATIVE_FEATURES,
-    'robust_relative': ROBUST_RELATIVE_FEATURES,
-    'raw': RAW_FEATURES,
-    'hybrid': HYBRID_FEATURES,
-}
 # Directories
 GENERATED_DATA_DIR = generated_data_dir()
 SRC_DIR = python_src_dir()
@@ -387,7 +383,7 @@ SAMPLE_WEIGHT_MODES = ('none', 'l1_guided', 'l1_hard_negative')
 DEFAULT_SAMPLE_WEIGHT_MODE = 'none'
 TRAINING_CACHE_VERSION = 4
 DEFAULT_ML_TEMPERATURE = 5.0
-# All chips included: MLDetector keeps MVS CV normalization disabled, then
+# All chips included: MLDetector keeps the legacy variance-baseline CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
 DEFAULT_EXCLUDED_CHIPS = ()
 DEFAULT_ARCHITECTURE_SWEEP = (
@@ -404,24 +400,7 @@ DEFAULT_EXPERIMENT_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 202605
 DEFAULT_PAIRED_GATE_CHIPS = ('C3', 'C5', 'C6', 'ESP32', 'S3')
 DEFAULT_LONG_GATE_CHIPS = ('C3', 'C5', 'C6', 'S3')
 DEFAULT_GAIN_STRESS_SCALES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
-GAIN_INVARIANT_FEATURES = ('turb_skewness', 'turb_autocorr')
-GAIN_SENSITIVE_FEATURES = tuple(
-    name for name in RAW_FEATURES if name not in GAIN_INVARIANT_FEATURES
-)
-GAIN_RELATIVE_FEATURES = tuple(
-    name for name in RELATIVE_FEATURES if name not in GAIN_INVARIANT_FEATURES
-)
-GAIN_EXTRA_RELATIVE_FEATURES = (
-    'turb_range_over_mean',
-    'turb_peak_over_mad',
-)
-GAIN_FEATURE_EXPERIMENT_SETS = (
-    'raw',
-    'relative',
-    'relative_plus_range',
-    'relative_plus_peak',
-    'hybrid',
-)
+GAIN_SENSITIVE_FEATURES = ()
 PYTEST_PAIRED_ML_GATE = (
     'test/python/test_validation_real_data.py::'
     'TestPerformanceMetrics::test_ml_detection_accuracy'
@@ -527,139 +506,6 @@ def parse_hidden_layers(value):
 def format_hidden_layers(layers):
     """Return hidden layers as a stable dash-separated string."""
     return '-'.join(str(int(layer)) for layer in layers)
-
-
-def resolve_training_feature_set(name):
-    """Resolve a named binary-training feature set."""
-    key = str(name or 'production').strip().lower()
-    if key not in FEATURE_SET_CHOICES:
-        raise argparse.ArgumentTypeError(
-            f"unsupported feature set {name!r}; expected one of {sorted(FEATURE_SET_CHOICES)}"
-        )
-    return list(FEATURE_SET_CHOICES[key])
-
-
-def parse_feature_swap(value):
-    """Parse one feature swap specification in OLD=NEW or OLD:NEW form."""
-    text = str(value or '').strip()
-    if not text:
-        raise argparse.ArgumentTypeError(
-            "feature swap cannot be empty; use OLD=NEW"
-        )
-
-    separator = '=' if '=' in text else ':'
-    if separator not in text:
-        raise argparse.ArgumentTypeError(
-            "feature swap must be in OLD=NEW form"
-        )
-
-    old_name, new_name = [part.strip() for part in text.split(separator, 1)]
-    if not old_name or not new_name:
-        raise argparse.ArgumentTypeError(
-            "feature swap must provide both OLD and NEW feature names"
-        )
-    return old_name, new_name
-
-
-def parse_feature_drop_list(value):
-    """Parse a comma-separated feature drop list."""
-    text = str(value or '').strip()
-    if not text:
-        raise argparse.ArgumentTypeError(
-            "feature drop list cannot be empty; use name1,name2"
-        )
-
-    items = [item.strip() for item in text.split(',')]
-    features = [item for item in items if item]
-    if not features:
-        raise argparse.ArgumentTypeError(
-            "feature drop list cannot be empty; use name1,name2"
-        )
-    return features
-
-
-def apply_feature_drops(feature_names, dropped_features):
-    """Drop one or more features from a resolved feature list."""
-    features = list(feature_names)
-    if not dropped_features:
-        return features
-
-    valid_features = set(ALL_FEATURES)
-    for feature_name in dropped_features:
-        if feature_name not in valid_features:
-            raise argparse.ArgumentTypeError(
-                f"unknown dropped feature {feature_name!r}; expected one of {sorted(valid_features)}"
-            )
-        if feature_name not in features:
-            raise argparse.ArgumentTypeError(
-                f"cannot drop {feature_name!r}: not present in the selected feature set {features}"
-            )
-        features.remove(feature_name)
-
-    if not features:
-        raise argparse.ArgumentTypeError(
-            "feature drop would leave an empty feature set"
-        )
-    return features
-
-
-def apply_feature_swaps(feature_names, swaps):
-    """Apply one or more OLD=NEW feature swaps to a resolved feature list."""
-    features = list(feature_names)
-    if not swaps:
-        return features
-
-    valid_features = set(ALL_FEATURES)
-    for old_name, new_name in swaps:
-        if old_name not in valid_features:
-            raise argparse.ArgumentTypeError(
-                f"unknown source feature {old_name!r}; expected one of {sorted(valid_features)}"
-            )
-        if new_name not in valid_features:
-            raise argparse.ArgumentTypeError(
-                f"unknown replacement feature {new_name!r}; expected one of {sorted(valid_features)}"
-            )
-        if old_name not in features:
-            raise argparse.ArgumentTypeError(
-                f"cannot swap {old_name!r}: not present in the selected feature set {features}"
-            )
-
-        idx = features.index(old_name)
-        if new_name != old_name and new_name in features:
-            raise argparse.ArgumentTypeError(
-                f"cannot swap {old_name!r} -> {new_name!r}: replacement already exists in the selected feature set"
-            )
-        features[idx] = new_name
-    return features
-
-
-def build_feature_sweep_candidates(feature_names, incoming_feature):
-    """Build all one-slot replacement candidates for an incoming feature."""
-    incoming = str(incoming_feature or '').strip()
-    if not incoming:
-        raise argparse.ArgumentTypeError("feature sweep requires a feature name")
-
-    valid_features = set(ALL_FEATURES)
-    if incoming not in valid_features:
-        raise argparse.ArgumentTypeError(
-            f"unknown sweep feature {incoming!r}; expected one of {sorted(valid_features)}"
-        )
-
-    base_features = list(feature_names)
-    if incoming in base_features:
-        raise argparse.ArgumentTypeError(
-            f"cannot sweep {incoming!r}: it is already present in the selected feature set"
-        )
-
-    candidates = []
-    for replaced in base_features:
-        candidate_features = apply_feature_swaps(base_features, [(replaced, incoming)])
-        candidates.append({
-            'replaced': replaced,
-            'incoming': incoming,
-            'feature_names': candidate_features,
-        })
-    return candidates
 
 
 def normalize_architecture_specs(architectures):
@@ -1391,7 +1237,7 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
         )
-        needs_amplitude_history = 'l1_delta' in feature_names
+        needs_amplitude_history = _needs_amplitude_history(feature_names)
         amplitude_history = deque(maxlen=window_size) if needs_amplitude_history else None
         window_index = 0
         for pkt in file_packets:
@@ -1415,7 +1261,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
 
             features = extract_features_by_name(
                 turb_list, n,
-                amplitudes=amps,
                 feature_names=feature_names,
                 amplitude_history=list(amplitude_history) if amplitude_history is not None else None,
             )
@@ -1462,7 +1307,7 @@ def compute_sample_weights(packets, labels, sample_weight_mode=DEFAULT_SAMPLE_WE
 
 
 def estimate_support_threshold_from_packets(file_packets):
-    """Estimate the production l1_delta startup threshold from a file capture."""
+    """Estimate the production classic startup threshold from a file capture."""
     threshold = estimate_runtime_threshold(file_packets)
     if threshold is None:
         return None
@@ -1472,13 +1317,13 @@ def estimate_support_threshold_from_packets(file_packets):
 def compute_l1_guided_sample_weights(packets, pair_static_map, window_size=SEG_WINDOW_SIZE,
                                      policy='full'):
     """
-    Compute sample weights using context-aware l1_delta scoring per source file.
+    Compute sample weights using the classic primary score per source file.
 
     Weight policy:
     - full policy: hard-positive mining for movement samples
     - hard_negative policy: leave movement samples neutral
     - baseline samples: promote hard negatives (2.0) when metric >= threshold, else 1.0
-    - per-file thresholds replay the production l1_delta startup calibration:
+    - per-file thresholds replay the production classic startup calibration:
       quiet captures self-calibrate, and motion files inherit the threshold of
       their paired static capture when it is part of the training set
     - unpaired motion files fall back to their own gated calibration replay
@@ -1494,7 +1339,7 @@ def compute_l1_guided_sample_weights(packets, pair_static_map, window_size=SEG_W
     threshold_cache = {}
 
     def threshold_for(source_file):
-        """Production l1_delta startup threshold for one source file."""
+        """Production classic startup threshold for one source file."""
         if source_file in threshold_cache:
             return threshold_cache[source_file]
         static_name = pair_static_map.get(source_file)
@@ -1510,13 +1355,19 @@ def compute_l1_guided_sample_weights(packets, pair_static_map, window_size=SEG_W
     for source_file, file_packets in grouped.items():
         effective_threshold = max(float(threshold_for(source_file)), 1e-6)
 
-        detector = L1DeltaDetector(window_size=window_size, threshold=effective_threshold)
+        detector = ClassicDetector(
+            window_size=window_size,
+            threshold=effective_threshold,
+            enable_hampel=True,
+            hampel_window=HAMPEL_WINDOW,
+            hampel_threshold=HAMPEL_THRESHOLD,
+        )
         file_weights = []
         for packet_index, pkt in enumerate(file_packets):
             detector.process_packet(pkt['csi_data'], DEFAULT_SUBCARRIERS)
             detector.update_state()
             # Gate on the packet count, not detector readiness, so weights stay
-            # 1:1 with the extract_features window rows; the l1_delta metric
+            # 1:1 with the extract_features window rows; the classic primary score
             # reads 0.0 for the extra lag packets, leaving those rows at the
             # base weight.
             if packet_index + 1 < window_size:
@@ -1881,63 +1732,6 @@ def print_gain_stress_summary(results):
             )
 
 
-def build_gain_feature_matrix(X_raw, raw_feature_names, feature_set):
-    """Build raw, relative, or hybrid matrices from the production raw feature set."""
-    feature_set = str(feature_set).strip().lower()
-    if feature_set not in GAIN_FEATURE_EXPERIMENT_SETS:
-        raise ValueError(
-            f"Unsupported gain feature set {feature_set!r}; "
-            f"expected one of {GAIN_FEATURE_EXPERIMENT_SETS}"
-        )
-
-    X_raw = np.asarray(X_raw, dtype=np.float32)
-    raw_feature_names = list(raw_feature_names)
-    columns = {name: X_raw[:, idx] for idx, name in enumerate(raw_feature_names)}
-    mean = np.maximum(np.abs(columns['turb_mean']), np.float32(1e-6))
-    mad = np.maximum(columns['turb_mad'], np.float32(1e-6))
-    window_norm = mean * np.float32(max(SEG_WINDOW_SIZE - 1, 1))
-    relative_columns = {
-        'turb_std_over_mean': columns['turb_std'] / mean,
-        'turb_max_over_mean': columns['turb_max'] / mean,
-        'turb_min_over_mean': columns['turb_min'] / mean,
-        'turb_iqr_over_mean': columns['turb_iqr'] / mean,
-        'turb_mad_over_mean': columns['turb_mad'] / mean,
-        'waveform_length_over_mean': columns['waveform_length'] / window_norm,
-        'turb_range_over_mean': (columns['turb_max'] - columns['turb_min']) / mean,
-        'turb_peak_over_mad': (columns['turb_max'] - columns['turb_mean']) / mad,
-        'turb_skewness': columns['turb_skewness'],
-        'turb_autocorr': columns['turb_autocorr'],
-    }
-
-    if feature_set == 'raw':
-        return X_raw.copy(), list(raw_feature_names)
-
-    relative_names = list(GAIN_RELATIVE_FEATURES) + list(GAIN_INVARIANT_FEATURES)
-    relative_matrix = np.column_stack(
-        [relative_columns[name] for name in relative_names]
-    ).astype(np.float32)
-    if feature_set == 'relative':
-        return relative_matrix, relative_names
-    if feature_set == 'relative_plus_range':
-        names = relative_names + ['turb_range_over_mean']
-        matrix = np.column_stack(
-            [relative_columns[name] for name in names]
-        ).astype(np.float32)
-        return matrix, names
-    if feature_set == 'relative_plus_peak':
-        names = relative_names + ['turb_peak_over_mad']
-        matrix = np.column_stack(
-            [relative_columns[name] for name in names]
-        ).astype(np.float32)
-        return matrix, names
-
-    hybrid_names = list(raw_feature_names) + list(GAIN_RELATIVE_FEATURES)
-    hybrid_matrix = np.column_stack(
-        [X_raw] + [relative_columns[name] for name in GAIN_RELATIVE_FEATURES]
-    ).astype(np.float32)
-    return hybrid_matrix, hybrid_names
-
-
 def evaluate_model_gain_stress(model, scaler, X_raw, y, feature_names, sample_context,
                                scales=DEFAULT_GAIN_STRESS_SCALES):
     """Evaluate an in-memory trained model under artificial gain scaling."""
@@ -1963,219 +1757,6 @@ def evaluate_model_gain_stress(model, scaler, X_raw, y, feature_names, sample_co
                 scale_result['group_reports'][group_key] = report
         results[float(gain_scale)] = scale_result
     return results
-
-
-def gain_stress_rank_key(result):
-    """Rank feature experiments by stressed FP robustness, then nominal quality."""
-    stressed_scales = [scale for scale in result['gain_stress'] if abs(scale - 1.0) > 1e-9]
-    upper_scales = [scale for scale in stressed_scales if scale > 1.0]
-    primary_scales = upper_scales or stressed_scales or [1.0]
-    max_stressed_fp = max(
-        result['gain_stress'][scale]['overall']['fp_rate']
-        for scale in primary_scales
-    )
-    max_stressed_worst_chip_fp = max(
-        result['gain_stress'][scale]['group_reports'].get('chip', {}).get(
-            'worst_fp_rate',
-            {},
-        ).get('fp_rate', 0.0)
-        for scale in primary_scales
-    )
-    min_stressed_recall = min(
-        result['gain_stress'][scale]['overall']['recall']
-        for scale in primary_scales
-    )
-    nominal = result['gain_stress'].get(1.0)
-    nominal_f1 = nominal['overall']['f1'] if nominal else 0.0
-    return (
-        max_stressed_fp,
-        max_stressed_worst_chip_fp,
-        -min_stressed_recall,
-        -nominal_f1,
-        -result['cv']['oof_f1'],
-    )
-
-
-def print_gain_feature_experiment_summary(results, scales):
-    """Print raw/relative/hybrid comparison table."""
-    print("\n" + "=" * 78)
-    print("  GAIN-FEATURE SET EXPERIMENT")
-    print("=" * 78)
-    print(
-        "  set      feat  OOF_F1  nomFP  nomF1 | "
-        + " | ".join(f"{scale:g}x FP/worstFP" for scale in scales if abs(scale - 1.0) > 1e-9)
-    )
-    print("  " + "-" * 112)
-    for result in sorted(results, key=gain_stress_rank_key):
-        nominal = result['gain_stress'].get(1.0)
-        parts = []
-        for scale in scales:
-            if abs(scale - 1.0) <= 1e-9:
-                continue
-            row = result['gain_stress'][float(scale)]
-            chip_report = row['group_reports'].get('chip', {})
-            worst_fp = chip_report.get('worst_fp_rate', {}).get('fp_rate', 0.0)
-            parts.append(f"{row['overall']['fp_rate']:5.1f}/{worst_fp:5.1f}")
-        print(
-            f"  {result['name']:<8} "
-            f"{len(result['feature_names']):>4} "
-            f"{result['cv']['oof_f1']:>7.1f} "
-            f"{nominal['overall']['fp_rate']:>6.1f} "
-            f"{nominal['overall']['f1']:>6.1f} | "
-            + " | ".join(parts)
-        )
-
-    winner = min(results, key=gain_stress_rank_key)
-    print(
-        f"\nBest by gain-stress ranking: {winner['name']} "
-        f"({len(winner['feature_names'])} features)"
-    )
-
-
-def experiment_gain_feature_sets(seed=None, feature_sets=None,
-                                 scaler_mode=DEFAULT_SCALER_MODE,
-                                 batch_size=DEFAULT_BATCH_SIZE,
-                                 fp_weight=DEFAULT_FP_WEIGHT,
-                                 hidden_layers=None,
-                                 environment_filter=None,
-                                 excluded_chips=None,
-                                 scales=DEFAULT_GAIN_STRESS_SCALES,
-                                 use_cache=True):
-    """Compare raw, relative, and hybrid feature sets under gain stress."""
-    total_start = perf_counter()
-    if hidden_layers is None:
-        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
-    if feature_sets is None:
-        feature_sets = list(GAIN_FEATURE_EXPERIMENT_SETS)
-    feature_sets = [str(item).strip().lower() for item in feature_sets if str(item).strip()]
-    scales = parse_gain_stress_scales(scales)
-    environment_filter = parse_environment_filter(environment_filter)
-    excluded_chips = parse_chip_filter(excluded_chips)
-
-    try:
-        ensure_torch_available()
-        torch_device_label = describe_torch_device()
-        seed = resolve_training_seed(seed)
-        set_global_determinism(seed, torch_module=torch)
-    except ImportError as exc:
-        print(f"Error: Missing dependency - {exc}")
-        return 1, seed, None
-    except (RuntimeError, ValueError) as exc:
-        print(f"Error: {exc}")
-        return 1, seed, None
-
-    print("\n" + "=" * 78)
-    print("  GAIN-FEATURE EXPERIMENT")
-    print("=" * 78)
-    print(f"Feature sets: {', '.join(feature_sets)}")
-    print(f"Scales: {', '.join(f'{scale:g}' for scale in scales)}")
-    print(f"Scaler: {scaler_mode}")
-    print(f"Batch size: {batch_size}")
-    print(f"Torch device: {torch_device_label}")
-    print(f"FP weight: {fp_weight}")
-    if environment_filter is not None:
-        print(f"Environment filter: {', '.join(sorted(environment_filter))}")
-    if excluded_chips is not None:
-        print(f"Excluded chips: {', '.join(sorted(excluded_chips))}")
-
-    print("\nLoading raw feature matrix...")
-    matrix, _ = load_training_matrix(
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        feature_names=RAW_FEATURES,
-        use_cache=use_cache,
-    )
-    stats = matrix['stats']
-    if not stats['chips']:
-        print("Error: No empty/static_presence/motion data found")
-        return 1, seed, None
-    print(f"  Chips: {', '.join(stats['chips'])}")
-    if stats.get('environment_groups'):
-        print(f"  Environments: {', '.join(stats['environment_groups'])}")
-    print(f"  Total packets: {stats['total']}")
-
-    X_raw_base = matrix['X']
-    y = matrix['y']
-    raw_feature_names = matrix['feature_names']
-    sample_context = matrix['sample_context']
-    sample_weights = matrix['sample_weights']
-    eval_groups = sample_context[DEFAULT_PRIMARY_GROUP_KEY]
-    print(f"  Samples: {len(X_raw_base)}")
-    print(f"  Raw features: {', '.join(raw_feature_names)}")
-    print(f"  Class balance: IDLE={np.sum(y == 0)}, MOTION={np.sum(y == 1)}")
-
-    results = []
-    for idx, feature_set in enumerate(feature_sets):
-        print(f"\n== {feature_set} ==")
-        X_candidate, candidate_names = build_gain_feature_matrix(
-            X_raw_base,
-            raw_feature_names,
-            feature_set,
-        )
-        print(f"  Features ({len(candidate_names)}): {', '.join(candidate_names)}")
-        with suppress_stderr():
-            cv = cross_validate(
-                X_candidate,
-                y,
-                hidden_layers=hidden_layers,
-                n_folds=DEFAULT_CV_FOLDS,
-                max_epochs=DEFAULT_MAX_EPOCHS,
-                fp_weight=fp_weight,
-                sample_weight=sample_weights,
-                groups=eval_groups,
-                sample_context=sample_context,
-                scaler_mode=scaler_mode,
-                batch_size=batch_size,
-                block_stride=SEG_WINDOW_SIZE,
-                block_group_key=DEFAULT_BLOCK_GROUP_KEY,
-                report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
-                seed=derive_seed(seed, idx),
-            )
-
-        scaler = build_preprocessor(scaler_mode)
-        X_scaled = scaler.fit_transform(X_candidate)
-        with suppress_stderr():
-            model = train_model(
-                X_scaled,
-                y,
-                hidden_layers=hidden_layers,
-                max_epochs=DEFAULT_MAX_EPOCHS,
-                fp_weight=fp_weight,
-                sample_weight=sample_weights,
-                batch_size=batch_size,
-                seed=derive_seed(seed, 10_000, idx),
-            )
-        stress = evaluate_model_gain_stress(
-            model,
-            scaler,
-            X_candidate,
-            y,
-            candidate_names,
-            sample_context,
-            scales=scales,
-        )
-        nominal = stress.get(1.0)
-        max_upper_fp = max(
-            stress[scale]['overall']['fp_rate']
-            for scale in stress
-            if scale > 1.0
-        ) if any(scale > 1.0 for scale in stress) else nominal['overall']['fp_rate']
-        print(
-            f"  CV OOF F1={cv['oof_f1']:.1f}% | "
-            f"nominal FP={nominal['overall']['fp_rate']:.1f}% "
-            f"F1={nominal['overall']['f1']:.1f}% | "
-            f"max upper-scale FP={max_upper_fp:.1f}%"
-        )
-        results.append({
-            'name': feature_set,
-            'feature_names': candidate_names,
-            'cv': slim_cv_result(cv),
-            'gain_stress': stress,
-        })
-
-    print_gain_feature_experiment_summary(results, scales)
-    print(f"\nTotal experiment time: {format_duration(perf_counter() - total_start)}")
-    return 0, seed, results
 
 
 def build_candidate_key(cv_results):
@@ -2684,6 +2265,33 @@ FEATURE_SCALE = [{scale_csv}]
     return len(code)
 
 
+# Canonical C++ feature ids, mirroring the MLFeatureId enum in
+# src/cpp/core/features.h. Keep the numeric values in sync. Only features
+# with a real C++ extractor entry can be exported to firmware.
+CPP_FEATURE_IDS = {
+    'turb_skewness': 5,
+    'turb_autocorr': 6,
+    'turb_mad_over_mean': 13,
+    'l1_delta': 17,
+    'l1_delta_std': 18,
+    'l1_delta_waveform_length': 23,
+}
+
+
+def resolve_cpp_feature_ids(feature_names):
+    """Map feature names to their C++ ids, raising on any unsupported feature."""
+    ids = []
+    for name in feature_names:
+        if name not in CPP_FEATURE_IDS:
+            raise ValueError(
+                f"feature {name!r} has no C++ extractor id; add it to "
+                f"CPP_FEATURE_IDS and the MLFeatureId enum in features.h "
+                f"before exporting a model that uses it"
+            )
+        ids.append(CPP_FEATURE_IDS[name])
+    return ids
+
+
 def export_cpp_weights(model, scaler, output_path, seed=None,
                        feature_names=None, scaler_mode=DEFAULT_SCALER_MODE):
     """
@@ -2718,11 +2326,15 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
     if feature_names is None:
         feature_names = list(TRAINING_FEATURES)
     
+    feature_ids = resolve_cpp_feature_ids(feature_names)
+
     seed_info = f"Seed: {seed}"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     architecture_csv = ', '.join(str(x) for x in architecture)
     center_csv = ', '.join(cpp_float(x) for x in center)
     scale_csv = ', '.join(cpp_float(x) for x in scale)
+    feature_ids_csv = ', '.join(str(i) for i in feature_ids)
+    feature_names_comment = ', '.join(feature_names)
     
     code = f'''/*
  * ESPectre - ML Model Weights
@@ -2755,6 +2367,10 @@ constexpr char ML_NORMALIZATION_MODE[] = "{scaler_mode}";
 // Feature normalization
 constexpr float ML_FEATURE_MEAN[{len(center)}] = {{{center_csv}}};
 constexpr float ML_FEATURE_SCALE[{len(scale)}] = {{{scale_csv}}};
+
+// Feature identity (MLFeatureId in features.h), one per model input slot.
+// Order: {feature_names_comment}
+constexpr uint8_t ML_FEATURE_IDS[{len(feature_ids)}] = {{{feature_ids_csv}}};
 
 '''
     
@@ -3277,193 +2893,6 @@ def run_ablation_study(X, y, feature_names, sample_context=None, sample_weight=N
     return results
 
 
-def run_feature_sweep_study(X, y, feature_names, incoming_feature, X_incoming,
-                            sample_context=None, sample_weight=None,
-                            hidden_layers=None, fp_weight=DEFAULT_FP_WEIGHT,
-                            scaler_mode=DEFAULT_SCALER_MODE,
-                            batch_size=DEFAULT_BATCH_SIZE,
-                            seed=None):
-    """
-    Evaluate swapping one incoming feature into each slot of the active set.
-
-    This is the direct complement to ablation for a candidate feature that is not
-    yet in the model: keep model width fixed, replace one feature at a time, and
-    compare grouped CV metrics.
-    """
-    print("\n" + "=" * 90)
-    print("                             FEATURE SWEEP")
-    print("=" * 90 + "\n")
-    print(
-        f"Testing '{incoming_feature}' as a one-slot replacement for each feature in the active set...\n"
-    )
-
-    if hidden_layers is None:
-        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
-
-    groups = None
-    if sample_context is not None:
-        groups = sample_context.get(DEFAULT_PRIMARY_GROUP_KEY)
-
-    def _extract_summary(cv_results):
-        group_reports = cv_results.get('group_reports', {})
-        session_report = group_reports.get('session_group') or {}
-        chip_report = group_reports.get('chip') or {}
-        return {
-            'f1_mean': cv_results['f1_mean'],
-            'f1_std': cv_results['f1_std'],
-            'oof_f1': cv_results['oof_f1'],
-            'recall_mean': cv_results['recall_mean'],
-            'fp_rate_mean': cv_results['fp_rate_mean'],
-            'worst_session_recall': session_report.get('worst_recall', {}).get('recall', 0.0),
-            'worst_session_fp_rate': session_report.get('worst_fp_rate', {}).get('fp_rate', 0.0),
-            'worst_chip_recall': chip_report.get('worst_recall', {}).get('recall', 0.0),
-        }
-
-    results = []
-
-    print(f"[1/{len(feature_names) + 1}] Baseline ({len(feature_names)} features)...")
-    with suppress_stderr():
-        baseline_cv = cross_validate(
-            X, y,
-            hidden_layers=hidden_layers,
-            n_folds=DEFAULT_CV_FOLDS,
-            max_epochs=DEFAULT_MAX_EPOCHS,
-            fp_weight=fp_weight,
-            sample_weight=sample_weight,
-            groups=groups,
-            sample_context=sample_context,
-            scaler_mode=scaler_mode,
-            batch_size=batch_size,
-            block_stride=SEG_WINDOW_SIZE,
-            report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
-            seed=derive_seed(seed, 0),
-        )
-    baseline_summary = _extract_summary(baseline_cv)
-    results.append({
-        'label': 'baseline',
-        'replaced': None,
-        'incoming': None,
-        'feature_names': list(feature_names),
-        'cv': baseline_cv,
-        'delta_f1': 0.0,
-        'delta_oof_f1': 0.0,
-        **baseline_summary,
-    })
-    print(
-        f"    OOF F1: {baseline_summary['oof_f1']:.2f}% | "
-        f"fold F1: {baseline_summary['f1_mean']:.2f}% | "
-        f"worst chip recall: {baseline_summary['worst_chip_recall']:.2f}%\n"
-    )
-
-    incoming_column = np.asarray(X_incoming).reshape(-1)
-    if len(incoming_column) != len(X):
-        raise ValueError(
-            f"incoming feature length mismatch (incoming={len(incoming_column)}, base={len(X)})"
-        )
-
-    candidates = build_feature_sweep_candidates(feature_names, incoming_feature)
-    for idx, candidate in enumerate(candidates, start=2):
-        replaced = candidate['replaced']
-        candidate_features = candidate['feature_names']
-        replace_idx = list(feature_names).index(replaced)
-        X_candidate = X.copy()
-        X_candidate[:, replace_idx] = incoming_column
-        print(f"[{idx}/{len(feature_names) + 1}] Replacing '{replaced}' -> '{incoming_feature}'...")
-
-        with suppress_stderr():
-            cv = cross_validate(
-                X_candidate, y,
-                hidden_layers=hidden_layers,
-                n_folds=DEFAULT_CV_FOLDS,
-                max_epochs=DEFAULT_MAX_EPOCHS,
-                fp_weight=fp_weight,
-                sample_weight=sample_weight,
-                groups=groups,
-                sample_context=sample_context,
-                scaler_mode=scaler_mode,
-                batch_size=batch_size,
-                block_stride=SEG_WINDOW_SIZE,
-                report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
-                seed=derive_seed(seed, idx),
-            )
-
-        summary = _extract_summary(cv)
-        delta_f1 = summary['f1_mean'] - baseline_summary['f1_mean']
-        delta_oof_f1 = summary['oof_f1'] - baseline_summary['oof_f1']
-        results.append({
-            'label': f"{incoming_feature} for {replaced}",
-            'replaced': replaced,
-            'incoming': incoming_feature,
-            'feature_names': candidate_features,
-            'cv': cv,
-            'delta_f1': delta_f1,
-            'delta_oof_f1': delta_oof_f1,
-            **summary,
-        })
-
-        direction = "↑" if delta_oof_f1 > 0.1 else "↓" if delta_oof_f1 < -0.1 else "≈"
-        print(
-            f"    OOF F1: {summary['oof_f1']:.2f}% ({direction} {delta_oof_f1:+.2f}%) | "
-            f"fold F1: {summary['f1_mean']:.2f}% | "
-            f"worst chip recall: {summary['worst_chip_recall']:.2f}%\n"
-        )
-
-    print("\n" + "=" * 108)
-    print("                                  FEATURE SWEEP SUMMARY")
-    print("=" * 108 + "\n")
-    print(
-        f"{'Replaced Feature':<24} {'OOF F1':>9} {'Delta':>9} {'Fold F1':>10} "
-        f"{'Recall':>9} {'FP Rate':>9} {'Worst Sess R':>12} {'Worst Sess FP':>13} {'Worst Chip R':>12} {'Note':<10}"
-    )
-    print("-" * 108)
-
-    baseline = results[0]
-    print(
-        f"{'None (baseline)':<24} {baseline['oof_f1']:>8.2f}% {'---':>9} "
-        f"{baseline['f1_mean']:>9.2f}% {baseline['recall_mean']:>8.1f}% "
-        f"{baseline['fp_rate_mean']:>8.1f}% {baseline['worst_session_recall']:>11.1f}% "
-        f"{baseline['worst_session_fp_rate']:>12.1f}% {baseline['worst_chip_recall']:>11.1f}%"
-    )
-    print("-" * 108)
-
-    ranked_results = sorted(
-        results[1:],
-        key=lambda row: build_candidate_key(row['cv']),
-        reverse=True,
-    )
-    for idx, row in enumerate(ranked_results):
-        note = ""
-        if idx == 0:
-            note = "best"
-        elif row['delta_oof_f1'] > 0.1:
-            note = "improves"
-        elif row['delta_oof_f1'] < -0.1:
-            note = "worse"
-        else:
-            note = "neutral"
-
-        print(
-            f"{row['replaced']:<24} {row['oof_f1']:>8.2f}% {row['delta_oof_f1']:>+8.2f}% "
-            f"{row['f1_mean']:>9.2f}% {row['recall_mean']:>8.1f}% {row['fp_rate_mean']:>8.1f}% "
-            f"{row['worst_session_recall']:>11.1f}% {row['worst_session_fp_rate']:>12.1f}% "
-            f"{row['worst_chip_recall']:>11.1f}% {note:<10}"
-        )
-
-    best = ranked_results[0]
-    print("-" * 108)
-    print(
-        f"\nBest sweep candidate: replace '{best['replaced']}' with '{incoming_feature}' "
-        f"(OOF F1={best['oof_f1']:.2f}%, worst-chip recall={best['worst_chip_recall']:.1f}%, "
-        f"worst-session FP={best['worst_session_fp_rate']:.1f}%)"
-    )
-    print(
-        "Ranking priority: worst-session recall, worst-chip recall, "
-        "worst-session FP, blocked OOF F1, fold F1."
-    )
-    print()
-    return results
-
-
 # ============================================================================
 # Main
 # ============================================================================
@@ -3603,7 +3032,7 @@ def show_info():
 
 
 def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
-              feature_importance=False, ablation=False, feature_sweep=None, shap_samples=200,
+              feature_importance=False, ablation=False, shap_samples=200,
               hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
               batch_size=DEFAULT_BATCH_SIZE, export_artifacts=True,
               environment_filter=None, excluded_chips=None,
@@ -3621,7 +3050,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         feature_names: List of feature names to use. If None, uses DEFAULT_FEATURES.
         feature_importance: If True, calculate and display SHAP feature importance.
         ablation: If True, run ablation study instead of training.
-        feature_sweep: Optional incoming feature name to sweep across slots.
         hidden_layers: Hidden layer widths. None uses DEFAULT_HIDDEN_LAYERS.
         scaler_mode: Feature normalization mode.
         batch_size: Mini-batch size used for training and CV.
@@ -3760,30 +3188,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             fp_weight=fp_weight,
             scaler_mode=scaler_mode,
             batch_size=batch_size,
-        )
-        return 0, seed, None
-
-    if feature_sweep is not None:
-        incoming_matrix, _ = load_training_matrix(
-            environment_filter=environment_filter,
-            excluded_chips=excluded_chips,
-            feature_names=[feature_sweep],
-            sample_weight_mode=sample_weight_mode,
-            use_cache=use_cache,
-        )
-        run_feature_sweep_study(
-            X,
-            y,
-            actual_feature_names,
-            feature_sweep,
-            incoming_matrix['X'][:, 0],
-            sample_context=sample_context,
-            sample_weight=sample_weights,
-            hidden_layers=hidden_layers,
-            fp_weight=fp_weight,
-            scaler_mode=scaler_mode,
-            batch_size=batch_size,
-            seed=seed,
         )
         return 0, seed, None
 
@@ -3945,7 +3349,12 @@ class StreamingEvaluator:
             hampel_window=HAMPEL_WINDOW,
             hampel_threshold=HAMPEL_THRESHOLD,
         )
-        self.current_amplitudes = None
+        # L1-delta features need the amplitude-profile history over the window,
+        # matching the training feature path; skip the buffer otherwise.
+        self.needs_amplitude_history = _needs_amplitude_history(self.feature_names)
+        self.amplitude_history = (
+            deque(maxlen=SEG_WINDOW_SIZE) if self.needs_amplitude_history else None
+        )
 
     def _predict_probability(self, features):
         activations = (np.asarray(features, dtype=np.float32) - self.center) / self.scale
@@ -3967,8 +3376,9 @@ class StreamingEvaluator:
             DEFAULT_SUBCARRIERS,
             return_amplitudes=True,
         )
-        self.current_amplitudes = amplitudes
         self.context.add_turbulence(turbulence)
+        if self.amplitude_history is not None:
+            self.amplitude_history.append(amplitudes)
         if self.context.buffer_count < self.context.window_size:
             return None
 
@@ -3980,8 +3390,12 @@ class StreamingEvaluator:
         features = extract_features_by_name(
             turb_list,
             len(turb_list),
-            amplitudes=self.current_amplitudes,
             feature_names=self.feature_names,
+            amplitude_history=(
+                list(self.amplitude_history)
+                if self.amplitude_history is not None
+                else None
+            ),
         )
         return float(self._predict_probability(features))
 
@@ -5092,10 +4506,6 @@ Examples:
                                            # Custom shortlist for the topology campaign
   python tools/10_train_ml_model.py --hidden-layers 24,12
                                            # Train/export the previous 8 -> 24 -> 12 -> 1 candidate
-  python tools/10_train_ml_model.py --feature-set robust_relative --ablation
-                                           # Evaluate spike-robust percentile features without export
-  python tools/10_train_ml_model.py --feature-set robust_relative --no-export
-                                           # Run grouped CV for an experimental feature set
   python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
   python tools/10_train_ml_model.py --scaler clipped_standard
                                            # Robust clipping + z-score
@@ -5110,19 +4520,13 @@ Examples:
                                            # Stop at first improvement (max 20 trials)
   python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
                                            # Diagnose exported model robustness to feature gain shifts
-  python tools/10_train_ml_model.py --gain-feature-experiment --seed 721498330
-                                           # Compare raw/relative/hybrid feature sets under gain stress
   python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
   python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
-  python tools/10_train_ml_model.py --feature-sweep l1_delta --no-export
-                                           # Try one incoming feature in every slot of the active set
-  python tools/10_train_ml_model.py --feature-drop waveform_length_over_mean,turb_skewness --no-export
-                                           # Train/evaluate after removing comma-separated features
 
 Configuration (edit at top of this file):
   TRAINING_FEATURES = [...]   # Feature list to use
 
-To compare ML with MVS, use:
+To compare ML with the moving-variance baseline, use:
   python tools/7_compare_detection_methods.py
 '''
     )
@@ -5154,13 +4558,6 @@ To compare ML with MVS, use:
                        default=DEFAULT_GAIN_STRESS_SCALES,
                        help='Comma-separated gain multipliers for --gain-stress-gate '
                             f'(default: {",".join(map(str, DEFAULT_GAIN_STRESS_SCALES))})')
-    parser.add_argument('--gain-feature-experiment', action='store_true',
-                       help='Compare raw, relative, and hybrid feature sets '
-                            'with grouped CV and in-memory gain-stress evaluation')
-    parser.add_argument('--gain-feature-sets', type=str,
-                       default=','.join(GAIN_FEATURE_EXPERIMENT_SETS),
-                       help='Comma-separated feature sets for --gain-feature-experiment '
-                            f'(default: {",".join(GAIN_FEATURE_EXPERIMENT_SETS)})')
     parser.add_argument('--fp-weight', type=float, default=DEFAULT_FP_WEIGHT,
                        help='Multiplier for IDLE class weight to penalize false positives. '
                             f'Values >1.0 make the model more conservative (default: {DEFAULT_FP_WEIGHT:.1f})')
@@ -5177,20 +4574,6 @@ To compare ML with MVS, use:
     parser.add_argument('--hidden-layers', type=parse_hidden_layers, default=None,
                        help='Comma-separated hidden layer widths for the MLP '
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
-    parser.add_argument('--feature-set', choices=sorted(FEATURE_SET_CHOICES), default='production',
-                       help='Named binary-training feature set. Only production is export-compatible '
-                            '(default: production)')
-    parser.add_argument('--feature-swap', type=parse_feature_swap, action='append', default=None,
-                       metavar='OLD=NEW',
-                       help='Replace one feature in the selected set with another. '
-                            'May be repeated. Example: --feature-swap waveform_length_over_mean=l1_delta')
-    parser.add_argument('--feature-drop', type=parse_feature_drop_list, default=None,
-                       metavar='FEATURE1,FEATURE2',
-                       help='Drop comma-separated features from the selected set. '
-                            'Example: --feature-drop waveform_length_over_mean,turb_skewness')
-    parser.add_argument('--feature-sweep', type=str, default=None, metavar='FEATURE',
-                       help='Sweep one incoming feature across all slots of the selected set '
-                            '(analysis-only). Example: --feature-sweep l1_delta')
     parser.add_argument('--no-export', action='store_true',
                        help='Run training/CV analysis without exporting runtime artifacts')
     parser.add_argument('--no-cache', action='store_true',
@@ -5222,21 +4605,7 @@ To compare ML with MVS, use:
                        help='Run ablation study (test removing each feature)')
     args = parser.parse_args()
     set_active_torch_device(args.device)
-    if args.feature_swap and args.feature_sweep:
-        print("Error: --feature-swap and --feature-sweep are mutually exclusive")
-        return 1
-    selected_training_features = apply_feature_swaps(
-        apply_feature_drops(
-            resolve_training_feature_set(args.feature_set),
-            args.feature_drop,
-        ),
-        args.feature_swap,
-    )
-    export_compatible_feature_set = (
-        args.feature_set == 'production'
-        and not args.feature_swap
-        and not args.feature_drop
-    )
+    selected_training_features = list(DEFAULT_FEATURES)
     
     if args.info:
         show_info()
@@ -5249,8 +4618,8 @@ To compare ML with MVS, use:
         if args.seed_search_until_improvement > 0 or args.seed is not None:
             print("Error: --gain-stress-gate evaluates exported artifacts and cannot use --seed or seed-search")
             return 1
-        if args.shap is not None or args.ablation or args.correlation or args.feature_sweep is not None:
-            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation, --correlation, or --feature-sweep")
+        if args.shap is not None or args.ablation or args.correlation:
+            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation, or --correlation")
             return 1
         if args.positive_chip_boost is not None:
             print("Error: --positive-chip-boost is a training option and cannot be used with --gain-stress-gate")
@@ -5263,37 +4632,7 @@ To compare ML with MVS, use:
         print_gain_stress_summary(results)
         return 0
 
-    if args.gain_feature_experiment:
-        if args.experiment or args.experiment_promote:
-            print("Error: --gain-feature-experiment cannot be combined with experiment flows")
-            return 1
-        if args.seed_search_until_improvement > 0:
-            print("Error: --gain-feature-experiment cannot be combined with seed-search")
-            return 1
-        if args.shap is not None or args.ablation or args.correlation or args.feature_sweep is not None:
-            print("Error: --gain-feature-experiment cannot be combined with --shap, --ablation, --correlation, or --feature-sweep")
-            return 1
-        if args.positive_chip_boost is not None:
-            print("Error: --positive-chip-boost is not supported by --gain-feature-experiment")
-            return 1
-        rc, _, _ = experiment_gain_feature_sets(
-            seed=args.seed,
-            feature_sets=args.gain_feature_sets.split(','),
-            scaler_mode=args.scaler,
-            batch_size=args.batch_size,
-            fp_weight=args.fp_weight,
-            hidden_layers=args.hidden_layers,
-            environment_filter=args.environment,
-            excluded_chips=args.exclude_chip,
-            scales=args.gain_stress_scales,
-            use_cache=not args.no_cache,
-        )
-        return rc
-
     if args.experiment:
-        if not export_compatible_feature_set:
-            print("Error: --experiment currently supports only --feature-set production")
-            return 1
         return experiment_architectures(
             scaler_mode=args.scaler,
             batch_size=args.batch_size,
@@ -5318,14 +4657,11 @@ To compare ML with MVS, use:
         return 0
 
     if args.seed_search_until_improvement > 0:
-        if not export_compatible_feature_set:
-            print("Error: seed search can export artifacts and currently supports only --feature-set production")
-            return 1
         if args.seed is not None:
             print("Error: --seed and --seed-search-until-improvement are mutually exclusive")
             return 1
-        if args.shap is not None or args.ablation or args.feature_sweep is not None:
-            print("Error: --seed-search-until-improvement cannot be combined with --shap, --ablation, or --feature-sweep")
+        if args.shap is not None or args.ablation:
+            print("Error: --seed-search-until-improvement cannot be combined with --shap or --ablation")
             return 1
         return train_until_improvement(
             max_trials=args.seed_search_until_improvement,
@@ -5340,18 +4676,6 @@ To compare ML with MVS, use:
             sample_weight_mode=args.sample_weight_mode,
             use_cache=not args.no_cache,
         )
-    
-    if (
-        not export_compatible_feature_set
-        and not args.no_export
-        and not (args.ablation or args.correlation or args.shap is not None or args.feature_sweep is not None)
-    ):
-        print(
-            "Error: non-production feature sets are analysis-only until the C++ runtime "
-            "extractor is updated for export compatibility. Use --no-export, --ablation, "
-            "--shap, --correlation, or --feature-sweep."
-        )
-        return 1
 
     train_rc, _, _ = train_all(
         fp_weight=args.fp_weight, 
@@ -5359,7 +4683,6 @@ To compare ML with MVS, use:
         feature_names=selected_training_features,
         feature_importance=args.shap is not None,
         ablation=args.ablation,
-        feature_sweep=args.feature_sweep,
         shap_samples=args.shap if args.shap is not None else 200,
         hidden_layers=args.hidden_layers,
         scaler_mode=args.scaler,

@@ -14,7 +14,7 @@ All analysis tools support any ESP32 variant with CSI capability:
 
 Use `--chip <name>` to specify the chip (e.g., `--chip c3`, `--chip s3`). Most tools default to C6 if not specified.
 
-For algorithm documentation (MVS, fixed subcarriers, Hampel filter), see [ALGORITHMS.md](../docs/ALGORITHMS.md).
+For algorithm documentation (Classic, historical baselines, fixed subcarriers, Hampel filter), see [ALGORITHMS.md](../docs/ALGORITHMS.md).
 
 For production performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
 
@@ -52,9 +52,10 @@ python 1_analyze_raw_data.py --chip C3 # Detailed analysis on latest C3 dataset
 
 ### 2. System Tuning (`2_analyze_system_tuning.py`)
 
-**Purpose**: Grid search for optimal fixed-subcarrier MVS parameters
+**Purpose**: Grid search for optimal Classic detector parameters on the fixed production band
 
 - Tests threshold and window-size combinations using the fixed production subcarriers
+- Does not search subcarrier combinations anymore; the band is shared from `config.py`
 - Shows confusion matrix for best configuration
 - Finds optimal parameter combinations
 
@@ -99,7 +100,7 @@ python 4_analyze_filter_location.py --plot       # Show visualizations
 
 ### 5. Filter Turbulence Analysis (`5_analyze_filter_turbulence.py`)
 
-**Purpose**: Run the production-aligned paired MVS sweep and compare candidate detector variants
+**Purpose**: Run the production-aligned paired variance-baseline sweep and compare candidate detector variants
 
 - Sweeps all explicit `static_presence` / `motion` pairs from `data/dataset_info.json` by default
 - Mirrors the current startup/runtime path: fixed production subcarriers, startup adaptive threshold, and continuous baseline -> motion evaluation
@@ -122,7 +123,7 @@ python 5_analyze_filter_turbulence.py --dataset-id <pair_id> --plot
 
 ### 6. Filter Parameters Optimization (`6_optimize_filter_params.py`)
 
-**Purpose**: Run paired filter-parameter sweeps on top of the same production-aligned MVS evaluator
+**Purpose**: Run paired filter-parameter sweeps on top of the same production-aligned variance evaluator
 
 - Reuses the shared paired sweep core instead of selecting the latest files by modification time
 - Evaluates explicit `dataset_info.json` pairs, optionally filtered by chip
@@ -144,8 +145,8 @@ python 6_optimize_filter_params.py --all
 
 **Purpose**: Compare different motion detection algorithms
 
-- Compares RSSI, Mean Amplitude, Turbulence, MVS, L1-Delta, and ML detection methods
-- L1-Delta and MVS both calibrate their thresholds from the selected static capture using their production startup logic
+- Compares RSSI, Mean Amplitude, Turbulence, Classic, the moving-variance baseline, L1-Delta, and ML detection methods
+- Classic and the historical baselines calibrate their thresholds from the selected static capture using their production startup logic
 - Shows separation between static presence and motion
 
 ```bash
@@ -209,7 +210,6 @@ The main repository workflow and this training stack target Python `3.14`.
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
 - Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms
 - Supports FP-first architecture campaigns, gain-shift diagnostics, and feature-importance analysis
-- Supports analysis-only feature-set experiments via drop, swap, and sweep helpers
 - Exports weights for both platforms:
   - `src/python/micro_espectre/ml_weights.py`
   - `src/cpp/core/ml_weights.h`
@@ -230,24 +230,9 @@ python 10_train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experim
 python 10_train_ml_model.py --seed-search-until-improvement 20  # Stop at first better seed
 python 10_train_ml_model.py --gain-stress-gate  # Stress exported model with artificial feature gain shifts
 python 10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25  # Custom stress multipliers
-python 10_train_ml_model.py --gain-feature-experiment  # Compare raw/relative/hybrid gain robustness
 python 10_train_ml_model.py --shap         # SHAP importance (200 samples)
 python 10_train_ml_model.py --shap 500     # SHAP importance (500 samples)
-python 10_train_ml_model.py --feature-swap waveform_length_over_mean=l1_delta --no-export
-                                           # Replace one active feature with another for analysis
-python 10_train_ml_model.py --feature-sweep l1_delta --no-export
-                                           # Try one incoming feature in every slot of the active set
-python 10_train_ml_model.py --feature-drop waveform_length_over_mean,turb_skewness --no-export
-                                           # Train/evaluate after removing comma-separated features
 ```
-
-Feature-set experiment notes:
-
-- `--feature-set production` is the default; you can omit it unless you want a named alternative such as `robust_relative`
-- `--feature-swap OLD=NEW` replaces one active feature; repeat the flag to apply multiple swaps
-- `--feature-sweep FEATURE` evaluates the same incoming feature as a one-slot replacement for every feature in the selected set
-- `--feature-drop a,b,c` removes comma-separated features from the selected set before training
-- Non-production and modified feature sets are analysis-only for now; use `--no-export`, `--ablation`, `--shap`, `--correlation`, or `--feature-sweep`
 
 For the complete ML training workflow, promotion guidance, gain-stress
 diagnostics, and post-training regressions, see
@@ -256,7 +241,7 @@ see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md).
 
 ### 11. Dataset Quality Validation (`11_validate_dataset_quality.py`)
 
-Validates CSI datasets for integrity, signal quality, and ML readiness. It now checks per-file integrity for `empty`, `static_presence`, and `motion`, keeps pair validation focused on `static_presence`/`motion`, includes an `EMPTY SANITY` phase that measures how well `empty` separates from overlapping `static_presence` groups, and replays the production `l1_delta` startup calibration for each validated pair.
+Validates CSI datasets for integrity, signal quality, and ML readiness. It now checks per-file integrity for `empty`, `static_presence`, and `motion`, keeps pair validation focused on `static_presence`/`motion`, includes an `EMPTY SANITY` phase that measures how well `empty` separates from overlapping `static_presence` groups, and replays the production `ClassicDetector` startup calibration for each validated pair.
 
 **Checks performed:**
 - File integrity — NPZ loads, expected keys exist, shapes are valid
@@ -265,8 +250,8 @@ Validates CSI datasets for integrity, signal quality, and ML readiness. It now c
 - ML readiness — label balance, minimum samples, chip diversity
 
 Turbulence mode follows runtime conventions: CV-normalized turbulence for every
-file. ML uses the same normalized base turbulence and exports relative
-neural-detector features.
+file. ML uses the same normalized base turbulence and exports the production
+Core-6 neural-detector features.
 
 ```bash
 python 11_validate_dataset_quality.py              # Full validation
@@ -335,7 +320,7 @@ Tested on 60-second noisy static-presence capture with C6 chip:
 
 ### Fixed Subcarriers
 
-ESPectre now uses one shared fixed 12-subcarrier set across `mvs`, `l1_delta`, and `ml`. The startup-calibrated runtime paths tune detector-specific thresholds from baseline data.
+ESPectre now uses one shared fixed 12-subcarrier set across `classic` and `ml`. The startup-calibrated runtime paths tune detector-specific thresholds from baseline data, and user-facing tooling now treats `classic` as the only non-ML runtime detector name.
 
 For detailed performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
 
@@ -343,6 +328,6 @@ For detailed performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
 
 ## Additional Resources
 
-- [ALGORITHMS.md](../docs/ALGORITHMS.md) - Algorithm documentation (MVS, L1-Delta, fixed subcarriers, Hampel)
+- [ALGORITHMS.md](../docs/ALGORITHMS.md) - Algorithm documentation (Classic, ML, fixed subcarriers, Hampel)
 - [Micro-ESPectre](../src/python/micro_espectre/README.md) - R&D platform documentation
 - [ESPectre](../README.md) - Main project with Home Assistant integration

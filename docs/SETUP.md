@@ -28,7 +28,7 @@ Current entry-point support by frontend:
 
 | Frontend | Supported published targets | Notes |
 |----------|-----------------------------|-------|
-| `ESPHome` | `ESP32-S3`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32`, `ESP32-S2` (experimental) | Published web-flash images use the default detector profile; the frontend README covers `mvs`, `l1_delta`, and `ml` configuration |
+| `ESPHome` | `ESP32-S3`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32`, `ESP32-S2` (experimental) | Published web-flash images use the default detector profile; the frontend README covers `classic` and `ml` configuration |
 | `Native` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Standalone native frontend exposed over BLE and MQTT, with HTTPS OTA triggered over MQTT |
 | `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Requires BLE commissioning, so `ESP32-S2` is excluded; OTA stays in the Matter ecosystem |
 | `Streamer` | local build workflow | Not part of the browser flasher path; uses minimal MQTT control plus HTTPS OTA |
@@ -202,7 +202,7 @@ Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 
 For the `ESPHome` frontend, the web flasher also exposes detector variants:
 
-- `MVS` for the default variance-based detector
+- `Classic` for the default non-ML detector
 - `ML` for the neural-network detector assets
 
 To flash:
@@ -231,12 +231,11 @@ These concepts are shared across the C++ platform, even though each frontend exp
 
 ### Detection Algorithms
 
-ESPectre currently supports three detector families:
+ESPectre currently supports two runtime detector families:
 
 | Algorithm | Summary | Shared behavior |
 |-----------|---------|-----------------|
-| `MVS` | Moving-variance detector | Requires startup threshold bootstrap from a quiet room (`max x 1.3`) |
-| `L1-Delta` | Normalized profile-displacement detector | Requires startup threshold bootstrap from a quiet room (`max x 1.1`); more stable quiet level across sessions than MVS; automatically extends calibration when the startup window is not consistently quiet |
+| `Classic` | L1-Delta primary with variance recovery | Requires startup threshold bootstrap from a quiet room (`max x 1.1`); automatically extends calibration when the startup window is not consistently quiet |
 | `ML` | Neural-network detector | Skips threshold bootstrap and starts faster |
 
 The algorithm theory belongs in [ALGORITHMS.md](ALGORITHMS.md). 
@@ -247,10 +246,10 @@ Frontend-level configuration syntax belongs in the README of the frontend you ar
 At boot, the shared runtime may perform:
 
 1. AGC-active startup with the shared normalized turbulence path
-2. startup calibration for `MVS` and `L1-Delta`, which expects the room to stay quiet for about 10 seconds
+2. startup calibration for `Classic`, which expects the room to stay quiet for about 10 seconds
 3. transition into steady-state motion detection
 
-In `L1-Delta` mode, a calibration consistency gate checks that the startup
+In `Classic` mode, a calibration consistency gate checks that the startup
 window was actually quiet. If movement contaminated it, calibration extends
 automatically (logged as extending) until the window is consistent, up to
 about 20 extra seconds, instead of accepting a movement-inflated threshold.
@@ -291,7 +290,7 @@ The runtime already remaps several common alternate lengths. If warnings remain 
 Before checking frontend-specific settings:
 
 1. confirm the device is connected to 2.4 GHz Wi-Fi
-2. confirm startup calibration had a quiet room in `MVS` mode (`L1-Delta` extends calibration automatically when the startup window was not quiet)
+2. confirm startup calibration had a quiet room in `Classic` mode (the calibration gate extends automatically when the startup window was not quiet)
 3. check sensor placement and interference sources
 4. continue in [TUNING.md](TUNING.md) and the README of your frontend
 

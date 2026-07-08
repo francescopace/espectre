@@ -131,9 +131,10 @@ class HampelFilter:
     - Circular buffer for main storage
     - Insertion sort (faster than Timsort for small N)
     
-    This is ideal for filtering turbulence values before MVS calculation
-    as it removes outliers that cause false positives without smoothing
-    the signal (which would reduce sensitivity).
+    This is ideal for filtering turbulence values before the shared
+    moving-variance path, as it removes outliers that cause false
+    positives without smoothing the signal (which would reduce
+    sensitivity).
     """
     
     def __init__(self, window_size=5, threshold=3.0):

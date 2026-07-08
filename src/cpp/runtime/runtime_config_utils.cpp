@@ -30,7 +30,7 @@ const char *threshold_mode_display_name(ThresholdMode mode) {
       return "Min (max)";
     case ThresholdMode::AUTO:
     default:
-      return "Auto (max x1.3)";
+      return "Auto (max x1.1)";
   }
 }
 
@@ -42,11 +42,9 @@ const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
   switch (algorithm) {
     case DetectionAlgorithm::ML:
       return "ml";
-    case DetectionAlgorithm::L1_DELTA:
-      return "l1_delta";
-    case DetectionAlgorithm::MVS:
+    case DetectionAlgorithm::CLASSIC:
     default:
-      return "mvs";
+      return "classic";
   }
 }
 
@@ -70,13 +68,9 @@ RuntimeTrafficMode parse_traffic_mode(const char *mode) {
 }
 
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm) {
-  if (algorithm != nullptr && std::strcmp(algorithm, "ml") == 0) {
-    return DetectionAlgorithm::ML;
-  }
-  if (algorithm != nullptr && std::strcmp(algorithm, "l1_delta") == 0) {
-    return DetectionAlgorithm::L1_DELTA;
-  }
-  return DetectionAlgorithm::MVS;
+  return (algorithm != nullptr && std::strcmp(algorithm, "ml") == 0)
+             ? DetectionAlgorithm::ML
+             : DetectionAlgorithm::CLASSIC;
 }
 
 void set_manual_threshold(RuntimeConfig &config, float threshold) {

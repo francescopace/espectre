@@ -8,11 +8,7 @@ License: GPLv3
 """
 
 import pytest
-import sys
 import importlib.util
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
 from tools.lib.repo_paths import python_src_dir
 

@@ -12,7 +12,7 @@ import time
 import gc
 import sys
 
-# Threshold limits (unified with MVS/ML detector runtime validation)
+# Threshold limits shared by the runtime detectors
 SEG_THRESHOLD_MIN = 0.0
 SEG_THRESHOLD_MAX = 10.0
 
@@ -84,7 +84,7 @@ class MQTTCommands:
         
     def _get_detection_info(self):
         """Build detection info dict based on detector type."""
-        # Wire format matches the C++ runtime: get_name() labels ("MVS", "L1D", "ML").
+        # Wire format matches the C++ runtime: get_name() labels ("Classic", "ML").
         return {"algorithm": self.detector.get_name()}
         
     def send_response(self, message, accepted=True, command_id="", command=""):

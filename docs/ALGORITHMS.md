@@ -11,7 +11,8 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 - [AGC-Active Normalization](#agc-active-normalization)
 - [Fixed Subcarrier Set](#fixed-subcarrier-set)
 - [Signal Conditioning](#signal-conditioning)
-- [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
+- [Classic: L1-Delta with Variance Recovery](#classic-l1-delta-with-variance-recovery)
+- [Historical Moving-Variance Baseline](#historical-moving-variance-baseline)
 - [L1-Delta: Normalized Profile Displacement](#l1-delta-normalized-profile-displacement)
 - [ML: Neural Network Detector](#ml-neural-network-detector)
 - [References](#references)
@@ -20,7 +21,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 
 ## Overview
 
-ESPectre uses a combination of signal processing algorithms to detect motion from Wi-Fi Channel State Information (CSI). 
+ESPectre uses a combination of signal processing algorithms to detect motion from Wi-Fi Channel State Information (CSI). The production non-ML path is `ClassicDetector`, which uses L1-Delta as the primary metric and a gated moving-variance recovery vote in the ambiguous band below threshold. The standalone historical moving-variance baseline and L1-Delta sections remain here because the repo still uses them in research and comparison tooling.
 
 <details>
 <summary>What is CSI? (click to expand)</summary>
@@ -70,7 +71,7 @@ When a person moves in an environment, they alter multipath reflections, change 
 ```
 
 **Calibration sequence (at boot):**
-1. **Threshold Bootstrap** (~10s, 10 × window_size packets, MVS only): Keep the fixed 12-subcarrier set and calculate baseline moving variance
+1. **Threshold Bootstrap** (~10s, 10 × window_size packets, Classic only): Keep the fixed 12-subcarrier set and calibrate the L1-Delta primary threshold
 
 With default `window_size=100`, this means 1000 packets. If you change `segmentation_window_size`, the calibration buffer adjusts automatically.
 
@@ -82,7 +83,7 @@ With default `window_size=100`, this means 1000 packets. If you change `segmenta
 4. **Hampel Filter** (optional): Remove outliers using MAD
 5. **Low-Pass Filter** (optional): Remove high-frequency noise (Butterworth 1st order)
 6. **Moving Variance**: `Var(turbulence)` over sliding window
-7. **Adaptive Threshold**: Compare variance to `max(baseline_mv) x factor` → IDLE or MOTION
+7. **Classic Fusion**: compare the L1-Delta primary metric to its calibrated threshold, and use moving variance only as a gated recovery vote in the ambiguous band
 
 ---
 
@@ -141,16 +142,16 @@ The fixed set balances three goals:
 
 ### Adaptive Threshold Calculation
 
-For MVS, startup calibration keeps this fixed band and derives the adaptive threshold from baseline moving-variance values:
+For `classic`, startup calibration keeps this fixed band and derives the adaptive threshold from the L1-Delta primary metric:
 
 ```python
-def calculate_adaptive_threshold(mv_values, factor):
-    return max(mv_values) * factor
+def calculate_adaptive_threshold(metric_values, factor):
+    return max(metric_values) * factor
 ```
 
 | Mode | Formula | Effect |
 |------|---------|--------|
-| Auto (default) | max x 1.3 | Lower false positives on no-gain-lock captures |
+| Auto (default) | max x 1.1 | Lower false positives on no-gain-lock captures |
 | Min | max x 1.0 | Maximum sensitivity (may have FP) |
 
 See [TUNING.md](TUNING.md) for configuration options (`segmentation_threshold`).
@@ -180,7 +181,25 @@ See [PERFORMANCE.md](PERFORMANCE.md) for detailed fixed-band validation metrics.
 
 ## Signal Conditioning
 
-Optional filters can be applied to the turbulence stream before detection. Both filters operate on the scalar turbulence value (one per CSI packet) and share the same `SegmentationContext` used by both MVS and ML detectors.
+Optional filters can be applied to the turbulence stream before detection. Both filters operate on the scalar turbulence value (one per CSI packet) and share the same `SegmentationContext` used by the Classic recovery path, the historical moving-variance baseline, and the ML detector.
+
+---
+
+## Classic: L1-Delta with Variance Recovery
+
+`ClassicDetector` is the production non-ML detector. It combines:
+
+- a primary L1-Delta metric, which owns the startup threshold and calibration gate
+- a moving-variance support metric, used only as a gated recovery vote in the ambiguous band below threshold
+
+The startup threshold is calibrated from the L1-Delta primary metric with:
+
+| Mode | Formula | Effect |
+|------|---------|--------|
+| Auto (default) | max x 1.1 | Lower false positives while preserving recall |
+| Min | max x 1.0 | Maximum sensitivity (may have FP) |
+
+The moving-variance path does not have its own standalone detector name in the runtime anymore. Instead, Classic freezes a variance floor during startup and enables the recovery vote only when that floor is tight enough to trust.
 
 ### Hampel Filter
 
@@ -273,7 +292,7 @@ See [TUNING.md](TUNING.md) for filter configuration and tuning guidance.
 
 ---
 
-## MVS: Moving Variance Segmentation
+## Historical Moving-Variance Baseline
 
 ### The Insight
 
@@ -308,7 +327,7 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 For detailed performance metrics, see [PERFORMANCE.md](PERFORMANCE.md).
 
-**Reference**: [2] MVS segmentation: the fused CSI stream and corresponding moving variance sequence
+**Reference**: [2] Moving-variance segmentation: the fused CSI stream and corresponding moving variance sequence
 
 ---
 
@@ -351,12 +370,12 @@ scalar AGC gain, like the CV turbulence path.
 
 3. **Motion Metric**
 
-   Running mean of `d` over the sliding window (same `window_size = 100` as
-   MVS), maintained incrementally with a running sum.
+   Running mean of `d` over the sliding window (same `window_size = 100` as the
+   historical moving-variance baseline), maintained incrementally with a running sum.
 
 4. **State Machine**
 
-   Identical to MVS: metric above threshold enters MOTION, below returns IDLE.
+   Identical to the historical moving-variance baseline: metric above threshold enters MOTION, below returns IDLE.
 
 ### Startup Threshold
 
@@ -367,7 +386,7 @@ L1-Delta uses the shared startup calibration flow with a detector-specific
 threshold = max(calibration_metric) x 1.1
 ```
 
-The factor is lower than the MVS `1.3` because the quiet-state metric is much
+The factor is lower than the historical moving-variance baseline `1.3` because the quiet-state metric is much
 tighter: its quiet distribution has a coefficient of variation of about `0.08`
 (offline benchmark), so the calibration max already sits close to the quiet
 median. At steady state the quiet metric typically reads 85-95% of the
@@ -390,17 +409,26 @@ exhaustion the threshold falls back to `median(chunk maxima) x 1.1`. On a
 clean startup the gate usually never fires and the threshold is identical to
 the plain `max x 1.1` formula.
 
+Chunks discarded during extension are classified by amplitude: peaks within
+the anchor band (`<= 1.5 x median` of the accepted ring) are recurring
+quiet-tail bumps, not motion, and their maximum is folded back into the
+threshold metric ("tail rescue"). Without this, a session whose quiet metric
+has a heavy tail would extend past its own tail bumps and lock a threshold
+below them, producing a sustained false-positive floor (11.9% observed on a
+C6 long quiet run). Discarded chunks above the anchor band keep the plain
+contamination-repair behavior.
+
 On the paired datasets this keeps F1 at 94-95% even when the entire
 calibration window is contaminated by motion, where the ungated `max x 1.1`
 recall fails closed (F1 down to 3%). The gate is validated for the L1-Delta
-metric only: the MVS moving variance has a much looser quiet floor, so MVS
+metric only: the historical moving-variance path has a much looser quiet floor, so that baseline
 keeps the plain `max x 1.3` bootstrap. Full sweep in
 [EXPERIMENTS.md](EXPERIMENTS.md), "L1-Delta Contaminated-Calibration Gate And
 Extension Sweep".
 
 ### Why No Hampel Filter
 
-MVS squares deviations inside the moving variance, so a single spiked packet
+The historical moving-variance baseline squares deviations inside the moving variance, so a single spiked packet
 can dominate the window; the Hampel filter exists to remove those outliers.
 L1-Delta averages absolute differences, so one spiked packet contributes at
 most `1/window_size` of the metric. The detector therefore accepts the filter
@@ -412,20 +440,20 @@ Measured on the repo datasets (4 chips, 3 environments, paired
 static-presence/motion plus empty captures); full protocol and numbers in
 [EXPERIMENTS.md](EXPERIMENTS.md):
 
-- Separability (AUC) equal or better than MVS on every chip, with more uniform
-  per-chip recall (89-96% including S3, where MVS drops to ~80%).
+- Separability (AUC) equal or better than the historical moving-variance baseline on every chip, with more uniform
+  per-chip recall (89-96% including S3, where that baseline drops to ~80%).
 - Quiet-level stability: the quiet metric median varies <=1.3x across sessions
-  on the same chip, against up to 14.5x for the MVS moving variance. Startup
+  on the same chip, against up to 14.5x for the historical moving-variance metric. Startup
   thresholds therefore age much better.
-- Same fail-open behavior as MVS if the RF noise floor rises after calibration;
+- Same fail-open behavior as the historical moving-variance baseline if the RF noise floor rises after calibration;
   neither detector covers that case today.
 
-### Computational Cost vs MVS
+### Computational Cost vs Historical Variance Baseline
 
 Per packet, both detectors share the amplitude extraction (12x `sqrt`). After
 that:
 
-| Stage | MVS | L1-Delta |
+| Stage | Variance baseline | L1-Delta |
 |-------|-----|----------|
 | Per-packet metric | CV turbulence (mean + std + `sqrt` + div) | Normalize (12 div) + L1 diff (12 abs/add) |
 | Outlier handling | Hampel(7): 2 insertion sorts per packet | Not needed |
@@ -435,13 +463,13 @@ that:
 Measured on the Python reference implementations over 10k real packets
 (relative numbers are what matter; absolute values are host CPython):
 
-| Path | MVS (Hampel on) | L1-Delta | Delta |
+| Path | Variance baseline (Hampel on) | L1-Delta | Delta |
 |------|-----------------|----------|-------|
 | Evaluation every 25 packets (firmware-like) | 8.7 us/pkt | 7.0 us/pkt | ~20% cheaper |
 | Evaluation every packet (host live CLI) | 15.5 us/pkt | 7.3 us/pkt | ~50% cheaper |
 
 The O(1) evaluation means the L1-Delta cost is flat regardless of evaluation
-rate, while the MVS two-pass variance grows with evaluation frequency. Like
+rate, while the historical moving-variance two-pass variance grows with evaluation frequency. Like
 the shared turbulence path, the L1-Delta hot path is allocation-free
 (pre-allocated profile rings, buffer swap instead of copy), which matters for
 MicroPython GC pressure. The extra ~100 floats of state (~0.4 KB in float32)
@@ -449,13 +477,12 @@ are negligible on target hardware.
 
 ### Status
 
-Implemented in both runtimes with aligned semantics:
+Implemented as the production non-ML path in both runtimes with aligned
+semantics:
 
-- Micro-ESPectre (`src/python/micro_espectre/l1_delta_detector.py`), including
-  side-by-side live comparison in the host CLI (`--detector mvs,l1_delta`)
-- Shared C++ core (`src/cpp/core/l1_delta_detector.*`), selectable in the
-  ESPHome (`detection_algorithm: l1_delta`) and Matter (Kconfig choice)
-  frontends; the native frontend keeps the MVS default
+- Micro-ESPectre: `src/python/micro_espectre/classic_detector.py`
+- Shared C++ core: `src/cpp/core/classic_detector.*`
+- Runtime/frontends: `classic` is the default non-ML detector
 
 ---
 
@@ -467,7 +494,7 @@ Motion detection can be framed as a **binary classification problem**:
 - **Input**: Statistical features computed from a sliding window of turbulence values
 - **Output**: Probability of motion (0.0 to 1.0)
 
-A neural network can learn complex, non-linear patterns that may be missed by simple threshold-based methods. Unlike MVS, ML learns decision boundaries from labeled training data and generalizes across environments without per-environment calibration. The production binary model maps both `empty` and `static_presence` captures to IDLE, and maps `motion` captures to MOTION.
+A neural network can learn complex, non-linear patterns that may be missed by simple threshold-based methods. Unlike the historical moving-variance baseline, ML learns decision boundaries from labeled training data and generalizes across environments without per-environment calibration. The production binary model maps both `empty` and `static_presence` captures to IDLE, and maps `motion` captures to MOTION.
 
 ### Architecture
 
@@ -499,8 +526,9 @@ validation. A later gain-shift sweep moved the production export from raw
 9-feature inputs to an 8-feature relative set. The current `32-16` topology,
 `fp_weight=2.0`, and hard-negative sample weighting were selected because they
 improved long-recording false-positive robustness while preserving the relative
-feature set's gain-shift invariance. MVS is used only to mine difficult IDLE
-windows during this training mode, not as a general teacher for motion labels.
+feature set's gain-shift invariance. The historical moving-variance baseline is
+used only to mine difficult IDLE windows during this training mode, not as a
+general teacher for motion labels.
 
 ### Inference Pipeline
 
@@ -523,11 +551,11 @@ Both detectors use the same fixed, non-configurable subcarrier set:
 
 | Algorithm |Threshold | Boot Time |
 |-----------|---------------------|-----------|
-| MVS | Adaptive (max-based) | ~13s |
+| Classic | Adaptive (`max x 1.1` on the L1-Delta primary metric) | ~13s |
 | ML | Fixed (5.0 on 0-10 scale) | **~3s** |
 
 The production subcarrier set is `[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]`.
-MVS uses a baseline threshold bootstrap after startup; ML keeps its fixed threshold and therefore starts immediately once CSI capture is active.
+Classic uses a startup threshold bootstrap after startup; ML keeps its fixed threshold and therefore starts immediately once CSI capture is active.
 
 ### Features
 

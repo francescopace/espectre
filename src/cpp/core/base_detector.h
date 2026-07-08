@@ -131,7 +131,7 @@ public:
     /**
      * Get current motion metric value
      * 
-     * @return Primary metric (moving variance for MVS, probability for ML)
+     * @return Primary metric (classic motion metric, ML probability, etc.)
      */
     virtual float get_motion_metric() const = 0;
     
@@ -168,6 +168,14 @@ public:
      * Matches the Python runtime's detector STARTUP_GATE convention.
      */
     virtual bool startup_gate_enabled() const { return false; }
+
+    /**
+     * Hook called when startup calibration completes successfully.
+     *
+     * Detectors can freeze session-specific state here before the runtime
+     * performs its warm clear between calibration and steady-state detection.
+     */
+    virtual void on_startup_calibration_complete() {}
     
     // ========================================================================
     // FILTER CONFIGURATION

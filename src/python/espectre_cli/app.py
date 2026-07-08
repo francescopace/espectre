@@ -84,8 +84,8 @@ def _add_collect_parser(
     collect_parser.add_argument("--reference-every", type=int, default=0, help="Mark every Nth traffic packet as reference (default: 0 = measurement only)")
     collect_parser.add_argument(
         "--detector",
-        default="mvs",
-        help="Detection algorithm(s), comma-separated for parallel live comparison: mvs, ml, l1_delta (default: mvs)",
+        default="classic",
+        help="Detection algorithm(s), comma-separated for parallel live comparison: classic, ml (default: classic)",
     )
     collect_parser.add_argument("--no-save", action="store_true", help="Run live collect without saving dataset files")
     collect_parser.add_argument("--log-features", action="store_true", help="Print the 8 ML features after each published sample (ML only)")

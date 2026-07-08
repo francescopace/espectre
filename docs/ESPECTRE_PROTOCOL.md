@@ -88,7 +88,7 @@ espectre/v1/devices/{device_id}/telemetry
   "motion_state": "idle",
   "movement_score": 0.18,
   "threshold": 5.0,
-  "detector": "MVS",
+  "detector": "classic",
   "health": {
     "uptime_s": 3821
   }
@@ -137,7 +137,7 @@ espectre/v1/devices/{device_id}/info
     }
   },
   "detection": {
-    "algorithm": "MVS"
+    "algorithm": "classic"
   }
 }
 ```
@@ -365,7 +365,7 @@ Current BLE `sysinfo` diagnostic keys may include:
 | Key | Meaning |
 |-----|---------|
 | `chip` | Target chip reported by the firmware, such as `esp32c3` |
-| `detector` | Active detector name label: `MVS`, `L1D`, or `ML` |
+| `detector` | Active detector name: `classic`, or `ml` |
 | `window` | Detection window size in packets |
 | `lowpass` | Whether the low-pass stage is enabled |
 | `lowpass_cutoff` | Low-pass cutoff in Hz |

@@ -19,13 +19,14 @@
 #pragma once
 
 #include "base_detector.h"
+#include "features.h"
 #include <cstdint>
 #include <cstddef>
 
 namespace esphome {
 namespace espectre {
 
-// ML-specific constants (unified with MVS for consistent UI)
+// ML-specific constants
 constexpr float ML_DEFAULT_THRESHOLD = 5.0f;
 constexpr float ML_MIN_THRESHOLD = 0.0f;
 constexpr float ML_MAX_THRESHOLD = 10.0f;
@@ -44,7 +45,7 @@ public:
      * Constructor
      * 
      * @param window_size Feature extraction window size (10-200 packets)
-     * @param threshold Motion detection threshold (0.0-10.0, unified with MVS)
+     * @param threshold Motion detection threshold (0.0-10.0 on the shared runtime scale)
      */
     MLDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE, 
                float threshold = ML_DEFAULT_THRESHOLD);
@@ -62,8 +63,12 @@ public:
     // ========================================================================
     // BaseDetector interface implementation
     // ========================================================================
-    
+
+    void process_packet(const int8_t* csi_data, size_t csi_len,
+                        const uint8_t* selected_subcarriers = nullptr,
+                        uint8_t num_subcarriers = 0) override;
     void update_state() override;
+    void clear_buffer() override;
     float get_motion_metric() const override { return current_probability_; }
     bool set_threshold(float threshold) override;
     float get_threshold() const override { return threshold_; }
@@ -71,9 +76,29 @@ public:
 
 private:
     /**
-     * Extract ML features from the turbulence buffer
+     * Extract ML features from the turbulence buffer and L1-delta series
      */
     void extract_features(float* features_out);
+
+    /**
+     * Reconstruct the L1-delta series in chronological order.
+     *
+     * @param out Destination buffer (at least DETECTOR_MAX_WINDOW_SIZE)
+     * @return Number of valid delta samples written
+     */
+    uint16_t build_delta_series(float* out) const;
+
+    /**
+     * Reset the L1-delta profile and delta rings (cold clear).
+     */
+    void clear_l1_state_();
+
+    /**
+     * L1-delta ring capacity for this window: window_size - lag (0 if window
+     * is not larger than the lag). Sized so the series matches Python
+     * features.l1_delta_series (window_size profiles -> window_size - lag deltas).
+     */
+    uint16_t l1_delta_capacity_() const;
     
     /**
      * Run MLP inference on features.
@@ -82,12 +107,24 @@ private:
      * `ml_weights.h` metadata rather than hardcoded in this class.
      *
      * @param features Feature vector expected by the exported model
-     * @return Scaled motion metric (0.0-10.0, unified with MVS)
+     * @return Scaled motion metric (0.0-10.0 on the shared runtime scale)
      */
     float predict(const float* features);
-    
+
     float threshold_;
     float current_probability_;
+
+    // L1-delta profile-displacement state, maintained only when the exported
+    // model actually uses L1-delta features (checked against ML_FEATURE_IDS).
+    // Mirrors the shared L1-delta tracker rings; keep aligned with the Python
+    // features.l1_delta_series reference.
+    bool uses_l1_features_;
+    float profile_ring_[L1_DELTA_LAG][HT20_SELECTED_BAND_SIZE];
+    uint8_t profile_len_[L1_DELTA_LAG];
+    float delta_ring_[DETECTOR_MAX_WINDOW_SIZE];
+    uint16_t delta_index_;
+    uint16_t delta_count_;
+    uint32_t l1_packet_count_;
 };
 
 }  // namespace espectre

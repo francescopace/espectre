@@ -356,6 +356,8 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
             print(f'Startup threshold: {startup_threshold:.4f} ({threshold_source})')
         else:
             startup_threshold, _ = calibration_tracker.calculate_threshold("auto")
+            if hasattr(detector, "set_adaptive_threshold"):
+                detector.set_adaptive_threshold(startup_threshold)
             detector.set_threshold(float(SEG_THRESHOLD))
             threshold_source = "manual"
             print(f'Manual threshold: {SEG_THRESHOLD:.2f} (startup would be: {startup_threshold:.4f})')
@@ -423,7 +425,7 @@ def main():
     
     # Initialize detector based on configured algorithm
     detection_algorithm = normalize_detector_algorithm(
-        getattr(config, 'DETECTION_ALGORITHM', 'mvs')
+        getattr(config, 'DETECTION_ALGORITHM', 'classic')
     )
     initial_threshold = getattr(config, 'SEG_THRESHOLD', 1.0)
 

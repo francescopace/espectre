@@ -19,37 +19,37 @@ jobs:
         include:
           - chip: ESP32
             config: examples/espectre-esp32.yaml
-            algorithm: mvs
+            algorithm: classic
           - chip: ESP32
             config: examples/espectre-esp32.yaml
             algorithm: ml
           - chip: ESP32-S2
             config: examples/espectre-s2.yaml
-            algorithm: mvs
+            algorithm: classic
           - chip: ESP32-S2
             config: examples/espectre-s2.yaml
             algorithm: ml
           - chip: ESP32-S3
             config: examples/espectre-s3.yaml
-            algorithm: mvs
+            algorithm: classic
           - chip: ESP32-S3
             config: examples/espectre-s3.yaml
             algorithm: ml
           - chip: ESP32-C3
             config: examples/espectre-c3.yaml
-            algorithm: mvs
+            algorithm: classic
           - chip: ESP32-C3
             config: examples/espectre-c3.yaml
             algorithm: ml
           - chip: ESP32-C5
             config: examples/espectre-c5.yaml
-            algorithm: mvs
+            algorithm: classic
           - chip: ESP32-C5
             config: examples/espectre-c5.yaml
             algorithm: ml
           - chip: ESP32-C6
             config: examples/espectre-c6.yaml
-            algorithm: mvs
+            algorithm: classic
           - chip: ESP32-C6
             config: examples/espectre-c6.yaml
             algorithm: ml

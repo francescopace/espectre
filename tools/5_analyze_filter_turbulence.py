@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-ESPectre - Production-aligned MVS sweep and prototype comparison.
+ESPectre - Production-aligned variance sweep and prototype comparison.
 
-Default mode compares the current production MVS path against Python-only drift
+Default mode compares the current production moving-variance path against Python-only drift
 mitigations over all explicit static_presence/motion pairs from dataset_info.json.
 
 Optional filter-comparison mode keeps the older filter-analysis workflow, but
@@ -34,9 +34,9 @@ from config import (
     LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
-from tools.lib.mvs_sweep_core import (
-    MVSFilterConfig,
-    MVSEvaluationResult,
+from tools.lib.variance_baseline_core import (
+    VarianceEvaluationResult,
+    VarianceFilterConfig,
     baseline_tracking_variant,
     evaluate_pairs,
     iter_paired_datasets,
@@ -48,7 +48,7 @@ from tools.lib.mvs_sweep_core import (
 
 SAMPLING_RATE = 100.0
 WINDOW_SIZE = SEG_WINDOW_SIZE
-PRODUCTION_FILTER = MVSFilterConfig(
+PRODUCTION_FILTER = VarianceFilterConfig(
     enable_hampel=ENABLE_HAMPEL_FILTER,
     enable_lowpass=ENABLE_LOWPASS_FILTER,
     hampel_window=HAMPEL_WINDOW,
@@ -59,19 +59,19 @@ FILTER_PROFILES = {
     "production": ("Production", PRODUCTION_FILTER),
     "no_filter": (
         "No Filter",
-        MVSFilterConfig(enable_hampel=False, enable_lowpass=False),
+        VarianceFilterConfig(enable_hampel=False, enable_lowpass=False),
     ),
     "hampel_only": (
         "Hampel Only",
-        MVSFilterConfig(enable_hampel=True, enable_lowpass=False),
+        VarianceFilterConfig(enable_hampel=True, enable_lowpass=False),
     ),
     "lowpass_only": (
         "Lowpass Only",
-        MVSFilterConfig(enable_hampel=False, enable_lowpass=True),
+        VarianceFilterConfig(enable_hampel=False, enable_lowpass=True),
     ),
     "hampel_lowpass": (
         "Hampel + Lowpass",
-        MVSFilterConfig(enable_hampel=True, enable_lowpass=True),
+        VarianceFilterConfig(enable_hampel=True, enable_lowpass=True),
     ),
 }
 FILTER_COLORS = {
@@ -88,7 +88,7 @@ FILTER_COLORS = {
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="ESPectre - Production-aligned MVS sweep",
+        description="ESPectre - Production-aligned variance sweep",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--chip", type=str, default=None, help="Only evaluate one chip, e.g. C6")
@@ -195,12 +195,12 @@ def select_filter_profiles(args):
 
 def print_header(args, pair_count):
     print("\n==========================================================================")
-    print("  PRODUCTION-ALIGNED MVS SWEEP")
+    print("  PRODUCTION-ALIGNED VARIANCE SWEEP")
     print("==========================================================================")
     print(f"Window size: {WINDOW_SIZE} packets")
     print(f"Selected band: {list(DEFAULT_SUBCARRIERS)}")
     print(f"Pairs: {pair_count}")
-    print("Threshold source: per-pair MVS startup calibration")
+    print("Threshold source: per-pair variance startup calibration")
     if args.chip:
         print(f"Chip filter: {args.chip.upper()}")
     if args.dataset_id:
@@ -364,7 +364,7 @@ def plot_rows(rows):
     dataset_id = first_result_sets[0].dataset.dataset_id
     fig = plt.figure(figsize=(18, 4 * len(first_result_sets)))
     fig.suptitle(
-        f"ESPectre - MVS Sweep Comparison\nDataset: {dataset_id}",
+        f"ESPectre - Variance Sweep Comparison\nDataset: {dataset_id}",
         fontsize=13,
         fontweight="bold",
     )
@@ -423,7 +423,7 @@ def main():
             chip=args.chip,
             num_sc=64,
             require_pair=True,
-            prompt="Select dataset for MVS sweep",
+            prompt="Select dataset for variance sweep",
         )
         args.dataset_id = selected.path.name
         args.limit = 1

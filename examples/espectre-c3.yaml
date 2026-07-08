@@ -17,7 +17,7 @@
 
 substitutions:
   git_ref: main # branch, tag, or commit
-  detection_algorithm: mvs # mvs (default) or ml
+  detection_algorithm: classic # classic (default) or ml
 
 esphome:
   name: espectre

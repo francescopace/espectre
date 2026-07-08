@@ -184,12 +184,9 @@ bool EspIdfRuntime::configure_detector_() {
     snapshot_.threshold = ml_threshold;
     ml_detector_ = MLDetector(config_.segmentation_window_size, ml_threshold);
     detector_ = &ml_detector_;
-  } else if (config_.detection_algorithm == DetectionAlgorithm::L1_DELTA) {
-    l1_delta_detector_ = L1DeltaDetector(config_.segmentation_window_size, config_.segmentation_threshold);
-    detector_ = &l1_delta_detector_;
   } else {
-    mvs_detector_ = MVSDetector(config_.segmentation_window_size, config_.segmentation_threshold);
-    detector_ = &mvs_detector_;
+    classic_detector_ = ClassicDetector(config_.segmentation_window_size, config_.segmentation_threshold);
+    detector_ = &classic_detector_;
   }
   detector_->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
   detector_->configure_hampel(config_.hampel_enabled, config_.hampel_window, config_.hampel_threshold);
@@ -338,6 +335,9 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
     const float factor = get_threshold_factor(adaptive_mode, auto_factor);
     adaptive_threshold = threshold_calibrator_.threshold_metric() * factor;
     snapshot_.startup_threshold = adaptive_threshold;
+    if (detector_ != nullptr) {
+      detector_->on_startup_calibration_complete();
+    }
 
     if (config_.threshold_mode != ThresholdMode::MANUAL) {
       set_threshold_runtime(adaptive_threshold);

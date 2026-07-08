@@ -5,15 +5,6 @@ Tests the runtime evaluation cadence and motion hit filtering shared by the
 main Micro-ESPectre loop.
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-
-from tools.lib.repo_paths import python_src_dir
-
-sys.path.insert(0, str(python_src_dir()))
-
 from detector_interface import MotionState
 from runtime_policy import RuntimeMotionPolicy
 

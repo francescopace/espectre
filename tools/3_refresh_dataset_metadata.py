@@ -8,8 +8,8 @@ This tool updates metadata derived from the recorded NPZ files:
 
 Detection thresholds are intentionally not stored in dataset metadata: they
 are detector-specific, so each tool replays the startup calibration of the
-detector it evaluates (l1_delta or MVS) on the quiet capture it needs, using
-the shared helpers in `tools/lib`.
+production detector it evaluates (`classic`, or `ml` when relevant) on the
+quiet capture it needs, using the shared helpers in `tools/lib`.
 
 Usage:
     python tools/3_refresh_dataset_metadata.py                  # Dry run

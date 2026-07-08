@@ -17,20 +17,30 @@ import re
 from pathlib import Path
 from collections import defaultdict
 
-TOOLS_PATH = Path(__file__).resolve().parents[2] / 'tools'
-sys.path.insert(0, str(TOOLS_PATH))
-PYTHON_ROOT_PATH = Path(__file__).resolve().parents[2] / "src" / "python"
-sys.path.insert(0, str(PYTHON_ROOT_PATH))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TESTS_PATH = Path(__file__).resolve().parent
+PYTHON_ROOT_PATH = REPO_ROOT / "src" / "python"
 
-from tools.lib.repo_paths import data_dir, python_src_dir, tools_dir
+
+def _prepend_sys_path(path: Path) -> None:
+    """Add a repository-relative path once, keeping later entries stable."""
+    path_str = str(path)
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
+
+
+_prepend_sys_path(REPO_ROOT)
+_prepend_sys_path(TESTS_PATH)
+_prepend_sys_path(PYTHON_ROOT_PATH)
+
+from tools.lib.repo_paths import data_dir, python_src_dir
 
 # Add both the Python root and the Micro-ESPectre runtime source dir.
 # The runtime dir is inserted last (position 0) so it takes precedence for
 # direct imports like `import config`, while `espectre_cli` still resolves from
 # `src/python/`.
 SRC_PATH = python_src_dir()
-TOOLS_PATH = tools_dir()
-sys.path.insert(0, str(SRC_PATH))
+_prepend_sys_path(SRC_PATH)
 
 from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE, HAMPEL_WINDOW, HAMPEL_THRESHOLD
 
@@ -40,13 +50,13 @@ DATASET_INFO_PATH = DATA_DIR / 'dataset_info.json'
 UNIT_TEST_SUBCARRIERS = DEFAULT_SUBCARRIERS
 
 
-def get_mvs_fp_rate_target():
-    """Match the shared MVS FP-rate target."""
+def get_classic_fp_rate_target(chip_type=None):
+    """Match the Classic promotion gate per chip."""
     return 5.0
 
 
-def get_mvs_recall_target():
-    """Match the shared MVS recall target."""
+def get_classic_recall_target(chip_type=None):
+    """Match the shared Classic recall target."""
     return 95.0
 
 
@@ -64,22 +74,21 @@ def format_targets_summary_line():
     """Build summary line from target getter functions."""
     return (
         "Targets: "
-        f"MVS >{get_mvs_recall_target():.0f}% R, <{get_mvs_fp_rate_target():.1f}% FP | "
-        "L1D benchmark-only | "
+        f"Classic >{get_classic_recall_target():.0f}% R, <{get_classic_fp_rate_target():.1f}% FP | "
         f"ML >{get_ml_recall_target():.0f}% R, <{get_ml_fp_rate_target():.1f}% FP"
     )
 
 
 @pytest.fixture
 def fp_rate_target(chip_type):
-    """MVS FP-rate target fixture shared across test modules."""
-    return get_mvs_fp_rate_target()
+    """Classic FP-rate target fixture shared across test modules."""
+    return get_classic_fp_rate_target(chip_type)
 
 
 @pytest.fixture
 def recall_target(chip_type):
-    """MVS recall target fixture shared across test modules."""
-    return get_mvs_recall_target()
+    """Classic recall target fixture shared across test modules."""
+    return get_classic_recall_target(chip_type)
 
 
 @pytest.fixture
@@ -494,7 +503,7 @@ def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
     
     Args:
         chip: Chip type (C3, C5, C6, ESP32, S3)
-        algorithm: Algorithm name (mvs, l1_delta, ml)
+        algorithm: Algorithm name (classic, ml, or a legacy comparison label)
         recall: Recall percentage
         fp_rate: False positive rate percentage
         precision: Precision percentage
@@ -569,8 +578,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_line("                              PERFORMANCE SUMMARY TABLE (Python)")
     terminalreporter.write_line("=" * 105)
     terminalreporter.write_line("")
-    terminalreporter.write_line("| Chip   | Datasets | MVS                     | L1D                     | ML                      |")
-    terminalreporter.write_line("|--------|----------|-------------------------|-------------------------|-------------------------|")
+    terminalreporter.write_line("| Chip   | Datasets | Classic                 | ML                      |")
+    terminalreporter.write_line("|--------|----------|-------------------------|-------------------------|")
     
     # Sort chips for consistent output
     for chip in ['C3', 'C5', 'C6', 'ESP32', 'S3']:
@@ -583,19 +592,12 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             for v in chip_results.values()
         )
         
-        if 'mvs' in chip_results:
-            mvs = average_metrics(chip_results['mvs'])
-            mvs_str = f"{mvs['recall']:.1f}% R, {mvs['fp_rate']:.1f}% FP"
+        if 'classic' in chip_results:
+            classic = average_metrics(chip_results['classic'])
+            classic_str = f"{classic['recall']:.1f}% R, {classic['fp_rate']:.1f}% FP"
         else:
-            mvs_str = "N/A"
+            classic_str = "N/A"
 
-        if 'l1_delta' in chip_results:
-            l1_delta = average_metrics(chip_results['l1_delta'])
-            l1_delta_str = f"{l1_delta['recall']:.1f}% R, {l1_delta['fp_rate']:.1f}% FP"
-        else:
-            l1_delta_str = "N/A"
-        
-        # ML
         if 'ml' in chip_results:
             ml = average_metrics(chip_results['ml'])
             ml_str = f"{ml['recall']:.1f}% R, {ml['fp_rate']:.1f}% FP"
@@ -603,7 +605,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             ml_str = "N/A"
         
         terminalreporter.write_line(
-            f"| {chip:<6} | {dataset_count:>8} | {mvs_str:<23} | {l1_delta_str:<23} | {ml_str:<23} |"
+            f"| {chip:<6} | {dataset_count:>8} | {classic_str:<23} | {ml_str:<23} |"
         )
     
     terminalreporter.write_line("")
@@ -624,16 +626,10 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         
         chip_results = results[chip]
         
-        if 'mvs' in chip_results:
-            mvs = average_metrics(chip_results['mvs'])
+        if 'classic' in chip_results:
+            classic = average_metrics(chip_results['classic'])
             terminalreporter.write_line(
-                f"| {chip:<6} | {'MVS':<11} | {mvs['count']:>8} | {mvs['recall']:>6.1f}% | {mvs.get('precision', 0):>8.1f}% | {mvs['fp_rate']:>6.1f}% | {mvs.get('f1', 0):>7.1f}% |"
-            )
-
-        if 'l1_delta' in chip_results:
-            l1_delta = average_metrics(chip_results['l1_delta'])
-            terminalreporter.write_line(
-                f"| {chip:<6} | {'L1_DELTA':<11} | {l1_delta['count']:>8} | {l1_delta['recall']:>6.1f}% | {l1_delta.get('precision', 0):>8.1f}% | {l1_delta['fp_rate']:>6.1f}% | {l1_delta.get('f1', 0):>7.1f}% |"
+                f"| {chip:<6} | {'CLASSIC':<11} | {classic['count']:>8} | {classic['recall']:>6.1f}% | {classic.get('precision', 0):>8.1f}% | {classic['fp_rate']:>6.1f}% | {classic.get('f1', 0):>7.1f}% |"
             )
 
         if 'ml' in chip_results:

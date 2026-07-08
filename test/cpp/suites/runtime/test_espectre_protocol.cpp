@@ -115,7 +115,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.frontend = "streamer";
   info.firmware_version = "2026.7";
   info.chip = "esp32c6";
-  info.detector = "mvs";
+  info.detector = "classic";
   info.network.ip_address = "192.168.1.10";
   info.network.mac_address = "AA:BB:CC:DD:EE:FF";
   info.network.channel = 6;
@@ -131,7 +131,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"network\":{") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"ip_address\":\"192.168.1.10\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"channel\":{\"primary\":6}") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"detection\":{\"algorithm\":\"mvs\"}") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"detection\":{\"algorithm\":\"classic\"}") != std::string::npos);
 }
 
 void test_info_payload_omits_optional_sections_when_empty(void) {

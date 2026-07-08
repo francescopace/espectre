@@ -235,6 +235,7 @@ def _run_live_collect(args) -> None:
         from detector_interface import (
             detector_needs_startup_calibration,
             load_detector_class,
+            normalize_detector_algorithm,
             supported_detector_algorithms,
         )
         from ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD
@@ -252,6 +253,7 @@ def _run_live_collect(args) -> None:
             from src.detector_interface import (
                 detector_needs_startup_calibration,
                 load_detector_class,
+                normalize_detector_algorithm,
                 supported_detector_algorithms,
             )
             from src.ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD
@@ -267,12 +269,12 @@ def _run_live_collect(args) -> None:
 
     supported_detectors = supported_detector_algorithms()
     detector_kinds = list(dict.fromkeys(
-        kind.strip().lower()
-        for kind in str(getattr(args, "detector", "mvs")).split(",")
+        normalize_detector_algorithm(kind.strip().lower())
+        for kind in str(getattr(args, "detector", "classic")).split(",")
         if kind.strip()
     ))
     if not detector_kinds:
-        detector_kinds = ["mvs"]
+        detector_kinds = ["classic"]
     unsupported = [kind for kind in detector_kinds if kind not in supported_detectors]
     if unsupported:
         print(f"{Fore.RED}❌ Unsupported detector(s): {', '.join(unsupported)}{Style.RESET_ALL}")
@@ -638,6 +640,9 @@ def _run_live_collect(args) -> None:
                     detector.set_threshold(startup_threshold)
                 slot["calibration_threshold_source"] = f"{raw_threshold_setting} ({threshold_formula})"
             else:
+                startup_threshold, _ = calibration_tracker.calculate_threshold("auto")
+                if hasattr(detector, "set_adaptive_threshold"):
+                    detector.set_adaptive_threshold(startup_threshold)
                 detector.set_threshold(float(raw_threshold_setting))
                 slot["calibration_threshold_source"] = "manual"
             slot["calibration_success"] = True

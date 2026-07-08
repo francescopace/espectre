@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 import numpy as np
 
 from .bootstrap import setup_paths
-from .csi_analysis import MVSDetector
+from .csi_analysis import VarianceDetectorAdapter
 from . import dataset_metadata
 
 setup_paths()
@@ -643,13 +643,13 @@ class CSICollector:
             self.receiver.sock.settimeout(previous_timeout)
         return drained
 
-    def _build_ready_detector(self) -> MVSDetector:
+    def _build_ready_detector(self) -> VarianceDetectorAdapter:
         window_size = int(getattr(config, "SEG_WINDOW_SIZE", 100))
         if window_size < 10:
             window_size = 10
         elif window_size > 200:
             window_size = 200
-        return MVSDetector(window_size=window_size, threshold=self.READY_MV_THRESHOLD, track_data=False)
+        return VarianceDetectorAdapter(window_size=window_size, threshold=self.READY_MV_THRESHOLD, track_data=False)
 
     def _reset_live_status_block(self) -> None:
         self._live_status_line_count = 0

@@ -9,16 +9,9 @@ Tests the neural network-based motion detector including:
 """
 import pytest
 import math
-import sys
-from pathlib import Path
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-
-from tools.lib.repo_paths import generated_data_dir, python_src_dir
-
-# Add src to path for imports
-sys.path.insert(0, str(python_src_dir()))
+from tools.lib.repo_paths import generated_data_dir
 
 from config import DEFAULT_SUBCARRIERS
 import ml_detector as ml_detector_module

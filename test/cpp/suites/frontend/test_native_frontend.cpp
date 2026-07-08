@@ -29,7 +29,7 @@ RuntimeSnapshot make_ready_snapshot() {
   snapshot.movement_metric = 2.75f;
   snapshot.threshold = 1.5f;
   snapshot.startup_threshold = 0.42f;
-  snapshot.detector_name = "mvs";
+  snapshot.detector_name = "classic";
   return snapshot;
 }
 

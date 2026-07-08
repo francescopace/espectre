@@ -4,10 +4,9 @@
 #include <cstdint>
 #include <string>
 #include "base_detector.h"
+#include "classic_detector.h"
 #include "csi_manager.h"
-#include "l1_delta_detector.h"
 #include "ml_detector.h"
-#include "mvs_detector.h"
 #include "runtime_interface.h"
 #include "stimulus_service.h"
 #include "wifi_lifecycle.h"
@@ -53,8 +52,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   IRuntimeListener *listener_{nullptr};
 
   BaseDetector *detector_{nullptr};
-  MVSDetector mvs_detector_;
-  L1DeltaDetector l1_delta_detector_;
+  ClassicDetector classic_detector_;
   MLDetector ml_detector_;
 
   CSIManager csi_manager_;

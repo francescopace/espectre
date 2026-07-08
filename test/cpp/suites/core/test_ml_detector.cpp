@@ -16,7 +16,7 @@
 #include <algorithm>
 #include <vector>
 #include "ml_detector.h"
-#include "ml_features.h"
+#include "features.h"
 #include "ml_weights.h"
 #include "esphome/core/log.h"
 #include "cnpy.h"
@@ -257,47 +257,34 @@ void test_ml_inference_classification(void) {
 
 void test_feature_extraction_basic(void) {
     float turb_buffer[50];
+    float delta_buffer[50];
     float features[ML_NUM_FEATURES];
-    
-    // Fill buffer with synthetic data
+
+    // Fill both series with synthetic data.
     for (int i = 0; i < 50; i++) {
         turb_buffer[i] = 10.0f + (i % 5) * 0.5f;
+        delta_buffer[i] = 0.01f + (i % 7) * 0.002f;
     }
-    
-    extract_ml_features(turb_buffer, 50, features);
-    
-    // Verify features are reasonable. The runtime supports the current
-    // relative 8-feature export and the legacy raw 9-feature export.
-    if (ML_NUM_FEATURES == 8) {
-        // Order: std/mean, max/mean, min/mean, iqr/mean, mad/mean,
-        // waveform_length/mean/step, skewness, autocorr
-        TEST_ASSERT_TRUE(features[0] >= 0);  // turb_std_over_mean
-        TEST_ASSERT_TRUE(features[1] >= features[2]); // max_over_mean >= min_over_mean
-        TEST_ASSERT_TRUE(features[3] >= 0);  // turb_iqr_over_mean
-        TEST_ASSERT_TRUE(features[4] >= 0);  // turb_mad_over_mean
-        TEST_ASSERT_TRUE(features[5] >= 0);  // waveform_length_over_mean
-        // features[6] = skewness (can be any value)
-        TEST_ASSERT_TRUE(features[7] >= -1.0f && features[7] <= 1.0f);
-    } else {
-        // Order: mean, std, max, min, iqr, skewness, autocorr, mad, waveform_length
-        TEST_ASSERT_TRUE(features[0] > 0);   // turb_mean > 0
-        TEST_ASSERT_TRUE(features[1] >= 0);  // turb_std >= 0
-        TEST_ASSERT_TRUE(features[2] >= features[3]); // turb_max >= turb_min
-        TEST_ASSERT_TRUE(features[4] >= 0);  // turb_iqr >= 0
-        // features[5] = skewness (can be any value)
-        TEST_ASSERT_TRUE(features[6] >= -1.0f && features[6] <= 1.0f);
-        TEST_ASSERT_TRUE(features[7] >= 0);  // turb_mad >= 0
-        TEST_ASSERT_TRUE(features[8] >= 0);  // waveform_length >= 0
+
+    // Extract exactly the exported feature set (turbulence and/or L1-delta).
+    extract_ml_features_by_id(turb_buffer, 50, delta_buffer, 50,
+                              ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features);
+
+    // Every exported feature must be a finite number.
+    for (int i = 0; i < ML_NUM_FEATURES; i++) {
+        TEST_ASSERT_TRUE(features[i] == features[i]);  // not NaN
+        TEST_ASSERT_TRUE(features[i] < 1e30f && features[i] > -1e30f);
     }
 }
 
 void test_feature_extraction_empty_buffer(void) {
     float turb_buffer[50] = {0};
     float features[ML_NUM_FEATURES];
-    
-    extract_ml_features(turb_buffer, 0, features);
-    
-    // All features should be 0 for empty buffer
+
+    extract_ml_features_by_id(turb_buffer, 0, nullptr, 0,
+                              ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features);
+
+    // All features should be 0 for an empty buffer.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
         TEST_ASSERT_EQUAL_FLOAT(0.0f, features[i]);
     }

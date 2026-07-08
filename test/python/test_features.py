@@ -17,9 +17,7 @@ from features import (
     calc_mad,
     extract_features_by_name,
     DEFAULT_FEATURES,
-    RAW_FEATURES,
-    RELATIVE_FEATURES,
-    ROBUST_RELATIVE_FEATURES,
+    CORE6_FEATURES,
     FEATURE_NAMES,
 )
 
@@ -247,25 +245,34 @@ class TestExtractAllFeatures:
         assert features == [0.0] * len(DEFAULT_FEATURES)
     
     def test_feature_names_match(self):
-        """Test that FEATURE_NAMES matches DEFAULT_FEATURES"""
+        """Test that FEATURE_NAMES matches DEFAULT_FEATURES (production = Core-6)"""
         assert len(FEATURE_NAMES) == len(DEFAULT_FEATURES)
         assert FEATURE_NAMES == DEFAULT_FEATURES
-        assert DEFAULT_FEATURES == RELATIVE_FEATURES
+        assert DEFAULT_FEATURES == CORE6_FEATURES
 
     def test_unknown_feature_raises(self):
         """Removed legacy features are no longer accepted."""
         buffer = [float(i) for i in range(50)]
         with pytest.raises(ValueError, match="Unknown feature"):
             extract_features_by_name(buffer, 50, feature_names=['turb_kurtosis'])
-    
-    def test_amplitudes_parameter_ignored(self):
-        """Test that amplitudes parameter does not affect output"""
+
+    def test_removed_band_power_features_raise(self):
+        """Pruned experimental band-power features are no longer accepted."""
         buffer = [float(i) for i in range(50)]
-        features_no_amp = extract_features_by_name(buffer, 50, feature_names=DEFAULT_FEATURES)
-        features_with_amp = extract_features_by_name(
-            buffer, 50, amplitudes=[1.0] * 12, feature_names=DEFAULT_FEATURES
-        )
-        assert features_no_amp == features_with_amp
+        with pytest.raises(ValueError, match="Unknown feature"):
+            extract_features_by_name(buffer, 50, feature_names=['turb_band_power'])
+
+    def test_removed_robust_relative_features_raise(self):
+        """Removed percentile-based relative features are no longer accepted."""
+        buffer = [float(i) for i in range(50)]
+        with pytest.raises(ValueError, match="Unknown feature"):
+            extract_features_by_name(buffer, 50, feature_names=['turb_p95_over_mean'])
+
+    def test_removed_full_l1_descriptor_features_raise(self):
+        """Rejected L1 descriptor extras are no longer accepted."""
+        buffer = [float(i) for i in range(50)]
+        with pytest.raises(ValueError, match="Unknown feature"):
+            extract_features_by_name(buffer, 50, feature_names=['l1_delta_iqr'])
     
     def test_all_features_are_float(self):
         """Test that all features are floats"""
@@ -285,50 +292,21 @@ class TestExtractAllFeatures:
         
         idle_features = extract_features_by_name(idle_buffer, 50, feature_names=DEFAULT_FEATURES)
         motion_features = extract_features_by_name(motion_buffer, 50, feature_names=DEFAULT_FEATURES)
-        
-        std_idx = FEATURE_NAMES.index('turb_std_over_mean')
-        assert motion_features[std_idx] > idle_features[std_idx]
+
+        # turb_mad_over_mean is part of the production Core-6 set and rises with
+        # turbulence, so motion must exceed idle. The vectors must also differ.
         mad_idx = FEATURE_NAMES.index('turb_mad_over_mean')
         assert motion_features[mad_idx] > idle_features[mad_idx]
+        assert motion_features != idle_features
 
-    def test_raw_feature_set_is_available_for_experiments(self):
-        """Legacy raw features remain available for experiments."""
+    def test_removed_raw_features_raise(self):
+        """Legacy raw-only turbulence features are no longer accepted."""
         buffer = [float(i + 1) for i in range(50)]
-        features = extract_features_by_name(buffer, 50, feature_names=RAW_FEATURES)
-        assert len(features) == 9
+        with pytest.raises(ValueError, match="Unknown feature"):
+            extract_features_by_name(buffer, 50, feature_names=['turb_mean'])
 
-    def test_relative_features_are_gain_invariant(self):
-        """Default relative features are invariant to uniform positive gain."""
+    def test_removed_relative_features_raise(self):
+        """Legacy relative turbulence baseline features are no longer accepted."""
         buffer = [3.0 + (i % 7) * 0.25 for i in range(50)]
-        scaled = [value * 1.7 for value in buffer]
-
-        features = extract_features_by_name(buffer, 50, feature_names=RELATIVE_FEATURES)
-        scaled_features = extract_features_by_name(scaled, 50, feature_names=RELATIVE_FEATURES)
-
-        for actual, expected in zip(scaled_features, features):
-            assert actual == pytest.approx(expected, rel=1e-6, abs=1e-6)
-
-    def test_robust_relative_features_are_gain_invariant(self):
-        """Percentile-based relative features remain invariant to uniform gain."""
-        buffer = [3.0 + (i % 7) * 0.25 for i in range(50)]
-        scaled = [value * 2.3 for value in buffer]
-
-        features = extract_features_by_name(buffer, 50, feature_names=ROBUST_RELATIVE_FEATURES)
-        scaled_features = extract_features_by_name(
-            scaled, 50, feature_names=ROBUST_RELATIVE_FEATURES
-        )
-
-        for actual, expected in zip(scaled_features, features):
-            assert actual == pytest.approx(expected, rel=1e-6, abs=1e-6)
-
-    def test_robust_percentile_features_reduce_single_spike_leverage(self):
-        """P95/P05 features are less sensitive to one isolated spike than max/min."""
-        buffer = [10.0] * 99 + [80.0]
-
-        relative = extract_features_by_name(buffer, 100, feature_names=RELATIVE_FEATURES)
-        robust = extract_features_by_name(buffer, 100, feature_names=ROBUST_RELATIVE_FEATURES)
-
-        max_idx = RELATIVE_FEATURES.index('turb_max_over_mean')
-        p95_idx = ROBUST_RELATIVE_FEATURES.index('turb_p95_over_mean')
-        assert robust[p95_idx] < relative[max_idx]
-        assert robust[p95_idx] == pytest.approx(10.0 / 10.7, rel=1e-6)
+        with pytest.raises(ValueError, match="Unknown feature"):
+            extract_features_by_name(buffer, 50, feature_names=['turb_std_over_mean'])

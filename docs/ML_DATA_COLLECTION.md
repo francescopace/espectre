@@ -109,11 +109,10 @@ group, and `--bind-ip <local_ip>` only when auto-detection picks the wrong host
 interface.
 
 For startup-calibrated detectors, the live collect path mirrors the runtime
-startup threshold bootstrap. `mvs` keeps the plain threshold rule (`auto` uses
-`max(calibration_metric) x 1.3`, and `min` uses `max(calibration_metric) x
-1.0`), while `l1_delta` uses `max(calibration_metric) x 1.1` in `auto` and the
-same startup consistency gate as the runtime to extend contaminated calibration
-windows before finalizing the threshold.
+startup threshold bootstrap. `classic` uses the L1-Delta primary metric with
+`max(calibration_metric) x 1.1` in `auto` and the same startup consistency gate
+as the runtime to extend contaminated calibration windows before finalizing the
+threshold.
 
 If you pass a comma-separated detector list to `--detector`, `espectre collect`
 runs the detectors side by side on the same live CSI stream. This is useful for
@@ -161,7 +160,7 @@ into one file.
 | Command | Description |
 |---------|-------------|
 | `./espectre collect --target <ip> --no-save --log-turbulence` | Inspect live detector output without saving files |
-| `./espectre collect --target <ip> --no-save --detector mvs,l1_delta,ml` | Compare multiple detectors side by side on the same live CSI stream |
+| `./espectre collect --target <ip> --no-save --detector classic,ml` | Compare multiple detectors side by side on the same live CSI stream |
 | `./espectre collect --label <name> --duration <sec> --target <ip>` | Run live collect and save the accepted capture window for the specified duration |
 | `./espectre collect --label <name> --target <ip>` | Run live collect, wait for the ready gate, then keep saving until `Ctrl+C` |
 | `./espectre collect --label <name> --samples <n> --target <ip>` | Legacy timed dataset mode: record `n` timed collections |
@@ -174,7 +173,7 @@ into one file.
 
 When saving is enabled, live collect keeps a pre-recording readiness gate: the
 selected detector must stay below its effective threshold for 3 continuous
-seconds before packets are accepted into the saved capture. For `mvs`, this
+seconds before packets are accepted into the saved capture. For `classic`, this
 happens after the startup calibration phase.
 
 ### Options
@@ -195,7 +194,7 @@ happens after the startup calibration phase.
 
 | Option | Meaning |
 |--------|---------|
-| `--detector {ml,mvs}` | Select the live detector (`mvs` default) |
+| `--detector {classic,ml}` | Select the live detector (`classic` default) |
 | `--log-turbulence` | Print raw and filtered turbulence plus the recent tail buffer |
 | `--log-features` | Print the 8 ML features after each publish (`ml` only) |
 | `--log-only-motion` | Suppress publish detail lines unless the effective state is `MOTION` |
@@ -228,10 +227,10 @@ happens after the startup calibration phase.
 
 ```bash
 # Live inspection only, no files written
-./espectre collect --target 192.168.1.50 --no-save --detector mvs --log-turbulence
+./espectre collect --target 192.168.1.50 --no-save --detector classic --log-turbulence
 
 # Live comparison on the same stream: one status line per detector
-./espectre collect --target 192.168.1.50 --no-save --detector mvs,l1_delta,ml
+./espectre collect --target 192.168.1.50 --no-save --detector classic,ml
 
 # Live recording: save after the stream stays below threshold for 3s
 # and stop automatically after 60 accepted seconds

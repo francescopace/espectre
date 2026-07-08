@@ -8,20 +8,15 @@ config ESPECTRE_MATTER_NODE_LABEL
 
 choice ESPECTRE_MATTER_DETECTION_ALGORITHM
     prompt "ESPectre Matter detection algorithm"
-    default ESPECTRE_MATTER_DETECTION_ALGORITHM_ML
+    default ESPECTRE_MATTER_DETECTION_ALGORITHM_CLASSIC
     help
         Select the detector used by the ESPectre Matter frontend runtime.
 
-    config ESPECTRE_MATTER_DETECTION_ALGORITHM_MVS
-        bool "MVS"
+    config ESPECTRE_MATTER_DETECTION_ALGORITHM_CLASSIC
+        bool "CLASSIC"
         help
-            Moving-variance detector with startup threshold calibration.
-
-    config ESPECTRE_MATTER_DETECTION_ALGORITHM_L1_DELTA
-        bool "L1_DELTA"
-        help
-            Normalized profile-displacement detector with startup threshold
-            calibration and a more stable quiet level across sessions.
+            L1-Delta primary detector with variance recovery and startup
+            threshold calibration.
 
     config ESPECTRE_MATTER_DETECTION_ALGORITHM_ML
         bool "ML"

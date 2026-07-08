@@ -20,7 +20,7 @@ SOURCE CODE ALIGNMENT:
   This script imports core functions directly from src/python/micro_espectre/ to ensure correctness:
   - src/python/micro_espectre/utils.py: calculate_spatial_turbulence(), calculate_moving_variance()
   - src/python/micro_espectre/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
-  - src/python/micro_espectre/l1_delta_detector.py: production runtime replay for pair validation
+  - src/python/micro_espectre/classic_detector.py: production runtime replay for pair validation
 
   Amplitude extraction is vectorized with numpy (int8 → int16 to avoid overflow)
   rather than looping through src/micro_espectre/utils.py:extract_amplitudes() per packet.
@@ -53,8 +53,9 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 from tools.lib.repo_paths import generated_data_dir, python_src_dir  # noqa: E402
-from tools.lib.dataset_metadata import estimate_runtime_threshold  # noqa: E402
-from tools.lib.mvs_sweep_core import calibrate_startup_threshold  # noqa: E402
+from tools.lib.dataset_metadata import (  # noqa: E402
+    build_calibrated_classic_detector,
+)
 
 SRC_DIR = python_src_dir()
 sys.path.insert(0, str(SRC_DIR))
@@ -69,10 +70,6 @@ from config import (  # noqa: E402
     DEFAULT_SUBCARRIERS,
     SEG_WINDOW_SIZE,
 )
-from features import extract_features_by_name  # noqa: E402
-from l1_delta_detector import L1DeltaDetector  # noqa: E402
-from segmentation import SegmentationContext  # noqa: E402
-
 # ------------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------------
@@ -93,12 +90,8 @@ MAX_INTER_PACKET_GAP_WARN_MS = 250.0
 MAX_INTER_PACKET_GAP_FAIL_MS = 1000.0
 MIN_EMPTY_SEPARABILITY_AUC = 0.70
 MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.70
-EMPTY_SEPARATION_TURB_MEAN_WEIGHT = 0.7
-EMPTY_SEPARATION_WAVEFORM_WEIGHT = 0.3
-QUIET_TEST_L1_FP_WARN_RATIO = 0.15
-QUIET_TEST_L1_FP_FAIL_RATIO = 0.30
-QUIET_TEST_MVS_FP_WARN_RATIO = 0.05
-QUIET_TEST_MVS_FP_FAIL_RATIO = 0.15
+QUIET_TEST_CLASSIC_FP_WARN_RATIO = 0.05
+QUIET_TEST_CLASSIC_FP_FAIL_RATIO = 0.15
 MAX_STATIC_ACTIVE_RATIO = 0.20
 MIN_MOTION_ACTIVE_RATIO = 0.20
 MIN_ACTIVE_RATIO_MARGIN = 0.10
@@ -169,24 +162,6 @@ def _window_mean(values, window_size=None):
     return np.convolve(arr, kernel, mode='valid').tolist()
 
 
-def _window_feature_series(values, feature_name, window_size=None):
-    """Compute one feature per full turbulence window."""
-    if window_size is None:
-        window_size = SEG_WINDOW_SIZE
-    if len(values) < window_size:
-        return []
-    series = []
-    for end_idx in range(window_size - 1, len(values)):
-        window = values[end_idx - window_size + 1:end_idx + 1]
-        feature_value = extract_features_by_name(
-            list(window),
-            len(window),
-            feature_names=[feature_name],
-        )[0]
-        series.append(float(feature_value))
-    return series
-
-
 def _standardize_with_empty_direction(empty_values, static_values):
     """Standardize one feature and orient it so higher scores mean empty."""
     empty_arr = np.asarray(empty_values, dtype=np.float64)
@@ -206,27 +181,12 @@ def _standardize_with_empty_direction(empty_values, static_values):
 def _build_empty_separation_score(
     empty_turb_mean,
     static_turb_mean,
-    empty_waveform_length_over_mean,
-    static_waveform_length_over_mean,
 ):
-    """Combine the two best cross-chip empty-separation features into one score."""
-    empty_turb_score, static_turb_score = _standardize_with_empty_direction(
+    """Build the empty-separation score from supported turbulence windows."""
+    return _standardize_with_empty_direction(
         empty_turb_mean,
         static_turb_mean,
     )
-    empty_wave_score, static_wave_score = _standardize_with_empty_direction(
-        empty_waveform_length_over_mean,
-        static_waveform_length_over_mean,
-    )
-    empty_score = (
-        EMPTY_SEPARATION_TURB_MEAN_WEIGHT * empty_turb_score
-        + EMPTY_SEPARATION_WAVEFORM_WEIGHT * empty_wave_score
-    )
-    static_score = (
-        EMPTY_SEPARATION_TURB_MEAN_WEIGHT * static_turb_score
-        + EMPTY_SEPARATION_WAVEFORM_WEIGHT * static_wave_score
-    )
-    return empty_score, static_score
 
 
 # ------------------------------------------------------------------
@@ -644,22 +604,26 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
     results = []
     bl_csi = _filter_measurement_frames(bl_csi, bl_data)
     mv_csi = _filter_measurement_frames(mv_csi, mv_data)
-    threshold = estimate_runtime_threshold(
-        bl_csi,
+    calibrated = build_calibrated_classic_detector(
+        _csi_matrix_to_packets(bl_csi),
         selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
     )
-    threshold = _coerce_positive_float(threshold)
-    if threshold is None:
+    if calibrated is None:
         results.append(ValidationResult(
             "threshold_activation",
             "FAIL",
-            "Could not calibrate the l1_delta startup threshold from the static capture",
+            "Could not calibrate the classic startup threshold from the static capture",
         ))
         return results, 0.0, 0.0, 0.0, 0.0
 
-    bl_metric = _replay_l1_metric_series(bl_csi, threshold)
-    mv_metric = _replay_l1_metric_series(mv_csi, threshold)
-    if len(bl_metric) == 0 or len(mv_metric) == 0:
+    detector, threshold = calibrated
+    bl_replay = _replay_classic_metrics(bl_csi, detector)
+    mv_replay = _replay_classic_metrics(mv_csi, detector)
+    bl_metric = bl_replay["score_series"]
+    mv_metric = mv_replay["score_series"]
+    bl_states = bl_replay["state_series"]
+    mv_states = mv_replay["state_series"]
+    if len(bl_states) == 0 or len(mv_states) == 0:
         results.append(ValidationResult(
             "threshold_activation",
             "FAIL",
@@ -667,8 +631,8 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
         ))
         return results, 0.0, 0.0, threshold, 0.0
 
-    static_active_ratio = float((bl_metric > threshold).mean())
-    motion_active_ratio = float((mv_metric > threshold).mean())
+    static_active_ratio = float(bl_states.mean())
+    motion_active_ratio = float(mv_states.mean())
     motion_peak_ratio = float(mv_metric.max() / threshold) if threshold > 0 else float('inf')
     active_ratio_delta = motion_active_ratio - static_active_ratio
 
@@ -793,21 +757,22 @@ def _compute_turbulence_and_moving_variance_series(csi_data):
     return np.asarray(turbulence, dtype=np.float64), moving_variance
 
 
-def _replay_l1_metric_series(csi_data, threshold):
-    """Replay one capture through the production l1_delta detector."""
-    detector = L1DeltaDetector(
-        window_size=SEG_WINDOW_SIZE,
-        threshold=float(threshold),
-    )
-    metric_series = []
+def _replay_classic_metrics(csi_data, detector):
+    """Replay one capture through a calibrated ClassicDetector."""
+    score_series = []
+    state_series = []
     for packet in csi_data:
         detector.process_packet(packet.tolist(), DEFAULT_SUBCARRIERS)
-        metric_series.append(float(detector.update_state()['motion_metric']))
+        metrics = detector.update_state()
+        if detector.is_ready():
+            score_series.append(float(metrics.get("motion_metric", 0.0)))
+            state_series.append(int(detector.get_state() == MotionState.MOTION))
 
-    warmup = SEG_WINDOW_SIZE + detector.lag
-    if len(metric_series) <= warmup:
-        return np.asarray([], dtype=np.float64)
-    return np.asarray(metric_series[warmup:], dtype=np.float64)
+    return {
+        "threshold": float(detector.get_threshold()),
+        "score_series": np.asarray(score_series, dtype=np.float64),
+        "state_series": np.asarray(state_series, dtype=np.int8),
+    }
 
 
 def _csi_matrix_to_packets(csi_data):
@@ -815,71 +780,24 @@ def _csi_matrix_to_packets(csi_data):
     return [{"csi_data": packet.tolist()} for packet in csi_data]
 
 
-def _evaluate_l1_quiet_fp(csi_data):
+def _evaluate_classic_quiet_fp(csi_data):
     """Return self-calibrated quiet FP metrics for one idle-only stream."""
-    threshold = _coerce_positive_float(
-        estimate_runtime_threshold(
-            _csi_matrix_to_packets(csi_data),
-            selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
-        )
+    calibrated = build_calibrated_classic_detector(
+        _csi_matrix_to_packets(csi_data),
+        selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
     )
-    if threshold is None:
+    if calibrated is None:
         return None
 
-    detector = L1DeltaDetector(
-        window_size=SEG_WINDOW_SIZE,
-        threshold=float(threshold),
-    )
-    warmup = SEG_WINDOW_SIZE + detector.lag
-    eval_count = max(len(csi_data) - warmup, 0)
-    motion_count = 0
-    for i, packet in enumerate(csi_data):
-        detector.process_packet(packet.tolist(), DEFAULT_SUBCARRIERS)
-        detector.update_state()
-        if i >= warmup and detector.get_state() == MotionState.MOTION:
-            motion_count += 1
-
+    detector, threshold = calibrated
+    replay = _replay_classic_metrics(csi_data, detector)
+    eval_count = int(len(replay["state_series"]))
+    motion_count = int(replay["state_series"].sum()) if eval_count > 0 else 0
     fp_rate = motion_count / eval_count if eval_count > 0 else 0.0
     return {
         "threshold": float(threshold),
-        "eval_count": int(eval_count),
-        "motion_count": int(motion_count),
-        "fp_rate": float(fp_rate),
-    }
-
-
-def _evaluate_mvs_quiet_fp(csi_data):
-    """Return self-calibrated quiet FP metrics for one idle-only stream."""
-    packets = _csi_matrix_to_packets(csi_data)
-    threshold, _max_moving_variance = calibrate_startup_threshold(
-        packets,
-        selected_band=tuple(DEFAULT_SUBCARRIERS),
-        window_size=SEG_WINDOW_SIZE,
-    )
-    threshold = _coerce_positive_float(threshold)
-    if threshold is None:
-        return None
-
-    ctx = SegmentationContext(
-        window_size=SEG_WINDOW_SIZE,
-        threshold=float(threshold),
-        enable_hampel=True,
-    )
-    warmup = SEG_WINDOW_SIZE
-    eval_count = max(len(csi_data) - warmup, 0)
-    motion_count = 0
-    for i, packet in enumerate(csi_data):
-        turbulence = ctx.calculate_spatial_turbulence(packet.tolist(), DEFAULT_SUBCARRIERS)
-        ctx.add_turbulence(turbulence)
-        ctx.update_state()
-        if i >= warmup and ctx.get_state() == SegmentationContext.STATE_MOTION:
-            motion_count += 1
-
-    fp_rate = motion_count / eval_count if eval_count > 0 else 0.0
-    return {
-        "threshold": float(threshold),
-        "eval_count": int(eval_count),
-        "motion_count": int(motion_count),
+        "eval_count": eval_count,
+        "motion_count": motion_count,
         "fp_rate": float(fp_rate),
     }
 
@@ -1027,9 +945,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
 
     for chip, environment in overlap_groups:
         empty_turb_mean_series = []
-        empty_waveform_length_over_mean_series = []
         static_turb_mean_series = []
-        static_waveform_length_over_mean_series = []
 
         for entry in empty_group_map[(chip, environment)]:
             filepath = _resolve_dataset_entry_path(entry, 'empty')
@@ -1040,14 +956,6 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
                 turb_mean = _window_mean(turbulence)
                 if len(turb_mean):
                     empty_turb_mean_series.append(np.asarray(turb_mean, dtype=np.float64))
-                waveform_length_over_mean = _window_feature_series(
-                    turbulence,
-                    "waveform_length_over_mean",
-                )
-                if len(waveform_length_over_mean):
-                    empty_waveform_length_over_mean_series.append(
-                        np.asarray(waveform_length_over_mean, dtype=np.float64)
-                    )
 
         for entry in static_group_map[(chip, environment)]:
             filepath = _resolve_dataset_entry_path(entry, 'static_presence')
@@ -1057,20 +965,10 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
                 turb_mean = _window_mean(turbulence)
                 if len(turb_mean):
                     static_turb_mean_series.append(np.asarray(turb_mean, dtype=np.float64))
-                waveform_length_over_mean = _window_feature_series(
-                    turbulence,
-                    "waveform_length_over_mean",
-                )
-                if len(waveform_length_over_mean):
-                    static_waveform_length_over_mean_series.append(
-                        np.asarray(waveform_length_over_mean, dtype=np.float64)
-                    )
 
         if (
             not empty_turb_mean_series
-            or not empty_waveform_length_over_mean_series
             or not static_turb_mean_series
-            or not static_waveform_length_over_mean_series
         ):
             results.append(ValidationResult(
                 f"empty_separation_{chip}_{environment}", "WARN",
@@ -1079,15 +977,11 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
             continue
 
         empty_turb_mean = np.concatenate(empty_turb_mean_series)
-        empty_waveform_length_over_mean = np.concatenate(empty_waveform_length_over_mean_series)
         static_turb_mean = np.concatenate(static_turb_mean_series)
-        static_waveform_length_over_mean = np.concatenate(static_waveform_length_over_mean_series)
 
         empty_score, static_score = _build_empty_separation_score(
             empty_turb_mean,
             static_turb_mean,
-            empty_waveform_length_over_mean,
-            static_waveform_length_over_mean,
         )
         auc = _rank_auc(static_score, empty_score)
         if auc is None:
@@ -1120,7 +1014,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
                 f"Empty-vs-static score separates group {(chip, environment)}: "
                 f"AUC={separability_auc:.3f}, balanced_acc={balanced_acc:.3f}, "
                 f"threshold={threshold:.4f}, direction={direction}, "
-                f"score=0.7*z(turb_mean)+0.3*z(waveform_length_over_mean)"
+                f"score=z(turb_mean)"
             ),
             round(separability_auc, 3)
         ))
@@ -1163,39 +1057,31 @@ def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
         data, csi_key = _load_cached_or_npz(filepath, npz_cache)
         csi_data = _filter_measurement_frames(data[csi_key], data)
 
-        l1_metrics = _evaluate_l1_quiet_fp(csi_data)
-        mvs_metrics = _evaluate_mvs_quiet_fp(csi_data)
-        if l1_metrics is None or mvs_metrics is None:
+        classic_metrics = _evaluate_classic_quiet_fp(csi_data)
+        if classic_metrics is None:
             results.append(ValidationResult(
                 f"quiet_test_idle/{filename}",
                 "FAIL",
-                "Could not self-calibrate L1D or MVS on the idle-only test recording",
+                "Could not self-calibrate ClassicDetector on the idle-only test recording",
             ))
             continue
 
-        l1_status = _quiet_fp_status(
-            l1_metrics["fp_rate"],
-            QUIET_TEST_L1_FP_WARN_RATIO,
-            QUIET_TEST_L1_FP_FAIL_RATIO,
+        classic_status = _quiet_fp_status(
+            classic_metrics["fp_rate"],
+            QUIET_TEST_CLASSIC_FP_WARN_RATIO,
+            QUIET_TEST_CLASSIC_FP_FAIL_RATIO,
         )
-        mvs_status = _quiet_fp_status(
-            mvs_metrics["fp_rate"],
-            QUIET_TEST_MVS_FP_WARN_RATIO,
-            QUIET_TEST_MVS_FP_FAIL_RATIO,
-        )
-        status = _merge_statuses(l1_status, mvs_status)
+        status = _merge_statuses(classic_status)
 
         results.append(ValidationResult(
             f"quiet_test_idle/{filename}",
             status,
             (
                 "Idle-only long-run replay: "
-                f"L1D self-FP={l1_metrics['fp_rate']:.1%} "
-                f"(threshold={l1_metrics['threshold']:.6f}, eval={l1_metrics['eval_count']}), "
-                f"MVS self-FP={mvs_metrics['fp_rate']:.1%} "
-                f"(threshold={mvs_metrics['threshold']:.6f}, eval={mvs_metrics['eval_count']})"
+                f"Classic self-FP={classic_metrics['fp_rate']:.1%} "
+                f"(threshold={classic_metrics['threshold']:.6f}, eval={classic_metrics['eval_count']})"
             ),
-            round(max(l1_metrics["fp_rate"], mvs_metrics["fp_rate"]), 4),
+            round(classic_metrics["fp_rate"], 4),
         ))
 
     return results
@@ -1471,8 +1357,8 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("A pair is considered valid when:\n")
     lines.append("- labels are coherent (`static_presence` vs `motion`)")
     lines.append(
-        "- replaying the production `L1DeltaDetector` with a threshold calibrated "
-        "from the pair `static_presence` capture keeps `static_presence` mostly below threshold"
+        "- replaying the production `ClassicDetector` with a threshold calibrated "
+        "from the pair `static_presence` capture keeps `static_presence` mostly idle"
     )
     lines.append(
         f"- `static_presence` above-threshold share <= {MAX_STATIC_ACTIVE_RATIO:.0%}, "
@@ -1483,16 +1369,16 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("chip/environment to check both quietness and separability, after dropping ")
     lines.append("reference frames from `empty` files when present.\n")
     lines.append("Computed metrics:\n")
-    lines.append("- `Threshold`: pair-specific `l1_delta` runtime threshold calibrated from `static_presence`")
-    lines.append("- `Static Above`: share of replayed l1_delta windows above threshold on `static_presence`")
-    lines.append("- `Motion Above`: share of replayed l1_delta windows above threshold on `motion`")
-    lines.append("- `Motion Peak`: maximum replayed motion metric divided by the threshold")
+    lines.append("- `Threshold`: pair-specific classic runtime threshold calibrated from `static_presence`")
+    lines.append("- `Static Above`: share of replayed classic windows classified as motion on `static_presence`")
+    lines.append("- `Motion Above`: share of replayed classic windows classified as motion on `motion`")
+    lines.append("- `Motion Peak`: maximum replayed classic primary score divided by the threshold")
     lines.append("- `Empty separation`: score-based separability between `empty` and ")
-    lines.append("  `static_presence` windows using `0.7*z(turb_mean) + 0.3*z(waveform_length_over_mean)`")
+    lines.append("  `static_presence` windows using `z(turb_mean)`")
     lines.append("- `Gap`: non-negative time between the `static_presence` and `motion` capture intervals")
     lines.append("  regardless of acquisition order (`0s` means the intervals overlap)")
     lines.append("- `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set")
-    lines.append("- `Turbulence`: `CV` = coefficient of variation (`std/mean`), the shared production path for MVS and ML\n")
+    lines.append("- `Turbulence`: `CV` = coefficient of variation (`std/mean`), the shared production path for the variance baseline and ML\n")
 
     lines.append("## Results (sorted by chip, then motion activation desc)\n")
     lines.append("| Chip | File pair (static_presence / motion) | Threshold | Static Above | Motion Above | Motion Peak | Subcarriers | Turbulence | Status |")

@@ -10,15 +10,7 @@ License: GPLv3
 
 import pytest
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch, PropertyMock
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-
-from tools.lib.repo_paths import python_src_dir
-
-sys.path.insert(0, str(python_src_dir()))
 
 # Mock MicroPython modules before importing
 mock_network = MagicMock()

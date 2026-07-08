@@ -1,7 +1,7 @@
 /*
  * ESPectre - Hampel Filter Unit Tests
  *
- * Unit tests for Hampel outlier removal filter used in MVS preprocessing
+ * Unit tests for Hampel outlier removal filter used in shared turbulence preprocessing
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3

@@ -7,6 +7,9 @@ eventually promoted a runtime baseline.
 The goal is to preserve design history in one place without turning
 `ALGORITHMS.md` into a research log.
 
+Historical labels such as `MVS` are preserved in experiment names where they
+match the actual benchmark, weighting mode, or training variant that was run.
+
 ## Overview
 
 | Date | Experiment | Status | Main Lesson |
@@ -20,13 +23,26 @@ The goal is to preserve design history in one place without turning
 | 2026-06-30 | C3 empty-room retrain incident | Partly superseded; lesson retained | `empty` captures must be first-class IDLE training data. |
 | 2026-07-03 | MVS-guided weighting bias and hard-negative retrain | Superseded by AGC-active normalization and clean data recollection | MVS can help as hard-negative mining, but it can also import MVS quiet-spike bias. |
 | 2026-07-04 | Multi-device sync and phase research | Active research note | `stimulus_id` and reference metadata remain useful for future multi-device experiments. |
-| 2026-07-05 | MVS startup-threshold and online adaptation sweep | Active research note | `max x 1.3` remains the safest global baseline; online threshold tracking helps some chips, but not all. |
-| 2026-07-05 | Motion-feature benchmark and L1-Delta promotion | Promoted to Micro-ESPectre runtime candidate | L1 profile displacement matches MVS quality with a far more stable quiet level; no candidate supports a fixed factory threshold. |
+| 2026-07-05 | MVS startup-threshold and online adaptation sweep | Historical variance-baseline note | `max x 1.3` remained the safest moving-variance baseline; online threshold tracking helped some chips, but not all. |
+| 2026-07-05 | Motion-feature benchmark and L1-Delta promotion | Promoted into `ClassicDetector` | L1 profile displacement matched moving-variance quality with a far more stable quiet level; no candidate supported a fixed factory threshold. |
 | 2026-07-06 | L1-Delta startup-threshold and online recovery sweep | Superseded by the contaminated-calibration gate sweep | Clean data still favor static `max x 1.1`, but startup-spike recovery is real; the best no-buffer candidate is a conservative decaying-peak tracker. |
 | 2026-07-06 | L1-Delta contaminated-calibration gate and extension sweep | Promoted to runtime (Python and C++) | A floor-anchored rolling-chunk consistency gate with calibration extension keeps F1 >= 94.3% from clean startup up to 100% contaminated startup. |
-| 2026-07-06 | Clean relative-8 refresh and L1-Delta ML feature check | Active ML baseline candidate | Removing `waveform_length_over_mean` improved the Python ML baseline; `l1_delta` remained useful as a standalone detector, but not as a winning MLP feature. |
+| 2026-07-06 | Clean relative-8 refresh and L1-Delta ML feature check | Active ML baseline candidate | Removing `waveform_length_over_mean` improved the Python ML baseline; `l1_delta` remained useful as a Classic support signal, but not as a winning MLP feature. |
 
 ## Current Superseding Events
+
+Date: 2026-07-07
+
+Status: Active ML production baseline.
+
+The production ML feature set is now the mixed turbulence + L1-delta "Core-6"
+set (`turb_mad_over_mean`, `turb_skewness`, `turb_autocorr`, `l1_delta`,
+`l1_delta_std`, `l1_delta_waveform_length`), replacing the relative-8
+turbulence set. It wins every promotion gate (see the Core-6 entry below) and
+is slightly lighter than relative-8. `features.DEFAULT_FEATURES` and the
+exported artifacts (`ml_weights.h`, `ml_weights.py`, `ml_test_data.npz`) reflect
+Core-6, and the C++ feature extractor is now driven by the exported
+`ML_FEATURE_IDS` instead of the model input count.
 
 Date: 2026-07-04
 
@@ -36,10 +52,121 @@ The runtime and training path now use AGC-active, coefficient-of-variation
 turbulence (`std(amplitudes) / mean(amplitudes)`) as the single production
 path. Earlier dataset captures may also have been contaminated by a collection
 bug. For that reason, the next clean ML baseline starts from
-`--sample-weight-mode none`; MVS-guided weighting should be re-evaluated only
+`--sample-weight-mode none`; moving-variance-guided weighting should be re-evaluated only
 after clean data collection and refreshed explicit pair metadata.
 
 ## Active Research Notes
+
+### Core-6 Mixed Turbulence + L1-Delta ML Feature Set
+
+Date: 2026-07-07
+
+Status: Promoted to production. Supersedes the "do not add `l1_delta` to the
+MLP yet" decision in the "Clean Relative-8 Refresh And L1-Delta ML Feature
+Check" entry below.
+
+#### Goal
+
+Decide whether L1-delta profile displacement improves the ML detector as a full
+statistical descriptor rather than the single scalar rejected on 2026-07-06,
+targeting a model that is more robust to RF interference and has a more stable
+quiet floor without growing inference cost or memory.
+
+#### Background
+
+The relative-8 production set is built entirely on spatial turbulence
+statistics, so ML inherits the turbulence-path weaknesses (threshold drift, RF
+sensitivity, the S3 chip gap). The shared L1-delta axis is a different signal
+(normalized amplitude-profile displacement) with a session-stable quiet floor. The
+2026-07-06 check fed `l1_delta` to the MLP as a single window-mean scalar and
+found no win. Two observations reopened it:
+
+- the turbulence path enters the MLP as eight statistics, while `l1_delta`
+  entered as one, so the comparison was not like-for-like
+- the training and gate feature paths did not maintain the amplitude-profile
+  history, so any `l1_delta*` feature silently resolved to `0.0` at evaluation
+  time (a dead constant); this was fixed in the trainer `StreamingEvaluator`
+  and the MicroPython `ml_detector.py` guard before any run below
+
+#### Method
+
+`features.py` gained an L1-delta descriptor (`l1_delta` plus `l1_delta_std`,
+`l1_delta_max`, `l1_delta_min`, `l1_delta_iqr`, `l1_delta_mad`,
+`l1_delta_waveform_length`, `l1_delta_skewness`, `l1_delta_autocorr`), the same
+statistics the turbulence path uses, computed on the per-packet L1-delta series.
+Sequence of single-variable runs at fixed seeds (`42`, `123`, `7`), production
+architecture, scaler, and `fp_weight`:
+
+1. pure L1-delta descriptor (nine features, no turbulence)
+2. mixed set (relative-7 turbulence + nine L1-delta) at 16 features
+3. leave-one-out ablation on the mixed set
+4. the surviving lean candidate, re-validated on grouped CV plus the in-memory
+   paired and long-quiet gates (`evaluate_paired_gate` / `evaluate_long_gate`),
+   compared head-to-head against the relative-8 baseline
+
+#### Results
+
+Pure L1-delta reached parity with the turbulence baseline on grouped CV
+(`OOF F1 79.7%` vs `79.5%`) but with high, session-unstable false positives
+(fold FP `8.6%`, C3 static-presence up to `91.6%`): L1-delta alone blurs the
+static-presence / motion boundary that turbulence separates well.
+
+The 16-feature mixed set reached `OOF F1 83.0%` at seed 42 and fixed the C3
+false-positive spike. Leave-one-out ablation then showed the descriptor was
+mostly redundant: `turb_autocorr` is critical (`-8.3%` if removed), and only
+three L1-delta features carry unique signal (`l1_delta`,
+`l1_delta_waveform_length`, `l1_delta_std`); the remaining spread statistics are
+redundant, and removing several of them *improves* generalization.
+
+The resulting six-feature "Core-6" set —
+`turb_mad_over_mean`, `turb_skewness`, `turb_autocorr`, `l1_delta`,
+`l1_delta_std`, `l1_delta_waveform_length` — wins every gate (median of seeds
+`42`, `123`, `7`):
+
+| Metric | relative-8 baseline | Core-6 |
+|--------|--------------------:|-------:|
+| Grouped-CV OOF F1 | 79.8% | 83.1% |
+| Long-quiet total FP | 1846 | 552 (-70%) |
+| Long-quiet max FP rate | 1.9% | 0.8% |
+| Paired pass count | 3 | 3 (non-regression) |
+| Paired max FP rate | 2.6% | 0.6% |
+| Model | 8 -> 32 -> 16 -> 1 | 6 -> 32 -> 16 -> 1 |
+| Params / weights / inference | 833 / 3.3 KB / ~39 us | 769 / 3.0 KB / ~38 us |
+
+Long-quiet false positives, the promotion-governing gate
+(`MAX_PROMOTION_TOTAL_FP_INCREASE = 0`), drop by roughly 70 percent, and Core-6
+is slightly lighter than the model it replaces.
+
+#### C++ Parity And Promotion
+
+The C++ extractor previously inferred the feature set from the model input count
+(8 = relative, 9 = raw). It is now driven by an exported `ML_FEATURE_IDS` array
+(mirroring the `MLFeatureId` enum in `features.h`); `extract_ml_features_by_id`
+replaces the count-based extractor, and `MLDetector` maintains an incremental
+profile and delta ring, capacity `window_size - lag`, that exactly reproduces
+`features.l1_delta_series`. Parity was verified two ways: `compute_ml_series_stats`
+matches the Python statistics at float32 precision, and the incremental delta
+series is a bit-exact match to the windowed Python reference.
+
+#### Decision
+
+Promote Core-6 to production. `features.DEFAULT_FEATURES` is Core-6, and the
+exported `ml_weights.h`, `ml_weights.py`, and `ml_test_data.npz` are regenerated
+accordingly.
+
+#### Follow-Up
+
+1. Refresh the ML table in `docs/PERFORMANCE.md` with Core-6 numbers.
+2. The per-recording strict gates (`test_motion_detection`,
+   `TestPerformanceMetrics`) fail on hard chips (S3, some C3 and C6) on the
+   recollected dataset; these are dataset-driven and pre-existing (they also fail
+   for the untouched MVS detector), and Core-6 ML is at least as good as the
+   relative-8 baseline on the shared cases. Track that dataset/threshold work
+   separately.
+3. Revisit whether a cheap recursive band-power veto (no FFT window) adds
+   interference robustness on top of Core-6 without hurting latency.
+
+---
 
 ### Multi-Device Sync and Phase Research
 
@@ -89,17 +216,19 @@ association across devices, including:
 
 Date: 2026-07-05
 
-Status: Active research note.
+Status: Historical variance-baseline note. The runtime default is now
+`ClassicDetector`; this section is retained because the moving-variance
+baseline is still useful in offline sweeps.
 
 #### Goal
 
-Test whether the current MVS startup threshold and simple online adaptation can
+Test whether the current moving-variance startup threshold and simple online adaptation can
 reduce static-room false positives without paying too much recall, before any
 runtime C++ changes.
 
 #### Background
 
-The current production MVS startup path uses:
+The then-current production moving-variance startup path used:
 
 - fixed production subcarriers
 - AGC-active coefficient-of-variation turbulence
@@ -123,9 +252,9 @@ followed by the usual CV turbulence metric on the normalized amplitudes.
 The following tools were realigned to run production-aligned paired sweeps over
 all explicit `static_presence` / `motion` pairs from `data/dataset_info.json`:
 
-- `tools/lib/mvs_sweep_core.py`: shared pair iterator, startup calibration, and
+- `tools/lib/variance_baseline_core.py`: shared pair iterator, startup calibration, and
   continuous baseline -> motion evaluator
-- `tools/5_analyze_filter_turbulence.py`: main MVS sweep and prototype
+- `tools/5_analyze_filter_turbulence.py`: main variance sweep and prototype
   comparison entry point
 - `tools/6_optimize_filter_params.py`: paired filter optimizer that now reuses
   the same sweep core instead of latest-file heuristics
@@ -206,7 +335,7 @@ positive spikes. This path remains exploratory and is not close to promotion.
 
 #### Decision
 
-Keep `max x 1.3` as the default global MVS startup threshold.
+Keep `max x 1.3` as the default global moving-variance startup threshold.
 
 Do not port online threshold tracking or per-subcarrier EMA normalization into
 the runtime yet.
@@ -234,8 +363,7 @@ global promotion attempt, but a chip-specific host-side study:
 
 Date: 2026-07-05
 
-Status: Promoted to Micro-ESPectre runtime candidate (`l1_delta` detector);
-C++ port pending live cross-session validation.
+Status: Promoted into `ClassicDetector` as the primary non-ML metric.
 
 #### Goal
 
@@ -333,7 +461,7 @@ show false positives correlated with RF events (`noise_floor_dbm`, RSSI).
 #### Live Validation
 
 Loopback UDP replay of repo captures and a live C3 session with
-`./espectre collect --no-save --detector mvs,l1_delta,ml` confirmed the
+`./espectre collect --no-save --detector classic,ml` confirmed the
 offline picture: independent per-detector startup calibration, stable IDLE in
 quiet (metric at ~91% of threshold by construction, see
 [ALGORITHMS.md](ALGORITHMS.md)), and clean IDLE -> MOTION transitions with the
@@ -351,9 +479,9 @@ Details in [ALGORITHMS.md](ALGORITHMS.md).
 
 #### Decision
 
-Promote `l1_delta` as a Micro-ESPectre runtime detector with startup factor
-`1.1` alongside MVS, and use the multi-detector live collect for side-by-side
-validation. Next gates before a C++ port:
+Promote `l1_delta` as the primary metric inside `ClassicDetector` with startup
+factor `1.1`, and use the multi-detector live collect for side-by-side
+validation against `ml`. Next gates before the full cross-stack promotion:
 
 1. cross-session threshold stability live (expect <=~1.3x spread)
 2. long quiet runs for the real false-positive rate at factor 1.1
@@ -650,6 +778,393 @@ an `EXTENDING` status surfaced during extension. Remaining live gates:
 
 1. one deliberately noisy live startup session to confirm on-device recovery
 2. long quiet runs on S3, still the strongest cross-session FP risk
+
+---
+
+### L1-Delta Quiet-Tail Rescue For Gate Extension
+
+Date: 2026-07-07
+
+Status: Promoted to the Micro-ESPectre and shared C++ runtimes; amends the
+gate-extension decision above.
+
+#### Goal
+
+Fix the C6 long quiet run regression: 11.94% sustained FP on
+`test_c6_..._112318` with the gated `l1_delta` startup threshold, versus
+0.8% MVS and ~0% ML on the same capture.
+
+#### Root Cause
+
+That session's quiet metric has a heavy upper tail (`p99/p50 = 1.35`, versus
+`1.13` on the second C6 long run): recurring short bumps (165 episodes,
+median ~18 packets, spread across all 10 minutes) rather than drift or RF
+changes (RSSI/noise floor flat, no periodicity). One tail bump inside the
+calibration window tripped the spread gate, the extension slid past it, and
+the accepted ring locked `max(ring) x 1.1 = 0.0207` — *below* the 0.0248
+already observed during calibration. The threshold landed at ~p90 of the
+session's own quiet distribution. Ungated `max x 1.1` (0.0272) would have
+produced 0.02% FP: the gate turned a passing run into a failing one.
+
+#### What Was Tested
+
+Three candidate policies over: the 10 quiet long runs (self-calibrated FP),
+the 11 clean pairs (production semantics), and a re-run of the real-motion
+contamination sweep (tail 10/20/100%, mid 20%, sparse 10%):
+
+1. tail rescue: on acceptance after extension, if the max discarded chunk
+   stays within the floor-anchor band (`<= 1.5 x median(ring)`), fold it
+   back into the threshold metric; discarded chunks above the band keep the
+   plain contamination-repair behavior
+2. adaptive factor: `factor = clamp(max(all chunks)/median(all chunks),
+   1.1, 1.5)` applied to the gated statistic
+3. chunk-mean gate: spread/anchor checks on per-chunk means instead of
+   maxima (persistence-based contamination detection)
+
+#### Results
+
+Quiet long runs (FP rate, changed rows only):
+
+| Recording | Gate | Tail rescue | Adaptive factor |
+|-----------|------|-------------|-----------------|
+| C6 112318 | 11.94% | 0.02% | 0.88% |
+| S3 181757 | 2.49% | 2.49% | 0.03% |
+
+Contamination sweep (aggregate F1 over the 11 pairs):
+
+| Scenario | Gate | Tail rescue | Adaptive factor |
+|----------|------|-------------|-----------------|
+| clean | 94.4% | 94.3% | 93.5% |
+| tail 10% | 94.6% | 92.4% | 78.0% |
+| tail 20% | 95.0% | 92.5% | 75.2% |
+| tail 100% | 95.0% | 95.0% | 74.9% |
+| mid 20% | 94.4% | 92.4% | 74.0% |
+| sparse 10% | 94.4% | 94.4% | 93.7% |
+
+The tail-rescue contamination cost is concentrated in a single weak-motion
+pair per scenario (for example C5 hobby tail 10%: the contaminating motion
+peaks at 1.43x the quiet floor, inside the anchor band, so it is rescued and
+the threshold rises to just above that weak-motion level). The inflation is
+bounded by the anchor: `<= 1.5 x median(ring) x 1.1`, the same worst case the
+gate decision already accepts for mild contamination that passes the checks.
+
+#### Rejected In This Sweep
+
+- adaptive factor: collapses under contamination (the all-chunk spread is
+  motion-inflated, capping at `1.5x` the gated statistic) and pays clean F1
+- chunk-mean gate: no separation — the 100-packet metric window smears an
+  ~18-packet tail bump across most of a 148-packet chunk, so the bump chunk
+  mean (1.21x floor) is identical to a weak-motion chunk mean (1.21x floor)
+- amplitude cutoffs tighter than the anchor: the C6 tail bump sits at 1.33x
+  the ring median while real weak-motion contamination sits at 1.32-1.43x;
+  the ranges overlap, so no fixed ratio separates them
+
+#### Decision
+
+Promote the tail rescue: quiet-tail bumps and weak motion are locally
+indistinguishable at startup, and a persistent double-digit FP floor in a
+quiet room is a worse failure than reduced sensitivity to sub-anchor motion
+after a contaminated startup. Implemented in `StartupThresholdCalibrator` on
+both sides (one extra tracked float, `discarded_chunk_max`); threshold
+formula and gate parameters unchanged.
+
+---
+
+### L1-Delta Post-Startup Drift-Tracker Re-Test
+
+Date: 2026-07-07
+
+Status: Rejected for the C3/C5 recall residual; confirms the deferral of the
+decaying-peak line from the startup-threshold and online recovery sweep above.
+Production keeps the static gated startup threshold with no online adaptation.
+
+#### Goal
+
+Decide whether a post-startup online threshold adapter can close the remaining
+`l1_delta` paired-recall gap on C3 (`89.7%`) and C5 (`94.9%`) without breaking
+the long-quiet false-positive gate. The gap sits on a small number of
+low-contrast rooms (C3 hobby room `80.9%`, C3 living room `88.2%`, C5 bedroom
+`92.1%`), all with clean startup (`0%` startup-window FP) and a threshold
+already placed at the session's true quiet floor.
+
+#### Background
+
+The decaying-peak online tracker (`peak9995_safe60_floor90` and the aggressive
+`peak9980_safe70_floor85`) was characterized but deferred in the
+startup-threshold and online recovery sweep as a startup-repair mechanism: it
+is downward-only and lowers the threshold only when the running quiet floor
+falls below the calibration `max`, that is, when startup *overshot*. The C3/C5
+residual is the opposite regime — a correctly placed threshold on a genuinely
+low motion-to-quiet contrast — so the tracker was expected to have little to
+reclaim there. This run measures that directly.
+
+#### Method
+
+Offline harness replaying production semantics: startup gate on the
+static-presence (or long-quiet) recording for the initial threshold, then a
+continuous baseline -> motion pass with the tracker driving `detector.threshold`
+online (decaying peak `ref = max(metric, ref * decay)`, threshold updated only
+while `IDLE` and `metric < threshold * safe`, clamped to
+`min(threshold, max(ref * 1.1, startup * floor))`). The `off` variant reproduces
+the committed paired and long-quiet numbers exactly (C3 long-quiet `0.30/0.42`,
+C6 `0.43/0.83`, S3 `3.63/7.90` avg/max; paired recall `89.7/94.9/96.2/96.4`),
+so the deltas below are the tracker, not a re-calibration artifact. Variants
+swept: conservative `9995/60/90`, aggressive `998/70/85`, and two deeper floors
+(`998/70/80`, `998/75/75`).
+
+#### Results
+
+Conservative `peak9995/safe60/floor90` (paired recall / FP, and long-quiet
+avg / max FP):
+
+| Chip | Paired off | Paired cons | Long-quiet off | Long-quiet cons |
+|------|-----------|-------------|----------------|-----------------|
+| C3 | 89.7 / 1.7 | 89.7 / 1.7 | 0.30 / 0.42 | 0.30 / 0.42 |
+| C5 | 94.9 / 0.3 | 96.7 / 0.5 | 0.37 / 1.06 | 0.37 / 1.06 |
+| C6 | 96.2 / 2.8 | 96.2 / 2.8 | 0.43 / 0.83 | 1.15 / 1.46 |
+| S3 | 96.4 / 6.0 | 97.2 / 12.3 | 3.63 / 7.90 | 4.89 / 8.62 |
+
+Three findings settle the question:
+
+- the tracker never engages on the C3 residual: `thr_min / startup = 1.00` on
+  every C3 pair (and C6 hobby room), so recall is unchanged `89.7 -> 89.7`.
+  Clean startup leaves no overshoot to reclaim, exactly as predicted
+- it recovers only overshoot pairs (C5 bedroom `92.1 -> 97.3`, S3 bedroom
+  `97.9 -> 99.6`), that is, it reclaims the same C5 bedroom recall the
+  quiet-tail rescue had traded away, and on C5 with no long-quiet cost
+- but it regresses the promotion gate: on the C6 `112318` long run the
+  quiet-tail rescue had just fixed (`11.94 -> 0.02%`), the tracker ratchets
+  back to `1.46%` between tail bumps, and S3 long-quiet worsens
+  (`3.63 -> 4.89%` avg). The online tracker and the startup tail rescue are in
+  direct tension on heavy-quiet-tail sessions: the tracker undoes what the
+  rescue protects
+
+Aggressive and deeper floors do move C3/C5 recall (C3 up to `99.8%`, C5 to
+`100%`) but detonate the long-quiet gate: C5 `0.37 -> 19-44%`, S3
+`3.63 -> 17-43%`, C6 up to `13%` avg. C3 hobby room only clears once the floor
+reaches `0.75`, at which point its own quiet baseline fires at `12-19%` FP —
+the same "quiet-tail bumps and weak motion are locally indistinguishable" floor
+seen at startup, now measured from the online side.
+
+#### Decision
+
+Reject the drift tracker for the C3/C5 recall residual and keep the static
+gated startup threshold with no online adaptation. The residual is a
+single-feature contrast floor, not a startup overshoot: it is unreachable by
+startup calibration (already swept) and by post-startup adaptation (this run).
+The only FP-acceptable variant is a net negative on the gate that governs
+promotion. The decaying-peak line stays a documented deployment-robustness
+candidate for dirty or overshot startup, which is orthogonal to this residual.
+For the low-contrast rooms the intended path is the ML detector (C3 ML
+`95.9%`), and the residual does not block keeping the new Classic default.
+
+---
+
+### L1-Delta + MVS Gated Fusion For The Low-Contrast Recall Residual
+
+Date: 2026-07-07
+
+Status: Promoted into the current `ClassicDetector` design. This section records
+the validation that led to the current fusion: L1-Delta primary metric with a
+moving-variance recovery vote.
+
+#### Goal
+
+Close the `l1_delta` paired-recall residual on the low-contrast rooms (C3
+`89.7%`, C5 `94.9%`, plus C6 hobby/living) that no calibration policy could
+reach.
+
+#### Background
+
+The residual was confirmed as a single-feature contrast floor from four
+independent angles: the startup-threshold sweeps, the drift-tracker re-test,
+a fixed-threshold study, and a motion-triggered calibrator. In every low-recall
+room `motion_p10 / quiet_p99` is `1.05-1.10` (S3 bedroom `0.87`): the motion
+barely clears the quiet floor, so no threshold placement separates them without
+paying false positives one-for-one. The static baselines are pristine
+(`max/p99 ~ 1.03`), so this is genuine low contrast or coarse motion labeling,
+not dirty data.
+
+The opening comes from the `PERFORMANCE.md` table: MVS and L1-Delta have
+complementary failure modes. MVS wins recall exactly where L1-Delta loses (C3
+`93.7` vs `89.7`, C5 `99.7` vs `94.9`, C6 `98.9` vs `96.2`), while L1-Delta wins
+S3 (`96.4` vs `79.5`) and the long-quiet floor. A per-packet probe confirmed it:
+on the low-contrast rooms MVS recovers `58-100%` of the packets L1-Delta misses,
+and the union false-positive rate stays near `0%` — the missed motion has
+elevated variance even when its L1 displacement is low.
+
+#### Method
+
+L1-Delta stays primary with its unchanged calibrated threshold `thr`. MVS is
+added as a recovery vote with no absolute threshold of its own:
+
+- consulted only in the ambiguous band `alpha*thr < l1_metric <= thr`
+- votes MOTION only when `mvs_metric > k * mvs_baseline`, a relative test
+  against MVS's own session floor (`mvs_baseline = median` of the MVS metric
+  over the reference window). A ratio is scale-invariant, so MVS's `14.5x`
+  cross-session floor drift does not matter; L1-Delta's stable floor supplies
+  the "we are quiet" signal that maintains the reference
+- the vote is enabled only when the session MVS floor is tight
+  (`p99/median < cut`), a self-diagnosing gate that keeps MVS out where its
+  variance floor is bursty
+
+Parameters: `alpha = 0.6`, `k = 3.0`, `cut = 4.0`. `alpha` is nearly inert (the
+band is wide); `k` is the recall/FP knob; `cut` sits in a wide bimodal gap (tight
+floors `<= 3.2`, bursty floors `>= 7.7`).
+
+#### Results
+
+Paired (L1-Delta-alone -> gated fusion), per-chip recall/FP:
+
+| Chip | L1-Delta alone | Gated fusion |
+|------|----------------|--------------|
+| C3 | 89.7 / 1.7 | 95.6 / 1.8 |
+| C5 | 94.9 / 0.3 | 96.8 / 0.6 |
+| C6 | 96.2 / 2.8 | 99.2 / 2.8 |
+| S3 | 96.4 / 6.0 | 97.2 / 6.2 |
+
+The residual closes (C3 `+5.9`, C6 `+3.0`, C5 `+1.9`) at near-zero false-positive
+cost (C3 `+0.1`, C6 `+0.0`).
+
+Long-quiet FP is unchanged: the two bursty S3 runs (`p99/median` `13.2` and
+`12.9`) gate the vote off and the fusion equals L1-Delta exactly (`7.90%` and
+`2.49%`, no change); every other run moves `<= 0.2pp`.
+
+Contamination sweep (1000-packet startup window contaminated with real motion,
+then clean baseline -> motion evaluation), aggregate over 11 pairs:
+
+| Scenario | L1-Delta alone | Gated fusion | vote-off pairs |
+|----------|----------------|--------------|----------------|
+| clean | 94.1 / 2.4 | 98.1 / 2.9 | 1/11 |
+| tail 10% | 89.9 / 2.3 | 93.2 / 2.4 | 6/11 |
+| tail 20% | 90.5 / 2.2 | 91.4 / 2.2 | 9/11 |
+| tail 40% | 95.0 / 2.2 | 95.0 / 2.2 | 11/11 |
+| mid 20% | 85.5 / 2.2 | 86.7 / 2.2 | 9/11 |
+| sparse 10% | 95.0 / 2.4 | 97.1 / 2.5 | 2/11 |
+
+The dispersion gate does double duty: contamination inflates the MVS dispersion,
+so the vote progressively disables (tail 10% `6/11` off, tail 40% `11/11` off)
+and the fusion degrades to the already-robust L1-Delta baseline. False positives
+never rise (the relative test raises `k*baseline` under contamination, producing
+fewer votes, not more), so a dirty startup costs the recovery benefit but never
+pays for it.
+
+#### Decision
+
+This was strong enough to settle the non-ML runtime design: the default
+`ClassicDetector` is L1-Delta primary plus a threshold-free, dispersion-gated
+moving-variance recovery vote, not L1-Delta alone. Moving variance keeps a role
+as a complementary second signal rather than as an alternative detector. The
+remaining follow-up after promotion is:
+
+- maintain the MVS baseline and dispersion online during L1-Delta IDLE (not from
+  a fixed window), and size the device-side state (rolling MVS window or a
+  streaming percentile estimator)
+- measure the per-packet cost of running both detectors on ESP32
+- validate `k` and `cut` on additional sessions and at least one live capture
+
+The motion-triggered calibrator explored en route stays a separate candidate: it
+removes the guaranteed-quiet-window requirement and tightens false positives on
+high-contrast rooms, but it does not close the recall residual (low-contrast
+rooms lack a detectable motion jump to anchor on).
+
+---
+
+### L1-Delta-Guided Sample Weighting And Hard-Negative Retrain
+
+Date: 2026-07-07
+
+Status: Rejected; production keeps `--sample-weight-mode none`. Revisits the
+2026-07-03 MVS-guided weighting attempt with the L1-Delta detector as the
+training guide.
+
+#### Goal
+
+Decide whether the L1-Delta detector should guide MLP training as a sample
+weight, either through `l1_guided` (hard-positive mining on motion plus
+hard-negative emphasis on idle) or `l1_hard_negative` (idle-only promotion of
+hard negatives), versus the current `none` baseline.
+
+#### Background
+
+`10_train_ml_model.py` can replay the production L1-Delta startup calibration
+per source file and weight training windows by the metric-to-threshold ratio:
+
+- `l1_guided`: subtle near-threshold motion is up-weighted (up to 2.4x), easy
+  strong motion is down-weighted (0.8x), and idle windows where L1-Delta would
+  itself fire (ratio >= 1.0) are promoted to 2.0x; weights are normalized per
+  file so no recording dominates
+- `l1_hard_negative`: motion stays neutral (1.0x), only the hard idle windows
+  are promoted (2.0x)
+
+The 2026-07-03 MVS-guided variant of the same idea was rejected because it read
+as a sensitivity shift (long-recording `total_fp` up, only a slight `mean_f1`
+gain). This run asks whether the tighter, more session-stable L1-Delta metric
+changes that verdict.
+
+#### Method
+
+Single-variable A/B: three modes at three fixed seeds (`42`, `123`, `7`) with
+everything else held constant (production feature set, scaler, batch size,
+`fp_weight`). Each run trained to a temporary export (production artifacts
+backed up and restored, verified by hash), then evaluated on:
+
+- grouped-CV blocked OOF (the Stage-1 robustness prefilter)
+- the long-recording ML gate (`TestLongRecordings::test_ml_vs_test_recordings`)
+- the paired ML gate (`TestPerformanceMetrics::test_ml_detection_accuracy`)
+
+The long-recording set is quiet-only (no annotated motion segment), so its
+recall and F1 are 0 by construction and its only meaningful signal is
+`total_fp` / `max_fp_rate` — this gate is a sustained false-positive test.
+Recall effects surface in grouped CV and the paired gate instead.
+
+#### Results
+
+Medians over the three seeds:
+
+| Mode | OOF F1 | Long-run total FP | Long-run max FP | S3 paired FP | S3 paired recall |
+|------|--------|-------------------|-----------------|--------------|------------------|
+| `none` | 79.7% | 1902 | 1.90% | 4.9% | 92% |
+| `l1_guided` | 80.6% | 2561 (+35%) | 3.00% | 5.0% | 91% |
+| `l1_hard_negative` | 80.3% | 2529 (+33%) | 2.80% | 5.3% | 92% |
+
+Per-seed long-run total FP (none / guided / hard_negative):
+
+| Seed | none | l1_guided | l1_hard_negative |
+|------|------|-----------|------------------|
+| 42 | 2595 | 2733 | 2529 |
+| 123 | 1902 | 1915 | 2610 |
+| 7 | 1834 | 2561 | 2148 |
+
+Properties worth keeping in mind:
+
+- both weighting modes raise long-recording total FP at the median (+33-35%),
+  the exact metric the FP-first promotion gate minimizes
+  (`MAX_PROMOTION_TOTAL_FP_INCREASE = 0` blocks any increase), so both are
+  rejected by the repo's own criterion
+- `l1_guided` gives a consistent grouped-CV gain (+0.9% OOF F1 on all three
+  seeds, with better hard-chip recall, e.g. C6 70 -> 76% at seed 123), but that
+  is the expected outcome of its hard-positive mining: more sensitivity buys
+  recall and pays deployment FP
+- `l1_hard_negative`, which targets FP only, does not reduce it at the median;
+  the `none` baseline already reaches low long-run FP at seeds 123/7 (1902,
+  1834), and the idle promotion only wins at seed 42 where `none` happened to
+  be high (2595 -> 2529)
+- the paired gate is a tie across modes (within +/-1pp), so there is no
+  standalone paired-FP win either
+- seed variance is large (`none` long-run FP spans 1834-2595), so three seeds
+  give direction, not a tight estimate; the direction is nonetheless
+  consistent with the 2026-07-03 MVS-guided finding
+
+#### Decision
+
+Keep `--sample-weight-mode none`. Neither L1-Delta-guided mode improves the
+metric that governs promotion (deployment/long-run FP); both trade a small
+cross-validation F1/recall gain for higher FP, matching the earlier
+MVS-guided outcome. The support-detector weighting hooks stay in the trainer
+as opt-in analysis tooling, not a default. A definitive verdict, if needed,
+should use the native `--seed-search-until-improvement` flow (5+ seeds, median
+promotion key) rather than this three-seed A/B.
 
 ---
 

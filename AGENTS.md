@@ -172,5 +172,3 @@ PR commits must include a valid `Signed-off-by` trailer. Prefer `git commit -s`.
 
 - Do not modify CSI data format without updating both C++ and Python implementations.
 - Do not modify shared detection/calibration algorithms without keeping C++ and Python aligned.
-- Do not skip calibration wait time for MVS workflows; quiet room after boot is required.
-- Do not set `traffic_generator_rate: 0` unless external WiFi traffic is available.

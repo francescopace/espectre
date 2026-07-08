@@ -11,8 +11,8 @@
 #include <cstdint>
 #include <cstring>
 #include "lwip/inet.h"
+#include "classic_detector.h"
 #include "csi_manager.h"
-#include "mvs_detector.h"
 #include "utils.h"
 #include "wifi_csi_interface.h"
 #include "esphome/core/log.h"
@@ -147,7 +147,7 @@ void tearDown(void) {
 // ============================================================================
 
 void test_csi_manager_init(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
@@ -161,7 +161,7 @@ void test_csi_manager_init(void) {
 // ============================================================================
 
 void test_csi_manager_enable(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -173,7 +173,7 @@ void test_csi_manager_enable(void) {
 }
 
 void test_csi_manager_enable_twice_returns_ok(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -185,7 +185,7 @@ void test_csi_manager_enable_twice_returns_ok(void) {
 }
 
 void test_csi_manager_disable(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -230,7 +230,7 @@ void test_csi_manager_disable_preserves_stable_callbacks_for_reenable(void) {
 }
 
 void test_csi_manager_disable_when_not_enabled(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -245,7 +245,7 @@ void test_csi_manager_disable_when_not_enabled(void) {
 // ============================================================================
 
 void test_csi_manager_set_threshold(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -259,7 +259,7 @@ void test_csi_manager_set_threshold(void) {
 // ============================================================================
 
 void test_csi_manager_process_packet_null_data(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -269,7 +269,7 @@ void test_csi_manager_process_packet_null_data(void) {
 }
 
 void test_csi_manager_process_packet_short_data(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -284,7 +284,7 @@ void test_csi_manager_process_packet_short_data(void) {
 }
 
 void test_csi_manager_process_packet_valid_data(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -521,7 +521,7 @@ void test_csi_manager_live_telemetry_callback_does_not_force_every_packet_evalua
 // ============================================================================
 
 void test_csi_manager_process_stbc_256_byte_packet(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -542,7 +542,7 @@ void test_csi_manager_process_stbc_256_byte_packet(void) {
 }
 
 void test_csi_manager_process_short_ht_114_byte_packet(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
 
@@ -563,7 +563,7 @@ void test_csi_manager_process_short_ht_114_byte_packet(void) {
 }
 
 void test_csi_manager_process_double_short_ht_228_byte_packet(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
 
@@ -585,7 +585,7 @@ void test_csi_manager_process_double_short_ht_228_byte_packet(void) {
 }
 
 void test_csi_manager_process_wrong_length_filtered(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -608,7 +608,7 @@ void test_csi_manager_process_wrong_length_filtered(void) {
 // ============================================================================
 
 void test_csi_manager_enable_config_error(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -621,7 +621,7 @@ void test_csi_manager_enable_config_error(void) {
 }
 
 void test_csi_manager_enable_callback_error(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -634,7 +634,7 @@ void test_csi_manager_enable_callback_error(void) {
 }
 
 void test_csi_manager_enable_csi_error(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -647,7 +647,7 @@ void test_csi_manager_enable_csi_error(void) {
 }
 
 void test_csi_manager_disable_error(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -665,7 +665,7 @@ void test_csi_manager_disable_error(void) {
 // ============================================================================
 
 void test_csi_manager_callback_wrapper_triggered(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -683,7 +683,7 @@ void test_csi_manager_callback_wrapper_triggered(void) {
 }
 
 void test_csi_manager_callback_wrapper_null_data(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -701,7 +701,7 @@ void test_csi_manager_callback_wrapper_null_data(void) {
 // ============================================================================
 
 void test_csi_manager_clear_detector_buffer(void) {
-    MVSDetector detector(50, 1.0f);
+    ClassicDetector detector(50, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -728,7 +728,7 @@ void test_csi_manager_clear_detector_buffer(void) {
 // ============================================================================
 
 void test_csi_manager_filters_unicast_frames_for_other_device(void) {
-    MVSDetector detector(10, 1.0f);
+    ClassicDetector detector(10, 1.0f);
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
 

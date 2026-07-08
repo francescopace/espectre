@@ -48,7 +48,7 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
         "target_port": 9999,
         "rate": 100,
         "reference_every": 0,
-        "detector": "mvs",
+        "detector": "classic",
         "no_save": False,
         "log_features": False,
         "log_turbulence": False,
@@ -65,7 +65,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
     fake_ml_detector = ModuleType("ml_detector")
-    fake_mvs_detector = ModuleType("mvs_detector")
+    fake_classic_detector = ModuleType("classic_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
     fake_threshold = ModuleType("threshold")
 
@@ -122,7 +122,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
         def _extract_features(self):
             return []
 
-    class FakeMVSDetector(FakeMLDetector):
+    class FakeClassicBaseDetector(FakeMLDetector):
         def update_state(self):
             return {"moving_variance": 0.0, "threshold": self._threshold, "state": 0}
 
@@ -133,7 +133,13 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
             self._threshold = threshold
 
         def get_name(self):
-            return "MVS"
+            return "Classic"
+
+    class FakeClassicDetector(FakeClassicBaseDetector):
+        ALGORITHM = "classic"
+
+        def get_name(self):
+            return "Classic"
 
     class FakeRuntimeMotionPolicy:
         def __init__(self, **kwargs):
@@ -191,7 +197,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 5.0
     fake_ml_detector.ML_METRIC_SCALE = 10.0
     fake_ml_detector.MLDetector = FakeMLDetector
-    fake_mvs_detector.MVSDetector = FakeMVSDetector
+    fake_classic_detector.ClassicDetector = FakeClassicDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
     fake_threshold.get_detector_auto_factor = lambda detector: getattr(detector, "STARTUP_THRESHOLD_FACTOR", 1.3)
@@ -200,7 +206,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
-    monkeypatch.setitem(sys.modules, "mvs_detector", fake_mvs_detector)
+    monkeypatch.setitem(sys.modules, "classic_detector", fake_classic_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
     monkeypatch.setitem(sys.modules, "threshold", fake_threshold)
 
@@ -305,7 +311,7 @@ def test_collect_parser_accepts_live_options() -> None:
     )
 
     assert args.namespace == "collect"
-    assert args.detector == "mvs"
+    assert args.detector == "classic"
     assert args.label == "test"
     assert args.duration == 45.0
     assert args.description == "live collect ML, idle-motion-idle"
@@ -320,13 +326,13 @@ def test_collect_parser_accepts_detector_choice_and_no_save() -> None:
             "--target",
             "192.168.1.15",
             "--detector",
-            "mvs",
+            "classic",
             "--no-save",
         ]
     )
 
     assert args.namespace == "collect"
-    assert args.detector == "mvs"
+    assert args.detector == "classic"
     assert args.no_save is True
     assert args.duration is None
 
@@ -340,13 +346,13 @@ def test_collect_parser_accepts_comma_separated_detectors() -> None:
             "--target",
             "192.168.1.15",
             "--detector",
-            "mvs,l1_delta",
+            "classic,ml",
             "--no-save",
         ]
     )
 
     assert args.namespace == "collect"
-    assert args.detector == "mvs,l1_delta"
+    assert args.detector == "classic,ml"
 
 
 def test_collect_live_rejects_unknown_detector(monkeypatch, capsys) -> None:
@@ -361,7 +367,7 @@ def test_collect_live_rejects_unknown_detector(monkeypatch, capsys) -> None:
     _install_live_collect_modules(monkeypatch, FakeReceiver, FakeStimulusSender)
 
     with pytest.raises(SystemExit):
-        host.collect_csi_data(_make_live_collect_args(detector="mvs,bogus", no_save=True))
+        host.collect_csi_data(_make_live_collect_args(detector="classic,bogus", no_save=True))
 
     output = capsys.readouterr().out
     assert "Unsupported detector(s): bogus" in output
@@ -949,13 +955,13 @@ def test_collect_live_handles_import_failure(monkeypatch) -> None:
         blocked = {
             "tools.lib.csi_io",
             "config",
+            "classic_detector",
             "ml_detector",
-            "mvs_detector",
             "runtime_policy",
             "threshold",
             "src.config",
+            "src.classic_detector",
             "src.ml_detector",
-            "src.mvs_detector",
             "src.runtime_policy",
             "src.threshold",
         }
@@ -1247,11 +1253,11 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     assert "mvmt:10.000000" not in output
 
 
-def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
+def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None:
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
+    fake_classic_detector = ModuleType("classic_detector")
     fake_ml_detector = ModuleType("ml_detector")
-    fake_mvs_detector = ModuleType("mvs_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
     fake_threshold = ModuleType("threshold")
 
@@ -1344,7 +1350,7 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
         def is_ready(self):
             return False
 
-    class FakeMVSDetector:
+    class FakeClassicBaseDetector:
         adaptive_thresholds = []
 
         def __init__(self, **kwargs):
@@ -1385,6 +1391,14 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
 
         def is_ready(self):
             return len(self._seen) >= 2
+
+    class FakeClassicDetector(FakeClassicBaseDetector):
+        ALGORITHM = "classic"
+        STARTUP_THRESHOLD_FACTOR = 1.1
+        STARTUP_GATE = True
+
+        def get_name(self):
+            return "Classic"
 
     class FakeRuntimeMotionPolicy:
         def __init__(self, **kwargs):
@@ -1445,7 +1459,7 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 5.0
     fake_ml_detector.ML_METRIC_SCALE = 10.0
     fake_ml_detector.MLDetector = FakeMLDetector
-    fake_mvs_detector.MVSDetector = FakeMVSDetector
+    fake_classic_detector.ClassicDetector = FakeClassicDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
     fake_threshold.get_detector_auto_factor = lambda detector: getattr(detector, "STARTUP_THRESHOLD_FACTOR", 1.3)
@@ -1454,17 +1468,17 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
-    monkeypatch.setitem(sys.modules, "mvs_detector", fake_mvs_detector)
+    monkeypatch.setitem(sys.modules, "classic_detector", fake_classic_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
     monkeypatch.setitem(sys.modules, "threshold", fake_threshold)
 
-    host.collect_csi_data(_make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="mvs", no_save=True))
+    host.collect_csi_data(_make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="classic", no_save=True))
 
     output = capsys.readouterr().out
-    assert "Detector:" in output and "MVS" in output
+    assert "Detector:" in output and "CLASSIC" in output
     assert "STATUS: CALIBRATING" in output
     assert calibration_calls == [(3.0, "auto"), (3.0, "auto")]
-    assert FakeMVSDetector.adaptive_thresholds == [8.0, 8.0]
+    assert FakeClassicDetector.adaptive_thresholds == [8.0, 8.0]
     assert " 87% | mvmt:7.000000 thr:8.000000 | IDLE | 0 pkt/s" in output
     assert "STATUS: COLLECTING 2/2" in output
 
@@ -1516,16 +1530,16 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
     )
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.24", detector="mvs,ml", no_save=True)
+        _make_live_collect_args(target="192.168.1.24", detector="classic,ml", no_save=True)
     )
 
     output = capsys.readouterr().out
-    assert "Detector:" in output and "MVS, ML" in output
+    assert "Detector:" in output and "CLASSIC, ML" in output
     assert "STATUS: CALIBRATING 1/1" in output
     assert "STATUS: COLLECTING 1/1" in output
     # One live line per (device, detector) pair.
-    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [mvs]" in output
-    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [ml ]" in output
+    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [classic]" in output
+    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [ml     ]" in output
 
 
 def test_collect_live_surfaces_runtime_error(monkeypatch) -> None:

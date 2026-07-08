@@ -32,7 +32,6 @@ Useful variants:
 ```bash
 python tools/10_train_ml_model.py --info
 python tools/10_train_ml_model.py --scaler clipped_standard
-python tools/10_train_ml_model.py --feature-set robust_relative --no-export
 python tools/10_train_ml_model.py --device mps
 python tools/10_train_ml_model.py --exclude-chip ESP32
 python tools/10_train_ml_model.py --gain-stress-gate
@@ -67,7 +66,6 @@ Current default training settings:
 - `--scaler standard`
 - `--batch-size 1024`
 - `--device cpu`
-- `--feature-set production`
 - `--sample-weight-mode none`
 
 Values above `1.0` for `--fp-weight` reduce false positives at the cost of
@@ -88,7 +86,8 @@ The training pipeline:
 3. Applies the selected sample-weight policy. The default production retrain
    uses `none` so the first clean AGC-active baseline does not inherit
    support-detector threshold bias.
-4. Extracts 8 relative ML features per sliding window.
+4. Extracts the selected ML feature set per sliding window. The production
+   default is the Core-6 set.
 5. Runs grouped cross-validation by paired capture/session, with blocked
    scoring to reduce overlap optimism.
 6. Reports worst-group metrics for session, chip, environment, and source file.
@@ -126,18 +125,17 @@ plain export:
 A plain training run always exports the current seed, while the gated flows
 replace artifacts only after a stricter grouped-CV improvement.
 
-For exploratory sweeps, `--scaler clipped_standard`, `--feature-set
-robust_relative`, alternate `--device` choices, `--no-cache`, and smaller
-`--batch-size` values are available, but
-non-production feature sets should be run with `--no-export` until they pass
-the validation checks below.
+For exploratory retrains, `--scaler clipped_standard`, alternate `--device`
+choices, `--no-cache`, and smaller `--batch-size` values are available, but
+promotable artifacts should still pass the validation checks below.
 
 ## Gain-Shift Robustness Check
 
 The production ML path deliberately keeps Python/C++ runtime inference aligned
 by deriving all neural-detector inputs from the same raw turbulence signal. The
-exported default feature set is relative to the local turbulence mean, so the
-model is structurally less sensitive to absolute amplitude gain changes.
+exported Core-6 feature set uses gain-invariant turbulence and L1-delta
+statistics, so the model is structurally less sensitive to absolute amplitude
+gain changes.
 
 Use the exported-artifact gain-stress gate to quantify this risk without
 retraining or exporting a new model:
@@ -153,11 +151,10 @@ python tools/10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1
 features, and reports recall/FP degradation overall plus worst chip,
 environment, session, and source-file groups.
 
-Current finding for the relative `1890407301` export (`8 -> 32 -> 16 -> 1`,
-`fp_weight=2.0`): all-environment gain stress is flat at `1.00x`, `1.25x`, and
-`1.50x`. The remaining worst-session weakness is nominal dataset difficulty,
-not gain-shift sensitivity. Treat this gate as the primary diagnostic for
-comparing future raw, relative, or hybrid feature sets.
+Current finding for the exported Core-6 model: all-environment gain stress is
+flat at `1.00x`, `1.25x`, and `1.50x`. The remaining worst-session weakness is
+nominal dataset difficulty, not gain-shift sensitivity. Treat this gate as the
+primary diagnostic before promoting future retrains.
 
 ## Empty-Room Regression Check
 
@@ -195,7 +192,7 @@ Add `--plot` to `7_compare_detection_methods.py` to visualize the comparison.
 ## Runtime Notes
 
 The ML pipeline matches the runtime's AGC-active design. Turbulence is always
-normalized before the same 8 relative features are extracted for the neural
+normalized before the same Core-6 features are extracted for the neural
 detector.
 
 To switch the Python runtime to ML detection:

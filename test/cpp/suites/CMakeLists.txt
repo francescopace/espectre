@@ -33,13 +33,8 @@ add_espectre_test(test_hampel_filter
     LIBRARIES espectre_core_testlib
 )
 
-add_espectre_test(test_mvs_detector
-    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_mvs_detector.cpp"
-    LIBRARIES espectre_core_testlib
-)
-
-add_espectre_test(test_l1_delta_detector
-    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_l1_delta_detector.cpp"
+add_espectre_test(test_classic_detector
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_classic_detector.cpp"
     LIBRARIES espectre_core_testlib
 )
 

@@ -4,10 +4,9 @@ endif()
 
 set(ESPECTRE_CORE_SOURCES
     "${ESPECTRE_CPP_ROOT}/core/base_detector.cpp"
+    "${ESPECTRE_CPP_ROOT}/core/classic_detector.cpp"
     "${ESPECTRE_CPP_ROOT}/core/csi_filters.cpp"
-    "${ESPECTRE_CPP_ROOT}/core/l1_delta_detector.cpp"
     "${ESPECTRE_CPP_ROOT}/core/ml_detector.cpp"
-    "${ESPECTRE_CPP_ROOT}/core/mvs_detector.cpp"
 )
 
 set(ESPECTRE_RUNTIME_COMMON_SOURCES

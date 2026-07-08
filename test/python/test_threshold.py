@@ -2,16 +2,7 @@
 Tests for `src/python/micro_espectre/threshold.py`.
 """
 
-from pathlib import Path
-import sys
-
 import pytest
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-PYTHON_SRC = REPO_ROOT / "src" / "python" / "micro_espectre"
-if str(PYTHON_SRC) not in sys.path:
-    sys.path.insert(0, str(PYTHON_SRC))
 
 from threshold import (
     StartupThresholdCalibrator,
@@ -131,6 +122,28 @@ def test_startup_gate_extends_past_contaminated_tail() -> None:
 
     threshold, formula = tracker.calculate_threshold("auto")
     assert threshold == pytest.approx(0.05 * 1.1)
+    assert formula == "gated max x 1.1"
+
+
+def test_startup_gate_rescues_quiet_tail_bump() -> None:
+    tracker = StartupThresholdCalibrator(
+        target_packets=60, auto_factor=1.1, gate_enabled=True
+    )
+    detector = FakeDetector()
+
+    # Quiet floor with a mild bump (within the anchor band) in one chunk:
+    # the spread gate rejects the initial ring and extends past the bump.
+    feed(tracker, detector, [0.05] * 20 + [0.06] * 10 + [0.05] * 30)
+    assert not tracker.is_complete()
+    assert tracker.is_extending()
+
+    feed(tracker, detector, [0.05] * 30)
+    assert tracker.is_complete()
+    assert tracker.gate_accepted
+
+    # Tail rescue keeps the bump peak: the extension must not end below it.
+    threshold, formula = tracker.calculate_threshold("auto")
+    assert threshold == pytest.approx(0.06 * 1.1)
     assert formula == "gated max x 1.1"
 
 

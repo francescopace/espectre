@@ -31,10 +31,10 @@ espectre:
   traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
   traffic_generator_mode: ping   # ping (default) or dns
   # Detection Algorithm
-  detection_algorithm: mvs      # mvs (default) or ml (neural network)
+  detection_algorithm: classic  # classic (default) or ml (neural network)
   # Segmentation parameters
   segmentation_window_size: 100  # Analysis window size in packets (10-200)
-  segmentation_threshold: auto  # auto/min (mvs/ml: 0.0-10.0)
+  segmentation_threshold: auto  # auto/min (classic/ml: 0.0-10.0)
   # Filters
   hampel_enabled: true          # Outlier removal (default: true)
   hampel_window: 7              # Filter window size (3-11, odd numbers)

@@ -2,7 +2,7 @@
 Micro-ESPectre - Detector Interface
 
 Base class for motion detection algorithms.
-Provides polymorphic interface for MVS and ML detectors.
+Provides polymorphic interface for Classic and ML detectors.
 
 Note: MicroPython doesn't have abc module, so we use a simple base class.
 
@@ -22,18 +22,15 @@ def normalize_detector_algorithm(name):
     Normalize detector identifiers to the shared config/protocol names.
 
     Examples:
-    - "MVS" -> "mvs"
+    - "classic" -> "classic"
     - "ML" -> "ml"
-    - "l1d" -> "l1_delta"
     """
-    normalized = str(name or "mvs").strip().lower().replace("-", "_")
-    aliases = {
-        "mvs": "mvs",
+    normalized = str(name or "classic").strip().lower().replace("-", "_")
+    canonical = {
+        "classic": "classic",
         "ml": "ml",
-        "l1d": "l1_delta",
-        "l1_delta": "l1_delta",
     }
-    return aliases.get(normalized, normalized)
+    return canonical.get(normalized, normalized)
 
 
 def get_detector_algorithm(detector):
@@ -47,8 +44,7 @@ def get_detector_algorithm(detector):
 # Single source of truth for the available detector algorithms:
 # canonical key -> (module name, class name, needs startup calibration, label).
 DETECTOR_REGISTRY = {
-    "mvs": ("mvs_detector", "MVSDetector", True, "MVS (Moving Variance Segmentation)"),
-    "l1_delta": ("l1_delta_detector", "L1DeltaDetector", True, "L1-Delta (Normalized Profile Displacement)"),
+    "classic": ("classic_detector", "ClassicDetector", True, "Classic (L1-Delta primary + variance recovery)"),
     "ml": ("ml_detector", "MLDetector", False, "ML (Neural Network)"),
 }
 
@@ -94,8 +90,7 @@ class IDetector:
     Interface for motion detection algorithms.
     
     Implementations:
-    - MVSDetector: Moving Variance Segmentation (default)
-    - L1DeltaDetector: Normalized profile displacement
+    - ClassicDetector: L1-Delta primary plus variance recovery (default non-ML)
     - MLDetector: Neural Network classifier
     
     Subclasses must implement all methods.
@@ -178,7 +173,7 @@ class IDetector:
         Get detector algorithm name.
         
         Returns:
-            str: Human-friendly detector label, for example "MVS", "L1D", or "ML"
+            str: Human-friendly detector label, for example "Classic" or "ML"
         """
         raise NotImplementedError
     

@@ -2,7 +2,7 @@
 
 Quick guide to tune ESPectre for reliable movement detection in your environment.
 
-> **Note on Detection Algorithms**: This guide focuses on **MVS** (the default detection algorithm). The turbulence-path filters described below apply to the `mvs` and `ml` paths; `l1_delta` shares the same threshold-bootstrap tuning model with an `auto` factor of `max x 1.1`, but does not use the Hampel path and intentionally keeps its quiet metric close to threshold (85-95%) because that metric is much more stable than the MVS moving variance. See [ALGORITHMS.md](ALGORITHMS.md).
+> **Note on Detection Algorithms**: This guide focuses on `classic` (the default non-ML detector). `classic` uses L1-Delta as the primary metric with a variance recovery vote. The turbulence-path filters described below apply to `classic` and `ml`, while the startup threshold bootstrap for `classic` uses the L1-Delta primary metric with an `auto` factor of `max x 1.1`. See [ALGORITHMS.md](ALGORITHMS.md).
 >
 > **Frontend scope**: This guide is written as a shared tuning reference first. When a workflow differs by frontend, the text calls that out explicitly instead of treating one frontend as the universal path.
 >
@@ -12,7 +12,7 @@ Quick guide to tune ESPectre for reliable movement detection in your environment
 
 ## Quick Start (5 minutes)
 
-> **Note on Subcarrier Selection**: ESPectre now uses one shared fixed 12-subcarrier set across `mvs`, `l1_delta`, and `ml`. Only the detector-specific metric and threshold/bootstrap behavior differ.
+> **Note on Subcarrier Selection**: ESPectre now uses one shared fixed 12-subcarrier set across `classic` and `ml`. Only the detector-specific metric and threshold/bootstrap behavior differ.
 
 ### 1. Flash and Boot
 
@@ -35,7 +35,7 @@ On first boot, keep the room **empty and still** for 10 seconds. The system will
 
 Look for log messages like:
 ```
-[I][espectre]: Starting MVS threshold calibration with fixed subcarriers
+[I][espectre]: Starting classic threshold calibration with fixed subcarriers
 [I][espectre]: Calibration completed successfully
 ```
 
@@ -90,15 +90,14 @@ For example:
 
 ## Understanding Parameters
 
-> The following parameters focus on the startup-calibrated detector paths. The
-> numeric guidance is MVS-first; `l1_delta` uses the same controls but a lower
-> `auto` factor (`max x 1.1` instead of `max x 1.3`).
+> The following parameters focus on the startup-calibrated detector path,
+> `classic`, which uses `auto = max x 1.1`.
 
 ### Segmentation Threshold
 
-**What it does:** Determines sensitivity for motion detection in the startup-calibrated detector paths (`mvs`, `l1_delta`).
+**What it does:** Determines sensitivity for motion detection in the startup-calibrated `classic` detector path.
 
-**Default:** `auto` (adaptive threshold; `max x 1.3` in `mvs`, `max x 1.1` in `l1_delta`)
+**Default:** `auto` (adaptive threshold; `max x 1.1` in `classic`)
 
 | Value | Sensitivity | Use Case |
 |-------|-------------|----------|
@@ -122,20 +121,20 @@ espectre:
 **Runtime note:** Runtime adjustments are temporary unless your frontend also
 persists the value. The adaptive threshold is recalculated on every boot.
 
-### Detection Algorithm (mvs/ml)
+### Detection Algorithm (classic/ml)
 
 **What it does:** Selects the motion detection algorithm.
 
-**Default:** `mvs`
+**Default:** `classic`
 
 ```yaml
 espectre:
-  detection_algorithm: mvs  # or ml
+  detection_algorithm: classic  # or ml
 ```
 
 | Algorithm | Description | Threshold Range | Best For |
 |-----------|-------------|-----------------|----------|
-| `mvs` | Moving Variance Segmentation | 0.0 - 10.0 | General purpose, adaptive |
+| `classic` | L1-Delta primary with variance recovery | 0.0 - 10.0 | General purpose, adaptive |
 | `ml` | Neural network detector | 0.0 - 10.0 (scaled metric) | Calibration-free boot |
 
 ### Window Size (10-200 packets)
@@ -290,15 +289,15 @@ espectre:
 
 | Mode | Formula | Description |
 |------|---------|-------------|
-| `auto` (default) | max x 1.3 | Minimizes false positives |
+| `auto` (default) | max x 1.1 | Minimizes false positives |
 | `min` | max x 1.0 | Maximum sensitivity |
 
-In `l1_delta` mode the same formula is applied to the window accepted by the
-calibration consistency gate: if movement contaminated the startup window,
-calibration extends chunk by chunk (up to ~20 extra seconds at 100 pps) until
-the metric is consistently quiet, instead of locking in an inflated
-threshold. The extension is logged; no tuning is required. See
-[ALGORITHMS.md](ALGORITHMS.md) for the gate details.
+In `classic` mode the threshold is calibrated from the L1-Delta primary metric.
+If movement contaminated the startup window, the calibration consistency gate
+extends chunk by chunk (up to ~20 extra seconds at 100 pps) until the metric is
+consistently quiet, instead of locking in an inflated threshold. The extension
+is logged; no tuning is required. See [ALGORITHMS.md](ALGORITHMS.md) for the
+gate details.
 
 **Note:** The subcarrier set is fixed. Only the threshold calculation varies.
 
@@ -327,7 +326,7 @@ espectre:
 
 **What it does:** Removes statistical outliers from turbulence values using MAD (Median Absolute Deviation). This can help reduce false positives caused by sudden interference.
 
-**Applies to:** Both MVS and ML detectors.
+**Applies to:** Both Classic and ML detectors.
 
 **Default:** Enabled (threshold: 5.0 MAD, window: 7)
 
@@ -357,7 +356,7 @@ ESPHome YAML mapping lives in
 
 **What it does:** Removes high-frequency noise from turbulence values using a 1st-order Butterworth IIR filter. This significantly reduces false positives in noisy RF environments.
 
-**Applies to:** Both MVS and ML detectors.
+**Applies to:** Both Classic and ML detectors.
 
 **Default:** Disabled
 
@@ -541,7 +540,7 @@ is too sparse, or the sensor is placed too close to the access point.
 2. **Keep the room quiet during startup**:
    - avoid movement in the monitored area
    - wait for calibration/readiness to complete before evaluating motion quality
-   - in `l1_delta` mode, movement during startup extends calibration
+   - in `classic` mode, movement during startup extends calibration
      automatically; let it settle instead of restarting the device
 
 3. **Verify CSI packet flow and stimulus configuration**:
@@ -590,9 +589,9 @@ is too sparse, or the sensor is placed too close to the access point.
 2. **Avoid DFS channels:** Channels 52-144 (5GHz DFS) may switch unexpectedly due to radar detection
 3. **Check for interference:** Nearby networks on the same channel can cause instability
 
-### Runtime Recalibration (`mvs` and `l1_delta`)
+### Runtime Recalibration (`classic`)
 
-**When needed:** Recompute the adaptive threshold without reflashing (e.g., after moving furniture or changing room layout). This applies to the startup-calibrated detector modes `mvs` and `l1_delta`; `ml` keeps its fixed threshold.
+**When needed:** Recompute the adaptive threshold without reflashing (e.g., after moving furniture or changing room layout). This applies to `classic`; `ml` keeps its fixed threshold.
 
 Use the recalibration control exposed by your frontend, when available.
 
@@ -610,13 +609,13 @@ Examples:
 **Logs during recalibration:**
 ```
 [I][espectre]: Manual recalibration triggered
-[I][espectre]: Starting MVS threshold calibration with fixed subcarriers
+[I][espectre]: Starting classic threshold calibration with fixed subcarriers
 [I][espectre]: Calibration completed successfully
 ```
 
-### Reset Calibration (`mvs` and `l1_delta`)
+### Reset Calibration (`classic`)
 
-**When needed:** Start completely fresh and recompute the adaptive threshold from a quiet baseline. This applies to the startup-calibrated detector modes `mvs` and `l1_delta`.
+**When needed:** Start completely fresh and recompute the adaptive threshold from a quiet baseline. This applies to `classic`.
 
 **How to reset:**
 
@@ -635,7 +634,7 @@ the persisted frontend state before booting again in a quiet room.
 
 **After reset:**
 - Keep room quiet and empty for 10 seconds
-- MVS threshold bootstrap will automatically rerun
+- Classic threshold bootstrap will automatically rerun
 - Check logs for "Calibration completed successfully"
 
 ---

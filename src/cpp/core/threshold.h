@@ -4,7 +4,7 @@
  * Calculates adaptive threshold from calibration baseline values.
  * Called after calibration to compute the detection threshold.
  *
- * MVS Formula: threshold = max(cal_values) x factor
+ * Startup-threshold formula: threshold = max(cal_values) x factor
  *
  * Modes:
  * - "auto": max x 1.3 (default, lower false positives on no-gain-lock captures)
@@ -80,7 +80,8 @@ inline float get_threshold_factor(ThresholdMode mode, float auto_factor = DEFAUL
 /**
  * Calculate adaptive threshold from calibration baseline values
  * 
- * MVS: threshold = max(cal_values) x factor for the current production modes
+ * Shared startup path: threshold = max(cal_values) x factor for the current
+ * production modes
  * 
  * AUTO mode applies a 1.3x multiplier to reduce false positives.
  * MIN mode uses the raw max moving variance for maximum sensitivity.
@@ -127,6 +128,12 @@ inline float calculate_adaptive_threshold(
  * STARTUP_GATE_EXTENSION_PACKETS beyond the nominal target; on budget
  * exhaustion the threshold metric falls back to the ring median.
  *
+ * Chunks discarded during extension that stayed within the floor anchor
+ * band of the accepted ring are treated as session quiet tail rather than
+ * motion: their peak is folded back into the threshold metric ("tail
+ * rescue"), so the extension can never lower the threshold below a
+ * recurring quiet-tail bump.
+ *
  * Mirrors StartupThresholdCalibrator in
  * src/python/micro_espectre/threshold.py.
  */
@@ -145,6 +152,8 @@ class StartupThresholdCalibrator {
     ring_count_ = 0;
     ring_next_ = 0;
     min_chunk_max_ = 0.0f;
+    discarded_chunk_max_ = 0.0f;
+    has_discarded_chunk_ = false;
   }
 
   /**
@@ -195,7 +204,15 @@ class StartupThresholdCalibrator {
       return has_value_ ? max_motion_metric_ : 0.0f;
     }
     if (gate_accepted_) {
-      return ring_max_();
+      float metric = ring_max_();
+      // Tail rescue: discarded chunks within the anchor band of the
+      // accepted floor are quiet tail, not motion; keep their peak so
+      // the extension cannot end below a recurring tail bump.
+      if (has_discarded_chunk_ &&
+          discarded_chunk_max_ <= STARTUP_GATE_ANCHOR_RATIO * ring_median_()) {
+        metric = std::max(metric, discarded_chunk_max_);
+      }
+      return metric;
     }
     // Extension budget exhausted: robust fallback on the last ring.
     return ring_median_();
@@ -228,6 +245,13 @@ class StartupThresholdCalibrator {
     }
 
     // Close the chunk: slide the ring and track the session floor.
+    if (ring_count_ == STARTUP_GATE_CHUNKS) {
+      const float discarded = ring_[ring_next_];
+      if (!has_discarded_chunk_ || discarded > discarded_chunk_max_) {
+        discarded_chunk_max_ = discarded;
+        has_discarded_chunk_ = true;
+      }
+    }
     ring_[ring_next_] = chunk_max_;
     ring_next_ = (ring_next_ + 1) % STARTUP_GATE_CHUNKS;
     if (ring_count_ < STARTUP_GATE_CHUNKS) {
@@ -287,6 +311,8 @@ class StartupThresholdCalibrator {
   uint8_t ring_count_{0};
   uint8_t ring_next_{0};
   float min_chunk_max_{0.0f};
+  float discarded_chunk_max_{0.0f};
+  bool has_discarded_chunk_{false};
 };
 
 }  // namespace espectre

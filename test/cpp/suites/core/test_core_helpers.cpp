@@ -10,10 +10,9 @@
 #include <utility>
 #include <vector>
 
-#include "l1_delta_detector.h"
+#include "classic_detector.h"
 #include "ml_detector.h"
-#include "ml_features.h"
-#include "mvs_detector.h"
+#include "features.h"
 #include "threshold.h"
 #include "utils.h"
 
@@ -171,6 +170,36 @@ void test_startup_threshold_calibrator_gate_extends_past_contaminated_tail(void)
     TEST_ASSERT_EQUAL_INT(120, static_cast<int>(calibrator.packet_count()));
 }
 
+void test_startup_threshold_calibrator_rescues_quiet_tail_bump(void) {
+    StartupThresholdCalibrator calibrator;
+    calibrator.begin(60, true);
+    // Quiet floor with a mild bump (within the anchor band) in one chunk:
+    // the spread gate rejects the initial ring and extends past the bump.
+    for (int i = 0; i < 20; ++i) {
+        calibrator.observe(true, 0.05f);
+    }
+    for (int i = 0; i < 10; ++i) {
+        calibrator.observe(true, 0.06f);
+    }
+    for (int i = 0; i < 30; ++i) {
+        calibrator.observe(true, 0.05f);
+    }
+
+    TEST_ASSERT_FALSE(calibrator.is_complete());
+    TEST_ASSERT_TRUE(calibrator.is_extending());
+
+    for (int i = 0; i < 30; ++i) {
+        calibrator.observe(true, 0.05f);
+    }
+
+    TEST_ASSERT_TRUE(calibrator.is_complete());
+    TEST_ASSERT_TRUE(calibrator.gate_accepted());
+
+    // Tail rescue keeps the bump peak: the extension must not end below it.
+    TEST_ASSERT_EQUAL_FLOAT(0.06f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_STRING("gated max", calibrator.statistic_name());
+}
+
 void test_startup_threshold_calibrator_floor_anchor_rejects_homogeneous_motion(void) {
     StartupThresholdCalibrator calibrator;
     calibrator.begin(60, true);
@@ -198,10 +227,10 @@ void test_startup_threshold_calibrator_floor_anchor_rejects_homogeneous_motion(v
 }
 
 void test_detector_startup_gate_traits(void) {
-    L1DeltaDetector l1_delta;
-    MVSDetector mvs;
-    TEST_ASSERT_TRUE(l1_delta.startup_gate_enabled());
-    TEST_ASSERT_FALSE(mvs.startup_gate_enabled());
+    ClassicDetector classic;
+    MLDetector ml;
+    TEST_ASSERT_TRUE(classic.startup_gate_enabled());
+    TEST_ASSERT_FALSE(ml.startup_gate_enabled());
 }
 
 void test_ml_feature_helpers_cover_guard_paths(void) {
@@ -212,11 +241,6 @@ void test_ml_feature_helpers_cover_guard_paths(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_skewness(sample, 4, 4.0f, 0.0f));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, median_from_sorted(nullptr, 0));
     TEST_ASSERT_EQUAL_FLOAT(4.0f, median_from_sorted(sorted, 4));
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, interpolate_sorted_percentile(nullptr, 0, 25.0f));
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, interpolate_sorted_percentile(sorted, 1, 25.0f));
-    TEST_ASSERT_EQUAL_FLOAT(7.0f, interpolate_sorted_percentile(sorted, 4, 100.0f));
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_iqr(sample, ML_MAX_SORT_SIZE + 1));
-    TEST_ASSERT_EQUAL_FLOAT(3.0f, calc_iqr(sample, 4, sorted));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_autocorrelation(sample, 2, 2.0f, 1.0f, 1));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_autocorrelation(sample, 4, 4.0f, 0.0f, 1));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_mad(sample, ML_MAX_SORT_SIZE + 1));
@@ -226,10 +250,10 @@ void test_ml_feature_helpers_cover_guard_paths(void) {
     TEST_ASSERT_EQUAL_FLOAT(6.0f, calc_waveform_length(sample, 4));
 }
 
-void test_mvs_detector_move_semantics_and_base_accessors(void) {
+void test_classic_detector_move_semantics_and_base_accessors(void) {
     auto packet = make_constant_packet(3, 4);
 
-    MVSDetector source(5, 2.5f);
+    ClassicDetector source(5, 2.5f);
     source.configure_lowpass(true, 2.0f);
     source.configure_hampel(true, 5, 2.5f);
     source.process_packet(nullptr, packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
@@ -238,7 +262,7 @@ void test_mvs_detector_move_semantics_and_base_accessors(void) {
     TEST_ASSERT_NOT_NULL(source.get_turbulence_buffer());
     TEST_ASSERT_EQUAL(1, source.get_buffer_count());
 
-    MVSDetector moved(std::move(source));
+    ClassicDetector moved(std::move(source));
     TEST_ASSERT_NULL(source.get_turbulence_buffer());
     TEST_ASSERT_TRUE(moved.is_lowpass_enabled());
     TEST_ASSERT_TRUE(moved.is_hampel_enabled());
@@ -246,7 +270,7 @@ void test_mvs_detector_move_semantics_and_base_accessors(void) {
     TEST_ASSERT_EQUAL(1, moved.get_buffer_count());
     TEST_ASSERT_EQUAL_FLOAT(2.5f, moved.get_threshold());
 
-    MVSDetector assigned(7, 4.0f);
+    ClassicDetector assigned(7, 4.0f);
     assigned = std::move(moved);
     TEST_ASSERT_NULL(moved.get_turbulence_buffer());
     TEST_ASSERT_TRUE(assigned.is_lowpass_enabled());
@@ -281,10 +305,11 @@ int process(void) {
     RUN_TEST(test_startup_threshold_calibrator_gate_disabled_matches_max);
     RUN_TEST(test_startup_threshold_calibrator_gate_accepts_clean_startup);
     RUN_TEST(test_startup_threshold_calibrator_gate_extends_past_contaminated_tail);
+    RUN_TEST(test_startup_threshold_calibrator_rescues_quiet_tail_bump);
     RUN_TEST(test_startup_threshold_calibrator_floor_anchor_rejects_homogeneous_motion);
     RUN_TEST(test_detector_startup_gate_traits);
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
-    RUN_TEST(test_mvs_detector_move_semantics_and_base_accessors);
+    RUN_TEST(test_classic_detector_move_semantics_and_base_accessors);
     RUN_TEST(test_ml_detector_move_semantics_and_cv_state);
     return UNITY_END();
 }

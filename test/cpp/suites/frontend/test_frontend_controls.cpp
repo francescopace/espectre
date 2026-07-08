@@ -96,10 +96,8 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::PING);
   component.set_detection_algorithm("ml");
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::ML);
-  component.set_detection_algorithm("l1_delta");
-  TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::L1_DELTA);
-  component.set_detection_algorithm("mvs");
-  TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::MVS);
+  component.set_detection_algorithm("classic");
+  TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::CLASSIC);
   component.set_publish_interval(200);
   component.set_evaluation_interval(50);
   component.set_motion_on_hits(4);

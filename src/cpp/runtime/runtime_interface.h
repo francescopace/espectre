@@ -14,8 +14,7 @@ namespace esphome {
 namespace espectre {
 
 enum class DetectionAlgorithm {
-  MVS,
-  L1_DELTA,
+  CLASSIC,
   ML,
 };
 
@@ -25,7 +24,7 @@ enum class RuntimeTrafficMode {
 };
 
 struct RuntimeConfig {
-  DetectionAlgorithm detection_algorithm{DetectionAlgorithm::MVS};
+  DetectionAlgorithm detection_algorithm{DetectionAlgorithm::CLASSIC};
   ThresholdMode threshold_mode{ThresholdMode::AUTO};
   float segmentation_threshold{SEGMENTATION_DEFAULT_THRESHOLD};
   uint16_t segmentation_window_size{DETECTOR_DEFAULT_WINDOW_SIZE};

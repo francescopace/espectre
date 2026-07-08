@@ -75,7 +75,7 @@ All frontend parameters live under the `espectre:` section:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `detection_algorithm` | string | `mvs` | Detection algorithm: `mvs`, `l1_delta`, or `ml` |
+| `detection_algorithm` | string | `classic` | Detection algorithm: `classic` or `ml` |
 | `traffic_generator_rate` | int | `100` | Packets per second for CSI generation (`0-1000`, `0` disables the internal generator) |
 | `traffic_generator_mode` | string | `ping` | Traffic generator mode: `ping` or `dns` |
 | `publish_interval` | int | `auto` | Packets between periodic movement/log updates |
@@ -83,7 +83,7 @@ All frontend parameters live under the `espectre:` section:
 | `motion_on_hits` | int | `3` | Consecutive hits required before entering `MOTION` |
 | `motion_off_hits` | int | `3` | Consecutive hits required before returning to `IDLE` |
 | `segmentation_threshold` | string/float | `auto` | Threshold mode: `auto`, `min`, or numeric `0.0-10.0` |
-| `segmentation_window_size` | int | `100` | Moving variance window in packets (`10-200`) |
+| `segmentation_window_size` | int | `100` | Shared detector window in packets for classic variance recovery and ML features (`10-200`) |
 | `lowpass_enabled` | bool | `false` | Enable low-pass filtering |
 | `lowpass_cutoff` | float | `11.0` | Low-pass cutoff in Hz (`5-20`) |
 | `hampel_enabled` | bool | `true` | Enable Hampel outlier filtering |
@@ -103,27 +103,25 @@ control is exposed separately through the entities below:
 
 | Algorithm | Summary | Shared behavior |
 |-----------|---------|-----------------|
-| `mvs` | Moving-variance detector | Adaptive startup threshold bootstrap |
-| `l1_delta` | Normalized profile-displacement detector | Adaptive startup threshold bootstrap with a lower `auto` factor |
+| `classic` | L1-Delta primary with variance recovery | Adaptive startup threshold bootstrap |
 | `ml` | Neural-network detector | Faster boot, no threshold bootstrap |
 
 ```yaml
 espectre:
-  detection_algorithm: mvs  # or l1_delta, ml
+  detection_algorithm: classic  # or ml
 ```
 
 Threshold behavior:
 
 - range: `0.0-10.0`
-- `mvs` default: `auto` (startup calibration, `max x 1.3`)
-- `l1_delta` default: `auto` (startup calibration, `max x 1.1`)
+- `classic` default: `auto` (startup calibration, `max x 1.1`)
 - `ml` default: `5.0`
 
 ### Example
 
 ```yaml
 espectre:
-  detection_algorithm: mvs
+  detection_algorithm: classic
   traffic_generator_rate: 100
   traffic_generator_mode: ping
   segmentation_threshold: auto
@@ -262,13 +260,13 @@ For rate recommendations, airtime tradeoffs, and placement guidance, see
 
 ## Startup Calibration
 
-In `MVS` and `L1-Delta` mode, keep the room quiet after boot so the runtime can
+In `classic` mode, keep the room quiet after boot so the runtime can
 complete the startup threshold bootstrap.
 
 Startup behavior:
 
 1. AGC-active startup with detector-specific normalized metrics
-2. adaptive threshold bootstrap for `mvs` or `l1_delta`
+2. adaptive threshold bootstrap for `classic`
 3. normal motion detection loop
 
 With the default `segmentation_window_size: 100`, both startup-calibrated
@@ -359,7 +357,7 @@ The frontend itself does not require a custom partition table.
 
 1. Verify Wi-Fi is connected
 2. Verify traffic generation is active, or provide external traffic
-3. Wait for startup calibration to complete in `mvs` or `l1_delta`
+3. Wait for startup calibration to complete in `classic`
 4. Lower `segmentation_threshold` if the detector is too conservative
 
 ### False positives

@@ -21,14 +21,14 @@ except ImportError:
     import src.config as config
 
 try:
-    from l1_delta_detector import L1DeltaDetector
+    from classic_detector import ClassicDetector
     from threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
         get_detector_startup_gate,
     )
 except ImportError:  # pragma: no cover
-    from src.l1_delta_detector import L1DeltaDetector
+    from src.classic_detector import ClassicDetector
     from src.threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
@@ -59,8 +59,9 @@ class ResolvedPair:
 
     Detection thresholds are intentionally not resolved here: they are
     detector-specific, so consumers replay the startup calibration of the
-    detector they evaluate (`estimate_runtime_threshold` for l1_delta, the MVS
-    sweep calibration for MVS) on the static capture of the pair.
+    detector they evaluate (`estimate_runtime_threshold` for classic, the
+    variance sweep calibration for the moving-variance baseline) on the static
+    capture of the pair.
     """
 
     static_presence: ResolvedDataset
@@ -164,9 +165,9 @@ def estimate_runtime_threshold(
     threshold_mode: Optional[str] = None,
     selected_subcarriers: Optional[Iterable[int]] = None,
 ) -> Optional[float]:
-    """Replay the l1_delta startup calibration and return a production-aligned threshold."""
+    """Replay the classic startup calibration and return a production-aligned threshold."""
     selected_mode = _threshold_mode_from_config() if threshold_mode is None else str(threshold_mode)
-    detector = L1DeltaDetector(
+    detector = ClassicDetector(
         window_size=config.SEG_WINDOW_SIZE,
         threshold=1.0,
     )
@@ -187,6 +188,50 @@ def estimate_runtime_threshold(
         return None
     threshold, _ = calibrator.calculate_threshold(selected_mode)
     return float(threshold)
+
+
+def build_calibrated_classic_detector(
+    packets: Iterable[Dict[str, Any]],
+    *,
+    threshold_mode: Optional[str] = None,
+    selected_subcarriers: Optional[Iterable[int]] = None,
+    threshold: float = 1.0,
+) -> Optional[Tuple[ClassicDetector, float]]:
+    """
+    Return a ClassicDetector calibrated exactly like the production startup flow.
+
+    The returned detector has its startup-calibrated threshold applied and its
+    frozen variance floor preserved across the warm reset that follows calibration.
+    """
+    selected_mode = _threshold_mode_from_config() if threshold_mode is None else str(threshold_mode)
+    detector = ClassicDetector(
+        window_size=config.SEG_WINDOW_SIZE,
+        threshold=threshold,
+        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=config.LOWPASS_CUTOFF,
+        enable_hampel=config.ENABLE_HAMPEL_FILTER,
+        hampel_window=config.HAMPEL_WINDOW,
+        hampel_threshold=config.HAMPEL_THRESHOLD,
+    )
+    calibrator = StartupThresholdCalibrator(
+        config.CALIBRATION_BUFFER_SIZE,
+        auto_factor=get_detector_auto_factor(detector),
+        gate_enabled=get_detector_startup_gate(detector),
+    )
+    band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)
+    for pkt in packets:
+        csi_data = pkt["csi_data"] if isinstance(pkt, dict) else pkt
+        detector.process_packet(csi_data, band)
+        detector.update_state()
+        calibrator.observe_detector(detector)
+        if calibrator.is_complete():
+            break
+    if not calibrator.is_successful():
+        return None
+    startup_threshold, _ = calibrator.calculate_threshold(selected_mode)
+    detector.set_adaptive_threshold(float(startup_threshold))
+    detector.reset()
+    return detector, float(startup_threshold)
 
 
 def resolve_dataset_selection(

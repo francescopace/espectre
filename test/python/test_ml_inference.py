@@ -8,21 +8,12 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-import sys
 import time
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-
-from tools.lib.repo_paths import generated_data_dir, python_src_dir
-
-# Add src to path
-src_path = str(python_src_dir())
-if src_path not in sys.path:
-    sys.path.insert(0, src_path)
+from tools.lib.repo_paths import generated_data_dir
 
 from ml_detector import predict, ML_METRIC_SCALE, ML_DEFAULT_THRESHOLD
 
