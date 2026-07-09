@@ -93,7 +93,7 @@ Host-side workflows live at the repository CLI root:
 | `./espectre collect ...` | Unified host CLI for live detection, live recording, and legacy timed dataset collection |
 | `./espectre mqtt` | Interactive MQTT command and telemetry console |
 | `./espectre ui ...` | Open local browser tools |
-| `./espectre monitor ...` | Attach to serial logs |
+| `./espectre monitor ...` | Attach to serial logs with auto-reconnect |
 
 Use `./espectre --help` and the shared [SETUP.md](../../../docs/SETUP.md) for
 current CLI syntax.
@@ -135,7 +135,7 @@ Boot -> AGC-active startup -> Classic threshold bootstrap or ML startup -> Detec
 | Algorithm | Method | Startup behavior |
 |-----------|--------|------------------|
 | `classic` | L1-Delta primary with a gated variance recovery vote | Motion-first threshold bootstrap on the L1-Delta primary metric, with an internal quiet-first fallback and a startup-frozen variance floor |
-| `ml` | 8-feature MLP over turbulence windows | Immediate startup with normalized AGC-active turbulence |
+| `ml` | Core-6 MLP over turbulence and L1-delta windows | Immediate startup with normalized AGC-active turbulence |
 
 Key config values live in `config.py`:
 
@@ -154,11 +154,11 @@ In startup-calibrated modes, `SEG_THRESHOLD = "auto"` means startup threshold =
 - `classic`: `x 1.1`
 
 In `classic`, startup first builds a quiet anchor, then tries to use one clean
-`quiet -> motion -> quiet` sequence to finish early. If that never happens
-inside the startup budget, the same shared calibrator falls back internally to
-the quiet-only path. Keep the room quiet immediately after boot; later, one
-short motion can help the detector converge faster, but it is optional. See
-[ALGORITHMS.md](../../../docs/ALGORITHMS.md).
+`quiet -> motion -> quiet` sequence to finish early. If that does not happen
+inside the startup budget, the shared calibrator falls back internally to the
+quiet-only path. Keep the room quiet immediately after boot. For the practical
+startup workflow, use [TUNING.md](../../../docs/TUNING.md). For detector theory,
+use [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 
 ### Filters
 

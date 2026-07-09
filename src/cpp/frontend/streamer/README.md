@@ -9,6 +9,9 @@ collection and transport to host-side tooling.
 This file is the source of truth for the streamer frontend surface and UDP
 protocol.
 
+For the historical architecture decision behind this frontend, see
+[`adopt a dedicated c++ streamer frontend for high-rate csi collection`](../../../../docs/adr/2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md).
+
 ## Scope
 
 The streamer frontend is responsible for:
@@ -198,6 +201,9 @@ Runtime behavior notes:
 - the streamer no longer owns an internal traffic generator
 - BLE provisioning handles Wi-Fi setup plus device naming/sysinfo; it does not
   expose streamer CSI data or runtime motion telemetry over BLE
+- on memory-constrained coexistence targets, the streamer may temporarily
+  suspend BLE after sustained active streaming and restore it after a prolonged
+  idle period
 - MQTT is intentionally narrow on the streamer: it exposes `info`, `stats`,
   `ota_check`, `ota_start`, `ota_status`, and command results, but not CSI or
   continuous telemetry
@@ -208,6 +214,20 @@ Runtime behavior notes:
   stream when present
 - the UDP sender uses a bounded queue plus datagram batching, so queue depth and
   queue peak are useful indicators when tuning packet rate
+
+Periodic telemetry uses a few transport-specific counters:
+
+- `dup`: total duplicate frames filtered before or after stimulus parsing
+- `wifi_dup`: early duplicates filtered from repeated Wi-Fi frames using
+  source MAC plus 802.11 sequence number
+- `stim_dup`: later duplicates filtered by repeated `stimulus_id`
+- `retry`: frames observed with the 802.11 retry bit set, even when they are
+  the first copy seen by the streamer
+
+In a healthy stream, `backlog`, `csi_q`, `txq_age`, and `fail_age` should stay
+low. A rising `retry` or `wifi_dup` rate with flat `fail` and low queue ages
+usually points to upstream Wi-Fi retransmission pressure rather than sender-side
+queue saturation.
 
 ## Collector-Driven Target Traffic
 
@@ -346,6 +366,9 @@ Notes:
 - the transport path is mostly packet-rate bound rather than byte-rate bound
 - `queue=0` in the periodic log does not mean the queue never saturated; use
   `peak=<n>/<slots>` to inspect burst pressure between log ticks
+- `retry` counts retry-marked frames, while `wifi_dup` counts the repeated
+  copies actually filtered early by the streamer; `retry` may therefore be
+  higher than `wifi_dup`
 - `batch=4` is the recommended default on ESP32-C3; `batch=8` slightly helped
   some `1000 pps` runs but was less robust at `1200 pps`
 

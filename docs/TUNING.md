@@ -1,271 +1,148 @@
 # Tuning Guide
 
-Quick guide to tune ESPectre for reliable movement detection in your environment.
+Shared operational tuning guide for ESPectre.
 
-> **Note on Detection Algorithms**: This guide focuses on `classic` (the default non-ML detector). `classic` uses L1-Delta as the primary metric with a variance recovery vote. The turbulence-path filters described below apply to `classic` and `ml`, while the startup threshold bootstrap for `classic` now uses a motion-first path with an internal quiet-first fallback and an `auto` factor of `threshold_metric x 1.1`. See [ALGORITHMS.md](ALGORITHMS.md).
->
-> **Frontend scope**: This guide is written as a shared tuning reference first. When a workflow differs by frontend, the text calls that out explicitly instead of treating one frontend as the universal path.
->
-> **Syntax note**: YAML snippets in this guide are `ESPHome` examples only. For frontend-specific configuration syntax, provisioning, runtime controls, or workflow details, use the README of the frontend you are actually deploying.
+This document is the main operational reference for startup behavior,
+thresholds, filters, placement, and troubleshooting. 
 
----
+Inline snippets use `ESPHome` YAML only as a concrete example.
 
-## Quick Start (5 minutes)
+## Quick Start
 
-> **Note on Subcarrier Selection**: ESPectre now uses one shared fixed 12-subcarrier set across `classic` and `ml`. Only the detector-specific metric and threshold/bootstrap behavior differ.
+### 1. Boot In A Quiet Room
 
-### 1. Flash and Boot
+For the default `classic` detector, startup quality matters.
 
-Flash the frontend you want to deploy, boot the device, and open whatever
-runtime visibility surface that frontend provides:
+Current startup behavior:
 
-- logs or serial monitor
-- frontend-specific runtime telemetry
-- controller-side device state, when available
+1. CSI capture starts with AGC active
+2. the runtime builds a quiet anchor
+3. if a clean `quiet -> motion -> quiet` pattern appears, startup may finish
+   early
+4. otherwise the detector falls back internally to the quiet-only path
 
-For frontend-owned setup details, continue in the relevant README.
+With default `window_size=100`, the startup budget is `10 x window_size = 1000`
+packets. This is a maximum, not a fixed wait.
 
-### 2. Wait for Startup Calibration
+Practical rule:
 
-On first boot, start with the room **quiet**. The system will:
-1. Start CSI capture with AGC active
-2. Build a quiet anchor on the shared fixed 12-subcarrier set
-3. Try to finish from a clean `quiet -> motion -> quiet` pattern if one appears naturally
-4. Fall back internally to the quiet-only path if no useful motion appears before the startup budget is spent
-
-With the default `window_size=100`, the startup budget is still `10 × window_size = 1000` packets, but it is now a maximum rather than a fixed wait.
-
-Practical guidance:
-- staying quiet at boot is still the safest default
-- one short motion after the first quiet phase can help `classic` converge faster
+- stay quiet immediately after boot
+- after the first quiet phase, one short motion can help `classic` converge
+  faster, but it is optional
 - repeated movement during startup still hurts calibration quality
 
-Look for log messages like:
-```
-[I][espectre]: Starting classic threshold calibration with fixed subcarriers
-[I][espectre]: Calibration completed successfully
-```
+`ml` does not use startup threshold calibration and becomes active as soon as
+CSI capture is ready.
 
-NOTE: In ML mode, the threshold remains fixed and startup is immediate once CSI capture is active.
+### 2. Watch The Runtime Surface
 
-### 3. Test Movement
+Use whatever your frontend exposes:
 
-Walk around the room while monitoring the runtime surface exposed by your
-frontend.
+- logs or serial monitor
+- live motion state
+- movement score
+- current threshold
+- calibration state, when available
 
-Look for state changes:
-- `state=MOTION` when moving
-- `state=IDLE` when still
+### 3. Test Real Movement
 
-### 4. Adjust Threshold if Needed
+Walk in the monitored area and confirm:
 
-By default, ESPectre uses an **adaptive threshold** calculated automatically during calibration based on baseline noise. This works well in most environments.
+- `MOTION` while moving
+- `IDLE` while still
+
+### 4. Tune Only One Knob At A Time
+
+Start with threshold. If needed, then adjust window size or filters.
+
+## Main Parameters
+
+### Threshold
+
+Default:
 
 ```yaml
 espectre:
   segmentation_threshold: auto
 ```
 
-| Value | Description |
-|-------|-------------|
-| `auto` | Adaptive threshold - Minimizes false positives (default) |
-| `min` | Maximum sensitivity (may have false positives) |
-| Numeric | Fixed manual threshold (`classic`: typically `0.0-10.0`, `ml`: `0.0-1.0`) |
+Meaning:
 
-**Examples:**
-```yaml
-espectre:
-  segmentation_threshold: auto  # Default, zero FP
-  # segmentation_threshold: min  # Max sensitivity
-  # segmentation_threshold: 1.5  # Fixed manual value
-```
+| Value | Effect |
+|-------|--------|
+| `auto` | best general-purpose starting point |
+| `min` | highest sensitivity, more false-positive risk |
+| number | fixed manual override |
 
-**Rule of thumb:**
-- Too many false positives → use `auto` or increase threshold (try 2.0-5.0)
-- Missing movements → use `min` or decrease threshold (try 0.5-0.8)
+Threshold ranges by detector:
 
-Apply the change through the configuration or control surface of your frontend.
-For example:
+- `classic`: usually `0.0-10.0`
+- `ml`: usually `0.0-1.0`
 
-- `ESPHome`: edit YAML and re-flash or update the runtime threshold entity
-- `Matter`: use the writable threshold attribute exposed by the Matter surface
-- `Native`: use a BLE client such as `tools/web/espectre-ble.html`, which sends `SET_THRESHOLD:X.XXXXXX` when you edit the `Threshold` box
+Rules of thumb:
 
-**Interactive tuning:** You can also adjust the threshold in real-time using a BLE client built on the native frontend protocol, including [ESPectre - The Game](https://espectre.dev/game) as one example. Connect, edit the `Threshold` value in the BLE client, and watch the live motion/threshold feedback. Note that runtime adjustments are temporary (session-only) - the adaptive threshold is recalculated on every boot.
+- too many false positives: raise the threshold
+- missed movement: lower the threshold
 
----
+Runtime changes are temporary unless your frontend persists them.
 
-## Understanding Parameters
-
-> The following parameters focus on the startup-calibrated detector path,
-> `classic`, which uses `auto = threshold_metric x 1.1`.
-
-### Segmentation Threshold
-
-**What it does:** Determines sensitivity for motion detection in the startup-calibrated `classic` detector path.
-
-**Default:** `auto` (adaptive threshold; `threshold_metric x 1.1` in `classic`)
-
-| Value | Sensitivity | Use Case |
-|-------|-------------|----------|
-| 0.5-1.0 | High | Detect subtle movements |
-| 1.5-3.0 | Medium | General purpose, most environments |
-| 3.0-5.0 | Low | Noisy environments, reduce false positives |
-| 5.0-10.0 | Very Low | Only detect significant movements |
-
-**Example ESPHome syntax:**
-```yaml
-espectre:
-  segmentation_threshold: auto  # or "min" or a manual number (classic: 0.0-10.0, ml: 0.0-1.0)
-```
-
-| Value | Formula | Effect |
-|-------|---------|--------|
-| `auto` | Adaptive | Minimizes false positives (default) |
-| `min` | Maximum sensitivity | Catches faint motion |
-| number | Fixed | Manual override |
-
-**Runtime note:** Runtime adjustments are temporary unless your frontend also
-persists the value. The adaptive threshold is recalculated on every boot.
-
-### Detection Algorithm (classic/ml)
-
-**What it does:** Selects the motion detection algorithm.
-
-**Default:** `classic`
+### Detection Algorithm
 
 ```yaml
 espectre:
   detection_algorithm: classic  # or ml
 ```
 
-| Algorithm | Description | Threshold Range | Best For |
-|-----------|-------------|-----------------|----------|
-| `classic` | L1-Delta primary with variance recovery | 0.0 - 10.0 | General purpose, adaptive |
-| `ml` | Neural network detector | 0.0 - 1.0 (probability) | Calibration-free boot |
+| Algorithm | Best for | Startup behavior |
+|-----------|----------|------------------|
+| `classic` | default adaptive non-ML path | startup threshold calibration |
+| `ml` | calibration-free startup | fixed probability threshold |
 
-### Window Size (10-200 packets)
+### Window Size
 
-**What it does:** Number of turbulence samples used to calculate moving variance.
-
-**Default:** 100 packets
-
-| Value | Response | Stability | Use Case |
-|-------|----------|-----------|----------|
-| 10-30 | Fast | Noisy | Quick response needed |
-| 50-100 | Balanced | Good | **Recommended** |
-| 100-200 | Slow | Very stable | Reduce flickering |
-
-**Example ESPHome syntax:**
 ```yaml
 espectre:
-  segmentation_window_size: 100  # default
+  segmentation_window_size: 100
 ```
 
-<details>
-<summary><b>Optimal Window Configuration Guide</b></summary>
+Rules of thumb:
 
-To detect general movement (walking, arm movement, standing up), you need to balance **sensitivity** (capturing even minimal movements) and **robustness** (ignoring noise).
+- `50-100`: best starting range
+- smaller window: faster, noisier
+- larger window: slower, steadier
 
-**Sampling Rate ($F_s$)**
+Start with `100` unless you have a clear reason to change it.
 
-Maintaining $F_s = 100 \text{ Hz}$ is an excellent compromise between accuracy and computational load for detecting most human activities.
+### Traffic Rate
 
-**Moving Window Size ($N$)**
+For frontends that expose the shared internal traffic generator:
 
-For general movement detection, a window is recommended that captures transient action while being long enough to dampen high-frequency noise.
-
-| $T_{window}$ | $N$ (at 100 Hz) | Advantage for Presence Detection |
-|--------------|-----------------|----------------------------------|
-| $0.5$ seconds | $50$ packets | Extremely reactive, but too sensitive to noise. |
-| $1$ second | $100$ packets | **Recommended**. Optimal balance, captures $1-2$ steps or a complete gesture. |
-| $2$ seconds | $200$ packets | Slower to react, but very robust against false positives. |
-
-**Recommendation:** Start with $N=100$ packets (corresponding to $1$ second at 100 pps). This is the default and a good starting point for detecting activities like entering a room.
-
-</details>
-
-### Traffic Generator Rate (0-1000 pps)
-
-**What it does:** Controls how many packets per second are sent for CSI measurement.
-
-This section applies to frontends that expose the shared internal traffic
-generator, such as `ESPHome`. The standalone `streamer` frontend is
-collector-driven and should be tuned through its own stimulus workflow and
-frontend README.
-
-**Default:** 100 pps
-
-| Rate | Use Case |
-|------|----------|
-| 50 pps | Basic presence detection, minimal overhead |
-| 100 pps | **Recommended** - Activity recognition |
-| 600-1000 pps | Fast motion detection, precision localization |
-| 0 pps | Disabled - use external Wi-Fi traffic through the workflow owned by your frontend |
-
-**Example ESPHome syntax:**
 ```yaml
 espectre:
   traffic_generator_rate: 100
 ```
 
-<details>
-<summary><b>How to choose a packet rate</b></summary>
+Rules of thumb:
 
-`100 pps` is the shared default because it is the best quality-to-cost starting
-point for most ESPectre deployments. It captures typical room activity well
-while keeping CPU load, Wi-Fi airtime, and frontend traffic at a practical
-level on supported devices.
+- `100 pps`: default and recommended
+- lower values: less overhead, less temporal detail
+- higher values: more detail, more CPU and Wi-Fi cost
 
-| Rate | When to use it | Trade-off |
-|------|----------------|-----------|
-| 50 pps | Basic presence detection, and lower-overhead monitoring | Lower load, but less temporal detail |
-| 100 pps | Default, and recommended for most motion and activity sensing | Best overall balance |
-| 600-1000 pps | Fast gestures, rapid motion, and precision localization experiments | Higher CPU, network, and transport cost |
-| 0 pps | External Wi-Fi traffic owned by the selected frontend workflow | Sampling cadence depends on external traffic |
+The `streamer` frontend is different: it uses collector-driven external traffic.
+Use its local README as the source of truth.
 
-As a rule of thumb, higher packet rates capture faster motion, but they also
-cost more. If you are not sure where to start, keep `traffic_generator_rate:
-100` and only move away from it when your use case clearly needs lower overhead
-or faster temporal resolution.
+### Publish Interval
 
-</details>
-
-### Publish Interval (1-1000 packets)
-
-**What it does:** Controls how often ESPectre publishes the movement score and periodic logs.
-The motion binary sensor is no longer tied to this cadence: it is published
-immediately on `IDLE <-> MOTION` state changes.
-
-**Default:** Same as `traffic_generator_rate` (or 100 if traffic generator is disabled)
-
-| Scenario | Configuration | Update Frequency |
-|----------|---------------|------------------|
-| Default | `traffic_generator_rate: 100` | ~1 update/sec |
-| Faster updates | `publish_interval: 50` | ~2 updates/sec |
-| External traffic | `traffic_generator_rate: 0`, `publish_interval: 100` | Depends on traffic |
-
-**Example ESPHome syntax:**
 ```yaml
 espectre:
-  traffic_generator_rate: 100
-  publish_interval: 50  # Optional: override publish rate
+  publish_interval: 100
 ```
 
-> **Note:** Lower `publish_interval` values increase periodic frontend-side
-> telemetry, MQTT publish frequency, and periodic logs, but the internal motion
-> detection cadence is controlled separately by `evaluation_interval`. BLE live
-> telemetry for nearby clients is a separate subscription-driven path.
+This controls periodic movement-score reporting. Motion state edges are handled
+separately and are not tied to this cadence anymore.
 
-### Evaluation Interval (1-1000 packets)
+### Evaluation Interval And Hit Filtering
 
-**What it does:** Controls how often the detector state machine is evaluated
-internally. This cadence feeds the binary sensor edge detection and the
-`motion_on_hits` / `motion_off_hits` counters.
-
-**Default:** `25`
-
-**Example ESPHome syntax:**
 ```yaml
 espectre:
   evaluation_interval: 25
@@ -273,436 +150,175 @@ espectre:
   motion_off_hits: 3
 ```
 
-**How to think about it:**
-- Lower values react faster but evaluate more often
-- Higher values are cheaper but add latency
-- `3` hits with `evaluation_interval: 25` means roughly `75` packets of
-  consistent evidence before changing state
+Rules of thumb:
 
----
+- lower `evaluation_interval`: faster response, more evaluations
+- higher `evaluation_interval`: cheaper, more latency
+- more hit filtering: steadier state changes, slower transitions
 
-## Adaptive Threshold
+## Filters
 
-### Automatic Threshold Calibration
+### Hampel Filter
 
-**What it does:** Automatically calculates the detection threshold from the startup behavior of the `classic` L1-Delta metric while keeping the fixed default subcarriers.
+Default: enabled
 
-**Status:** Always enabled (automatic)
-
-**How it works:**
-1. During startup calibration, uses up to `10 × window_size` packets (default 1000) as a maximum budget
-2. Uses the shared fixed 12-subcarrier set
-3. Tries to complete from a validated `quiet -> motion -> quiet` pattern first
-4. Falls back internally to the quiet-only statistic if that pattern never becomes trustworthy
-5. **Threshold calculation** depends on `segmentation_threshold` setting
-
-| Mode | Formula | Description |
-|------|---------|-------------|
-| `auto` (default) | threshold_metric x 1.1 | Minimizes false positives |
-| `min` | threshold_metric x 1.0 | Maximum sensitivity |
-
-In `classic` mode the threshold is calibrated from the L1-Delta primary metric.
-If startup sees a useful motion example and quiet returns afterwards, Classic
-derives the threshold inside that quiet/motion gap and may finish before the
-full budget. If not, it falls back internally to the quiet-only path inside
-the same budget. The runtime no longer waits for extra extension packets beyond
-the configured startup budget. See [ALGORITHMS.md](ALGORITHMS.md) for the
-calibrator details.
-
-**Note:** The subcarrier set is fixed. Only the threshold calculation varies.
-
-**Example ESPHome syntax:**
 ```yaml
 espectre:
-  segmentation_threshold: auto  # or "min" or a number
+  hampel_enabled: true
+  hampel_window: 7
+  hampel_threshold: 5.0
 ```
 
-**Benefits:**
-- **Minimizes false positives** with `auto` mode
-- **High recall** (>98%) maintained across environments
-- Same algorithm works on ESP32-S3, C6, C3, etc.
-- No device-specific tuning required
-- Fully automatic - no manual threshold adjustment needed
+Use it to suppress short outlier spikes. It applies to both `classic` and `ml`.
 
-**When to override:**
-- Too many false positives → increase threshold (try 2.0-5.0)
-- Missing movements → decrease threshold (try 0.5-0.8)
+Disable it only if:
 
----
+- you need maximum sensitivity in a clean environment, or
+- you suspect it is suppressing useful low-SNR motion detail
 
-## Hampel Filter
+### Low-Pass Filter
 
-### Hampel Filter (Outlier Removal)
+Default: disabled
 
-**What it does:** Removes statistical outliers from turbulence values using MAD (Median Absolute Deviation). This can help reduce false positives caused by sudden interference.
-
-**Applies to:** Both Classic and ML detectors.
-
-**Default:** Enabled (threshold: 5.0 MAD, window: 7)
-
-> The Hampel filter removes outlier spikes in turbulence values. With threshold 5.0 it only replaces extreme outliers (>5 MAD from median), preserving motion sensitivity while eliminating false positives caused by transient interference.
-
-**Example ESPHome syntax:**
-```yaml
-espectre:
-  hampel_enabled: true     # default
-  hampel_window: 7         # sliding window size (3-11)
-  hampel_threshold: 5.0    # MAD multiplier, higher = less aggressive
-```
-
-See the README of your frontend for the concrete configuration surface. The
-ESPHome YAML mapping lives in
-[`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md).
-
-**When to disable:**
-- If you observe reduced sensitivity in very low-SNR environments
-- When maximum detection sensitivity is needed and the environment has no transient interference
-
----
-
-## Low-Pass Filter
-
-### Low-Pass Filter (Noise Reduction)
-
-**What it does:** Removes high-frequency noise from turbulence values using a 1st-order Butterworth IIR filter. This significantly reduces false positives in noisy RF environments.
-
-**Applies to:** Both Classic and ML detectors.
-
-**Default:** Disabled
-
-> ℹ️ **Note:** The low-pass filter is disabled by default for maximum simplicity. Enable it if you experience false positives in noisy RF environments.
-
-**Example ESPHome syntax:**
 ```yaml
 espectre:
   lowpass_enabled: true
   lowpass_cutoff: 11.0
 ```
 
-See the README of your frontend for the concrete configuration surface. The
-ESPHome YAML mapping lives in
-[`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md).
+Use it when the environment is noisy and false positives persist after threshold
+tuning.
 
-**Cutoff frequency guide:**
-- **Lower (5-8 Hz)**: More aggressive filtering, reduces FP more but may miss fast movements
-- **Default (11 Hz)**: Good balance (92% recall, <3% FP)
-- **Higher (15-20 Hz)**: Less filtering, higher recall but more FP
+Rules of thumb:
 
-**When to adjust:**
-- Increase cutoff if detecting fast movements (sports, rapid gestures)
-- Decrease cutoff in very noisy RF environments with persistent FP
-
----
+- lower cutoff: more smoothing, more risk of missing fast motion
+- higher cutoff: less smoothing, more reactivity
 
 ## Sensor Placement
 
-### Distance from Access Point
+Placement still matters more than parameter tuning.
 
-The distance between the ESP32 sensor and your WiFi access point (AP) significantly impacts CSI quality and system stability.
+Recommended operating range:
 
-| Distance | RSSI | AGC | Status | Notes |
-|----------|------|-----|--------|-------|
-| < 0.5m | > -30 dB | 0-15 | Poor | Too close, signal saturated |
-| 0.5-2m | -30 to -40 dB | 15-30 | Marginal | May clip or reduce CSI quality |
-| **3-8m** | -40 to -70 dB | **30-60** | **Optimal** | Best CSI quality and stability |
-| 8-15m | -70 to -80 dB | 60-80 | Good | Still reliable detection |
-| > 15m | < -80 dB | > 80 | Reduced quality | Weaker signal, more noise |
+| Distance to AP | Typical RSSI | Practical reading |
+|----------------|--------------|-------------------|
+| too close | above `-40 dB` | more saturation risk |
+| best range | `-40` to `-70 dB` | good CSI headroom |
+| too far | below `-80 dB` | weaker signal, more noise |
 
-**Why distance matters:**
+Practical advice:
 
-When the sensor is too close to the AP, the received signal is extremely strong, causing:
-1. **AGC saturation**: The automatic gain control cannot reduce amplification enough
-2. **CSI distortion**: Signal clipping leads to unreliable CSI data
-3. **Reduced detector quality**: heavily compressed amplitudes can make baseline and motion less separable
-
-**Symptoms of being too close:**
-- weak motion contrast despite packet flow
-- unusually high RSSI (> -40 dB)
-- low AGC values in logs (< 30)
-- more clipped or low-dynamic-range CSI amplitudes in captures
-
-**Solution:**
-1. Move the sensor 2-3 meters away from the AP
-2. Re-run startup calibration in a quiet room after repositioning
-
-**Checking your placement:**
-
-Look at RSSI, packet flow, and readiness/calibration stability after Wi-Fi
-connection:
-
-- **RSSI between -40 and -70 dB**: usually a good operating range
-- **AGC comfortably above saturation**: better headroom for clean CSI
-- **steady packet flow and stable ready/calibration state**: healthy setup
-
----
+- keep the node roughly `3-8 m` from the AP when possible
+- avoid putting it behind heavy obstacles if you want strong motion contrast
+- if the node is too close to the AP, move it away before retuning thresholds
 
 ## Troubleshooting
 
-The troubleshooting logic below is frontend-neutral. Inline parameter examples
-use `ESPHome` YAML only as a concrete surface example; apply the equivalent
-control surface in your frontend.
-
 ### Too Many False Positives
 
-**Symptoms:** Detects motion when room is empty.
+Try in this order:
 
-**Solutions (try in order):**
-
-1. **Increase threshold:**
-   ```yaml
-   espectre:
-     segmentation_threshold: 3.0  # Try 2.0-5.0
-   ```
-
-2. **Increase window size** (more stable):
-   ```yaml
-   espectre:
-     segmentation_window_size: 100  # Try 100-150
-   ```
-
-3. **Enable low-pass filter** (removes RF noise):
-   ```yaml
-   espectre:
-     lowpass_enabled: true
-     lowpass_cutoff: 11.0
-   ```
-
-4. **Enable Hampel filter** (removes spikes from interference):
-   ```yaml
-   espectre:
-     hampel_enabled: true
-   ```
-
-5. **Check for interference sources:**
-   - Fans, AC units, moving curtains
-   - Microwave ovens, other WiFi networks
-   - Bluetooth devices, cordless phones
-   - Pets moving in the room
-
-6. **Re-calibrate:** Reset calibration (see below) in a quiet room
+1. raise the threshold
+2. enable or tune the low-pass filter
+3. keep Hampel enabled
+4. increase the window size slightly
+5. inspect interference sources such as fans, curtains, pets, Bluetooth, or
+   microwave activity
+6. rerun calibration in a quiet room
 
 ### Missing Movements
 
-**Symptoms:** Doesn't detect when people move.
+Try in this order:
 
-**Solutions (try in order):**
+1. lower the threshold
+2. reduce the window size
+3. verify placement and packet flow
+4. confirm the traffic source is active
 
-1. **Decrease threshold:**
-   ```yaml
-   espectre:
-     segmentation_threshold: 0.5  # Try 0.5-0.8
-   ```
+### Calibration Stalls Or Startup Quality Is Poor
 
-2. **Decrease window size** (faster response):
-   ```yaml
-   espectre:
-     segmentation_window_size: 30  # Try 25-40
-   ```
+Usual causes:
 
-3. **Check sensor position:**
-   - Optimal: 3-8m from router
-   - Avoid placing behind furniture or walls
-   - Line of sight to monitored area helps
+- movement during the initial quiet phase
+- sparse packet flow
+- sensor too close to the AP
+- chaotic RF environment at boot
 
-4. **Verify traffic generator is active:**
-   ```yaml
-   espectre:
-     traffic_generator_rate: 100  # Must be > 0
-   ```
+Try:
+
+1. boot again with a quieter room
+2. move the sensor further from the AP
+3. verify that packet flow is healthy
+4. let startup complete before judging steady-state quality
+
+### Unstable Detection Or Flickering
+
+Try:
+
+1. raise the threshold
+2. increase the window size
+3. enable the low-pass filter
+4. increase hit filtering if your frontend exposes it
 
 ### No CSI Packets
 
-**Symptoms:** Runtime telemetry or logs show no CSI data, stalled packet flow,
-or an explicit "CSI disabled" warning.
+Check:
 
-**Solutions:**
+1. Wi-Fi connection status
+2. traffic generation or external stimulus path
+3. CSI-enabled build/configuration
+4. router compatibility and packet flow
 
-1. **Verify WiFi connection:** Check the connection state exposed by your
-   frontend, logs, or serial monitor
+If logs say protocol or bandwidth is `unavailable`, do not assume CSI is broken.
+Judge health from actual packet flow and calibration progress.
 
-2. **Check traffic generator:**
-   ```yaml
-   espectre:
-     traffic_generator_rate: 100  # Must be > 0
-   ```
+### False Positives After Wi-Fi Channel Change
 
-3. **Verify ESP-IDF configuration:** Ensure `CONFIG_ESP_WIFI_CSI_ENABLED: y` in sdkconfig
+If your AP changes channel often:
 
-4. **Check router compatibility:** Some mesh routers or WiFi 6E may have issues
+1. prefer a fixed router channel
+2. reduce local interference
+3. allow the runtime to reset and restabilize
 
-5. **If protocol/bandwidth logs show `unavailable`:** this can happen on some target/band mode API paths and does not automatically mean CSI is broken. Focus on CSI packet flow (`pps`, dropped packets, calibration progress) to assess runtime health.
+## Recalibration
 
-### Calibration Stalls or Poor Startup Quality
+`classic` can recompute its threshold without changing firmware.
 
-**Symptoms:** The device keeps recalibrating, readiness never becomes stable, or
-runtime quality is poor immediately after startup.
+Use the recalibration control exposed by your frontend, for example:
 
-**Cause:** Usually the room is not quiet enough during the initial quiet phase,
-packet flow is too sparse, the sensor is placed too close to the access point,
-or startup never gets a clean `quiet -> motion -> quiet` sequence.
+- ESPHome calibration entity
+- Matter writable recalibration attribute
+- native BLE or other frontend-specific control surface
 
-**Solutions:**
+When recalibrating:
 
-1. **Move the sensor further from the AP**:
-   - Place at least 2-3 meters away
-   - Optimal distance: 3-8 meters
-   - Prefer RSSI roughly between -40 and -70 dB
+- keep the room quiet
+- expect the control surface to be briefly busy
+- treat it like a fresh startup calibration
 
-2. **Give startup a clean first quiet phase**:
-   - avoid movement immediately after boot
-   - wait for calibration/readiness to complete before evaluating motion quality
-   - after the initial quiet phase, one short motion can help `classic`
-     converge faster, but it is optional
-   - if startup stayed noisy or chaotic the detector will fall back internally,
-     which is safer but may take the full startup budget
+## Monitoring Checklist
 
-3. **Verify CSI packet flow and stimulus configuration**:
-   - keep `traffic_generator_rate` above `0` on integrated frontends
-   - verify the external stimulus path when using the streamer frontend
-
----
-
-### Unstable Detection (Flickering)
-
-**Symptoms:** Rapid flickering between IDLE and MOTION.
-
-**Solutions:**
-
-1. **Increase threshold:**
-   ```yaml
-   espectre:
-     segmentation_threshold: 2.0
-   ```
-
-2. **Increase window size** (smooths transitions):
-   ```yaml
-   espectre:
-     segmentation_window_size: 100
-   ```
-
-3. **Enable low-pass filter** (removes noise):
-   ```yaml
-   espectre:
-     lowpass_enabled: true
-   ```
-
-### False Positives After WiFi Channel Change
-
-**Symptoms:** Sudden MOTION detection when no one is moving, typically after router auto-channel switch.
-
-**Automatic handling:** ESPectre v2.3.0+ automatically detects channel changes and resets the detection buffer. Look for this log message:
-
-```
-[W][CSIManager]: WiFi channel changed: 6 -> 11, resetting detection buffer
-```
-
-**If you see frequent channel changes:**
-
-1. **Fix router channel:** Disable auto-channel and set a fixed channel in your router settings
-2. **Avoid DFS channels:** Channels 52-144 (5GHz DFS) may switch unexpectedly due to radar detection
-3. **Check for interference:** Nearby networks on the same channel can cause instability
-
-### Runtime Recalibration (`classic`)
-
-**When needed:** Recompute the adaptive threshold without reflashing (e.g., after moving furniture or changing room layout). This applies to `classic`; `ml` keeps its fixed threshold.
-
-Use the recalibration control exposed by your frontend, when available.
-
-Examples:
-
-- `ESPHome`: trigger the `calibrate_switch` entity
-- `Matter`: use the writable recalibration attribute on the vendor cluster
-- other frontends: use the runtime control surface they expose, if supported
-
-**Important:**
-- Start with the room quiet during calibration (up to ~13 seconds at 100 pps)
-- The frontend control may be temporarily unavailable during calibration
-- You cannot cancel calibration once started
-
-**Logs during recalibration:**
-```
-[I][espectre]: Manual recalibration triggered
-[I][espectre]: Starting classic threshold calibration with fixed subcarriers
-[I][espectre]: Calibration completed successfully
-```
-
-### Reset Calibration (`classic`)
-
-**When needed:** Start completely fresh and recompute the adaptive threshold from a quiet baseline. This applies to `classic`.
-
-**How to reset:**
-
-This step is frontend-specific. In general, perform a clean reinstall or erase
-the persisted frontend state before booting again in a quiet room.
-
-`ESPHome` example:
-
-1. Erase flash completely:
-   ```bash
-   esphome run <your-config>.yaml --device /dev/ttyUSB0
-   # Choose "Erase flash before uploading" if available
-   ```
-
-2. Or use the ESPHome dashboard clean-build flow and then reinstall
-
-**After reset:**
-- Keep the room quiet immediately after boot; a short later motion is optional
-- Classic threshold bootstrap will automatically rerun
-- Check logs for "Calibration completed successfully"
-
----
-
-## Monitoring
-
-### Observe the Runtime
-
-Whatever frontend you use, monitor at least:
+Whatever frontend you use, keep an eye on:
 
 - motion state
-- movement score or equivalent live metric
-- current threshold
-- startup calibration progress, when exposed
+- movement score
+- threshold
+- readiness or calibration progress
+- packet flow
 
-`ESPHome` example:
+## Short Version
 
-```bash
-# Via USB
-esphome logs <your-config>.yaml
+1. start with `classic`, `auto`, `window_size: 100`, and no low-pass filter
+2. boot in a quiet room
+3. tune threshold first
+4. touch filters only when threshold alone is not enough
+5. fix placement before chasing small parameter tweaks
 
-# Via network (after first flash)
-esphome logs <your-config>.yaml --device espectre.local
-```
+## Related Docs
 
-One `ESPHome` example is the Home Assistant entity set:
-
-- `binary_sensor.espectre_motion_detected`
-- `sensor.espectre_movement_score`
-- `number.espectre_threshold`
-
-Other frontends expose the same concepts through a different transport or
-controller model. Use the runtime surface of your frontend even if the exact
-entity names, commands, or telemetry channel differ.
-
----
-
-## Quick Tips
-
-1. **Start simple:** Tune only the segmentation threshold first
-2. **One change at a time:** Adjust one parameter, apply it through your frontend surface, then test for 5-10 minutes
-3. **Document your settings:** Note what works for your environment
-4. **Seasonal adjustments:** Retune when furniture changes or new interference sources appear
-5. **Distance matters:** Keep sensor 3-8m from router (RSSI between -40 and -70 dB for best results)
-6. **Check AGC headroom:** After boot, moderate AGC values and stable calibration are good signs
-7. **Quiet-first startup:** Ensure the first startup phase is quiet; later, one short motion can help the default `classic` bootstrap finish earlier
-8. **Try a BLE client:** Use a client built on the native frontend protocol over BLE, such as [`tools/web/espectre-ble.html`](../tools/web/espectre-ble.html) or [ESPectre - The Game](https://espectre.dev/game), for interactive threshold tuning with real-time visual feedback
-
----
-
-## Additional Resources
-
-- **Main Documentation:** [README.md](../README.md)
-- **Setup Guide:** [SETUP.md](SETUP.md) for the shared frontend chooser
-- **ESPHome Frontend:** [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) for YAML syntax, Home Assistant entities, and troubleshooting
-- **Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md) for the shared runtime and frontend split
-- **Protocol:** [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) for BLE/MQTT message semantics
-- **Performance:** [PERFORMANCE.md](PERFORMANCE.md) for current validation metrics and caveats
+- [`README.md`](../README.md)
+- [`SETUP.md`](SETUP.md)
+- [`ALGORITHMS.md`](ALGORITHMS.md)
+- [`PERFORMANCE.md`](PERFORMANCE.md)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- the README of your selected frontend

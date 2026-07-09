@@ -89,10 +89,14 @@ Frontend  ->  Runtime  ->  Core
 - `src/cpp/runtime/`: CSI, Wi-Fi, calibration, runtime contracts, and protocol services
 - `src/cpp/frontend/`: ESPHome, native, Matter, and streamer firmware surfaces
 
-This split keeps sensing logic independent from any single ecosystem.  
-It also creates a practical path for custom firmware and smart-device integrations where ESPectre sensing is one feature inside a larger product.
+This split keeps sensing logic independent from any single ecosystem and makes custom firmware reuse practical.  
+It also creates a practical path for smart-device integrations where ESPectre sensing is one feature inside a larger product.
 
-See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full internal model and [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) for the shared BLE/MQTT device protocol.
+Use:
+
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the current internal model
+- [ADR Guide](docs/adr/README.md) for the historical decision record
+- [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) for the shared BLE/MQTT protocol
 
 ## For Device Makers
 
@@ -124,8 +128,8 @@ That matters for ESPectre: the project already has reusable sensing logic, runti
 | **v3.x** | Turns ESPectre into a modular Wi-Fi sensing platform with Matter, native firmware, streamer tooling, and SDK-oriented reuse |
 | **v4.x** | Adds a privacy-first web orchestration layer for multi-node sensing, device management, history, alerts, and remote visibility |
 
-The v4 web layer is intended to support local, self-hosted, and future managed service deployments.  
-ESPectre remains local-first: raw CSI, packet captures, and sensitive radio data should not leave the user environment by default.
+The v4 web layer is intended to support local, self-hosted, and future managed
+service deployments while keeping ESPectre local-first by default.
 
 See [ROADMAP.md](docs/ROADMAP.md) for the detailed plan.
 
@@ -160,6 +164,7 @@ Use ESPectre only in spaces where you have the right to deploy it, inform affect
 | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md) | Dataset collection workflow for contributors |
 | [ML_TRAINING.md](docs/ML_TRAINING.md) | Training, validation, and model export workflow |
 | [ROADMAP.md](docs/ROADMAP.md) | Release direction from v3 platform work to v4 web orchestration |
+| [docs/adr/README.md](docs/adr/README.md) | ADR index, conventions, and historical project decisions |
 | [CHANGELOG.md](docs/CHANGELOG.md) | Release notes and version history |
 
 Frontend-specific docs:

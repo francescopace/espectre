@@ -157,7 +157,7 @@ L1_DELTA_FEATURES = [
 
 # Core-6 production set: three gain-invariant turbulence statistics plus the
 # three L1-delta profile-displacement features that survived ablation. Beats
-# the former relative-8 set on all promotion gates (see docs/EXPERIMENTS.md).
+# the former relative-8 set on all promotion gates (see the Core-6 ADR).
 CORE6_FEATURES = [
     'turb_mad_over_mean',
     'turb_skewness',

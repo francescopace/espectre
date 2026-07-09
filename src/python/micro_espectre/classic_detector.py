@@ -63,7 +63,7 @@ class ClassicDetector(IDetector):
     STARTUP_GATE = L1_DELTA_STARTUP_GATE
 
     # Fusion parameters (benchmark-tuned on the paired + long-quiet sets;
-    # see docs/EXPERIMENTS.md gated-fusion entry).
+    # see the ClassicDetector promotion ADR).
     BAND_ALPHA = 0.6            # lower edge of the ambiguous band (x threshold)
     RECOVERY_VOTE_RATIO = 3.0       # variance must exceed K x its own session floor
     RECOVERY_DISPERSION_CUT = 4.0   # enable the vote only if p99/median < cut
@@ -72,7 +72,7 @@ class ClassicDetector(IDetector):
     # startup window and frozen at calibration: a live gate was tried and
     # rejected (a long low-contrast motion trough is locally indistinguishable
     # from sustained quiet, so it tripped the dispersion latch and lost the
-    # recovery it was meant to protect). See docs/EXPERIMENTS.md gated-fusion.
+    # recovery it was meant to protect). See the ClassicDetector promotion ADR.
     VARIANCE_FLOOR_SIZE = 1000      # ring of quiet startup variance samples for median/p99
     VARIANCE_FLOOR_MIN = 300        # samples before the vote may enable
     VARIANCE_FLOOR_REFRESH = 100    # recompute median/dispersion every N samples

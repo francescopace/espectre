@@ -102,7 +102,6 @@ LINK_MAP = {
     'src/python/micro_espectre/README.md': 'https://github.com/francescopace/espectre/blob/main/src/python/micro_espectre/README.md',
     'docs/ML_DATA_COLLECTION.md': '/documentation/ml-data-collection/',
     'docs/ML_TRAINING.md': '/documentation/ml-training/',
-    'docs/EXPERIMENTS.md': 'https://github.com/francescopace/espectre/blob/main/docs/EXPERIMENTS.md',
     'tools/README.md': 'https://github.com/francescopace/espectre/blob/main/tools/README.md',
     'tools/web/espectre-ble.html': 'https://github.com/francescopace/espectre/blob/main/tools/web/espectre-ble.html',
     'tools/web/espectre-mqtt.html': 'https://github.com/francescopace/espectre/blob/main/tools/web/espectre-mqtt.html',

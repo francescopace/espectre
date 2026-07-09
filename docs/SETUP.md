@@ -235,27 +235,27 @@ ESPectre currently supports two runtime detector families:
 
 | Algorithm | Summary | Shared behavior |
 |-----------|---------|-----------------|
-| `Classic` | L1-Delta primary with variance recovery | Uses a motion-first startup bootstrap with internal quiet-first fallback (`threshold_metric x 1.1` in `auto`); the startup budget is a maximum rather than a fixed wait |
-| `ML` | Neural-network detector | Skips threshold bootstrap and starts faster |
+| `Classic` | L1-delta primary with variance recovery | Uses startup threshold calibration |
+| `ML` | Neural-network detector | Starts without threshold bootstrap |
 
-The algorithm theory belongs in [ALGORITHMS.md](ALGORITHMS.md). 
-Frontend-level configuration syntax belongs in the README of the frontend you are using.
+Use:
+
+- [ALGORITHMS.md](ALGORITHMS.md) for detector behavior and formulas
+- [TUNING.md](TUNING.md) for the practical startup and threshold workflow
+- the frontend README for configuration syntax
 
 ### Startup Behavior
 
-At boot, the shared runtime may perform:
+At boot:
 
-1. AGC-active startup with the shared normalized turbulence path
-2. startup calibration for `Classic`, which begins with a quiet phase and may finish early from a validated `quiet -> motion -> quiet` pattern
-3. transition into steady-state motion detection
+1. the sensing path starts with AGC active
+2. `classic` performs startup threshold calibration
+3. `ml` starts once CSI capture is ready
+4. the runtime transitions into steady-state detection
 
-In `Classic` mode, startup now uses a motion-first bootstrap with an internal
-quiet-first fallback. The configured startup budget is a maximum rather than a
-fixed wait: clean motion-first startups may finish earlier, while no-motion
-startups still converge inside the same budget without a separate extension
-phase.
-
-For practical tuning guidance, sensor placement, and parameter tradeoffs, see [TUNING.md](TUNING.md).
+Keep this document at the entry-point level. For the actual startup guidance,
+including the `quiet -> motion -> quiet` behavior and the quiet-only fallback,
+use [TUNING.md](TUNING.md).
 
 ### Traffic Generation
 
@@ -266,34 +266,6 @@ The standalone `streamer` frontend is different: it does not own an internal tra
 Use the streamer frontend README as the source of truth for that workflow and for its Wi-Fi setup options, including BLE-assisted provisioning through the shared ESPectre BLE service.
 
 If you are tuning `traffic_generator_rate`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
-
-## Generic Troubleshooting
-
-These notes apply regardless of frontend surface.
-
-### Wi-Fi driver logs show protocol or bandwidth as unavailable
-
-Some targets do not expose protocol or bandwidth values through every read API.
-Logs such as the following do not automatically mean the Wi-Fi connection failed:
-
-```text
-WiFi Protocol: unavailable (...)
-WiFi Bandwidth: unavailable (...)
-```
-
-### CSI packet length warnings (`wrong SC count`)
-
-ESPectre expects HT20 CSI payloads normalized to `128 bytes` (64 subcarriers).
-The runtime already remaps several common alternate lengths. If warnings remain frequent, collect the logged metadata and target details before opening an issue.
-
-### Detection does not behave as expected
-
-Before checking frontend-specific settings:
-
-1. confirm the device is connected to 2.4 GHz Wi-Fi
-2. confirm startup calibration had a clean initial quiet phase in `Classic` mode
-3. check sensor placement and interference sources
-4. continue in [TUNING.md](TUNING.md) and the README of your frontend
 
 ## Frontend-Specific Workflows
 
