@@ -95,8 +95,9 @@ Host-side workflows live at the repository CLI root:
 | `./espectre ui ...` | Open local browser tools |
 | `./espectre monitor ...` | Attach to serial logs with auto-reconnect |
 
-Use `./espectre --help` and the shared [SETUP.md](../../../docs/SETUP.md) for
-current CLI syntax.
+Use the repository [CLI.md](../../../docs/CLI.md) as the source of truth for
+current CLI syntax and host-side workflow behavior. Use the shared
+[SETUP.md](../../../docs/SETUP.md) for setup and frontend selection.
 
 ## Configure Wi-Fi and MQTT
 
@@ -200,8 +201,10 @@ Use:
 ./espectre mqtt
 ```
 
-for interactive MQTT inspection and runtime commands. Runtime changes made over
-MQTT are session-only unless the device code explicitly persists them.
+for interactive MQTT inspection and runtime commands. For repository CLI
+behavior, including MQTT shell discovery and selection flow, use
+[CLI.md](../../../docs/CLI.md). Runtime changes made over MQTT are session-only
+unless the device code explicitly persists them.
 
 ## Relevant Paths
 

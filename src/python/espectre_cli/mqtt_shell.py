@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import time
@@ -25,29 +26,30 @@ from .common import (
     yaml,
 )
 from .host import open_web_ui
-
-ASCII_BANNER = r"""
-  __  __ _                    _____ ____  ____            _
- |  \/  (_) ___ _ __ ___     | ____/ ___||  _ \ ___  ___| |_ _ __ ___
- | |\/| | |/ __| '__/ _ \ __ |  _| \___ \| |_) / _ \/ __| __| '__/ _ \
- | |  | | | (__| | | (_) |__|| |___ ___) |  __/  __/ (__| |_| | |  __/
- |_|  |_|_|\___|_|  \___/    |_____|____/|_|   \___|\___|\__|_|  \___|
-"""
+from micro_espectre.branding import ASCII_BANNER
 
 
 class EspectreMQTTShell:
     """Interactive MQTT CLI for runtime commands."""
 
+    DISCOVERY_TIMEOUT_S = 2.0
+
     def __init__(self, args):
         self.broker = args.broker
         self.port = args.port
-        self.device_id = args.device_id
-        self.base_topic = f"{args.topic_prefix.rstrip('/')}/{self.device_id}"
+        self.topic_prefix = args.topic_prefix.rstrip("/")
+        self.device_id = args.device_id or None
+        self.base_topic = ""
         self.username = args.username
         self.password = args.password
 
-        self.topic_cmd = f"{self.base_topic}/commands/request"
-        self.topic_responses = f"{self.base_topic}/commands/+"
+        self.topic_cmd = ""
+        self.topic_responses = ""
+        self.discovery_info_topic = f"{self.topic_prefix}/+/info"
+        self.discovery_status_topic = f"{self.topic_prefix}/+/status"
+        self.discovered_devices: dict[str, dict[str, Any]] = {}
+        self.discovery_active = self.device_id is None
+        self._set_active_device(self.device_id)
         if PAHO_V2:
             self.client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION1)
         else:
@@ -64,10 +66,8 @@ class EspectreMQTTShell:
             "set_threshold": None,
             "info": None,
             "stats": None,
-            "webui": None,
             "clear": None,
             "help": None,
-            "about": None,
             "exit": None,
         }
         prompt_style = PromptStyle.from_dict({"prompt": "#00aa00 bold"})
@@ -79,19 +79,163 @@ class EspectreMQTTShell:
             enable_history_search=True,
         )
 
+    def _set_active_device(self, device_id: str | None) -> None:
+        """Update topic bindings for the selected device."""
+        self.device_id = device_id
+        if not device_id:
+            self.base_topic = ""
+            self.topic_cmd = ""
+            self.topic_responses = ""
+            return
+        self.base_topic = f"{self.topic_prefix}/{device_id}"
+        self.topic_cmd = f"{self.base_topic}/commands/request"
+        self.topic_responses = f"{self.base_topic}/commands/+"
+
+    def _subscribe_selected_device(self, client) -> None:
+        """Subscribe to command responses for the selected device."""
+        print(f"{Fore.BLUE}Command topic: {self.topic_cmd}{Style.RESET_ALL}")
+        print(f"{Fore.BLUE}Listening on: {self.topic_responses}{Style.RESET_ALL}")
+        client.subscribe(self.topic_responses)
+
+    def _extract_device_id_from_topic(self, topic: str) -> str | None:
+        """Extract the ESPectre device id from a topic under the configured prefix."""
+        prefix = f"{self.topic_prefix}/"
+        if not topic.startswith(prefix):
+            return None
+        remainder = topic[len(prefix) :]
+        parts = remainder.split("/")
+        if len(parts) < 2 or not parts[0]:
+            return None
+        if parts[1] not in {"info", "status"}:
+            return None
+        return parts[0]
+
+    def _record_discovered_device(self, topic: str, payload: bytes | str) -> None:
+        """Track devices seen through info/status broadcasts during discovery."""
+        device_id = self._extract_device_id_from_topic(topic)
+        if not device_id:
+            return
+        try:
+            body = payload.decode() if isinstance(payload, bytes) else payload
+            data = json.loads(body)
+        except Exception:
+            return
+
+        device = self.discovered_devices.setdefault(device_id, {"device_id": device_id})
+        if "device_id" in data and data["device_id"]:
+            device["device_id"] = data["device_id"]
+        if topic.endswith("/info"):
+            for key in ("device_name", "device_label", "frontend", "chip"):
+                if data.get(key):
+                    device[key] = data[key]
+        elif topic.endswith("/status"):
+            if "online" in data:
+                device["online"] = bool(data["online"])
+        if "timestamp_ms" in data:
+            device["timestamp_ms"] = data["timestamp_ms"]
+
+    def _print_discovered_devices(self) -> list[dict[str, Any]]:
+        """Render the devices discovered during the MQTT scan."""
+        devices = sorted(self.discovered_devices.values(), key=lambda item: item["device_id"])
+        print()
+        print(f"{Fore.CYAN}Discovered MQTT devices:{Style.RESET_ALL}")
+        for index, device in enumerate(devices, start=1):
+            label = device.get("device_label") or device.get("device_name") or "unnamed"
+            frontend = device.get("frontend", "unknown")
+            online = "online" if device.get("online") else "offline/unknown"
+            print(f"  {index}. {device['device_id']} | {label} | {frontend} | {online}")
+        print()
+        return devices
+
+    def _prompt_for_device_choice(self, devices: list[dict[str, Any]]) -> str | None:
+        """Prompt the user to select a discovered device or enter one manually."""
+        if len(devices) == 1:
+            selected = devices[0]["device_id"]
+            print(f"{Fore.GREEN}Selected device: {selected}{Style.RESET_ALL}")
+            return selected
+
+        prompt = f"{Fore.CYAN}Select device (1-{len(devices)}) or enter a device id: {Style.RESET_ALL}"
+        while True:
+            try:
+                response = input(prompt).strip()
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{Fore.RED}Cancelled{Style.RESET_ALL}")
+                return None
+            if not response:
+                print(f"{Fore.RED}Please choose a device or enter a device id{Style.RESET_ALL}")
+                continue
+            if response.isdigit():
+                choice = int(response)
+                if 1 <= choice <= len(devices):
+                    selected = devices[choice - 1]["device_id"]
+                    print(f"{Fore.GREEN}Selected device: {selected}{Style.RESET_ALL}")
+                    return selected
+            if "/" not in response and "+" not in response and "#" not in response:
+                print(f"{Fore.GREEN}Selected device: {response}{Style.RESET_ALL}")
+                return response
+            print(f"{Fore.RED}Invalid choice: {response}{Style.RESET_ALL}")
+
+    def _activate_selected_device(self, device_id: str) -> None:
+        """Switch from discovery mode to the selected device topics."""
+        unsubscribe = getattr(self.client, "unsubscribe", None)
+        if callable(unsubscribe):
+            unsubscribe(self.discovery_info_topic)
+            unsubscribe(self.discovery_status_topic)
+        self.discovery_active = False
+        self._set_active_device(device_id)
+        self._subscribe_selected_device(self.client)
+
+    def select_device(self) -> bool:
+        """Discover active devices over MQTT and prompt the user to choose one."""
+        print(
+            f"{Fore.YELLOW}Scanning MQTT for devices on {self.discovery_info_topic} "
+            f"and {self.discovery_status_topic} for {self.DISCOVERY_TIMEOUT_S:.1f}s...{Style.RESET_ALL}"
+        )
+        time.sleep(self.DISCOVERY_TIMEOUT_S)
+
+        devices = self._print_discovered_devices() if self.discovered_devices else []
+        if not devices:
+            try:
+                manual_device_id = input(
+                    f"{Fore.CYAN}No devices discovered. Enter a device id manually: {Style.RESET_ALL}"
+                ).strip()
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{Fore.RED}Cancelled{Style.RESET_ALL}")
+                return False
+            if not manual_device_id:
+                print(f"{Fore.RED}No device selected{Style.RESET_ALL}")
+                return False
+            selected = manual_device_id
+        else:
+            selected = self._prompt_for_device_choice(devices)
+            if not selected:
+                return False
+
+        self._activate_selected_device(selected)
+        return True
+
     def on_connect(self, client, userdata, flags, rc, properties=None):
         if rc == 0:
             print(f"{Fore.BLUE}Connected to: {self.broker}:{self.port}{Style.RESET_ALL}")
-            print(f"{Fore.BLUE}Command topic: {self.topic_cmd}{Style.RESET_ALL}")
-            print(f"{Fore.BLUE}Listening on: {self.topic_responses}{Style.RESET_ALL}")
-            client.subscribe(self.topic_responses)
+            if self.discovery_active:
+                print(f"{Fore.BLUE}Discovery info topic: {self.discovery_info_topic}{Style.RESET_ALL}")
+                print(f"{Fore.BLUE}Discovery status topic: {self.discovery_status_topic}{Style.RESET_ALL}")
+                client.subscribe(self.discovery_info_topic)
+                client.subscribe(self.discovery_status_topic)
+            else:
+                self._subscribe_selected_device(client)
         else:
             print(f"{Fore.RED}Failed to connect, return code {rc}{Style.RESET_ALL}")
 
     def on_message(self, client, userdata, msg):
+        topic = getattr(msg, "topic", "")
+        topic = topic.decode() if isinstance(topic, bytes) else topic
+        if self.discovery_active:
+            self._record_discovered_device(topic, msg.payload)
+            return
         try:
             payload = msg.payload.decode()
-            data = __import__("json").loads(payload)
+            data = json.loads(payload)
             timestamp = datetime.now().strftime("%H:%M:%S")
             print()
             formatted_yaml = yaml.dump(data, Dumper=CompactDumper, sort_keys=False, default_flow_style=False, width=1000)
@@ -106,20 +250,21 @@ class EspectreMQTTShell:
 
     def send_command(self, cmd_data: Dict[str, Any]):
         try:
-            payload = __import__("json").dumps(cmd_data)
+            payload = json.dumps(cmd_data)
             self.client.publish(self.topic_cmd, payload)
         except Exception as e:
             print(f"{Fore.RED}Error sending command: {e}{Style.RESET_ALL}")
 
     def start(self):
         print(f"{Fore.MAGENTA}{ASCII_BANNER}")
-        print("Motion detection system based on Wi-Fi spectrum analysis - Interactive CLI")
         print(f"{Style.RESET_ALL}")
 
         try:
             self.client.connect(self.broker, self.port, 60)
             self.client.loop_start()
             time.sleep(0.5)
+            if self.discovery_active and not self.select_device():
+                return
             print(f"\n{Fore.YELLOW}Type 'help' for commands, 'exit' to quit{Style.RESET_ALL}\n")
             print(f"{Fore.YELLOW}Tip: Use TAB for autocompletion, Ctrl+R to search history{Style.RESET_ALL}\n")
             while self.running:
@@ -151,14 +296,14 @@ class EspectreMQTTShell:
         if cmd in ["help", "h"]:
             self.show_help()
             return
-        if cmd == "about":
+        if cmd in ["about", "a"]:
             self.show_about()
+            return
+        if cmd in ["webui", "web"]:
+            open_web_ui()
             return
         if cmd in ["clear", "cls"]:
             os.system("cls" if os.name == "nt" else "clear")
-            return
-        if cmd in ["webui", "web", "ui"]:
-            open_web_ui()
             return
 
         try:
@@ -182,7 +327,7 @@ class EspectreMQTTShell:
     def show_help(self):
         help_text = HTML(
             """
-<ansibrightcyan><b>Micro-ESPectre CLI - Interactive Commands</b></ansibrightcyan>
+<ansibrightcyan><b>ESPectre MQTT Shell Commands</b></ansibrightcyan>
 
 <ansiyellow><b>Configuration Commands:</b></ansiyellow>
   <ansigreen>set_threshold|st</ansigreen> &lt;val&gt;               Set segmentation threshold (0.5-10.0)
@@ -192,10 +337,10 @@ class EspectreMQTTShell:
   <ansigreen>stats|s</ansigreen>                             Show runtime statistics (memory, loop time)
 
 <ansiyellow><b>Utility Commands:</b></ansiyellow>
-  <ansigreen>webui|web|ui</ansigreen>                        Open web interface in browser
+  <ansigreen>webui|web</ansigreen>                           Open the MQTT web UI
+  <ansigreen>about|a</ansigreen>                             Show shell information
   <ansigreen>clear|cls</ansigreen>                           Clear screen
   <ansigreen>help|h</ansigreen>                              Show this help message
-  <ansigreen>about</ansigreen>                               Show about information
   <ansigreen>exit|quit|q</ansigreen>                         Exit interactive mode
 """
         )
@@ -204,21 +349,10 @@ class EspectreMQTTShell:
         print()
 
     def show_about(self):
-        print(f"\n{Fore.MAGENTA}{ASCII_BANNER}{Style.RESET_ALL}")
-        about_text = HTML(
-            """
-  <ansibrightcyan><b>Wi-Fi Motion Detection System</b></ansibrightcyan>
-  <ansicyan>Based on Channel State Information (CSI)</ansicyan>
-
-  <ansibrightgreen>Created by <b>Francesco Pace</b></ansibrightgreen>
-
-  <ansiblue>GitHub:</ansiblue>   <u>github.com/francescopace</u>
-  <ansiblue>LinkedIn:</ansiblue> <u>linkedin.com/in/francescopace</u>
-  <ansiblue>Email:</ansiblue>    <u>francesco.pace@espectre.dev</u>
-
-  <ansiwhite>This project explores the fascinating world of Wi-Fi sensing,
-  using Channel State Information to detect motion and presence.</ansiwhite>
-"""
-        )
-        print_formatted_text(about_text)
+        """Display a compact shell summary."""
+        print()
+        print("ESPectre MQTT Shell")
+        print("Interactive MQTT control surface for ESPectre Protocol devices.")
+        if self.device_id:
+            print(f"Selected device: {self.device_id}")
         print()

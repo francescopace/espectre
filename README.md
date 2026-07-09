@@ -72,7 +72,8 @@ Supported hardware:
 | **Micro-ESPectre** | Python/MicroPython research and rapid algorithm prototyping | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 | **SDK-oriented reuse** | Custom firmware, smart-device makers, and OEM exploration | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 
-For shared prerequisites, supported targets, and command entry points, use [SETUP.md](docs/SETUP.md).
+For shared prerequisites and supported targets, use [SETUP.md](docs/SETUP.md).
+For the repository CLI surface, use [CLI.md](docs/CLI.md).
 
 ![ESPectre Home Assistant dashboard](docs/images/espectre-home-assistant.png)
 *Home Assistant dashboard with motion state, movement score, threshold control, and diagnostics*
@@ -155,7 +156,8 @@ Use ESPectre only in spaces where you have the right to deploy it, inform affect
 
 | Document | Purpose |
 |----------|---------|
-| [SETUP.md](docs/SETUP.md) | Shared setup hub, frontend chooser, supported targets, and CLI entry points |
+| [SETUP.md](docs/SETUP.md) | Shared setup hub, frontend chooser, and supported targets |
+| [CLI.md](docs/CLI.md) | Repository CLI command map, host tools, and interactive MQTT shell behavior |
 | [TUNING.md](docs/TUNING.md) | Placement, thresholds, filters, calibration, and troubleshooting |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Internal architecture, SDK-oriented reuse, and web orchestration direction |
 | [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) | Shared BLE/MQTT protocol, payloads, commands, and privacy boundary |

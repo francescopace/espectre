@@ -303,6 +303,9 @@ external_components:
 
 ### Repository CLI
 
+Use [`CLI.md`](../../../../docs/CLI.md) as the source of truth
+for shared CLI syntax, host-side tools, and wrapper behavior.
+
 ```bash
 ./espectre esphome build --chip c6 --clean
 ./espectre esphome flash --chip c6

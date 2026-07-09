@@ -1,4 +1,4 @@
-"""Micro-ESPectre device workflow commands."""
+"""MicroPython device workflow commands."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from .common import (
     prompt_chip_type,
     cli_command,
     copy_config_command,
+    print_box_banner,
 )
 
 
@@ -202,9 +203,7 @@ def flash_firmware(args) -> None:
     else:
         firmware_path = download_firmware(chip, FIRMWARE_CACHE_DIR)
 
-    print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}║          μESPectre - Flashing MicroPython Firmware        ║{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print_box_banner("Flashing MicroPython Firmware")
     print()
     print(f"{Fore.CYAN}Chip:     {chip.upper()}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}Port:     {port}{Style.RESET_ALL}")
@@ -304,9 +303,7 @@ def deploy_code(args) -> None:
         print()
         raise SystemExit(1)
 
-    print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}║            μESPectre - Deploying Code to Device           ║{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print_box_banner("Deploying Code to Device")
     print()
     print(f"{Fore.CYAN}Port: {port}{Style.RESET_ALL}")
     print()
@@ -358,9 +355,7 @@ def run_application(args) -> None:
     _require_mpremote()
     port = get_serial_port(args.port)
 
-    print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}║           μESPectre - Running Application                 ║{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print_box_banner("Running MicroPython Application")
     print()
     print(f"{Fore.YELLOW}🚀 Starting application...{Style.RESET_ALL}")
     print()
@@ -389,9 +384,7 @@ def run_application(args) -> None:
 def verify_installation(args) -> None:
     """Verify MicroPython firmware and deployed code."""
     port = get_serial_port(args.port)
-    print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}║             μESPectre - Verifying Installation            ║{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print_box_banner("Verifying Installation")
     print()
 
     all_ok = True
@@ -504,18 +497,14 @@ def verify_installation(args) -> None:
     print()
 
     if all_ok:
-        print(f"{Fore.GREEN}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}║    μESPectre - ✅ Installation Verified Successfully!     ║{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+        print_box_banner("Installation Verified Successfully", color=Fore.GREEN)
         print()
         print(f"{Fore.CYAN}You can now run the application:{Style.RESET_ALL}")
         print(f"  {cli_command('micro', 'run')}")
         print()
         return
 
-    print(f"{Fore.RED}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-    print(f"{Fore.RED}║    μESPectre - ❌ Some checks failed                       ║{Style.RESET_ALL}")
-    print(f"{Fore.RED}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print_box_banner("Installation Checks Failed", color=Fore.RED)
     print()
     print(f"{Fore.YELLOW}Please fix the issues above and try again.{Style.RESET_ALL}")
     print()

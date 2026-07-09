@@ -22,6 +22,7 @@
 #include <esp_matter_ota.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
+#include "espectre_banner.h"
 #include "matter_bindings_esp_matter.h"
 #include "matter_frontend.h"
 #include "matter_surface.h"
@@ -185,6 +186,7 @@ extern "C" void app_main() {
   }
   ESP_ERROR_CHECK(err);
   configure_log_levels();
+  esphome::espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
 
   node::config_t node_config;
   std::snprintf(node_config.root_node.basic_information.node_label,

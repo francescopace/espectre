@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 
+from .about import print_about, print_version
 from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_namespace, cli_command, serial_port_example
 from .esphome import run_esphome_command
 from .host import collect_csi_data, open_web_ui
@@ -110,6 +111,16 @@ def _add_doctor_parser(subparsers) -> None:
     doctor_parser.set_defaults(handler=run_idf_doctor)
 
 
+def _add_about_parser(subparsers) -> None:
+    about_parser = subparsers.add_parser("about", help="Show project and CLI information")
+    about_parser.set_defaults(handler=print_about)
+
+
+def _add_version_parser(subparsers) -> None:
+    version_parser = subparsers.add_parser("version", help="Show the CLI version label")
+    version_parser.set_defaults(handler=print_version)
+
+
 def _add_micro_namespace(subparsers) -> None:
     micro_parser = subparsers.add_parser(
         "micro",
@@ -194,6 +205,8 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('collect', '--target', '192.168.1.50', '--no-save')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}",
+            f"  {cli_command('about')}",
+            f"  {cli_command('version')}",
             f"  {cli_command('doctor')}",
             f"  {cli_command('monitor', '--port', serial_port_example())}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--dev')}",
@@ -216,6 +229,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_collect_parser(subparsers)
     _add_mqtt_parser(subparsers)
     _add_monitor_parser(subparsers)
+    _add_about_parser(subparsers)
+    _add_version_parser(subparsers)
     _add_doctor_parser(subparsers)
     _add_esphome_namespace(subparsers)
     _add_idf_namespace(subparsers, "native")

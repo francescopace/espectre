@@ -36,7 +36,7 @@ Current entry-point support by frontend:
 ### Software
 
 - Chromium-based browser with Web Serial support for browser flashing
-- For local workflows, use the repository CLI namespaces documented in each frontend README
+- For local workflows, use the repository [CLI.md](CLI.md) plus the relevant frontend README
 
 ### ESP-IDF Local Build Prerequisite
 
@@ -163,26 +163,18 @@ Windows PowerShell:
 
 ## Local CLI Workflows
 
-Use the repository CLI from the repository root for local build, flash, and monitor tasks.
-For `Native`, `Matter`, and `Streamer`, the wrapper auto-detects ESP-IDF during
-`build` and `flash`. Use `doctor` only when you want an explicit environment
-check or when a build reports an ESP-IDF setup problem:
+Use the repository CLI from the repository root for local build, flash, monitor,
+and host-tool tasks.
 
-| Host | CLI launcher |
-|------|--------------|
-| macOS/Linux | `./espectre` |
-| Windows PowerShell/CMD | `.\espectre.cmd` |
+The repository [CLI.md](CLI.md) is the source of truth for:
 
-| Frontend | Commands | Example |
-|----------|----------|---------|
-| `ESPHome` | `build`, `flash`, `config`, `monitor` | `./espectre esphome monitor --chip c6 --device /dev/cu.usbmodemXXXX` |
-| `Native` | `build`, `flash` | `./espectre native flash --port /dev/cu.usbmodemXXXX` |
-| `Matter` | `build`, `flash` | `./espectre matter build --chip c3` |
-| `Streamer` | `build`, `flash` | `./espectre streamer flash --port /dev/cu.usbmodemXXXX` |
-| `Micro-ESPectre` | `flash`, `deploy`, `run`, `verify` | `./espectre micro deploy` |
-| `Host tools` | `collect`, `ui`, `mqtt`, `monitor` | `./espectre collect --target 239.1.1.50 --no-save` |
+- launcher syntax on each host
+- namespace and command coverage
+- shared host-tool behavior, including the interactive MQTT shell
+- common wrapper patterns such as `doctor`, serial monitoring, and CLI examples
 
-On Windows, replace `./espectre` with `.\espectre.cmd` and use the COM port shown by Device Manager, for example `COM5`, instead of `/dev/cu...`.
+Use the frontend READMEs for frontend-specific prerequisites, examples, and
+notes that depend on the selected firmware surface.
 
 Use the frontend READMEs for complete prerequisites and chip-specific notes:
 

@@ -68,6 +68,16 @@ def test_add_mqtt_connection_args_uses_environment_defaults(monkeypatch) -> None
     assert args.password == "env-pass"
 
 
+def test_add_mqtt_connection_args_uses_runtime_discovery_without_device_env(monkeypatch) -> None:
+    monkeypatch.delenv("MQTT_CLIENT_ID", raising=False)
+
+    parser = argparse.ArgumentParser()
+    common.add_mqtt_connection_args(parser)
+    args = parser.parse_args([])
+
+    assert args.device_id is None
+
+
 def test_detect_serial_ports_filters_usb_like_devices(monkeypatch) -> None:
     fake_serial = ModuleType("serial")
     fake_tools = ModuleType("serial.tools")
@@ -786,6 +796,7 @@ class _FakeMQTTClient:
         self.username = None
         self.password = None
         self.subscriptions: list[str] = []
+        self.unsubscriptions: list[str] = []
         self.published: list[tuple[str, str]] = []
         self.connected: list[tuple[str, int, int]] = []
         self.loop_started = 0
@@ -802,6 +813,9 @@ class _FakeMQTTClient:
 
     def subscribe(self, topic: str) -> None:
         self.subscriptions.append(topic)
+
+    def unsubscribe(self, topic: str) -> None:
+        self.unsubscriptions.append(topic)
 
     def publish(self, topic: str, payload: str) -> None:
         if self.raise_publish:
@@ -836,7 +850,11 @@ class _FakePromptSession:
         return response
 
 
-def _build_shell(monkeypatch, responses: list[object] | None = None):
+def _build_shell(
+    monkeypatch,
+    responses: list[object] | None = None,
+    device_id: str | None = "0x0000000000000001",
+):
     client = _FakeMQTTClient()
     prompt_session = _FakePromptSession(responses or [])
     rendered: list[object] = []
@@ -853,7 +871,7 @@ def _build_shell(monkeypatch, responses: list[object] | None = None):
             broker="broker.local",
             port=1883,
             topic_prefix="espectre/v1/devices",
-            device_id="0x0000000000000001",
+            device_id=device_id,
             username="user",
             password="pass",
         )
@@ -876,6 +894,49 @@ def test_mqtt_shell_initialization_and_connect_callbacks(monkeypatch, capsys) ->
     assert client.subscriptions == ["espectre/v1/devices/0x0000000000000001/commands/+"]
     assert "Connected to: broker.local:1883" in captured
     assert "Failed to connect, return code 5" in captured
+
+
+def test_mqtt_shell_discovers_and_selects_device(monkeypatch, capsys) -> None:
+    shell, client, _rendered = _build_shell(monkeypatch, device_id=None)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "1")
+
+    shell.on_connect(client, None, None, 0)
+    shell.on_message(
+        None,
+        None,
+        SimpleNamespace(
+            topic="espectre/v1/devices/0x00000000000000aa/info",
+            payload=(
+                b'{"device_id":"0x00000000000000aa","device_name":"ESPectre C6 00aa",'
+                b'"device_label":"Lab","frontend":"micro"}'
+            ),
+        ),
+    )
+    shell.on_message(
+        None,
+        None,
+        SimpleNamespace(
+            topic="espectre/v1/devices/0x00000000000000aa/status",
+            payload=b'{"device_id":"0x00000000000000aa","online":true}',
+        ),
+    )
+
+    assert shell.select_device() is True
+    captured = capsys.readouterr().out
+
+    assert shell.device_id == "0x00000000000000aa"
+    assert shell.topic_cmd == "espectre/v1/devices/0x00000000000000aa/commands/request"
+    assert client.subscriptions == [
+        "espectre/v1/devices/+/info",
+        "espectre/v1/devices/+/status",
+        "espectre/v1/devices/0x00000000000000aa/commands/+",
+    ]
+    assert client.unsubscriptions == [
+        "espectre/v1/devices/+/info",
+        "espectre/v1/devices/+/status",
+    ]
+    assert "Discovered MQTT devices:" in captured
+    assert "Selected device: 0x00000000000000aa" in captured
 
 
 def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> None:

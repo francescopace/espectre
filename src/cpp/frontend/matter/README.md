@@ -60,6 +60,8 @@ Before building locally, complete the shared
 [`ESP-IDF Local Build Prerequisite`](../../../../docs/SETUP.md#esp-idf-local-build-prerequisite).
 The repository CLI auto-detects a reusable ESP-IDF install, so prefer the
 wrapper-first workflow without a mandatory pre-check:
+Use [`CLI.md`](../../../../docs/CLI.md) as the source of truth
+for shared CLI syntax, host-side tools, and wrapper behavior.
 
 Repository CLI:
 

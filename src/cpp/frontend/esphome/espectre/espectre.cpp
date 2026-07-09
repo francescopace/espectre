@@ -17,6 +17,7 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
 
+#include "espectre_banner.h"
 #include "runtime_listener_utils.h"
 #include "sdkconfig.h"
 
@@ -111,15 +112,7 @@ void ESpectreComponent::on_runtime_fault(const char *message) {
 }
 
 void ESpectreComponent::dump_config() {
-  ESP_LOGCONFIG(TAG, "");
-  ESP_LOGCONFIG(TAG, "  _____ ____  ____           __            ");
-  ESP_LOGCONFIG(TAG, " | ____/ ___||  _ \\ ___  ___| |_ _ __ ___ ");
-  ESP_LOGCONFIG(TAG, " |  _| \\___ \\| |_) / _ \\/ __| __| '__/ _ \\");
-  ESP_LOGCONFIG(TAG, " | |___ ___) |  __/  __/ (__| |_| | |  __/");
-  ESP_LOGCONFIG(TAG, " |_____|____/|_|   \\___|\\___|\\__|_|  \\___|");
-  ESP_LOGCONFIG(TAG, "");
-  ESP_LOGCONFIG(TAG, "      Wi-Fi CSI Motion Detection System");
-  ESP_LOGCONFIG(TAG, "");
+  log_espectre_banner([](const char *line) { ESP_LOGCONFIG(TAG, "%s", line); });
   const RuntimeConfig &config = this->runtime_.config();
   const RuntimeSnapshot &snapshot = this->runtime_.snapshot();
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");

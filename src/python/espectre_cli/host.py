@@ -1,4 +1,4 @@
-"""Host-side Micro-ESPectre tools."""
+"""Host-side ESPectre tools."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import ipaddress
 import inspect
 import sys
 
-from .common import Path, REPO_ROOT, WEB_UI_FILE, Fore, Style, cli_command, signal, time, webbrowser
+from .common import Path, REPO_ROOT, WEB_UI_FILE, Fore, Style, cli_command, print_box_banner, signal, time, webbrowser
 
 
 _WEB_UI_FILES = {
@@ -111,9 +111,8 @@ def _collect_dataset_csi_data(args) -> None:
 
     if args.info:
         stats = get_dataset_stats()
-        print(f"\n{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-        print(f"{Fore.MAGENTA}║           μESPectre - Dataset Statistics                  ║{Style.RESET_ALL}")
-        print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+        print()
+        print_box_banner("Dataset Statistics")
         print()
         if not stats["labels"]:
             print(f"  {Fore.YELLOW}No samples collected yet.{Style.RESET_ALL}")
@@ -159,9 +158,8 @@ def _collect_dataset_csi_data(args) -> None:
         raise SystemExit(1)
 
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
-    print(f"\n{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}║           μESPectre - CSI Data Collection                 ║{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print()
+    print_box_banner("Dataset Collection")
     print()
     print(f"  {Fore.CYAN}Label:{Style.RESET_ALL}     {args.label}")
     print(f"  {Fore.CYAN}Samples:{Style.RESET_ALL}   {args.samples}")
@@ -919,9 +917,8 @@ def _run_live_collect(args) -> None:
     receiver.add_callback(on_packet)
     signal.signal(signal.SIGINT, handle_sigint)
 
-    print(f"\n{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}║         μESPectre - Live CSI Collect                      ║{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print()
+    print_box_banner("Live CSI Collection")
     print()
     print(f"  {Fore.CYAN}Detector:{Style.RESET_ALL}  {', '.join(kind.upper() for kind in detector_kinds)}")
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")

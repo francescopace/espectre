@@ -20,6 +20,7 @@
 #include "native_frontend.h"
 #include "device_config_store.h"
 #include "device_identity.h"
+#include "espectre_banner.h"
 #include "firmware_version.h"
 #include "frontend_bootstrap_helpers.h"
 #include "https_ota_service.h"
@@ -145,6 +146,8 @@ extern "C" void app_main() {
     err = nvs_flash_init();
   }
   ESP_ERROR_CHECK(err);
+
+  esphome::espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
 
   if (!init_wifi_station()) {
     ESP_LOGE(TAG, "Failed to initialize Wi-Fi station");

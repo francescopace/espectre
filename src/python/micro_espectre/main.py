@@ -11,6 +11,10 @@ import time
 import gc
 import os
 import src.config as config
+try:
+    from micro_espectre.branding import ASCII_BANNER
+except ImportError:
+    from branding import ASCII_BANNER
 from src.console_output import format_calibration_status_line, format_detection_publish_line
 from src.detector_interface import (
     detector_needs_startup_calibration,
@@ -506,13 +510,7 @@ def main():
         restart_traffic_generator(traffic_gen)
     
     print('')
-    print('  __  __ _                    _____ ____  ____            _            ')
-    print(' |  \\/  (_) ___ _ __ ___     | ____/ ___||  _ \\ ___  ___| |_ _ __ ___ ')
-    print(' | |\\/| | |/ __| \'__/ _ \\ __ |  _| \\___ \\| |_) / _ \\/ __| __| \'__/ _ \\')
-    print(' | |  | | | (__| | | (_) |__|| |___ ___) |  __/  __/ (__| |_| | |  __/')
-    print(' |_|  |_|_|\\___|_|  \\___/    |_____|____/|_|   \\___|\\___|\\__|_|  \\___|')
-    print('')
-    print(' Motion detection system based on Wi-Fi spectrum analysis')
+    print(ASCII_BANNER)
     print('')
     
     # Force garbage collection before main loop

@@ -226,8 +226,8 @@ def add_mqtt_connection_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--device-id",
-        default=os.getenv("MQTT_CLIENT_ID", "micro-espectre"),
-        help="MQTT device/client id (default: micro-espectre)",
+        default=os.getenv("MQTT_CLIENT_ID"),
+        help="MQTT device/client id (default: auto-discover at runtime)",
     )
     parser.add_argument(
         "--username",
@@ -257,6 +257,15 @@ def cli_command(*args: str) -> str:
     """Return a copy/pasteable repository CLI command for the current host."""
     prefix = r".\espectre.cmd" if os.name == "nt" else "./espectre"
     return " ".join([prefix, *args])
+
+
+def print_box_banner(title: str, *, color: str = Fore.MAGENTA, product_name: str = "ESPectre") -> None:
+    """Print a centered boxed banner used by interactive CLI workflows."""
+    line = f" {product_name} - {title} "
+    inner_width = max(57, len(line))
+    print(f"{color}╔{'═' * inner_width}╗{Style.RESET_ALL}")
+    print(f"{color}║{line:^{inner_width}}║{Style.RESET_ALL}")
+    print(f"{color}╚{'═' * inner_width}╝{Style.RESET_ALL}")
 
 
 def copy_config_command() -> str:
