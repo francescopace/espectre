@@ -1,6 +1,6 @@
 const MANIFEST_URLS = {
-    stable: "https://github.com/francescopace/espectre/releases/latest/download/firmware-manifest-stable.json",
-    main: "https://github.com/francescopace/espectre/releases/download/snapshot/firmware-manifest-main.json",
+    stable: "/flash/firmware/stable/firmware-manifest-stable.json",
+    main: "/flash/firmware/main/firmware-manifest-main.json",
 };
 
 const CHANNEL_LABELS = {

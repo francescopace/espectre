@@ -92,12 +92,58 @@ jobs:
       
       - name: Build Search Index
         run: npx -y pagefind --site docs/web --output-path docs/web/_pagefind --glob "documentation/**/*.html"
+
+      - name: Download stable release assets
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          mkdir -p stable-firmware
+          if gh release view >/dev/null 2>&1; then
+            STABLE_TAG="$(gh release view --json tagName --jq '.tagName')"
+            gh release download "$STABLE_TAG" --pattern '*.bin' --dir stable-firmware --clobber
+            python .github/scripts/stage_web_firmware.py \
+              --firmware-dir stable-firmware \
+              --output-dir docs/web/flash/firmware/stable \
+              --channel stable \
+              --version "$STABLE_TAG" \
+              --release-tag "$STABLE_TAG" \
+              --url-prefix /flash/firmware/stable
+          else
+            echo "No stable release found; skipping stable channel staging."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+
+      - name: Download snapshot release assets
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          mkdir -p snapshot-firmware
+          if gh release view snapshot >/dev/null 2>&1; then
+            gh release download snapshot --pattern '*.bin' --dir snapshot-firmware --clobber
+            SNAPSHOT_COMMIT="$(gh release view snapshot --json targetCommitish --jq '.targetCommitish // ""')"
+            python .github/scripts/stage_web_firmware.py \
+              --firmware-dir snapshot-firmware \
+              --output-dir docs/web/flash/firmware/main \
+              --channel main \
+              --version main \
+              --release-tag snapshot \
+              --url-prefix /flash/firmware/main \
+              --commit "$SNAPSHOT_COMMIT"
+          else
+            echo "No snapshot release found; skipping main channel staging."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
       
       - name: Verify Build
         run: |
           test -f docs/web/sitemap.xml
           test -d docs/web/documentation
           test -d docs/web/_pagefind
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+            test -f docs/web/flash/firmware/stable/firmware-manifest-stable.json
+          fi
           echo "Documentation build verified!"
       
       - name: Setup Pages

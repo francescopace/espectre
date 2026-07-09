@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", required=True, help="Human-readable version label")
     parser.add_argument("--release-tag", required=True, help="GitHub release tag used to download the assets")
     parser.add_argument("--commit", help="Optional source commit SHA for snapshot builds")
+    parser.add_argument("--url-prefix", help="Optional URL prefix used instead of GitHub Releases for web firmware assets")
     return parser.parse_args()
 
 
@@ -94,6 +95,12 @@ def parse_native_asset(filename: str, version_prefix: str) -> dict | None:
         "algorithm": None,
         "build_type": build_type,
     }
+
+
+def build_artifact_url(filename: str, release_tag: str, url_prefix: str | None) -> str:
+    if url_prefix:
+        return f"{url_prefix.rstrip('/')}/{filename}"
+    return f"https://github.com/francescopace/espectre/releases/download/{release_tag}/{filename}"
 
 
 def build_manifest(args: argparse.Namespace) -> dict:
@@ -162,7 +169,7 @@ def build_manifest(args: argparse.Namespace) -> dict:
             "algorithm": parsed["algorithm"],
             "build_type": parsed["build_type"],
             "filename": filename,
-            "url": f"https://github.com/francescopace/espectre/releases/download/{args.release_tag}/{filename}",
+            "url": build_artifact_url(filename, args.release_tag, args.url_prefix),
         }
         manifest["frontends"][parsed["frontend"]]["artifacts"].append(artifact)
 

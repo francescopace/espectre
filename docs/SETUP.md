@@ -206,6 +206,29 @@ To flash:
 
 If your browser does not support Web Serial, the same page exposes direct download links for manual flashing.
 
+For local preview of the web flasher with same-origin firmware assets:
+
+1. Build the firmware you want to test, or download the published binaries into a local directory.
+2. Stage a channel manifest and matching binaries under `docs/web/flash/firmware/<channel>/`:
+
+```bash
+python .github/scripts/stage_web_firmware.py \
+  --firmware-dir /path/to/firmware \
+  --output-dir docs/web/flash/firmware/stable \
+  --channel stable \
+  --version 3.0.0 \
+  --release-tag 3.0.0 \
+  --url-prefix /flash/firmware/stable
+```
+
+3. Serve the site root locally:
+
+```bash
+python -m http.server 8080 --directory docs/web
+```
+
+4. Open `http://localhost:8080/flash/` in a Chromium-based browser and verify the selected firmware resolves from `/flash/firmware/...`.
+
 ## After Flashing
 
 The next step depends on the frontend you chose:

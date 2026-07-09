@@ -74,3 +74,7 @@ src/cpp/frontend/*/app/dependencies.lock
 docs/web/documentation/
 docs/web/_pagefind/
 docs/web/sitemap.xml
+
+# Local web flasher staging
+tmp/
+docs/web/flash/firmware/*/firmware-manifest-*.json
