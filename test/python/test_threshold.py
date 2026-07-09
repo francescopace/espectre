@@ -103,73 +103,53 @@ def test_startup_gate_accepts_clean_startup_with_max_formula() -> None:
     assert formula == "gated max x 1.1"
 
 
-def test_startup_gate_extends_past_contaminated_tail() -> None:
+def test_motion_first_accepts_quiet_motion_quiet_before_budget() -> None:
     tracker = StartupThresholdCalibrator(
-        target_packets=60, auto_factor=1.1, gate_enabled=True
+        target_packets=200, auto_factor=1.1, gate_enabled=True
     )
     detector = FakeDetector()
 
-    # Quiet floor for 5 chunks, movement in the last chunk of the window.
-    feed(tracker, detector, [0.05] * 50 + [0.5] * 10)
-    assert not tracker.is_complete()
-    assert tracker.is_extending()
-
-    # Quiet extension flushes the contaminated chunk out of the ring.
-    feed(tracker, detector, [0.05] * 60)
-    assert tracker.is_complete()
-    assert tracker.gate_accepted
-    assert tracker.packet_count == 120
+    feed(tracker, detector, [0.05] * 50 + [0.12] * 50 + [0.05] * 50)
 
     threshold, formula = tracker.calculate_threshold("auto")
-    assert threshold == pytest.approx(0.05 * 1.1)
-    assert formula == "gated max x 1.1"
+    assert tracker.is_complete()
+    assert tracker.packet_count == 150
+    assert tracker.get_phase_label() == "COMPLETE"
+    assert threshold == pytest.approx(0.085 * 1.1)
+    assert formula == "motion gap midpoint x 1.1"
 
 
-def test_startup_gate_rescues_quiet_tail_bump() -> None:
+def test_motion_first_short_spike_falls_back_to_quiet_first() -> None:
     tracker = StartupThresholdCalibrator(
-        target_packets=60, auto_factor=1.1, gate_enabled=True
+        target_packets=100, auto_factor=1.1, gate_enabled=True
     )
     detector = FakeDetector()
 
-    # Quiet floor with a mild bump (within the anchor band) in one chunk:
-    # the spread gate rejects the initial ring and extends past the bump.
-    feed(tracker, detector, [0.05] * 20 + [0.06] * 10 + [0.05] * 30)
-    assert not tracker.is_complete()
-    assert tracker.is_extending()
+    # One motion-like chunk is not enough to confirm useful motion.
+    feed(tracker, detector, [0.05] * 50 + [0.12] * 25 + [0.05] * 25)
 
-    feed(tracker, detector, [0.05] * 30)
-    assert tracker.is_complete()
-    assert tracker.gate_accepted
-
-    # Tail rescue keeps the bump peak: the extension must not end below it.
     threshold, formula = tracker.calculate_threshold("auto")
-    assert threshold == pytest.approx(0.06 * 1.1)
+    assert tracker.is_complete()
+    assert tracker.get_phase_label() == "FALLBACK"
+    assert threshold == pytest.approx(0.12 * 1.03 * 1.1)
     assert formula == "gated max x 1.1"
 
 
-def test_startup_gate_floor_anchor_rejects_homogeneous_motion() -> None:
+def test_motion_without_return_uses_fallback_inside_budget() -> None:
     tracker = StartupThresholdCalibrator(
-        target_packets=60,
+        target_packets=100,
         auto_factor=1.1,
         gate_enabled=True,
-        gate_extension_packets=30,
     )
     detector = FakeDetector()
 
-    # One quiet chunk, then homogeneous movement: the spread gate alone would
-    # accept the motion-level ring, the floor anchor must keep it open.
-    feed(tracker, detector, [0.05] * 10 + [0.5] * 50)
-    assert not tracker.is_complete()
-    assert tracker.is_extending()
-
-    # Never settles: exhaust the extension budget and fall back to the median.
-    feed(tracker, detector, [0.5] * 30)
-    assert tracker.is_complete()
-    assert not tracker.gate_accepted
+    feed(tracker, detector, [0.05] * 50 + [0.12] * 50)
 
     threshold, formula = tracker.calculate_threshold("auto")
-    assert threshold == pytest.approx(0.5 * 1.1)
-    assert formula == "gated median x 1.1"
+    assert tracker.is_complete()
+    assert tracker.get_phase_label() == "FALLBACK"
+    assert threshold == pytest.approx(0.12 * 1.03 * 1.1)
+    assert formula == "gated max x 1.1"
 
 
 def test_startup_gate_disabled_keeps_legacy_completion() -> None:

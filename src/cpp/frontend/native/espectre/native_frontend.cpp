@@ -71,11 +71,16 @@ void NativeFrontend::set_device_config(const EspectreDeviceConfig &config) {
 void NativeFrontend::set_device_info(const EspectreDeviceInfo &info) {
   device_info_ = info;
   if (client_connected_) {
-    send_system_info_();
+    system_info_refresh_.request();
   }
 }
 
-void NativeFrontend::set_wifi_provisioning_info(const WifiProvisioningInfo &info) { wifi_info_ = info; }
+void NativeFrontend::set_wifi_provisioning_info(const WifiProvisioningInfo &info) {
+  wifi_info_ = info;
+  if (client_connected_) {
+    system_info_refresh_.request();
+  }
+}
 
 void NativeFrontend::set_provisioning_command_callback(ProvisioningCommandCallback callback) {
   provisioning_command_callback_ = std::move(callback);
@@ -127,6 +132,8 @@ void NativeFrontend::loop() {
   if (bindings_ != nullptr) {
     bindings_->loop();
   }
+  system_info_refresh_.flush_if([this]() { return this->client_connected_ && this->bindings_ != nullptr; },
+                                [this]() { this->send_system_info_(); });
   if (mqtt_transport_ != nullptr) {
     mqtt_transport_->loop();
   }
@@ -167,18 +174,18 @@ void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
 void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   runtime_.record_snapshot(snapshot);
   runtime_.config().segmentation_threshold = snapshot.threshold;
-  send_system_info_();
+  system_info_refresh_.request();
   publish_mqtt_telemetry_(snapshot, now_ms_());
 }
 
 void NativeFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
   runtime_.record_snapshot(snapshot);
-  send_system_info_();
+  system_info_refresh_.request();
 }
 
 void NativeFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
   finalize_frontend_calibration(runtime_, snapshot, [this]() { status_logger_.reset(); }, success, TAG);
-  send_system_info_();
+  system_info_refresh_.request();
 }
 
 void NativeFrontend::on_live_telemetry(float movement, float threshold) {
@@ -205,7 +212,7 @@ void NativeFrontend::on_runtime_fault(const char *message) {
 
 bool NativeFrontend::handle_control_command_(const std::string &command) {
   if (command == "REQ_SYSINFO") {
-    send_system_info_();
+    system_info_refresh_.request();
     return true;
   }
   DeviceConfigBleCommandResult device_config_result = handle_ble_device_config_command(
@@ -246,7 +253,7 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
       set_device_config(device_config_result.config);
     }
     setup_mqtt_();
-    send_system_info_();
+    system_info_refresh_.request();
     return true;
   }
   if (command.rfind("SET_WIFI_CONFIG:", 0) == 0 || command == "CLEAR_WIFI") {
@@ -314,7 +321,7 @@ bool NativeFrontend::handle_threshold_write_(float threshold) {
   if (!runtime_.set_threshold_runtime(threshold)) {
     return false;
   }
-  send_system_info_();
+  system_info_refresh_.request();
   return true;
 }
 
@@ -323,7 +330,7 @@ void NativeFrontend::handle_connection_state_(bool connected) {
   if (connected) {
     telemetry_subscribed_ = false;
     runtime_.set_live_telemetry_enabled(false);
-    send_system_info_();
+    system_info_refresh_.request();
   } else {
     telemetry_subscribed_ = false;
     runtime_.set_live_telemetry_enabled(false);

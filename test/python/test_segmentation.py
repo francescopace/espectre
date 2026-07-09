@@ -180,7 +180,7 @@ class TestAddTurbulence:
     
     def test_variance_after_full(self):
         """Test variance is calculated after buffer is full"""
-        ctx = SegmentationContext(window_size=5)
+        ctx = SegmentationContext(window_size=5, enable_lowpass=False)
         
         for v in [1.0, 2.0, 3.0, 4.0, 5.0]:
             ctx.add_turbulence(v)

@@ -506,7 +506,7 @@
   <div class="container">
     <div class="header">
       <h1>🛜 ESPectre 👻</h1>
-      <p>BLE provisioning client for atomic Wi-Fi, MQTT, and device settings</p>
+      <p>BLE provisioning client for Wi-Fi, MQTT, and device settings</p>
     </div>
 
     <div class="card compact">
@@ -1280,7 +1280,7 @@
           bssid,
           channel
         }));
-        log('Wi-Fi credentials saved with one atomic SET_WIFI_CONFIG write; station reconnecting');
+        log('Wi-Fi credentials saved; station reconnecting');
       } catch (error) {
         log(`error: ${error.message}`);
       }
@@ -1338,7 +1338,7 @@
           password: mqttPassword,
           topic_prefix: topicPrefix
         }));
-        log('MQTT settings saved with one atomic SET_MQTT_CONFIG write');
+        log('MQTT settings saved');
       } catch (error) {
         log(`error: ${error.message}`);
       }

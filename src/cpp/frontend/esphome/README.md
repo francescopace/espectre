@@ -82,7 +82,7 @@ All frontend parameters live under the `espectre:` section:
 | `evaluation_interval` | int | `25` | Packets between internal detector evaluations |
 | `motion_on_hits` | int | `3` | Consecutive hits required before entering `MOTION` |
 | `motion_off_hits` | int | `3` | Consecutive hits required before returning to `IDLE` |
-| `segmentation_threshold` | string/float | `auto` | Threshold mode: `auto`, `min`, or numeric `0.0-10.0` |
+| `segmentation_threshold` | string/float | `auto` | Threshold mode: `auto`, `min`, or a numeric manual threshold (`classic`: `0.0-10.0`, `ml`: `0.0-1.0`) |
 | `segmentation_window_size` | int | `100` | Shared detector window in packets for classic variance recovery and ML features (`10-200`) |
 | `lowpass_enabled` | bool | `false` | Enable low-pass filtering |
 | `lowpass_cutoff` | float | `11.0` | Low-pass cutoff in Hz (`5-20`) |
@@ -113,9 +113,9 @@ espectre:
 
 Threshold behavior:
 
-- range: `0.0-10.0`
-- `classic` default: `auto` (startup calibration, `max x 1.1`)
-- `ml` default: `5.0`
+- range: `classic` `0.0-10.0`, `ml` `0.0-1.0`
+- `classic` default: `auto` (shared adaptive startup calibration; motion-first with internal quiet-first fallback)
+- `ml` default: `0.5`
 
 ### Example
 
@@ -269,9 +269,9 @@ Startup behavior:
 2. adaptive threshold bootstrap for `classic`
 3. normal motion detection loop
 
-With the default `segmentation_window_size: 100`, both startup-calibrated
-detectors collect `1000` packets for the startup baseline. `ML` skips this
-threshold bootstrap.
+With the default `segmentation_window_size: 100`, `classic` uses a startup
+budget of up to `1000` packets. This is a maximum, not a fixed wait, so clean
+motion-first startups may finish earlier. `ML` skips threshold bootstrap.
 
 Runtime recalibration is exposed as the `calibrate_switch` entity in Home
 Assistant.

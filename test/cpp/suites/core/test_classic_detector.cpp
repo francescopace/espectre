@@ -21,12 +21,7 @@ void tearDown(void) {}
 void test_classic_detector_clear_buffer_preserves_frozen_floor(void) {
     ClassicDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, CLASSIC_DEFAULT_THRESHOLD);
 
-    for (uint16_t i = 0; i < 400; i++) {
-        detector.variance_floor_ring_[i] = 1.0f;
-    }
-    detector.floor_count_ = 400;
-    detector.floor_idx_ = 400;
-
+    detector.apply_startup_floor(1.0f, true, 400);
     detector.on_startup_calibration_complete();
     TEST_ASSERT_TRUE(detector.floor_frozen_);
     TEST_ASSERT_TRUE(detector.recovery_vote_enabled_);

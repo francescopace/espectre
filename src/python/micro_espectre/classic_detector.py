@@ -21,10 +21,10 @@ variance = moving variance, base = variance session floor):
     BAND_ALPHA*thr < l1 <= thr and vote and variance>K*base -> MOTION  (variance recovery)
     else                                              -> IDLE
 
-The variance floor (median) and dispersion (p99/median) are maintained online from
-the moving-variance metric observed while L1-Delta is confidently IDLE, so the vote adapts
-per session without a second calibration pass. See docs/EXPERIMENTS.md,
-"L1-Delta + Variance Gated Fusion For The Low-Contrast Recall Residual".
+    The variance floor is frozen from startup-validated quiet samples supplied by the
+    shared calibrator. This keeps motion-first startup from poisoning the floor while
+    preserving the existing low-contrast recovery vote when enough quiet samples were
+    observed after the useful motion segment.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -179,15 +179,6 @@ class ClassicDetector(IDetector):
             else self._variance_ctx.buffer_count >= self._variance_ctx.window_size
         )
 
-        # Build the variance floor from the quiet startup window (all L1-Delta-IDLE
-        # samples, so the dispersion gate sees the floor's natural upper tail),
-        # then freeze it at calibration. Collecting only pre-freeze keeps motion
-        # troughs -- low L1 displacement but high variance -- out of the
-        # reference, and matches the fixed-window statistic validated offline.
-        if (not self._floor_frozen and ready and variance_ready
-                and l1v <= thr):
-            self._push_variance_floor(moving_variance)
-
         motion = False
         if ready:
             if l1v > thr:
@@ -229,16 +220,33 @@ class ClassicDetector(IDetector):
     def set_adaptive_threshold(self, threshold):
         """Set the startup-calibrated primary threshold.
 
-        The startup calibration loop has already fed the quiet window through
-        ``update_state``, so the variance-floor ring holds quiet samples: refresh the
-        floor and dispersion gate now so the vote is ready right after startup.
+        The shared startup calibrator now owns the validated-quiet selection and
+        passes any frozen floor snapshot via ``apply_startup_floor`` before this call.
         If startup did not yield enough quiet variance samples the floor stays unset
         and the detector runs as L1-Delta alone (safe default).
         """
         self._l1.set_adaptive_threshold(threshold)
-        if self._floor_count >= self.VARIANCE_FLOOR_MIN:
-            self._refresh_variance_floor()
         self._floor_frozen = True
+
+    def get_last_moving_variance(self):
+        """Expose the latest variance metric to the shared startup calibrator."""
+        return self._last_moving_variance
+
+    def apply_startup_floor(self, variance_floor, recovery_vote_enabled, sample_count):
+        """Freeze one validated startup floor snapshot supplied by the calibrator."""
+        count = max(0, min(int(sample_count), self.VARIANCE_FLOOR_SIZE))
+        self._floor_idx = count % self.VARIANCE_FLOOR_SIZE
+        self._floor_count = count
+        if count > 0:
+            for i in range(count):
+                self._variance_floor_ring[i] = float(variance_floor)
+            for i in range(count, self.VARIANCE_FLOOR_SIZE):
+                self._variance_floor_ring[i] = 0.0
+        else:
+            for i in range(self.VARIANCE_FLOOR_SIZE):
+                self._variance_floor_ring[i] = 0.0
+        self._variance_floor = float(variance_floor) if count > 0 else None
+        self._recovery_vote_enabled = bool(recovery_vote_enabled) and count >= self.VARIANCE_FLOOR_MIN
 
     def is_ready(self):
         """Detection readiness follows the primary detector."""

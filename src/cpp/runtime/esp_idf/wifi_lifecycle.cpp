@@ -16,6 +16,8 @@ static const char *WIFI_LIFECYCLE_TAG = "WiFiLifecycle";
 
 namespace {
 
+extern "C" int esp_wifi_internal_set_retry_counter(int src, int lrc) __attribute__((weak));
+
 // HT20-only CSI policy on 2.4 GHz:
 // - Prefer 11n-only for deterministic HT20 behavior when supported.
 // - Some targets/IDF builds reject 11n-only with ESP_ERR_INVALID_ARG; in that
@@ -23,6 +25,14 @@ namespace {
 constexpr uint16_t WIFI_PROTOCOL_CSI_2G_PREFERRED = WIFI_PROTOCOL_11N;
 constexpr uint16_t WIFI_PROTOCOL_CSI_2G_FALLBACK = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
 constexpr wifi_bandwidth_t WIFI_BANDWIDTH_CSI = WIFI_BW_HT20;
+
+#if CONFIG_IDF_TARGET_ESP32
+constexpr int WIFI_TX_RETRY_SHORT = 2;
+constexpr int WIFI_TX_RETRY_LONG = 2;
+#else
+constexpr int WIFI_TX_RETRY_SHORT = 2;
+constexpr int WIFI_TX_RETRY_LONG = 2;
+#endif
 
 const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
   switch (bw) {
@@ -83,7 +93,29 @@ esp_err_t get_wifi_bandwidth_for_log_(wifi_bandwidth_t *bw) {
 
 }  // namespace
 
-  
+esp_err_t WiFiLifecycleManager::apply_tx_retry_policy() {
+  if (esp_wifi_internal_set_retry_counter == nullptr) {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi TX retry policy API unavailable on this target/IDF");
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+
+  const int rc = esp_wifi_internal_set_retry_counter(WIFI_TX_RETRY_SHORT, WIFI_TX_RETRY_LONG);
+  if (rc != 0) {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG,
+             "Failed to set WiFi TX retry counter short=%d long=%d rc=%d",
+             WIFI_TX_RETRY_SHORT,
+             WIFI_TX_RETRY_LONG,
+             rc);
+    return ESP_FAIL;
+  }
+
+  ESP_LOGI(WIFI_LIFECYCLE_TAG,
+           "WiFi TX retry counter set to short=%d long=%d",
+           WIFI_TX_RETRY_SHORT,
+           WIFI_TX_RETRY_LONG);
+  return ESP_OK;
+}
+
 esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy() {
   esp_err_t ret;
 

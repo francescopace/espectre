@@ -42,6 +42,50 @@ def test_extract_features_by_name_supports_l1_delta_feature():
     assert expected > 0.0
 
 
+def test_training_cache_manifest_tracks_runtime_filter_defaults():
+    module = _load_train_module()
+
+    manifest = module._training_cache_manifest(["turb_skewness"])
+
+    assert manifest["enable_lowpass"] == module.ENABLE_LOWPASS_FILTER
+    assert manifest["lowpass_cutoff"] == pytest.approx(module.LOWPASS_CUTOFF)
+    assert manifest["enable_hampel"] == module.ENABLE_HAMPEL_FILTER
+    assert manifest["hampel_window"] == module.HAMPEL_WINDOW
+    assert manifest["hampel_threshold"] == pytest.approx(module.HAMPEL_THRESHOLD)
+
+
+def test_extract_features_uses_runtime_filter_defaults(monkeypatch):
+    module = _load_train_module()
+    created = {}
+
+    class FakeSegmentationContext:
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+            self.buffer_count = 0
+            self.buffer_index = 0
+            self.turbulence_buffer = []
+
+        def calculate_spatial_turbulence(self, csi_data, selected_subcarriers=None, return_amplitudes=False):
+            return (0.0, []) if return_amplitudes else 0.0
+
+        def add_turbulence(self, turbulence):
+            self.buffer_count += 1
+
+    monkeypatch.setattr(module, "SegmentationContext", FakeSegmentationContext)
+
+    module.extract_features(
+        [{"source_file": "sample.npz", "csi_data": [0, 0], "is_motion": False}],
+        window_size=2,
+        feature_names=["turb_skewness"],
+    )
+
+    assert created["enable_lowpass"] == module.ENABLE_LOWPASS_FILTER
+    assert created["lowpass_cutoff"] == pytest.approx(module.LOWPASS_CUTOFF)
+    assert created["enable_hampel"] == module.ENABLE_HAMPEL_FILTER
+    assert created["hampel_window"] == module.HAMPEL_WINDOW
+    assert created["hampel_threshold"] == pytest.approx(module.HAMPEL_THRESHOLD)
+
+
 def _cv_metrics(*, session_recall: float, chip_recall: float, session_fp: float, oof_f1: float, f1_mean: float):
     return {
         "oof_f1": oof_f1,

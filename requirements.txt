@@ -19,6 +19,7 @@ prompt_toolkit>=3.0.52  # interactive CLI support
 numpy==2.4.6            # latest verified NumPy compatible with shap/numba on Python 3.14
 pytest>=9.1.1           # test framework
 pytest-cov>=7.1.0       # Python coverage
+pytest-xdist>=3.8.0     # parallel Python test execution
 markdown>=3.10.2        # static documentation builder
 gcovr>=8.6              # C++ coverage reports
 

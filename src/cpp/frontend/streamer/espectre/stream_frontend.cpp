@@ -12,6 +12,7 @@
 #include <cctype>
 #include <cinttypes>
 #include <cstddef>
+#include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -51,6 +52,11 @@ namespace {
 
 static const char *const TAG = "espectre.stream";
 constexpr int kWifiConnectMaxRetry = 8;
+constexpr float kBleSuspendStimulusPps = 10.0F;
+constexpr float kBleResumeStimulusPps = 1.0F;
+constexpr uint64_t kBleSuspendStableMs = 2000U;
+constexpr uint64_t kBleResumeStableMs = 60000U;
+constexpr uint16_t kWifiFrameControlRetryMask = 0x0800U;
 
 #ifdef CONFIG_ESPECTRE_STREAM_OUTPUT_ENABLED
 constexpr bool kStreamOutputEnabled = true;
@@ -63,6 +69,57 @@ float current_free_memory_kb() {
   return static_cast<float>(heap_caps_get_free_size(MALLOC_CAP_DEFAULT)) / 1024.0f;
 #else
   return 0.0f;
+#endif
+}
+
+float minimum_free_memory_kb() {
+#ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
+  return static_cast<float>(heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT)) / 1024.0f;
+#else
+  return 0.0f;
+#endif
+}
+
+bool wifi_frame_has_retry_flag_(const wifi_csi_info_t *info) {
+  if (info == nullptr || info->hdr == nullptr) {
+    return false;
+  }
+  const uint8_t *hdr = reinterpret_cast<const uint8_t *>(info->hdr);
+  const uint16_t frame_control = static_cast<uint16_t>(hdr[0]) | (static_cast<uint16_t>(hdr[1]) << 8U);
+  return (frame_control & kWifiFrameControlRetryMask) != 0U;
+}
+
+template<typename T>
+T *allocate_stream_storage(const char *label, size_t count) {
+  const size_t bytes = sizeof(T) * count;
+#ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
+#ifdef MALLOC_CAP_SPIRAM
+  if (T *external = static_cast<T *>(heap_caps_calloc(count, sizeof(T), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT))) {
+    ESP_LOGI(TAG, "Allocated %s in external RAM (%u bytes)", label, static_cast<unsigned>(bytes));
+    return external;
+  }
+#endif
+  if (T *internal = static_cast<T *>(heap_caps_calloc(count, sizeof(T), MALLOC_CAP_8BIT))) {
+    ESP_LOGI(TAG, "Allocated %s in internal RAM (%u bytes)", label, static_cast<unsigned>(bytes));
+    return internal;
+  }
+#else
+  if (T *storage = static_cast<T *>(std::calloc(count, sizeof(T)))) {
+    return storage;
+  }
+#endif
+  ESP_LOGE(TAG, "Failed to allocate %s (%u bytes)", label, static_cast<unsigned>(bytes));
+  return nullptr;
+}
+
+void free_stream_storage(void *ptr) {
+  if (ptr == nullptr) {
+    return;
+  }
+#ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
+  heap_caps_free(ptr);
+#else
+  std::free(ptr);
 #endif
 }
 
@@ -234,6 +291,10 @@ bool StreamFrontend::setup() {
   if (!udp_sender_.setup()) {
     return false;
   }
+  if (!setup_deferred_csi_queue_()) {
+    udp_sender_.shutdown();
+    return false;
+  }
 
   reset_collector_endpoint_();
   StimulusServiceConfig stimulus_config;
@@ -280,6 +341,8 @@ void StreamFrontend::loop() {
   }
 
   ble_bindings_.loop();
+  ble_sysinfo_refresh_.flush_if([this]() { return this->ble_ready_ && this->ble_client_connected_; },
+                                [this]() { this->publish_ble_sysinfo_(); });
 
   if (stimulus_service_.is_running()) {
     stimulus_service_.loop();
@@ -298,6 +361,7 @@ void StreamFrontend::loop() {
       }
     }
   }
+  process_deferred_csi_packets_();
 
   if (mqtt_transport_ != nullptr) {
     mqtt_transport_->loop();
@@ -353,6 +417,7 @@ void StreamFrontend::shutdown() {
     ota_service_->shutdown();
   }
   wifi_manager_.shutdown();
+  shutdown_deferred_csi_queue_();
   udp_sender_.shutdown();
   setup_complete_ = false;
 }
@@ -381,7 +446,7 @@ bool StreamFrontend::init_wifi_station_() {
                                  kWifiConnectMaxRetry,
                                  true,
                                  true,
-                                 [this]() { this->publish_ble_sysinfo_(); },
+                                 [this]() { this->ble_sysinfo_refresh_.request(); },
                                  [this]() { this->on_wifi_connected_(); },
                                  [this]() { this->on_wifi_disconnected_(); }},
       TAG,
@@ -392,6 +457,44 @@ bool StreamFrontend::init_wifi_station_() {
   return true;
 }
 
+bool StreamFrontend::setup_deferred_csi_queue_() {
+  deferred_csi_slots_ = allocate_stream_storage<DeferredCsiPacket>("deferred CSI slots", CSI_DEFERRED_QUEUE_SLOTS);
+  if (deferred_csi_slots_ == nullptr) {
+    return false;
+  }
+
+  deferred_csi_free_slots_ = xQueueCreate(CSI_DEFERRED_QUEUE_SLOTS, sizeof(uint8_t));
+  deferred_csi_ready_slots_ = xQueueCreate(CSI_DEFERRED_QUEUE_SLOTS, sizeof(uint8_t));
+  if (deferred_csi_free_slots_ == nullptr || deferred_csi_ready_slots_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to create deferred CSI queues");
+    shutdown_deferred_csi_queue_();
+    return false;
+  }
+
+  for (uint8_t idx = 0; idx < CSI_DEFERRED_QUEUE_SLOTS; idx++) {
+    if (xQueueSend(deferred_csi_free_slots_, &idx, 0) != pdTRUE) {
+      ESP_LOGE(TAG, "Failed to initialize deferred CSI free queue");
+      shutdown_deferred_csi_queue_();
+      return false;
+    }
+  }
+  csi_deferred_drop_total_ = 0U;
+  return true;
+}
+
+void StreamFrontend::shutdown_deferred_csi_queue_() {
+  if (deferred_csi_free_slots_ != nullptr) {
+    vQueueDelete(deferred_csi_free_slots_);
+    deferred_csi_free_slots_ = nullptr;
+  }
+  if (deferred_csi_ready_slots_ != nullptr) {
+    vQueueDelete(deferred_csi_ready_slots_);
+    deferred_csi_ready_slots_ = nullptr;
+  }
+  free_stream_storage(deferred_csi_slots_);
+  deferred_csi_slots_ = nullptr;
+}
+
 bool StreamFrontend::setup_ble_provisioning_() {
   const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(device_config_),
                                                        device_info_.chip.empty() ? nullptr
@@ -400,7 +503,7 @@ bool StreamFrontend::setup_ble_provisioning_() {
   ble_bindings_.set_connection_state_callback([this](bool connected) {
     this->ble_client_connected_ = connected;
     if (connected) {
-      this->publish_ble_sysinfo_();
+      this->ble_sysinfo_refresh_.request();
     }
   });
   ble_bindings_.set_control_write_callback([this](const std::string &command) { this->handle_ble_control_(command); });
@@ -411,6 +514,65 @@ bool StreamFrontend::setup_ble_provisioning_() {
   ble_ready_ = true;
   ESP_LOGI(TAG, "BLE Wi-Fi provisioning ready");
   return true;
+}
+
+void StreamFrontend::suspend_ble_for_streaming_() {
+  if (!ble_ready_) {
+    return;
+  }
+  ESP_LOGI(TAG, "Disabling BLE during active streaming to free memory and reduce radio coexistence pressure");
+  ble_bindings_.shutdown();
+  ble_ready_ = false;
+  ble_client_connected_ = false;
+  ble_suspended_for_streaming_ = true;
+  ble_high_stimulus_ms_ = 0U;
+  ble_idle_stimulus_ms_ = 0U;
+}
+
+void StreamFrontend::resume_ble_after_streaming_() {
+  if (!ble_suspended_for_streaming_) {
+    return;
+  }
+  ESP_LOGI(TAG, "Re-enabling BLE after streaming returned idle");
+  if (setup_ble_provisioning_()) {
+    ble_suspended_for_streaming_ = false;
+    ble_high_stimulus_ms_ = 0U;
+    ble_idle_stimulus_ms_ = 0U;
+  } else {
+    ESP_LOGW(TAG, "Failed to re-enable BLE provisioning after streaming idle");
+  }
+}
+
+void StreamFrontend::update_streaming_ble_policy_(float stimulus_pps, uint64_t dt_ms) {
+  if (dt_ms == 0U) {
+    return;
+  }
+
+  const WorkflowState state = state_.load(std::memory_order_relaxed);
+  const bool streaming = state == WorkflowState::STREAMING;
+
+  if (!ble_suspended_for_streaming_) {
+    if (streaming && ble_ready_ && stimulus_pps > kBleSuspendStimulusPps) {
+      ble_high_stimulus_ms_ += dt_ms;
+      if (ble_high_stimulus_ms_ >= kBleSuspendStableMs) {
+        suspend_ble_for_streaming_();
+      }
+    } else {
+      ble_high_stimulus_ms_ = 0U;
+    }
+    ble_idle_stimulus_ms_ = 0U;
+    return;
+  }
+
+  if (!streaming || stimulus_pps < kBleResumeStimulusPps) {
+    ble_idle_stimulus_ms_ += dt_ms;
+    if (ble_idle_stimulus_ms_ >= kBleResumeStableMs) {
+      resume_ble_after_streaming_();
+    }
+  } else {
+    ble_idle_stimulus_ms_ = 0U;
+  }
+  ble_high_stimulus_ms_ = 0U;
 }
 
 void StreamFrontend::setup_mqtt_() {
@@ -465,6 +627,14 @@ void StreamFrontend::on_wifi_connected_() {
   reset_runtime_telemetry_baseline_();
   reset_collector_endpoint_();
   capture_service_.reset_session();
+  for (RecentWifiRxFrame &frame : recent_wifi_frames_) {
+    frame.valid = false;
+    frame.rx_seq = 0U;
+    frame.src_mac.fill(0U);
+  }
+  recent_wifi_frame_idx_ = 0U;
+  recent_stimulus_ids_.fill(0xFFFFFFFFU);
+  recent_stimulus_idx_ = 0U;
   StandaloneWifiInfo wifi_info;
   if (wifi_manager_.get_info(&wifi_info) && wifi_info.ip_address[0] != '\0') {
     local_ip_addr_ = inet_addr(wifi_info.ip_address);
@@ -476,7 +646,7 @@ void StreamFrontend::on_wifi_connected_() {
   if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
     std::copy(std::begin(mac), std::end(mac), local_mac_addr_.begin());
   }
-  publish_ble_sysinfo_();
+  ble_sysinfo_refresh_.request();
 }
 
 void StreamFrontend::on_wifi_disconnected_() {
@@ -489,12 +659,12 @@ void StreamFrontend::on_wifi_disconnected_() {
   reset_collector_endpoint_();
   transition_to_(WorkflowState::WAIT_WIFI, "wifi disconnected");
   device_info_.network = EspectreNetworkInfo{};
-  publish_ble_sysinfo_();
+  ble_sysinfo_refresh_.request();
 }
 
 void StreamFrontend::handle_ble_control_(const std::string &command) {
   if (command == "REQ_SYSINFO") {
-    publish_ble_sysinfo_();
+    ble_sysinfo_refresh_.request();
     return;
   }
 
@@ -564,7 +734,7 @@ void StreamFrontend::handle_ble_control_(const std::string &command) {
                 message.empty() ? command.c_str() : message.c_str());
   publish_ble_line_(line);
   if (refresh_sysinfo_now) {
-    publish_ble_sysinfo_();
+    ble_sysinfo_refresh_.request();
   }
 }
 
@@ -654,6 +824,153 @@ void StreamFrontend::publish_mqtt_ota_status_(const EspectreOtaStatus &status) {
   (void) publish_frontend_mqtt_ota_status(mqtt_transport_, device_config_, status, monotonic_now_ms());
 }
 
+bool StreamFrontend::enqueue_deferred_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) {
+  if (info == nullptr || !normalized.valid() || normalized.len > HT20_CSI_LEN || deferred_csi_free_slots_ == nullptr ||
+      deferred_csi_ready_slots_ == nullptr || deferred_csi_slots_ == nullptr) {
+    csi_deferred_drop_total_++;
+    return false;
+  }
+
+  uint8_t slot_idx = 0U;
+  if (xQueueReceive(deferred_csi_free_slots_, &slot_idx, 0) != pdTRUE) {
+    csi_deferred_drop_total_++;
+    return false;
+  }
+
+  DeferredCsiPacket &slot = deferred_csi_slots_[slot_idx];
+  slot.rx_ctrl = info->rx_ctrl;
+  slot.enqueued_at_ms = monotonic_now_ms();
+  std::memcpy(slot.mac.data(), info->mac, slot.mac.size());
+  std::memcpy(slot.dmac.data(), info->dmac, slot.dmac.size());
+  std::memcpy(slot.normalized_csi.data(), normalized.data, normalized.len);
+  slot.normalized_len = static_cast<uint16_t>(normalized.len);
+  slot.payload_len = info->payload_len;
+  slot.captured_payload_len = 0U;
+  slot.rx_seq = info->rx_seq;
+  slot.first_word_invalid = info->first_word_invalid;
+  slot.payload_present = info->payload != nullptr && info->payload_len > 0U;
+  if (slot.payload_present) {
+    slot.captured_payload_len =
+        static_cast<uint16_t>(std::min<size_t>(info->payload_len, slot.payload_prefix.size()));
+    std::memcpy(slot.payload_prefix.data(), info->payload, slot.captured_payload_len);
+  }
+
+  if (xQueueSend(deferred_csi_ready_slots_, &slot_idx, 0) != pdTRUE) {
+    csi_deferred_drop_total_++;
+    (void)xQueueSend(deferred_csi_free_slots_, &slot_idx, 0);
+    return false;
+  }
+  return true;
+}
+
+void StreamFrontend::process_deferred_csi_packets_() {
+  if (deferred_csi_ready_slots_ == nullptr || deferred_csi_free_slots_ == nullptr || deferred_csi_slots_ == nullptr) {
+    return;
+  }
+
+  for (uint8_t processed = 0U; processed < CSI_DEFERRED_QUEUE_SLOTS; processed++) {
+    uint8_t slot_idx = 0U;
+    if (xQueueReceive(deferred_csi_ready_slots_, &slot_idx, 0) != pdTRUE) {
+      break;
+    }
+
+    process_deferred_csi_packet_(deferred_csi_slots_[slot_idx]);
+    (void)xQueueSend(deferred_csi_free_slots_, &slot_idx, 0);
+  }
+}
+
+void StreamFrontend::process_deferred_csi_packet_(const DeferredCsiPacket &packet) {
+  if (packet.normalized_len == 0U || packet.normalized_len > packet.normalized_csi.size()) {
+    return;
+  }
+
+  if (state_.load(std::memory_order_relaxed) != WorkflowState::STREAMING) {
+    return;
+  }
+
+  const uint32_t now_ms = monotonic_now_ms();
+  if (packet.enqueued_at_ms != 0U && now_ms >= packet.enqueued_at_ms) {
+    const uint32_t deferred_age_ms = now_ms - packet.enqueued_at_ms;
+    deferred_max_age_ms_since_log_ = std::max(deferred_max_age_ms_since_log_, deferred_age_ms);
+  }
+
+  wifi_csi_info_t info{};
+  info.rx_ctrl = packet.rx_ctrl;
+  std::memcpy(info.mac, packet.mac.data(), packet.mac.size());
+  info.first_word_invalid = packet.first_word_invalid;
+  info.payload_len = packet.captured_payload_len;
+  info.payload = packet.captured_payload_len > 0U ? const_cast<uint8_t *>(packet.payload_prefix.data()) : nullptr;
+  std::memcpy(info.dmac, packet.dmac.data(), packet.dmac.size());
+
+  StimulusMetadata stimulus{};
+  const bool has_stimulus =
+      extract_stimulus_metadata_from_csi(&info, collector_ip_addr_, local_ip_addr_, local_mac_addr_.data(), &stimulus);
+  if (!has_stimulus) {
+    stimulus_parse_fail_total_++;
+    filtered_total_++;
+    return;
+  }
+
+  // Drop MAC-layer retransmissions of an already-forwarded stimulus frame. The
+  // CSI callback fires once per received PHY frame, so a retransmitted stimulus
+  // yields a duplicate CSI record carrying the same stimulus_id. Keeping only the
+  // first copy holds the forwarded stream at the true stimulus rate (one record
+  // per stimulus) regardless of how often the AP retransmits it.
+  if (stimulus_recently_seen_(stimulus.stimulus_id)) {
+    stimulus_dup_drop_total_++;
+    return;
+  }
+
+  csi_rx_total_++;
+  stimulus_valid_total_++;
+  last_csi_ms_ = monotonic_now_ms();
+  last_csi_channel_ = packet.rx_ctrl.channel;
+
+  std::array<uint8_t, CsiUdpSender::MAX_PACKET_BYTES> packet_bytes{};
+  auto *header = reinterpret_cast<CsiStreamHeaderV3 *>(packet_bytes.data());
+  header->magic = STREAM_MAGIC;
+  header->version = STREAM_VERSION;
+  header->header_len = static_cast<uint8_t>(sizeof(*header));
+  header->chip = static_cast<uint8_t>(detect_chip_code());
+  header->flags = 0U;
+  header->seq_num = stream_seq_++;
+  header->num_subcarriers = static_cast<uint16_t>(packet.normalized_len / 2U);
+  header->csi_len_bytes = packet.normalized_len;
+  header->device_id = espectre_effective_device_id_u64(device_config_);
+  header->device_ticks_us = static_cast<uint64_t>(esp_timer_get_time());
+  header->wifi_rx_ts_us = packet.rx_ctrl.timestamp;
+  header->wifi_rx_start_ts_ns = 0U;
+  header->stimulus_id = 0U;
+  header->channel = packet.rx_ctrl.channel;
+  header->rssi_dbm = packet.rx_ctrl.rssi;
+#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || \
+    CONFIG_IDF_TARGET_ESP32C2
+  header->noise_floor_dbm = packet.rx_ctrl.noise_floor;
+#else
+  header->noise_floor_dbm = -128;
+#endif
+
+  if (packet.first_word_invalid) {
+    header->flags |= STREAM_FLAG_FIRST_WORD_INVALID;
+  }
+  if (header->wifi_rx_ts_us != 0U) {
+    header->flags |= STREAM_FLAG_WIFI_RX_TS_VALID;
+  }
+  if (fill_rx_timestamp_metadata(&info, header)) {
+    header->flags |= STREAM_FLAG_WIFI_RX_START_TS_NS_VALID;
+  }
+  stream_set_stimulus_id(header, stimulus.stimulus_id);
+  header->flags |= STREAM_FLAG_STIMULUS_ID_VALID;
+  if (stimulus.is_reference) {
+    reference_frame_total_++;
+    header->flags |= STREAM_FLAG_REFERENCE_FRAME;
+  }
+
+  std::memcpy(packet_bytes.data() + sizeof(*header), packet.normalized_csi.data(), packet.normalized_len);
+  const size_t packet_len = sizeof(*header) + packet.normalized_len;
+  (void)udp_sender_.queue_packet(packet_bytes.data(), packet_len);
+}
+
 void StreamFrontend::handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) {
   csi_callback_total_++;
   if (info == nullptr || !normalized.valid()) {
@@ -666,69 +983,47 @@ void StreamFrontend::handle_csi_packet_(const wifi_csi_info_t *info, const Norma
     csi_payload_present_total_++;
   }
 
-  StimulusMetadata stimulus{};
-  const bool has_stimulus =
-      extract_stimulus_metadata_from_csi(info, collector_ip_addr_, local_ip_addr_, local_mac_addr_.data(), &stimulus);
-  if (!has_stimulus) {
-    stimulus_parse_fail_total_++;
-    filtered_total_++;
+  if (wifi_frame_has_retry_flag_(info)) {
+    wifi_retry_marked_total_++;
+  }
+
+  std::array<uint8_t, 6> src_mac{};
+  std::memcpy(src_mac.data(), info->mac, src_mac.size());
+  if (wifi_frame_recently_seen_(src_mac, info->rx_seq)) {
+    wifi_seq_dup_drop_total_++;
     return;
   }
 
-  if (state_.load(std::memory_order_relaxed) != WorkflowState::STREAMING) {
-    return;
-  }
+  (void)enqueue_deferred_csi_packet_(info, normalized);
+}
 
-  csi_rx_total_++;
-  last_csi_ms_ = monotonic_now_ms();
-  last_csi_channel_ = info->rx_ctrl.channel;
-
-  std::array<uint8_t, CsiUdpSender::MAX_PACKET_BYTES> packet{};
-  auto *header = reinterpret_cast<CsiStreamHeaderV3 *>(packet.data());
-  header->magic = STREAM_MAGIC;
-  header->version = STREAM_VERSION;
-  header->header_len = static_cast<uint8_t>(sizeof(*header));
-  header->chip = static_cast<uint8_t>(detect_chip_code());
-  header->flags = 0U;
-  header->seq_num = stream_seq_++;
-  header->num_subcarriers = static_cast<uint16_t>(normalized.len / 2U);
-  header->csi_len_bytes = static_cast<uint16_t>(normalized.len);
-  header->device_id = espectre_effective_device_id_u64(device_config_);
-  header->device_ticks_us = static_cast<uint64_t>(esp_timer_get_time());
-  header->wifi_rx_ts_us = info->rx_ctrl.timestamp;
-  header->wifi_rx_start_ts_ns = 0U;
-  header->stimulus_id = 0U;
-  header->channel = info->rx_ctrl.channel;
-  header->rssi_dbm = info->rx_ctrl.rssi;
-#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || \
-    CONFIG_IDF_TARGET_ESP32C2
-  header->noise_floor_dbm = info->rx_ctrl.noise_floor;
-#else
-  header->noise_floor_dbm = -128;
-#endif
-
-  if (info->first_word_invalid) {
-    header->flags |= STREAM_FLAG_FIRST_WORD_INVALID;
-  }
-  if (header->wifi_rx_ts_us != 0U) {
-    header->flags |= STREAM_FLAG_WIFI_RX_TS_VALID;
-  }
-  if (fill_rx_timestamp_metadata(info, header)) {
-    header->flags |= STREAM_FLAG_WIFI_RX_START_TS_NS_VALID;
-  }
-  if (has_stimulus) {
-    stream_set_stimulus_id(header, stimulus.stimulus_id);
-    stimulus_valid_total_++;
-    header->flags |= STREAM_FLAG_STIMULUS_ID_VALID;
-    if (stimulus.is_reference) {
-      reference_frame_total_++;
-      header->flags |= STREAM_FLAG_REFERENCE_FRAME;
+bool StreamFrontend::wifi_frame_recently_seen_(const std::array<uint8_t, 6> &src_mac, uint16_t rx_seq) {
+  for (const RecentWifiRxFrame &frame : recent_wifi_frames_) {
+    if (!frame.valid || frame.rx_seq != rx_seq) {
+      continue;
+    }
+    if (std::memcmp(frame.src_mac.data(), src_mac.data(), src_mac.size()) == 0) {
+      return true;
     }
   }
 
-  std::memcpy(packet.data() + sizeof(*header), normalized.data, normalized.len);
-  const size_t packet_len = sizeof(*header) + normalized.len;
-  (void)udp_sender_.queue_packet(packet.data(), packet_len);
+  RecentWifiRxFrame &slot = recent_wifi_frames_[recent_wifi_frame_idx_];
+  slot.src_mac = src_mac;
+  slot.rx_seq = rx_seq;
+  slot.valid = true;
+  recent_wifi_frame_idx_ = static_cast<uint8_t>((recent_wifi_frame_idx_ + 1U) % STIMULUS_DEDUP_WINDOW);
+  return false;
+}
+
+bool StreamFrontend::stimulus_recently_seen_(uint32_t stimulus_id) {
+  for (uint32_t seen : recent_stimulus_ids_) {
+    if (seen == stimulus_id) {
+      return true;
+    }
+  }
+  recent_stimulus_ids_[recent_stimulus_idx_] = stimulus_id;
+  recent_stimulus_idx_ = static_cast<uint8_t>((recent_stimulus_idx_ + 1U) % STIMULUS_DEDUP_WINDOW);
+  return false;
 }
 
 void StreamFrontend::transition_to_(WorkflowState next, const char *reason) {
@@ -757,51 +1052,117 @@ void StreamFrontend::log_runtime_telemetry_() {
   }
 
   const uint64_t dt_ms = std::max<uint64_t>(1U, now_ms - prev_log_sample_ms_);
+  const uint64_t traffic_raw_total = stimulus_service_.get_raw_packets_received();
+  const uint64_t traffic_valid_total = stimulus_service_.get_packets_received();
+  const uint64_t queued_total = udp_sender_.queued_total();
+  const uint64_t tx_total = udp_sender_.tx_total();
+  const uint64_t fail_total = udp_sender_.send_fail_total();
   const float csi_callback_pps =
       static_cast<float>(csi_callback_total_ - prev_csi_callback_total_) * 1000.0F / static_cast<float>(dt_ms);
   const float stimulus_pps =
       static_cast<float>(stimulus_valid_total_ - prev_stimulus_valid_total_) * 1000.0F / static_cast<float>(dt_ms);
+  const float traffic_raw_pps =
+      static_cast<float>(traffic_raw_total - prev_traffic_raw_total_) * 1000.0F / static_cast<float>(dt_ms);
   const float traffic_rx_pps =
-      static_cast<float>(stimulus_service_.get_packets_received() - prev_traffic_rx_total_) * 1000.0F /
-      static_cast<float>(dt_ms);
-  const float tx_pps = static_cast<float>(udp_sender_.tx_total() - prev_tx_total_) * 1000.0F / static_cast<float>(dt_ms);
+      static_cast<float>(traffic_valid_total - prev_traffic_rx_total_) * 1000.0F / static_cast<float>(dt_ms);
+  const float csi_deferred_drop_pps =
+      static_cast<float>(csi_deferred_drop_total_ - prev_csi_deferred_drop_total_) * 1000.0F / static_cast<float>(dt_ms);
+  const float wifi_retry_marked_pps =
+      static_cast<float>(wifi_retry_marked_total_ - prev_wifi_retry_marked_total_) * 1000.0F / static_cast<float>(dt_ms);
+  const float wifi_seq_dup_drop_pps =
+      static_cast<float>(wifi_seq_dup_drop_total_ - prev_wifi_seq_dup_drop_total_) * 1000.0F / static_cast<float>(dt_ms);
+  const float stimulus_dup_drop_pps =
+      static_cast<float>(stimulus_dup_drop_total_ - prev_stimulus_dup_drop_total_) * 1000.0F / static_cast<float>(dt_ms);
+  const float dup_total_pps = wifi_seq_dup_drop_pps + stimulus_dup_drop_pps;
+  const float queued_pps = static_cast<float>(queued_total - prev_queued_total_) * 1000.0F / static_cast<float>(dt_ms);
+  const float tx_pps = static_cast<float>(tx_total - prev_tx_total_) * 1000.0F / static_cast<float>(dt_ms);
   const float drop_pps =
       static_cast<float>(udp_sender_.drop_total() - prev_drop_total_) * 1000.0F / static_cast<float>(dt_ms);
   const float fail_pps =
-      static_cast<float>(udp_sender_.send_fail_total() - prev_fail_total_) * 1000.0F / static_cast<float>(dt_ms);
+      static_cast<float>(fail_total - prev_fail_total_) * 1000.0F / static_cast<float>(dt_ms);
   const float parse_fail_pps =
       static_cast<float>(stimulus_parse_fail_total_ - prev_parse_fail_total_) * 1000.0F / static_cast<float>(dt_ms);
   const uint32_t csi_age_ms = (last_csi_ms_ > 0U && now_ms >= last_csi_ms_) ? static_cast<uint32_t>(now_ms - last_csi_ms_)
                                                                               : 0U;
+  const uint32_t deferred_age_ms = deferred_max_age_ms_since_log_;
+  const uint32_t sender_queue_age_ms = udp_sender_.oldest_ready_age_ms();
+  const uint32_t sender_last_tx_age_ms = udp_sender_.last_tx_batch_age_ms();
+  const uint32_t sender_last_fail_age_ms = udp_sender_.last_fail_batch_age_ms();
   const unsigned queue_ready = udp_sender_.ready_queue_depth();
   const unsigned queue_peak = udp_sender_.take_ready_queue_high_watermark();
   const unsigned queue_capacity = CsiUdpSender::QUEUE_CAPACITY;
+  const unsigned csi_queue_ready =
+      deferred_csi_ready_slots_ != nullptr ? static_cast<unsigned>(uxQueueMessagesWaiting(deferred_csi_ready_slots_)) : 0U;
+  const uint64_t accepted_gap = queued_total >= tx_total ? (queued_total - tx_total) : 0U;
+  const uint64_t queue_backlog = accepted_gap >= fail_total ? (accepted_gap - fail_total) : 0U;
 
+  update_streaming_ble_policy_(stimulus_pps, dt_ms);
   if (state == WorkflowState::STREAMING) {
     const bool stream_active =
-        csi_callback_pps > 1.0F || stimulus_pps > 1.0F || tx_pps > 1.0F || traffic_rx_pps > 1.0F;
+        csi_callback_pps > 1.0F || stimulus_pps > 1.0F || tx_pps > 1.0F || traffic_raw_pps > 1.0F ||
+        traffic_rx_pps > 1.0F;
     if (stream_active) {
       ESP_LOGI(TAG,
-               "state=STREAMING csi=%.2f stim=%.2f traffic=%.2f tx=%.2f queue=%u peak=%u/%u channel=%u age_ms=%" PRIu32,
+               "state=STREAMING raw=%.2f traffic=%.2f csi=%.2f stim=%.2f queued=%.2f tx=%.2f backlog=%" PRIu64
+               " csi_q=%u csi_drop=%.2f dup=%.2f wifi_dup=%.2f stim_dup=%.2f retry=%.2f defer_age=%" PRIu32
+               " txq_age=%" PRIu32
+               " tx_age=%" PRIu32 " fail_age=%" PRIu32
+               " queue=%u peak=%u/%u loop=%.2fms heap=%.1f min=%.1f channel=%u age_ms=%" PRIu32,
+               traffic_raw_pps,
+               traffic_rx_pps,
                csi_callback_pps,
                stimulus_pps,
-               traffic_rx_pps,
+               queued_pps,
                tx_pps,
+               queue_backlog,
+               csi_queue_ready,
+               csi_deferred_drop_pps,
+               dup_total_pps,
+               wifi_seq_dup_drop_pps,
+               stimulus_dup_drop_pps,
+               wifi_retry_marked_pps,
+               deferred_age_ms,
+               sender_queue_age_ms,
+               sender_last_tx_age_ms,
+               sender_last_fail_age_ms,
                queue_ready,
                queue_peak,
                queue_capacity,
+               static_cast<double>(last_loop_time_ms_),
+               static_cast<double>(current_free_memory_kb()),
+               static_cast<double>(minimum_free_memory_kb()),
                static_cast<unsigned>(last_csi_channel_),
                csi_age_ms);
-      if (parse_fail_pps > 0.0F || drop_pps > 0.0F || fail_pps > 0.0F) {
+      if (parse_fail_pps > 0.0F || drop_pps > 0.0F || fail_pps > 0.0F || csi_deferred_drop_pps > 0.0F) {
         ESP_LOGW(TAG,
-                 "stream anomalies: parse_fail=%.2f drop=%.2f fail=%.2f queue=%u peak=%u/%u payload_len=%u",
+                 "stream anomalies: parse_fail=%.2f drop=%.2f fail=%.2f backlog=%" PRIu64
+                 " raw=%.2f traffic=%.2f queued=%.2f tx=%.2f csi_drop=%.2f csi_q=%u"
+                 " dup=%.2f wifi_dup=%.2f stim_dup=%.2f retry=%.2f"
+                 " defer_age=%" PRIu32 " txq_age=%" PRIu32 " tx_age=%" PRIu32 " fail_age=%" PRIu32
+                 " queue=%u peak=%u/%u payload_len=%u loop=%.2fms",
                  parse_fail_pps,
                  drop_pps,
                  fail_pps,
+                 queue_backlog,
+                 traffic_raw_pps,
+                 traffic_rx_pps,
+                 queued_pps,
+                 tx_pps,
+                 csi_deferred_drop_pps,
+                 csi_queue_ready,
+                 dup_total_pps,
+                 wifi_seq_dup_drop_pps,
+                 stimulus_dup_drop_pps,
+                 wifi_retry_marked_pps,
+                 deferred_age_ms,
+                 sender_queue_age_ms,
+                 sender_last_tx_age_ms,
+                 sender_last_fail_age_ms,
                  queue_ready,
                  queue_peak,
                  queue_capacity,
-                 static_cast<unsigned>(last_csi_payload_len_));
+                 static_cast<unsigned>(last_csi_payload_len_),
+                 static_cast<double>(last_loop_time_ms_));
       }
     } else if (stream_active_last_tick_) {
       ESP_LOGW(TAG,
@@ -815,24 +1176,40 @@ void StreamFrontend::log_runtime_telemetry_() {
 
   prev_csi_callback_total_ = csi_callback_total_;
   prev_stimulus_valid_total_ = stimulus_valid_total_;
-  prev_traffic_rx_total_ = stimulus_service_.get_packets_received();
-  prev_tx_total_ = udp_sender_.tx_total();
+  prev_traffic_raw_total_ = traffic_raw_total;
+  prev_traffic_rx_total_ = traffic_valid_total;
+  prev_csi_deferred_drop_total_ = csi_deferred_drop_total_;
+  prev_wifi_retry_marked_total_ = wifi_retry_marked_total_;
+  prev_wifi_seq_dup_drop_total_ = wifi_seq_dup_drop_total_;
+  prev_stimulus_dup_drop_total_ = stimulus_dup_drop_total_;
+  prev_queued_total_ = queued_total;
+  prev_tx_total_ = tx_total;
   prev_drop_total_ = udp_sender_.drop_total();
-  prev_fail_total_ = udp_sender_.send_fail_total();
+  prev_fail_total_ = fail_total;
   prev_parse_fail_total_ = stimulus_parse_fail_total_;
   prev_log_sample_ms_ = now_ms;
+  deferred_max_age_ms_since_log_ = 0U;
   last_log_ms_ = now_ms;
 }
 
 void StreamFrontend::reset_runtime_telemetry_baseline_() {
   prev_csi_callback_total_ = csi_callback_total_;
   prev_stimulus_valid_total_ = stimulus_valid_total_;
+  prev_traffic_raw_total_ = stimulus_service_.get_raw_packets_received();
   prev_traffic_rx_total_ = stimulus_service_.get_packets_received();
+  prev_csi_deferred_drop_total_ = csi_deferred_drop_total_;
+  prev_wifi_retry_marked_total_ = wifi_retry_marked_total_;
+  prev_wifi_seq_dup_drop_total_ = wifi_seq_dup_drop_total_;
+  prev_stimulus_dup_drop_total_ = stimulus_dup_drop_total_;
+  prev_queued_total_ = udp_sender_.queued_total();
   prev_tx_total_ = udp_sender_.tx_total();
   prev_drop_total_ = udp_sender_.drop_total();
   prev_fail_total_ = udp_sender_.send_fail_total();
   prev_parse_fail_total_ = stimulus_parse_fail_total_;
   prev_log_sample_ms_ = static_cast<uint64_t>(monotonic_now_ms());
+  deferred_max_age_ms_since_log_ = 0U;
+  ble_high_stimulus_ms_ = 0U;
+  ble_idle_stimulus_ms_ = 0U;
   stream_active_last_tick_ = true;
 }
 

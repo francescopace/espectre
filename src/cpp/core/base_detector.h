@@ -156,8 +156,9 @@ public:
     /**
      * Get the detector-specific startup multiplier for AUTO threshold mode
      *
-     * threshold = max(calibration metric) x factor. Matches the Python
-     * runtime's detector STARTUP_THRESHOLD_FACTOR convention.
+     * threshold = threshold_metric x factor. Matches the Python
+     * runtime's detector STARTUP_THRESHOLD_FACTOR convention, where
+     * `threshold_metric` comes from the shared startup calibrator.
      */
     virtual float get_startup_threshold_factor() const { return 1.3f; }
 
@@ -176,6 +177,23 @@ public:
      * performs its warm clear between calibration and steady-state detection.
      */
     virtual void on_startup_calibration_complete() {}
+
+    /**
+     * Auxiliary startup metric used to build detector-specific frozen state.
+     *
+     * Classic uses the moving-variance metric to build its startup floor.
+     * Detectors that do not need a startup floor can keep the default 0.0f.
+     */
+    virtual float get_startup_floor_metric() const { return 0.0f; }
+
+    /**
+     * Apply one frozen startup floor snapshot produced by the shared calibrator.
+     *
+     * Classic overrides this to preserve the variance recovery vote across the
+     * warm clear that follows startup calibration.
+     */
+    virtual void apply_startup_floor(float variance_floor, bool recovery_vote_enabled,
+                                     uint16_t sample_count) {}
     
     // ========================================================================
     // FILTER CONFIGURATION

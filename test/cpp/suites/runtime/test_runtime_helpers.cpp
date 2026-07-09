@@ -49,7 +49,7 @@ void test_runtime_config_utils_validate_and_name_modes(void) {
     TEST_ASSERT_EQUAL_STRING("ml", detection_algorithm_name(DetectionAlgorithm::ML));
     TEST_ASSERT_EQUAL_STRING("classic", detection_algorithm_name(DetectionAlgorithm::CLASSIC));
     TEST_ASSERT_EQUAL_STRING("fixed", subcarrier_source_name(RuntimeSubcarrierSource::FIXED_DEFAULT));
-    TEST_ASSERT_EQUAL_STRING("Auto (max x1.1)", threshold_mode_display_name(ThresholdMode::AUTO));
+    TEST_ASSERT_EQUAL_STRING("Auto (adaptive)", threshold_mode_display_name(ThresholdMode::AUTO));
     TEST_ASSERT_TRUE(parse_threshold_mode("min") == ThresholdMode::MIN);
     TEST_ASSERT_TRUE(parse_threshold_mode("auto") == ThresholdMode::AUTO);
     TEST_ASSERT_TRUE(parse_traffic_mode("ping") == RuntimeTrafficMode::PING);

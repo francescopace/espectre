@@ -151,6 +151,23 @@ def _moving_variance(values, window_size=None):
     return _src_moving_variance(values, window_size)
 
 
+def _compute_turbulence_series(csi_data):
+    """Compute gain-invariant turbulence for one CSI matrix."""
+    amps = _extract_amplitudes_matrix(csi_data)
+    if amps.size == 0:
+        return np.asarray([], dtype=np.float64)
+    band_amps = amps[:, DEFAULT_SUBCARRIERS]
+    means = band_amps.mean(axis=1)
+    stds = band_amps.std(axis=1)
+    turbulence = np.divide(
+        stds,
+        means,
+        out=np.zeros_like(stds, dtype=np.float64),
+        where=means > 0.0,
+    )
+    return np.asarray(turbulence, dtype=np.float64)
+
+
 def _window_mean(values, window_size=None):
     """Compute sliding-window means aligned to the full-window region."""
     if window_size is None:
@@ -604,8 +621,9 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
     results = []
     bl_csi = _filter_measurement_frames(bl_csi, bl_data)
     mv_csi = _filter_measurement_frames(mv_csi, mv_data)
+    calibration_packets = bl_csi[:CALIBRATION_BUFFER_SIZE]
     calibrated = build_calibrated_classic_detector(
-        _csi_matrix_to_packets(bl_csi),
+        _csi_matrix_to_packets(calibration_packets),
         selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
     )
     if calibrated is None:
@@ -739,22 +757,16 @@ def _filter_measurement_frames(csi_data, data):
 
 def _compute_moving_variance_series(csi_data):
     """Compute moving-variance series for one CSI array."""
-    turbulence, moving_variance = _compute_turbulence_and_moving_variance_series(
-        csi_data,
-    )
-    _ = turbulence
+    turbulence = _compute_turbulence_series(csi_data)
+    moving_variance = np.asarray(_moving_variance(turbulence), dtype=np.float64)
     return moving_variance
 
 
 def _compute_turbulence_and_moving_variance_series(csi_data):
     """Compute turbulence and moving-variance series for one CSI array."""
-    amps = _extract_amplitudes_matrix(csi_data)
-    turbulence = [
-        _spatial_turbulence_from_amps(amps[i].tolist(), DEFAULT_SUBCARRIERS)
-        for i in range(amps.shape[0])
-    ]
+    turbulence = _compute_turbulence_series(csi_data)
     moving_variance = np.asarray(_moving_variance(turbulence), dtype=np.float64)
-    return np.asarray(turbulence, dtype=np.float64), moving_variance
+    return turbulence, moving_variance
 
 
 def _replay_classic_metrics(csi_data, detector):
@@ -762,7 +774,7 @@ def _replay_classic_metrics(csi_data, detector):
     score_series = []
     state_series = []
     for packet in csi_data:
-        detector.process_packet(packet.tolist(), DEFAULT_SUBCARRIERS)
+        detector.process_packet(packet, DEFAULT_SUBCARRIERS)
         metrics = detector.update_state()
         if detector.is_ready():
             score_series.append(float(metrics.get("motion_metric", 0.0)))
@@ -777,13 +789,14 @@ def _replay_classic_metrics(csi_data, detector):
 
 def _csi_matrix_to_packets(csi_data):
     """Wrap a CSI matrix into the packet dict shape used by runtime helpers."""
-    return [{"csi_data": packet.tolist()} for packet in csi_data]
+    return [{"csi_data": packet} for packet in csi_data]
 
 
 def _evaluate_classic_quiet_fp(csi_data):
     """Return self-calibrated quiet FP metrics for one idle-only stream."""
+    calibration_packets = csi_data[:CALIBRATION_BUFFER_SIZE]
     calibrated = build_calibrated_classic_detector(
-        _csi_matrix_to_packets(csi_data),
+        _csi_matrix_to_packets(calibration_packets),
         selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
     )
     if calibrated is None:
@@ -951,7 +964,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
             filepath = _resolve_dataset_entry_path(entry, 'empty')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
             csi_data = _filter_measurement_frames(data[csi_key], data)
-            turbulence, _ = _compute_turbulence_and_moving_variance_series(csi_data)
+            turbulence = _compute_turbulence_series(csi_data)
             if len(turbulence):
                 turb_mean = _window_mean(turbulence)
                 if len(turb_mean):
@@ -960,7 +973,8 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
         for entry in static_group_map[(chip, environment)]:
             filepath = _resolve_dataset_entry_path(entry, 'static_presence')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-            turbulence, _ = _compute_turbulence_and_moving_variance_series(data[csi_key])
+            csi_data = _filter_measurement_frames(data[csi_key], data)
+            turbulence = _compute_turbulence_series(csi_data)
             if len(turbulence):
                 turb_mean = _window_mean(turbulence)
                 if len(turb_mean):

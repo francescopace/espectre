@@ -21,6 +21,8 @@ htmlcov/
 
 # Training cache
 data/auto_generated/training_matrix_*.npz
+data/auto_generated/training_features_*.npz
+data/auto_generated/training_weights_*.npz
 
 # Python
 __pycache__/

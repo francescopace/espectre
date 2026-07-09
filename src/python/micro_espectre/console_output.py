@@ -42,6 +42,15 @@ def format_progress_bar(
     return f"{bar} {percent:>3d}%"
 
 
+def _format_drop_text(*, packet_count=None, dropped_count=None):
+    """Format the shared drop-rate suffix when packet counters are available."""
+    if packet_count is None or dropped_count is None:
+        return ""
+    total_expected = max(int(packet_count) + int(dropped_count), 1)
+    drop_rate = (float(dropped_count) / float(total_expected)) * 100.0
+    return f" | drop {drop_rate:.1f}%"
+
+
 def format_detection_publish_line(
     *,
     packet_count=None,
@@ -71,9 +80,10 @@ def format_detection_publish_line(
         threshold_char=threshold_char,
     )
     state_str = "MOTION" if effective_state == 1 else "IDLE"
+    drop_text = _format_drop_text(packet_count=packet_count, dropped_count=dropped_count)
     line = (
         f"{progress_bar} | mvmt:{motion_metric:.6f} "
-        f"thr:{threshold:.6f} | {state_str} | {pps} pkt/s"
+        f"thr:{threshold:.6f} | {state_str} | {pps} pkt/s{drop_text}"
     )
     if device_label:
         return f"{device_label} | {line}"
@@ -84,6 +94,8 @@ def format_calibration_status_line(
     *,
     progress,
     pps,
+    packet_count=None,
+    dropped_count=None,
     motion_metric=None,
     calibration_packets=None,
     calibration_target_packets=None,
@@ -107,8 +119,9 @@ def format_calibration_status_line(
     packets_text = ""
     if calibration_packets is not None and calibration_target_packets is not None:
         packets_text = f" pkt:{calibration_packets}/{calibration_target_packets}"
+    drop_text = _format_drop_text(packet_count=packet_count, dropped_count=dropped_count)
 
-    line = f"{progress_bar} |{packets_text} | {effective_state_label} | {pps} pkt/s"
+    line = f"{progress_bar} |{packets_text} | {effective_state_label} | {pps} pkt/s{drop_text}"
     if device_label:
         return f"{device_label} | {line}"
     return line

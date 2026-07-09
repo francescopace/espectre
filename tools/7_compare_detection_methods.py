@@ -52,7 +52,7 @@ try:
     ML_AVAILABLE = True
 except ImportError:
     ProdMLDetector = None
-    ML_DEFAULT_THRESHOLD = 5.0
+    ML_DEFAULT_THRESHOLD = 0.5
 
 # Configuration
 WINDOW_SIZE = SEG_WINDOW_SIZE

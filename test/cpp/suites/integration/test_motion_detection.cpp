@@ -69,6 +69,38 @@ inline float get_classic_recall_target();
 inline float get_ml_fp_rate_target();
 inline float get_ml_recall_target();
 
+static bool build_calibrated_classic_detector(ClassicDetector& detector, int calibration_packets,
+                                              const uint8_t* selected_band, uint8_t selected_size,
+                                              int pkt_size, float& out_threshold) {
+    StartupThresholdCalibrator calibrator;
+    calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
+    for (int i = 0; i < calibration_packets; i++) {
+        detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
+                                selected_band, selected_size);
+        detector.update_state();
+        calibrator.observe(detector.is_ready(), detector.get_motion_metric(),
+                           detector.get_startup_floor_metric());
+        if (calibrator.is_complete()) {
+            break;
+        }
+    }
+    if (!calibrator.is_successful()) {
+        out_threshold = CLASSIC_DEFAULT_THRESHOLD;
+        return false;
+    }
+    float variance_floor = 0.0f;
+    bool vote_enabled = false;
+    uint16_t floor_count = 0;
+    calibrator.floor_snapshot(variance_floor, vote_enabled, floor_count);
+    detector.apply_startup_floor(variance_floor, vote_enabled, floor_count);
+    detector.on_startup_calibration_complete();
+    out_threshold = calibrator.threshold_metric() *
+                    get_threshold_factor(ThresholdMode::AUTO, detector.get_startup_threshold_factor());
+    detector.set_threshold(out_threshold);
+    detector.clear_buffer();
+    return true;
+}
+
 static void record_result(const char* algorithm, float recall, float fp_rate, float precision, float f1) {
     const char* current_label = csi_test_data::current_pair_label();
     if (g_results.empty() || g_results.back().dataset_name != current_label) {
@@ -257,28 +289,14 @@ void test_classic_fixed_subcarriers(void) {
     detector.configure_lowpass(false);
     detector.configure_hampel(enable_hampel);
 
-    float max_metric = 0.0f;
-    size_t metric_count = 0;
     int calibration_packets = std::min(num_static_presence, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
-    for (int i = 0; i < calibration_packets; i++) {
-        detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
-                                default_band, default_size);
-        detector.update_state();
-        if (detector.is_ready()) {
-            max_metric = std::max(max_metric, detector.get_motion_metric());
-            metric_count++;
-        }
-    }
-
-    detector.on_startup_calibration_complete();
+    float adaptive_threshold = CLASSIC_DEFAULT_THRESHOLD;
+    const bool calibrated = build_calibrated_classic_detector(
+        detector, calibration_packets, default_band, default_size, pkt_size, adaptive_threshold);
     const float auto_factor = detector.get_startup_threshold_factor();
-    const float adaptive_threshold = metric_count > 0
-        ? (max_metric * get_threshold_factor(ThresholdMode::AUTO, auto_factor))
-        : CLASSIC_DEFAULT_THRESHOLD;
-    detector.set_threshold(adaptive_threshold);
-    detector.clear_buffer();
 
-    printf("Adaptive threshold: %.6f (max x %.1f, from %zu metric values)\n", adaptive_threshold, auto_factor, metric_count);
+    printf("Adaptive threshold: %.6f (%s x %.1f)\n", adaptive_threshold,
+           calibrated ? "shared calibration" : "default threshold", auto_factor);
     printf("Frozen variance floor: %.6f (vote=%s)\n\n", detector.get_variance_floor(), detector.recovery_vote_enabled() ? "on" : "off");
 
     int static_presence_motion = 0;

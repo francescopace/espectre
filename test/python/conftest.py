@@ -10,12 +10,14 @@ License: GPLv3
 import sys
 import math
 import os
+import hashlib
 import pytest
 import numpy as np
 import json
 import re
 from pathlib import Path
 from collections import defaultdict
+from functools import lru_cache
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTS_PATH = Path(__file__).resolve().parent
@@ -103,6 +105,7 @@ def ml_recall_target(chip_type):
     return get_ml_recall_target()
 
 
+@lru_cache(maxsize=1)
 def _load_dataset_info():
     if not DATASET_INFO_PATH.exists():
         return {"files": {}}
@@ -125,7 +128,15 @@ def extract_motion_start_from_description(description):
     return None
 
 
-def get_available_long_test_datasets(chips=None):
+def _normalize_long_test_chip_filter(chips):
+    """Normalize optional chip filters into a cacheable tuple."""
+    if not chips:
+        return None
+    return tuple(sorted({str(chip).upper() for chip in chips}))
+
+
+@lru_cache(maxsize=None)
+def _get_available_long_test_datasets_cached(chips_key):
     """
     Return available long test recordings with validated split metadata.
 
@@ -142,7 +153,7 @@ def get_available_long_test_datasets(chips=None):
     if not test_entries:
         return []
 
-    requested = {chip.upper() for chip in chips} if chips else None
+    requested = set(chips_key) if chips_key else None
     datasets = []
 
     for entry in test_entries:
@@ -183,7 +194,14 @@ def get_available_long_test_datasets(chips=None):
         )
 
     datasets.sort(key=lambda item: item[4])
-    return datasets
+    return tuple(datasets)
+
+
+def get_available_long_test_datasets(chips=None):
+    """Return cached long test recordings with validated split metadata."""
+    return _get_available_long_test_datasets_cached(
+        _normalize_long_test_chip_filter(chips)
+    )
 
 
 def build_long_test_params(chips=None):
@@ -490,9 +508,30 @@ def tolerance():
 import json
 import tempfile
 import os
+import fcntl
 
 # Use a temp file to share results between test module and conftest hook
-_PERF_RESULTS_FILE = os.path.join(tempfile.gettempdir(), 'espectre_perf_results.json')
+_PERF_RESULTS_FILE = os.path.join(
+    tempfile.gettempdir(),
+    f"espectre_perf_results_{hashlib.sha1(str(REPO_ROOT).encode('utf-8')).hexdigest()[:12]}.json",
+)
+
+
+def _is_worker_process(config) -> bool:
+    """Return True when running inside an xdist worker process."""
+    return hasattr(config, "workerinput")
+
+
+def _load_perf_results_locked(file_obj):
+    """Load performance results while holding an exclusive lock."""
+    file_obj.seek(0)
+    payload = file_obj.read().strip()
+    if not payload:
+        return {}
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError:
+        return {}
 
 
 def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
@@ -510,52 +549,57 @@ def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
         f1: F1-score percentage
         dataset_id: Stable static-presence/motion pair id
     """
-    # Load existing results
-    results = {}
-    if os.path.exists(_PERF_RESULTS_FILE):
+    os.makedirs(os.path.dirname(_PERF_RESULTS_FILE), exist_ok=True)
+    with open(_PERF_RESULTS_FILE, "a+", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
-            with open(_PERF_RESULTS_FILE, 'r') as f:
-                results = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            results = {}
-    
-    # Add new result
-    if chip not in results:
-        results[chip] = {}
-    if algorithm not in results[chip]:
-        results[chip][algorithm] = []
-    elif isinstance(results[chip][algorithm], dict):
-        results[chip][algorithm] = [results[chip][algorithm]]
+            results = _load_perf_results_locked(f)
 
-    results[chip][algorithm].append({
-        'dataset_id': dataset_id,
-        'recall': recall,
-        'fp_rate': fp_rate,
-        'precision': precision,
-        'f1': f1
-    })
-    
-    # Save
-    with open(_PERF_RESULTS_FILE, 'w') as f:
-        json.dump(results, f)
+            if chip not in results:
+                results[chip] = {}
+            if algorithm not in results[chip]:
+                results[chip][algorithm] = []
+            elif isinstance(results[chip][algorithm], dict):
+                results[chip][algorithm] = [results[chip][algorithm]]
+
+            results[chip][algorithm].append({
+                'dataset_id': dataset_id,
+                'recall': recall,
+                'fp_rate': fp_rate,
+                'precision': precision,
+                'f1': f1
+            })
+
+            f.seek(0)
+            f.truncate()
+            json.dump(results, f)
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def pytest_configure(config):
     """Clear performance results at the start of test session."""
+    if _is_worker_process(config):
+        return
     if os.path.exists(_PERF_RESULTS_FILE):
         os.remove(_PERF_RESULTS_FILE)
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """Print performance summary table at the end of test session."""
+    if _is_worker_process(config):
+        return
     if not os.path.exists(_PERF_RESULTS_FILE):
         return
     
-    try:
-        with open(_PERF_RESULTS_FILE, 'r') as f:
-            results = json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return
+    with open(_PERF_RESULTS_FILE, "a+", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            results = _load_perf_results_locked(f)
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     
     if not results:
         return

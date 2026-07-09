@@ -22,6 +22,8 @@ extern "C" void app_main() {
 
   while (true) {
     frontend.loop();
-    vTaskDelay(pdMS_TO_TICKS(10));
+    // Keep the control loop responsive so the external stimulus socket is
+    // drained quickly and collector address changes propagate with low jitter.
+    vTaskDelay(pdMS_TO_TICKS(2));
   }
 }

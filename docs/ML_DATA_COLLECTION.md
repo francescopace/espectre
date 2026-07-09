@@ -13,7 +13,7 @@ tracks built on the same collection infrastructure.
 | Feature | Status |
 |---------|--------|
 | Data collection infrastructure | ✅ Ready |
-| Feature extraction (8 relative ML features) | ✅ Ready |
+| Feature extraction | ✅ Ready |
 | ML detector (MLP) | ✅ Ready |
 | Training script | ✅ Ready |
 | Runtime weight export | ✅ Ready |
@@ -28,15 +28,12 @@ tracks built on the same collection infrastructure.
 ## Supported Hardware
 
 **Recommended chips for ML data collection:**
+- ESP32
 - ESP32-S3
 - ESP32-C3
 - ESP32-C5
 - ESP32-C6
-
-**Also supported:**
-- ESP32 (original) - Data is usable for ML training because the pipeline always uses AGC-active normalized turbulence and relative ML features
-
-> **Note**: ESPectre now keeps AGC active during collection and normalizes turbulence as `std/mean`. ML then extracts relative per-window features such as `std/mean`, `iqr/mean`, and `mad/mean`.
+> **Note**: ESPectre now keeps AGC active during collection.
 
 ---
 
@@ -98,7 +95,7 @@ If you want to validate runtime detector behavior before saving data, run the
 same host-side pipeline in live mode without saving files:
 
 ```bash
-./espectre collect --target 192.168.1.50 --no-save --log-turbulence
+./espectre collect --target 192.168.1.50 --no-save
 ```
 
 `espectre collect` reads threshold mode, the fixed production subcarrier set,
@@ -108,11 +105,16 @@ Hampel, low-pass, and hit filtering from `src/python/micro_espectre/config.py` a
 group, and `--bind-ip <local_ip>` only when auto-detection picks the wrong host
 interface.
 
+In `--no-save` mode, the command now focuses on rolling status output: startup
+calibration, ready-state tracking, packet counters, and one summary line per
+device and detector slot. It no longer exposes the old per-publish debug logs
+for turbulence windows or ML feature vectors.
+
 For startup-calibrated detectors, the live collect path mirrors the runtime
-startup threshold bootstrap. `classic` uses the L1-Delta primary metric with
-`max(calibration_metric) x 1.1` in `auto` and the same startup consistency gate
-as the runtime to extend contaminated calibration windows before finalizing the
-threshold.
+startup threshold bootstrap. `classic` uses the shared L1-Delta motion-first
+startup path with an internal quiet-first fallback, and `auto` applies the
+detector factor to the resulting `threshold_metric` instead of assuming one
+fixed startup statistic for every session.
 
 If you pass a comma-separated detector list to `--detector`, `espectre collect`
 runs the detectors side by side on the same live CSI stream. This is useful for
@@ -129,7 +131,6 @@ and the exported model.
 # Mixed idle/motion/idle smoke-test capture: store under data/test/
 ./espectre collect \
   --target 192.168.1.50 \
-  --log-features \
   --label test \
   --duration 45 \
   --description "live collect ML, idle-motion-idle"
@@ -159,8 +160,8 @@ into one file.
 
 | Command | Description |
 |---------|-------------|
-| `./espectre collect --target <ip> --no-save --log-turbulence` | Inspect live detector output without saving files |
-| `./espectre collect --target <ip> --no-save --detector classic,ml` | Compare multiple detectors side by side on the same live CSI stream |
+| `./espectre collect --target <ip> --no-save` | Inspect live detector status without saving files |
+| `./espectre collect --target <ip> --no-save --detector classic,ml` | Compare multiple detectors side by side on the same live CSI stream, with one status line per detector |
 | `./espectre collect --label <name> --duration <sec> --target <ip>` | Run live collect and save the accepted capture window for the specified duration |
 | `./espectre collect --label <name> --target <ip>` | Run live collect, wait for the ready gate, then keep saving until `Ctrl+C` |
 | `./espectre collect --label <name> --samples <n> --target <ip>` | Legacy timed dataset mode: record `n` timed collections |
@@ -187,18 +188,13 @@ happens after the startup calibration phase.
 | `--label <name>` | Dataset label used when saving live captures or legacy timed samples |
 | `--duration <sec>` | In live mode, stop after the accepted recording window reaches the requested duration. In legacy timed dataset mode, duration per sample |
 | `--samples`, `--count`, `-n` | Legacy timed dataset mode: save multiple samples |
-| `--interactive` | Legacy dataset mode: prompt before each saved sample |
 | `--start-delay <sec>` | Legacy timed dataset mode: wait before starting |
 
-#### Detector and logging
+#### Detector selection
 
 | Option | Meaning |
 |--------|---------|
-| `--detector {classic,ml}` | Select the live detector (`classic` default) |
-| `--log-turbulence` | Print raw and filtered turbulence plus the recent tail buffer |
-| `--log-features` | Print the 8 ML features after each publish (`ml` only) |
-| `--log-only-motion` | Suppress publish detail lines unless the effective state is `MOTION` |
-| `--window-tail <n>` | Number of turbulence values shown with `--log-turbulence` |
+| `--detector <name[,name...]>` | Select one or more live detectors, for example `classic`, `ml`, or `classic,ml` (`classic` default) |
 
 #### Transport and dataset metadata
 
@@ -227,23 +223,20 @@ happens after the startup calibration phase.
 
 ```bash
 # Live inspection only, no files written
-./espectre collect --target 192.168.1.50 --no-save --detector classic --log-turbulence
+./espectre collect --target 192.168.1.50 --no-save --detector classic
 
-# Live comparison on the same stream: one status line per detector
+# Live comparison on the same stream: one rolling status line per detector
 ./espectre collect --target 192.168.1.50 --no-save --detector classic,ml
 
 # Live recording: save after the stream stays below threshold for 3s
 # and stop automatically after 60 accepted seconds
 ./espectre collect --label static_presence --duration 60 --target 192.168.1.50
 
-# Record 60 seconds of static presence from one device
-./espectre collect --label static_presence --duration 60 --target 192.168.1.50
-
 # Record 30 seconds of motion
 ./espectre collect --label motion --duration 30 --target 192.168.1.50
 
 # Record with explicit contributor override
-./espectre collect --label gesture --samples 10 --interactive --target 192.168.1.50 --contributor otheruser
+./espectre collect --label gesture --samples 10 --target 192.168.1.50 --contributor otheruser
 
 # Mark every 20th traffic packet as a reference frame
 ./espectre collect --label static_presence --duration 30 --target 192.168.1.50 --reference-every 20
@@ -258,7 +251,7 @@ happens after the startup calibration phase.
 ./espectre collect --label static_presence --duration 10 --target 192.168.1.50
 
 # Continuous live recording until Ctrl+C
-./espectre collect --label test --target 192.168.1.50 --detector ml --log-features
+./espectre collect --label test --target 192.168.1.50 --detector ml
 ```
 
 Accepted target forms:

@@ -232,6 +232,43 @@ def test_parse_packet_reads_optional_metadata():
     assert packet.is_reference is True
 
 
+def test_receiver_configures_udp_receive_buffer(monkeypatch):
+    calls = []
+
+    class FakeSocket:
+        def setsockopt(self, level, optname, value):
+            calls.append(("setsockopt", level, optname, value))
+
+        def getsockopt(self, level, optname):
+            calls.append(("getsockopt", level, optname))
+            return 425984
+
+        def bind(self, addr):
+            calls.append(("bind", addr))
+
+        def settimeout(self, value):
+            calls.append(("settimeout", value))
+
+        def recvfrom(self, _size):
+            raise socket.timeout()
+
+        def close(self):
+            calls.append(("close",))
+
+    fake_socket = FakeSocket()
+    time_values = iter([1000.0, 1000.0, 1002.0])
+
+    monkeypatch.setattr(socket, "socket", lambda *_args, **_kwargs: fake_socket)
+    monkeypatch.setattr("tools.lib.csi_io.time.time", lambda: next(time_values))
+
+    receiver = CSIReceiver(bind_host='127.0.0.1', socket_rcvbuf_bytes=262144)
+    receiver.run(timeout=1.0, quiet=True)
+
+    assert receiver.effective_socket_rcvbuf_bytes == 425984
+    assert ("setsockopt", socket.SOL_SOCKET, socket.SO_RCVBUF, 262144) in calls
+    assert ("getsockopt", socket.SOL_SOCKET, socket.SO_RCVBUF) in calls
+
+
 def test_parse_packets_accepts_multiple_records_in_one_datagram():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     datagram = build_packet(seq_num=10, payload=[1, 2, 3, 4]) + build_packet(seq_num=11, payload=[5, 6, 7, 8])

@@ -51,6 +51,9 @@ class CsiUdpSender {
   uint64_t tx_total() const { return tx_total_.load(std::memory_order_relaxed); }
   uint64_t drop_total() const { return drop_total_.load(std::memory_order_relaxed); }
   uint64_t send_fail_total() const { return send_fail_total_.load(std::memory_order_relaxed); }
+  uint32_t last_tx_batch_age_ms() const { return last_tx_batch_age_ms_.load(std::memory_order_relaxed); }
+  uint32_t last_fail_batch_age_ms() const { return last_fail_batch_age_ms_.load(std::memory_order_relaxed); }
+  uint32_t oldest_ready_age_ms() const;
   uint8_t ready_queue_depth() const {
     return ready_slots_ != nullptr ? static_cast<uint8_t>(uxQueueMessagesWaiting(ready_slots_)) : 0U;
   }
@@ -66,6 +69,8 @@ class CsiUdpSender {
  private:
   struct PacketSlot final {
     size_t packet_len{0U};
+    uint32_t queued_at_ms{0U};
+    bool queued{false};
     std::array<uint8_t, MAX_PACKET_BYTES> packet{};
   };
 
@@ -73,7 +78,7 @@ class CsiUdpSender {
   void run_sender_task_();
   void recycle_slot_(uint8_t slot_idx);
 
-  std::array<PacketSlot, CONFIG_ESPECTRE_STREAM_QUEUE_SLOTS> slots_{};
+  PacketSlot *slots_{nullptr};
   QueueHandle_t free_slots_{nullptr};
   QueueHandle_t ready_slots_{nullptr};
   TaskHandle_t sender_task_handle_{nullptr};
@@ -86,6 +91,8 @@ class CsiUdpSender {
   std::atomic<uint64_t> tx_total_{0U};
   std::atomic<uint64_t> drop_total_{0U};
   std::atomic<uint64_t> send_fail_total_{0U};
+  std::atomic<uint32_t> last_tx_batch_age_ms_{0U};
+  std::atomic<uint32_t> last_fail_batch_age_ms_{0U};
   std::atomic<uint8_t> ready_queue_high_watermark_{0U};
 };
 

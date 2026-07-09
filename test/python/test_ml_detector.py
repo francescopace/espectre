@@ -130,7 +130,7 @@ class TestPredict:
         assert isinstance(result, float)
     
     def test_predict_output_range(self):
-        """Prediction is always in [0, 10]."""
+        """Prediction is always in [0, 1]."""
         # Test with various feature combinations
         test_cases = [
             [0.0] * MODEL_INPUT_SIZE,  # All zeros
@@ -174,7 +174,7 @@ class TestIsMotion:
         assert isinstance(result, bool)
     
     def test_is_motion_default_threshold(self):
-        """Default threshold is 5.0."""
+        """Default threshold is 0.5."""
         features = [5.0] * MODEL_INPUT_SIZE
         prob = predict(features)
         expected = prob > ML_DEFAULT_THRESHOLD
@@ -208,6 +208,11 @@ class TestMLDetector:
         """Hampel filter is enabled by default (matches training pipeline)."""
         detector = MLDetector()
         assert detector._context.hampel_filter is not None
+
+    def test_lowpass_disabled_by_default(self):
+        """Low-pass filter is disabled by default."""
+        detector = MLDetector()
+        assert detector._context.lowpass_filter is None
     
     def test_hampel_disabled_explicitly(self):
         """Hampel filter can be disabled explicitly."""
@@ -216,8 +221,8 @@ class TestMLDetector:
     
     def test_initialization_custom_params(self):
         """Test initialization with custom parameters."""
-        detector = MLDetector(window_size=100, threshold=7.0)
-        assert detector._threshold == 7.0
+        detector = MLDetector(window_size=100, threshold=0.7)
+        assert detector._threshold == 0.7
         assert detector._context.window_size == 100
     
     def test_get_name(self):
@@ -232,20 +237,20 @@ class TestMLDetector:
     
     def test_get_threshold(self):
         """Test get_threshold."""
-        detector = MLDetector(threshold=6.0)
-        assert detector.get_threshold() == 6.0
+        detector = MLDetector(threshold=0.6)
+        assert detector.get_threshold() == 0.6
     
     def test_set_threshold_valid(self):
         """Test setting valid threshold."""
         detector = MLDetector()
-        assert detector.set_threshold(7.0) == True
-        assert detector._threshold == 7.0
+        assert detector.set_threshold(0.7) == True
+        assert detector._threshold == 0.7
     
     def test_set_threshold_invalid(self):
         """Test setting invalid threshold."""
         detector = MLDetector()
         original = detector._threshold
-        assert detector.set_threshold(10.1) == False
+        assert detector.set_threshold(1.1) == False
         assert detector.set_threshold(-0.1) == False
         assert detector._threshold == original
 

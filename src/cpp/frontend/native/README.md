@@ -252,7 +252,7 @@ time.
 Check these first:
 
 1. the client writes exact ASCII commands
-2. the value passed to `SET_THRESHOLD` is finite and inside `0.0-10.0`
+2. the value passed to `SET_THRESHOLD` is finite and inside the detector range (`classic`: `0.0-10.0`, `ml`: `0.0-1.0`)
 3. the client does not depend on sysinfo ordering
 
 ### The firmware starts but never joins Wi-Fi

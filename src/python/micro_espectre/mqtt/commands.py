@@ -15,6 +15,15 @@ import sys
 # Threshold limits shared by the runtime detectors
 SEG_THRESHOLD_MIN = 0.0
 SEG_THRESHOLD_MAX = 10.0
+ML_THRESHOLD_MAX = 1.0
+
+
+def _threshold_bounds_for_detector(detector):
+    """Return the accepted threshold range for the active detector."""
+    algorithm = str(getattr(detector, "ALGORITHM", "")).lower()
+    if algorithm == "ml":
+        return SEG_THRESHOLD_MIN, ML_THRESHOLD_MAX
+    return SEG_THRESHOLD_MIN, SEG_THRESHOLD_MAX
 
 
 def _normalize_chip_label(chip):
@@ -204,9 +213,11 @@ class MQTTCommands:
         try:
             threshold = float(cmd_obj['threshold'])
             
-            if threshold < SEG_THRESHOLD_MIN or threshold > SEG_THRESHOLD_MAX:
+            threshold_min, threshold_max = _threshold_bounds_for_detector(self.detector)
+
+            if threshold < threshold_min or threshold > threshold_max:
                 self.send_response(
-                    f"ERROR: Threshold must be between {SEG_THRESHOLD_MIN} and {SEG_THRESHOLD_MAX}",
+                    f"ERROR: Threshold must be between {threshold_min} and {threshold_max}",
                     accepted=False,
                     command_id=command_id,
                     command=command
@@ -216,7 +227,7 @@ class MQTTCommands:
             old_threshold = self.detector.get_threshold()
             if not self.detector.set_threshold(threshold):
                 self.send_response(
-                    f"ERROR: Threshold rejected by detector (allowed range: {SEG_THRESHOLD_MIN}-{SEG_THRESHOLD_MAX})",
+                    f"ERROR: Threshold rejected by detector (allowed range: {threshold_min}-{threshold_max})",
                     accepted=False,
                     command_id=command_id,
                     command=command

@@ -71,9 +71,9 @@ When a person moves in an environment, they alter multipath reflections, change 
 ```
 
 **Calibration sequence (at boot):**
-1. **Threshold Bootstrap** (~10s, 10 × window_size packets, Classic only): Keep the fixed 12-subcarrier set and calibrate the L1-Delta primary threshold
+1. **Threshold Bootstrap** (ClassicDetector only): keep the fixed 12-subcarrier set, build a quiet anchor, try to observe one short useful motion segment, then derive the L1-Delta threshold and freeze the variance-floor snapshot from validated quiet chunks
 
-With default `window_size=100`, this means 1000 packets. If you change `segmentation_window_size`, the calibration buffer adjusts automatically.
+With default `window_size=100`, the startup budget is still 1000 packets, but it is now a maximum rather than a fixed wait. If the runtime sees a clean `quiet -> motion -> quiet` pattern, calibration may finish earlier; otherwise it falls back internally to the quiet-only path inside the same budget. If you change `segmentation_window_size`, the budget adjusts automatically.
 
 **Data flow per packet (after calibration):**
 1. **CSI Data**: Raw I/Q values for 64 subcarriers (HT20 mode)
@@ -145,14 +145,19 @@ The fixed set balances three goals:
 For `classic`, startup calibration keeps this fixed band and derives the adaptive threshold from the L1-Delta primary metric:
 
 ```python
-def calculate_adaptive_threshold(metric_values, factor):
-    return max(metric_values) * factor
+def calculate_adaptive_threshold(threshold_metric, factor):
+    return threshold_metric * factor
 ```
+
+`threshold_metric` now depends on which startup path succeeds first:
+
+- successful motion-first bootstrap: midpoint of the validated quiet/motion gap
+- internal quiet-first fallback: gated max of the quiet-only ring, with a small conservative margin when no useful motion was confirmed
 
 | Mode | Formula | Effect |
 |------|---------|--------|
-| Auto (default) | max x 1.1 | Lower false positives on no-gain-lock captures |
-| Min | max x 1.0 | Maximum sensitivity (may have FP) |
+| Auto (default) | threshold_metric x 1.1 | Lower false positives while preserving recall |
+| Min | threshold_metric x 1.0 | Maximum sensitivity (may have FP) |
 
 See [TUNING.md](TUNING.md) for configuration options (`segmentation_threshold`).
 
@@ -196,10 +201,10 @@ The startup threshold is calibrated from the L1-Delta primary metric with:
 
 | Mode | Formula | Effect |
 |------|---------|--------|
-| Auto (default) | max x 1.1 | Lower false positives while preserving recall |
-| Min | max x 1.0 | Maximum sensitivity (may have FP) |
+| Auto (default) | threshold_metric x 1.1 | Lower false positives while preserving recall |
+| Min | threshold_metric x 1.0 | Maximum sensitivity (may have FP) |
 
-The moving-variance path does not have its own standalone detector name in the runtime anymore. Instead, Classic freezes a variance floor during startup and enables the recovery vote only when that floor is tight enough to trust.
+Classic startup now tries to finish from a validated `quiet -> motion -> quiet` pattern first, then falls back internally to a quiet-only bootstrap if no useful motion arrives before the startup budget is exhausted. The moving-variance path does not have its own standalone detector name in the runtime anymore. Instead, Classic freezes a variance floor during startup from validated quiet chunks only, and enables the recovery vote only when that floor is tight enough to trust.
 
 ### Hampel Filter
 
@@ -383,48 +388,64 @@ L1-Delta uses the shared startup calibration flow with a detector-specific
 `auto` factor:
 
 ```
-threshold = max(calibration_metric) x 1.1
+threshold = threshold_metric x 1.1
 ```
 
 The factor is lower than the historical moving-variance baseline `1.3` because the quiet-state metric is much
-tighter: its quiet distribution has a coefficient of variation of about `0.08`
-(offline benchmark), so the calibration max already sits close to the quiet
-median. At steady state the quiet metric typically reads 85-95% of the
-threshold on the live progress bar; that is expected and not an imminent
-false positive.
+tighter. In the motion-first path, `threshold_metric` is the midpoint between:
 
-### Calibration Consistency Gate
+- `motion_ref`: the lower edge of the accepted motion band
+- `quiet_ref`: the upper edge of the accepted quiet band
 
-The tight quiet floor also enables a consistency gate that protects the
-startup threshold when the calibration window is contaminated by movement.
-During calibration, ready-state metrics are grouped into 6 chunks and only
-the per-chunk maxima are kept. The window is accepted when:
+When startup never confirms a useful motion segment, the same calibrator falls
+back internally to the quiet-first ring and uses a conservative gated-maximum
+threshold metric instead.
+
+### Motion-First Bootstrap And Internal Quiet-First Fallback
+
+Startup no longer assumes that the room will stay perfectly quiet until the end
+of calibration. Instead, the shared calibrator runs as a small state machine:
+
+1. build a stable quiet anchor
+2. confirm a sustained motion segment rather than a single spike
+3. wait for post-motion quiet to return
+4. derive the threshold inside the validated quiet/motion gap
+
+This lets Classic finish earlier than the nominal startup budget when a useful
+motion example arrives soon after boot, but still converge on quiet-only
+startups.
+
+The motion-first path is accepted only when:
+
+- the detector is already ready (`window_size` packets observed)
+- quiet chunks are self-consistent enough to define a floor
+- motion lasts for multiple chunks, not just one spike
+- quiet returns after motion
+- the gap between quiet and motion is large enough to trust
+
+If any of these checks fail before the startup budget is exhausted, the
+calibrator falls back internally to the previous quiet-first statistic on the
+same observed metrics.
+
+### Internal Quiet-First Fallback
+
+The quiet-first fallback still uses a consistency gate to protect the startup
+threshold when the startup budget contains unstable or contaminated data.
+During fallback, ready-state metrics are grouped into 6 chunks and only the
+per-chunk maxima are kept. The ring is accepted when:
 
 - spread: `max(chunk maxima) <= 1.10 x median(chunk maxima)`
 - floor anchor: `median(chunk maxima) <= 1.5 x min(chunk maxima ever seen)`
 
-If either check fails, calibration silently extends one chunk (~1.5 s) at a
-time until the ring becomes consistent, up to 2000 extra packets; on budget
-exhaustion the threshold falls back to `median(chunk maxima) x 1.1`. On a
-clean startup the gate usually never fires and the threshold is identical to
-the plain `max x 1.1` formula.
+Unlike the previous implementation, the shared startup flow no longer extends
+beyond the configured budget. If motion-first did not succeed and the fallback
+ring never became fully trustworthy, Classic now ends the startup budget with a
+conservative gated-max threshold instead of waiting for extra packets.
 
-Chunks discarded during extension are classified by amplitude: peaks within
-the anchor band (`<= 1.5 x median` of the accepted ring) are recurring
-quiet-tail bumps, not motion, and their maximum is folded back into the
-threshold metric ("tail rescue"). Without this, a session whose quiet metric
-has a heavy tail would extend past its own tail bumps and lock a threshold
-below them, producing a sustained false-positive floor (11.9% observed on a
-C6 long quiet run). Discarded chunks above the anchor band keep the plain
-contamination-repair behavior.
-
-On the paired datasets this keeps F1 at 94-95% even when the entire
-calibration window is contaminated by motion, where the ungated `max x 1.1`
-recall fails closed (F1 down to 3%). The gate is validated for the L1-Delta
-metric only: the historical moving-variance path has a much looser quiet floor, so that baseline
-keeps the plain `max x 1.3` bootstrap. Full sweep in
-[EXPERIMENTS.md](EXPERIMENTS.md), "L1-Delta Contaminated-Calibration Gate And
-Extension Sweep".
+This matters most on noisy `S3`-like sessions: the no-motion fallback is high
+enough to avoid the old false-positive spikes, while the successful
+motion-first path still keeps recall above the promotion target on the paired
+datasets.
 
 ### Why No Hampel Filter
 
@@ -498,7 +519,7 @@ A neural network can learn complex, non-linear patterns that may be missed by si
 
 ### Architecture
 
-The ML detector uses a compact **Multi-Layer Perceptron (MLP)** over 8 relative turbulence-window features.
+The ML detector uses a compact **Multi-Layer Perceptron (MLP)**.
 The current production export remains small enough for embedded deployment, while the runtime now accepts any exported hidden-layer layout generated by the training script.
 The training script supports `standard`, `robust`, and `clipped_standard` normalization modes. Experimental modes should be validated against the real-data regression suite before replacing the committed production weights.
 The trainer currently uses a PyTorch MLP with ReLU hidden layers and exports the learned weights into the shared Python/C++ runtime format used for production artifacts.
@@ -506,9 +527,9 @@ The trainer currently uses a PyTorch MLP with ReLU hidden layers and exports the
 Current production topology:
 
 ```
-Input (8 features)
+Input (6 features)
     ↓
-Dense(32, ReLU)      ← 8×32 + 32 = 288 parameters
+Dense(32, ReLU)      ← 6×32 + 32 = 224 parameters
     ↓
 Dense(16, ReLU)      ← 32×16 + 16 = 528 parameters
     ↓
@@ -517,18 +538,14 @@ Dense(1, Sigmoid)    ← 16×1 + 1 = 17 parameters
 Output (probability)
 ```
 
-**Total**: 833 parameters, ~3.3 KB (constexpr float weights)
+**Total**: 769 parameters, ~3.0 KB (constexpr float weights)
 
-The input feature set was previously reduced from 12 to 9 after long-recording
-holdout experiments showed that `turb_kurtosis`, `turb_entropy`, and
-`turb_slope` hurt deployment robustness more than they helped paired
-validation. A later gain-shift sweep moved the production export from raw
-9-feature inputs to an 8-feature relative set. The current `32-16` topology,
-`fp_weight=2.0`, and hard-negative sample weighting were selected because they
-improved long-recording false-positive robustness while preserving the relative
-feature set's gain-shift invariance. The historical moving-variance baseline is
-used only to mine difficult IDLE windows during this training mode, not as a
-general teacher for motion labels.
+The feature set evolved from earlier raw-window and relative-only turbulence
+exports to the current mixed turbulence + L1-delta Core-6 set:
+`turb_mad_over_mean`, `turb_skewness`, `turb_autocorr`, `l1_delta`,
+`l1_delta_std`, and `l1_delta_waveform_length`. The historical
+moving-variance baseline is used only to mine difficult IDLE windows during
+training, not as a general teacher for motion labels.
 
 ### Inference Pipeline
 
@@ -540,8 +557,8 @@ general teacher for motion labels.
                                                                         │
                                                                         ▼
 ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│ IDLE/MOTION  │◀───│ Threshold    │◀───│ Motion Score │◀───│ 8 Features   │
-│              │    │ > 5.0        │    │ [0.0-10.0]   │    │ → Neural Net │
+│ IDLE/MOTION  │◀───│ Threshold    │◀───│ Motion Prob. │◀───│ 6 Core-6     │
+│              │    │ > 0.5        │    │ [0.0-1.0]    │    │ → Neural Net │
 └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
 ```
 
@@ -551,67 +568,66 @@ Both detectors use the same fixed, non-configurable subcarrier set:
 
 | Algorithm |Threshold | Boot Time |
 |-----------|---------------------|-----------|
-| Classic | Adaptive (`max x 1.1` on the L1-Delta primary metric) | ~13s |
-| ML | Fixed (5.0 on 0-10 scale) | **~3s** |
+| Classic | Adaptive (`threshold_metric x 1.1` on the L1-Delta primary metric, with motion-first startup and quiet-first fallback) | ~13s max, often less |
+| ML | Fixed (0.5 probability threshold) | **~3s** |
 
 The production subcarrier set is `[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]`.
 Classic uses a startup threshold bootstrap after startup; ML keeps its fixed threshold and therefore starts immediately once CSI capture is active.
 
 ### Features
 
-The ML detector extracts **8 relative statistical features** from a sliding window of 100 turbulence values (configured via `segmentation_window_size`).
+The ML detector extracts **6 production features** from the current sliding
+window. Three come from the turbulence series, and three come from the
+L1-delta profile-displacement series derived from mean-normalized subcarrier
+amplitude profiles.
 
 **Design principles:**
-- Ratios are computed against the local window mean to reduce absolute gain sensitivity
-- No redundant features (e.g., no variance alongside std, no range alongside max/min)
-- 8 turbulence-window features chosen by grouped CV, long-recording holdout, and exported-artifact gain-stress behavior
+- Keep the exported runtime gain-robust without per-install calibration
+- Use a small mixed feature set that survives grouped CV and real-data promotion gates
+- Reuse the shared L1-delta profile tracker already promoted into the Classic path
 - MicroPython compatible: pure Python implementation without numpy at runtime
 
 | # | Feature | Formula | Description |
 |---|---------|---------|-------------|
-| 0 | `turb_std_over_mean` | σ / \|μ\| | Relative spread |
-| 1 | `turb_max_over_mean` | max(xᵢ) / \|μ\| | Relative upper envelope |
-| 2 | `turb_min_over_mean` | min(xᵢ) / \|μ\| | Relative lower envelope |
-| 3 | `turb_iqr_over_mean` | (P75(x) - P25(x)) / \|μ\| | Relative robust spread |
-| 4 | `turb_mad_over_mean` | median(\|xᵢ - median(x)\|) / \|μ\| | Relative median absolute deviation |
-| 5 | `waveform_length_over_mean` | Σ\|xᵢ - xᵢ₋₁\| / (\|μ\|(n-1)) | Relative temporal variation |
-| 6 | `turb_skewness` | E[(X-μ)³]/σ³ | Turbulence asymmetry (3rd moment) |
-| 7 | `turb_autocorr` | C(1)/C(0) | Lag-1 autocorrelation |
+| 0 | `turb_mad_over_mean` | median(\|xᵢ - median(x)\|) / \|μ\| | Relative robust spread |
+| 1 | `turb_skewness` | E[(X-μ)³]/σ³ | Turbulence asymmetry (3rd moment) |
+| 2 | `turb_autocorr` | C(1)/C(0) | Lag-1 autocorrelation |
+| 3 | `l1_delta` | mean(dᵢ) | Mean L1 profile displacement |
+| 4 | `l1_delta_std` | std(dᵢ) | Spread of the L1-delta series |
+| 5 | `l1_delta_waveform_length` | Σ\|dᵢ - dᵢ₋₁\| | Temporal variation of L1-delta |
 
 #### Feature Categories
 
-**Relative Envelope and Spread (0-4)**: Scale-reduced statistics of the turbulence buffer, divided by the local window mean magnitude.
+**Turbulence Statistics (0-2)**: Gain-reduced summary statistics over the
+coefficient-of-variation turbulence window.
 
-**Robust Spread (3, 4)**:
-- **Interquartile range (IQR)**: Spread between the 75th and 25th percentiles. More robust than zero-crossing-style oscillation counts on quiet-but-noisy windows.
-- **MAD**: Robust alternative to std, less sensitive to outliers.
+**Robust Spread (0)**:
+- **MAD over mean**: Robust alternative to std, less sensitive to outliers and
+  quiet-window spikes.
 
-**Higher-Order Moments (6)**:
+**Higher-Order Moments (1)**:
 - **Skewness**: Asymmetry of turbulence distribution.
 
-**Temporal Structure (7)**:
+**Temporal Structure (2)**:
 - **Autocorrelation**: Lag-1 temporal correlation. High during idle (smooth signal), low during motion (turbulent)
 
-**Relative Temporal Variation (5)**:
-- **Waveform Length over Mean**: Sum of absolute first differences over the turbulence window, divided by local mean magnitude and window step count. Higher values indicate faster/more irregular short-term motion dynamics without carrying absolute gain scale.
+**L1-Delta Statistics (3-5)**:
+- **L1-delta**: Mean absolute displacement between mean-normalized subcarrier
+  profiles separated by a fixed lag.
+- **L1-delta std**: Variability of those per-packet profile displacements.
+- **L1-delta waveform length**: Short-term jaggedness of the L1-delta stream.
 
 #### Feature Importance
 
 SHAP and correlation can diverge significantly: correlation captures linear association with the label, while SHAP captures non-linear contribution inside the network.
 
-The raw 9-feature SHAP/correlation ranking that informed earlier reductions is
-now historical; see [EXPERIMENTS.md](EXPERIMENTS.md) for that log. For the
-current relative model, feature candidates should be compared with grouped CV,
-the paired/long recording gates, and the exported-artifact gain-stress gate
-rather than correlation alone.
+The earlier raw-window and relative-only rankings are now historical; see
+[EXPERIMENTS.md](EXPERIMENTS.md) for that log. For the current Core-6 model,
+feature candidates should be compared with grouped CV, the paired/long
+recording gates, and the exported-artifact gain-stress gate rather than
+correlation alone.
 
 #### Feature Definitions
-
-**Interquartile Range (IQR)**:
-```
-IQR = P75(x) - P25(x)
-```
-Measures the width of the middle 50% of the turbulence distribution. Unlike zero-crossing rate, it responds to spread without being dominated by rapid sign flips around the mean, which made it a better fit for suppressing quiet-window false positives in the current long-run validation set.
 
 **Skewness** (third standardized moment):
 ```
@@ -631,17 +647,24 @@ Measures temporal correlation between consecutive values. Ranges from -1.0 to 1.
 ```
 MAD = median(|xᵢ - median(x)|)
 ```
-Robust measure of spread. Unlike std, a single outlier cannot dramatically inflate the MAD. IQR and MAD share one sorted copy of the turbulence window per evaluation (`std::sort` in C++, `list.sort()` in MicroPython).
+Robust measure of spread. Unlike std, a single outlier cannot dramatically
+inflate the MAD.
 
-**Waveform Length**:
+**L1-Delta**:
 ```
-WL = Σ |xᵢ - xᵢ₋₁|,  i = 1..n-1
-WL_relative = WL / (|μ| * (n - 1))
+dᵢ = mean_j |pᵢ[j] - pᵢ₋lag[j]|
 ```
-Measures total temporal variation in the turbulence window. The exported ML
-feature uses the relative form. Compared to slope/autocorrelation, it is more
-sensitive to short, bursty oscillations and does not require logarithms or
-histogram binning.
+Where `pᵢ` is the mean-normalized amplitude profile for packet `i`. The
+exported ML feature uses the mean of the resulting `d` series over the current
+window.
+
+**L1-Delta Waveform Length**:
+```
+WL_d = Σ |dᵢ - dᵢ₋₁|,  i = 1..n-1
+```
+Measures short-term temporal variation in the L1-delta stream. It rises when
+profile displacements become bursty or irregular even if the mean displacement
+alone stays similar.
 
 ### Training
 

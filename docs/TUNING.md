@@ -2,7 +2,7 @@
 
 Quick guide to tune ESPectre for reliable movement detection in your environment.
 
-> **Note on Detection Algorithms**: This guide focuses on `classic` (the default non-ML detector). `classic` uses L1-Delta as the primary metric with a variance recovery vote. The turbulence-path filters described below apply to `classic` and `ml`, while the startup threshold bootstrap for `classic` uses the L1-Delta primary metric with an `auto` factor of `max x 1.1`. See [ALGORITHMS.md](ALGORITHMS.md).
+> **Note on Detection Algorithms**: This guide focuses on `classic` (the default non-ML detector). `classic` uses L1-Delta as the primary metric with a variance recovery vote. The turbulence-path filters described below apply to `classic` and `ml`, while the startup threshold bootstrap for `classic` now uses a motion-first path with an internal quiet-first fallback and an `auto` factor of `threshold_metric x 1.1`. See [ALGORITHMS.md](ALGORITHMS.md).
 >
 > **Frontend scope**: This guide is written as a shared tuning reference first. When a workflow differs by frontend, the text calls that out explicitly instead of treating one frontend as the universal path.
 >
@@ -27,11 +27,18 @@ For frontend-owned setup details, continue in the relevant README.
 
 ### 2. Wait for Startup Calibration
 
-On first boot, keep the room **empty and still** for 10 seconds. The system will:
+On first boot, start with the room **quiet**. The system will:
 1. Start CSI capture with AGC active
-2. Collect CSI packets during baseline (10 × `window_size`, default 1000 packets)
-3. Keep the shared fixed 12-subcarrier set for motion detection
-4. Calculate adaptive threshold based on baseline noise
+2. Build a quiet anchor on the shared fixed 12-subcarrier set
+3. Try to finish from a clean `quiet -> motion -> quiet` pattern if one appears naturally
+4. Fall back internally to the quiet-only path if no useful motion appears before the startup budget is spent
+
+With the default `window_size=100`, the startup budget is still `10 × window_size = 1000` packets, but it is now a maximum rather than a fixed wait.
+
+Practical guidance:
+- staying quiet at boot is still the safest default
+- one short motion after the first quiet phase can help `classic` converge faster
+- repeated movement during startup still hurts calibration quality
 
 Look for log messages like:
 ```
@@ -63,7 +70,7 @@ espectre:
 |-------|-------------|
 | `auto` | Adaptive threshold - Minimizes false positives (default) |
 | `min` | Maximum sensitivity (may have false positives) |
-| `0.0-10.0` | Fixed manual threshold |
+| Numeric | Fixed manual threshold (`classic`: typically `0.0-10.0`, `ml`: `0.0-1.0`) |
 
 **Examples:**
 ```yaml
@@ -91,13 +98,13 @@ For example:
 ## Understanding Parameters
 
 > The following parameters focus on the startup-calibrated detector path,
-> `classic`, which uses `auto = max x 1.1`.
+> `classic`, which uses `auto = threshold_metric x 1.1`.
 
 ### Segmentation Threshold
 
 **What it does:** Determines sensitivity for motion detection in the startup-calibrated `classic` detector path.
 
-**Default:** `auto` (adaptive threshold; `max x 1.1` in `classic`)
+**Default:** `auto` (adaptive threshold; `threshold_metric x 1.1` in `classic`)
 
 | Value | Sensitivity | Use Case |
 |-------|-------------|----------|
@@ -109,7 +116,7 @@ For example:
 **Example ESPHome syntax:**
 ```yaml
 espectre:
-  segmentation_threshold: auto  # or "min" or a number (0.0-10.0)
+  segmentation_threshold: auto  # or "min" or a manual number (classic: 0.0-10.0, ml: 0.0-1.0)
 ```
 
 | Value | Formula | Effect |
@@ -135,7 +142,7 @@ espectre:
 | Algorithm | Description | Threshold Range | Best For |
 |-----------|-------------|-----------------|----------|
 | `classic` | L1-Delta primary with variance recovery | 0.0 - 10.0 | General purpose, adaptive |
-| `ml` | Neural network detector | 0.0 - 10.0 (scaled metric) | Calibration-free boot |
+| `ml` | Neural network detector | 0.0 - 1.0 (probability) | Calibration-free boot |
 
 ### Window Size (10-200 packets)
 
@@ -278,26 +285,29 @@ espectre:
 
 ### Automatic Threshold Calibration
 
-**What it does:** Automatically calculates the optimal detection threshold based on baseline noise characteristics. This minimizes false positives while maintaining high recall while keeping the fixed default subcarriers.
+**What it does:** Automatically calculates the detection threshold from the startup behavior of the `classic` L1-Delta metric while keeping the fixed default subcarriers.
 
 **Status:** Always enabled (automatic)
 
 **How it works:**
-1. During startup calibration, collects 10 × `window_size` CSI packets during baseline (default 1000, room must be quiet)
+1. During startup calibration, uses up to `10 × window_size` packets (default 1000) as a maximum budget
 2. Uses the shared fixed 12-subcarrier set
-3. **Threshold calculation** depends on `segmentation_threshold` setting
+3. Tries to complete from a validated `quiet -> motion -> quiet` pattern first
+4. Falls back internally to the quiet-only statistic if that pattern never becomes trustworthy
+5. **Threshold calculation** depends on `segmentation_threshold` setting
 
 | Mode | Formula | Description |
 |------|---------|-------------|
-| `auto` (default) | max x 1.1 | Minimizes false positives |
-| `min` | max x 1.0 | Maximum sensitivity |
+| `auto` (default) | threshold_metric x 1.1 | Minimizes false positives |
+| `min` | threshold_metric x 1.0 | Maximum sensitivity |
 
 In `classic` mode the threshold is calibrated from the L1-Delta primary metric.
-If movement contaminated the startup window, the calibration consistency gate
-extends chunk by chunk (up to ~20 extra seconds at 100 pps) until the metric is
-consistently quiet, instead of locking in an inflated threshold. The extension
-is logged; no tuning is required. See [ALGORITHMS.md](ALGORITHMS.md) for the
-gate details.
+If startup sees a useful motion example and quiet returns afterwards, Classic
+derives the threshold inside that quiet/motion gap and may finish before the
+full budget. If not, it falls back internally to the quiet-only path inside
+the same budget. The runtime no longer waits for extra extension packets beyond
+the configured startup budget. See [ALGORITHMS.md](ALGORITHMS.md) for the
+calibrator details.
 
 **Note:** The subcarrier set is fixed. Only the threshold calculation varies.
 
@@ -527,8 +537,9 @@ or an explicit "CSI disabled" warning.
 **Symptoms:** The device keeps recalibrating, readiness never becomes stable, or
 runtime quality is poor immediately after startup.
 
-**Cause:** Usually the room is not quiet enough during calibration, packet flow
-is too sparse, or the sensor is placed too close to the access point.
+**Cause:** Usually the room is not quiet enough during the initial quiet phase,
+packet flow is too sparse, the sensor is placed too close to the access point,
+or startup never gets a clean `quiet -> motion -> quiet` sequence.
 
 **Solutions:**
 
@@ -537,11 +548,13 @@ is too sparse, or the sensor is placed too close to the access point.
    - Optimal distance: 3-8 meters
    - Prefer RSSI roughly between -40 and -70 dB
 
-2. **Keep the room quiet during startup**:
-   - avoid movement in the monitored area
+2. **Give startup a clean first quiet phase**:
+   - avoid movement immediately after boot
    - wait for calibration/readiness to complete before evaluating motion quality
-   - in `classic` mode, movement during startup extends calibration
-     automatically; let it settle instead of restarting the device
+   - after the initial quiet phase, one short motion can help `classic`
+     converge faster, but it is optional
+   - if startup stayed noisy or chaotic the detector will fall back internally,
+     which is safer but may take the full startup budget
 
 3. **Verify CSI packet flow and stimulus configuration**:
    - keep `traffic_generator_rate` above `0` on integrated frontends
@@ -602,7 +615,7 @@ Examples:
 - other frontends: use the runtime control surface they expose, if supported
 
 **Important:**
-- Keep the room quiet and empty during calibration (~13 seconds)
+- Start with the room quiet during calibration (up to ~13 seconds at 100 pps)
 - The frontend control may be temporarily unavailable during calibration
 - You cannot cancel calibration once started
 
@@ -633,7 +646,7 @@ the persisted frontend state before booting again in a quiet room.
 2. Or use the ESPHome dashboard clean-build flow and then reinstall
 
 **After reset:**
-- Keep room quiet and empty for 10 seconds
+- Keep the room quiet immediately after boot; a short later motion is optional
 - Classic threshold bootstrap will automatically rerun
 - Check logs for "Calibration completed successfully"
 
@@ -680,7 +693,7 @@ entity names, commands, or telemetry channel differ.
 4. **Seasonal adjustments:** Retune when furniture changes or new interference sources appear
 5. **Distance matters:** Keep sensor 3-8m from router (RSSI between -40 and -70 dB for best results)
 6. **Check AGC headroom:** After boot, moderate AGC values and stable calibration are good signs
-7. **Quiet calibration:** Ensure no movement during first ~13 seconds after boot
+7. **Quiet-first startup:** Ensure the first startup phase is quiet; later, one short motion can help the default `classic` bootstrap finish earlier
 8. **Try a BLE client:** Use a client built on the native frontend protocol over BLE, such as [`tools/web/espectre-ble.html`](../tools/web/espectre-ble.html) or [ESPectre - The Game](https://espectre.dev/game), for interactive threshold tuning with real-time visual feedback
 
 ---

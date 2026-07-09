@@ -36,26 +36,25 @@ Computed metrics:
 | Chip | File pair (static_presence / motion) | Threshold | Static Above | Motion Above | Motion Peak | Subcarriers | Turbulence | Status |
 |---|---|---:|---:|---:|---:|---|---|---|
 | C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_123300_815785_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_123617_904895_0001.npz` | 3.36e-02 | 8.4% | 99.8% | 4.32x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_190103_229855_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_190325_096036_0001.npz` | 4.53e-02 | 0.2% | 96.1% | 2.20x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_155658_712410_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_155947_468944_0001.npz` | 3.19e-02 | 0.0% | 92.0% | 4.03x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_141842_520560_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_142046_208982_0001.npz` | 4.58e-02 | 0.4% | 100.0% | 3.17x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_190103_229855_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_190325_096036_0001.npz` | 4.53e-02 | 0.2% | 96.0% | 2.20x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_155658_712410_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_155947_468944_0001.npz` | 3.19e-02 | 0.0% | 92.1% | 4.03x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_141842_520560_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_142046_208982_0001.npz` | 4.72e-02 | 1.8% | 100.0% | 3.07x | DEFAULT_SUBCARRIERS | CV | PASS |
 | C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_184649_979004_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_185343_276594_0001.npz` | 2.78e-02 | 0.0% | 99.6% | 3.83x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_200911_606140_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_201203_743575_0001.npz` | 2.82e-02 | 2.1% | 98.6% | 2.53x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_195515_808506_0001.npz` | 2.04e-02 | 3.4% | 100.0% | 4.02x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_200911_606140_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_201203_743575_0001.npz` | 2.82e-02 | 2.1% | 98.5% | 2.53x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_195515_808506_0001.npz` | 2.04e-02 | 3.5% | 100.0% | 4.02x | DEFAULT_SUBCARRIERS | CV | PASS |
 | C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_120322_224513_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_121231_690177_0001.npz` | 2.07e-02 | 5.7% | 98.2% | 4.37x | DEFAULT_SUBCARRIERS | CV | PASS |
 | C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz` | 2.55e-02 | 0.0% | 97.3% | 5.11x | DEFAULT_SUBCARRIERS | CV | PASS |
-| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260704_193850_592133_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260704_194251_648972_0001.npz` | 6.24e-02 | 11.1% | 96.8% | 3.01x | DEFAULT_SUBCARRIERS | CV | PASS |
-| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260705_115119_722041_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260705_115458_527844_0001.npz` | 2.81e-02 | 0.8% | 94.9% | 2.49x | DEFAULT_SUBCARRIERS | CV | PASS |
+| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260704_193850_592133_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260704_194251_648972_0001.npz` | 6.56e-02 | 8.7% | 95.8% | 2.87x | DEFAULT_SUBCARRIERS | CV | PASS |
 
 ## Summary
 
-- total pairs: 11
-- pass: 11
+- total pairs: 10
+- pass: 10
 - fail: 0
 
 ## Detailed Check Summary
 
-- Total checks: 478
-- ✅ PASS: 467
-- ⚠️ WARN: 11
+- Total checks: 445
+- ✅ PASS: 436
+- ⚠️ WARN: 9
 - ❌ FAIL: 0

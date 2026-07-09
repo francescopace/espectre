@@ -50,6 +50,7 @@ class WiFiLifecycleManager {
    * the HT20/11n policy instead of the target's HE/11ax default.
    */
   static esp_err_t apply_csi_wifi_policy();
+  static esp_err_t apply_tx_retry_policy();
   
   /**
    * Register WiFi event handlers

@@ -377,7 +377,7 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `publish_interval` | Periodic publish cadence in packets |
 | `evaluation_interval` | Detector evaluation cadence in packets |
 | `motion_hits` | Motion-on/off consecutive hit thresholds |
-| `startup_threshold` | Startup calibration threshold (`max(moving_variance) x factor`) |
+| `startup_threshold` | Startup calibration threshold after the detector-specific bootstrap path |
 
 These diagnostic keys are intentionally more implementation-oriented than the
 identity/config keys above. Nearby tools may display them, but clients should

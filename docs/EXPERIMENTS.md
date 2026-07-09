@@ -27,7 +27,8 @@ match the actual benchmark, weighting mode, or training variant that was run.
 | 2026-07-05 | Motion-feature benchmark and L1-Delta promotion | Promoted into `ClassicDetector` | L1 profile displacement matched moving-variance quality with a far more stable quiet level; no candidate supported a fixed factory threshold. |
 | 2026-07-06 | L1-Delta startup-threshold and online recovery sweep | Superseded by the contaminated-calibration gate sweep | Clean data still favor static `max x 1.1`, but startup-spike recovery is real; the best no-buffer candidate is a conservative decaying-peak tracker. |
 | 2026-07-06 | L1-Delta contaminated-calibration gate and extension sweep | Promoted to runtime (Python and C++) | A floor-anchored rolling-chunk consistency gate with calibration extension keeps F1 >= 94.3% from clean startup up to 100% contaminated startup. |
-| 2026-07-06 | Clean relative-8 refresh and L1-Delta ML feature check | Active ML baseline candidate | Removing `waveform_length_over_mean` improved the Python ML baseline; `l1_delta` remained useful as a Classic support signal, but not as a winning MLP feature. |
+| 2026-07-06 | Clean relative-8 refresh and L1-Delta ML feature check | Superseded by Core-6 | Removing `waveform_length_over_mean` improved the Python ML baseline; `l1_delta` remained useful as a Classic support signal, but not as a winning MLP feature. |
+| 2026-07-09 | Streamer packet-loss and buffer sweep | Active integration note | S3 startup pressure improved with PSRAM-backed staging and S3-only Wi-Fi TX tuning, but residual drops are intermittent bursts, not a fixed host `SO_RCVBUF` cap. |
 
 ## Current Superseding Events
 
@@ -209,6 +210,102 @@ association across devices, including:
 - `stimulus_id`-anchored multi-device packet grouping
 - reference-assisted phase-coherence experiments
 - temporally aligned multi-device feature fusion
+
+---
+
+### Streamer Packet-Loss And Buffer Sweep
+
+Date: 2026-07-09
+
+Status: Active integration note.
+
+#### Goal
+
+Understand a small but repeatable streamer-side packet-loss signal seen on the
+host collector (roughly `0.3-0.6%` on an ESP32-S3 target) and decide whether
+the main fix belongs on the device, the host collector, or both.
+
+#### Changes Evaluated
+
+- instrumented the meaning of the device-side counters (`fail`, `backlog`,
+  `dup`, `parse_fail`) and confirmed that the suspicious startup errors were
+  `sendto()` failures with `errno=12` (`ENOMEM`/`ENOBUFS`), which points to
+  transient Wi-Fi/lwIP TX pressure rather than a parser failure
+- moved the large streamer staging buffers off the default internal heap and
+  into `MALLOC_CAP_SPIRAM` when available, with transparent fallback to normal
+  RAM on chips without PSRAM
+- enabled PSRAM only for the S3 streamer through
+  `sdkconfig.defaults.esp32s3`, and raised
+  `CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM` from the shared `128` to `192` there
+- increased the host collector UDP receive buffer request to `1 MiB` and
+  exposed both requested and effective `SO_RCVBUF` values in `collect`
+- checked whether collector-side `drop` was only a reporting artifact by
+  validating saved `.npz` captures against `stream_seq_num`
+
+#### What The Experiments Show
+
+- the host request for `SO_RCVBUF=1048576` was granted in full on the tested
+  macOS host, so the collector was not obviously clamped to a much smaller
+  kernel buffer
+- saved captures confirmed that non-zero `drop` corresponds to real sequence
+  gaps in `stream_seq_num`, not just a display bug
+- the observed residual loss is bursty rather than uniform: one diagnostic run
+  showed `6` missing packets out of `1001` expected packets (`0.599%`) as two
+  short bursts (`2` missing, then `4` missing)
+- those gaps also advanced `stimulus_id`, which means the missing frames never
+  reached the dataset file; they were not created by downstream parsing
+- three subsequent saved `10 s` collection runs on the same S3 target showed
+  `0` sequence gaps (`1002`, `995`, and `1002` received packets respectively),
+  so the residual loss is intermittent rather than structurally present on
+  every run
+- `--reference-every` metadata is orthogonal here: it changes frame tagging,
+  not packet volume, and does not explain the observed loss pattern
+
+#### Practical Interpretation
+
+The S3-specific device changes were worth keeping: PSRAM-backed staging plus a
+larger S3-only Wi-Fi TX buffer budget reduced the most obvious startup
+pressure, and the host collector now exposes the real socket buffer state
+instead of hiding it. But the remaining packet loss does not currently look
+like a simple host receive-buffer bottleneck:
+
+- when loss appears, it appears as short bursts rather than a steady trickle
+- when the same setup is re-run, the collector can also record cleanly with
+  zero sequence gaps
+- full `SO_RCVBUF` allocation on the host weakens the original "kernel receive
+  buffer too small" hypothesis
+
+So the current leading hypothesis is intermittent upstream loss in the
+device/Wi-Fi transmit path, not a deterministic collector-side cap.
+
+#### ESP32 Porting Decision
+
+Do not blindly copy the S3 overrides into `sdkconfig.defaults.esp32`.
+
+- the PSRAM enablement is intentionally S3-only; generic ESP32 boards do not
+  offer the same memory profile, and this repo already carries a dedicated
+  `sdkconfig.defaults.esp32` with a leaner queue and lwIP profile to fit the
+  original ESP32 RAM budget
+- the S3 bump to `CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=192` should not be
+  treated as a universal default; on ESP32 it would trade scarce internal RAM
+  for TX buffering without evidence yet that the same bottleneck dominates
+
+Follow-up after the first ESP32 streaming runs:
+
+- auto-suspending BLE once `stimulus_pps` stays above `10` for a short window
+  materially increases free heap and removes the immediate post-start collapse,
+  so the BLE/coexistence path was part of the problem
+- however, long ESP32 runs can still enter a later partial freeze where
+  `sendto()` returns `errno=12`, `dup` rises sharply, and the saved dataset
+  shows a concentrated mid-run loss burst rather than a uniform drop pattern
+- because BLE-off created more headroom and the application queues remained only
+  lightly occupied during the collapse, the next reasonable ESP32-specific step
+  is a moderate TX buffer increase rather than copying the full S3 profile
+
+So ESP32 still should not inherit the S3 settings wholesale, but it now merits
+its own limited Wi-Fi buffer sweep: TX (`64 -> 96 -> 128`) plus a moderate RX
+bump (`static 8 -> 12`, `dynamic 32 -> 64`) alongside the BLE streaming
+policy.
 
 ---
 
@@ -1172,7 +1269,7 @@ promotion key) rather than this three-seed A/B.
 
 Date: 2026-07-06
 
-Status: Active ML baseline candidate.
+Status: Superseded by the later Core-6 production baseline.
 
 #### Goal
 

@@ -66,11 +66,6 @@ def _add_collect_parser(
         help="Legacy timed dataset mode: delay before starting collection in seconds (default: 0.0)",
     )
     collect_parser.add_argument("--info", "-i", action="store_true", help="Show dataset statistics")
-    collect_parser.add_argument(
-        "--interactive",
-        action="store_true",
-        help="Legacy dataset mode: press ENTER before each saved sample",
-    )
     collect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
     collect_parser.add_argument("--bind-ip", default=None, help="Local IP/interface for UDP bind (default: auto-detect)")
     collect_parser.add_argument(
@@ -85,13 +80,9 @@ def _add_collect_parser(
     collect_parser.add_argument(
         "--detector",
         default="classic",
-        help="Detection algorithm(s), comma-separated for parallel live comparison: classic, ml (default: classic)",
+        help="Live detector(s), comma-separated for parallel status comparison: classic, ml (default: classic)",
     )
-    collect_parser.add_argument("--no-save", action="store_true", help="Run live collect without saving dataset files")
-    collect_parser.add_argument("--log-features", action="store_true", help="Print the 8 ML features after each published sample (ML only)")
-    collect_parser.add_argument("--log-turbulence", action="store_true", help="Print raw/filtered turbulence and recent buffer tail after each publish")
-    collect_parser.add_argument("--log-only-motion", action="store_true", help="Only print publish lines when the effective state is MOTION")
-    collect_parser.add_argument("--window-tail", type=int, default=16, help="Number of latest turbulence samples to print with --log-turbulence")
+    collect_parser.add_argument("--no-save", action="store_true", help="Run live status inspection without saving dataset files")
     collect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor")
     collect_parser.add_argument("--description", help="Description for the collected samples")
     collect_parser.set_defaults(handler=collect_csi_data)
@@ -110,7 +101,7 @@ def _add_monitor_parser(subparsers) -> None:
     monitor_parser = subparsers.add_parser("monitor", help="Attach to a serial port and stream logs")
     monitor_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
     monitor_parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate (default: 115200)")
-    monitor_parser.add_argument("--raw", action="store_true", help="Pass --raw to serial.tools.miniterm")
+    monitor_parser.add_argument("--raw", action="store_true", help="Write raw serial bytes without text decoding")
     monitor_parser.set_defaults(handler=run_serial_monitor)
 
 
@@ -200,7 +191,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('micro', 'deploy')}",
             f"  {cli_command('mqtt')}",
             f"  {cli_command('ui', 'theremin')}",
-            f"  {cli_command('collect', '--target', '192.168.1.50', '--no-save', '--log-turbulence')}",
+            f"  {cli_command('collect', '--target', '192.168.1.50', '--no-save')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}",
             f"  {cli_command('doctor')}",

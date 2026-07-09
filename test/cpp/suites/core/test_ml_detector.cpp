@@ -102,10 +102,10 @@ void test_ml_detector_default_constructor(void) {
 }
 
 void test_ml_detector_custom_constructor(void) {
-    MLDetector detector(100, 7.0f);
+    MLDetector detector(100, 0.7f);
     
     TEST_ASSERT_EQUAL(100, detector.get_window_size());
-    TEST_ASSERT_EQUAL_FLOAT(7.0f, detector.get_threshold());
+    TEST_ASSERT_EQUAL_FLOAT(0.7f, detector.get_threshold());
 }
 
 void test_ml_detector_get_name(void) {
@@ -121,8 +121,8 @@ void test_ml_detector_get_name(void) {
 void test_ml_detector_set_threshold_valid(void) {
     MLDetector detector;
     
-    TEST_ASSERT_TRUE(detector.set_threshold(7.0f));
-    TEST_ASSERT_EQUAL_FLOAT(7.0f, detector.get_threshold());
+    TEST_ASSERT_TRUE(detector.set_threshold(0.7f));
+    TEST_ASSERT_EQUAL_FLOAT(0.7f, detector.get_threshold());
 }
 
 void test_ml_detector_set_threshold_min(void) {
@@ -151,7 +151,7 @@ void test_ml_detector_set_threshold_above_max(void) {
     MLDetector detector;
     float original = detector.get_threshold();
     
-    TEST_ASSERT_FALSE(detector.set_threshold(10.1f));
+    TEST_ASSERT_FALSE(detector.set_threshold(1.1f));
     TEST_ASSERT_EQUAL_FLOAT(original, detector.get_threshold());
 }
 
@@ -200,9 +200,7 @@ static float run_inference(const float* features) {
         }
     }
 
-    out /= ML_TEMPERATURE;
-
-    // Sigmoid with overflow protection and scaling to 0-10
+    // Sigmoid with overflow protection on the direct 0-1 probability scale
     if (out < -20.0f) return 0.0f;
     if (out > 20.0f) return ML_METRIC_SCALE;
     return (1.0f / (1.0f + std::exp(-out))) * ML_METRIC_SCALE;

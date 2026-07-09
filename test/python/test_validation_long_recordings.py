@@ -41,7 +41,7 @@ def _load_train_ml_model_module():
 def _evaluate_ml_long_recording(baseline_packets, movement_packets):
     """Run MLDetector across a long recording split and return packet metrics."""
     detector = MLDetector(
-        threshold=5.0,
+        threshold=0.5,
         window_size=SEG_WINDOW_SIZE,
     )
     warmup = SEG_WINDOW_SIZE

@@ -65,6 +65,7 @@ bool NimbleBleBindings::setup() {
   next_sysinfo_line_index_ = 0U;
   last_sysinfo_line_ms_ = 0U;
   conn_handle_ = BLE_HS_CONN_HANDLE_NONE;
+  shutting_down_ = false;
   telemetry_subscribed_ = false;
   advertising_active_ = false;
 
@@ -128,6 +129,7 @@ void NimbleBleBindings::shutdown() {
     return;
   }
 
+  shutting_down_ = true;
   nimble_port_stop();
   nimble_port_deinit();
   setup_complete_ = false;
@@ -217,6 +219,11 @@ void NimbleBleBindings::report_fault(const char *message) {
 }
 
 bool NimbleBleBindings::start_advertising_() {
+  if (!setup_complete_ || shutting_down_) {
+    advertising_active_ = false;
+    return false;
+  }
+
   ble_hs_adv_fields fields{};
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
   fields.uuids128 = &g_service_uuid;
@@ -253,6 +260,9 @@ bool NimbleBleBindings::start_advertising_() {
 }
 
 void NimbleBleBindings::on_sync_() {
+  if (shutting_down_) {
+    return;
+  }
   ble_hs_id_infer_auto(0, &addr_type_);
   start_advertising_();
 }
@@ -261,6 +271,11 @@ void NimbleBleBindings::on_reset_(int reason) { ESP_LOGW(TAG, "NimBLE reset: rea
 
 int NimbleBleBindings::on_gap_event_(ble_gap_event *event) {
   if (event == nullptr) {
+    return 0;
+  }
+
+  if (shutting_down_) {
+    advertising_active_ = false;
     return 0;
   }
 

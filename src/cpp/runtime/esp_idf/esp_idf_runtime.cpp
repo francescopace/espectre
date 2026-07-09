@@ -289,7 +289,6 @@ bool EspIdfRuntime::start_calibration_() {
   // runtime calibration flow.
   threshold_calibrator_.begin(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS,
                               detector_ != nullptr && detector_->startup_gate_enabled());
-  threshold_calibration_extending_logged_ = false;
   threshold_calibration_active_ = true;
   csi_manager_.clear_detector_buffer();
   csi_manager_.set_packet_interceptor(
@@ -307,13 +306,8 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
   detector_->process_packet(csi_data, csi_len, snapshot_.fixed_subcarriers.data(),
                             HT20_SELECTED_BAND_SIZE);
   detector_->update_state();
-  threshold_calibrator_.observe(detector_->is_ready(), detector_->get_motion_metric());
-
-  if (!threshold_calibration_extending_logged_ && threshold_calibrator_.is_extending()) {
-    ESP_LOGI(RUNTIME_TAG,
-             "Calibration window not consistent (movement during calibration?); extending");
-    threshold_calibration_extending_logged_ = true;
-  }
+  threshold_calibrator_.observe(detector_->is_ready(), detector_->get_motion_metric(),
+                                detector_->get_startup_floor_metric());
 
   if (threshold_calibrator_.is_complete()) {
     finish_threshold_calibration_(threshold_calibrator_.is_successful());
@@ -336,6 +330,11 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
     adaptive_threshold = threshold_calibrator_.threshold_metric() * factor;
     snapshot_.startup_threshold = adaptive_threshold;
     if (detector_ != nullptr) {
+      float variance_floor = 0.0f;
+      bool vote_enabled = false;
+      uint16_t floor_count = 0;
+      threshold_calibrator_.floor_snapshot(variance_floor, vote_enabled, floor_count);
+      detector_->apply_startup_floor(variance_floor, vote_enabled, floor_count);
       detector_->on_startup_calibration_complete();
     }
 

@@ -180,7 +180,7 @@ check or when a build reports an ESP-IDF setup problem:
 | `Matter` | `build`, `flash` | `./espectre matter build --chip c3` |
 | `Streamer` | `build`, `flash` | `./espectre streamer flash --port /dev/cu.usbmodemXXXX` |
 | `Micro-ESPectre` | `flash`, `deploy`, `run`, `verify` | `./espectre micro deploy` |
-| `Host tools` | `collect`, `ui`, `mqtt`, `monitor` | `./espectre collect --target 239.1.1.50 --no-save --log-turbulence` |
+| `Host tools` | `collect`, `ui`, `mqtt`, `monitor` | `./espectre collect --target 239.1.1.50 --no-save` |
 
 On Windows, replace `./espectre` with `.\espectre.cmd` and use the COM port shown by Device Manager, for example `COM5`, instead of `/dev/cu...`.
 
@@ -235,7 +235,7 @@ ESPectre currently supports two runtime detector families:
 
 | Algorithm | Summary | Shared behavior |
 |-----------|---------|-----------------|
-| `Classic` | L1-Delta primary with variance recovery | Requires startup threshold bootstrap from a quiet room (`max x 1.1`); automatically extends calibration when the startup window is not consistently quiet |
+| `Classic` | L1-Delta primary with variance recovery | Uses a motion-first startup bootstrap with internal quiet-first fallback (`threshold_metric x 1.1` in `auto`); the startup budget is a maximum rather than a fixed wait |
 | `ML` | Neural-network detector | Skips threshold bootstrap and starts faster |
 
 The algorithm theory belongs in [ALGORITHMS.md](ALGORITHMS.md). 
@@ -246,13 +246,14 @@ Frontend-level configuration syntax belongs in the README of the frontend you ar
 At boot, the shared runtime may perform:
 
 1. AGC-active startup with the shared normalized turbulence path
-2. startup calibration for `Classic`, which expects the room to stay quiet for about 10 seconds
+2. startup calibration for `Classic`, which begins with a quiet phase and may finish early from a validated `quiet -> motion -> quiet` pattern
 3. transition into steady-state motion detection
 
-In `Classic` mode, a calibration consistency gate checks that the startup
-window was actually quiet. If movement contaminated it, calibration extends
-automatically (logged as extending) until the window is consistent, up to
-about 20 extra seconds, instead of accepting a movement-inflated threshold.
+In `Classic` mode, startup now uses a motion-first bootstrap with an internal
+quiet-first fallback. The configured startup budget is a maximum rather than a
+fixed wait: clean motion-first startups may finish earlier, while no-motion
+startups still converge inside the same budget without a separate extension
+phase.
 
 For practical tuning guidance, sensor placement, and parameter tradeoffs, see [TUNING.md](TUNING.md).
 
@@ -290,7 +291,7 @@ The runtime already remaps several common alternate lengths. If warnings remain 
 Before checking frontend-specific settings:
 
 1. confirm the device is connected to 2.4 GHz Wi-Fi
-2. confirm startup calibration had a quiet room in `Classic` mode (the calibration gate extends automatically when the startup window was not quiet)
+2. confirm startup calibration had a clean initial quiet phase in `Classic` mode
 3. check sensor placement and interference sources
 4. continue in [TUNING.md](TUNING.md) and the README of your frontend
 

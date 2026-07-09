@@ -134,14 +134,14 @@ Boot -> AGC-active startup -> Classic threshold bootstrap or ML startup -> Detec
 
 | Algorithm | Method | Startup behavior |
 |-----------|--------|------------------|
-| `classic` | L1-Delta primary with a gated variance recovery vote | Threshold bootstrap with the L1-Delta primary metric (`max x 1.1` in `auto`), with a variance floor frozen at startup |
+| `classic` | L1-Delta primary with a gated variance recovery vote | Motion-first threshold bootstrap on the L1-Delta primary metric, with an internal quiet-first fallback and a startup-frozen variance floor |
 | `ml` | 8-feature MLP over turbulence windows | Immediate startup with normalized AGC-active turbulence |
 
 Key config values live in `config.py`:
 
 ```python
 DETECTION_ALGORITHM = "classic"  # "classic" or "ml"
-SEG_THRESHOLD = "auto"       # "auto", "min", or 0.0-10.0
+SEG_THRESHOLD = "auto"       # "auto", "min", or a manual threshold (classic: 0.0-10.0, ml: 0.0-1.0)
 SEG_WINDOW_SIZE = 100
 EVALUATION_INTERVAL = 25
 MOTION_ON_HITS = 3
@@ -149,16 +149,16 @@ MOTION_OFF_HITS = 3
 ```
 
 In startup-calibrated modes, `SEG_THRESHOLD = "auto"` means startup threshold =
-`max(calibration_metric) x detector_factor`:
+`threshold_metric x detector_factor`:
 
 - `classic`: `x 1.1`
 
-Keep the room quiet after boot in `classic` mode while threshold bootstrap
-runs. The L1-Delta primary metric enables a calibration consistency gate that
-detects a
-contaminated startup window and extends calibration automatically (status
-`EXTENDING`) until the room is consistently quiet, up to about 20 extra
-seconds; see `docs/ALGORITHMS.md`.
+In `classic`, startup first builds a quiet anchor, then tries to use one clean
+`quiet -> motion -> quiet` sequence to finish early. If that never happens
+inside the startup budget, the same shared calibrator falls back internally to
+the quiet-only path. Keep the room quiet immediately after boot; later, one
+short motion can help the detector converge faster, but it is optional. See
+[ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 
 ### Filters
 
@@ -202,24 +202,6 @@ Use:
 
 for interactive MQTT inspection and runtime commands. Runtime changes made over
 MQTT are session-only unless the device code explicitly persists them.
-
-## Data Collection and ML
-
-For v3, the most useful community datasets are room-state captures:
-
-- `empty`
-- `static_presence`
-- `motion`
-
-Use:
-
-- [ML_DATA_COLLECTION.md](../../../docs/ML_DATA_COLLECTION.md) for collection and labeling
-- [ML_TRAINING.md](../../../docs/ML_TRAINING.md) for training, validation, and export
-- [PERFORMANCE.md](../../../docs/PERFORMANCE.md) for current metrics and caveats
-
-The current ML detector uses an `8 -> 32 -> 16 -> 1` MLP with 8 relative
-turbulence-window features. The exported model is shared by Python and C++
-runtimes.
 
 ## Relevant Paths
 

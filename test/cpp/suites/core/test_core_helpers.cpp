@@ -145,85 +145,53 @@ void test_startup_threshold_calibrator_gate_accepts_clean_startup(void) {
     TEST_ASSERT_EQUAL_STRING("gated max", calibrator.statistic_name());
 }
 
-void test_startup_threshold_calibrator_gate_extends_past_contaminated_tail(void) {
+void test_motion_first_calibrator_accepts_quiet_motion_quiet_before_budget(void) {
     StartupThresholdCalibrator calibrator;
-    calibrator.begin(60, true);
-    // Quiet floor for 5 chunks, movement in the last chunk of the window.
+    calibrator.begin(200, true);
     for (int i = 0; i < 50; ++i) {
         calibrator.observe(true, 0.05f);
     }
-    for (int i = 0; i < 10; ++i) {
-        calibrator.observe(true, 0.5f);
+    for (int i = 0; i < 50; ++i) {
+        calibrator.observe(true, 0.12f);
     }
-
-    TEST_ASSERT_FALSE(calibrator.is_complete());
-    TEST_ASSERT_TRUE(calibrator.is_extending());
-
-    // Quiet extension flushes the contaminated chunk out of the ring.
-    for (int i = 0; i < 60; ++i) {
+    for (int i = 0; i < 50; ++i) {
         calibrator.observe(true, 0.05f);
     }
-
     TEST_ASSERT_TRUE(calibrator.is_complete());
-    TEST_ASSERT_TRUE(calibrator.gate_accepted());
-    TEST_ASSERT_EQUAL_FLOAT(0.05f, calibrator.threshold_metric());
-    TEST_ASSERT_EQUAL_INT(120, static_cast<int>(calibrator.packet_count()));
+    TEST_ASSERT_EQUAL_INT(150, static_cast<int>(calibrator.packet_count()));
+    TEST_ASSERT_EQUAL_FLOAT(0.085f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_STRING("motion gap midpoint", calibrator.statistic_name());
 }
 
-void test_startup_threshold_calibrator_rescues_quiet_tail_bump(void) {
+void test_motion_first_short_spike_falls_back_to_quiet_first(void) {
     StartupThresholdCalibrator calibrator;
-    calibrator.begin(60, true);
-    // Quiet floor with a mild bump (within the anchor band) in one chunk:
-    // the spread gate rejects the initial ring and extends past the bump.
-    for (int i = 0; i < 20; ++i) {
+    calibrator.begin(100, true);
+    for (int i = 0; i < 50; ++i) {
         calibrator.observe(true, 0.05f);
     }
-    for (int i = 0; i < 10; ++i) {
-        calibrator.observe(true, 0.06f);
+    for (int i = 0; i < 25; ++i) {
+        calibrator.observe(true, 0.12f);
     }
-    for (int i = 0; i < 30; ++i) {
+    for (int i = 0; i < 25; ++i) {
         calibrator.observe(true, 0.05f);
     }
-
-    TEST_ASSERT_FALSE(calibrator.is_complete());
-    TEST_ASSERT_TRUE(calibrator.is_extending());
-
-    for (int i = 0; i < 30; ++i) {
-        calibrator.observe(true, 0.05f);
-    }
-
     TEST_ASSERT_TRUE(calibrator.is_complete());
-    TEST_ASSERT_TRUE(calibrator.gate_accepted());
-
-    // Tail rescue keeps the bump peak: the extension must not end below it.
-    TEST_ASSERT_EQUAL_FLOAT(0.06f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_FLOAT(0.1236f, calibrator.threshold_metric());
     TEST_ASSERT_EQUAL_STRING("gated max", calibrator.statistic_name());
 }
 
-void test_startup_threshold_calibrator_floor_anchor_rejects_homogeneous_motion(void) {
+void test_motion_without_return_uses_fallback_inside_budget(void) {
     StartupThresholdCalibrator calibrator;
-    calibrator.begin(60, true);
-    // One quiet chunk, then homogeneous movement: the spread gate alone would
-    // accept the motion-level ring, the floor anchor must keep it open.
-    for (int i = 0; i < 10; ++i) {
+    calibrator.begin(100, true);
+    for (int i = 0; i < 50; ++i) {
         calibrator.observe(true, 0.05f);
     }
     for (int i = 0; i < 50; ++i) {
-        calibrator.observe(true, 0.5f);
+        calibrator.observe(true, 0.12f);
     }
-
-    TEST_ASSERT_FALSE(calibrator.is_complete());
-    TEST_ASSERT_TRUE(calibrator.is_extending());
-
-    // Never settles: exhaust the extension budget and fall back to the median.
-    for (uint16_t i = 0; i < STARTUP_GATE_EXTENSION_PACKETS; ++i) {
-        calibrator.observe(true, 0.5f);
-    }
-
     TEST_ASSERT_TRUE(calibrator.is_complete());
-    TEST_ASSERT_FALSE(calibrator.gate_accepted());
-    TEST_ASSERT_EQUAL_FLOAT(0.5f, calibrator.threshold_metric());
-    TEST_ASSERT_EQUAL_STRING("gated median", calibrator.statistic_name());
+    TEST_ASSERT_EQUAL_FLOAT(0.1236f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_STRING("gated max", calibrator.statistic_name());
 }
 
 void test_detector_startup_gate_traits(void) {
@@ -287,13 +255,13 @@ void test_ml_detector_move_semantics_and_cv_state(void) {
 
     MLDetector moved(std::move(source));
     TEST_ASSERT_NULL(source.get_turbulence_buffer());
-    TEST_ASSERT_EQUAL_FLOAT(6.0f, moved.get_threshold());
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, moved.get_threshold());
     TEST_ASSERT_EQUAL_FLOAT(0.0f, moved.get_motion_metric());
 
     MLDetector assigned(10, 7.0f);
     assigned = std::move(moved);
     TEST_ASSERT_NULL(moved.get_turbulence_buffer());
-    TEST_ASSERT_EQUAL_FLOAT(6.0f, assigned.get_threshold());
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, assigned.get_threshold());
     TEST_ASSERT_EQUAL_FLOAT(0.0f, assigned.get_motion_metric());
 }
 
@@ -304,9 +272,9 @@ int process(void) {
     RUN_TEST(test_threshold_helpers_cover_modes_and_ranges);
     RUN_TEST(test_startup_threshold_calibrator_gate_disabled_matches_max);
     RUN_TEST(test_startup_threshold_calibrator_gate_accepts_clean_startup);
-    RUN_TEST(test_startup_threshold_calibrator_gate_extends_past_contaminated_tail);
-    RUN_TEST(test_startup_threshold_calibrator_rescues_quiet_tail_bump);
-    RUN_TEST(test_startup_threshold_calibrator_floor_anchor_rejects_homogeneous_motion);
+    RUN_TEST(test_motion_first_calibrator_accepts_quiet_motion_quiet_before_budget);
+    RUN_TEST(test_motion_first_short_spike_falls_back_to_quiet_first);
+    RUN_TEST(test_motion_without_return_uses_fallback_inside_budget);
     RUN_TEST(test_detector_startup_gate_traits);
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
     RUN_TEST(test_classic_detector_move_semantics_and_base_accessors);

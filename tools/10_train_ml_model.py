@@ -339,8 +339,11 @@ from tools.lib.dataset_metadata import (
 )
 from config import (
     DEFAULT_SUBCARRIERS,
+    ENABLE_HAMPEL_FILTER,
+    ENABLE_LOWPASS_FILTER,
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
+    LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
 from classic_detector import ClassicDetector
@@ -381,8 +384,8 @@ DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
 SAMPLE_WEIGHT_MODES = ('none', 'l1_guided', 'l1_hard_negative')
 DEFAULT_SAMPLE_WEIGHT_MODE = 'none'
-TRAINING_CACHE_VERSION = 4
-DEFAULT_ML_TEMPERATURE = 5.0
+TRAINING_FEATURE_CACHE_VERSION = 5
+TRAINING_WEIGHT_CACHE_VERSION = 5
 # All chips included: MLDetector keeps the legacy variance-baseline CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
 DEFAULT_EXCLUDED_CHIPS = ()
@@ -979,19 +982,13 @@ def load_all_data(environment_filter=None, excluded_chips=None,
     return all_packets, stats
 
 
-def _training_cache_manifest(feature_names, environment_filter=None,
-                             excluded_chips=None,
-                             allowed_labels=BINARY_TRAINING_LABELS,
-                             sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
-                             window_size=SEG_WINDOW_SIZE,
-                             enable_hampel=True,
-                             hampel_window=HAMPEL_WINDOW,
-                             hampel_threshold=HAMPEL_THRESHOLD):
-    """Build a stable manifest for cached training matrices."""
+def _training_dataset_manifest(environment_filter=None,
+                               excluded_chips=None,
+                               allowed_labels=BINARY_TRAINING_LABELS):
+    """Build the dataset fingerprint shared by feature and weight caches."""
     allowed_labels = sorted(normalize_allowed_labels(allowed_labels) or ())
     environment_filter = sorted(parse_environment_filter(environment_filter) or ())
     excluded_chips = sorted(parse_chip_filter(excluded_chips) or ())
-    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
     files = []
     for npz_file in sorted(DATA_DIR.glob('*/*.npz')):
         if allowed_labels and npz_file.parent.name.lower() not in allowed_labels:
@@ -1017,31 +1014,93 @@ def _training_cache_manifest(feature_names, environment_filter=None,
         }
 
     return {
-        'version': TRAINING_CACHE_VERSION,
-        'feature_names': list(feature_names),
         'allowed_labels': allowed_labels,
         'environment_filter': environment_filter,
         'excluded_chips': excluded_chips,
-        'sample_weight_mode': sample_weight_mode,
-        'default_subcarriers': [int(sc) for sc in DEFAULT_SUBCARRIERS],
-        'window_size': int(window_size),
-        'enable_hampel': bool(enable_hampel),
-        'hampel_window': int(hampel_window),
-        'hampel_threshold': float(hampel_threshold),
         'dataset_info': dataset_info,
         'files': files,
     }
 
 
-def _training_cache_path(manifest):
-    """Return the on-disk cache path for a training manifest."""
+def _feature_cache_manifest(feature_names, environment_filter=None,
+                            excluded_chips=None,
+                            allowed_labels=BINARY_TRAINING_LABELS,
+                            window_size=SEG_WINDOW_SIZE,
+                            enable_lowpass=ENABLE_LOWPASS_FILTER,
+                            lowpass_cutoff=LOWPASS_CUTOFF,
+                            enable_hampel=ENABLE_HAMPEL_FILTER,
+                            hampel_window=HAMPEL_WINDOW,
+                            hampel_threshold=HAMPEL_THRESHOLD):
+    """Build a stable manifest for the cached feature matrix."""
+    dataset_manifest = _training_dataset_manifest(
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        allowed_labels=allowed_labels,
+    )
+    return {
+        'version': TRAINING_FEATURE_CACHE_VERSION,
+        'dataset': dataset_manifest,
+        'feature_names': list(feature_names),
+        'default_subcarriers': [int(sc) for sc in DEFAULT_SUBCARRIERS],
+        'window_size': int(window_size),
+        'enable_lowpass': bool(enable_lowpass),
+        'lowpass_cutoff': float(lowpass_cutoff),
+        'enable_hampel': bool(enable_hampel),
+        'hampel_window': int(hampel_window),
+        'hampel_threshold': float(hampel_threshold),
+    }
+
+
+def _weight_cache_manifest(environment_filter=None,
+                           excluded_chips=None,
+                           allowed_labels=BINARY_TRAINING_LABELS,
+                           sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
+                           window_size=SEG_WINDOW_SIZE,
+                           enable_lowpass=ENABLE_LOWPASS_FILTER,
+                           lowpass_cutoff=LOWPASS_CUTOFF,
+                           enable_hampel=ENABLE_HAMPEL_FILTER,
+                           hampel_window=HAMPEL_WINDOW,
+                           hampel_threshold=HAMPEL_THRESHOLD):
+    """Build a stable manifest for cached sample weights."""
+    dataset_manifest = _training_dataset_manifest(
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        allowed_labels=allowed_labels,
+    )
+    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
+    return {
+        'version': TRAINING_WEIGHT_CACHE_VERSION,
+        'dataset': dataset_manifest,
+        'sample_weight_mode': sample_weight_mode,
+        'default_subcarriers': [int(sc) for sc in DEFAULT_SUBCARRIERS],
+        'window_size': int(window_size),
+        'enable_lowpass': bool(enable_lowpass),
+        'lowpass_cutoff': float(lowpass_cutoff),
+        'enable_hampel': bool(enable_hampel),
+        'hampel_window': int(hampel_window),
+        'hampel_threshold': float(hampel_threshold),
+    }
+
+
+def _cache_path(prefix, manifest):
+    """Return the on-disk path for a cache manifest."""
     payload = json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode('utf-8')
     digest = hashlib.sha256(payload).hexdigest()[:16]
-    return GENERATED_DATA_DIR / f'training_matrix_{digest}.npz'
+    return GENERATED_DATA_DIR / f'{prefix}_{digest}.npz'
 
 
-def _load_training_matrix_cache(cache_path, manifest):
-    """Load cached feature matrix, labels, context, stats, and base weights."""
+def _feature_cache_path(manifest):
+    """Return the on-disk path for a feature-matrix cache."""
+    return _cache_path('training_features', manifest)
+
+
+def _weight_cache_path(manifest):
+    """Return the on-disk path for a sample-weight cache."""
+    return _cache_path('training_weights', manifest)
+
+
+def _load_feature_cache(cache_path, manifest):
+    """Load cached feature matrix, labels, context, and stats."""
     if not cache_path.exists():
         return None
     try:
@@ -1054,22 +1113,31 @@ def _load_training_matrix_cache(cache_path, manifest):
                 for key in data['context_keys'].tolist()
             }
             stats = json.loads(str(data['stats_json'].item()))
+            X = data['X'].astype(np.float32, copy=False)
+            y = data['y'].astype(np.int8, copy=False)
+            if len(X) != len(y):
+                raise ValueError(f"feature cache row mismatch (X={len(X)} y={len(y)})")
+            for key, values in sample_context.items():
+                if len(values) != len(y):
+                    raise ValueError(
+                        f"feature cache context mismatch for {key} "
+                        f"(ctx={len(values)} y={len(y)})"
+                    )
             return {
-                'X': data['X'].astype(np.float32, copy=False),
-                'y': data['y'].astype(np.int8, copy=False),
+                'X': X,
+                'y': y,
                 'feature_names': data['feature_names'].astype(str).tolist(),
                 'sample_context': sample_context,
-                'sample_weights': data['sample_weights'].astype(np.float32, copy=False),
                 'stats': stats,
             }
     except Exception as exc:
-        print(f"  Warning: ignoring invalid training cache {cache_path.name}: {exc}")
+        print(f"  Warning: ignoring invalid feature cache {cache_path.name}: {exc}")
         return None
 
 
-def _save_training_matrix_cache(cache_path, manifest, X, y, feature_names,
-                                sample_context, sample_weights, stats):
-    """Persist a training matrix cache for repeated local runs."""
+def _save_feature_cache(cache_path, manifest, X, y, feature_names,
+                        sample_context, stats):
+    """Persist a feature-matrix cache for repeated local runs."""
     try:
         GENERATED_DATA_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
@@ -1078,115 +1146,199 @@ def _save_training_matrix_cache(cache_path, manifest, X, y, feature_names,
             'X': np.asarray(X, dtype=np.float32),
             'y': np.asarray(y, dtype=np.int8),
             'feature_names': np.asarray(feature_names, dtype=object),
-            'sample_weights': np.asarray(sample_weights, dtype=np.float32),
             'context_keys': np.asarray(list(sample_context.keys()), dtype=object),
         }
         for key, values in sample_context.items():
             payload[f'ctx_{key}'] = np.asarray(values)
         np.savez(cache_path, **payload)
     except Exception as exc:
-        print(f"  Warning: could not write training cache {cache_path.name}: {exc}")
+        print(f"  Warning: could not write feature cache {cache_path.name}: {exc}")
+
+
+def _load_weight_cache(cache_path, manifest, expected_length):
+    """Load cached sample weights for a specific weighting policy."""
+    if not cache_path.exists():
+        return None
+    try:
+        with np.load(cache_path, allow_pickle=True) as data:
+            cached_manifest = json.loads(str(data['manifest_json'].item()))
+            if cached_manifest != manifest:
+                return None
+            sample_weights = data['sample_weights'].astype(np.float32, copy=False)
+            if len(sample_weights) != expected_length:
+                raise ValueError(
+                    f"weight cache length mismatch "
+                    f"(weights={len(sample_weights)} expected={expected_length})"
+                )
+            return sample_weights
+    except Exception as exc:
+        print(f"  Warning: ignoring invalid weight cache {cache_path.name}: {exc}")
+        return None
+
+
+def _save_weight_cache(cache_path, manifest, sample_weights):
+    """Persist sample weights for repeated local runs."""
+    try:
+        GENERATED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            'manifest_json': np.asarray(json.dumps(manifest, sort_keys=True)),
+            'sample_weights': np.asarray(sample_weights, dtype=np.float32),
+        }
+        np.savez(cache_path, **payload)
+    except Exception as exc:
+        print(f"  Warning: could not write weight cache {cache_path.name}: {exc}")
 
 
 def load_training_matrix(environment_filter=None, excluded_chips=None,
                          feature_names=None, sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
                          use_cache=True):
-    """Load or build the cached training matrix used by binary ML training."""
+    """Load or build the cached feature matrix and sample weights used by training."""
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
     feature_names = list(feature_names)
     sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
 
-    manifest = _training_cache_manifest(
+    feature_manifest = _feature_cache_manifest(
         feature_names,
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        allowed_labels=BINARY_TRAINING_LABELS,
+    )
+    weight_manifest = _weight_cache_manifest(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         allowed_labels=BINARY_TRAINING_LABELS,
         sample_weight_mode=sample_weight_mode,
     )
-    cache_path = _training_cache_path(manifest)
+    feature_cache_path = _feature_cache_path(feature_manifest)
+    weight_cache_path = _weight_cache_path(weight_manifest)
+    feature_matrix = None
+    sample_weights = None
+    all_packets = None
+    stats = None
+
     if use_cache:
-        cached = _load_training_matrix_cache(cache_path, manifest)
-        if cached is not None:
-            print(f"  Training matrix cache: hit ({cache_path.name})")
-            return cached, None
-        print(f"  Training matrix cache: miss ({cache_path.name})")
+        feature_matrix = _load_feature_cache(feature_cache_path, feature_manifest)
+        if feature_matrix is not None:
+            print(f"  Training feature cache: hit ({feature_cache_path.name})")
+            stats = feature_matrix['stats']
+        else:
+            print(f"  Training feature cache: miss ({feature_cache_path.name})")
     else:
-        print("  Training matrix cache: disabled")
+        print("  Training feature cache: disabled")
 
-    load_start = perf_counter()
-    all_packets, stats = load_all_data(
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-    )
-    print(f"  Load time: {format_duration(perf_counter() - load_start)}")
+    if feature_matrix is None:
+        load_start = perf_counter()
+        all_packets, stats = load_all_data(
+            environment_filter=environment_filter,
+            excluded_chips=excluded_chips,
+        )
+        print(f"  Load time: {format_duration(perf_counter() - load_start)}")
 
-    if not stats['chips']:
-        return {
-            'X': np.empty((0, len(feature_names)), dtype=np.float32),
-            'y': np.asarray([], dtype=np.int8),
-            'feature_names': feature_names,
-            'sample_context': {},
-            'sample_weights': np.asarray([], dtype=np.float32),
+        if not stats['chips']:
+            return {
+                'X': np.empty((0, len(feature_names)), dtype=np.float32),
+                'y': np.asarray([], dtype=np.int8),
+                'feature_names': feature_names,
+                'sample_context': {},
+                'sample_weights': np.asarray([], dtype=np.float32),
+                'stats': stats,
+            }, all_packets
+
+        print("\nExtracting features...")
+        features_start = perf_counter()
+        X, y, actual_feature_names, sample_context = extract_features(
+            all_packets, feature_names=feature_names
+        )
+        print(f"  Feature extraction time: {format_duration(perf_counter() - features_start)}")
+
+        feature_matrix = {
+            'X': np.asarray(X, dtype=np.float32),
+            'y': np.asarray(y, dtype=np.int8),
+            'feature_names': list(actual_feature_names),
+            'sample_context': sample_context,
             'stats': stats,
-        }, all_packets
+        }
+        if use_cache:
+            _save_feature_cache(
+                feature_cache_path,
+                feature_manifest,
+                feature_matrix['X'],
+                feature_matrix['y'],
+                feature_matrix['feature_names'],
+                feature_matrix['sample_context'],
+                feature_matrix['stats'],
+            )
+            print(f"  Training feature cache: wrote {feature_cache_path.name}")
 
-    print("\nExtracting features...")
-    features_start = perf_counter()
-    X, y, actual_feature_names, sample_context = extract_features(
-        all_packets, feature_names=feature_names
-    )
-    print(f"  Feature extraction time: {format_duration(perf_counter() - features_start)}")
+    if use_cache:
+        sample_weights = _load_weight_cache(
+            weight_cache_path,
+            weight_manifest,
+            expected_length=len(feature_matrix['y']),
+        )
+        if sample_weights is not None:
+            print(f"  Training weight cache: hit ({weight_cache_path.name})")
+        else:
+            print(f"  Training weight cache: miss ({weight_cache_path.name})")
+    else:
+        print("  Training weight cache: disabled")
 
-    print(f"\nComputing sample weights ({sample_weight_mode})...")
-    weights_start = perf_counter()
-    sample_weights = compute_sample_weights(
-        all_packets,
-        y,
-        sample_weight_mode=sample_weight_mode,
-        window_size=SEG_WINDOW_SIZE,
-    )
-    print(f"  Sample weights time: {format_duration(perf_counter() - weights_start)}")
+    if sample_weights is None:
+        if all_packets is None:
+            load_start = perf_counter()
+            all_packets, _ = load_all_data(
+                environment_filter=environment_filter,
+                excluded_chips=excluded_chips,
+            )
+            print(
+                "  Reload time for weights: "
+                f"{format_duration(perf_counter() - load_start)}"
+            )
+        print(f"\nComputing sample weights ({sample_weight_mode})...")
+        weights_start = perf_counter()
+        sample_weights = compute_sample_weights(
+            all_packets,
+            feature_matrix['y'],
+            sample_weight_mode=sample_weight_mode,
+            window_size=SEG_WINDOW_SIZE,
+        )
+        print(f"  Sample weights time: {format_duration(perf_counter() - weights_start)}")
+        if use_cache:
+            _save_weight_cache(weight_cache_path, weight_manifest, sample_weights)
+            print(f"  Training weight cache: wrote {weight_cache_path.name}")
 
     matrix = {
-        'X': np.asarray(X, dtype=np.float32),
-        'y': np.asarray(y, dtype=np.int8),
-        'feature_names': list(actual_feature_names),
-        'sample_context': sample_context,
+        'X': feature_matrix['X'],
+        'y': feature_matrix['y'],
+        'feature_names': feature_matrix['feature_names'],
+        'sample_context': feature_matrix['sample_context'],
         'sample_weights': np.asarray(sample_weights, dtype=np.float32),
-        'stats': stats,
+        'stats': feature_matrix['stats'],
     }
-    if use_cache:
-        _save_training_matrix_cache(
-            cache_path,
-            manifest,
-            matrix['X'],
-            matrix['y'],
-            matrix['feature_names'],
-            matrix['sample_context'],
-            matrix['sample_weights'],
-            matrix['stats'],
-        )
-        print(f"  Training matrix cache: wrote {cache_path.name}")
     return matrix, all_packets
 
 
 def extract_features(packets, window_size=SEG_WINDOW_SIZE,
                      feature_names=None, return_metadata=False,
-                     enable_hampel=True, hampel_window=HAMPEL_WINDOW, hampel_threshold=HAMPEL_THRESHOLD,
+                     enable_lowpass=ENABLE_LOWPASS_FILTER, lowpass_cutoff=LOWPASS_CUTOFF,
+                     enable_hampel=ENABLE_HAMPEL_FILTER,
+                     hampel_window=HAMPEL_WINDOW, hampel_threshold=HAMPEL_THRESHOLD,
                      ):
     """
     Extract features from CSI packets using sliding window.
     
-    Uses SegmentationContext.add_turbulence() so the filter chain (Hampel -> low-pass)
-    matches the runtime pipeline, ensuring train/deploy alignment.
+    Uses SegmentationContext.add_turbulence() so the configured runtime filter
+    chain matches the training pipeline, ensuring train/deploy alignment.
     
     Args:
         packets: List of CSI packets with 'csi_data' and 'label'
         window_size: Sliding window size (default: SEG_WINDOW_SIZE from config.py)
         feature_names: List of feature names to extract (default: DEFAULT_FEATURES)
         return_metadata: If True, return per-sample metadata
-        enable_hampel: Enable Hampel outlier filter on turbulence (default: True)
+        enable_lowpass: Enable low-pass filter on turbulence (default: config.py)
+        lowpass_cutoff: Low-pass cutoff frequency in Hz (default: config.py)
+        enable_hampel: Enable Hampel outlier filter on turbulence (default: config.py)
         hampel_window: Hampel filter window size (default: 7)
         hampel_threshold: Hampel filter threshold in MAD units (default: 5.0)
     
@@ -1233,6 +1385,8 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         ctx = SegmentationContext(
             window_size=window_size,
             threshold=1.0,
+            enable_lowpass=enable_lowpass,
+            lowpass_cutoff=lowpass_cutoff,
             enable_hampel=enable_hampel,
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
@@ -1358,7 +1512,9 @@ def compute_l1_guided_sample_weights(packets, pair_static_map, window_size=SEG_W
         detector = ClassicDetector(
             window_size=window_size,
             threshold=effective_threshold,
-            enable_hampel=True,
+            enable_lowpass=ENABLE_LOWPASS_FILTER,
+            lowpass_cutoff=LOWPASS_CUTOFF,
+            enable_hampel=ENABLE_HAMPEL_FILTER,
             hampel_window=HAMPEL_WINDOW,
             hampel_threshold=HAMPEL_THRESHOLD,
         )
@@ -1599,7 +1755,7 @@ def predict_exported_probabilities_from_weights(weights_module, X_raw):
         if layer_idx != len(weights) - 1:
             activations = np.maximum(activations, 0.0)
 
-    logits = activations.reshape(-1) / float(DEFAULT_ML_TEMPERATURE)
+    logits = activations.reshape(-1)
     logits = np.clip(logits, -20.0, 20.0)
     return (1.0 / (1.0 + np.exp(-logits))).astype(np.float32)
 
@@ -1744,7 +1900,7 @@ def evaluate_model_gain_stress(model, scaler, X_raw, y, feature_names, sample_co
             gain_scale,
         )
         X_scaled = scaler.transform(X_stressed)
-        y_prob = predict_tempered_probabilities(model, X_scaled)
+        y_prob = predict_runtime_probabilities(model, X_scaled)
         scale_result = {
             'scale': float(gain_scale),
             'sensitive_indices': [int(idx) for idx in sensitive_indices],
@@ -1990,20 +2146,17 @@ def predict_probabilities(model, X):
     return 1.0 / (1.0 + np.exp(-logits))
 
 
-def predict_tempered_probabilities(model, X, temperature=DEFAULT_ML_TEMPERATURE):
+def predict_runtime_probabilities(model, X):
     """
-    Return probabilities after applying the same post-logit temperature scaling
-    used by Python/C++ runtime inference.
+    Return probabilities using the same post-logit mapping as Python/C++ runtime inference.
     """
     X = np.asarray(X, dtype=np.float32)
-    if temperature == 1.0:
-        return predict_probabilities(model, X)
-    scaled_logits = predict_logits(model, X) / float(temperature)
-    probabilities = np.empty_like(scaled_logits, dtype=np.float32)
-    probabilities[scaled_logits < -20.0] = 0.0
-    probabilities[scaled_logits > 20.0] = 1.0
-    mask = (scaled_logits >= -20.0) & (scaled_logits <= 20.0)
-    probabilities[mask] = 1.0 / (1.0 + np.exp(-scaled_logits[mask]))
+    logits = predict_logits(model, X)
+    probabilities = np.empty_like(logits, dtype=np.float32)
+    probabilities[logits < -20.0] = 0.0
+    probabilities[logits > 20.0] = 1.0
+    mask = (logits >= -20.0) & (logits <= 20.0)
+    probabilities[mask] = 1.0 / (1.0 + np.exp(-logits[mask]))
     return probabilities
 
 
@@ -2443,7 +2596,7 @@ def export_test_data(model, scaler, X_test_raw, y_test, output_path, sample_cont
     """
     # Normalize for prediction
     X_test_scaled = scaler.transform(X_test_raw)
-    predictions = predict_tempered_probabilities(model, X_test_scaled)
+    predictions = predict_runtime_probabilities(model, X_test_scaled)
     
     # Save RAW features (not normalized) so tests can verify full pipeline
     payload = {
@@ -3345,7 +3498,9 @@ class StreamingEvaluator:
         self.context = SegmentationContext(
             window_size=SEG_WINDOW_SIZE,
             threshold=1.0,
-            enable_hampel=True,
+            enable_lowpass=ENABLE_LOWPASS_FILTER,
+            lowpass_cutoff=LOWPASS_CUTOFF,
+            enable_hampel=ENABLE_HAMPEL_FILTER,
             hampel_window=HAMPEL_WINDOW,
             hampel_threshold=HAMPEL_THRESHOLD,
         )
@@ -3363,7 +3518,7 @@ class StreamingEvaluator:
             if not is_output:
                 activations = activations.clip(min=0.0)
 
-        logit = float(activations.reshape(-1)[0]) / float(DEFAULT_ML_TEMPERATURE)
+        logit = float(activations.reshape(-1)[0])
         if logit < -20.0:
             return 0.0
         if logit > 20.0:

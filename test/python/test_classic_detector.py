@@ -190,9 +190,7 @@ def test_strong_motion_triggers_via_primary():
 
 def test_reset_preserves_frozen_floor_state():
     det = ClassicDetector(window_size=20, threshold=0.05)
-    for _ in range(400):
-        det._push_variance_floor(1.0)
-    det._refresh_variance_floor()
+    det.apply_startup_floor(1.0, True, 400)
     det._floor_frozen = True
     det.reset()
     assert det._variance_floor == 1.0
@@ -200,3 +198,10 @@ def test_reset_preserves_frozen_floor_state():
     assert det._floor_frozen
     assert det.get_state() == MotionState.IDLE
     assert det.total_packets == 0
+
+
+def test_apply_startup_floor_disables_vote_when_snapshot_too_small():
+    det = ClassicDetector(window_size=20, threshold=0.05)
+    det.apply_startup_floor(1.0, True, 10)
+    assert det._variance_floor == 1.0
+    assert not det._recovery_vote_enabled

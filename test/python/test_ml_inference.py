@@ -81,7 +81,7 @@ class TestMLInferenceAccuracy:
         )
     
     def test_output_range(self):
-        """Verify outputs are in valid scaled range [0, 10]."""
+        """Verify outputs are in valid probability range [0, 1]."""
         for i in range(len(self.features)):
             features = self.features[i].tolist()
             result = predict(features)
@@ -160,9 +160,9 @@ class TestMLDetectorIntegration:
         
         # Valid thresholds
         assert detector.set_threshold(0.0)
-        assert detector.set_threshold(10.0)
+        assert detector.set_threshold(1.0)
         assert detector.set_threshold(ML_DEFAULT_THRESHOLD)
         
         # Invalid thresholds
         assert not detector.set_threshold(-0.1)
-        assert not detector.set_threshold(10.1)
+        assert not detector.set_threshold(1.1)

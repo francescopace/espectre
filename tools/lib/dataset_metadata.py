@@ -170,6 +170,11 @@ def estimate_runtime_threshold(
     detector = ClassicDetector(
         window_size=config.SEG_WINDOW_SIZE,
         threshold=1.0,
+        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=config.LOWPASS_CUTOFF,
+        enable_hampel=config.ENABLE_HAMPEL_FILTER,
+        hampel_window=config.HAMPEL_WINDOW,
+        hampel_threshold=config.HAMPEL_THRESHOLD,
     )
     calibrator = StartupThresholdCalibrator(
         config.CALIBRATION_BUFFER_SIZE,
@@ -229,6 +234,9 @@ def build_calibrated_classic_detector(
     if not calibrator.is_successful():
         return None
     startup_threshold, _ = calibrator.calculate_threshold(selected_mode)
+    if hasattr(calibrator, "get_floor_snapshot") and hasattr(detector, "apply_startup_floor"):
+        floor_value, vote_enabled, sample_count = calibrator.get_floor_snapshot()
+        detector.apply_startup_floor(floor_value, vote_enabled, sample_count)
     detector.set_adaptive_threshold(float(startup_threshold))
     detector.reset()
     return detector, float(startup_threshold)

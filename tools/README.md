@@ -274,8 +274,8 @@ cd tools
 #   Terminal 1: ESPectre streamer firmware running with collector IP/port set to this host
 #   Terminal 2: ./espectre collect --label static_presence --duration 60
 #               ./espectre collect --label motion --duration 30
-# Optional debug terminal:
-#               ./espectre collect --target 192.168.1.50 --no-save --log-turbulence
+# Optional live-inspection terminal:
+#               ./espectre collect --target 192.168.1.50 --no-save
 # see ../docs/ML_DATA_COLLECTION.md for details
 
 # 1. Analyze raw data

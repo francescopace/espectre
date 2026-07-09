@@ -65,6 +65,9 @@ public:
     float get_startup_threshold_factor() const override { return CLASSIC_STARTUP_THRESHOLD_FACTOR; }
     bool startup_gate_enabled() const override { return true; }
     void on_startup_calibration_complete() override;
+    float get_startup_floor_metric() const override { return current_moving_variance_; }
+    void apply_startup_floor(float variance_floor, bool recovery_vote_enabled,
+                             uint16_t sample_count) override;
 
     float get_variance_floor() const { return variance_floor_; }
     bool recovery_vote_enabled() const { return recovery_vote_enabled_; }

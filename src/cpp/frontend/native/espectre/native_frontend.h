@@ -14,6 +14,7 @@
 #include <memory>
 #include <string>
 #include "ble_bindings.h"
+#include "deferred_loop_action.h"
 #include "mqtt_transport.h"
 #include "ota_service.h"
 #include "periodic_sensing_status_logger.h"
@@ -93,6 +94,7 @@ class NativeFrontend : public IRuntimeListener {
   EspectreDeviceConfig device_config_{};
   EspectreDeviceInfo device_info_{};
   WifiProvisioningInfo wifi_info_{};
+  DeferredLoopAction system_info_refresh_;
   bool client_connected_{false};
   bool telemetry_subscribed_{false};
   float last_loop_time_ms_{0.0f};

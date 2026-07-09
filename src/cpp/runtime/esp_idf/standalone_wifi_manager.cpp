@@ -9,6 +9,12 @@
 #include "esp_netif_ip_addr.h"
 #include "esp_wifi.h"
 
+#if defined(CONFIG_ESP_COEX_SW_COEXIST_ENABLE) && __has_include("esp_coexist.h")
+#include "esp_coexist.h"
+#define ESPECTRE_HAVE_ESP_COEXIST 1
+#endif
+
+
 namespace esphome {
 namespace espectre {
 
@@ -90,7 +96,10 @@ esp_err_t StandaloneWifiManager::setup(const StandaloneWifiConfig &config,
     return err;
   }
 
-  err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  // Disable Wi-Fi power save for CSI: modem sleep windows drop received frames
+  // and introduce capture gaps. Always-powered CSI sensing gains nothing from
+  // power save, so keep the radio awake for consistent per-frame CSI.
+  err = esp_wifi_set_ps(WIFI_PS_NONE);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "esp_wifi_set_ps failed: %s", esp_err_to_name(err));
     return err;
@@ -322,15 +331,33 @@ void StandaloneWifiManager::shutdown() {
 }
 
 esp_err_t StandaloneWifiManager::apply_started_csi_policy() {
-  esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  // Keep power save disabled for CSI (see setup): modem sleep starves RX/TX and
+  // causes the retransmission + ENOMEM congestion collapse under streaming load.
+  esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
   if (ps_err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to set Wi-Fi power save for CSI: %s", esp_err_to_name(ps_err));
+    ESP_LOGW(TAG, "Failed to disable Wi-Fi power save for CSI: %s", esp_err_to_name(ps_err));
   }
+
+#ifdef ESPECTRE_HAVE_ESP_COEXIST
+  // BLE provisioning keeps the BT stack active and software coexistence
+  // time-slices the shared radio. Bias coexistence toward Wi-Fi so CSI
+  // throughput is favored over BLE airtime; sane default for a Wi-Fi-centric
+  // sensing device (it does not lift the ESP32 high-rate ceiling; see README).
+  const esp_err_t coex_err = esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+  if (coex_err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to bias Wi-Fi/BT coexistence toward Wi-Fi: %s", esp_err_to_name(coex_err));
+  }
+#endif
 
   const esp_err_t policy_err = WiFiLifecycleManager::apply_csi_wifi_policy();
   if (policy_err != ESP_OK) {
     ESP_LOGW(TAG, "Failed to apply started Wi-Fi CSI policy: %s", esp_err_to_name(policy_err));
     return policy_err;
+  }
+
+  const esp_err_t retry_err = WiFiLifecycleManager::apply_tx_retry_policy();
+  if (retry_err != ESP_OK && retry_err != ESP_ERR_NOT_SUPPORTED) {
+    ESP_LOGW(TAG, "Failed to apply Wi-Fi TX retry policy: %s", esp_err_to_name(retry_err));
   }
 
   return ps_err == ESP_OK ? ESP_OK : ps_err;

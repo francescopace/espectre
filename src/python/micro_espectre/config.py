@@ -48,10 +48,12 @@ CALIBRATION_NUM_WINDOWS = 10   # Number of windows worth of packets to collect
 
 # Segmentation Parameters
 # SEG_THRESHOLD can be:
-#   - "auto" (default): startup threshold = max(calibration_metric) x detector factor
-#       * Classic: 1.1 (L1-Delta primary metric)
+#   - "auto" (default): startup threshold = threshold_metric x detector factor
+#       * Classic: motion-first bootstrap with internal quiet-first fallback
 #   - "min": maximum sensitivity (may have false positives)
-#   - a number (0.0-10.0): fixed manual threshold
+#   - a number: fixed manual threshold
+#       * Classic: typically 0.0-10.0
+#       * ML: 0.0-1.0 probability threshold
 SEG_THRESHOLD = "auto"
 SEG_WINDOW_SIZE = 100         # Shared detector window (packets) - used by Classic and Features
 SEG_WINDOW_SIZE_MIN = 10      # Minimum window size

@@ -20,7 +20,7 @@ from src.detector_interface import (
     normalize_detector_algorithm,
 )
 
-ML_DEFAULT_THRESHOLD = 5.0
+ML_DEFAULT_THRESHOLD = 0.5
 
 # Import HT20 constants from config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN, SEG_THRESHOLD
@@ -227,7 +227,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
         print('='*60)
         print('ML Quick Boot Complete!')
         print(f'   Subcarriers: {list(config.DEFAULT_SUBCARRIERS)}')
-        print(f'   Threshold: {detector.get_threshold():.1f} (scaled 0-10 score)')
+        print(f'   Threshold: {detector.get_threshold():.2f} (0-1 probability score)')
         print('   Startup path: AGC-active normalized pipeline')
         print('='*60)
         print('')
@@ -244,7 +244,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     print('Startup Threshold Calibration')
     print('='*60)
     print(f'Free memory: {gc.mem_free()} bytes')
-    print('Please remain still for calibration...')
+    print('Calibration: stay quiet first, then one short motion is OK.')
 
     from src.threshold import (
         StartupThresholdCalibrator,
@@ -260,7 +260,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
 
     print('')
     print('-'*60)
-    print(f'{detector_name} Threshold Bootstrap (~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
+    print(f'{detector_name} Threshold Bootstrap (up to ~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
     print('-'*60)
 
     timeout_counter = 0
@@ -272,7 +272,6 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     last_progress_count = 0
     collapse_logged = False
     remap_logged = False
-    extending_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
     frame_result = None
     
@@ -305,11 +304,6 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
             calibration_tracker.observe_detector(detector)
             timeout_counter = 0  # Reset timeout on successful read
 
-            if not extending_logged and calibration_tracker.is_extending():
-                print('[INFO] Calibration window not consistent (movement during '
-                      'calibration?); extending until the room is quiet...')
-                extending_logged = True
-
             calibration_progress = calibration_tracker.packet_count
             if calibration_progress % 100 == 0:
                 current_time = time.ticks_ms()
@@ -326,10 +320,11 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
                         motion_metric=current_mv,
                         calibration_packets=calibration_progress,
                         calibration_target_packets=config.CALIBRATION_BUFFER_SIZE,
-                        effective_state_label=(
-                            "EXTENDING" if calibration_tracker.is_extending()
-                            else "CALIBRATING"
-                        ),
+                        effective_state_label=getattr(
+                            calibration_tracker,
+                            "get_phase_label",
+                            lambda: "CALIBRATING",
+                        )(),
                     )
                     + f" | TG:{tg_pps} drop:{dropped}"
                 )
@@ -351,11 +346,17 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     if success:
         if isinstance(SEG_THRESHOLD, str):
             startup_threshold, threshold_formula = calibration_tracker.calculate_threshold(SEG_THRESHOLD)
+            if hasattr(calibration_tracker, "get_floor_snapshot") and hasattr(detector, "apply_startup_floor"):
+                floor_value, vote_enabled, sample_count = calibration_tracker.get_floor_snapshot()
+                detector.apply_startup_floor(floor_value, vote_enabled, sample_count)
             detector.set_adaptive_threshold(startup_threshold)
             threshold_source = f"{SEG_THRESHOLD} ({threshold_formula})"
             print(f'Startup threshold: {startup_threshold:.4f} ({threshold_source})')
         else:
             startup_threshold, _ = calibration_tracker.calculate_threshold("auto")
+            if hasattr(calibration_tracker, "get_floor_snapshot") and hasattr(detector, "apply_startup_floor"):
+                floor_value, vote_enabled, sample_count = calibration_tracker.get_floor_snapshot()
+                detector.apply_startup_floor(floor_value, vote_enabled, sample_count)
             if hasattr(detector, "set_adaptive_threshold"):
                 detector.set_adaptive_threshold(startup_threshold)
             detector.set_threshold(float(SEG_THRESHOLD))

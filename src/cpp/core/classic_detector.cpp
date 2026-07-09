@@ -91,10 +91,6 @@ void ClassicDetector::update_state() {
 
     current_moving_variance_ = (buffer_count_ >= window_size_) ? calculate_moving_variance_() : 0.0f;
 
-    if (!floor_frozen_ && is_ready() && buffer_count_ >= window_size_ && current_l1_metric_ <= threshold_) {
-        push_variance_floor_(current_moving_variance_);
-    }
-
     bool motion = false;
     if (is_ready()) {
         if (current_l1_metric_ > threshold_) {
@@ -170,12 +166,23 @@ bool ClassicDetector::set_threshold(float threshold) {
 }
 
 void ClassicDetector::on_startup_calibration_complete() {
-    if (floor_count_ >= CLASSIC_VARIANCE_FLOOR_MIN) {
-        refresh_variance_floor_();
-    }
     floor_frozen_ = true;
     ESP_LOGD(TAG, "Startup calibration frozen (floor=%.6f, vote=%s, samples=%u)",
              variance_floor_, recovery_vote_enabled_ ? "on" : "off", floor_count_);
+}
+
+void ClassicDetector::apply_startup_floor(float variance_floor, bool recovery_vote_enabled,
+                                          uint16_t sample_count) {
+    floor_count_ = std::min<uint16_t>(sample_count, CLASSIC_VARIANCE_FLOOR_SIZE);
+    floor_idx_ = floor_count_ % CLASSIC_VARIANCE_FLOOR_SIZE;
+    for (uint16_t i = 0; i < floor_count_; i++) {
+        variance_floor_ring_[i] = variance_floor;
+    }
+    for (uint16_t i = floor_count_; i < CLASSIC_VARIANCE_FLOOR_SIZE; i++) {
+        variance_floor_ring_[i] = 0.0f;
+    }
+    variance_floor_ = (floor_count_ > 0) ? variance_floor : 0.0f;
+    recovery_vote_enabled_ = recovery_vote_enabled && floor_count_ >= CLASSIC_VARIANCE_FLOOR_MIN;
 }
 
 void ClassicDetector::clear_l1_state_() {

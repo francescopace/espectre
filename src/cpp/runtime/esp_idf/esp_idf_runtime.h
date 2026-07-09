@@ -61,7 +61,6 @@ class EspIdfRuntime : public IEspectreRuntime {
 
   StartupThresholdCalibrator threshold_calibrator_;
   bool threshold_calibration_active_{false};
-  bool threshold_calibration_extending_logged_{false};
   bool services_armed_{true};
   bool live_telemetry_enabled_{true};
   bool wifi_ready_{false};

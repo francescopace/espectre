@@ -27,11 +27,10 @@ namespace esphome {
 namespace espectre {
 
 // ML-specific constants
-constexpr float ML_DEFAULT_THRESHOLD = 5.0f;
+constexpr float ML_DEFAULT_THRESHOLD = 0.5f;
 constexpr float ML_MIN_THRESHOLD = 0.0f;
-constexpr float ML_MAX_THRESHOLD = 10.0f;
-constexpr float ML_METRIC_SCALE = 10.0f;
-constexpr float ML_TEMPERATURE = 5.0f;
+constexpr float ML_MAX_THRESHOLD = 1.0f;
+constexpr float ML_METRIC_SCALE = 1.0f;
 
 /**
  * ML (Machine Learning) Detector
@@ -45,7 +44,7 @@ public:
      * Constructor
      * 
      * @param window_size Feature extraction window size (10-200 packets)
-     * @param threshold Motion detection threshold (0.0-10.0 on the shared runtime scale)
+     * @param threshold Motion detection threshold (0.0-1.0 on the ML probability scale)
      */
     MLDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE, 
                float threshold = ML_DEFAULT_THRESHOLD);
@@ -107,7 +106,7 @@ private:
      * `ml_weights.h` metadata rather than hardcoded in this class.
      *
      * @param features Feature vector expected by the exported model
-     * @return Scaled motion metric (0.0-10.0 on the shared runtime scale)
+     * @return Motion probability (0.0-1.0)
      */
     float predict(const float* features);
 

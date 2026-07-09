@@ -42,6 +42,7 @@ STREAM_FLAG_REFERENCE_FRAME = 1 << 4
 CSI_HEADER_FORMAT = "<HBBBBIHHQQIQIBbb"
 CSI_HEADER_STRUCT = struct.Struct(CSI_HEADER_FORMAT)
 MAX_STREAM_DATAGRAM_BYTES = 2048
+DEFAULT_SOCKET_RCVBUF_BYTES = 1024 * 1024
 STIMULUS_MAGIC = b"ESTM"
 STIMULUS_VERSION = 1
 STIMULUS_ROLE_MEASUREMENT = 0
@@ -218,10 +219,18 @@ class StimulusSender:
 class CSIReceiver:
     """UDP receiver for CSI data with callback support."""
 
-    def __init__(self, port: int = DEFAULT_PORT, buffer_size: int = 500, bind_host: Optional[str] = None):
+    def __init__(
+        self,
+        port: int = DEFAULT_PORT,
+        buffer_size: int = 500,
+        bind_host: Optional[str] = None,
+        socket_rcvbuf_bytes: int = DEFAULT_SOCKET_RCVBUF_BYTES,
+    ):
         self.port = port
         self.buffer_size = buffer_size
         self.bind_host = str(bind_host or get_default_bind_host()).strip()
+        self.socket_rcvbuf_bytes = max(int(socket_rcvbuf_bytes), 0)
+        self.effective_socket_rcvbuf_bytes: Optional[int] = None
         if not self.bind_host:
             raise ValueError("bind_host cannot be empty")
         try:
@@ -383,15 +392,34 @@ class CSIReceiver:
         self._last_pps_time = time.time()
         self.buffer.clear()
 
-    def run(self, timeout: float = 0, quiet: bool = False) -> None:
+    def run(self, timeout: float = 0, quiet: bool = False, announce_socket_rcvbuf: bool = False) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if self.socket_rcvbuf_bytes > 0:
+            try:
+                self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, self.socket_rcvbuf_bytes)
+            except OSError:
+                pass
+        try:
+            self.effective_socket_rcvbuf_bytes = int(self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF))
+        except OSError:
+            self.effective_socket_rcvbuf_bytes = None
         self.sock.bind((self.bind_host, self.port))
         self.sock.settimeout(1.0)
 
         if not quiet:
             print(f"CSI Receiver listening on {self.bind_host}:{self.port}")
             print(f"Buffer size: {self.buffer_size} packets")
+            if self.effective_socket_rcvbuf_bytes is not None:
+                print(
+                    f"Socket RCVBUF: requested {self.socket_rcvbuf_bytes} bytes, "
+                    f"effective {self.effective_socket_rcvbuf_bytes} bytes"
+                )
             print("Waiting for data...\n")
+        elif announce_socket_rcvbuf and self.effective_socket_rcvbuf_bytes is not None:
+            print(
+                f"  Socket RCVBUF: requested {self.socket_rcvbuf_bytes} bytes, "
+                f"effective {self.effective_socket_rcvbuf_bytes} bytes"
+            )
 
         self.running = True
         self.start_time = time.time()

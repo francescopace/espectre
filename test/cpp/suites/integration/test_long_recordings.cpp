@@ -115,6 +115,37 @@ static void assert_metrics_are_valid(const LongRunMetrics &metrics) {
   TEST_ASSERT_TRUE(metrics.f1 >= 0.0f && metrics.f1 <= 100.0f);
 }
 
+static bool build_calibrated_classic_detector(ClassicDetector& detector, int calibration_packets,
+                                              int pkt_size, float& out_threshold) {
+  StartupThresholdCalibrator calibrator;
+  calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
+  for (int i = 0; i < calibration_packets; i++) {
+    detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
+                            HT20_SELECTED_BAND_SIZE);
+    detector.update_state();
+    calibrator.observe(detector.is_ready(), detector.get_motion_metric(),
+                       detector.get_startup_floor_metric());
+    if (calibrator.is_complete()) {
+      break;
+    }
+  }
+  if (!calibrator.is_successful()) {
+    out_threshold = CLASSIC_DEFAULT_THRESHOLD;
+    return false;
+  }
+  float variance_floor = 0.0f;
+  bool vote_enabled = false;
+  uint16_t floor_count = 0;
+  calibrator.floor_snapshot(variance_floor, vote_enabled, floor_count);
+  detector.apply_startup_floor(variance_floor, vote_enabled, floor_count);
+  detector.on_startup_calibration_complete();
+  out_threshold = calibrator.threshold_metric() *
+                  get_threshold_factor(ThresholdMode::AUTO, detector.get_startup_threshold_factor());
+  detector.set_threshold(out_threshold);
+  detector.clear_buffer();
+  return true;
+}
+
 static void print_summary_table() {
   printf("\n");
   printf("=====================================================================================================================\n");
@@ -189,26 +220,10 @@ static LongRunMetrics evaluate_classic_long_recording() {
   detector.configure_lowpass(false);
   detector.configure_hampel(true);
 
-  float max_metric = 0.0f;
-  bool has_metric = false;
   const int calibration_packets = std::min(csi_test_data::num_static_presence(),
                                            static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
-  for (int i = 0; i < calibration_packets; i++) {
-    detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
-                            HT20_SELECTED_BAND_SIZE);
-    detector.update_state();
-    if (detector.is_ready()) {
-      max_metric = std::max(max_metric, detector.get_motion_metric());
-      has_metric = true;
-    }
-  }
-
-  detector.on_startup_calibration_complete();
-  const float calibrated_threshold = has_metric
-      ? (max_metric * get_threshold_factor(ThresholdMode::AUTO, detector.get_startup_threshold_factor()))
-      : CLASSIC_DEFAULT_THRESHOLD;
-  detector.set_threshold(calibrated_threshold);
-  detector.clear_buffer();
+  float calibrated_threshold = CLASSIC_DEFAULT_THRESHOLD;
+  build_calibrated_classic_detector(detector, calibration_packets, pkt_size, calibrated_threshold);
 
   metrics.selected_band_size = HT20_SELECTED_BAND_SIZE;
   std::copy(DEFAULT_SUBCARRIERS, DEFAULT_SUBCARRIERS + HT20_SELECTED_BAND_SIZE, metrics.selected_band.begin());

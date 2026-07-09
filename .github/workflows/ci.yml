@@ -209,7 +209,7 @@ jobs:
       
       - name: Run Tests with Coverage
         run: |
-          pytest test/python -v --cov=src/python/micro_espectre --cov=src/python/espectre_cli --cov-report=xml --cov-report=term-missing
+          pytest test/python -n auto --dist worksteal -v --cov=src/python/micro_espectre --cov=src/python/espectre_cli --cov-report=xml --cov-report=term-missing
       
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v7

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import inspect
 import sys
 
 from .common import Path, REPO_ROOT, WEB_UI_FILE, Fore, Style, cli_command, signal, time, webbrowser
@@ -91,10 +92,8 @@ def _wait_before_collection(delay_seconds: float) -> None:
 
 
 def _uses_legacy_dataset_collection(args) -> bool:
-    """Return True when the unified collect command should use legacy dataset mode."""
+    """Return True when the unified collect command should use legacy timed dataset mode."""
     if getattr(args, "info", False):
-        return True
-    if getattr(args, "interactive", False):
         return True
     if float(getattr(args, "start_delay", 0.0) or 0.0) > 0:
         return True
@@ -102,7 +101,7 @@ def _uses_legacy_dataset_collection(args) -> bool:
 
 
 def _collect_dataset_csi_data(args) -> None:
-    """Run the legacy timed/interactive dataset collection workflow."""
+    """Run the legacy timed dataset collection workflow."""
     try:
         from tools.lib.csi_io import CSICollector, StimulusSender, get_dataset_stats, get_default_bind_host
     except ImportError as e:
@@ -201,10 +200,7 @@ def _collect_dataset_csi_data(args) -> None:
     try:
         _wait_before_collection(args.start_delay)
         stimulus_sender.start()
-        if args.interactive:
-            saved = collector.collect_interactive(num_samples=args.samples, duration=sample_duration)
-        else:
-            saved = collector.collect_timed(duration=sample_duration, num_samples=args.samples)
+        saved = collector.collect_timed(duration=sample_duration, num_samples=args.samples)
         if saved:
             print(f"{Fore.GREEN}✅ Collected {len(saved)} device file(s) for label '{args.label}'{Style.RESET_ALL}")
         else:
@@ -238,7 +234,7 @@ def _run_live_collect(args) -> None:
             normalize_detector_algorithm,
             supported_detector_algorithms,
         )
-        from ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD
+        from ml_detector import ML_DEFAULT_THRESHOLD
         from runtime_policy import RuntimeMotionPolicy
         from threshold import (
             StartupThresholdCalibrator,
@@ -256,7 +252,7 @@ def _run_live_collect(args) -> None:
                 normalize_detector_algorithm,
                 supported_detector_algorithms,
             )
-            from src.ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD
+            from src.ml_detector import ML_DEFAULT_THRESHOLD
             from src.runtime_policy import RuntimeMotionPolicy
             from src.threshold import (
                 StartupThresholdCalibrator,
@@ -300,29 +296,12 @@ def _run_live_collect(args) -> None:
         print(f"{Fore.RED}❌ Label required unless you use --no-save{Style.RESET_ALL}")
         raise SystemExit(1)
 
-    feature_names = ML_FEATURE_NAMES if "ml" in detector_kinds else []
     raw_threshold_setting = getattr(config, "SEG_THRESHOLD", ML_DEFAULT_THRESHOLD)
     calibration_target_packets = max(
         1,
         int(getattr(config, "CALIBRATION_BUFFER_SIZE", getattr(config, "SEG_WINDOW_SIZE", 100) * 10)),
     )
     summary_evaluation_interval = max(1, int(getattr(config, "EVALUATION_INTERVAL", 25)))
-
-    def format_feature_vector(features):
-        return " ".join(f"{name}={value:.4f}" for name, value in zip(feature_names, features))
-
-    def get_ordered_turbulence_tail(ctx, tail_size):
-        if ctx.buffer_count <= 0 or tail_size <= 0:
-            return []
-        if ctx.buffer_count < ctx.window_size:
-            ordered = ctx.turbulence_buffer[:ctx.buffer_count]
-        else:
-            idx = ctx.buffer_index
-            ordered = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
-        return ordered[-tail_size:]
-
-    def format_turbulence_tail(values):
-        return " ".join(f"{value:.4f}" for value in values)
 
     def get_initial_threshold(kind):
         if isinstance(raw_threshold_setting, (int, float)):
@@ -614,13 +593,6 @@ def _run_live_collect(args) -> None:
             return "WARMUP"
         return "MOTION" if int(slot["effective_state"]) == 1 else "IDLE"
 
-    def should_print_publish_details(effective_state):
-        if not (args.log_turbulence or args.log_features):
-            return False
-        if args.log_only_motion and effective_state != 1:
-            return False
-        return True
-
     def finalize_slot_calibration(slot):
         detector = slot["detector"]
         runtime_policy = slot["runtime_policy"]
@@ -634,6 +606,9 @@ def _run_live_collect(args) -> None:
         if calibration_tracker is not None and calibration_tracker.is_successful():
             if isinstance(raw_threshold_setting, str):
                 startup_threshold, threshold_formula = calibration_tracker.calculate_threshold(raw_threshold_setting)
+                if hasattr(calibration_tracker, "get_floor_snapshot") and hasattr(detector, "apply_startup_floor"):
+                    floor_value, vote_enabled, sample_count = calibration_tracker.get_floor_snapshot()
+                    detector.apply_startup_floor(floor_value, vote_enabled, sample_count)
                 if hasattr(detector, "set_adaptive_threshold"):
                     detector.set_adaptive_threshold(startup_threshold)
                 elif hasattr(detector, "set_threshold"):
@@ -641,6 +616,9 @@ def _run_live_collect(args) -> None:
                 slot["calibration_threshold_source"] = f"{raw_threshold_setting} ({threshold_formula})"
             else:
                 startup_threshold, _ = calibration_tracker.calculate_threshold("auto")
+                if hasattr(calibration_tracker, "get_floor_snapshot") and hasattr(detector, "apply_startup_floor"):
+                    floor_value, vote_enabled, sample_count = calibration_tracker.get_floor_snapshot()
+                    detector.apply_startup_floor(floor_value, vote_enabled, sample_count)
                 if hasattr(detector, "set_adaptive_threshold"):
                     detector.set_adaptive_threshold(startup_threshold)
                 detector.set_threshold(float(raw_threshold_setting))
@@ -670,9 +648,7 @@ def _run_live_collect(args) -> None:
             calibration_tracker.observe_detector(calibration_detector)
             slot["motion_metric"] = extract_motion_metric(calibration_metrics)
             slot["metric_threshold"] = calibration_metrics.get("threshold", calibration_detector.get_threshold())
-            slot["status"] = (
-                "EXTENDING" if calibration_tracker.is_extending() else "CALIBRATING"
-            )
+            slot["status"] = getattr(calibration_tracker, "get_phase_label", lambda: "CALIBRATING")()
 
             if calibration_tracker.is_complete():
                 finalize_slot_calibration(slot)
@@ -725,6 +701,8 @@ def _run_live_collect(args) -> None:
                             + format_calibration_status_line(
                                 progress=1.0,
                                 pps=device_state["pps"],
+                                packet_count=device_state["packet_count"],
+                                dropped_count=device_state["dropped_count"],
                                 motion_metric=slot["motion_metric"],
                                 calibration_packets=calibration_packets,
                                 calibration_target_packets=calibration_target_packets,
@@ -739,6 +717,8 @@ def _run_live_collect(args) -> None:
                             + format_calibration_status_line(
                                 progress=(calibration_packets / calibration_target_packets),
                                 pps=device_state["pps"],
+                                packet_count=device_state["packet_count"],
+                                dropped_count=device_state["dropped_count"],
                                 motion_metric=slot["motion_metric"],
                                 calibration_packets=calibration_packets,
                                 calibration_target_packets=calibration_target_packets,
@@ -755,6 +735,8 @@ def _run_live_collect(args) -> None:
                     detail_line = (
                         "    "
                         + format_detection_publish_line(
+                            packet_count=device_state["packet_count"],
+                            dropped_count=device_state["dropped_count"],
                             pps=device_state["pps"],
                             motion_metric=slot["motion_metric"],
                             threshold=slot["metric_threshold"],
@@ -897,12 +879,7 @@ def _run_live_collect(args) -> None:
         for slot in device_state["slots"]:
             detector = slot["detector"]
             runtime_policy = slot["runtime_policy"]
-            has_turbulence_context = hasattr(detector, "_context")
-            raw_turbulence = None
-            if args.log_turbulence and has_turbulence_context:
-                raw_turbulence = detector._context._compute_spatial_turbulence_in_buffer(pkt.iq_raw, subcarriers)
             detector.process_packet(pkt.iq_raw, subcarriers)
-            filtered_turbulence = detector._context.last_turbulence if has_turbulence_context else None
             runtime_policy.note_packet()
             metrics = detector.update_state()
             slot["motion_metric"] = extract_motion_metric(metrics)
@@ -916,31 +893,7 @@ def _run_live_collect(args) -> None:
                 should_render_summary = True
 
                 if should_publish:
-                    motion_metric = slot["motion_metric"]
-                    metric_threshold = slot["metric_threshold"]
                     device_state["last_publish_at"] = now
-                    progress_score = motion_metric / metric_threshold if metric_threshold > 0 else 0.0
-
-                    if should_print_publish_details(effective_state):
-                        clear_status_block()
-                        print(
-                            format_detection_publish_line(
-                                pps=device_state["pps"],
-                                motion_metric=motion_metric,
-                                threshold=metric_threshold,
-                                effective_state=effective_state,
-                                progress=progress_score,
-                                device_label=format_slot_label(device_state, slot),
-                            )
-                        )
-                        if args.log_turbulence and has_turbulence_context:
-                            window_tail = get_ordered_turbulence_tail(detector._context, args.window_tail)
-                            print(f"  turbulence: raw={raw_turbulence:.4f} filtered={filtered_turbulence:.4f}")
-                            if window_tail:
-                                print(f"  tail[{len(window_tail)}]: {format_turbulence_tail(window_tail)}")
-                        if args.log_features and slot["kind"] == "ml" and detector.is_ready():
-                            features = detector._extract_features()
-                            print(f"  features: {format_feature_vector(features)}")
 
         update_ready_gate_state(device_state, now)
         if should_publish:
@@ -979,7 +932,7 @@ def _run_live_collect(args) -> None:
         print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
     if "ml" in detector_kinds:
         ml_suffix = " (ml, fixed)" if len(detector_kinds) > 1 else ""
-        print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {get_initial_threshold('ml'):.1f}{ml_suffix}")
+        print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {get_initial_threshold('ml'):.2f}{ml_suffix}")
     if calibrated_kinds:
         threshold_text = raw_threshold_setting if isinstance(raw_threshold_setting, str) else f"{float(raw_threshold_setting):.4f}"
         print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {threshold_text} (after startup calibration)")
@@ -987,7 +940,7 @@ def _run_live_collect(args) -> None:
     print(f"  {Fore.CYAN}Window:{Style.RESET_ALL}    {config.SEG_WINDOW_SIZE} pkts")
     print(f"  {Fore.CYAN}Subcarriers:{Style.RESET_ALL} {subcarriers}")
     print(
-        f"  {Fore.CYAN}Consecutive hits motion/idle:{Style.RESET_ALL} "
+        f"  {Fore.CYAN}Hits on/off:{Style.RESET_ALL} "
         f"{getattr(config, 'MOTION_ON_HITS', 3)}/{getattr(config, 'MOTION_OFF_HITS', 3)}"
     )
     print(f"  {Fore.CYAN}Low-pass:{Style.RESET_ALL}  {'ON' if config.ENABLE_LOWPASS_FILTER else 'OFF'}")
@@ -1010,7 +963,13 @@ def _run_live_collect(args) -> None:
     try:
         stimulus_sender.start()
         while state["running"]:
-            receiver.run(timeout=1.0, quiet=True)
+            announce_socket_rcvbuf = state.get("socket_rcvbuf_reported") is not True
+            run_kwargs = {"timeout": 1.0, "quiet": True}
+            if "announce_socket_rcvbuf" in inspect.signature(receiver.run).parameters:
+                run_kwargs["announce_socket_rcvbuf"] = announce_socket_rcvbuf
+            receiver.run(**run_kwargs)
+            if announce_socket_rcvbuf and receiver.effective_socket_rcvbuf_bytes is not None:
+                state["socket_rcvbuf_reported"] = True
     except KeyboardInterrupt:
         state["interrupted"] = True
         render_multi_device_summary(time.monotonic())

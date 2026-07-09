@@ -60,6 +60,7 @@ class NimbleBleBindings : public IBleBindings {
   uint8_t addr_type_{0};
   uint16_t conn_handle_{0xFFFF};
   bool setup_complete_{false};
+  bool shutting_down_{false};
   bool telemetry_subscribed_{false};
   bool advertising_active_{false};
   uint32_t sysinfo_line_interval_ms_{20U};

@@ -1,7 +1,7 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-08T00:15:17.480174",
+  "updated_at": "2026-07-08T16:28:44.085524",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -293,19 +293,6 @@
         "environment": "living_room",
         "device_id": "0x000030eda0e46278",
         "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260704_201203_743575_0001.npz"
-      },
-      {
-        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260705_115119_722041_0001.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-05T11:51:19.708196",
-        "duration_ms": 179994,
-        "num_packets": 17115,
-        "description": "HT20 static presence sample",
-        "environment": "living_room",
-        "device_id": "0x000010b41de8ec00",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260705_115458_527844_0001.npz"
       }
     ],
     "motion": [
@@ -438,34 +425,9 @@
         "environment": "living_room",
         "device_id": "0x000030eda0e46278",
         "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260704_200911_606140_0001.npz"
-      },
-      {
-        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260705_115458_527844_0001.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-05T11:54:58.519690",
-        "duration_ms": 89933,
-        "num_packets": 8547,
-        "description": "HT20 motion sample",
-        "environment": "living_room",
-        "device_id": "0x000010b41de8ec00",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260705_115119_722041_0001.npz"
       }
     ],
     "test": [
-      {
-        "filename": "test_s3_64sc_dev000010b41de8ec00_20260704_112318_608918_0001.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T11:23:18.563635",
-        "duration_ms": 599903,
-        "num_packets": 59923,
-        "description": "quiet long-run",
-        "environment": "hobby_room",
-        "device_id": "0x000010b41de8ec00"
-      },
       {
         "filename": "test_c6_64sc_dev00007c2c6742bbac_20260704_112318_971151_0002.npz",
         "chip": "C6",
@@ -551,18 +513,6 @@
         "environment": "hobby_room"
       },
       {
-        "filename": "test_s3_64sc_dev000010b41de8ec00_20260704_181757_047886_0001.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T18:17:57.017554",
-        "duration_ms": 599982,
-        "num_packets": 59101,
-        "description": "HT20 test sample",
-        "environment": "bedroom",
-        "device_id": "0x000010b41de8ec00"
-      },
-      {
         "filename": "test_c5_64sc_dev000030eda0e46278_20260704_192116_870146_0001.npz",
         "chip": "C5",
         "subcarriers": 64,
@@ -573,6 +523,18 @@
         "description": "HT20 test sample",
         "environment": "living_room",
         "device_id": "0x000030eda0e46278"
+      },
+      {
+        "filename": "test_c6_64sc_dev00007c2c6742bbac_20260708_162843_809530_0001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-08T16:28:43.780454",
+        "duration_ms": 599993,
+        "num_packets": 59699,
+        "description": "HT20 test sample",
+        "environment": "bedroom",
+        "device_id": "0x00007c2c6742bbac"
       }
     ]
   },

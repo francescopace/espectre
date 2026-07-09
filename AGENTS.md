@@ -32,7 +32,9 @@ Innovation flow: prototype in Python, validate, then port to the relevant shared
 - `docs/ALGORITHMS.md`: algorithm theory and detector explanations
 - `docs/PERFORMANCE.md`: benchmark targets and current metrics
 - `docs/ARCHITECTURE.md`: internal architecture, runtime/frontend split, and orchestration direction
+- `docs/adr/*.md`: architecture decision records for stable technical choices, including context, decision, alternatives, and consequences
 - `docs/ESPECTRE_PROTOCOL.md`: shared device protocol, payloads, topics, and transport semantics
+- `docs/EXPERIMENTS.md`: experiment log, including successful attempts, failed attempts, lessons learned, and historical context to avoid repeating past mistakes
 - `src/python/micro_espectre/README.md`: Micro-ESPectre workflow, CLI, MQTT, and R&D positioning
 - `docs/ML_DATA_COLLECTION.md`: dataset collection and labeling workflow
 - `docs/ML_TRAINING.md`: ML training, export, and validation workflow
@@ -117,6 +119,8 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 - Use a neutral informative tone for technical docs.
 - Allow a more approachable product-facing tone in `README.md` and public entry-point docs.
 - Keep frontend-specific workflows, protocols, and firmware surfaces in the local frontend README files.
+- Document meaningful experiments in `docs/EXPERIMENTS.md`, including both successes and failures, so the project keeps a useful historical record and avoids repeating past mistakes.
+- Use ADRs under `docs/adr/` for durable architectural or project-level decisions. Keep ADRs concise, one decision per file, and link the relevant `docs/EXPERIMENTS.md` entries when experiments informed the choice.
 - Entry-point docs may include product/subproject branding in the title when established style supports it.
 - Other docs should use simple descriptive titles.
 - Emoji should be rare and purposeful, not ornamental.

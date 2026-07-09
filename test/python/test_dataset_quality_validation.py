@@ -56,14 +56,13 @@ def test_empty_separation_uses_turb_mean_score(monkeypatch) -> None:
 
     def fake_compute(csi_data):
         if csi_data is fake_data["empty_a.npz"][0]:
-            # `turb_mean` separates empty from static, while moving variance stays identical.
-            return np.array([1.0, 1.0, 1.0, 1.0]), np.array([0.2, 0.2, 0.2])
-        return np.array([5.0, 5.0, 5.0, 5.0]), np.array([0.2, 0.2, 0.2])
+            return np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float64)
+        return np.array([5.0, 5.0, 5.0, 5.0], dtype=np.float64)
 
     monkeypatch.setattr(module, "_resolve_dataset_entry_path", fake_resolve)
     monkeypatch.setattr(module, "_load_cached_or_npz", fake_load)
     monkeypatch.setattr(module, "_filter_measurement_frames", fake_filter)
-    monkeypatch.setattr(module, "_compute_turbulence_and_moving_variance_series", fake_compute)
+    monkeypatch.setattr(module, "_compute_turbulence_series", fake_compute)
 
     results = module.validate_empty_sanity(dataset_info, npz_cache={})
     separation = next(r for r in results if r.name == "empty_separation_C5_bedroom")

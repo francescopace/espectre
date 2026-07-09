@@ -54,6 +54,7 @@ CONF_DETECTION_ALGORITHM = "detection_algorithm"
 # Threshold limits (keep in sync with csi_processor.h)
 THRESHOLD_MIN = 0.0
 THRESHOLD_MAX = 10.0
+ML_THRESHOLD_MAX = 1.0
 THRESHOLD_DEFAULT = 1.0
 
 # Sensors - defined directly in component
@@ -102,9 +103,11 @@ CONFIG_SCHEMA = cv.Schema({
     
     # Motion detection parameters
     # segmentation_threshold:
-    #   - auto (default): max x 1.1 - Classic startup calibration
-    #   - min: max x 1.0 - maximum sensitivity (may have FP)
-    #   - number (0.0-10.0): fixed manual threshold
+    #   - auto (default): adaptive startup calibration for Classic
+    #   - min: same startup metric with x 1.0 - maximum sensitivity (may have FP)
+    #   - number: fixed manual threshold
+    #       * classic: 0.0-10.0
+    #       * ml: 0.0-1.0
     cv.Optional(CONF_SEGMENTATION_THRESHOLD, default="auto"): validate_segmentation_threshold,
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=100): cv.int_range(min=10, max=200),
     
@@ -169,8 +172,23 @@ def _compute_publish_interval(config):
     return config
 
 
+def _validate_threshold_for_detector(config):
+    """Enforce detector-specific manual threshold ranges."""
+    threshold_value = config[CONF_SEGMENTATION_THRESHOLD]
+    if (
+        config[CONF_DETECTION_ALGORITHM] == "ml"
+        and isinstance(threshold_value, (int, float))
+        and threshold_value > ML_THRESHOLD_MAX
+    ):
+        raise cv.Invalid(
+            f"ML manual threshold must be between {THRESHOLD_MIN} and {ML_THRESHOLD_MAX}"
+        )
+    return config
+
+
 FINAL_VALIDATE_SCHEMA = cv.All(
     _compute_publish_interval,
+    _validate_threshold_for_detector,
 )
 
 
@@ -232,11 +250,13 @@ async def to_code(config):
     # Note: number.new_number() handles component registration internally
     # Do NOT call register_component separately - it causes double initialization
     # that leads to "Load access fault" crash on boot (null pointer in early setup)
+    threshold_max = ML_THRESHOLD_MAX if config[CONF_DETECTION_ALGORITHM] == "ml" else THRESHOLD_MAX
+    threshold_step = 0.01 if config[CONF_DETECTION_ALGORITHM] == "ml" else 0.1
     num = await number.new_number(
         config[CONF_THRESHOLD_NUMBER],
         min_value=THRESHOLD_MIN,
-        max_value=THRESHOLD_MAX,
-        step=0.1,
+        max_value=threshold_max,
+        step=threshold_step,
     )
     cg.add(num.set_parent(var))
     cg.add(var.set_threshold_number(num))
