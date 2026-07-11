@@ -9,7 +9,7 @@
 #include <algorithm>
 #include "espectre_log.h"
 #include "esp_timer.h"
-#include "stimulus_protocol.h"
+#include "csi_frame_identity.h"
 
 namespace esphome {
 namespace espectre {

@@ -4,10 +4,14 @@
 #include <cstring>
 #include "espectre_log.h"
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "runtime_config_utils.h"
+
+#if __has_include("esp_heap_caps.h")
+#include "esp_heap_caps.h"
+#define ESPECTRE_HAVE_ESP_HEAP_CAPS 1
+#endif
 
 namespace esphome {
 namespace espectre {
@@ -20,17 +24,18 @@ TrafficGeneratorMode to_traffic_mode(RuntimeTrafficMode mode) {
   return mode == RuntimeTrafficMode::PING ? TrafficGeneratorMode::PING : TrafficGeneratorMode::DNS;
 }
 
-StimulusServiceConfig to_stimulus_config(const RuntimeConfig &config) {
-  StimulusServiceConfig stimulus_config;
-  stimulus_config.mode =
-      (config.stimulus_mode == StimulusMode::INTERNAL && config.traffic_generator_rate == 0U)
-          ? StimulusMode::EXTERNAL
-          : config.stimulus_mode;
-  stimulus_config.rate_pps = config.traffic_generator_rate;
-  stimulus_config.traffic_mode = to_traffic_mode(config.traffic_generator_mode);
-  stimulus_config.udp_port = config.stimulus_udp_port;
-  stimulus_config.multicast_group = config.stimulus_multicast_group;
-  return stimulus_config;
+CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
+  CsiTrafficServiceConfig csi_traffic_config;
+  csi_traffic_config.mode =
+      (config.csi_traffic_mode == CsiTrafficMode::INTERNAL && config.traffic_generator_rate == 0U)
+          ? CsiTrafficMode::EXTERNAL
+          : config.csi_traffic_mode;
+  csi_traffic_config.rate_pps = config.traffic_generator_rate;
+  csi_traffic_config.traffic_mode = to_traffic_mode(config.traffic_generator_mode);
+  csi_traffic_config.udp_port = config.csi_traffic_udp_port;
+  csi_traffic_config.multicast_group = config.csi_traffic_multicast_group;
+  csi_traffic_config.expected_payload = config.csi_traffic_expected_payload;
+  return csi_traffic_config;
 }
 
 }  // namespace
@@ -63,7 +68,7 @@ bool EspIdfRuntime::setup() {
     return false;
   }
 
-  stimulus_service_.init(to_stimulus_config(config_));
+  csi_traffic_service_.init(to_csi_traffic_config(config_));
 
   csi_manager_.init(detector_, config_.publish_interval);
   csi_manager_.set_evaluation_interval(config_.evaluation_interval);
@@ -87,8 +92,20 @@ bool EspIdfRuntime::setup() {
     }
   }
   ESP_LOGD(RUNTIME_TAG, "[resources] Free heap: %lu bytes, largest block: %lu bytes",
-           static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_DEFAULT)),
-           static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)));
+           static_cast<unsigned long>(
+#ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
+               heap_caps_get_free_size(MALLOC_CAP_DEFAULT)
+#else
+               0UL
+#endif
+               ),
+           static_cast<unsigned long>(
+#ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
+               heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)
+#else
+               0UL
+#endif
+               ));
   return true;
 }
 
@@ -103,7 +120,7 @@ void EspIdfRuntime::shutdown() {
 }
 
 void EspIdfRuntime::loop() {
-  stimulus_service_.loop();
+  csi_traffic_service_.loop();
 }
 
 void EspIdfRuntime::set_services_armed(bool armed) {
@@ -244,8 +261,8 @@ void EspIdfRuntime::on_wifi_connected_() {
     }
   }
 
-  if (!stimulus_service_.is_running() && !stimulus_service_.start()) {
-    notify_fault_("Failed to start stimulus service");
+  if (!csi_traffic_service_.is_running() && !csi_traffic_service_.start()) {
+    notify_fault_("Failed to start CSI traffic service");
     return;
   }
 
@@ -260,7 +277,7 @@ void EspIdfRuntime::on_wifi_disconnected_() {
   csi_manager_.set_packet_interceptor({});
   csi_manager_.set_local_identity(0U, nullptr);
   csi_manager_.disable();
-  stimulus_service_.stop();
+  csi_traffic_service_.stop();
   snapshot_.ready_to_publish = false;
   snapshot_.motion_state = MotionState::IDLE;
   if (listener_ != nullptr) {

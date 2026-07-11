@@ -929,9 +929,9 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                     continue
 
                 has_sync_metadata = any(
-                    p.get('stimulus_id') is not None and (
-                        p.get('wifi_rx_start_ts_ns') is not None or p.get('device_ticks_us') is not None
-                    )
+                    p.get('wifi_rx_start_ts_ns') is not None
+                    or p.get('device_ticks_us') is not None
+                    or p.get('wifi_rx_ts_us') is not None
                     for p in packets
                 )
                 if require_sync_metadata and not has_sync_metadata:

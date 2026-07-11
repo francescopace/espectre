@@ -9,35 +9,36 @@
 namespace esphome {
 namespace espectre {
 
-enum class StimulusMode {
+enum class CsiTrafficMode {
   INTERNAL,
   EXTERNAL,
+  PACING,
   DISABLED,
 };
 
-struct StimulusServiceConfig {
-  StimulusMode mode{StimulusMode::INTERNAL};
+struct CsiTrafficServiceConfig {
+  CsiTrafficMode mode{CsiTrafficMode::INTERNAL};
   uint32_t rate_pps{100U};
   TrafficGeneratorMode traffic_mode{TrafficGeneratorMode::PING};
   uint16_t udp_port{5555U};
   std::string multicast_group;
+  std::string expected_payload;
 };
 
-class StimulusService {
+class CsiTrafficService {
  public:
-  void init(const StimulusServiceConfig &config);
+  void init(const CsiTrafficServiceConfig &config);
   bool start();
   void stop();
   void loop();
 
   bool is_running() const;
   bool get_last_sender(sockaddr_in *out_addr) const;
-  uint64_t get_raw_packets_received() const;
   uint64_t get_packets_received() const;
-  const StimulusServiceConfig &config() const { return config_; }
+  const CsiTrafficServiceConfig &config() const { return config_; }
 
  private:
-  StimulusServiceConfig config_{};
+  CsiTrafficServiceConfig config_{};
   TrafficGeneratorManager traffic_generator_;
   UDPListener udp_listener_;
 };

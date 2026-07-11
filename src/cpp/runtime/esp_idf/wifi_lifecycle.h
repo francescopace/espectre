@@ -48,9 +48,8 @@ class WiFiLifecycleManager {
    * Some ESP-IDF targets reject band/protocol changes before esp_wifi_start().
    * Calling this from WIFI_EVENT_STA_START ensures the first association uses
    * the HT20/11n policy instead of the target's HE/11ax default.
-   */
+  */
   static esp_err_t apply_csi_wifi_policy();
-  static esp_err_t apply_tx_retry_policy();
   
   /**
    * Register WiFi event handlers

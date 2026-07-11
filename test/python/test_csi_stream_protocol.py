@@ -10,22 +10,17 @@ import pytest
 
 from tools.lib import dataset_metadata
 from tools.lib.csi_io import (
+    UdpPacingSender,
     CSICollector,
     CSIReceiver,
     CSI_HEADER_STRUCT,
+    DEFAULT_PACING_INTERVAL_SECONDS,
+    DEFAULT_PACING_PAYLOAD,
     MAGIC_STREAM,
-    STIMULUS_HEADER_STRUCT,
-    STIMULUS_MAGIC,
-    STIMULUS_ROLE_MEASUREMENT,
-    STIMULUS_ROLE_REFERENCE,
-    STIMULUS_VERSION,
-    STREAM_FLAG_REFERENCE_FRAME,
-    STREAM_FLAG_STIMULUS_ID_VALID,
     STREAM_FLAG_WIFI_RX_START_TS_NS_VALID,
     STREAM_FLAG_WIFI_RX_TS_VALID,
     STREAM_VERSION,
-    StimulusSender,
-    build_stimulus_datagram,
+    build_pacing_datagram,
 )
 
 
@@ -39,10 +34,10 @@ def build_packet(
     device_ticks_us=123456,
     wifi_rx_ts_us=0,
     wifi_rx_start_ts_ns=0,
-    stimulus_id=0,
     channel=6,
     rssi_dbm=-42,
     noise_floor_dbm=-96,
+    tx_backpressure_total=0,
 ):
     payload_values = payload if payload is not None else [1, 2, 3, 4]
     payload = np.array(payload_values, dtype=np.int8).tobytes()
@@ -60,10 +55,10 @@ def build_packet(
         device_ticks_us,
         wifi_rx_ts_us,
         wifi_rx_start_ts_ns,
-        stimulus_id,
         channel,
         rssi_dbm,
         noise_floor_dbm,
+        tx_backpressure_total,
     )
     return header + payload
 
@@ -87,39 +82,51 @@ def test_parse_packet_accepts_unified_stream_header():
     assert packet.device_ticks_us == 987654
     assert packet.channel == 11
     assert packet.rssi_dbm == -55
+    assert packet.tx_backpressure_total == 0
     np.testing.assert_array_equal(packet.iq_raw, np.array([10, 20, -30, 40], dtype=np.int8))
     np.testing.assert_allclose(packet.iq_complex, np.array([20 + 10j, 40 - 30j], dtype=np.complex64))
 
 
-def test_build_stimulus_datagram_uses_estm_wire_format():
-    datagram = build_stimulus_datagram(0x01020304)
-    magic, version, role, stimulus_id = STIMULUS_HEADER_STRUCT.unpack(datagram)
+def test_parse_packet_preserves_short_transport_payload():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    payload = []
+    for idx in range(12):
+        payload.extend([idx + 1, -(idx + 1)])
 
-    assert magic == STIMULUS_MAGIC
-    assert version == STIMULUS_VERSION
-    assert role == STIMULUS_ROLE_MEASUREMENT
-    assert stimulus_id == 0x01020304
+    packet = receiver._parse_packet(build_packet(seq_num=9, payload=payload))
 
-
-def test_build_stimulus_datagram_marks_reference_role():
-    datagram = build_stimulus_datagram(77, is_reference=True)
-    _magic, _version, role, stimulus_id = STIMULUS_HEADER_STRUCT.unpack(datagram)
-
-    assert role == STIMULUS_ROLE_REFERENCE
-    assert stimulus_id == 77
+    assert packet is not None
+    assert packet.seq_num == 9
+    assert packet.num_subcarriers == 12
+    assert packet.iq_raw.shape == (24,)
+    np.testing.assert_array_equal(packet.iq_raw, np.array(payload, dtype=np.int8))
 
 
-def test_stimulus_sender_emits_incrementing_estm_packets():
+def test_parse_packet_derives_complex_data_lazily_when_disabled():
+    receiver = CSIReceiver(bind_host='127.0.0.1', derive_complex=False)
+    packet = receiver._parse_packet(build_packet(seq_num=8, payload=[10, 20, -30, 40]))
+
+    assert packet is not None
+    assert packet._iq_complex is None
+    np.testing.assert_allclose(packet.iq_complex, np.array([20 + 10j, 40 - 30j], dtype=np.complex64))
+    assert packet._iq_complex is not None
+
+
+def test_build_pacing_datagram_uses_default_pacing_payload():
+    datagram = build_pacing_datagram()
+    assert datagram == b"ESPE"
+    assert datagram == DEFAULT_PACING_PAYLOAD
+
+
+def test_udp_pacing_sender_emits_udp_pacing_packets():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("127.0.0.1", 0))
-    sock.settimeout(1.0)
+    sock.settimeout(6.0)
 
-    sender = StimulusSender(
+    sender = UdpPacingSender(
         target_host="127.0.0.1",
         target_port=sock.getsockname()[1],
-        rate_pps=200,
-        reference_every=2,
-        stimulus_id_start=10,
+        interval_s=0.05,
     )
     try:
         sender.start()
@@ -129,29 +136,20 @@ def test_stimulus_sender_emits_incrementing_estm_packets():
         sender.stop()
         sock.close()
 
-    first_magic, first_version, first_role, first_id = STIMULUS_HEADER_STRUCT.unpack(first)
-    second_magic, second_version, second_role, second_id = STIMULUS_HEADER_STRUCT.unpack(second)
-
-    assert first_magic == STIMULUS_MAGIC
-    assert second_magic == STIMULUS_MAGIC
-    assert first_version == STIMULUS_VERSION
-    assert second_version == STIMULUS_VERSION
-    assert first_role == STIMULUS_ROLE_MEASUREMENT
-    assert second_role == STIMULUS_ROLE_REFERENCE
-    assert first_id == 10
-    assert second_id == 11
+    assert first == DEFAULT_PACING_PAYLOAD
+    assert second == DEFAULT_PACING_PAYLOAD
 
 
-def test_stimulus_sender_binds_to_requested_source_host():
+def test_udp_pacing_sender_binds_to_requested_source_host():
     rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     rx_sock.bind(("127.0.0.1", 0))
     rx_sock.settimeout(1.0)
 
-    sender = StimulusSender(
+    sender = UdpPacingSender(
         target_host="127.0.0.1",
         target_port=rx_sock.getsockname()[1],
-        rate_pps=50,
         source_host="127.0.0.1",
+        interval_s=0.05,
     )
     try:
         sender.start()
@@ -163,7 +161,7 @@ def test_stimulus_sender_binds_to_requested_source_host():
     assert addr[0] == "127.0.0.1"
 
 
-def test_stimulus_sender_fans_out_same_datagram_to_multiple_targets():
+def test_udp_pacing_sender_fans_out_same_datagram_to_multiple_targets():
     class FakeSocket:
         def __init__(self):
             self.calls = []
@@ -171,14 +169,11 @@ def test_stimulus_sender_fans_out_same_datagram_to_multiple_targets():
         def sendto(self, payload, addr):
             self.calls.append((payload, addr))
 
-    sender = StimulusSender(
+    sender = UdpPacingSender(
         target_host=["192.168.1.17", "192.168.1.24", "192.168.1.29"],
         target_port=9999,
-        rate_pps=100,
     )
     sender.sock = FakeSocket()
-    sender._stop_event.set()
-    sender._stop_event.clear()
 
     original_wait = sender._stop_event.wait
 
@@ -200,36 +195,80 @@ def test_stimulus_sender_fans_out_same_datagram_to_multiple_targets():
         ("192.168.1.24", 9999),
         ("192.168.1.29", 9999),
     ]
-    magic, version, role, stimulus_id = STIMULUS_HEADER_STRUCT.unpack(next(iter(payloads)))
-    assert magic == STIMULUS_MAGIC
-    assert version == STIMULUS_VERSION
-    assert role == STIMULUS_ROLE_MEASUREMENT
-    assert stimulus_id == 1
+    assert next(iter(payloads)) == DEFAULT_PACING_PAYLOAD
+
+
+def test_udp_pacing_sender_uses_default_interval():
+    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999)
+
+    assert sender.interval_s == DEFAULT_PACING_INTERVAL_SECONDS
+
+
+def test_udp_pacing_sender_updates_rate_safely():
+    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999, interval_s=0.1)
+
+    sender.set_rate_pps(25)
+
+    assert sender.get_rate_pps() == pytest.approx(25.0)
+    assert sender.interval_s == pytest.approx(0.04)
+
+
+def test_udp_pacing_sender_uses_absolute_deadlines(monkeypatch):
+    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999, interval_s=0.1)
+    clock = {"now": 10.0}
+    waits = []
+    sends = {"count": 0}
+
+    monkeypatch.setattr("tools.lib.csi_io.time.perf_counter", lambda: clock["now"])
+
+    def fake_send_once():
+        sends["count"] += 1
+        clock["now"] += 0.03
+
+    def fake_wait(timeout):
+        waits.append(timeout)
+        clock["now"] += timeout
+        if len(waits) >= 3:
+            sender._stop_event.set()
+        return False
+
+    sender._send_once = fake_send_once
+    sender._stop_event.wait = fake_wait
+
+    sender._run()
+
+    assert sends["count"] == 3
+    assert waits == pytest.approx([0.07, 0.07, 0.07], abs=1e-6)
 
 
 def test_parse_packet_reads_optional_metadata():
     receiver = CSIReceiver(bind_host='127.0.0.1')
-    flags = (
-        STREAM_FLAG_WIFI_RX_TS_VALID
-        | STREAM_FLAG_WIFI_RX_START_TS_NS_VALID
-        | STREAM_FLAG_STIMULUS_ID_VALID
-        | STREAM_FLAG_REFERENCE_FRAME
-    )
+    flags = STREAM_FLAG_WIFI_RX_TS_VALID | STREAM_FLAG_WIFI_RX_START_TS_NS_VALID
     packet = receiver._parse_packet(
         build_packet(
             seq_num=42,
             flags=flags,
             wifi_rx_ts_us=5555,
             wifi_rx_start_ts_ns=987654321,
-            stimulus_id=1234,
         )
     )
 
     assert packet is not None
     assert packet.wifi_rx_ts_us == 5555
     assert packet.wifi_rx_start_ts_ns == 987654321
-    assert packet.stimulus_id == 1234
-    assert packet.is_reference is True
+
+
+def test_parse_packet_reads_tx_backpressure_total():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    packet = receiver._parse_packet(
+        build_packet(
+            seq_num=43,
+            tx_backpressure_total=17,
+        )
+    )
+
+    assert packet is not None
+    assert packet.tx_backpressure_total == 17
 
 
 def test_receiver_configures_udp_receive_buffer(monkeypatch):
@@ -339,7 +378,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert str(data['label']) == 'static_presence'
     assert str(data['chip']) == 'c6'
     assert int(data['num_subcarriers']) == 2
-    assert str(data['format_version']) == '1.1'
+    assert str(data['format_version']) == '1.2'
     assert int(data['device_id']) == 0xABCDEF
     np.testing.assert_array_equal(data['stream_seq_num'], np.array([100, 101], dtype=np.uint32))
     np.testing.assert_array_equal(data['device_ticks_us'], np.array([1000, 2000], dtype=np.uint64))
@@ -347,11 +386,34 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     np.testing.assert_array_equal(data['csi_data'], np.array([[1, 2, 3, 4], [5, 6, 7, 8]], dtype=np.int8))
 
     info = dataset_metadata.load_dataset_info()
-    assert info['format_version'] == '1.1'
+    assert info['format_version'] == '1.2'
     assert info['files']['static_presence'][0]['filename'] == filepath.name
     assert info['files']['static_presence'][0]['device_id'] == '0x0000000000abcdef'
     assert info['files']['static_presence'][0]['description'] == 'HT20 static presence sample'
     assert 'dev0000000000abcdef' in filepath.name
+
+
+def test_save_sample_preserves_short_transport_schema(tmp_path, monkeypatch):
+    data_dir = tmp_path / 'data'
+    monkeypatch.setattr(dataset_metadata, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(dataset_metadata, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
+
+    short_payload = []
+    for idx in range(12):
+        short_payload.extend([idx + 1, 50 + idx])
+
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    packet = receiver._parse_packet(build_packet(seq_num=200, payload=short_payload, device_id=0xABCDEF))
+
+    collector = CSICollector(label='short_transport', contributor='tester', bind_host='127.0.0.1')
+    filepath = collector.save_sample([packet])
+
+    assert filepath is not None
+    data = np.load(filepath, allow_pickle=True)
+    assert int(data['num_subcarriers']) == 12
+    assert data['csi_data'].shape == (1, 24)
+    np.testing.assert_array_equal(data['csi_data'][0], np.array(short_payload, dtype=np.int8))
+    assert '_12sc_' in filepath.name
 
 
 def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):

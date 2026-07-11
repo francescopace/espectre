@@ -150,6 +150,13 @@ esp_err_t nvs_commit(nvs_handle_t handle) {
 
 void nvs_close(nvs_handle_t handle) { (void) handle; }
 
+esp_err_t nvs_flash_init(void) { return ESP_OK; }
+
+esp_err_t nvs_flash_erase(void) {
+  nvs_mock_reset();
+  return ESP_OK;
+}
+
 }  // extern "C"
 
 namespace {

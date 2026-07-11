@@ -24,8 +24,7 @@ def _make_collect_args(**overrides) -> argparse.Namespace:
         "bind_ip": None,
         "target": "192.168.1.15",
         "target_port": 9999,
-        "rate": 100,
-        "reference_every": 20,
+        "pps": 100,
         "contributor": None,
         "description": None,
     }
@@ -44,8 +43,7 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
         "bind_ip": None,
         "target": "192.168.1.15",
         "target_port": 9999,
-        "rate": 100,
-        "reference_every": 0,
+        "pps": 100,
         "detector": "classic",
         "no_save": False,
         "contributor": None,
@@ -55,7 +53,7 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
     return argparse.Namespace(**args)
 
 
-def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, collector_cls=object, config_overrides=None) -> None:
+def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collector_cls=object, config_overrides=None) -> None:
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
     fake_ml_detector = ModuleType("ml_detector")
@@ -185,7 +183,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
 
     fake_csi_utils.CSICollector = collector_cls
     fake_csi_utils.CSIReceiver = receiver_cls
-    fake_csi_utils.StimulusSender = stimulus_cls
+    fake_csi_utils.UdpPacingSender = pacing_cls
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
@@ -315,7 +313,25 @@ def test_collect_parser_accepts_live_options() -> None:
     assert args.detector == "classic"
     assert args.label == "test"
     assert args.duration == 45.0
+    assert args.pps == 100
     assert args.description == "live collect ML, idle-motion-idle"
+
+
+def test_collect_parser_rejects_removed_legacy_collection_options() -> None:
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["collect", "--target", "192.168.1.15", "--reference-every", "2"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["collect", "--target", "192.168.1.15", "--control-rate", "1"])
+
+
+def test_collect_parser_accepts_pps() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["collect", "--target", "192.168.1.15", "--pps", "42"])
+
+    assert args.pps == 42
 
 
 def test_collect_parser_accepts_detector_choice_and_no_save() -> None:
@@ -361,11 +377,11 @@ def test_collect_live_rejects_unknown_detector(monkeypatch, capsys) -> None:
         def __init__(self, **kwargs):
             pass
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
-    _install_live_collect_modules(monkeypatch, FakeReceiver, FakeStimulusSender)
+    _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
 
     with pytest.raises(SystemExit):
         host.collect_csi_data(_make_live_collect_args(detector="classic,bogus", no_save=True))
@@ -496,7 +512,7 @@ def test_wait_before_collection_counts_down(monkeypatch, capsys) -> None:
 def test_collect_info_shows_empty_dataset(monkeypatch, capsys) -> None:
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_csi_utils.CSICollector = object
-    fake_csi_utils.StimulusSender = object
+    fake_csi_utils.UdpPacingSender = object
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
@@ -511,7 +527,7 @@ def test_collect_info_shows_empty_dataset(monkeypatch, capsys) -> None:
 def test_collect_info_shows_label_table(monkeypatch, capsys) -> None:
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_csi_utils.CSICollector = object
-    fake_csi_utils.StimulusSender = object
+    fake_csi_utils.UdpPacingSender = object
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_csi_utils.get_dataset_stats = lambda: {
         "labels": {"motion": {"samples": 4}, "empty": {"samples": 2}},
@@ -535,7 +551,7 @@ def test_collect_csi_data_validates_arguments_and_imports(monkeypatch) -> None:
 
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_csi_utils.CSICollector = object
-    fake_csi_utils.StimulusSender = object
+    fake_csi_utils.UdpPacingSender = object
     fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
@@ -558,7 +574,7 @@ def test_collect_csi_data_handles_interrupt_and_runtime_error(monkeypatch) -> No
         def collect_timed(self, duration: float, num_samples: int):
             raise KeyboardInterrupt
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
@@ -569,7 +585,7 @@ def test_collect_csi_data_handles_interrupt_and_runtime_error(monkeypatch) -> No
             events.append("stop")
 
     fake_csi_utils.CSICollector = InterruptCollector
-    fake_csi_utils.StimulusSender = FakeStimulusSender
+    fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
@@ -579,7 +595,7 @@ def test_collect_csi_data_handles_interrupt_and_runtime_error(monkeypatch) -> No
     assert events == ["start", "stop"]
 
 
-def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> None:
+def test_collect_applies_start_delay_before_starting_pacing(monkeypatch) -> None:
     events: list[object] = []
     fake_csi_utils = ModuleType("tools.lib.csi_io")
 
@@ -591,9 +607,11 @@ def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> No
             events.append(("collect_timed", duration, num_samples))
             return [Path("sample_1.npz"), Path("sample_2.npz")]
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
-            events.append(("sender_init", kwargs["target_host"], kwargs["reference_every"]))
+            events.append(
+                ("sender_init", kwargs["target_host"], kwargs.get("interval_s"))
+            )
 
         def start(self):
             events.append("start")
@@ -602,7 +620,7 @@ def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> No
             events.append("stop")
 
     fake_csi_utils.CSICollector = FakeCollector
-    fake_csi_utils.StimulusSender = FakeStimulusSender
+    fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
 
@@ -612,9 +630,9 @@ def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> No
     host.collect_csi_data(_make_collect_args(target="192.168.1.17,192.168.1.24,192.168.1.29"))
 
     assert ("delay", 5.0) in events
+    assert ("sender_init", ["192.168.1.17", "192.168.1.24", "192.168.1.29"], 0.01) in events
     assert ("collect_timed", 10.0, 2) in events
     assert ("collector_init", "static_presence", "127.0.0.1", 3) in events
-    assert ("sender_init", ["192.168.1.17", "192.168.1.24", "192.168.1.29"], 20) in events
     assert events.index(("delay", 5.0)) < events.index("start")
     assert events[-1] == "stop"
 
@@ -683,7 +701,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
         def stop(self):
             events.append("receiver_stop")
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             events.append(("sender_init", kwargs["target_host"]))
 
@@ -730,7 +748,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
 
     fake_csi_utils.CSICollector = FakeCollector
     fake_csi_utils.CSIReceiver = FakeReceiver
-    fake_csi_utils.StimulusSender = FakeStimulusSender
+    fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_ml_detector.FEATURE_NAMES = ["a", "b"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
@@ -827,7 +845,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
         def stop(self):
             events.append("receiver_stop")
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             events.append(("sender_init", kwargs["target_host"]))
 
@@ -874,7 +892,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
 
     fake_csi_utils.CSICollector = FakeCollector
     fake_csi_utils.CSIReceiver = FakeReceiver
-    fake_csi_utils.StimulusSender = FakeStimulusSender
+    fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_ml_detector.FEATURE_NAMES = ["a", "b"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
@@ -918,7 +936,7 @@ def test_collect_live_validates_save_arguments(monkeypatch) -> None:
         def stop(self):
             pass
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
@@ -928,7 +946,7 @@ def test_collect_live_validates_save_arguments(monkeypatch) -> None:
         def stop(self):
             pass
 
-    _install_live_collect_modules(monkeypatch, FakeReceiver, FakeStimulusSender)
+    _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
 
     with pytest.raises(SystemExit):
         host.collect_csi_data(_make_live_collect_args(duration=0))
@@ -1016,7 +1034,7 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
         def stop(self):
             pass
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
@@ -1071,7 +1089,7 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
 
     fake_csi_utils.CSICollector = FakeCollector
     fake_csi_utils.CSIReceiver = FakeReceiver
-    fake_csi_utils.StimulusSender = FakeStimulusSender
+    fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
@@ -1097,6 +1115,153 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
     assert "Save:" in output and "label=test duration=until Ctrl+C" in output
     assert "STATUS: STABILIZING 1/1" in output
     assert "No live capture packets received; nothing saved" in output
+
+
+def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, capsys) -> None:
+    clock = {"now": 0.0}
+
+    class FakePacket:
+        def __init__(self, seq_num: int, tx_backpressure_total: int):
+            self.seq_num = seq_num
+            self.device_id = 0xABC123
+            self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
+            self.source_ip = "192.168.1.29"
+            self.channel = 8
+            self.rssi_dbm = -47
+            self.chip = "s3"
+            self.tx_backpressure_total = tx_backpressure_total
+
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            self._callbacks = []
+            self.dropped_count = 0
+            self.pps = 100
+
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
+            packet_schedule = [
+                (0.0, FakePacket(1, 0)),
+                (1.2, FakePacket(2, 5)),
+                (2.4, FakePacket(3, 9)),
+                (3.6, FakePacket(4, 9)),
+                (4.8, FakePacket(5, 9)),
+                (6.0, FakePacket(6, 9)),
+            ]
+            for current_time, packet in packet_schedule:
+                clock["now"] = current_time
+                for callback in self._callbacks:
+                    callback(packet)
+            raise KeyboardInterrupt
+
+        def stop(self):
+            pass
+
+    class FakePacingSender:
+        last_instance = None
+
+        def __init__(self, **kwargs):
+            self.rate_updates = []
+            FakePacingSender.last_instance = self
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    _install_live_collect_modules(
+        monkeypatch,
+        FakeReceiver,
+        FakePacingSender,
+        config_overrides={"PUBLISH_INTERVAL": 1, "EVALUATION_INTERVAL": 1},
+    )
+    monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
+
+    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="ml", no_save=True))
+
+    output = capsys.readouterr().out
+    assert FakePacingSender.last_instance is not None
+    assert FakePacingSender.last_instance.rate_updates == pytest.approx([85.0, 59.5, 61.5])
+    assert "bp:active(+4)" in output
+
+
+def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None:
+    class FakePacket:
+        def __init__(self, seq_num: int):
+            self.seq_num = seq_num
+            self.device_id = 0xABC123
+            self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
+            self.source_ip = "192.168.1.29"
+            self.channel = 8
+            self.rssi_dbm = -47
+            self.chip = "s3"
+            self.tx_backpressure_total = 0
+
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            self._callbacks = []
+            self.dropped_count = 0
+            self.pps = 42
+
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
+            for callback in self._callbacks:
+                callback(FakePacket(1))
+            raise KeyboardInterrupt
+
+        def stop(self):
+            pass
+
+    class FakePacingSender:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    _install_live_collect_modules(
+        monkeypatch,
+        FakeReceiver,
+        FakePacingSender,
+        config_overrides={"SEG_WINDOW_SIZE": 2},
+    )
+    classic_module = sys.modules["classic_detector"]
+    base_detector = classic_module.ClassicDetector
+    runtime_policy_module = sys.modules["runtime_policy"]
+    base_runtime_policy = runtime_policy_module.RuntimeMotionPolicy
+
+    class CapturingClassicDetector(base_detector):
+        windows = []
+
+        def __init__(self, **kwargs):
+            self.__class__.windows.append(int(kwargs["window_size"]))
+            super().__init__(**kwargs)
+
+    class CapturingRuntimeMotionPolicy(base_runtime_policy):
+        evaluation_intervals = []
+
+        def __init__(self, **kwargs):
+            self.__class__.evaluation_intervals.append(int(kwargs["evaluation_interval"]))
+            super().__init__(**kwargs)
+
+    classic_module.ClassicDetector = CapturingClassicDetector
+    runtime_policy_module.RuntimeMotionPolicy = CapturingRuntimeMotionPolicy
+
+    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="classic", no_save=True, pps=42))
+
+    capsys.readouterr()
+    assert CapturingClassicDetector.windows == [42, 42]
+    assert CapturingRuntimeMotionPolicy.evaluation_intervals == [10]
 
 
 def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, capsys) -> None:
@@ -1152,7 +1317,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
         def stop(self):
             pass
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
@@ -1210,7 +1375,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
 
     fake_csi_utils.CSICollector = object
     fake_csi_utils.CSIReceiver = FakeReceiver
-    fake_csi_utils.StimulusSender = FakeStimulusSender
+    fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
@@ -1296,7 +1461,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
         def stop(self):
             pass
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
@@ -1436,7 +1601,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
 
     fake_csi_utils.CSICollector = object
     fake_csi_utils.CSIReceiver = FakeReceiver
-    fake_csi_utils.StimulusSender = FakeStimulusSender
+    fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
@@ -1455,14 +1620,16 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
     monkeypatch.setitem(sys.modules, "threshold", fake_threshold)
 
-    host.collect_csi_data(_make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="classic", no_save=True))
+    host.collect_csi_data(
+        _make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="classic", no_save=True, pps=4)
+    )
 
     output = capsys.readouterr().out
     assert "Detector:" in output and "CLASSIC" in output
     assert "STATUS: CALIBRATING" in output
-    assert calibration_calls == [(3.0, "auto"), (3.0, "auto")]
+    assert calibration_calls == [(7.0, "auto"), (7.0, "auto")]
     assert FakeClassicDetector.adaptive_thresholds == [8.0, 8.0]
-    assert " 87% | mvmt:7.000000 thr:8.000000 | IDLE | 0 pkt/s | drop 0.0%" in output
+    assert "thr:8.000000 | IDLE | 0 pkt/s | drop 0.0% | bp:--" in output
     assert "STATUS: COLLECTING 2/2" in output
 
 
@@ -1495,7 +1662,7 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
         def stop(self):
             pass
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
@@ -1508,12 +1675,12 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
     _install_live_collect_modules(
         monkeypatch,
         FakeReceiver,
-        FakeStimulusSender,
+        FakePacingSender,
         config_overrides={"CALIBRATION_BUFFER_SIZE": 2},
     )
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.24", detector="classic,ml", no_save=True)
+        _make_live_collect_args(target="192.168.1.24", detector="classic,ml", no_save=True, pps=4)
     )
 
     output = capsys.readouterr().out
@@ -1554,7 +1721,7 @@ def test_collect_live_shows_drop_rate_during_calibration(monkeypatch, capsys) ->
         def stop(self):
             pass
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
@@ -1567,7 +1734,7 @@ def test_collect_live_shows_drop_rate_during_calibration(monkeypatch, capsys) ->
     _install_live_collect_modules(
         monkeypatch,
         FakeReceiver,
-        FakeStimulusSender,
+        FakePacingSender,
         config_overrides={"CALIBRATION_BUFFER_SIZE": 4, "EVALUATION_INTERVAL": 1},
     )
 
@@ -1593,7 +1760,7 @@ def test_collect_live_surfaces_runtime_error(monkeypatch) -> None:
         def stop(self):
             pass
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
@@ -1603,7 +1770,7 @@ def test_collect_live_surfaces_runtime_error(monkeypatch) -> None:
         def stop(self):
             pass
 
-    _install_live_collect_modules(monkeypatch, FakeReceiver, FakeStimulusSender)
+    _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
 
     with pytest.raises(SystemExit):
         host.collect_csi_data(_make_live_collect_args(no_save=True))
@@ -1638,7 +1805,7 @@ def test_collect_live_displays_device_drop_rate(monkeypatch, capsys) -> None:
         def stop(self):
             pass
 
-    class FakeStimulusSender:
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
@@ -1648,7 +1815,7 @@ def test_collect_live_displays_device_drop_rate(monkeypatch, capsys) -> None:
         def stop(self):
             pass
 
-    _install_live_collect_modules(monkeypatch, FakeReceiver, FakeStimulusSender)
+    _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
 
     host.collect_csi_data(_make_live_collect_args(target="192.168.1.34", detector="ml", no_save=True))
 

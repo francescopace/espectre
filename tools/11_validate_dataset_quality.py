@@ -601,14 +601,12 @@ def validate_capture_continuity(data, csi_data):
     return results
 
 
-def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
+def validate_pair(bl_csi, mv_csi):
     """Validate a static-presence/motion pair.
 
     Args:
         bl_csi: static-presence CSI array (num_packets, 128)
         mv_csi: motion CSI array (num_packets, 128)
-        bl_data: full static-presence NpzFile (for metadata)
-        mv_data: full motion NpzFile (for metadata)
     Returns:
         tuple: (
             results,
@@ -619,8 +617,6 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
         )
     """
     results = []
-    bl_csi = _filter_measurement_frames(bl_csi, bl_data)
-    mv_csi = _filter_measurement_frames(mv_csi, mv_data)
     calibration_packets = bl_csi[:CALIBRATION_BUFFER_SIZE]
     calibrated = build_calibrated_classic_detector(
         _csi_matrix_to_packets(calibration_packets),
@@ -737,24 +733,6 @@ def _resolve_dataset_entry_path(entry, label_group):
     if not filename:
         raise KeyError("filename")
     return DATA_DIR / str(label_group) / str(filename)
-
-
-def _filter_measurement_frames(csi_data, data):
-    """Drop reference frames when the NPZ explicitly tracks them."""
-    data_files = getattr(data, 'files', ())
-    if 'is_reference' not in data_files:
-        return csi_data
-
-    is_reference = np.asarray(data['is_reference']).astype(bool)
-    if is_reference.shape[0] != csi_data.shape[0]:
-        return csi_data
-
-    measurement_mask = ~is_reference
-    if measurement_mask.any():
-        return csi_data[measurement_mask]
-    return csi_data
-
-
 def _compute_moving_variance_series(csi_data):
     """Compute moving-variance series for one CSI array."""
     turbulence = _compute_turbulence_series(csi_data)
@@ -963,7 +941,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
         for entry in empty_group_map[(chip, environment)]:
             filepath = _resolve_dataset_entry_path(entry, 'empty')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-            csi_data = _filter_measurement_frames(data[csi_key], data)
+            csi_data = data[csi_key]
             turbulence = _compute_turbulence_series(csi_data)
             if len(turbulence):
                 turb_mean = _window_mean(turbulence)
@@ -973,7 +951,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
         for entry in static_group_map[(chip, environment)]:
             filepath = _resolve_dataset_entry_path(entry, 'static_presence')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-            csi_data = _filter_measurement_frames(data[csi_key], data)
+            csi_data = data[csi_key]
             turbulence = _compute_turbulence_series(csi_data)
             if len(turbulence):
                 turb_mean = _window_mean(turbulence)
@@ -1069,7 +1047,7 @@ def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
         filename = str(entry.get("filename", "<missing filename>"))
         filepath = _resolve_dataset_entry_path(entry, "test")
         data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-        csi_data = _filter_measurement_frames(data[csi_key], data)
+        csi_data = data[csi_key]
 
         classic_metrics = _evaluate_classic_quiet_fp(csi_data)
         if classic_metrics is None:
@@ -1252,7 +1230,6 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
 
             pair_res, static_active_ratio, motion_active_ratio, pair_threshold, motion_peak_ratio = validate_pair(
                 bl_data[bl_key], mv_data[mv_key],
-                bl_data, mv_data,
             )
             for r in pair_res:
                 print(f"   {r}")

@@ -14,7 +14,7 @@ Use the `stable` channel for the latest official release, or `main` when you wan
 | `ESPHome` | [Web Flash](#web-flash-no-coding-required) for the quickest start, then the frontend README for YAML, Home Assistant, and local development | [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) |
 | `Native` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the native frontend README for local ESP-IDF workflow and [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) for the shared protocol surface over BLE | [`../src/cpp/frontend/native/README.md`](../src/cpp/frontend/native/README.md) |
 | `Matter` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the frontend README for commissioning and local ESP-IDF workflow | [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md) |
-| `Streamer` | Frontend README for the dedicated CSI collection workflow | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) |
+| `Streamer` | Frontend README for the dedicated CSI stream workflow | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) |
 
 ## Shared Prerequisites
 
@@ -31,7 +31,7 @@ Current entry-point support by frontend:
 | `ESPHome` | `ESP32-S3`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32`, `ESP32-S2` (experimental) | Published web-flash images use the default detector profile; the frontend README covers `classic` and `ml` configuration |
 | `Native` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Standalone native frontend exposed over BLE and MQTT, with HTTPS OTA triggered over MQTT |
 | `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Requires BLE commissioning, so `ESP32-S2` is excluded; OTA stays in the Matter ecosystem |
-| `Streamer` | local build workflow | Not part of the browser flasher path; uses minimal MQTT control plus HTTPS OTA |
+| `Streamer` | local build workflow | Not part of the browser flasher path |
 
 ### Software
 
@@ -277,8 +277,12 @@ use [TUNING.md](TUNING.md).
 Motion detection frontends depend on CSI packets. 
 For the shared detection runtime, traffic is generated internally by default, but the way that traffic is configured or exposed belongs to each frontend surface.
 
-The standalone `streamer` frontend is different: it does not own an internal traffic generator and instead expects collector-driven external UDP stimulus.
-Use the streamer frontend README as the source of truth for that workflow and for its Wi-Fi setup options, including BLE-assisted provisioning through the shared ESPectre BLE service.
+The standalone `streamer` frontend is collector-paced: the host sends ordinary
+UDP traffic, the device learns the collector IP from the packet source address,
+and the stream-specific runtime backend returns one CSI datagram toward the
+collector for each accepted pacing step.
+Use the streamer frontend README as the source of truth for that workflow and
+for its Wi-Fi setup options via the active `sdkconfig` defaults.
 
 If you are tuning `traffic_generator_rate`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 

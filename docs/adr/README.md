@@ -78,7 +78,6 @@ instead of repeating its historical rationale.
 
 - [`2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md`](2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md)
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
-- [`2026-07-04-preserve-multi-device-metadata-as-a-research-compatible-dataset-contract.md`](2026-07-04-preserve-multi-device-metadata-as-a-research-compatible-dataset-contract.md)
 
 ## How To Name ADR Files
 

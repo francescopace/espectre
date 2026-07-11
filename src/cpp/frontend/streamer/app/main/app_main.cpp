@@ -10,52 +10,29 @@
 #include <esp_log.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#if CONFIG_ESPECTRE_STREAMER_BLE_ENABLED
-#include "ble_bindings_nimble.h"
-#endif
-#if CONFIG_ESPECTRE_STREAMER_OTA_ENABLED
-#include "https_ota_service.h"
-#endif
-#if CONFIG_ESPECTRE_STREAMER_MQTT_ENABLED
-#include "mqtt_transport_esp_idf.h"
-#endif
 #include "espectre_banner.h"
 
 static const char *TAG = "espectre.streamer.app";
 
+namespace {
+TickType_t clamp_delay_to_tick_(uint32_t delay_ms) {
+  const TickType_t ticks = pdMS_TO_TICKS(delay_ms);
+  return ticks > 0 ? ticks : 1;
+}
+}  // namespace
+
 extern "C" void app_main() {
   esphome::espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
-#if CONFIG_ESPECTRE_STREAMER_BLE_ENABLED
-  static esphome::espectre::NimbleBleBindings ble_bindings;
-  auto *ble_bindings_ptr = &ble_bindings;
-#else
-  esphome::espectre::IBleBindings *ble_bindings_ptr = nullptr;
-#endif
-#if CONFIG_ESPECTRE_STREAMER_MQTT_ENABLED
-  static esphome::espectre::EspIdfMqttTransport mqtt_transport;
-#endif
-#if CONFIG_ESPECTRE_STREAMER_OTA_ENABLED
-  static esphome::espectre::HttpsOtaService ota_service;
-#endif
-#if CONFIG_ESPECTRE_STREAMER_MQTT_ENABLED
-  auto *mqtt_transport_ptr = &mqtt_transport;
-#else
-  esphome::espectre::IMqttTransport *mqtt_transport_ptr = nullptr;
-#endif
-#if CONFIG_ESPECTRE_STREAMER_OTA_ENABLED
-  auto *ota_service_ptr = &ota_service;
-#else
-  esphome::espectre::IOtaService *ota_service_ptr = nullptr;
-#endif
-  static esphome::espectre::StreamFrontend frontend(ble_bindings_ptr, mqtt_transport_ptr, ota_service_ptr);
+  static esphome::espectre::StreamFrontend frontend;
   if (!frontend.setup()) {
     return;
   }
 
   while (true) {
     frontend.loop();
-    // Keep the control loop responsive so the external stimulus socket is
+    // Keep the control loop responsive so the external pacing socket is
     // drained quickly and collector address changes propagate with low jitter.
-    vTaskDelay(pdMS_TO_TICKS(2));
+    // Clamp to at least one tick so lower FreeRTOS tick rates still yield here.
+    vTaskDelay(clamp_delay_to_tick_(2U));
   }
 }

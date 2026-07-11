@@ -8,7 +8,7 @@
 #include "runtime_capabilities.h"
 #include "runtime_events.h"
 #include "runtime_snapshot.h"
-#include "stimulus_service.h"
+#include "csi_traffic_service.h"
 
 namespace esphome {
 namespace espectre {
@@ -18,21 +18,31 @@ enum class DetectionAlgorithm {
   ML,
 };
 
+enum class RuntimeProfile {
+  SENSING,
+  STREAM,
+};
+
 enum class RuntimeTrafficMode {
   DNS,
   PING,
 };
 
 struct RuntimeConfig {
+  RuntimeProfile runtime_profile{RuntimeProfile::SENSING};
   DetectionAlgorithm detection_algorithm{DetectionAlgorithm::CLASSIC};
   ThresholdMode threshold_mode{ThresholdMode::AUTO};
   float segmentation_threshold{SEGMENTATION_DEFAULT_THRESHOLD};
   uint16_t segmentation_window_size{DETECTOR_DEFAULT_WINDOW_SIZE};
   uint32_t traffic_generator_rate{100};
   RuntimeTrafficMode traffic_generator_mode{RuntimeTrafficMode::PING};
-  StimulusMode stimulus_mode{StimulusMode::INTERNAL};
-  uint16_t stimulus_udp_port{5555};
-  std::string stimulus_multicast_group;
+  CsiTrafficMode csi_traffic_mode{CsiTrafficMode::INTERNAL};
+  uint16_t csi_traffic_udp_port{5555};
+  std::string csi_traffic_multicast_group;
+  std::string csi_traffic_expected_payload;
+  uint64_t device_id{0U};
+  uint16_t collector_port{5001};
+  uint32_t stream_log_interval_ms{1000};
   uint32_t publish_interval{100};
   uint32_t evaluation_interval{25};
   uint8_t motion_on_hits{3};

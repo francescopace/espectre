@@ -14,7 +14,6 @@ Use:
 For historical rationale behind the current dataset contract, see:
 
 - [`2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md`](adr/2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md)
-- [`2026-07-04-preserve-multi-device-metadata-as-a-research-compatible-dataset-contract.md`](adr/2026-07-04-preserve-multi-device-metadata-as-a-research-compatible-dataset-contract.md)
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
 
 ## Scope
@@ -48,7 +47,6 @@ The streamer frontend README is the source of truth for:
 
 - build and flash steps
 - local Wi-Fi configuration
-- BLE-assisted provisioning
 - UDP packet format
 - transport tuning
 
@@ -85,40 +83,19 @@ Use `test` only for mixed sessions that are not label-homogeneous.
 
 ## `espectre collect`
 
-`./espectre collect` is the unified host-side command for:
+`./espectre collect` is the host-side entry point for live inspection and
+dataset capture in the workflow described above.
 
-- live inspection without saving
-- live recording into dataset files
-- legacy repeated timed samples
+For the full command reference, supported modes, options, and examples, see
+[`CLI.md#collect`](CLI.md#collect).
 
 Each saved capture emits one `.npz` per `device_id`. Mixed-device files are not
 part of the supported workflow.
 
-### Common Commands
-
-| Command | Purpose |
-|---------|---------|
-| `./espectre collect --target <ip> --no-save` | Inspect the live stream without writing files |
-| `./espectre collect --target <ip> --no-save --detector classic,ml` | Compare detector behavior side by side on the same live stream |
-| `./espectre collect --label <name> --duration <sec> --target <ip>` | Save one accepted live capture of the requested duration |
-| `./espectre collect --label <name> --target <ip>` | Start live recording and stop with `Ctrl+C` |
-| `./espectre collect --label <name> --count <n> --duration <sec> --target <ip>` | Legacy repeated timed captures |
-| `./espectre collect --info` | Print dataset statistics |
-
-### Important Options
-
-| Option | Meaning |
-|--------|---------|
-| `--target`, `-t` | Unicast, broadcast, or multicast IPv4 target used for collector-driven traffic |
-| `--no-save` | Live inspection mode |
-| `--label <name>` | Output dataset label |
-| `--duration <sec>` | Accepted recording duration |
-| `--detector <name[,name...]>` | Live detector selection, for example `classic`, `ml`, or `classic,ml` |
-| `--bind-ip <ip>` | Override receive interface when auto-detection picks the wrong host IP |
-| `--rate <pps>` | Collector traffic rate in packets per second |
-| `--reference-every <n>` | Mark every `n`th traffic packet as a reference frame |
-| `--description "text"` | Store a human-readable note in metadata |
-| `--contributor <user>` | Override contributor metadata |
+In live streamer mode, collection sends ordinary UDP traffic to the
+target device. The device learns the collector IP from the packet source
+address and sends one CSI stream packet back for each received csi callback,
+embedding the latest available CSI sample in every stream packet.
 
 ### Save Semantics
 
@@ -154,19 +131,15 @@ Recommended starting point:
 - one environment at a time
 - varied positions and distances within the same environment
 
-## Reference Frames
+## Stream Metadata
 
-Ordinary collection should leave `--reference-every` at `0`.
+The clean-break streamer protocol keeps only metadata that is still useful for
+analysis and validation:
 
-When enabled:
-
-- the collector marks every `N`th traffic packet as a reference frame
-- the streamer propagates that role into the outgoing CSI stream
-- downstream tooling can distinguish ordinary measurement frames from anchor
-  frames
-
-This metadata exists to keep the dataset contract usable for future multi-device
-host-side experiments. It does not change how the streamer captures CSI.
+- `device_ticks_us`
+- `wifi_rx_ts_us`, when available
+- `wifi_rx_start_ts_ns`, when available
+- RF context such as `channel`, `rssi_dbm`, and `noise_floor_dbm`
 
 ## Dataset Layout
 
@@ -224,7 +197,7 @@ Common fields:
 | `wifi_rx_start_ts_ns` | `uint64[N]` | Optional RX-start estimate |
 | `channel` | `uint8[N]` | Optional per-packet Wi-Fi channel |
 | `rssi_dbm` | `int16[N]` | Optional RSSI metadata |
-| `stimulus_id` | `uint32[N]` | Optional collector stimulus identifier |
+| `noise_floor_dbm` | `int16[N]` | Optional noise-floor metadata |
 
 CSI uses the Espressif ordering `[Q0, I0, Q1, I1, ...]`.
 

@@ -100,24 +100,34 @@ static bool bind_socket_to_sta_interface(int sock) {
     return true;
 }
 
-static int create_dns_socket() {
+// IP precedence 6 (TOS 0xC0): the Wi-Fi driver maps the top three TOS bits to
+// the 802.11 TID, so generator traffic queues on the WMM/EDCA voice access
+// category (AC_VO) for the tightest transmit timing.
+static constexpr int TRAFFIC_IP_TOS_AC_VO = 0xC0;
+
+static int create_udp_socket() {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock < 0) {
-        ESP_LOGE(TRAFFIC_TAG, "Failed to create DNS socket (errno=%d)", errno);
+        ESP_LOGE(TRAFFIC_TAG, "Failed to create UDP socket (errno=%d)", errno);
         return -1;
     }
 
     if (!bind_socket_to_sta_interface(sock)) {
-        ESP_LOGW(TRAFFIC_TAG, "Continuing without explicit DNS socket binding");
+        ESP_LOGW(TRAFFIC_TAG, "Continuing without explicit UDP socket binding");
+    }
+
+    int tos = TRAFFIC_IP_TOS_AC_VO;
+    if (setsockopt(sock, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)) != 0) {
+        ESP_LOGW(TRAFFIC_TAG, "Failed to set UDP socket TOS (errno=%d)", errno);
     }
 
     int flags = fcntl(sock, F_GETFL, 0);
     if (flags >= 0) {
         if (fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
-            ESP_LOGW(TRAFFIC_TAG, "Failed to set DNS socket non-blocking (errno=%d)", errno);
+            ESP_LOGW(TRAFFIC_TAG, "Failed to set UDP socket non-blocking (errno=%d)", errno);
         }
     } else {
-        ESP_LOGW(TRAFFIC_TAG, "Failed to read DNS socket flags (errno=%d)", errno);
+        ESP_LOGW(TRAFFIC_TAG, "Failed to read UDP socket flags (errno=%d)", errno);
     }
 
     return sock;
@@ -141,6 +151,17 @@ static const uint8_t DNS_QUERY[] = {
 // PUBLIC API
 // ============================================================================
 
+static const char *traffic_mode_name(TrafficGeneratorMode mode) {
+  switch (mode) {
+    case TrafficGeneratorMode::PING:
+      return "ping";
+    case TrafficGeneratorMode::DNS:
+      return "dns";
+    default:
+      return "unknown";
+  }
+}
+
 void TrafficGeneratorManager::init(uint32_t rate_pps, TrafficGeneratorMode mode) {
   task_handle_ = nullptr;
   sock_ = -1;
@@ -150,9 +171,9 @@ void TrafficGeneratorManager::init(uint32_t rate_pps, TrafficGeneratorMode mode)
   running_.store(false);
   paused_.store(false);
   reset_health_state_();
-  
-  const char* mode_str = (mode == TrafficGeneratorMode::PING) ? "ping" : "dns";
-  ESP_LOGD(TRAFFIC_TAG, "Traffic Generator Manager initialized (rate: %u pps, mode: %s)", rate_pps, mode_str);
+
+  ESP_LOGD(TRAFFIC_TAG, "Traffic Generator Manager initialized (rate: %u pps, mode: %s)", rate_pps,
+           traffic_mode_name(mode));
 }
 
 bool TrafficGeneratorManager::start() {
@@ -160,18 +181,18 @@ bool TrafficGeneratorManager::start() {
     ESP_LOGW(TRAFFIC_TAG, "Traffic generator already running");
     return false;
   }
-  
+
   // Validate rate
   if (rate_pps_ == 0) {
     ESP_LOGE(TRAFFIC_TAG, "Invalid rate: 0 pps (must be > 0)");
     return false;
   }
-  
+
   // Start based on mode
   if (mode_ == TrafficGeneratorMode::PING) {
     return start_ping_();
   } else {
-    return start_dns_();
+    return start_dns_task_();
   }
 }
 
@@ -237,7 +258,7 @@ void TrafficGeneratorManager::stop() {
   if (mode_ == TrafficGeneratorMode::PING) {
     stop_ping_();
   } else {
-    stop_dns_();
+    stop_dns_task_();
   }
   
   ESP_LOGI(TRAFFIC_TAG, "Traffic generator stopped");
@@ -248,8 +269,7 @@ void TrafficGeneratorManager::stop() {
 // DNS MODE IMPLEMENTATION
 // ============================================================================
 
-bool TrafficGeneratorManager::start_dns_() {
-  // Get gateway IP address
+bool TrafficGeneratorManager::start_dns_task_() {
   esp_ip4_addr_t gw;
   if (!get_gateway_ip(&gw)) {
     return false;
@@ -261,7 +281,7 @@ bool TrafficGeneratorManager::start_dns_() {
   ESP_LOGI(TRAFFIC_TAG, "Target gateway: %s", gw_str);
   
   // Create UDP socket
-  sock_ = create_dns_socket();
+  sock_ = create_udp_socket();
   if (sock_ < 0) {
     return false;
   }
@@ -269,19 +289,19 @@ bool TrafficGeneratorManager::start_dns_() {
   // Reset counters
   reset_health_state_();
   running_.store(true);
-  
+
   // Create FreeRTOS task
-  // Stack size: 4096 bytes (increased for safety)
+  // Stack size: 3072 bytes is enough for the fixed DNS payload path.
   // Priority: 5 (medium priority, same as other network tasks)
   BaseType_t result = xTaskCreate(
       dns_traffic_task_,
       "traffic_gen",
-      4096,
+      3072,
       this,
       5,
       &task_handle_
   );
-  
+
   if (result != pdPASS) {
     ESP_LOGE(TRAFFIC_TAG, "Failed to create traffic generator task (result: %d)", result);
     close(sock_);
@@ -289,18 +309,18 @@ bool TrafficGeneratorManager::start_dns_() {
     running_.store(false);
     return false;
   }
-  
+
   // Give task time to start
   vTaskDelay(pdMS_TO_TICKS(100));
-  
+
   uint32_t interval_ms = 1000 / rate_pps_;
-  ESP_LOGI(TRAFFIC_TAG, "Traffic generator started (mode: dns, %u pps, interval: %u ms)", 
-           rate_pps_, interval_ms);
-  
+  ESP_LOGI(TRAFFIC_TAG, "Traffic generator started (mode: %s, %u pps, interval: %u ms)",
+           traffic_mode_name(mode_), rate_pps_, interval_ms);
+
   return true;
 }
 
-void TrafficGeneratorManager::stop_dns_() {
+void TrafficGeneratorManager::stop_dns_task_() {
   // Wait for task to finish (max 1 second)
   if (task_handle_) {
     for (int i = 0; i < 10 && eTaskGetState(task_handle_) != eDeleted; i++) {
@@ -323,39 +343,37 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
     vTaskDelete(NULL);
     return;
   }
-  
-  // Get gateway address
+
+  // Setup destination address (gateway:53 for DNS).
+  struct sockaddr_in dest_addr;
+  memset(&dest_addr, 0, sizeof(dest_addr));
+  dest_addr.sin_family = AF_INET;
   esp_ip4_addr_t gw;
   if (!get_gateway_ip(&gw)) {
     ESP_LOGE(TRAFFIC_TAG, "Failed to get gateway in task");
-    // Keep manager state coherent if task exits unexpectedly.
     mgr->running_.store(false);
     vTaskDelete(NULL);
     return;
   }
-  
-  // Setup destination address (gateway:53 for DNS)
-  struct sockaddr_in dest_addr;
-  memset(&dest_addr, 0, sizeof(dest_addr));
-  dest_addr.sin_family = AF_INET;
   dest_addr.sin_port = htons(53);  // DNS port
   dest_addr.sin_addr.s_addr = gw.addr;
-  
+  ESP_LOGI(TRAFFIC_TAG, "Traffic task target: " IPSTR ":53", IP2STR(&gw));
+
   // Use microseconds for precise timing with fractional accumulator
   // This compensates for integer division error (e.g., 1000000/400 = 2500µs exact)
   const uint32_t interval_us = 1000000 / mgr->rate_pps_;  // Base interval in microseconds
   const uint32_t remainder_us = 1000000 % mgr->rate_pps_; // Remainder to distribute
   uint32_t accumulator = 0;  // Accumulates fractional microseconds
-  
-  ESP_LOGI(TRAFFIC_TAG, "Traffic task started (gateway: " IPSTR ", interval: %u µs, remainder: %u)", 
-           IP2STR(&gw), interval_us, remainder_us);
-  
+
+  ESP_LOGI(TRAFFIC_TAG, "Traffic task started (mode: %s, interval: %u µs, remainder: %u)",
+           traffic_mode_name(mgr->mode_), interval_us, remainder_us);
+
   int64_t next_send_time = esp_timer_get_time();
-  
+
   // Error state for rate-limited logging
   SendErrorState error_state;
   uint32_t consecutive_send_errors = 0;
-  
+
   while (mgr->running_.load()) {
     // Check if paused (e.g., during calibration)
     if (mgr->paused_.load()) {
@@ -363,8 +381,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
       next_send_time = esp_timer_get_time();  // Reset timing on resume
       continue;
     }
-    
-    // Send DNS query to gateway
+
     ssize_t sent = sendto(
         mgr->sock_,
         DNS_QUERY,
@@ -373,9 +390,9 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
         (struct sockaddr*)&dest_addr,
         sizeof(dest_addr)
     );
-    
+
     if (sent <= 0) {
-      mgr->dns_send_error_count_.fetch_add(1);
+      mgr->send_error_count_.fetch_add(1);
       consecutive_send_errors++;
 
       // Handle error with rate-limited logging
@@ -394,7 +411,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
         if (mgr->sock_ >= 0) {
           close(mgr->sock_);
         }
-        mgr->sock_ = create_dns_socket();
+        mgr->sock_ = create_udp_socket();
         consecutive_send_errors = 0;
         next_send_time = esp_timer_get_time();
         if (mgr->sock_ < 0) {
@@ -409,21 +426,21 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
         vTaskDelay(pdMS_TO_TICKS(5));  // 5ms backoff on memory pressure
       }
     } else {
-      mgr->dns_send_success_count_.fetch_add(1);
+      mgr->send_success_count_.fetch_add(1);
       consecutive_send_errors = 0;
     }
-    
+
     // Calculate next send time with fractional accumulator for precise rate
     accumulator += remainder_us;
     uint32_t extra_us = accumulator / mgr->rate_pps_;
     accumulator %= mgr->rate_pps_;
-    
+
     next_send_time += interval_us + extra_us;
-    
+
     // Sleep until next send time
     int64_t now = esp_timer_get_time();
     int64_t sleep_us = next_send_time - now;
-    
+
     if (sleep_us > 0) {
       // Convert to ticks (round up to avoid drift)
       TickType_t sleep_ticks = pdMS_TO_TICKS((sleep_us + 999) / 1000);
@@ -435,7 +452,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
       next_send_time = esp_timer_get_time();
     }
   }
-  
+
   ESP_LOGI(TRAFFIC_TAG, "DNS traffic task stopped");
   vTaskDelete(NULL);
 }
@@ -494,6 +511,7 @@ bool TrafficGeneratorManager::start_ping_() {
   ping_config.interval_ms = 1000 / rate_pps_;   // Interval based on rate
   ping_config.timeout_ms = std::min<uint32_t>(1000, std::max<uint32_t>(200, ping_config.interval_ms * 4));
   ping_config.data_size = 0;                    // No payload (header only, smallest possible)
+  ping_config.tos = TRAFFIC_IP_TOS_AC_VO;       // WMM/EDCA voice access category
   ping_config.task_stack_size = 2560;           // Stack size for ping task
   ping_config.task_prio = 5;                    // Same priority as DNS mode
   
@@ -547,8 +565,8 @@ bool TrafficGeneratorManager::restart_ping_session_() {
 }
 
 void TrafficGeneratorManager::reset_health_state_() {
-  dns_send_success_count_.store(0);
-  dns_send_error_count_.store(0);
+  send_success_count_.store(0);
+  send_error_count_.store(0);
   last_ping_request_count_ = 0;
   last_ping_progress_us_ = esp_timer_get_time();
   last_health_check_us_ = 0;

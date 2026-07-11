@@ -129,6 +129,25 @@ void test_runtime_frontend_controller_recalibration_requires_capability_and_runt
   TEST_ASSERT_FALSE(controller.is_calibrating());
 }
 
+void test_runtime_frontend_controller_can_select_stream_runtime_profile(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  RuntimeConfig config;
+  config.runtime_profile = RuntimeProfile::STREAM;
+  config.csi_traffic_mode = CsiTrafficMode::DISABLED;
+  config.device_id = 0x1234U;
+
+  frontend_runtime_shim::reset();
+  controller.set_config(config);
+
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  TEST_ASSERT_TRUE(controller.is_setup_complete());
+  TEST_ASSERT_NULL(frontend_runtime_shim::state.last_listener);
+
+  controller.shutdown();
+  TEST_ASSERT_FALSE(controller.is_setup_complete());
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot);
@@ -136,6 +155,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward);
   RUN_TEST(test_runtime_frontend_controller_threshold_runtime_updates_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_recalibration_requires_capability_and_runtime);
+  RUN_TEST(test_runtime_frontend_controller_can_select_stream_runtime_profile);
   return UNITY_END();
 }
 

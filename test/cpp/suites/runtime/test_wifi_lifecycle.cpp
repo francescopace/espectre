@@ -90,7 +90,7 @@ void test_standalone_wifi_manager_configures_fast_scan_bssid_and_channel(void) {
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_storage_call_count);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_mode_call_count);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_ps_call_count);
-  TEST_ASSERT_EQUAL(WIFI_PS_MIN_MODEM, g_esp_wifi_mock.last_set_ps_type);
+  TEST_ASSERT_EQUAL(WIFI_PS_NONE, g_esp_wifi_mock.last_set_ps_type);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_config_call_count);
   TEST_ASSERT_EQUAL(WIFI_FAST_SCAN, g_esp_wifi_mock.last_config.sta.scan_method);
   TEST_ASSERT_TRUE(g_esp_wifi_mock.last_config.sta.bssid_set);
@@ -111,7 +111,7 @@ void test_standalone_wifi_manager_applies_policy_and_connects_on_start(void) {
 
   esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
   TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.set_ps_call_count);
-  TEST_ASSERT_EQUAL(WIFI_PS_MIN_MODEM, g_esp_wifi_mock.last_set_ps_type);
+  TEST_ASSERT_EQUAL(WIFI_PS_NONE, g_esp_wifi_mock.last_set_ps_type);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
   TEST_ASSERT_EQUAL(WIFI_PROTOCOL_11N, g_esp_wifi_mock.last_protocol_bitmap);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_bandwidth_call_count);
@@ -216,7 +216,7 @@ void test_standalone_wifi_manager_update_station_config_rejects_invalid_bssid(vo
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, manager.update_station_config(config));
 }
 
-void test_standalone_wifi_manager_apply_started_policy_and_retry_logic(void) {
+void test_standalone_wifi_manager_apply_started_policy_and_reconnect_logic(void) {
   TEST_ASSERT_EQUAL(ESP_OK, StandaloneWifiManager::apply_started_csi_policy());
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_ps_call_count);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
@@ -259,7 +259,7 @@ int process(void) {
   RUN_TEST(test_standalone_wifi_manager_get_info_uses_cached_ip_from_got_ip_event);
   RUN_TEST(test_standalone_wifi_manager_update_station_config_handles_setup_and_reconnect_paths);
   RUN_TEST(test_standalone_wifi_manager_update_station_config_rejects_invalid_bssid);
-  RUN_TEST(test_standalone_wifi_manager_apply_started_policy_and_retry_logic);
+  RUN_TEST(test_standalone_wifi_manager_apply_started_policy_and_reconnect_logic);
   return UNITY_END();
 }
 

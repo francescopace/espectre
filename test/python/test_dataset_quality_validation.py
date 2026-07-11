@@ -48,11 +48,8 @@ def test_empty_separation_uses_turb_mean_score(monkeypatch) -> None:
         return Path(f"/tmp/{entry['filename']}")
 
     def fake_load(path, npz_cache):
-        csi, refs = fake_data[path.name]
-        return {"csi_data": csi, "is_reference": refs}, "csi_data"
-
-    def fake_filter(csi_data, data):
-        return csi_data
+        csi, _refs = fake_data[path.name]
+        return {"csi_data": csi}, "csi_data"
 
     def fake_compute(csi_data):
         if csi_data is fake_data["empty_a.npz"][0]:
@@ -61,7 +58,6 @@ def test_empty_separation_uses_turb_mean_score(monkeypatch) -> None:
 
     monkeypatch.setattr(module, "_resolve_dataset_entry_path", fake_resolve)
     monkeypatch.setattr(module, "_load_cached_or_npz", fake_load)
-    monkeypatch.setattr(module, "_filter_measurement_frames", fake_filter)
     monkeypatch.setattr(module, "_compute_turbulence_series", fake_compute)
 
     results = module.validate_empty_sanity(dataset_info, npz_cache={})
@@ -183,7 +179,6 @@ def test_validate_pair_uses_threshold_activation_logic(monkeypatch) -> None:
     threshold = 0.5
     detector = object()
 
-    monkeypatch.setattr(module, "_filter_measurement_frames", lambda csi_data, data: csi_data)
     monkeypatch.setattr(
         module,
         "build_calibrated_classic_detector",
@@ -207,8 +202,6 @@ def test_validate_pair_uses_threshold_activation_logic(monkeypatch) -> None:
     results, static_active, motion_active, returned_threshold, motion_peak_ratio = module.validate_pair(
         static_csi,
         motion_csi,
-        {},
-        {},
     )
 
     activation = results[0]
@@ -228,7 +221,6 @@ def test_validate_pair_fails_when_motion_stays_below_threshold(monkeypatch) -> N
     threshold = 0.5
     detector = object()
 
-    monkeypatch.setattr(module, "_filter_measurement_frames", lambda csi_data, data: csi_data)
     monkeypatch.setattr(
         module,
         "build_calibrated_classic_detector",
@@ -252,8 +244,6 @@ def test_validate_pair_fails_when_motion_stays_below_threshold(monkeypatch) -> N
     results, static_active, motion_active, returned_threshold, motion_peak_ratio = module.validate_pair(
         static_csi,
         motion_csi,
-        {},
-        {},
     )
 
     activation = results[0]

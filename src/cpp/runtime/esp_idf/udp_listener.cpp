@@ -7,10 +7,10 @@
 
 #include "udp_listener.h"
 #include "espectre_log.h"
-#include "stimulus_protocol.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include <cinttypes>
 #include <cstring>
 #include <fcntl.h>
 
@@ -24,8 +24,9 @@ void UDPListener::init(uint16_t port) {
   port_ = port;
   running_ = false;
   sock_ = -1;
-  raw_packets_received_ = 0U;
   packets_received_ = 0U;
+  expected_payload_len_ = 0U;
+  expected_payload_.fill(0U);
   last_sender_ipv4_.store(0U, std::memory_order_relaxed);
   last_sender_port_.store(0U, std::memory_order_relaxed);
   ESP_LOGD(UDP_LISTENER_TAG, "UDP Listener initialized (port: %u)", port_);
@@ -39,6 +40,20 @@ void UDPListener::set_multicast_group(const char *group) {
 
   std::strncpy(multicast_group_, group, sizeof(multicast_group_) - 1);
   multicast_group_[sizeof(multicast_group_) - 1] = '\0';
+}
+
+void UDPListener::set_expected_payload(const uint8_t *payload, size_t len) {
+  if (payload == nullptr || len == 0U) {
+    expected_payload_len_ = 0U;
+    expected_payload_.fill(0U);
+    return;
+  }
+
+  if (len > expected_payload_.size()) {
+    len = expected_payload_.size();
+  }
+  std::memcpy(expected_payload_.data(), payload, len);
+  expected_payload_len_ = len;
 }
 
 bool UDPListener::start() {
@@ -166,15 +181,22 @@ void UDPListener::loop() {
       ESP_LOGW(UDP_LISTENER_TAG, "recvfrom error: errno %d", errno);
       break;
     }
-    raw_packets_received_++;
-    StimulusMetadata metadata{};
-    if (!parse_stimulus_datagram(reinterpret_cast<const uint8_t *>(buf), static_cast<size_t>(len), &metadata)) {
+    if (expected_payload_len_ != 0U &&
+        (len != static_cast<ssize_t>(expected_payload_len_) ||
+         std::memcmp(buf, expected_payload_.data(), expected_payload_len_) != 0)) {
       continue;
     }
-
     packets_received_++;
     last_sender_ipv4_.store(src_addr.sin_addr.s_addr, std::memory_order_relaxed);
     last_sender_port_.store(src_addr.sin_port, std::memory_order_relaxed);
+    if (packets_received_ == 1U) {
+      char sender_ip[16] = {0};
+      inet_ntoa_r(src_addr.sin_addr, sender_ip, sizeof(sender_ip));
+      ESP_LOGI(UDP_LISTENER_TAG,
+               "First UDP traffic accepted from=%s:%u",
+               sender_ip,
+               static_cast<unsigned>(ntohs(src_addr.sin_port)));
+    }
   }
 }
 

@@ -56,8 +56,6 @@ CALIBRATION_NUM_WINDOWS = 10   # Number of windows worth of packets to collect
 #       * ML: 0.0-1.0 probability threshold
 SEG_THRESHOLD = "auto"
 SEG_WINDOW_SIZE = 100         # Shared detector window (packets) - used by Classic and Features
-SEG_WINDOW_SIZE_MIN = 10      # Minimum window size
-SEG_WINDOW_SIZE_MAX = 200     # Maximum window size
 
 # Calibration buffer size = number of windows * window size
 CALIBRATION_BUFFER_SIZE = CALIBRATION_NUM_WINDOWS * SEG_WINDOW_SIZE

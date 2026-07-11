@@ -26,6 +26,8 @@ typedef struct {
     uint32_t interval_ms;
     uint32_t timeout_ms;
     uint32_t data_size;
+    int tos;
+    int ttl;
     uint32_t task_stack_size;
     uint32_t task_prio;
     uint32_t interface;
@@ -38,6 +40,8 @@ typedef struct {
     .interval_ms = 1000, \
     .timeout_ms = 1000, \
     .data_size = 64, \
+    .tos = 0, \
+    .ttl = 64, \
     .task_stack_size = 2048, \
     .task_prio = 2, \
     .interface = 0, \

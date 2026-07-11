@@ -25,18 +25,22 @@ set(ESPECTRE_RUNTIME_PROTOCOL_HELPER_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/frontend_sysinfo_helpers.cpp"
 )
 
+set(ESPECTRE_RUNTIME_STREAMER_PROTOCOL_HELPER_SOURCES)
+
 set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_time.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_stream_transport.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/esp_idf_runtime.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_esp_idf_runtime.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_manager.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_protocol.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_frame_identity.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_traffic_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
@@ -48,19 +52,8 @@ set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
 )
 
 set(ESPECTRE_RUNTIME_STREAMER_SOURCES
-    ${ESPECTRE_RUNTIME_COMMON_SOURCES}
-    ${ESPECTRE_RUNTIME_PROTOCOL_HELPER_SOURCES}
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_time.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_manager.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_protocol.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_service.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
+    ${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}
+    ${ESPECTRE_RUNTIME_STREAMER_PROTOCOL_HELPER_SOURCES}
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES
@@ -97,7 +90,6 @@ set(ESPECTRE_FRONTEND_NATIVE_SOURCES
 )
 
 set(ESPECTRE_FRONTEND_STREAMER_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/csi_udp_sender.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/stream_frontend.cpp"
 )
 

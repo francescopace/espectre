@@ -3,11 +3,8 @@ include("${CMAKE_CURRENT_LIST_DIR}/../../../espectre_sources.cmake")
 idf_component_register(
     SRCS
         ${ESPECTRE_FRONTEND_STREAMER_SOURCES}
+        ${ESPECTRE_CORE_SOURCES}
         ${ESPECTRE_RUNTIME_STREAMER_SOURCES}
-        ${ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES}
-        ${ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES}
-        ${ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES}
-        ${ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES}
     INCLUDE_DIRS
         "."
         ${ESPECTRE_SHARED_INCLUDE_DIRS}
@@ -16,17 +13,10 @@ idf_component_register(
         esp_event
         esp_netif
         esp_timer
-        bt
         nvs_flash
         lwip
         driver
         freertos
         heap
         log
-        mqtt
-        app_update
-        esp_http_client
-        esp_https_ota
-        esp-tls
-        mbedtls
 )

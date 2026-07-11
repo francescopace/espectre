@@ -2,6 +2,7 @@
 
 #include "esp_idf_runtime.h"
 #include "runtime_config_utils.h"
+#include "stream_esp_idf_runtime.h"
 
 namespace esphome {
 namespace espectre {
@@ -19,7 +20,15 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
     return true;
   }
 
-  runtime_.reset(new EspIdfRuntime(config_));
+  switch (config_.runtime_profile) {
+    case RuntimeProfile::STREAM:
+      runtime_.reset(new StreamEspIdfRuntime(config_));
+      break;
+    case RuntimeProfile::SENSING:
+    default:
+      runtime_.reset(new EspIdfRuntime(config_));
+      break;
+  }
   runtime_->set_listener(listener);
   runtime_->set_services_armed(services_armed_);
   runtime_->set_live_telemetry_enabled(live_telemetry_enabled_);

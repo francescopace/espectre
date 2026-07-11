@@ -128,9 +128,6 @@ Rules of thumb:
 - lower values: less overhead, less temporal detail
 - higher values: more detail, more CPU and Wi-Fi cost
 
-The `streamer` frontend is different: it uses collector-driven external traffic.
-Use its local README as the source of truth.
-
 ### Publish Interval
 
 ```yaml
@@ -265,7 +262,7 @@ Try:
 Check:
 
 1. Wi-Fi connection status
-2. traffic generation or external stimulus path
+2. traffic generation path
 3. CSI-enabled build/configuration
 4. router compatibility and packet flow
 

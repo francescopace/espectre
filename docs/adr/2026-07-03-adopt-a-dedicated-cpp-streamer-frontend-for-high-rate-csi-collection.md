@@ -18,9 +18,8 @@ could do all of the following at the same time:
   side-channel streaming path outside the main firmware architecture
 - support collector-driven target traffic rather than a firmware-owned traffic
   generator
-- propagate stimulus and reference metadata into the saved CSI stream so the
-  host can reason about temporal alignment, packet grouping, and later
-  phase/coherence analysis
+- let the collector react to firmware-side TX saturation through explicit
+  backpressure feedback instead of assuming a fixed safe pacing rate
 - let host-side tooling consume the same stream live for backend analysis, data
   capture, and side-by-side detector inspection
 
@@ -28,6 +27,12 @@ The resulting shift was not only a transport optimization. It also retired the
 older Python-side streamer workflow as the primary path and moved the active
 streaming architecture into dedicated ESP-IDF firmware plus the host-side
 `collect` workflow.
+
+That firmware-plus-collector split also established a closed-loop pacing model:
+the collector drives the rate by sending UDP pacing traffic, and the firmware
+reports cumulative TX backpressure when its uplink path cannot keep up. The
+collector can then reduce pacing quickly and recover more conservatively instead
+of treating stream rate as an open-loop constant.
 
 The changelog records the same convergence: the C++ streamer path became the
 main live-streaming implementation, collection became collector-driven, and the
@@ -46,13 +51,19 @@ Concretely:
 - make the C++ streamer protocol the main live-streaming path for host-side
   collection and inspection
 - remove the older Python-side streamer workflow from the active architecture
-- use collector-driven external UDP stimulus instead of a firmware-owned traffic
+- use collector-paced UDP traffic instead of a firmware-owned traffic
   generator
-- propagate `stimulus_id` and reference-frame markers into the CSI stream so
-  host-side tooling can perform real-time analysis and save richer datasets
+- expose firmware-side TX backpressure to the collector as an explicit pacing
+  feedback signal
 - treat `./espectre collect` as the host-side entrypoint for live collection,
   backend-side detector comparison, and dataset capture on top of the streamer
   transport
+
+In this model, "backpressure" means the streamer firmware reached temporary TX
+capacity limits while trying to emit CSI datagrams for collector pacing slots.
+Rather than hiding those events as generic packet loss, the stream protocol
+surfaces cumulative backpressure telemetry (`tx_backpressure_total`) so the
+collector can adapt its pacing rate to current link conditions.
 
 ## Alternatives Considered
 
@@ -76,19 +87,19 @@ Benefits:
   rates on the supported firmware targets
 - the active streaming path now fits the same modular frontend architecture as
   the rest of the firmware platform
-- collector-driven stimulus and reference markers make backend-side temporal
-  grouping, reference-assisted analysis, and later phase/coherence work more
-  practical
+- the collector can use firmware-reported backpressure as a control signal,
+  reducing pacing quickly when the TX path saturates and recovering more slowly
+  when the stream stabilizes
 - `collect` can inspect the same live stream with multiple detectors in
   parallel, which improves backend-side validation and A/B comparison during
   collection
 
 Trade-offs:
 
-- the streamer frontend is intentionally special-case and does not use the full
-  `IEspectreRuntime` facade
 - host-side collection now depends more explicitly on the coordinated
   firmware-plus-collector workflow
+- pacing behavior is no longer a static transport knob; it depends on the
+  collector correctly interpreting firmware backpressure telemetry
 - the raw streaming protocol and the collector must evolve together when packet
   metadata changes
 
@@ -98,4 +109,3 @@ Trade-offs:
 - `src/cpp/frontend/streamer/README.md`
 - `docs/adr/2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`
 - `docs/adr/2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md`
-- `docs/adr/2026-07-04-preserve-multi-device-metadata-as-a-research-compatible-dataset-contract.md`

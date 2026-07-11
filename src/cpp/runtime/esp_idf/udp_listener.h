@@ -1,7 +1,7 @@
 /*
  * ESPectre - UDP Listener
  * 
- * Listens for UDP packets to trigger CSI generation in external traffic mode.
+ * Listens for UDP packets to trigger CSI generation from external traffic or collector pacing.
  * When traffic_generator_rate is 0, this listener allows external sources
  * to generate WiFi traffic that triggers CSI callbacks.
  * 
@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 
@@ -36,6 +38,7 @@ class UDPListener {
    */
   void init(uint16_t port = 5555);
   void set_multicast_group(const char *group);
+  void set_expected_payload(const uint8_t *payload, size_t len);
   
   /**
    * Start listening for UDP packets
@@ -60,7 +63,6 @@ class UDPListener {
    * Get the listening port
    */
   uint16_t get_port() const { return port_; }
-  uint64_t get_raw_packets_received() const { return raw_packets_received_; }
   uint64_t get_packets_received() const { return packets_received_; }
   bool get_last_sender(sockaddr_in *out_addr) const;
   
@@ -76,9 +78,11 @@ class UDPListener {
   int sock_{-1};
   uint16_t port_{5555};
   bool running_{false};
-  uint64_t raw_packets_received_{0U};
   uint64_t packets_received_{0U};
   char multicast_group_[16]{};
+  static constexpr size_t kMaxExpectedPayloadLen = 16U;
+  std::array<uint8_t, kMaxExpectedPayloadLen> expected_payload_{};
+  size_t expected_payload_len_{0U};
   std::atomic<uint32_t> last_sender_ipv4_{0U};
   std::atomic<uint16_t> last_sender_port_{0U};
 };

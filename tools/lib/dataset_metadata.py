@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover
     )
 
 
-DATASET_FORMAT_VERSION = "1.1"
+DATASET_FORMAT_VERSION = "1.2"
 DATA_DIR = data_dir()
 DATASET_INFO_FILE = DATA_DIR / "dataset_info.json"
 

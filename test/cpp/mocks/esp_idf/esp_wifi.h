@@ -86,6 +86,34 @@ typedef struct {
   uint8_t reason;
 } wifi_event_sta_disconnected_t;
 
+#ifndef WIFI_REASON_BEACON_TIMEOUT
+#define WIFI_REASON_BEACON_TIMEOUT 200
+#endif
+#ifndef WIFI_REASON_NO_AP_FOUND
+#define WIFI_REASON_NO_AP_FOUND 201
+#endif
+#ifndef WIFI_REASON_AUTH_FAIL
+#define WIFI_REASON_AUTH_FAIL 202
+#endif
+#ifndef WIFI_REASON_ASSOC_FAIL
+#define WIFI_REASON_ASSOC_FAIL 203
+#endif
+#ifndef WIFI_REASON_HANDSHAKE_TIMEOUT
+#define WIFI_REASON_HANDSHAKE_TIMEOUT 204
+#endif
+#ifndef WIFI_REASON_CONNECTION_FAIL
+#define WIFI_REASON_CONNECTION_FAIL 205
+#endif
+#ifndef WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY
+#define WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY 206
+#endif
+#ifndef WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD
+#define WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD 207
+#endif
+#ifndef WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD
+#define WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD 208
+#endif
+
 // CSI configuration
 // Note: field order must match designated initializer order in csi_manager.cpp
 typedef struct {
@@ -199,6 +227,7 @@ typedef void (*wifi_csi_cb_t)(void *ctx, wifi_csi_info_t *data);
 typedef struct {
   int8_t rssi;
   uint8_t primary;
+  uint8_t bssid[6];
 } wifi_ap_record_t;
 
 typedef struct {

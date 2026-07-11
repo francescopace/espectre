@@ -76,8 +76,12 @@ def _add_collect_parser(
         help="IPv4 target destination(s), comma-separated for multi-unicast",
     )
     collect_parser.add_argument("--target-port", dest="target_port", type=int, default=9999, help="UDP port used by the target listener (default: 9999)")
-    collect_parser.add_argument("--rate", type=int, default=100, help="Traffic send rate in packets per second (default: 100)")
-    collect_parser.add_argument("--reference-every", type=int, default=0, help="Mark every Nth traffic packet as reference (default: 0 = measurement only)")
+    collect_parser.add_argument(
+        "--pps",
+        type=int,
+        default=100,
+        help="UDP pacing rate in packets per second (default: 100)",
+    )
     collect_parser.add_argument(
         "--detector",
         default="classic",

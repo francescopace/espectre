@@ -30,26 +30,20 @@ try:
 except ImportError:
     import src.config as config
 
-
 MAGIC_STREAM = 0x4353
-STREAM_VERSION = 3
+STREAM_VERSION = 5
 DEFAULT_PORT = 5001
 STREAM_FLAG_FIRST_WORD_INVALID = 1 << 0
 STREAM_FLAG_WIFI_RX_TS_VALID = 1 << 1
 STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1 << 2
-STREAM_FLAG_STIMULUS_ID_VALID = 1 << 3
-STREAM_FLAG_REFERENCE_FRAME = 1 << 4
-CSI_HEADER_FORMAT = "<HBBBBIHHQQIQIBbb"
+STREAM_FLAG_CSI_FRESH = 1 << 3
+CSI_HEADER_FORMAT = "<HBBBBIHHQQIQBbbQ"
 CSI_HEADER_STRUCT = struct.Struct(CSI_HEADER_FORMAT)
 MAX_STREAM_DATAGRAM_BYTES = 2048
 DEFAULT_SOCKET_RCVBUF_BYTES = 1024 * 1024
-STIMULUS_MAGIC = b"ESTM"
-STIMULUS_VERSION = 1
-STIMULUS_ROLE_MEASUREMENT = 0
-STIMULUS_ROLE_REFERENCE = 1
-DEFAULT_STIMULUS_PORT = 9999
-DEFAULT_STIMULUS_RATE_PPS = 100
-STIMULUS_HEADER_STRUCT = struct.Struct(">4sBBI")
+DEFAULT_PACING_PORT = 9999
+DEFAULT_PACING_INTERVAL_SECONDS = 5.0
+DEFAULT_PACING_PAYLOAD = b"ESPE"
 
 CHIP_CODES = {
     0: "unknown",
@@ -60,8 +54,6 @@ CHIP_CODES = {
     5: "C5",
     6: "C6",
 }
-
-
 def get_default_bind_host() -> str:
     """Determine a safe default bind interface."""
     import os
@@ -96,51 +88,71 @@ class CSIPacket:
     seq_num: int
     num_subcarriers: int
     iq_raw: np.ndarray
-    iq_complex: np.ndarray
-    amplitudes: np.ndarray
-    phases: np.ndarray
     chip: str = "unknown"
     device_id: Optional[int] = None
     device_ticks_us: Optional[int] = None
     wifi_rx_ts_us: Optional[int] = None
     wifi_rx_start_ts_ns: Optional[int] = None
-    stimulus_id: Optional[int] = None
-    is_reference: bool = False
     channel: Optional[int] = None
     rssi_dbm: Optional[int] = None
     noise_floor_dbm: Optional[int] = None
+    tx_backpressure_total: Optional[int] = None
+    # False when the device re-sent its latest CSI sample to keep the
+    # traffic-paced stream at the target rate (see STREAM_FLAG_CSI_FRESH).
+    csi_fresh: bool = True
     source_ip: Optional[str] = None
+    _iq_complex: Optional[np.ndarray] = None
+    _amplitudes: Optional[np.ndarray] = None
+    _phases: Optional[np.ndarray] = None
+
+    def _ensure_derived_arrays(self) -> None:
+        if self._iq_complex is not None and self._amplitudes is not None and self._phases is not None:
+            return
+        q_values = self.iq_raw[0::2].astype(np.float32)
+        i_values = self.iq_raw[1::2].astype(np.float32)
+        iq_complex = i_values + 1j * q_values
+        self._iq_complex = iq_complex.astype(np.complex64, copy=False)
+        self._amplitudes = np.abs(self._iq_complex)
+        self._phases = np.angle(self._iq_complex)
+
+    @property
+    def iq_complex(self) -> np.ndarray:
+        self._ensure_derived_arrays()
+        return self._iq_complex
+
+    @property
+    def amplitudes(self) -> np.ndarray:
+        self._ensure_derived_arrays()
+        return self._amplitudes
+
+    @property
+    def phases(self) -> np.ndarray:
+        self._ensure_derived_arrays()
+        return self._phases
 
 
-def build_stimulus_datagram(stimulus_id: int, *, is_reference: bool = False) -> bytes:
-    """Build one ESTM datagram consumed by the streamer firmware."""
-    if stimulus_id < 0 or stimulus_id > 0xFFFFFFFF:
-        raise ValueError(f"stimulus_id out of range: {stimulus_id}")
-    role = STIMULUS_ROLE_REFERENCE if is_reference else STIMULUS_ROLE_MEASUREMENT
-    return STIMULUS_HEADER_STRUCT.pack(STIMULUS_MAGIC, STIMULUS_VERSION, role, stimulus_id)
+def build_pacing_datagram(*, payload: bytes = DEFAULT_PACING_PAYLOAD) -> bytes:
+    """Build one UDP pacing datagram consumed by the streamer firmware."""
+    if not payload:
+        raise ValueError("payload cannot be empty")
+    return bytes(payload)
 
 
-class StimulusSender:
-    """Background UDP sender that drives streamer-side CSI stimulus."""
+class UdpPacingSender:
+    """Background UDP sender that refreshes the collector pacing path periodically."""
 
     def __init__(
         self,
         target_host: str | Iterable[str],
-        target_port: int = DEFAULT_STIMULUS_PORT,
-        rate_pps: int = DEFAULT_STIMULUS_RATE_PPS,
-        reference_every: int = 0,
-        stimulus_id_start: int = 1,
+        target_port: int = DEFAULT_PACING_PORT,
         source_host: Optional[str] = None,
+        interval_s: float = DEFAULT_PACING_INTERVAL_SECONDS,
+        payload: bytes = DEFAULT_PACING_PAYLOAD,
     ):
         if target_port <= 0 or target_port > 65535:
             raise ValueError(f"invalid target_port: {target_port}")
-        if rate_pps <= 0:
-            raise ValueError(f"rate_pps must be > 0, got {rate_pps}")
-        if reference_every < 0:
-            raise ValueError(f"reference_every must be >= 0, got {reference_every}")
-        if stimulus_id_start < 0 or stimulus_id_start > 0xFFFFFFFF:
-            raise ValueError(f"invalid stimulus_id_start: {stimulus_id_start}")
-
+        if interval_s <= 0:
+            raise ValueError(f"interval_s must be > 0, got {interval_s}")
         raw_targets = [target_host] if isinstance(target_host, str) else list(target_host)
         self.target_hosts: List[str] = []
         self.target_ips: List[ipaddress.IPv4Address] = []
@@ -160,10 +172,9 @@ class StimulusSender:
             raise ValueError("target_host cannot be empty")
 
         self.target_port = int(target_port)
-        self.rate_pps = int(rate_pps)
-        self.reference_every = int(reference_every)
-        self.next_stimulus_id = int(stimulus_id_start)
         self.source_host = str(source_host).strip() if source_host is not None else ""
+        self.interval_s = float(interval_s)
+        self.payload = build_pacing_datagram(payload=payload)
         if self.source_host:
             try:
                 ipaddress.ip_address(self.source_host)
@@ -173,6 +184,7 @@ class StimulusSender:
         self.sock: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._interval_lock = threading.Lock()
 
     def start(self) -> None:
         if self._thread is not None:
@@ -184,7 +196,7 @@ class StimulusSender:
         if self.source_host:
             self.sock.bind((self.source_host, 0))
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, name="espectre-stimulus", daemon=True)
+        self._thread = threading.Thread(target=self._run, name="espectre-pacing", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
@@ -196,24 +208,36 @@ class StimulusSender:
             self.sock.close()
             self.sock = None
 
-    def _run(self) -> None:
-        interval_s = 1.0 / float(self.rate_pps)
-        next_deadline = time.monotonic()
-        while not self._stop_event.is_set():
-            packet_index = self.sent_packets + 1
-            is_reference = self.reference_every > 0 and (packet_index % self.reference_every) == 0
-            payload = build_stimulus_datagram(self.next_stimulus_id, is_reference=is_reference)
-            try:
-                if self.sock is not None:
-                    for target_host in self.target_hosts:
-                        self.sock.sendto(payload, (target_host, self.target_port))
-            except OSError:
-                pass
+    def set_rate_pps(self, rate_pps: float) -> None:
+        rate_value = float(rate_pps)
+        if rate_value <= 0:
+            raise ValueError(f"rate_pps must be > 0, got {rate_value}")
+        with self._interval_lock:
+            self.interval_s = 1.0 / rate_value
 
-            self.sent_packets += 1
-            self.next_stimulus_id = (self.next_stimulus_id + 1) & 0xFFFFFFFF
-            next_deadline += interval_s
-            self._stop_event.wait(max(0.0, next_deadline - time.monotonic()))
+    def get_rate_pps(self) -> float:
+        with self._interval_lock:
+            return 1.0 / self.interval_s
+
+    def _send_once(self) -> None:
+        try:
+            if self.sock is not None:
+                for target_host in self.target_hosts:
+                    self.sock.sendto(self.payload, (target_host, self.target_port))
+        except OSError:
+            pass
+        self.sent_packets += 1
+
+    def _run(self) -> None:
+        next_send_time = time.perf_counter()
+        while not self._stop_event.is_set():
+            self._send_once()
+            with self._interval_lock:
+                interval_s = self.interval_s
+            next_send_time += interval_s
+            sleep_time = next_send_time - time.perf_counter()
+            if sleep_time > 0 and self._stop_event.wait(sleep_time):
+                break
 
 
 class CSIReceiver:
@@ -225,11 +249,13 @@ class CSIReceiver:
         buffer_size: int = 500,
         bind_host: Optional[str] = None,
         socket_rcvbuf_bytes: int = DEFAULT_SOCKET_RCVBUF_BYTES,
+        derive_complex: bool = True,
     ):
         self.port = port
         self.buffer_size = buffer_size
         self.bind_host = str(bind_host or get_default_bind_host()).strip()
         self.socket_rcvbuf_bytes = max(int(socket_rcvbuf_bytes), 0)
+        self.derive_complex = bool(derive_complex)
         self.effective_socket_rcvbuf_bytes: Optional[int] = None
         if not self.bind_host:
             raise ValueError("bind_host cannot be empty")
@@ -274,10 +300,10 @@ class CSIReceiver:
             device_ticks_us,
             wifi_rx_ts_us,
             wifi_rx_start_ts_ns,
-            stimulus_id,
             channel,
             rssi_dbm,
             noise_floor_dbm,
+            tx_backpressure_total,
         ) = CSI_HEADER_STRUCT.unpack_from(data, offset)
 
         if magic != MAGIC_STREAM or version != STREAM_VERSION:
@@ -291,31 +317,34 @@ class CSIReceiver:
         if len(data) - offset < record_len:
             return None, offset
 
-        iq_raw = np.array(
-            struct.unpack(f"<{csi_len_bytes}b", data[offset + header_len:offset + header_len + csi_len_bytes]),
-            dtype=np.int8,
-        )
-        q_values = iq_raw[0::2].astype(np.float32)
-        i_values = iq_raw[1::2].astype(np.float32)
-        iq_complex = i_values + 1j * q_values
+        iq_raw = np.frombuffer(data, dtype=np.int8, count=csi_len_bytes, offset=offset + header_len).copy()
+        iq_complex: Optional[np.ndarray] = None
+        amplitudes: Optional[np.ndarray] = None
+        phases: Optional[np.ndarray] = None
+        if self.derive_complex:
+            q_values = iq_raw[0::2].astype(np.float32)
+            i_values = iq_raw[1::2].astype(np.float32)
+            iq_complex = (i_values + 1j * q_values).astype(np.complex64, copy=False)
+            amplitudes = np.abs(iq_complex)
+            phases = np.angle(iq_complex)
         packet = CSIPacket(
             timestamp=time.time(),
             seq_num=seq_num,
             num_subcarriers=num_sc,
             iq_raw=iq_raw,
-            iq_complex=iq_complex,
-            amplitudes=np.abs(iq_complex),
-            phases=np.angle(iq_complex),
             chip=CHIP_CODES.get(chip_code, "unknown"),
             device_id=device_id or None,
             device_ticks_us=device_ticks_us or None,
             wifi_rx_ts_us=wifi_rx_ts_us if (flags & STREAM_FLAG_WIFI_RX_TS_VALID) else None,
             wifi_rx_start_ts_ns=wifi_rx_start_ts_ns if (flags & STREAM_FLAG_WIFI_RX_START_TS_NS_VALID) else None,
-            stimulus_id=stimulus_id if (flags & STREAM_FLAG_STIMULUS_ID_VALID) else None,
-            is_reference=bool(flags & STREAM_FLAG_REFERENCE_FRAME),
             channel=int(channel),
             rssi_dbm=int(rssi_dbm),
             noise_floor_dbm=int(noise_floor_dbm),
+            tx_backpressure_total=int(tx_backpressure_total),
+            csi_fresh=bool(flags & STREAM_FLAG_CSI_FRESH),
+            _iq_complex=iq_complex,
+            _amplitudes=amplitudes,
+            _phases=phases,
         )
         return packet, offset + record_len
 
@@ -420,6 +449,7 @@ class CSIReceiver:
                 f"  Socket RCVBUF: requested {self.socket_rcvbuf_bytes} bytes, "
                 f"effective {self.effective_socket_rcvbuf_bytes} bytes"
             )
+            print()
 
         self.running = True
         self.start_time = time.time()
@@ -514,7 +544,7 @@ class CSICollector:
         self.description = description
         self.expected_source_hosts = list(dict.fromkeys(expected_source_hosts or []))
         self.expected_device_count = max(1, int(expected_device_count)) if expected_device_count is not None else 1
-        self.receiver = CSIReceiver(port=port, buffer_size=2000, bind_host=bind_host)
+        self.receiver = CSIReceiver(port=port, buffer_size=2000, bind_host=bind_host, derive_complex=False)
         self._sample_count = 0
         self._ready_detector = self._build_ready_detector()
         self._live_status_line_count = 0
@@ -599,8 +629,6 @@ class CSICollector:
 
         add_optional_array("wifi_rx_ts_us", [packet.wifi_rx_ts_us for packet in packets], np.uint32)
         add_optional_array("wifi_rx_start_ts_ns", [packet.wifi_rx_start_ts_ns for packet in packets], np.uint64)
-        add_optional_array("stimulus_id", [packet.stimulus_id for packet in packets], np.uint32)
-        add_optional_array("is_reference", [1 if packet.is_reference else 0 for packet in packets], np.uint8)
         add_optional_array("channel", [packet.channel for packet in packets], np.uint8)
         add_optional_array("rssi_dbm", [packet.rssi_dbm for packet in packets], np.int16)
         add_optional_array("noise_floor_dbm", [packet.noise_floor_dbm for packet in packets], np.int16)
@@ -1186,12 +1214,9 @@ class CSICollector:
 def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     """Load a ``.npz`` file and convert it to packet dictionaries."""
     data = np.load(filepath, allow_pickle=True)
-    if "csi_data" in data.files:
-        csi_array = data["csi_data"]
-    elif "iq_raw" in data.files:
-        csi_array = data["iq_raw"]
-    else:
+    if "csi_data" not in data.files:
         raise ValueError(f"No CSI data found in {filepath}")
+    csi_array = data["csi_data"]
 
     label = str(data.get("label", "unknown"))
     num_subcarriers = int(data.get("num_subcarriers", csi_array.shape[1] // 2))
@@ -1200,8 +1225,6 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     device_ticks_us = data["device_ticks_us"] if "device_ticks_us" in data.files else None
     wifi_rx_ts_us = data["wifi_rx_ts_us"] if "wifi_rx_ts_us" in data.files else None
     wifi_rx_start_ts_ns = data["wifi_rx_start_ts_ns"] if "wifi_rx_start_ts_ns" in data.files else None
-    stimulus_ids = data["stimulus_id"] if "stimulus_id" in data.files else None
-    is_reference = data["is_reference"] if "is_reference" in data.files else None
     device_ids = data["device_id"] if "device_id" in data.files else None
     channels = data["channel"] if "channel" in data.files else None
     rssi_dbm = data["rssi_dbm"] if "rssi_dbm" in data.files else None
@@ -1228,8 +1251,6 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
                 "device_ticks_us": optional_scalar(device_ticks_us, index, int),
                 "wifi_rx_ts_us": optional_scalar(wifi_rx_ts_us, index, int),
                 "wifi_rx_start_ts_ns": optional_scalar(wifi_rx_start_ts_ns, index, int),
-                "stimulus_id": optional_scalar(stimulus_ids, index, int),
-                "is_reference": bool(optional_scalar(is_reference, index, int) or 0),
                 "device_id": optional_scalar(device_ids, index, int),
                 "channel": optional_scalar(channels, index, int),
                 "rssi_dbm": optional_scalar(rssi_dbm, index, int),

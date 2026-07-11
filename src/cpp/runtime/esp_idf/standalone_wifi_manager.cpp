@@ -51,6 +51,31 @@ void format_ip_address(const esp_ip4_addr_t &ip, char *out, size_t out_size) {
   }
 }
 
+const char *wifi_disconnect_reason_to_str(uint8_t reason) {
+  switch (reason) {
+    case WIFI_REASON_BEACON_TIMEOUT:
+      return "beacon-timeout";
+    case WIFI_REASON_NO_AP_FOUND:
+      return "no-ap-found";
+    case WIFI_REASON_AUTH_FAIL:
+      return "auth-fail";
+    case WIFI_REASON_ASSOC_FAIL:
+      return "assoc-fail";
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:
+      return "handshake-timeout";
+    case WIFI_REASON_CONNECTION_FAIL:
+      return "connection-fail";
+    case WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY:
+      return "no-ap-compatible-security";
+    case WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD:
+      return "no-ap-authmode-threshold";
+    case WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD:
+      return "no-ap-rssi-threshold";
+    default:
+      return "unknown";
+  }
+}
+
 }  // namespace
 
 esp_err_t StandaloneWifiManager::setup(const StandaloneWifiConfig &config,
@@ -207,7 +232,7 @@ esp_err_t StandaloneWifiManager::configure_station_() {
                 config_.password != nullptr ? config_.password : "");
   sta_cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
   sta_cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
-  sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
+  sta_cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
   sta_cfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
   sta_cfg.sta.pmf_cfg.capable = true;
   sta_cfg.sta.pmf_cfg.required = false;
@@ -331,18 +356,17 @@ void StandaloneWifiManager::shutdown() {
 }
 
 esp_err_t StandaloneWifiManager::apply_started_csi_policy() {
-  // Keep power save disabled for CSI (see setup): modem sleep starves RX/TX and
-  // causes the retransmission + ENOMEM congestion collapse under streaming load.
+  // Re-apply no-power-save once the station is started.
   esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
   if (ps_err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to disable Wi-Fi power save for CSI: %s", esp_err_to_name(ps_err));
+    ESP_LOGW(TAG, "Failed to apply Wi-Fi power save profile for CSI: %s", esp_err_to_name(ps_err));
   }
 
 #ifdef ESPECTRE_HAVE_ESP_COEXIST
-  // BLE provisioning keeps the BT stack active and software coexistence
-  // time-slices the shared radio. Bias coexistence toward Wi-Fi so CSI
-  // throughput is favored over BLE airtime; sane default for a Wi-Fi-centric
-  // sensing device (it does not lift the ESP32 high-rate ceiling; see README).
+  // On coexist-capable targets, bias the shared radio toward Wi-Fi so CSI
+  // throughput is favored over non-Wi-Fi airtime; sane default for a Wi-Fi-
+  // centric sensing device (it does not lift the ESP32 high-rate ceiling; see
+  // README).
   const esp_err_t coex_err = esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
   if (coex_err != ESP_OK) {
     ESP_LOGW(TAG, "Failed to bias Wi-Fi/BT coexistence toward Wi-Fi: %s", esp_err_to_name(coex_err));
@@ -354,18 +378,14 @@ esp_err_t StandaloneWifiManager::apply_started_csi_policy() {
     ESP_LOGW(TAG, "Failed to apply started Wi-Fi CSI policy: %s", esp_err_to_name(policy_err));
     return policy_err;
   }
-
-  const esp_err_t retry_err = WiFiLifecycleManager::apply_tx_retry_policy();
-  if (retry_err != ESP_OK && retry_err != ESP_ERR_NOT_SUPPORTED) {
-    ESP_LOGW(TAG, "Failed to apply Wi-Fi TX retry policy: %s", esp_err_to_name(retry_err));
-  }
+  ESP_LOGI(TAG, "Started Wi-Fi CSI policy applied");
 
   return ps_err == ESP_OK ? ESP_OK : ps_err;
 }
 
 void StandaloneWifiManager::handle_wifi_started_() {
   if (!has_text(config_.ssid)) {
-    ESP_LOGW(TAG, "Wi-Fi SSID is empty; provision credentials over BLE or configure build-time credentials");
+    ESP_LOGW(TAG, "Wi-Fi SSID is empty; configure credentials in sdkconfig.wifi or at build time");
     return;
   }
 
@@ -382,7 +402,11 @@ void StandaloneWifiManager::handle_wifi_started_() {
 
 void StandaloneWifiManager::handle_wifi_disconnected_(void *event_data) {
   const auto *event = static_cast<const wifi_event_sta_disconnected_t *>(event_data);
-  ESP_LOGW(TAG, "Wi-Fi disconnected: reason=%u", event != nullptr ? static_cast<unsigned>(event->reason) : 0U);
+  const uint8_t reason = event != nullptr ? event->reason : 0U;
+  ESP_LOGW(TAG,
+           "Wi-Fi disconnected: reason=%u (%s)",
+           static_cast<unsigned>(reason),
+           wifi_disconnect_reason_to_str(reason));
   clear_cached_ip_address_();
   wifi_connect_requested_ = false;
   if (has_text(config_.ssid) && wifi_retry_count_ < config_.max_retry) {

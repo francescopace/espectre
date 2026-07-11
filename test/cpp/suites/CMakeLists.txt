@@ -83,8 +83,18 @@ add_espectre_test(test_csi_manager
     LIBRARIES espectre_runtime_testlib
 )
 
-add_espectre_test(test_stimulus_protocol
-    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_stimulus_protocol.cpp"
+add_espectre_test(test_csi_frame_identity
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_csi_frame_identity.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_csi_traffic_service
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_csi_traffic_service.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_udp_listener
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_udp_listener.cpp"
     LIBRARIES espectre_runtime_testlib
 )
 

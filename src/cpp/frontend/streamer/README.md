@@ -2,62 +2,63 @@
 
 This directory contains the standalone CSI streamer frontend.
 
-Unlike `esphome`, `native`, and `matter`, the streamer is not an ecosystem-facing
-adapter over `IEspectreRuntime`. It is a dedicated firmware path for raw CSI
-collection and transport to host-side tooling.
+Like `esphome`, `native`, and `matter`, the streamer now goes through the shared
+`IEspectreRuntime` controller contract. It still remains a dedicated firmware
+path for raw CSI collection and transport to host-side tooling through a
+stream-specific backend.
 
 This file is the source of truth for the streamer frontend surface and UDP
 protocol.
-
-For the historical architecture decision behind this frontend, see
-[`adopt a dedicated c++ streamer frontend for high-rate csi collection`](../../../../docs/adr/2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md).
 
 ## Scope
 
 The streamer frontend is responsible for:
 
 - capturing CSI on-device
-- receiving external UDP traffic (stimulus)
+- receiving lightweight host UDP pacing traffic
 - immediate AGC-active normalized startup
 - packaging CSI into the UDP stream format
-- sending packets to the most recent collector host
+- sending one uplink CSI datagram toward the collector for each valid UDP
+  pacing packet received from the host
 
 Use [`ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md) for the
 ML data collection workflow.
 
 ## Important Architectural Note
 
-The streamer frontend uses the lower-level `runtime/esp_idf` modules directly.
-It does not go through the `IEspectreRuntime` facade.
+The streamer now uses `RuntimeFrontendController` with a dedicated
+`StreamEspIdfRuntime` backend. That keeps the controller/runtime split aligned
+across frontends without forcing the motion-oriented `EspIdfRuntime` onto the
+raw CSI transport workflow.
 
-That is intentional:
+That shape is intentional:
 
 - the goal is raw CSI transport, not motion-detection entity exposure
-- the firmware needs a compact packet-oriented streaming path
-- the state machine is streamer-specific (`WAIT_WIFI` -> `STREAMING`)
+- the firmware still needs a tight packet-oriented streaming path
+- the state machine remains streamer-specific (`WAIT_WIFI` -> `STREAMING`)
 
 The standalone Wi-Fi setup path is shared with the other ESP-IDF standalone
-firmware targets through `StandaloneWifiManager`; only the CSI capture and UDP
-streaming workflow is streamer-specific.
+firmware targets through `StandaloneWifiManager`, while the stream-specific CSI
+capture and UDP transport stay isolated in `StreamEspIdfRuntime` and
+`CsiStreamTransport`.
 
-The streamer also exposes the shared ESPectre BLE provisioning surface for
-Wi-Fi setup only. This lets a browser client save Wi-Fi credentials over Web
-Bluetooth without turning the streamer into a full runtime frontend or adding
-motion telemetry over BLE.
-
-For remote fleet operations, the streamer now also exposes a minimal MQTT
-control plane for `info` and OTA commands. It does not publish CSI, runtime
-telemetry, or detector-style control over MQTT.
+The streamer reads Wi-Fi credentials only from the active `sdkconfig` surface,
+typically `app/sdkconfig.wifi`. It does not expose a separate BLE, MQTT, or OTA
+control plane.
 
 ## Directory Layout
 
 - [`espectre/stream_frontend.cpp`](espectre/stream_frontend.cpp),
   [`espectre/stream_frontend.h`](espectre/stream_frontend.h):
-  frontend state machine and orchestration
-- [`espectre/csi_stream_protocol.h`](espectre/csi_stream_protocol.h):
+  thin frontend adapter over `RuntimeFrontendController`
+- [`../../runtime/csi_stream_protocol.h`](../../runtime/csi_stream_protocol.h):
   UDP stream header and flags
-- [`espectre/csi_udp_sender.cpp`](espectre/csi_udp_sender.cpp):
-  queued UDP sender
+- [`../../runtime/esp_idf/stream_esp_idf_runtime.cpp`](../../runtime/esp_idf/stream_esp_idf_runtime.cpp),
+  [`../../runtime/esp_idf/stream_esp_idf_runtime.h`](../../runtime/esp_idf/stream_esp_idf_runtime.h):
+  streamer-specific runtime backend
+- [`../../runtime/esp_idf/csi_stream_transport.cpp`](../../runtime/esp_idf/csi_stream_transport.cpp),
+  [`../../runtime/esp_idf/csi_stream_transport.h`](../../runtime/esp_idf/csi_stream_transport.h):
+  pacing-driven CSI stream transport and telemetry
 - [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbuild):
   frontend-specific configuration surface
 - [`app/`](app/):
@@ -72,17 +73,34 @@ The streamer frontend uses these states:
 - `CSI_READY`
 - `STREAMING`
 
-This state machine is defined in [`espectre/stream_frontend.h`](espectre/stream_frontend.h).
+This state machine is implemented in
+[`../../runtime/esp_idf/stream_esp_idf_runtime.h`](../../runtime/esp_idf/stream_esp_idf_runtime.h).
 
 ## UDP Stream Protocol
 
-Protocol constants live in [`espectre/csi_stream_protocol.h`](espectre/csi_stream_protocol.h).
+Protocol constants live in [`../../runtime/csi_stream_protocol.h`](../../runtime/csi_stream_protocol.h).
+
+### UDP Pacing Packet
+
+The host-side collector sends ordinary UDP datagrams to the firmware pacing
+port. The firmware does not require a dedicated application header.
+
+Current behavior:
+
+- any UDP datagram received on `ESPECTRE_TRAFFIC_RX_PORT` is treated as valid
+  pacing traffic
+- the device learns the collector IP from the UDP source address of the latest
+  received pacing packet
+- the collector controls the effective stream rate only by sending more or
+  fewer UDP packets
+
+### CSI Stream Packet
 
 Current version:
 
 - magic: `0x4353`
-- version: `2`
-- header size: `52` bytes
+- version: `5`
+- header size: `53` bytes
 
 Header layout:
 
@@ -100,10 +118,10 @@ Header layout:
 | `device_ticks_us` | `uint64` | Device-side timestamp |
 | `wifi_rx_ts_us` | `uint32` | Wi-Fi RX timestamp |
 | `wifi_rx_start_ts_ns` | `uint64` | Estimated Wi-Fi RX start |
-| `stimulus_id` | `uint32` | Optional stimulus identifier |
 | `channel` | `uint8` | Wi-Fi channel |
 | `rssi_dbm` | `int8` | RSSI |
 | `noise_floor_dbm` | `int8` | Noise floor |
+| `tx_backpressure_total` | `uint64` | Cumulative TX backpressure events |
 Flags:
 
 | Bit | Constant | Meaning |
@@ -111,24 +129,28 @@ Flags:
 | 0 | `STREAM_FLAG_FIRST_WORD_INVALID` | Espressif CSI flag |
 | 1 | `STREAM_FLAG_WIFI_RX_TS_VALID` | `wifi_rx_ts_us` valid |
 | 2 | `STREAM_FLAG_WIFI_RX_START_TS_NS_VALID` | `wifi_rx_start_ts_ns` valid |
-| 3 | `STREAM_FLAG_STIMULUS_ID_VALID` | `stimulus_id` valid |
-| 4 | `STREAM_FLAG_REFERENCE_FRAME` | Packet marked as reference frame |
+| 3 | `STREAM_FLAG_CSI_FRESH` | first transmission of this CSI sample |
 
 Payload:
 
 - raw I/Q values in Espressif ordering
-- typical HT20 packet: `52 + 128 = 180 bytes`
-- the sender may concatenate multiple complete stream records into one UDP
-  datagram; the host collector parses them sequentially from the datagram body
+- typical HT20 packet: `53 + 128 = 181 bytes`
+- the sender emits one complete CSI stream record per UDP datagram
+- before the first CSI sample is captured, the stream sends a one-byte filler
+  datagram per pacing slot; the collector ignores it because it does not carry
+  the stream magic
 
 ## Frontend Configuration
 
 Frontend-specific options are declared in [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbuild).
 
 Versioned defaults live in [`app/sdkconfig.defaults`](app/sdkconfig.defaults).
+Chip-specific overrides may also live in `app/sdkconfig.defaults.<idf_target>`;
+the streamer currently ships an `ESP32` profile in
+[`app/sdkconfig.defaults.esp32`](app/sdkconfig.defaults.esp32).
 Local Wi-Fi credentials should live in `app/sdkconfig.wifi`, which is gitignored.
-Wi-Fi credentials can also be provisioned live over BLE and persisted in NVS;
-stored BLE-provisioned values take precedence over build-time defaults.
+The streamer reads Wi-Fi credentials from the active `sdkconfig` surface, so
+`app/sdkconfig.wifi` is the recommended machine-local override file.
 
 Typical local override file:
 
@@ -148,22 +170,20 @@ Recommended workflow for local Wi-Fi configuration:
 4. leave `CONFIG_ESPECTRE_WIFI_CHANNEL` unless you intentionally want to
    pin the streamer to a specific AP channel
 5. build via `./espectre streamer build --chip <esp32|c3|c5|c6|s3>`, which
-   automatically passes `sdkconfig.defaults;sdkconfig.wifi` to `idf.py`;
+   automatically passes `sdkconfig.defaults`, the matching
+   `sdkconfig.defaults.<idf_target>` when present, and `sdkconfig.wifi` to
+   `idf.py`;
    add `--clean` when you want a fresh build
-
-Alternative Wi-Fi Provisioning Over BLE:
-
-1. flash the streamer firmware once
-2. open [`tools/web/espectre-ble.html`](../../../../tools/web/espectre-ble.html)
-   from a secure browser context
-3. connect to `ESPectre Streamer`
-4. use `Save Wi-Fi` to send one atomic `SET_WIFI_CONFIG` update
-5. request sysinfo and verify `wifi_connected=true`
 
 Notes:
 
 - `sdkconfig.wifi` is the recommended place for machine-local credentials
   because it is ignored by git
+- `sdkconfig.defaults.<idf_target>` is optional and lets a specific chip layer
+  transport tuning on top of the shared defaults without affecting other
+  streamer targets
+- the firmware still initializes `nvs_flash` because ESP-IDF Wi-Fi startup
+  requires it, but streamer credentials are no longer loaded from NVS
 - keep `CONFIG_ESPECTRE_WIFI_BSSID` unset for normal use; the streamer will
   scan all channels and connect to the strongest matching AP
 - set `CONFIG_ESPECTRE_WIFI_BSSID="aa:bb:cc:dd:ee:ff"` only when you need to
@@ -184,89 +204,78 @@ Key knobs in the frontend surface:
 - `ESPECTRE_WIFI_PASSWORD`
 - `ESPECTRE_WIFI_BSSID`
 - `ESPECTRE_WIFI_CHANNEL`
-- `ESPECTRE_MQTT_HOST`
-- `ESPECTRE_MQTT_PORT`
-- `ESPECTRE_TOPIC_PREFIX`
-- `ESPECTRE_STREAM_OUTPUT_ENABLED`
-- `ESPECTRE_COLLECTOR_PORT`
+
+Shared runtime traffic ingress:
+
 - `ESPECTRE_TRAFFIC_RX_PORT`
 - `ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP`
-- `ESPECTRE_STREAM_QUEUE_SLOTS`
-- `ESPECTRE_STREAM_BATCH_MAX_RECORDS`
-- `ESPECTRE_STREAM_BATCH_MAX_BYTES`
+
+Streamer-local transport:
+
+- `ESPECTRE_COLLECTOR_PORT`
 - `ESPECTRE_STREAM_LOG_INTERVAL_MS`
 
 Runtime behavior notes:
 
-- the streamer no longer owns an internal traffic generator
-- BLE provisioning handles Wi-Fi setup plus device naming/sysinfo; it does not
-  expose streamer CSI data or runtime motion telemetry over BLE
-- on memory-constrained coexistence targets, the streamer may temporarily
-  suspend BLE after sustained active streaming and restore it after a prolonged
-  idle period
-- MQTT is intentionally narrow on the streamer: it exposes `info`, `stats`,
-  `ota_check`, `ota_start`, `ota_status`, and command results, but not CSI or
-  continuous telemetry
+- the streamer no longer uses the shared internal traffic generator to emit the
+  CSI stream; the collector controls pacing directly by sending UDP pacing
+  packets to `ESPECTRE_TRAFFIC_RX_PORT`
+- the collector should treat `tx_backpressure_total` as the authoritative
+  pacing feedback signal and adapt more slowly upward than downward
 - the collector address is learned from the source IP of the latest valid UDP
-  target-traffic packet
-- the UDP target-traffic payload may carry the `ESTM` metadata header
-  (`magic + version + role + stimulus_id`), which is propagated into the CSI
-  stream when present
-- the UDP sender uses a bounded queue plus datagram batching, so queue depth and
-  queue peak are useful indicators when tuning packet rate
+  pacing packet
+- CSI capture excludes 802.11 ACK frames (`dump_ack_en=0`) and keeps only
+  frames transmitted by the associated AP (source MAC equals the BSSID)
+- the CSI callback keeps a single latest-wins sample; the stream sender embeds
+  it in every stream datagram, marking first transmissions with
+  `STREAM_FLAG_CSI_FRESH` and clearing the flag on repeats
+- the stream always carries the full normalized CSI payload
+- the stream socket requests the WMM/EDCA voice access category (IP TOS `0xC0`,
+  TID 6, AC_VO) so uplink timing stays as tight as the link allows
+- AMPDU stays enabled on the streamer firmware; CSI no longer depends on
+  per-frame ACK observations
 
-Periodic telemetry uses a few transport-specific counters:
+Periodic telemetry focuses on the traffic-paced flow:
 
-- `dup`: total duplicate frames filtered before or after stimulus parsing
-- `wifi_dup`: early duplicates filtered from repeated Wi-Fi frames using
-  source MAC plus 802.11 sequence number
-- `stim_dup`: later duplicates filtered by repeated `stimulus_id`
-- `retry`: frames observed with the 802.11 retry bit set, even when they are
-  the first copy seen by the streamer
+- `csi_ap`: valid CSI callbacks sourced from the associated AP
+- `csi_filt`: valid CSI callbacks dropped by the BSSID source filter
+- `udp_rx`: valid UDP pacing packets received
+- `udp_tx`: stream datagrams accepted by `sendto()`
+- `fresh`: stream packets carrying a new CSI sample
+- `repeat`: stream packets re-sending the latest CSI sample
+- `tx_err`: datagrams rejected by `sendto()`
+- `tx_bp`: datagrams rejected specifically because the TX path reported
+  backpressure (`ENOMEM`, `ENOBUFS`, `EAGAIN`, or `EWOULDBLOCK`)
+- `age_ms`: age of the last accepted CSI sample
 
-In a healthy stream, `backlog`, `csi_q`, `txq_age`, and `fail_age` should stay
-low. A rising `retry` or `wifi_dup` rate with flat `fail` and low queue ages
-usually points to upstream Wi-Fi retransmission pressure rather than sender-side
-queue saturation.
+In a healthy stream, `udp_tx` should sit close to `udp_rx`, and `fresh` should track
+the downlink CSI opportunities (`csi_ap`). A high `repeat` share means the AP
+is not generating enough downlink frames toward the device; increasing
+collector pacing rate or adding downlink traffic raises CSI freshness.
 
-## Collector-Driven Target Traffic
+## Pacing-Driven Flow
 
-The streamer expects external UDP target traffic from the host collector.
+The streamer expects lightweight host UDP pacing traffic plus a paired uplink
+CSI stream.
 
 The collector is responsible for:
 
-- sending UDP packets to the configured target port
-- choosing the traffic rate (`pps`)
-- assigning `stimulus_id`
-- optionally marking packets as reference frames
-- choosing a shared target destination, which may be unicast, broadcast, or
-  multicast depending on the session design
+- sending UDP pacing traffic to the configured target port
+- controlling the effective stream rate by changing the pacing packet rate
+- receiving the CSI UDP stream on `ESPECTRE_COLLECTOR_PORT`
 
 The streamer is responsible for:
 
-- learning the collector IP from the source address of valid incoming target
+- learning the collector IP from the source address of valid UDP pacing
   traffic
-- extracting `ESTM` metadata from the packet payload seen in CSI
-- copying `stimulus_id` / `reference` markers into the UDP CSI stream
+- embedding the latest AP-sourced CSI sample in every stream datagram
+- flagging first transmissions with `STREAM_FLAG_CSI_FRESH`
+- sending one CSI datagram for each valid UDP pacing packet received, and
+  retargeting live when the collector address changes
 
 When multiple streamers share the same target, the host collector is
 expected to demultiplex incoming CSI by `device_id` and save one dataset file
 per device. Mixed-device `.npz` files are not part of the supported workflow.
-
-`ESTM` carries:
-
-- `magic`
-- `version`
-- `role`
-- `stimulus_id`
-
-Current roles:
-
-- measurement frame: normal sample used for the session stream
-- reference frame: sample marked with `STREAM_FLAG_REFERENCE_FRAME`
-
-Reference frames are controlled entirely by the collector. The streamer does
-not generate them on its own and does not reinterpret their meaning.
 
 ## Build and Tooling
 
@@ -290,37 +299,28 @@ If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor`
 or `./espectre doctor` for troubleshooting.
 
 When `app/sdkconfig.wifi` exists, the repository CLI automatically passes
-`sdkconfig.defaults;sdkconfig.wifi` to `idf.py` for `build`.
+`sdkconfig.defaults`, the matching `sdkconfig.defaults.<idf_target>` when
+present, and `sdkconfig.wifi` to `idf.py` for `build`.
 
 <details>
 <summary>Advanced raw ESP-IDF flow</summary>
 
 ```bash
 cd src/cpp/frontend/streamer/app
-idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" set-target esp32c3
-idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" build
+idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi" set-target esp32
+idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi" build
 ```
 
 </details>
 
-## OTA
+## Firmware Scope
 
-The streamer uses the shared ESP-IDF HTTPS OTA service used by the standalone
-native frontend, but with a much smaller MQTT surface.
+The streamer firmware is intentionally narrow:
 
-Operational model:
-
-- MQTT stays connected as the remote control plane
-- `ota_check` checks a remote HTTPS manifest
-- `ota_start` downloads the OTA image into the inactive slot
-- the frontend stops CSI capture and target-traffic processing before applying the OTA
-- MQTT does not become a second data plane for CSI streaming
-
-Artifact model:
-
-- factory images remain the recovery and first-flash path
-- streamer OTA uses the published `espectre-streamer-...-ota.bin` payload and
-  its matching JSON manifest
+- Wi-Fi credentials come from `app/sdkconfig.wifi` or other active build-time
+  `sdkconfig` defaults
+- there is no separate BLE, MQTT, or OTA control surface in this frontend
+- CSI streaming is UDP-only and controlled by host pacing traffic
 
 Current repository CLI target coverage for the streamer frontend includes
 `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, and `ESP32-S3`.
@@ -339,16 +339,13 @@ windows. Broader project performance metrics live in
 
 Benchmark firmware profile:
 
-- `WIFI_PS_MIN_MODEM`
 - `CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=128`
 - `CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=128`
 - `CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=16`
 - `CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=64`
 - `CONFIG_LWIP_UDP_RECVMBOX_SIZE=32`
 - `CONFIG_LWIP_IRAM_OPTIMIZATION=y`
-- `CONFIG_ESPECTRE_STREAM_QUEUE_SLOTS=32`
-- `CONFIG_ESPECTRE_STREAM_BATCH_MAX_RECORDS=4`
-- `CONFIG_ESPECTRE_STREAM_BATCH_MAX_BYTES=1200`
+- UDP sender queue depth is fixed in firmware for one-ACK-one-UDP streaming
 
 Observed results:
 

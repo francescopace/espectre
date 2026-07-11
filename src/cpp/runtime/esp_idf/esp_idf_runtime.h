@@ -8,7 +8,7 @@
 #include "csi_manager.h"
 #include "ml_detector.h"
 #include "runtime_interface.h"
-#include "stimulus_service.h"
+#include "csi_traffic_service.h"
 #include "wifi_lifecycle.h"
 
 namespace esphome {
@@ -57,7 +57,7 @@ class EspIdfRuntime : public IEspectreRuntime {
 
   CSIManager csi_manager_;
   WiFiLifecycleManager wifi_lifecycle_;
-  StimulusService stimulus_service_;
+  CsiTrafficService csi_traffic_service_;
 
   StartupThresholdCalibrator threshold_calibrator_;
   bool threshold_calibration_active_{false};

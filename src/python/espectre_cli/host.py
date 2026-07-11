@@ -103,7 +103,12 @@ def _uses_legacy_dataset_collection(args) -> bool:
 def _collect_dataset_csi_data(args) -> None:
     """Run the legacy timed dataset collection workflow."""
     try:
-        from tools.lib.csi_io import CSICollector, StimulusSender, get_dataset_stats, get_default_bind_host
+        from tools.lib.csi_io import (
+            CSICollector,
+            UdpPacingSender,
+            get_dataset_stats,
+            get_default_bind_host,
+        )
     except ImportError as e:
         print(f"{Fore.RED}❌ Failed to import tooling helpers: {e}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Make sure the tools library package is available{Style.RESET_ALL}")
@@ -158,6 +163,16 @@ def _collect_dataset_csi_data(args) -> None:
         raise SystemExit(1)
 
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
+    pacing_pps = float(args.pps)
+    if pacing_pps <= 0:
+        print(f"{Fore.RED}❌ pacing rate must be > 0 pps, got {pacing_pps:g}{Style.RESET_ALL}")
+        raise SystemExit(1)
+    pacing_sender = UdpPacingSender(
+        target_host=targets,
+        target_port=args.target_port,
+        source_host=resolved_bind_ip,
+        interval_s=1.0 / pacing_pps,
+    )
     print()
     print_box_banner("Dataset Collection")
     print()
@@ -169,9 +184,9 @@ def _collect_dataset_csi_data(args) -> None:
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
     print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)} ({target_mode})")
-    print(f"  {Fore.CYAN}Traffic:{Style.RESET_ALL}   {args.rate} pps -> {len(targets)} target(s) on UDP {args.target_port}")
-    if args.reference_every > 0:
-        print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
+    print(
+        f"  {Fore.CYAN}Pacing:{Style.RESET_ALL}  {pacing_pps:g}pps UDP traffic on {args.target_port}"
+    )
     if args.description:
         print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     print()
@@ -188,16 +203,9 @@ def _collect_dataset_csi_data(args) -> None:
         expected_device_count=len(targets),
         expected_source_hosts=targets,
     )
-    stimulus_sender = StimulusSender(
-        target_host=targets,
-        target_port=args.target_port,
-        rate_pps=args.rate,
-        reference_every=args.reference_every,
-        source_host=resolved_bind_ip,
-    )
     try:
         _wait_before_collection(args.start_delay)
-        stimulus_sender.start()
+        pacing_sender.start()
         saved = collector.collect_timed(duration=sample_duration, num_samples=args.samples)
         if saved:
             print(f"{Fore.GREEN}✅ Collected {len(saved)} device file(s) for label '{args.label}'{Style.RESET_ALL}")
@@ -209,7 +217,7 @@ def _collect_dataset_csi_data(args) -> None:
         print(f"\n{Fore.RED}❌ Error during collection: {e}{Style.RESET_ALL}")
         raise SystemExit(1)
     finally:
-        stimulus_sender.stop()
+        pacing_sender.stop()
 
 
 def collect_csi_data(args) -> None:
@@ -223,7 +231,7 @@ def collect_csi_data(args) -> None:
 def _run_live_collect(args) -> None:
     """Run the host-side live collect pipeline."""
     try:
-        from tools.lib.csi_io import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
+        from tools.lib.csi_io import CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
         import config
         from console_output import format_calibration_status_line, format_detection_publish_line
         from detector_interface import (
@@ -241,7 +249,7 @@ def _run_live_collect(args) -> None:
         )
     except ImportError:
         try:
-            from tools.lib.csi_io import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
+            from tools.lib.csi_io import CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
             import src.config as config
             from src.console_output import format_calibration_status_line, format_detection_publish_line
             from src.detector_interface import (
@@ -294,12 +302,22 @@ def _run_live_collect(args) -> None:
         print(f"{Fore.RED}❌ Label required unless you use --no-save{Style.RESET_ALL}")
         raise SystemExit(1)
 
+    initial_pacing_pps = float(args.pps)
+    base_window_packets = max(1, int(getattr(config, "SEG_WINDOW_SIZE", 100)))
+    effective_window_packets = max(1, int(round(initial_pacing_pps)))
+    effective_evaluation_interval = max(1, effective_window_packets // 4)
     raw_threshold_setting = getattr(config, "SEG_THRESHOLD", ML_DEFAULT_THRESHOLD)
-    calibration_target_packets = max(
+    base_calibration_target_packets = max(
         1,
-        int(getattr(config, "CALIBRATION_BUFFER_SIZE", getattr(config, "SEG_WINDOW_SIZE", 100) * 10)),
+        int(getattr(config, "CALIBRATION_BUFFER_SIZE", base_window_packets * 10)),
     )
-    summary_evaluation_interval = max(1, int(getattr(config, "EVALUATION_INTERVAL", 25)))
+    calibration_window_count = max(1.0, base_calibration_target_packets / float(base_window_packets))
+    calibration_target_packets = max(1, int(round(effective_window_packets * calibration_window_count)))
+    summary_evaluation_interval = effective_evaluation_interval
+    adaptive_min_pps = max(5.0, min(initial_pacing_pps, 10.0))
+    adaptive_max_pps = max(initial_pacing_pps, adaptive_min_pps)
+    adaptive_additive_step_pps = max(1.0, initial_pacing_pps * 0.02)
+    adaptive_control_window_seconds = 1.0
 
     def get_initial_threshold(kind):
         if isinstance(raw_threshold_setting, (int, float)):
@@ -374,6 +392,15 @@ def _run_live_collect(args) -> None:
         rssi_text = "---" if rssi_dbm is None else str(int(rssi_dbm))
         return f"ip={source_ip} chip={chip_label} ch={channel_text} rssi={rssi_text}"
 
+    def format_backpressure_text(device_state):
+        total = device_state.get("tx_backpressure_total")
+        if total is None:
+            return " | bp:--"
+        recent_delta = int(device_state.get("tx_backpressure_last_delta", 0) or 0)
+        if recent_delta > 0:
+            return f" | bp:active(+{recent_delta})"
+        return " | bp:no"
+
     def compute_sequence_gap(previous_seq, current_seq):
         expected = (previous_seq + 1) & 0xFFFFFFFF
         delta = (current_seq - expected) & 0xFFFFFFFF
@@ -389,7 +416,7 @@ def _run_live_collect(args) -> None:
 
     def create_detector(kind, threshold):
         return load_detector_class(kind)(
-            window_size=config.SEG_WINDOW_SIZE,
+            window_size=effective_window_packets,
             threshold=threshold,
             enable_lowpass=config.ENABLE_LOWPASS_FILTER,
             lowpass_cutoff=config.LOWPASS_CUTOFF,
@@ -414,7 +441,7 @@ def _run_live_collect(args) -> None:
         slot_initial_threshold = get_initial_threshold(kind)
         detector = create_detector(kind, slot_initial_threshold)
         runtime_policy = RuntimeMotionPolicy(
-            evaluation_interval=getattr(config, "EVALUATION_INTERVAL", 25),
+            evaluation_interval=effective_evaluation_interval,
             motion_on_hits=getattr(config, "MOTION_ON_HITS", 3),
             motion_off_hits=getattr(config, "MOTION_OFF_HITS", 3),
         )
@@ -450,10 +477,14 @@ def _run_live_collect(args) -> None:
             "packet_count": 0,
             "publish_counter": 0,
             "dropped_count": 0,
+            "last_seq_num": None,
             "pps": 0,
             "pps_window_started_at": None,
             "pps_window_packets": 0,
             "last_publish_at": None,
+            "tx_backpressure_total": None,
+            "tx_backpressure_window_delta": 0,
+            "tx_backpressure_last_delta": 0,
             "slots": [build_detector_slot(kind) for kind in detector_kinds],
         }
         device_state["label"] = format_device_label(device_state)
@@ -477,8 +508,78 @@ def _run_live_collect(args) -> None:
         rssi_dbm = getattr(pkt, "rssi_dbm", None)
         if rssi_dbm is not None:
             device_state["rssi_dbm"] = int(rssi_dbm)
+        tx_backpressure_total = getattr(pkt, "tx_backpressure_total", None)
+        if tx_backpressure_total is not None:
+            tx_backpressure_total = int(tx_backpressure_total)
+            previous_total = device_state.get("tx_backpressure_total")
+            if previous_total is not None and tx_backpressure_total >= previous_total:
+                device_state["tx_backpressure_window_delta"] += tx_backpressure_total - previous_total
+            device_state["tx_backpressure_total"] = tx_backpressure_total
         device_state["label"] = format_device_label(device_state)
         return device_state
+
+    def apply_pacing_rate(new_pps, *, action):
+        controller = state["adaptive_pacing"]
+        clamped_pps = max(controller["min_pps"], min(controller["max_pps"], float(new_pps)))
+        current_pps = float(controller["current_pps"])
+        if abs(clamped_pps - current_pps) < 1e-9:
+            controller["last_action"] = action
+            return
+        if not hasattr(pacing_sender, "set_rate_pps"):
+            controller["last_action"] = "hold"
+            return
+        pacing_sender.set_rate_pps(clamped_pps)
+        controller["current_pps"] = clamped_pps
+        controller["last_action"] = action
+
+    def maybe_adjust_pacing(now):
+        controller = state["adaptive_pacing"]
+        last_control_at = controller["last_control_at"]
+        if last_control_at is None:
+            controller["last_control_at"] = now
+            return
+        if (now - last_control_at) < controller["control_window_s"]:
+            return
+
+        worst_delta = 0
+        tracked_devices = 0
+        for device_state in state["devices"].values():
+            window_delta = int(device_state.get("tx_backpressure_window_delta", 0) or 0)
+            device_state["tx_backpressure_last_delta"] = window_delta
+            device_state["tx_backpressure_window_delta"] = 0
+            if device_state.get("tx_backpressure_total") is None:
+                continue
+            tracked_devices += 1
+            worst_delta = max(worst_delta, window_delta)
+
+        controller["last_control_at"] = now
+        controller["last_window_backpressure_delta"] = worst_delta
+        controller["last_window_backpressure_source"] = None
+        if tracked_devices == 0:
+            controller["last_action"] = "hold"
+            return
+
+        if worst_delta > 0:
+            worst_sources = [
+                str(device_state.get("source_ip") or "?")
+                for device_state in state["devices"].values()
+                if int(device_state.get("tx_backpressure_last_delta", 0) or 0) == worst_delta
+            ]
+            if worst_sources:
+                controller["last_window_backpressure_source"] = worst_sources[0]
+            controller["backpressure_windows"] += 1
+            controller["clean_windows"] = 0
+            reduce_factor = 0.85 if controller["backpressure_windows"] == 1 else 0.70
+            apply_pacing_rate(controller["current_pps"] * reduce_factor, action="slowdown")
+            return
+
+        controller["backpressure_windows"] = 0
+        controller["clean_windows"] += 1
+        if controller["clean_windows"] >= 3:
+            apply_pacing_rate(controller["current_pps"] + controller["additive_step_pps"], action="recovery")
+            controller["clean_windows"] = 0
+            return
+        controller["last_action"] = "hold"
 
     def update_device_pps(device_state, now):
         if device_state["pps_window_started_at"] is None:
@@ -707,6 +808,7 @@ def _run_live_collect(args) -> None:
                                 effective_state_label="READY",
                                 device_label=slot_label,
                             )
+                            + format_backpressure_text(device_state)
                             + f" | thr:{slot['metric_threshold']:.4f} src:{slot['calibration_threshold_source']}"
                         )
                     else:
@@ -723,6 +825,7 @@ def _run_live_collect(args) -> None:
                                 effective_state_label=status,
                                 device_label=slot_label,
                             )
+                            + format_backpressure_text(device_state)
                         )
                 else:
                     progress_score = (
@@ -743,6 +846,7 @@ def _run_live_collect(args) -> None:
                             device_label=slot_label,
                         )
                     )
+                    detail_line += format_backpressure_text(device_state)
                     if save_enabled and not state["capture_ready"]:
                         detail_line += f" | {get_slot_gate_label(slot)}"
                     detail_lines.append(detail_line)
@@ -796,13 +900,16 @@ def _run_live_collect(args) -> None:
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
     subcarriers = list(config.DEFAULT_SUBCARRIERS)
     publish_rate = getattr(config, "PUBLISH_INTERVAL", 100) or 100
-    receiver = CSIReceiver(port=args.udp_port, buffer_size=4000, bind_host=resolved_bind_ip)
-    stimulus_sender = StimulusSender(
+    receiver = CSIReceiver(port=args.udp_port, buffer_size=4000, bind_host=resolved_bind_ip, derive_complex=False)
+    pacing_pps = float(args.pps)
+    if pacing_pps <= 0:
+        print(f"{Fore.RED}❌ pacing rate must be > 0 pps, got {pacing_pps:g}{Style.RESET_ALL}")
+        raise SystemExit(1)
+    pacing_sender = UdpPacingSender(
         target_host=targets,
         target_port=args.target_port,
-        rate_pps=args.rate,
-        reference_every=args.reference_every,
         source_host=resolved_bind_ip,
+        interval_s=1.0 / pacing_pps,
     )
     capture_writer = None
     if save_enabled:
@@ -830,6 +937,19 @@ def _run_live_collect(args) -> None:
         "summary_line_count": 0,
         "summary_use_inline": supports_inline_terminal(),
         "calibration_active": bool(calibrated_kinds),
+        "adaptive_pacing": {
+            "current_pps": pacing_pps,
+            "min_pps": adaptive_min_pps,
+            "max_pps": adaptive_max_pps,
+            "additive_step_pps": adaptive_additive_step_pps,
+            "control_window_s": adaptive_control_window_seconds,
+            "last_control_at": None,
+            "backpressure_windows": 0,
+            "clean_windows": 0,
+            "last_window_backpressure_delta": 0,
+            "last_window_backpressure_source": None,
+            "last_action": "hold",
+        },
     }
 
     def handle_sigint(_signum, _frame):
@@ -849,8 +969,12 @@ def _run_live_collect(args) -> None:
         device_state = get_device_state(pkt)
         device_state["packet_count"] += 1
         device_state["publish_counter"] += 1
+        seq_num = getattr(pkt, "seq_num", None)
+        if seq_num is not None:
+            device_state["last_seq_num"] = int(seq_num)
         device_state["dropped_count"] += check_sequence_by_device(pkt)
         update_device_pps(device_state, now)
+        maybe_adjust_pacing(now)
 
         if state["calibration_active"]:
             process_calibration_packet(device_state, pkt)
@@ -920,26 +1044,18 @@ def _run_live_collect(args) -> None:
     print()
     print_box_banner("Live CSI Collection")
     print()
+    print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)}:{args.target_port} ({target_mode})")
+    print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}:{args.udp_port}")
     print(f"  {Fore.CYAN}Detector:{Style.RESET_ALL}  {', '.join(kind.upper() for kind in detector_kinds)}")
-    print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
-    print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
-    print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)} ({target_mode})")
-    print(f"  {Fore.CYAN}Traffic:{Style.RESET_ALL}   {args.rate} pps -> {len(targets)} target(s) on UDP {args.target_port}")
-    if args.reference_every > 0:
-        print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
     if "ml" in detector_kinds:
         ml_suffix = " (ml, fixed)" if len(detector_kinds) > 1 else ""
         print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {get_initial_threshold('ml'):.2f}{ml_suffix}")
     if calibrated_kinds:
         threshold_text = raw_threshold_setting if isinstance(raw_threshold_setting, str) else f"{float(raw_threshold_setting):.4f}"
         print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {threshold_text} (after startup calibration)")
-        print(f"  {Fore.CYAN}Calibration:{Style.RESET_ALL} {calibration_target_packets} packets/device")
-    print(f"  {Fore.CYAN}Window:{Style.RESET_ALL}    {config.SEG_WINDOW_SIZE} pkts")
-    print(f"  {Fore.CYAN}Subcarriers:{Style.RESET_ALL} {subcarriers}")
-    print(
-        f"  {Fore.CYAN}Hits on/off:{Style.RESET_ALL} "
-        f"{getattr(config, 'MOTION_ON_HITS', 3)}/{getattr(config, 'MOTION_OFF_HITS', 3)}"
-    )
+    print(f"  {Fore.CYAN}Pacing:{Style.RESET_ALL}    {pacing_pps:g}pps")
+    print(f"  {Fore.CYAN}Window:{Style.RESET_ALL}    {effective_window_packets} pkts")
+    print(f"  {Fore.CYAN}Evaluation:{Style.RESET_ALL} {effective_evaluation_interval} pkts")
     print(f"  {Fore.CYAN}Low-pass:{Style.RESET_ALL}  {'ON' if config.ENABLE_LOWPASS_FILTER else 'OFF'}")
     print(f"  {Fore.CYAN}Hampel:{Style.RESET_ALL}    {'ON' if config.ENABLE_HAMPEL_FILTER else 'OFF'}")
     if save_enabled:
@@ -958,7 +1074,7 @@ def _run_live_collect(args) -> None:
     print()
 
     try:
-        stimulus_sender.start()
+        pacing_sender.start()
         while state["running"]:
             announce_socket_rcvbuf = state.get("socket_rcvbuf_reported") is not True
             run_kwargs = {"timeout": 1.0, "quiet": True}
@@ -974,7 +1090,7 @@ def _run_live_collect(args) -> None:
         print(f"\n{Fore.RED}❌ Error during live collect: {e}{Style.RESET_ALL}")
         raise SystemExit(1)
     finally:
-        stimulus_sender.stop()
+        pacing_sender.stop()
         receiver.stop()
         clear_status_block()
         if capture_writer is not None:

@@ -45,7 +45,7 @@ def test_extract_features_by_name_supports_l1_delta_feature():
 def test_training_cache_manifest_tracks_runtime_filter_defaults():
     module = _load_train_module()
 
-    manifest = module._training_cache_manifest(["turb_skewness"])
+    manifest = module._feature_cache_manifest(["turb_skewness"])
 
     assert manifest["enable_lowpass"] == module.ENABLE_LOWPASS_FILTER
     assert manifest["lowpass_cutoff"] == pytest.approx(module.LOWPASS_CUTOFF)

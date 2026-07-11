@@ -35,15 +35,11 @@ Frontend -> Runtime contract -> Runtime implementation -> Core
 More concretely:
 
 ```text
-ESPHome / Native / Matter frontends
+ESPHome / Native / Matter / Streamer frontends
   -> IEspectreRuntime + snapshots/events/capabilities
-  -> EspIdfRuntime and shared runtime services
-  -> shared detectors, filters, math, and ML artifacts
+  -> runtime backend selected by RuntimeFrontendController
+  -> shared runtime services
 ```
-
-The `streamer` frontend is the exception: it uses lower-level
-`runtime/esp_idf` modules directly for CSI transport instead of going through
-`IEspectreRuntime`.
 
 ## Layer Responsibilities
 
@@ -72,8 +68,9 @@ handling.
 - common runtime-facing configuration validation
 
 The frontend-oriented contract lives in the shared runtime layer. The current
-concrete firmware implementation is the ESP-IDF runtime under
-`src/cpp/runtime/esp_idf/`.
+ESP-IDF implementations under `src/cpp/runtime/esp_idf/` include both the
+motion-oriented `EspIdfRuntime` and the transport-oriented
+`StreamEspIdfRuntime`.
 
 Shared runtime services also live here, including:
 
@@ -129,9 +126,10 @@ Source of truth:
 
 ### Streamer
 
-`src/cpp/frontend/streamer/` is a dedicated CSI transport frontend. It does not
-expose the normal runtime contract. Instead, it captures CSI and emits the
-stream protocol used by host-side collection tools.
+`src/cpp/frontend/streamer/` is a dedicated CSI transport frontend. It now uses
+the same controller/runtime contract as the other standalone frontends, but it
+selects `StreamEspIdfRuntime` so the raw CSI transport path can stay focused and
+detector-free.
 
 Source of truth:
 [`src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md)

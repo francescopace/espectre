@@ -1,11 +1,11 @@
 /*
  * ESPectre - Traffic Generator Manager
- * 
- * Generates WiFi traffic using UDP/DNS queries or ICMP ping to ensure CSI data availability.
+ *
+ * Generates WiFi traffic to ensure CSI data availability.
  * Supports two modes:
- *   - ping: ICMP echo to gateway (default, more compatible with all routers)
- *   - dns: UDP queries to gateway:53 (lower overhead)
- * 
+ *   - DNS: simple DNS queries to gateway IP (lower overhead)
+ *   - Ping: ICMP echo to gateway IP(more compatible with all routers)
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
@@ -17,6 +17,7 @@
 #include "freertos/task.h"
 #include "ping/ping_sock.h"
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <sys/types.h>  // for ssize_t
 #include <string>
@@ -66,7 +67,7 @@ inline bool handle_send_error(SendErrorState& state, ssize_t sent, int err_no, i
  */
 enum class TrafficGeneratorMode {
   DNS,   // UDP DNS queries to gateway:53
-  PING   // ICMP echo requests to gateway (default)
+  PING,  // ICMP echo requests to gateway (default)
 };
 
 /**
@@ -82,12 +83,12 @@ class TrafficGeneratorManager {
  public:
   /**
    * Initialize traffic generator with rate and mode
-   * 
+   *
    * @param rate_pps Packets per second (typically 100)
    * @param mode Traffic generation mode (dns or ping)
    */
   void init(uint32_t rate_pps, TrafficGeneratorMode mode = TrafficGeneratorMode::PING);
-  
+
   /**
    * Start traffic generator
    * 
@@ -136,16 +137,26 @@ class TrafficGeneratorManager {
    * @return true if paused, false otherwise
    */
   bool is_paused() const { return paused_.load(); }
-  
+
+  /**
+   * Datagrams accepted by sendto() since the last (re)start (DNS mode)
+   */
+  uint32_t send_success_count() const { return send_success_count_.load(); }
+
+  /**
+   * Datagrams rejected by sendto() since the last (re)start (DNS mode)
+   */
+  uint32_t send_error_count() const { return send_error_count_.load(); }
+
  private:
-  // FreeRTOS task function (static wrapper) - DNS mode only
+  // FreeRTOS task function (static wrapper) for DNS mode.
   static void dns_traffic_task_(void* arg);
-  
+
   // Ping callback (called by esp_ping for each response)
   static void ping_success_cb_(esp_ping_handle_t hdl, void *args);
   static void ping_timeout_cb_(esp_ping_handle_t hdl, void *args);
   static void ping_end_cb_(esp_ping_handle_t hdl, void *args);
-  
+
   // State
   TaskHandle_t task_handle_{nullptr};
   int sock_{-1};
@@ -154,8 +165,8 @@ class TrafficGeneratorManager {
   TrafficGeneratorMode mode_{TrafficGeneratorMode::PING};
   std::atomic<bool> running_{false};  // atomic: accessed from main task and FreeRTOS task
   std::atomic<bool> paused_{false};   // atomic: accessed from main task and FreeRTOS task
-  std::atomic<uint32_t> dns_send_success_count_{0};
-  std::atomic<uint32_t> dns_send_error_count_{0};
+  std::atomic<uint32_t> send_success_count_{0};
+  std::atomic<uint32_t> send_error_count_{0};
   uint32_t last_ping_request_count_{0};
   int64_t last_ping_progress_us_{0};
   int64_t last_health_check_us_{0};
@@ -163,11 +174,11 @@ class TrafficGeneratorManager {
   static constexpr int64_t HEALTH_CHECK_INTERVAL_US = 1000000;
   static constexpr int64_t PING_STALL_TIMEOUT_US = 5000000;
   static constexpr uint32_t DNS_CONSECUTIVE_ERROR_RESTART_THRESHOLD = 32;
-  
+
   // Mode-specific start/stop
-  bool start_dns_();
+  bool start_dns_task_();
   bool start_ping_();
-  void stop_dns_();
+  void stop_dns_task_();
   void stop_ping_();
   bool restart_ping_session_();
   void reset_health_state_();

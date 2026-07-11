@@ -17,27 +17,12 @@ menu "ESPectre CSI Streamer"
         range 0 14
         default 0
 
-    config ESPECTRE_MQTT_HOST
-        string "MQTT broker host"
-        default ""
-
-    config ESPECTRE_MQTT_PORT
-        int "MQTT broker port"
-        range 1 65535
-        default 1883
-
-    config ESPECTRE_TOPIC_PREFIX
-        string "MQTT topic prefix"
-        default "espectre/v1/devices"
-
-    config ESPECTRE_STREAM_OUTPUT_ENABLED
-        bool "Enable UDP stream output"
-        default y
-
     config ESPECTRE_COLLECTOR_PORT
         int "Collector UDP port"
         range 1 65535
         default 5001
+
+    comment "Shared runtime traffic ingress"
 
     config ESPECTRE_TRAFFIC_RX_PORT
         int "External traffic listener UDP port"
@@ -48,20 +33,7 @@ menu "ESPectre CSI Streamer"
         string "Optional external traffic multicast group"
         default ""
 
-    config ESPECTRE_STREAM_QUEUE_SLOTS
-        int "Preallocated stream queue slots"
-        range 2 32
-        default 8
-
-    config ESPECTRE_STREAM_BATCH_MAX_RECORDS
-        int "Maximum CSI records per UDP datagram"
-        range 1 8
-        default 4
-
-    config ESPECTRE_STREAM_BATCH_MAX_BYTES
-        int "Maximum UDP payload bytes per streamed datagram"
-        range 256 1472
-        default 1200
+    comment "Streamer-local transport"
 
     config ESPECTRE_STREAM_LOG_INTERVAL_MS
         int "Telemetry log interval (ms)"
