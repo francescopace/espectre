@@ -14,6 +14,7 @@
 #include <cstdint>
 
 #include "runtime_snapshot.h"
+#include "threshold.h"
 
 namespace esphome {
 namespace espectre {

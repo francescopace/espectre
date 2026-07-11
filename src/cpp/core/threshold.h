@@ -23,11 +23,48 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
 namespace esphome {
 namespace espectre {
+
+// =============================================================================
+// Segmentation Threshold Constants
+// =============================================================================
+
+// Note: Window size constants are defined in base_detector.h:
+
+constexpr float SEGMENTATION_DEFAULT_THRESHOLD = 1.0f;
+// Min threshold lowered to support CV normalization (std/mean produces smaller values)
+constexpr float SEGMENTATION_MIN_THRESHOLD = 1e-9f;
+constexpr float SEGMENTATION_MAX_THRESHOLD = 10.0f;
+
+/**
+ * Validate threshold value against finite/range constraints.
+ */
+inline bool is_valid_threshold(float threshold, float min_threshold, float max_threshold) {
+    return std::isfinite(threshold) &&
+           threshold >= min_threshold &&
+           threshold <= max_threshold;
+}
+
+/**
+ * Clamp threshold to [min, max] and recover non-finite values.
+ */
+inline float clamp_threshold(float threshold, float min_threshold, float max_threshold) {
+    if (!std::isfinite(threshold)) {
+        return min_threshold;
+    }
+    if (threshold < min_threshold) {
+        return min_threshold;
+    }
+    if (threshold > max_threshold) {
+        return max_threshold;
+    }
+    return threshold;
+}
 
 // Multiplier for "auto" mode threshold (reduces false positives)
 constexpr float DEFAULT_ADAPTIVE_FACTOR = 1.3f;

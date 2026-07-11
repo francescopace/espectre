@@ -9,7 +9,7 @@
 #include "csi_stream_transport.h"
 #include "csi_traffic_service.h"
 #include "runtime_interface.h"
-#include "standalone_wifi_manager.h"
+#include "standalone_wifi_service.h"
 
 namespace esphome {
 namespace espectre {
@@ -60,7 +60,7 @@ class StreamEspIdfRuntime : public IEspectreRuntime {
   CsiCaptureService capture_service_;
   CsiTrafficService csi_traffic_service_;
   CsiStreamTransport stream_transport_;
-  StandaloneWifiManager wifi_manager_;
+  StandaloneWifiService wifi_manager_;
 
   bool setup_complete_{false};
   bool services_armed_{true};

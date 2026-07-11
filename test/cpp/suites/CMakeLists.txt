@@ -78,8 +78,8 @@ add_espectre_test(test_espectre_protocol
     LIBRARIES espectre_runtime_testlib
 )
 
-add_espectre_test(test_csi_manager
-    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_csi_manager.cpp"
+add_espectre_test(test_csi_pipeline
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_csi_pipeline.cpp"
     LIBRARIES espectre_runtime_testlib
 )
 

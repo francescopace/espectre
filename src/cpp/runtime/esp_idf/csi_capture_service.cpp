@@ -2,6 +2,7 @@
 
 #include <cinttypes>
 
+#include "csi_format.h"
 #include "csi_platform_config.h"
 #include "espectre_log.h"
 

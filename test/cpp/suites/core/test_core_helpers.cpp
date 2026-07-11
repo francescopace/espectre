@@ -14,6 +14,7 @@
 #include "ml_detector.h"
 #include "features.h"
 #include "threshold.h"
+#include "csi_format.h"
 #include "utils.h"
 
 using namespace esphome::espectre;

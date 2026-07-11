@@ -30,7 +30,7 @@ The current native frontend preserves the protocol already used by
   frontend adapter and runtime-to-BLE mapping
 - `app/`:
   standalone ESP-IDF firmware app
-- `../../runtime/` and `../../runtime/esp_idf/protocol/`:
+- `../../runtime/` and `../../runtime/esp_idf/frontend_support/`:
   shared ESPectre Protocol serializer, BLE binding interface, NimBLE transport,
   NVS-backed device/Wi-Fi config store, MQTT transport boundary, and ESP-IDF
   provisioning helpers
@@ -282,11 +282,11 @@ not for Home Assistant-style provisioning or the Matter commissioning flow.
   UUIDs and default device name
 - `../../runtime/espectre_protocol.cpp`:
   shared protocol payload and command helpers
-- `../../runtime/esp_idf/protocol/wifi_provisioning_service.cpp`:
+- `../../runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp`:
   shared ESP-IDF Wi-Fi provisioning command handling
 - `espectre/native_frontend.cpp`:
   command parsing, sysinfo emission, telemetry serialization
-- `../../runtime/esp_idf/protocol/ble_bindings_nimble.cpp`:
+- `../../runtime/esp_idf/frontend_support/ble_bindings_nimble.cpp`:
   NimBLE transport implementation
 - `../../../../tools/web/espectre-ble.html`:
   local Web Bluetooth provisioning and protocol test client

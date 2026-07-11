@@ -23,7 +23,7 @@ def test_matter_commissioning_window_advertises_ble():
 def test_matter_does_not_apply_csi_wifi_policy_before_commissioning():
     app_main = read(APP_MAIN)
 
-    assert "StandaloneWifiManager::apply_started_csi_policy" not in app_main
+    assert "StandaloneWifiService::apply_started_csi_policy" not in app_main
     assert "WIFI_EVENT_STA_START" not in app_main
     assert "set_runtime_services_armed(true)" in app_main
     assert "DeviceEventType::kCommissioningComplete" in app_main

@@ -5,7 +5,7 @@
  * License: GPLv3
  */
 
-#include "stream_frontend.h"
+#include "streamer_frontend.h"
 
 #include <esp_log.h>
 #include "freertos/FreeRTOS.h"
@@ -23,7 +23,7 @@ TickType_t clamp_delay_to_tick_(uint32_t delay_ms) {
 
 extern "C" void app_main() {
   esphome::espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
-  static esphome::espectre::StreamFrontend frontend;
+  static esphome::espectre::StreamerFrontend frontend;
   if (!frontend.setup()) {
     return;
   }

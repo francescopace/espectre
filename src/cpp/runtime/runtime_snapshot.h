@@ -1,7 +1,8 @@
 #pragma once
 
 #include "base_detector.h"
-#include "utils.h"
+#include "csi_format.h"
+#include "threshold.h"
 
 namespace esphome {
 namespace espectre {

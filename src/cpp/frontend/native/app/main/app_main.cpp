@@ -23,9 +23,9 @@
 #include "espectre_banner.h"
 #include "firmware_version.h"
 #include "frontend_bootstrap_helpers.h"
-#include "https_ota_service.h"
+#include "ota_service_https.h"
 #include "mqtt_transport_esp_idf.h"
-#include "standalone_wifi_manager.h"
+#include "standalone_wifi_service.h"
 #include "wifi_provisioning_service.h"
 
 static const char *TAG = "espectre.native.app";
@@ -35,7 +35,7 @@ namespace {
 constexpr int kWifiConnectMaxRetry = 8;
 
 esphome::espectre::NativeFrontend *g_frontend = nullptr;
-esphome::espectre::StandaloneWifiManager g_wifi_manager;
+esphome::espectre::StandaloneWifiService g_wifi_manager;
 esphome::espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
 
 void sync_frontend_wifi_info() {

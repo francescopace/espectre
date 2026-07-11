@@ -12,7 +12,7 @@
 #include "csi_payload_normalizer.h"
 #include "device_config_store.h"
 #include "nvs.h"
-#include "utils.h"
+#include "csi_format.h"
 
 using namespace esphome::espectre;
 

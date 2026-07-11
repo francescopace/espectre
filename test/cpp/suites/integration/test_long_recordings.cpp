@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "csi_format.h"
 #include "utils.h"
 #include "classic_detector.h"
 #include "ml_detector.h"

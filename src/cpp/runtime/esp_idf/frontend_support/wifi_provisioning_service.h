@@ -13,7 +13,7 @@
 
 #include "device_config_store.h"
 #include "esp_err.h"
-#include "standalone_wifi_manager.h"
+#include "standalone_wifi_service.h"
 
 namespace esphome {
 namespace espectre {
@@ -31,7 +31,7 @@ class WifiProvisioningService {
  public:
   using ChangeCallback = std::function<void()>;
 
-  explicit WifiProvisioningService(StandaloneWifiManager *wifi_manager);
+  explicit WifiProvisioningService(StandaloneWifiService *wifi_manager);
 
   void set_change_callback(ChangeCallback callback);
   esp_err_t load_or_set_defaults(const WifiProvisioningDefaults &defaults);
@@ -50,7 +50,7 @@ class WifiProvisioningService {
   void refresh_cached_strings_();
   void notify_changed_();
 
-  StandaloneWifiManager *wifi_manager_;
+  StandaloneWifiService *wifi_manager_;
   ChangeCallback change_callback_;
   StoredWifiConfig wifi_config_;
   WifiProvisioningDefaults defaults_;

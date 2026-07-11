@@ -9,7 +9,7 @@
 
 #include <cstring>
 
-#include "utils.h"
+#include "csi_format.h"
 
 namespace esphome {
 namespace espectre {

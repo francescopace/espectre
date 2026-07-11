@@ -5,7 +5,7 @@ endif()
 set(ESPECTRE_CORE_SOURCES
     "${ESPECTRE_CPP_ROOT}/core/base_detector.cpp"
     "${ESPECTRE_CPP_ROOT}/core/classic_detector.cpp"
-    "${ESPECTRE_CPP_ROOT}/core/csi_filters.cpp"
+    "${ESPECTRE_CPP_ROOT}/core/filters.cpp"
     "${ESPECTRE_CPP_ROOT}/core/ml_detector.cpp"
 )
 
@@ -18,27 +18,27 @@ set(ESPECTRE_RUNTIME_COMMON_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
 )
 
-set(ESPECTRE_RUNTIME_PROTOCOL_HELPER_SOURCES
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/frontend_bootstrap_helpers.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/frontend_control_helpers.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/frontend_mqtt_helpers.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/frontend_sysinfo_helpers.cpp"
+set(ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_bootstrap_helpers.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_control_helpers.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_mqtt_helpers.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_sysinfo_helpers.cpp"
 )
 
-set(ESPECTRE_RUNTIME_STREAMER_PROTOCOL_HELPER_SOURCES)
+set(ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES)
 
 set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_time.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_stream_transport.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_pipeline.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/esp_idf_runtime.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_esp_idf_runtime.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_frame_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_traffic_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
@@ -53,24 +53,24 @@ set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
 
 set(ESPECTRE_RUNTIME_STREAMER_SOURCES
     ${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}
-    ${ESPECTRE_RUNTIME_STREAMER_PROTOCOL_HELPER_SOURCES}
+    ${ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES}
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/https_ota_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/ota_service_https.cpp"
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/ble_bindings_nimble.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/ble_bindings_nimble.cpp"
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/device_config_store.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/wifi_provisioning_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/device_config_store.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp"
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/mqtt_transport_esp_idf.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/mqtt_transport_esp_idf.cpp"
 )
 
 set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
@@ -90,7 +90,7 @@ set(ESPECTRE_FRONTEND_NATIVE_SOURCES
 )
 
 set(ESPECTRE_FRONTEND_STREAMER_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/stream_frontend.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/streamer_frontend.cpp"
 )
 
 set(ESPECTRE_CORE_INCLUDE_DIRS
@@ -100,7 +100,7 @@ set(ESPECTRE_CORE_INCLUDE_DIRS
 set(ESPECTRE_RUNTIME_INCLUDE_DIRS
     "${ESPECTRE_CPP_ROOT}/runtime"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support"
 )
 
 set(ESPECTRE_SHARED_INCLUDE_DIRS

@@ -1,4 +1,4 @@
-#include "stream_frontend.h"
+#include "streamer_frontend.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -17,7 +17,7 @@ constexpr uint8_t kCollectorPacingPayload[] = {'E', 'S', 'P', 'E'};
 
 }  // namespace
 
-RuntimeConfig StreamFrontend::build_runtime_config_() const {
+RuntimeConfig StreamerFrontend::build_runtime_config_() const {
   RuntimeConfig config;
   config.runtime_profile = RuntimeProfile::STREAM;
   config.csi_traffic_mode = CsiTrafficMode::PACING;
@@ -31,7 +31,7 @@ RuntimeConfig StreamFrontend::build_runtime_config_() const {
   return config;
 }
 
-bool StreamFrontend::setup() {
+bool StreamerFrontend::setup() {
   if (setup_complete_) {
     return true;
   }
@@ -46,14 +46,14 @@ bool StreamFrontend::setup() {
   return true;
 }
 
-void StreamFrontend::loop() {
+void StreamerFrontend::loop() {
   if (!setup_complete_) {
     return;
   }
   runtime_.loop();
 }
 
-void StreamFrontend::shutdown() {
+void StreamerFrontend::shutdown() {
   if (!setup_complete_) {
     return;
   }
@@ -61,30 +61,30 @@ void StreamFrontend::shutdown() {
   setup_complete_ = false;
 }
 
-StreamFrontend::~StreamFrontend() { shutdown(); }
+StreamerFrontend::~StreamerFrontend() { shutdown(); }
 
-void StreamFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
+void StreamerFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
 
-void StreamFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
+void StreamerFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   (void)packets_received;
   runtime_.record_snapshot(snapshot);
 }
 
-void StreamFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
+void StreamerFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
 
-void StreamFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
+void StreamerFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
 
-void StreamFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
+void StreamerFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
   (void)success;
   runtime_.record_snapshot(snapshot);
 }
 
-void StreamFrontend::on_live_telemetry(float movement, float threshold) {
+void StreamerFrontend::on_live_telemetry(float movement, float threshold) {
   (void)movement;
   (void)threshold;
 }
 
-void StreamFrontend::on_runtime_fault(const char *message) {
+void StreamerFrontend::on_runtime_fault(const char *message) {
   if (message != nullptr) {
     ESP_LOGW(TAG, "Runtime fault: %s", message);
   }

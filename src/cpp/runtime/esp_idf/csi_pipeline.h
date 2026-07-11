@@ -1,7 +1,8 @@
 /*
- * ESPectre - CSI Manager
- * 
- * Manages ESP32 CSI (Channel State Information) hardware configuration.
+ * ESPectre - CSI Pipeline
+ *
+ * Orchestrates the sensing CSI pipeline: hardware configuration, packet
+ * processing, motion detection, and calibration callbacks.
  * Handles platform-specific differences (ESP32-C6 vs ESP32-S3).
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -18,7 +19,7 @@
 #include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_wifi.h"
-#include "utils.h"
+#include "csi_format.h"
 #include "wifi_csi_interface.h"
 
 namespace esphome {
@@ -37,16 +38,16 @@ using live_telemetry_callback_t = std::function<void(float movement, float thres
 using csi_packet_interceptor_t = std::function<bool(const int8_t *, size_t)>;
 
 /**
- * CSI Manager
+ * CSI Pipeline
  * 
  * Manages complete CSI pipeline: hardware configuration, data processing, and motion detection.
  * Handles platform-specific differences between ESP32-C6 and ESP32-S3.
  * Orchestrates CSI packet processing and band calibration.
  */
-class CSIManager {
+class CsiPipeline {
  public:
   /**
-   * Initialize CSI Manager
+   * Initialize CSI Pipeline
    * 
    * @param detector Motion detector instance (BaseDetector*)
    * @param publish_rate Number of packets before triggering callback

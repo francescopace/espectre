@@ -107,8 +107,8 @@ Source of truth for ESPHome workflow:
 ### Native
 
 `src/cpp/frontend/native/` exposes the runtime through the standalone BLE/MQTT
-surface and reuses shared ESP-IDF protocol services for provisioning, device
-configuration, and OTA-related control flows.
+surface and reuses the shared ESP-IDF frontend-support services for
+provisioning, device configuration, and OTA-related control flows.
 
 Sources of truth:
 
@@ -164,7 +164,7 @@ Normalized runtime events include:
 - runtime faults
 
 Frontends should use this surface instead of reaching directly into low-level
-Wi-Fi or CSI managers.
+Wi-Fi or CSI pipeline services.
 
 ## ESPectre Protocol In The Architecture
 

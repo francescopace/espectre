@@ -28,7 +28,7 @@ struct StandaloneWifiInfo {
   uint8_t channel{0U};
 };
 
-class StandaloneWifiManager {
+class StandaloneWifiService {
  public:
   esp_err_t setup(const StandaloneWifiConfig &config,
                   standalone_wifi_callback_t connected_cb = {},

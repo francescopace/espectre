@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime_interface.h"
+#include "threshold.h"
 #include "utils.h"
 
 namespace esphome {

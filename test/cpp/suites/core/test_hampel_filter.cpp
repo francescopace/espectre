@@ -10,6 +10,7 @@
 #include "test_harness.h"
 #include <cmath>
 #include "filters.h"
+#include "csi_format.h"
 #include "utils.h"
 #include "esphome/core/log.h"
 
@@ -233,7 +234,7 @@ void test_hampel_with_varying_values(void) {
 #define num_motion csi_test_data::num_motion()
 #define packet_size csi_test_data::packet_size()
 
-// Using calculate_spatial_turbulence_from_csi from utils.h
+// Using calculate_spatial_turbulence_from_csi from csi_format.h
 
 static const uint8_t NUM_SC = 12;
 

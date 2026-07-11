@@ -3,18 +3,12 @@
 #include <cstdint>
 #include <string>
 
+#include "csi_traffic_types.h"
 #include "traffic_generator_manager.h"
 #include "udp_listener.h"
 
 namespace esphome {
 namespace espectre {
-
-enum class CsiTrafficMode {
-  INTERNAL,
-  EXTERNAL,
-  PACING,
-  DISABLED,
-};
 
 struct CsiTrafficServiceConfig {
   CsiTrafficMode mode{CsiTrafficMode::INTERNAL};

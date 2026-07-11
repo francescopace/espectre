@@ -1,7 +1,7 @@
 /*
- * ESPectre - CSIManager Unit Tests
+ * ESPectre - CsiPipeline Unit Tests
  *
- * Tests the CSIManager class functionality
+ * Tests the CsiPipeline class functionality
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -12,7 +12,7 @@
 #include <cstring>
 #include "lwip/inet.h"
 #include "classic_detector.h"
-#include "csi_manager.h"
+#include "csi_pipeline.h"
 #include "utils.h"
 #include "wifi_csi_interface.h"
 #include "esphome/core/log.h"
@@ -20,7 +20,7 @@
 
 using namespace esphome::espectre;
 
-static const char *TAG = "test_csi_manager";
+static const char *TAG = "test_csi_pipeline";
 
 static constexpr uint32_t TEST_PUBLISH_RATE = 100;
 static constexpr uint32_t TEST_EVALUATION_INTERVAL = 25;
@@ -146,9 +146,9 @@ void tearDown(void) {
 // INITIALIZATION TESTS
 // ============================================================================
 
-void test_csi_manager_init(void) {
+void test_csi_pipeline_init(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
@@ -160,9 +160,9 @@ void test_csi_manager_init(void) {
 // ENABLE/DISABLE TESTS
 // ============================================================================
 
-void test_csi_manager_enable(void) {
+void test_csi_pipeline_enable(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     esp_err_t err = manager.enable();
@@ -172,9 +172,9 @@ void test_csi_manager_enable(void) {
     TEST_ASSERT_TRUE(g_wifi_mock.is_enabled());
 }
 
-void test_csi_manager_enable_twice_returns_ok(void) {
+void test_csi_pipeline_enable_twice_returns_ok(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     manager.enable();
@@ -184,9 +184,9 @@ void test_csi_manager_enable_twice_returns_ok(void) {
     TEST_ASSERT_TRUE(manager.is_enabled());
 }
 
-void test_csi_manager_disable(void) {
+void test_csi_pipeline_disable(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     manager.enable();
@@ -196,9 +196,9 @@ void test_csi_manager_disable(void) {
     TEST_ASSERT_FALSE(manager.is_enabled());
 }
 
-void test_csi_manager_disable_preserves_stable_callbacks_for_reenable(void) {
+void test_csi_pipeline_disable_preserves_stable_callbacks_for_reenable(void) {
     TransitionDetectorMock detector;
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     manager.set_evaluation_interval(1);
     manager.set_motion_on_hits(1);
@@ -229,9 +229,9 @@ void test_csi_manager_disable_preserves_stable_callbacks_for_reenable(void) {
     TEST_ASSERT_TRUE(motion_callback_count >= 1);
 }
 
-void test_csi_manager_disable_when_not_enabled(void) {
+void test_csi_pipeline_disable_when_not_enabled(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     esp_err_t err = manager.disable();
@@ -244,9 +244,9 @@ void test_csi_manager_disable_when_not_enabled(void) {
 // THRESHOLD TESTS
 // ============================================================================
 
-void test_csi_manager_set_threshold(void) {
+void test_csi_pipeline_set_threshold(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     manager.set_threshold(2.5f);
@@ -258,9 +258,9 @@ void test_csi_manager_set_threshold(void) {
 // PROCESS PACKET TESTS
 // ============================================================================
 
-void test_csi_manager_process_packet_null_data(void) {
+void test_csi_pipeline_process_packet_null_data(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     manager.process_packet(nullptr);
@@ -268,9 +268,9 @@ void test_csi_manager_process_packet_null_data(void) {
     TEST_ASSERT_EQUAL(MotionState::IDLE, detector.get_state());
 }
 
-void test_csi_manager_process_packet_short_data(void) {
+void test_csi_pipeline_process_packet_short_data(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     wifi_csi_info_t csi_info = {};
@@ -283,9 +283,9 @@ void test_csi_manager_process_packet_short_data(void) {
     TEST_ASSERT_EQUAL(MotionState::IDLE, detector.get_state());
 }
 
-void test_csi_manager_process_packet_valid_data(void) {
+void test_csi_pipeline_process_packet_valid_data(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     // Create valid CSI data (128 bytes for HT20)
@@ -304,9 +304,9 @@ void test_csi_manager_process_packet_valid_data(void) {
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
 
-void test_csi_manager_motion_state_callback_fires_before_periodic_publish(void) {
+void test_csi_pipeline_motion_state_callback_fires_before_periodic_publish(void) {
     TransitionDetectorMock detector;
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     manager.set_motion_on_hits(1);
     manager.set_motion_off_hits(1);
@@ -342,9 +342,9 @@ void test_csi_manager_motion_state_callback_fires_before_periodic_publish(void) 
     TEST_ASSERT_EQUAL(0, periodic_callback_count);
 }
 
-void test_csi_manager_motion_state_callback_does_not_repeat_without_new_edge(void) {
+void test_csi_pipeline_motion_state_callback_does_not_repeat_without_new_edge(void) {
     TransitionDetectorMock detector;
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
 
     int motion_callback_count = 0;
@@ -364,9 +364,9 @@ void test_csi_manager_motion_state_callback_does_not_repeat_without_new_edge(voi
     TEST_ASSERT_EQUAL(1, motion_callback_count);
 }
 
-void test_csi_manager_clear_detector_buffer_publishes_idle_edge(void) {
+void test_csi_pipeline_clear_detector_buffer_publishes_idle_edge(void) {
     TransitionDetectorMock detector;
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     manager.set_motion_on_hits(1);
     manager.set_motion_off_hits(1);
@@ -392,9 +392,9 @@ void test_csi_manager_clear_detector_buffer_publishes_idle_edge(void) {
     TEST_ASSERT_EQUAL(MotionState::IDLE, last_motion_state);
 }
 
-void test_csi_manager_motion_state_callback_honors_motion_on_hits(void) {
+void test_csi_pipeline_motion_state_callback_honors_motion_on_hits(void) {
     TransitionDetectorMock detector;
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     manager.set_motion_on_hits(3);
 
@@ -422,9 +422,9 @@ void test_csi_manager_motion_state_callback_honors_motion_on_hits(void) {
     TEST_ASSERT_EQUAL(MotionState::MOTION, last_motion_state);
 }
 
-void test_csi_manager_motion_state_callback_honors_motion_off_hits(void) {
+void test_csi_pipeline_motion_state_callback_honors_motion_off_hits(void) {
     WindowedTransitionDetectorMock detector;
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     manager.set_motion_on_hits(2);
     manager.set_motion_off_hits(3);
@@ -458,9 +458,9 @@ void test_csi_manager_motion_state_callback_honors_motion_off_hits(void) {
     TEST_ASSERT_EQUAL(MotionState::IDLE, last_motion_state);
 }
 
-void test_csi_manager_periodic_callback_uses_filtered_motion_state(void) {
+void test_csi_pipeline_periodic_callback_uses_filtered_motion_state(void) {
     TransitionDetectorMock detector;
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, 2, &g_wifi_mock);
     manager.set_motion_on_hits(3);
 
@@ -483,9 +483,9 @@ void test_csi_manager_periodic_callback_uses_filtered_motion_state(void) {
     TEST_ASSERT_EQUAL(MotionState::IDLE, periodic_state);
 }
 
-void test_csi_manager_live_telemetry_callback_does_not_force_every_packet_evaluation(void) {
+void test_csi_pipeline_live_telemetry_callback_does_not_force_every_packet_evaluation(void) {
     TransitionDetectorMock detector;
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     manager.set_motion_on_hits(1);
     manager.set_motion_off_hits(1);
@@ -520,9 +520,9 @@ void test_csi_manager_live_telemetry_callback_does_not_force_every_packet_evalua
 // STBC PACKET TESTS (GitHub issue #76)
 // ============================================================================
 
-void test_csi_manager_process_stbc_256_byte_packet(void) {
+void test_csi_pipeline_process_stbc_256_byte_packet(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     // STBC packet: 256 bytes (2x HT-LTF, 128 SC) — should be truncated to 128
@@ -541,9 +541,9 @@ void test_csi_manager_process_stbc_256_byte_packet(void) {
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
 
-void test_csi_manager_process_short_ht_114_byte_packet(void) {
+void test_csi_pipeline_process_short_ht_114_byte_packet(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
 
     // Short HT packet: 114 bytes (57 SC) — should be remapped to 128 and processed.
@@ -562,9 +562,9 @@ void test_csi_manager_process_short_ht_114_byte_packet(void) {
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
 
-void test_csi_manager_process_double_short_ht_228_byte_packet(void) {
+void test_csi_pipeline_process_double_short_ht_228_byte_packet(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
 
     // Doubled short HT packet: 228 bytes (2 x 114) — should collapse to 114,
@@ -584,9 +584,9 @@ void test_csi_manager_process_double_short_ht_228_byte_packet(void) {
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
 
-void test_csi_manager_process_wrong_length_filtered(void) {
+void test_csi_pipeline_process_wrong_length_filtered(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     // 64 bytes — not HT20 (128) nor STBC (256), must be filtered
@@ -607,9 +607,9 @@ void test_csi_manager_process_wrong_length_filtered(void) {
 // ERROR PATH TESTS
 // ============================================================================
 
-void test_csi_manager_enable_config_error(void) {
+void test_csi_pipeline_enable_config_error(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     g_wifi_mock.set_config_error(ESP_ERR_INVALID_ARG);
@@ -620,9 +620,9 @@ void test_csi_manager_enable_config_error(void) {
     TEST_ASSERT_FALSE(manager.is_enabled());
 }
 
-void test_csi_manager_enable_callback_error(void) {
+void test_csi_pipeline_enable_callback_error(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     g_wifi_mock.set_callback_error(ESP_ERR_NO_MEM);
@@ -633,9 +633,9 @@ void test_csi_manager_enable_callback_error(void) {
     TEST_ASSERT_FALSE(manager.is_enabled());
 }
 
-void test_csi_manager_enable_csi_error(void) {
+void test_csi_pipeline_enable_csi_error(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     g_wifi_mock.set_csi_error(ESP_FAIL);
@@ -646,9 +646,9 @@ void test_csi_manager_enable_csi_error(void) {
     TEST_ASSERT_FALSE(manager.is_enabled());
 }
 
-void test_csi_manager_disable_error(void) {
+void test_csi_pipeline_disable_error(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     manager.enable(nullptr);
@@ -664,9 +664,9 @@ void test_csi_manager_disable_error(void) {
 // CALLBACK WRAPPER TESTS
 // ============================================================================
 
-void test_csi_manager_callback_wrapper_triggered(void) {
+void test_csi_pipeline_callback_wrapper_triggered(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     manager.enable(nullptr);
@@ -682,9 +682,9 @@ void test_csi_manager_callback_wrapper_triggered(void) {
     TEST_ASSERT_TRUE(detector.get_total_packets() > 0);
 }
 
-void test_csi_manager_callback_wrapper_null_data(void) {
+void test_csi_pipeline_callback_wrapper_null_data(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     manager.enable(nullptr);
@@ -700,9 +700,9 @@ void test_csi_manager_callback_wrapper_null_data(void) {
 // CLEAR DETECTOR BUFFER TEST
 // ============================================================================
 
-void test_csi_manager_clear_detector_buffer(void) {
+void test_csi_pipeline_clear_detector_buffer(void) {
     ClassicDetector detector(50, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
     // Process some packets
@@ -727,9 +727,9 @@ void test_csi_manager_clear_detector_buffer(void) {
 // LEGACY NORMALIZATION TESTS
 // ============================================================================
 
-void test_csi_manager_filters_unicast_frames_for_other_device(void) {
+void test_csi_pipeline_filters_unicast_frames_for_other_device(void) {
     ClassicDetector detector(10, 1.0f);
-    CSIManager manager;
+    CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
 
     const uint8_t local_mac[6] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
@@ -756,51 +756,51 @@ int process(void) {
     UNITY_BEGIN();
     
     // Initialization tests
-    RUN_TEST(test_csi_manager_init);
+    RUN_TEST(test_csi_pipeline_init);
     
     // Enable/Disable tests
-    RUN_TEST(test_csi_manager_enable);
-    RUN_TEST(test_csi_manager_enable_twice_returns_ok);
-    RUN_TEST(test_csi_manager_disable);
-    RUN_TEST(test_csi_manager_disable_preserves_stable_callbacks_for_reenable);
-    RUN_TEST(test_csi_manager_disable_when_not_enabled);
+    RUN_TEST(test_csi_pipeline_enable);
+    RUN_TEST(test_csi_pipeline_enable_twice_returns_ok);
+    RUN_TEST(test_csi_pipeline_disable);
+    RUN_TEST(test_csi_pipeline_disable_preserves_stable_callbacks_for_reenable);
+    RUN_TEST(test_csi_pipeline_disable_when_not_enabled);
     
     // Threshold tests
-    RUN_TEST(test_csi_manager_set_threshold);
+    RUN_TEST(test_csi_pipeline_set_threshold);
     
     // Process packet tests
-    RUN_TEST(test_csi_manager_process_packet_null_data);
-    RUN_TEST(test_csi_manager_process_packet_short_data);
-    RUN_TEST(test_csi_manager_process_packet_valid_data);
-    RUN_TEST(test_csi_manager_motion_state_callback_fires_before_periodic_publish);
-    RUN_TEST(test_csi_manager_motion_state_callback_does_not_repeat_without_new_edge);
-    RUN_TEST(test_csi_manager_clear_detector_buffer_publishes_idle_edge);
-    RUN_TEST(test_csi_manager_motion_state_callback_honors_motion_on_hits);
-    RUN_TEST(test_csi_manager_motion_state_callback_honors_motion_off_hits);
-    RUN_TEST(test_csi_manager_periodic_callback_uses_filtered_motion_state);
-    RUN_TEST(test_csi_manager_live_telemetry_callback_does_not_force_every_packet_evaluation);
+    RUN_TEST(test_csi_pipeline_process_packet_null_data);
+    RUN_TEST(test_csi_pipeline_process_packet_short_data);
+    RUN_TEST(test_csi_pipeline_process_packet_valid_data);
+    RUN_TEST(test_csi_pipeline_motion_state_callback_fires_before_periodic_publish);
+    RUN_TEST(test_csi_pipeline_motion_state_callback_does_not_repeat_without_new_edge);
+    RUN_TEST(test_csi_pipeline_clear_detector_buffer_publishes_idle_edge);
+    RUN_TEST(test_csi_pipeline_motion_state_callback_honors_motion_on_hits);
+    RUN_TEST(test_csi_pipeline_motion_state_callback_honors_motion_off_hits);
+    RUN_TEST(test_csi_pipeline_periodic_callback_uses_filtered_motion_state);
+    RUN_TEST(test_csi_pipeline_live_telemetry_callback_does_not_force_every_packet_evaluation);
     
     // STBC packet tests (issue #76)
-    RUN_TEST(test_csi_manager_process_stbc_256_byte_packet);
-    RUN_TEST(test_csi_manager_process_short_ht_114_byte_packet);
-    RUN_TEST(test_csi_manager_process_double_short_ht_228_byte_packet);
-    RUN_TEST(test_csi_manager_process_wrong_length_filtered);
+    RUN_TEST(test_csi_pipeline_process_stbc_256_byte_packet);
+    RUN_TEST(test_csi_pipeline_process_short_ht_114_byte_packet);
+    RUN_TEST(test_csi_pipeline_process_double_short_ht_228_byte_packet);
+    RUN_TEST(test_csi_pipeline_process_wrong_length_filtered);
     
     // Error path tests
-    RUN_TEST(test_csi_manager_enable_config_error);
-    RUN_TEST(test_csi_manager_enable_callback_error);
-    RUN_TEST(test_csi_manager_enable_csi_error);
-    RUN_TEST(test_csi_manager_disable_error);
+    RUN_TEST(test_csi_pipeline_enable_config_error);
+    RUN_TEST(test_csi_pipeline_enable_callback_error);
+    RUN_TEST(test_csi_pipeline_enable_csi_error);
+    RUN_TEST(test_csi_pipeline_disable_error);
     
     // Callback wrapper tests
-    RUN_TEST(test_csi_manager_callback_wrapper_triggered);
-    RUN_TEST(test_csi_manager_callback_wrapper_null_data);
+    RUN_TEST(test_csi_pipeline_callback_wrapper_triggered);
+    RUN_TEST(test_csi_pipeline_callback_wrapper_null_data);
     
     // Clear buffer test
-    RUN_TEST(test_csi_manager_clear_detector_buffer);
+    RUN_TEST(test_csi_pipeline_clear_detector_buffer);
     
     // Legacy normalization tests
-    RUN_TEST(test_csi_manager_filters_unicast_frames_for_other_device);
+    RUN_TEST(test_csi_pipeline_filters_unicast_frames_for_other_device);
     
     return UNITY_END();
 }

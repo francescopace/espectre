@@ -112,6 +112,17 @@ cmake --build test/cpp/build
 ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 ```
 
+## C++ File Naming And Placement
+
+- Use `snake_case` basenames; header and implementation of the same unit share the basename.
+- Name the file after its primary class (`CsiCaptureService` → `csi_capture_service.h`).
+- Boundary interfaces live in the shared layer as `<name>.h`; implementations as `<name>_<variant>` in the owning layer (`mqtt_transport_esp_idf`, `ble_bindings_nimble`).
+- Suffixes: `_service` (start/stop lifecycle), `_transport` (data transport), `_bindings` (mockable boundary to an external stack), `_frontend` (runtime listener adapter), `_helpers` (free functions, domain-prefixed). Do not introduce new `_manager` files.
+- Placement: algorithms and CSI format in `core/`; platform-agnostic contracts in `runtime/`; anything including ESP-IDF/FreeRTOS/lwIP in `runtime/esp_idf/`; single-frontend code in `frontend/<name>/`.
+- Headers in `core/` and `runtime/` must not include headers from `runtime/esp_idf/`.
+- Generic basenames (`utils`, `helpers`, `common`) require a domain prefix or genuinely cross-cutting, homogeneous content.
+- Core files with a Python counterpart keep the same basename (`threshold`, `features`, `ml_weights`).
+
 ## Documentation Rules
 
 - Clear, concise, technical style.

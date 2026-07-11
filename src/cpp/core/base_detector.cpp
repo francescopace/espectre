@@ -8,6 +8,7 @@
  */
 
 #include "base_detector.h"
+#include "csi_format.h"
 #include "utils.h"
 #include <cstring>
 #include <new>

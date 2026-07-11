@@ -8,7 +8,7 @@
 #include "runtime_capabilities.h"
 #include "runtime_events.h"
 #include "runtime_snapshot.h"
-#include "csi_traffic_service.h"
+#include "csi_traffic_types.h"
 
 namespace esphome {
 namespace espectre {

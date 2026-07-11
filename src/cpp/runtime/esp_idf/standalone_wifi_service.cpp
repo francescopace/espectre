@@ -1,4 +1,4 @@
-#include "standalone_wifi_manager.h"
+#include "standalone_wifi_service.h"
 
 #include <cstddef>
 #include <cstdio>
@@ -78,7 +78,7 @@ const char *wifi_disconnect_reason_to_str(uint8_t reason) {
 
 }  // namespace
 
-esp_err_t StandaloneWifiManager::setup(const StandaloneWifiConfig &config,
+esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
                                        standalone_wifi_callback_t connected_cb,
                                        standalone_wifi_callback_t disconnected_cb) {
   config_ = config;
@@ -141,7 +141,7 @@ esp_err_t StandaloneWifiManager::setup(const StandaloneWifiConfig &config,
 
   err = esp_event_handler_instance_register(WIFI_EVENT,
                                             ESP_EVENT_ANY_ID,
-                                            &StandaloneWifiManager::wifi_event_handler_,
+                                            &StandaloneWifiService::wifi_event_handler_,
                                             this,
                                             &wifi_event_instance_);
   if (err != ESP_OK) {
@@ -154,7 +154,7 @@ esp_err_t StandaloneWifiManager::setup(const StandaloneWifiConfig &config,
 
   err = esp_event_handler_instance_register(IP_EVENT,
                                             IP_EVENT_STA_GOT_IP,
-                                            &StandaloneWifiManager::wifi_event_handler_,
+                                            &StandaloneWifiService::wifi_event_handler_,
                                             this,
                                             &ip_event_instance_);
   if (err != ESP_OK) {
@@ -187,7 +187,7 @@ esp_err_t StandaloneWifiManager::setup(const StandaloneWifiConfig &config,
   return ESP_OK;
 }
 
-bool StandaloneWifiManager::get_info(StandaloneWifiInfo *info) const {
+bool StandaloneWifiService::get_info(StandaloneWifiInfo *info) const {
   if (info == nullptr) {
     return false;
   }
@@ -224,7 +224,7 @@ bool StandaloneWifiManager::get_info(StandaloneWifiInfo *info) const {
   return info->connected || info->ip_address[0] != '\0' || info->mac_address[0] != '\0';
 }
 
-esp_err_t StandaloneWifiManager::configure_station_() {
+esp_err_t StandaloneWifiService::configure_station_() {
   wifi_config_t sta_cfg{};
   std::snprintf(reinterpret_cast<char *>(sta_cfg.sta.ssid), sizeof(sta_cfg.sta.ssid), "%s",
                 config_.ssid != nullptr ? config_.ssid : "");
@@ -269,7 +269,7 @@ esp_err_t StandaloneWifiManager::configure_station_() {
   return err;
 }
 
-esp_err_t StandaloneWifiManager::start() {
+esp_err_t StandaloneWifiService::start() {
   clear_cached_ip_address_();
   wifi_start_policy_applied_ = false;
   wifi_connect_requested_ = false;
@@ -280,7 +280,7 @@ esp_err_t StandaloneWifiManager::start() {
   return err;
 }
 
-esp_err_t StandaloneWifiManager::update_station_config(const StandaloneWifiConfig &config) {
+esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfig &config) {
   if (!setup_complete_) {
     ESP_LOGE(TAG, "Cannot update Wi-Fi station config before setup");
     return ESP_ERR_INVALID_STATE;
@@ -329,7 +329,7 @@ esp_err_t StandaloneWifiManager::update_station_config(const StandaloneWifiConfi
   return ESP_OK;
 }
 
-void StandaloneWifiManager::shutdown() {
+void StandaloneWifiService::shutdown() {
   if (wifi_started_) {
     const esp_err_t err = esp_wifi_stop();
     if (err != ESP_OK) {
@@ -355,7 +355,7 @@ void StandaloneWifiManager::shutdown() {
   clear_cached_ip_address_();
 }
 
-esp_err_t StandaloneWifiManager::apply_started_csi_policy() {
+esp_err_t StandaloneWifiService::apply_started_csi_policy() {
   // Re-apply no-power-save once the station is started.
   esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
   if (ps_err != ESP_OK) {
@@ -383,7 +383,7 @@ esp_err_t StandaloneWifiManager::apply_started_csi_policy() {
   return ps_err == ESP_OK ? ESP_OK : ps_err;
 }
 
-void StandaloneWifiManager::handle_wifi_started_() {
+void StandaloneWifiService::handle_wifi_started_() {
   if (!has_text(config_.ssid)) {
     ESP_LOGW(TAG, "Wi-Fi SSID is empty; configure credentials in sdkconfig.wifi or at build time");
     return;
@@ -400,7 +400,7 @@ void StandaloneWifiManager::handle_wifi_started_() {
   }
 }
 
-void StandaloneWifiManager::handle_wifi_disconnected_(void *event_data) {
+void StandaloneWifiService::handle_wifi_disconnected_(void *event_data) {
   const auto *event = static_cast<const wifi_event_sta_disconnected_t *>(event_data);
   const uint8_t reason = event != nullptr ? event->reason : 0U;
   ESP_LOGW(TAG,
@@ -416,7 +416,7 @@ void StandaloneWifiManager::handle_wifi_disconnected_(void *event_data) {
   }
 }
 
-bool StandaloneWifiManager::ensure_csi_lifecycle_ready_() {
+bool StandaloneWifiService::ensure_csi_lifecycle_ready_() {
   if (!config_.manage_csi_lifecycle || csi_wifi_lifecycle_ready_) {
     return true;
   }
@@ -432,7 +432,7 @@ bool StandaloneWifiManager::ensure_csi_lifecycle_ready_() {
   return true;
 }
 
-void StandaloneWifiManager::handle_lifecycle_connected_() {
+void StandaloneWifiService::handle_lifecycle_connected_() {
   if (!ensure_csi_lifecycle_ready_()) {
     return;
   }
@@ -442,18 +442,18 @@ void StandaloneWifiManager::handle_lifecycle_connected_() {
   }
 }
 
-void StandaloneWifiManager::handle_lifecycle_disconnected_() {
+void StandaloneWifiService::handle_lifecycle_disconnected_() {
   csi_wifi_lifecycle_ready_ = false;
   if (disconnected_cb_) {
     disconnected_cb_();
   }
 }
 
-void StandaloneWifiManager::clear_cached_ip_address_() { cached_ip_address_[0] = '\0'; }
+void StandaloneWifiService::clear_cached_ip_address_() { cached_ip_address_[0] = '\0'; }
 
-void StandaloneWifiManager::wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id,
+void StandaloneWifiService::wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id,
                                                 void *event_data) {
-  auto *manager = static_cast<StandaloneWifiManager *>(arg);
+  auto *manager = static_cast<StandaloneWifiService *>(arg);
   if (manager == nullptr || event_base == nullptr) {
     return;
   }

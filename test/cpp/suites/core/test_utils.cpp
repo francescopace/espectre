@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include "csi_format.h"
 #include "utils.h"
 #include "esphome/core/log.h"
 

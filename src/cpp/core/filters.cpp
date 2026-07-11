@@ -1,5 +1,5 @@
 /*
- * ESPectre - CSI Filters Implementation
+ * ESPectre - Signal Filters Implementation
  * 
  * Low-pass and Hampel filter implementations for signal processing.
  * 

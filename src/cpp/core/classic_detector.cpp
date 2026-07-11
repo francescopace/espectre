@@ -8,6 +8,7 @@
  */
 
 #include "classic_detector.h"
+#include "threshold.h"
 
 #include <algorithm>
 #include <cstring>

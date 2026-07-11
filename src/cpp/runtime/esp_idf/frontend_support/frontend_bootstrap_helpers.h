@@ -5,7 +5,7 @@
 #include "device_identity.h"
 #include "esp_err.h"
 #include "espectre_protocol.h"
-#include "standalone_wifi_manager.h"
+#include "standalone_wifi_service.h"
 #include "wifi_provisioning_service.h"
 
 namespace esphome {
@@ -38,7 +38,7 @@ EspectreDeviceConfig load_frontend_device_config(const FrontendDeviceConfigDefau
                                                  const char *load_error_prefix);
 
 esp_err_t setup_frontend_wifi_station(WifiProvisioningService *provisioning,
-                                      StandaloneWifiManager *wifi_manager,
+                                      StandaloneWifiService *wifi_manager,
                                       const FrontendWifiStationOptions &options,
                                       const char *log_tag,
                                       const char *stored_config_message);

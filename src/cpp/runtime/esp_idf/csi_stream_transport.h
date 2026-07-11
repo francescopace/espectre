@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "csi_capture_service.h"
+#include "csi_format.h"
 #include "csi_stream_protocol.h"
 #include "csi_traffic_service.h"
 

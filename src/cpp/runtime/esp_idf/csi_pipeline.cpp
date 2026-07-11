@@ -1,11 +1,11 @@
 /*
- * ESPectre - CSI Manager Implementation
+ * ESPectre - CSI Pipeline Implementation
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
 
-#include "csi_manager.h"
+#include "csi_pipeline.h"
 #include <algorithm>
 #include "espectre_log.h"
 #include "esp_timer.h"
@@ -14,7 +14,7 @@
 namespace esphome {
 namespace espectre {
 
-static const char *TAG = "CSIManager";
+static const char *TAG = "CsiPipeline";
 
 static void publish_motion_state_if_changed_(MotionState previous_state,
                                              MotionState current_state,
@@ -24,7 +24,7 @@ static void publish_motion_state_if_changed_(MotionState previous_state,
   }
 }
 
-void CSIManager::init(BaseDetector* detector,
+void CsiPipeline::init(BaseDetector* detector,
                      uint32_t publish_rate,
                      IWiFiCSI* wifi_csi) {
   detector_ = detector;
@@ -36,11 +36,11 @@ void CSIManager::init(BaseDetector* detector,
       });
   reset_motion_state_filter_();
   
-  ESP_LOGD(TAG, "CSI Manager initialized with %s detector", 
+  ESP_LOGD(TAG, "CSI Pipeline initialized with %s detector", 
            detector_ ? detector_->get_name() : "NULL");
 }
 
-bool CSIManager::set_threshold(float threshold) {
+bool CsiPipeline::set_threshold(float threshold) {
   if (detector_ == nullptr) {
     return false;
   }
@@ -52,7 +52,7 @@ bool CSIManager::set_threshold(float threshold) {
   return true;
 }
 
-void CSIManager::clear_detector_buffer() {
+void CsiPipeline::clear_detector_buffer() {
   if (detector_) {
     MotionState previous_state = effective_motion_state_;
     // Cold reset: clear turbulence history and state.
@@ -64,7 +64,7 @@ void CSIManager::clear_detector_buffer() {
   }
 }
 
-void CSIManager::set_local_identity(uint32_t local_ip_addr, const uint8_t *local_mac_addr) {
+void CsiPipeline::set_local_identity(uint32_t local_ip_addr, const uint8_t *local_mac_addr) {
   local_ip_addr_ = local_ip_addr;
   local_mac_addr_.fill(0U);
   if (local_mac_addr != nullptr) {
@@ -72,7 +72,7 @@ void CSIManager::set_local_identity(uint32_t local_ip_addr, const uint8_t *local
   }
 }
 
-MotionState CSIManager::update_effective_motion_state_(MotionState detector_state) {
+MotionState CsiPipeline::update_effective_motion_state_(MotionState detector_state) {
   if (detector_state == effective_motion_state_) {
     pending_motion_state_ = effective_motion_state_;
     pending_state_hits_ = 0;
@@ -95,20 +95,20 @@ MotionState CSIManager::update_effective_motion_state_(MotionState detector_stat
   return effective_motion_state_;
 }
 
-void CSIManager::reset_motion_state_filter_(MotionState state) {
+void CsiPipeline::reset_motion_state_filter_(MotionState state) {
   effective_motion_state_ = state;
   pending_motion_state_ = state;
   pending_state_hits_ = 0;
 }
 
-void CSIManager::process_packet(wifi_csi_info_t* data) {
+void CsiPipeline::process_packet(wifi_csi_info_t* data) {
   if (!data || !detector_) {
     return;
   }
   capture_service_.process_packet(data);
 }
 
-void CSIManager::process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
+void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
   if (data == nullptr || detector_ == nullptr || !normalized.valid()) {
     return;
   }
@@ -177,7 +177,7 @@ void CSIManager::process_normalized_packet_(const wifi_csi_info_t *data, const N
   }
 }
 
-esp_err_t CSIManager::enable(csi_processed_callback_t packet_callback) {
+esp_err_t CsiPipeline::enable(csi_processed_callback_t packet_callback) {
   if (enabled_) {
     ESP_LOGW(TAG, "CSI already enabled");
     return ESP_OK;
@@ -196,7 +196,7 @@ esp_err_t CSIManager::enable(csi_processed_callback_t packet_callback) {
   return err;
 }
 
-esp_err_t CSIManager::disable() {
+esp_err_t CsiPipeline::disable() {
   if (!enabled_) {
     return ESP_OK;
   }

@@ -4,7 +4,7 @@
 #include "esp_event.h"
 #include "esp_wifi.h"
 #include "nvs.h"
-#include "standalone_wifi_manager.h"
+#include "standalone_wifi_service.h"
 #include "wifi_provisioning_service.h"
 
 using namespace esphome::espectre;
@@ -77,7 +77,7 @@ void test_wifi_provisioning_records_load_error_and_falls_back_to_defaults(void) 
 }
 
 void test_wifi_provisioning_commands_validate_and_persist_config(void) {
-  StandaloneWifiManager manager;
+  StandaloneWifiService manager;
   WifiProvisioningService service(&manager);
   std::string message;
   TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
@@ -100,7 +100,7 @@ void test_wifi_provisioning_commands_validate_and_persist_config(void) {
 }
 
 void test_wifi_provisioning_apply_updates_wifi_manager_live(void) {
-  StandaloneWifiManager manager;
+  StandaloneWifiService manager;
   WifiProvisioningService service(&manager);
   std::string message;
 
@@ -116,7 +116,7 @@ void test_wifi_provisioning_apply_updates_wifi_manager_live(void) {
 }
 
 void test_wifi_provisioning_batch_command_persists_and_applies_config(void) {
-  StandaloneWifiManager manager;
+  StandaloneWifiService manager;
   WifiProvisioningService service(&manager);
   std::string message;
 

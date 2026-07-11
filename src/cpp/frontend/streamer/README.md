@@ -38,7 +38,7 @@ That shape is intentional:
 - the state machine remains streamer-specific (`WAIT_WIFI` -> `STREAMING`)
 
 The standalone Wi-Fi setup path is shared with the other ESP-IDF standalone
-firmware targets through `StandaloneWifiManager`, while the stream-specific CSI
+firmware targets through `StandaloneWifiService`, while the stream-specific CSI
 capture and UDP transport stay isolated in `StreamEspIdfRuntime` and
 `CsiStreamTransport`.
 
@@ -48,8 +48,8 @@ control plane.
 
 ## Directory Layout
 
-- [`stream_frontend.cpp`](espectre/stream_frontend.cpp),
-  [`stream_frontend.h`](espectre/stream_frontend.h):
+- [`streamer_frontend.cpp`](espectre/streamer_frontend.cpp),
+  [`streamer_frontend.h`](espectre/streamer_frontend.h):
   thin frontend adapter over `RuntimeFrontendController`
 - [`csi_stream_protocol.h`](../../runtime/csi_stream_protocol.h):
   UDP stream header and flags

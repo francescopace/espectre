@@ -15,13 +15,13 @@
 namespace esphome {
 namespace espectre {
 
-class StreamFrontend : public IRuntimeListener {
+class StreamerFrontend : public IRuntimeListener {
  public:
-  StreamFrontend() = default;
+  StreamerFrontend() = default;
   bool setup();
   void loop();
   void shutdown();
-  ~StreamFrontend();
+  ~StreamerFrontend();
 
  private:
   RuntimeConfig build_runtime_config_() const;

@@ -9,6 +9,22 @@
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
+// Wi-Fi credentials come from the streamer/native Kconfig surface. Builds
+// without it (e.g. ESPHome/PlatformIO) still compile this runtime but never
+// select the STREAM profile, so fall back to empty values.
+#ifndef CONFIG_ESPECTRE_WIFI_SSID
+#define CONFIG_ESPECTRE_WIFI_SSID ""
+#endif
+#ifndef CONFIG_ESPECTRE_WIFI_PASSWORD
+#define CONFIG_ESPECTRE_WIFI_PASSWORD ""
+#endif
+#ifndef CONFIG_ESPECTRE_WIFI_BSSID
+#define CONFIG_ESPECTRE_WIFI_BSSID ""
+#endif
+#ifndef CONFIG_ESPECTRE_WIFI_CHANNEL
+#define CONFIG_ESPECTRE_WIFI_CHANNEL 0
+#endif
+
 namespace esphome {
 namespace espectre {
 

@@ -115,7 +115,7 @@ typedef struct {
 #endif
 
 // CSI configuration
-// Note: field order must match designated initializer order in csi_manager.cpp
+// Note: field order must match designated initializer order in csi_pipeline.cpp
 typedef struct {
   // ESP32-S3 fields (used in non-C6 builds)
   bool lltf_en;

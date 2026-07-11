@@ -6,6 +6,7 @@
 #include "esp_err.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
+#include "csi_format.h"
 #include "runtime_config_utils.h"
 
 #if __has_include("esp_heap_caps.h")
@@ -42,13 +43,13 @@ CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
 
 void EspIdfRuntime::update_live_telemetry_callback_() {
   if (live_telemetry_enabled_) {
-    csi_manager_.set_live_telemetry_callback([this](float movement, float threshold) {
+    csi_pipeline_.set_live_telemetry_callback([this](float movement, float threshold) {
       if (listener_ != nullptr) {
         listener_->on_live_telemetry(movement, threshold);
       }
     });
   } else {
-    csi_manager_.set_live_telemetry_callback({});
+    csi_pipeline_.set_live_telemetry_callback({});
   }
 }
 
@@ -70,10 +71,10 @@ bool EspIdfRuntime::setup() {
 
   csi_traffic_service_.init(to_csi_traffic_config(config_));
 
-  csi_manager_.init(detector_, config_.publish_interval);
-  csi_manager_.set_evaluation_interval(config_.evaluation_interval);
-  csi_manager_.set_motion_on_hits(config_.motion_on_hits);
-  csi_manager_.set_motion_off_hits(config_.motion_off_hits);
+  csi_pipeline_.init(detector_, config_.publish_interval);
+  csi_pipeline_.set_evaluation_interval(config_.evaluation_interval);
+  csi_pipeline_.set_motion_on_hits(config_.motion_on_hits);
+  csi_pipeline_.set_motion_off_hits(config_.motion_off_hits);
   update_live_telemetry_callback_();
 
   if (wifi_lifecycle_.register_handlers([this]() { on_wifi_connected_(); },
@@ -158,7 +159,7 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
     ESP_LOGW(RUNTIME_TAG, "Rejected invalid runtime threshold: %.6f", threshold);
     return false;
   }
-  if (!csi_manager_.set_threshold(threshold)) {
+  if (!csi_pipeline_.set_threshold(threshold)) {
     return false;
   }
   config_.segmentation_threshold = threshold;
@@ -237,7 +238,7 @@ void EspIdfRuntime::on_wifi_connected_() {
   snapshot_.motion_state = MotionState::IDLE;
   snapshot_.ready_to_publish = false;
 
-  csi_manager_.set_motion_state_callback([this](MotionState state) {
+  csi_pipeline_.set_motion_state_callback([this](MotionState state) {
     snapshot_.motion_state = state;
     if (snapshot_.ready_to_publish && listener_ != nullptr) {
       listener_->on_motion_state_changed(snapshot_);
@@ -245,8 +246,8 @@ void EspIdfRuntime::on_wifi_connected_() {
   });
   refresh_csi_local_identity_();
 
-  if (!csi_manager_.is_enabled()) {
-    const esp_err_t err = csi_manager_.enable([this](MotionState state, uint32_t packets_received) {
+  if (!csi_pipeline_.is_enabled()) {
+    const esp_err_t err = csi_pipeline_.enable([this](MotionState state, uint32_t packets_received) {
       snapshot_.motion_state = state;
       snapshot_.movement_metric = detector_ != nullptr ? detector_->get_motion_metric() : 0.0f;
       snapshot_.threshold = detector_ != nullptr ? detector_->get_threshold() : snapshot_.threshold;
@@ -274,9 +275,9 @@ void EspIdfRuntime::on_wifi_disconnected_() {
   wifi_ready_ = false;
   csi_wifi_lifecycle_ready_ = false;
   threshold_calibration_active_ = false;
-  csi_manager_.set_packet_interceptor({});
-  csi_manager_.set_local_identity(0U, nullptr);
-  csi_manager_.disable();
+  csi_pipeline_.set_packet_interceptor({});
+  csi_pipeline_.set_local_identity(0U, nullptr);
+  csi_pipeline_.disable();
   csi_traffic_service_.stop();
   snapshot_.ready_to_publish = false;
   snapshot_.motion_state = MotionState::IDLE;
@@ -307,8 +308,8 @@ bool EspIdfRuntime::start_calibration_() {
   threshold_calibrator_.begin(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS,
                               detector_ != nullptr && detector_->startup_gate_enabled());
   threshold_calibration_active_ = true;
-  csi_manager_.clear_detector_buffer();
-  csi_manager_.set_packet_interceptor(
+  csi_pipeline_.clear_detector_buffer();
+  csi_pipeline_.set_packet_interceptor(
       [this](const int8_t *csi_data, size_t csi_len) { return handle_threshold_calibration_packet_(csi_data, csi_len); });
   ESP_LOGI(RUNTIME_TAG, "Starting %s threshold calibration with fixed subcarriers",
            detector_ != nullptr ? detector_->get_name() : "detector");
@@ -334,7 +335,7 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
 
 void EspIdfRuntime::finish_threshold_calibration_(bool success) {
   threshold_calibration_active_ = false;
-  csi_manager_.set_packet_interceptor({});
+  csi_pipeline_.set_packet_interceptor({});
   snapshot_.calibrating = false;
 
   if (success) {
@@ -360,7 +361,7 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
       ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (%s x %.1f)", adaptive_threshold,
                threshold_calibrator_.statistic_name(), factor);
     }
-    csi_manager_.clear_detector_buffer();
+    csi_pipeline_.clear_detector_buffer();
   }
 
   if (listener_ != nullptr) {
@@ -407,10 +408,10 @@ uint32_t EspIdfRuntime::local_wifi_ip_addr_() const {
 void EspIdfRuntime::refresh_csi_local_identity_() {
   uint8_t mac[6] = {0U, 0U, 0U, 0U, 0U, 0U};
   if (esp_wifi_get_mac(WIFI_IF_STA, mac) != ESP_OK) {
-    csi_manager_.set_local_identity(local_wifi_ip_addr_(), nullptr);
+    csi_pipeline_.set_local_identity(local_wifi_ip_addr_(), nullptr);
     return;
   }
-  csi_manager_.set_local_identity(local_wifi_ip_addr_(), mac);
+  csi_pipeline_.set_local_identity(local_wifi_ip_addr_(), mac);
 }
 
 }  // namespace espectre

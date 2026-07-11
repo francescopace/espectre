@@ -82,7 +82,7 @@ bool assign_wifi_config_field(const std::string &field,
 
 }  // namespace
 
-WifiProvisioningService::WifiProvisioningService(StandaloneWifiManager *wifi_manager) : wifi_manager_(wifi_manager) {}
+WifiProvisioningService::WifiProvisioningService(StandaloneWifiService *wifi_manager) : wifi_manager_(wifi_manager) {}
 
 void WifiProvisioningService::set_change_callback(ChangeCallback callback) { change_callback_ = std::move(callback); }
 

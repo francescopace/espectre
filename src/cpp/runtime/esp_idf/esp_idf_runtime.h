@@ -5,7 +5,7 @@
 #include <string>
 #include "base_detector.h"
 #include "classic_detector.h"
-#include "csi_manager.h"
+#include "csi_pipeline.h"
 #include "ml_detector.h"
 #include "runtime_interface.h"
 #include "csi_traffic_service.h"
@@ -55,7 +55,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   ClassicDetector classic_detector_;
   MLDetector ml_detector_;
 
-  CSIManager csi_manager_;
+  CsiPipeline csi_pipeline_;
   WiFiLifecycleManager wifi_lifecycle_;
   CsiTrafficService csi_traffic_service_;
 

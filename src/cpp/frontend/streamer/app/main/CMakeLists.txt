@@ -12,7 +12,7 @@ set(STREAMER_MAIN_INCLUDE_DIRS
     "../../../../core"
     "../../../../runtime"
     "../../../../runtime/esp_idf"
-    "../../../../runtime/esp_idf/protocol"
+    "../../../../runtime/esp_idf/frontend_support"
 )
 
 idf_component_register(

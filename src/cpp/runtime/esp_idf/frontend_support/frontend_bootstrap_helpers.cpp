@@ -35,7 +35,7 @@ EspectreDeviceConfig load_frontend_device_config(const FrontendDeviceConfigDefau
 }
 
 esp_err_t setup_frontend_wifi_station(WifiProvisioningService *provisioning,
-                                      StandaloneWifiManager *wifi_manager,
+                                      StandaloneWifiService *wifi_manager,
                                       const FrontendWifiStationOptions &options,
                                       const char *log_tag,
                                       const char *stored_config_message) {
