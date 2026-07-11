@@ -3,7 +3,6 @@
 #include <cmath>
 #include <cstring>
 
-namespace esphome {
 namespace espectre {
 
 bool validate_runtime_threshold(float threshold) {
@@ -79,4 +78,3 @@ void set_manual_threshold(RuntimeConfig &config, float threshold) {
 }
 
 }  // namespace espectre
-}  // namespace esphome

@@ -10,7 +10,6 @@
 #include "espectre_log.h"
 #include "runtime_listener_utils.h"
 
-namespace esphome {
 namespace espectre {
 
 static const char *const TAG = "espectre.matter";
@@ -133,4 +132,3 @@ void MatterFrontend::on_runtime_fault(const char *message) {
 }
 
 }  // namespace espectre
-}  // namespace esphome

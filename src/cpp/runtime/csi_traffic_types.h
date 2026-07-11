@@ -10,7 +10,6 @@
 
 #pragma once
 
-namespace esphome {
 namespace espectre {
 
 enum class CsiTrafficMode {
@@ -21,4 +20,3 @@ enum class CsiTrafficMode {
 };
 
 }  // namespace espectre
-}  // namespace esphome

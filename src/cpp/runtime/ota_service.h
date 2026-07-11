@@ -5,7 +5,6 @@
 
 #include "espectre_protocol.h"
 
-namespace esphome {
 namespace espectre {
 
 class IOtaService {
@@ -28,4 +27,3 @@ class IOtaService {
 };
 
 }  // namespace espectre
-}  // namespace esphome

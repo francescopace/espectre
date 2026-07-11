@@ -23,7 +23,6 @@
 #include "lwip/ip_addr.h"
 #include <cstring>
 
-namespace esphome {
 namespace espectre {
 
 static const char *TRAFFIC_TAG = "TrafficGen";
@@ -573,4 +572,3 @@ void TrafficGeneratorManager::reset_health_state_() {
 }
 
 }  // namespace espectre
-}  // namespace esphome

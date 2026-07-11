@@ -13,7 +13,6 @@
 
 #include "runtime_snapshot.h"
 
-namespace esphome {
 namespace espectre {
 
 inline constexpr const char *ESPECTRE_PROTOCOL_VERSION = "1.0";
@@ -122,4 +121,3 @@ bool parse_espectre_config_command(const std::string &command, EspectreDeviceCon
 bool parse_espectre_mqtt_config_command(const std::string &command, EspectreDeviceConfig *config, std::string *error);
 
 }  // namespace espectre
-}  // namespace esphome

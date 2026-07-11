@@ -5,7 +5,6 @@
 #include "runtime_interface.h"
 #include "runtime_snapshot.h"
 
-namespace esphome {
 namespace espectre {
 
 class EspIdfRuntime;
@@ -36,4 +35,3 @@ void reset();
 }  // namespace frontend_runtime_shim
 
 }  // namespace espectre
-}  // namespace esphome

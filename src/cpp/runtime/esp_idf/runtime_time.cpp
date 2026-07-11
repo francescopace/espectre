@@ -5,7 +5,6 @@
 #define ESPECTRE_HAVE_ESP_TIMER 1
 #endif
 
-namespace esphome {
 namespace espectre {
 
 uint64_t monotonic_now_us() {
@@ -19,4 +18,3 @@ uint64_t monotonic_now_us() {
 uint32_t monotonic_now_ms() { return static_cast<uint32_t>(monotonic_now_us() / 1000ULL); }
 
 }  // namespace espectre
-}  // namespace esphome

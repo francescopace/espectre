@@ -17,7 +17,7 @@
 #include "csi_format.h"
 #include "utils.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 namespace {
 

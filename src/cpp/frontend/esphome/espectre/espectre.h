@@ -30,6 +30,8 @@
 namespace esphome {
 namespace espectre {
 
+using namespace ::espectre;
+
 static const char *const TAG = "espectre";
 
 class ESpectreComponent : public Component, public IRuntimeListener {

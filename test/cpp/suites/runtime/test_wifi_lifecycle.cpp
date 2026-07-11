@@ -5,7 +5,7 @@
 #include "standalone_wifi_service.h"
 #include "wifi_lifecycle.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 void setUp(void) {
   esp_event_mock_reset();

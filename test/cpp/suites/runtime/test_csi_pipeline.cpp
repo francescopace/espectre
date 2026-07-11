@@ -18,7 +18,7 @@
 #include "esphome/core/log.h"
 #include "esp_wifi.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 static const char *TAG = "test_csi_pipeline";
 

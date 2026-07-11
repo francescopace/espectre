@@ -5,7 +5,6 @@
 
 #include "mqtt_transport.h"
 
-namespace esphome {
 namespace espectre {
 namespace mqtt_transport_mock {
 
@@ -47,4 +46,3 @@ class MockMqttTransport : public IMqttTransport {
 
 }  // namespace mqtt_transport_mock
 }  // namespace espectre
-}  // namespace esphome

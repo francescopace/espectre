@@ -1,6 +1,5 @@
 #include "ota_service_mock.h"
 
-namespace esphome {
 namespace espectre {
 namespace ota_service_mock {
 
@@ -54,4 +53,3 @@ void MockOtaService::emit_prepare() {
 
 }  // namespace ota_service_mock
 }  // namespace espectre
-}  // namespace esphome

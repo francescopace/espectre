@@ -17,7 +17,7 @@
 #include "ml_detector.h"
 #include "threshold.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 #include "csi_test_data.h"
 

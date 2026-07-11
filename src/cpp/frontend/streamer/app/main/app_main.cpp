@@ -22,8 +22,8 @@ TickType_t clamp_delay_to_tick_(uint32_t delay_ms) {
 }  // namespace
 
 extern "C" void app_main() {
-  esphome::espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
-  static esphome::espectre::StreamerFrontend frontend;
+  espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
+  static espectre::StreamerFrontend frontend;
   if (!frontend.setup()) {
     return;
   }

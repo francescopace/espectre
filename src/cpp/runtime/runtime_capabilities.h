@@ -1,6 +1,5 @@
 #pragma once
 
-namespace esphome {
 namespace espectre {
 
 struct RuntimeCapabilities {
@@ -12,4 +11,3 @@ struct RuntimeCapabilities {
 };
 
 }  // namespace espectre
-}  // namespace esphome

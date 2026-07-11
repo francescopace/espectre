@@ -14,7 +14,6 @@
 #include <new>
 #include "espectre_log.h"
 
-namespace esphome {
 namespace espectre {
 
 static const char *TAG = "BaseDetector";
@@ -196,4 +195,3 @@ void BaseDetector::add_turbulence_to_buffer(float turbulence) {
 }
 
 }  // namespace espectre
-}  // namespace esphome

@@ -13,7 +13,6 @@
 #include <esp_matter.h>
 #include <esp_matter_attribute.h>
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -64,4 +63,3 @@ void MatterEspBindings::report_fault(const char *message) {
 }
 
 }  // namespace espectre
-}  // namespace esphome

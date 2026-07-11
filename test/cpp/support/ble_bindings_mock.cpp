@@ -2,7 +2,6 @@
 
 #include <iterator>
 
-namespace esphome {
 namespace espectre {
 namespace ble_bindings_mock {
 
@@ -76,4 +75,3 @@ void MockBleBindings::emit_telemetry_subscription(bool subscribed) {
 
 }  // namespace ble_bindings_mock
 }  // namespace espectre
-}  // namespace esphome

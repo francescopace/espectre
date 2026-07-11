@@ -9,7 +9,6 @@
 
 #include "runtime_config_utils.h"
 
-namespace esphome {
 namespace espectre {
 
 MatterPeriodicState snapshot_to_periodic_state(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
@@ -29,4 +28,3 @@ bool validate_matter_threshold(float threshold) {
 }
 
 }  // namespace espectre
-}  // namespace esphome

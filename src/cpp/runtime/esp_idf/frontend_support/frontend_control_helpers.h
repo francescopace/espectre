@@ -5,7 +5,6 @@
 
 #include "espectre_protocol.h"
 
-namespace esphome {
 namespace espectre {
 
 struct DeviceConfigBleCommandResult {
@@ -25,4 +24,3 @@ DeviceConfigBleCommandResult handle_ble_device_config_command(const std::string 
                                                               DeviceConfigUpdateHandler update_handler);
 
 }  // namespace espectre
-}  // namespace esphome

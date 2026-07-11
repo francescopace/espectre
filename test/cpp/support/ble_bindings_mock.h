@@ -6,7 +6,6 @@
 
 #include "ble_bindings.h"
 
-namespace esphome {
 namespace espectre {
 namespace ble_bindings_mock {
 
@@ -53,4 +52,3 @@ class MockBleBindings : public IBleBindings {
 
 }  // namespace ble_bindings_mock
 }  // namespace espectre
-}  // namespace esphome

@@ -7,7 +7,6 @@
 #include "espectre_log.h"
 #include "sdkconfig.h"
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -91,4 +90,3 @@ void StreamerFrontend::on_runtime_fault(const char *message) {
 }
 
 }  // namespace espectre
-}  // namespace esphome

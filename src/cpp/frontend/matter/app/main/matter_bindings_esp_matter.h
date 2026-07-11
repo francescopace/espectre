@@ -11,7 +11,6 @@
 
 #include "matter_bindings.h"
 
-namespace esphome {
 namespace espectre {
 
 class MatterEspBindings : public IMatterBindings {
@@ -24,4 +23,3 @@ class MatterEspBindings : public IMatterBindings {
 };
 
 }  // namespace espectre
-}  // namespace esphome

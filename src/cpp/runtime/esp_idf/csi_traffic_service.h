@@ -7,7 +7,6 @@
 #include "traffic_generator_manager.h"
 #include "udp_listener.h"
 
-namespace esphome {
 namespace espectre {
 
 struct CsiTrafficServiceConfig {
@@ -38,4 +37,3 @@ class CsiTrafficService {
 };
 
 }  // namespace espectre
-}  // namespace esphome

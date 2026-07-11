@@ -22,7 +22,6 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace esphome {
 namespace espectre {
 
 constexpr float CLASSIC_DEFAULT_THRESHOLD = 1.0f;
@@ -102,4 +101,3 @@ private:
 };
 
 }  // namespace espectre
-}  // namespace esphome

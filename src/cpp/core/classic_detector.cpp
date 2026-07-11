@@ -15,7 +15,6 @@
 
 #include "espectre_log.h"
 
-namespace esphome {
 namespace espectre {
 
 static const char *TAG = "ClassicDetector";
@@ -239,4 +238,3 @@ void ClassicDetector::refresh_variance_floor_() {
 }
 
 }  // namespace espectre
-}  // namespace esphome

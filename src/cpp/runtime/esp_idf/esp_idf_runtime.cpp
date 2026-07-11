@@ -14,7 +14,6 @@
 #define ESPECTRE_HAVE_ESP_HEAP_CAPS 1
 #endif
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -415,4 +414,3 @@ void EspIdfRuntime::refresh_csi_local_identity_() {
 }
 
 }  // namespace espectre
-}  // namespace esphome

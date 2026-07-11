@@ -4,7 +4,6 @@
 #include "csi_format.h"
 #include "threshold.h"
 
-namespace esphome {
 namespace espectre {
 
 enum class RuntimeSubcarrierSource {
@@ -24,4 +23,3 @@ struct RuntimeSnapshot {
 };
 
 }  // namespace espectre
-}  // namespace esphome

@@ -12,7 +12,6 @@
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
 
-namespace esphome {
 namespace espectre {
 
 class StreamerFrontend : public IRuntimeListener {
@@ -38,4 +37,3 @@ class StreamerFrontend : public IRuntimeListener {
 };
 
 }  // namespace espectre
-}  // namespace esphome

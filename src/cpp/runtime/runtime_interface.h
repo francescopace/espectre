@@ -10,7 +10,6 @@
 #include "runtime_snapshot.h"
 #include "csi_traffic_types.h"
 
-namespace esphome {
 namespace espectre {
 
 enum class DetectionAlgorithm {
@@ -75,4 +74,3 @@ class IEspectreRuntime {
 };
 
 }  // namespace espectre
-}  // namespace esphome

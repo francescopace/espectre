@@ -12,7 +12,6 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace esphome {
 namespace espectre {
 
 enum class StreamChipType : uint8_t {
@@ -68,4 +67,3 @@ static constexpr size_t STREAM_MAX_CSI_LEN_BYTES = 512U;
 static constexpr size_t STREAM_MAX_PACKET_BYTES = sizeof(CsiStreamHeaderV5) + STREAM_MAX_CSI_LEN_BYTES;
 
 }  // namespace espectre
-}  // namespace esphome

@@ -3,7 +3,6 @@
 #include "device_config_store.h"
 #include "espectre_log.h"
 
-namespace esphome {
 namespace espectre {
 
 EspectreDeviceConfig load_frontend_device_config(const FrontendDeviceConfigDefaults &defaults,
@@ -74,4 +73,3 @@ esp_err_t setup_frontend_wifi_station(WifiProvisioningService *provisioning,
 }
 
 }  // namespace espectre
-}  // namespace esphome

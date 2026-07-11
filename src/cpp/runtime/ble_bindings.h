@@ -16,7 +16,6 @@
 #include <string>
 #include <vector>
 
-namespace esphome {
 namespace espectre {
 
 class IBleBindings {
@@ -43,4 +42,3 @@ class IBleBindings {
 };
 
 }  // namespace espectre
-}  // namespace esphome

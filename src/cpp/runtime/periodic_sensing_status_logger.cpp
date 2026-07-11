@@ -8,7 +8,6 @@
 #include "espectre_log.h"
 #include "runtime_time.h"
 
-namespace esphome {
 namespace espectre {
 
 void PeriodicSensingStatusLogger::log_status(const char *tag,
@@ -56,4 +55,3 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
 }
 
 }  // namespace espectre
-}  // namespace esphome

@@ -25,7 +25,6 @@
 #endif
 #endif
 
-namespace esphome {
 namespace espectre {
 
 inline void log_progress_bar(const char *tag, float progress, int width = 20, int threshold_pos = -1,
@@ -70,4 +69,3 @@ inline void log_progress_bar(const char *tag, float progress, int width = 20, in
 }
 
 }  // namespace espectre
-}  // namespace esphome

@@ -5,7 +5,6 @@
 
 #include "lwip/inet.h"
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -141,4 +140,3 @@ bool csi_frame_matches_local_identity(const wifi_csi_info_t *info,
 }
 
 }  // namespace espectre
-}  // namespace esphome

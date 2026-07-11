@@ -10,7 +10,6 @@
 #include "utils.h"
 #include "wifi_csi_interface.h"
 
-namespace esphome {
 namespace espectre {
 
 using csi_capture_raw_packet_interceptor_t = std::function<bool(const wifi_csi_info_t *)>;
@@ -77,4 +76,3 @@ class CsiCaptureService {
 };
 
 }  // namespace espectre
-}  // namespace esphome

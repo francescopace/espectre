@@ -7,7 +7,7 @@
 #include "csi_frame_identity.h"
 #include "lwip/inet.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 namespace {
 

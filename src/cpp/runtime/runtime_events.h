@@ -4,7 +4,6 @@
 
 #include "runtime_snapshot.h"
 
-namespace esphome {
 namespace espectre {
 
 class IRuntimeListener {
@@ -21,4 +20,3 @@ class IRuntimeListener {
 };
 
 }  // namespace espectre
-}  // namespace esphome

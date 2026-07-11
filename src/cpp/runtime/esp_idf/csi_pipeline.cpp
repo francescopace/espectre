@@ -11,7 +11,6 @@
 #include "esp_timer.h"
 #include "csi_frame_identity.h"
 
-namespace esphome {
 namespace espectre {
 
 static const char *TAG = "CsiPipeline";
@@ -215,4 +214,3 @@ esp_err_t CsiPipeline::disable() {
 }
 
 }  // namespace espectre
-}  // namespace esphome

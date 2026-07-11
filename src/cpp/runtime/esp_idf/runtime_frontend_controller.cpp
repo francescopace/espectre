@@ -4,7 +4,6 @@
 #include "runtime_config_utils.h"
 #include "stream_esp_idf_runtime.h"
 
-namespace esphome {
 namespace espectre {
 
 void RuntimeFrontendController::set_config(const RuntimeConfig &config) {
@@ -108,4 +107,3 @@ void RuntimeFrontendController::record_snapshot(const RuntimeSnapshot &snapshot)
 }
 
 }  // namespace espectre
-}  // namespace esphome

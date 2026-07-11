@@ -4,7 +4,6 @@
 #include "threshold.h"
 #include "utils.h"
 
-namespace esphome {
 namespace espectre {
 
 constexpr float RUNTIME_THRESHOLD_MIN = 0.0f;
@@ -25,4 +24,3 @@ DetectionAlgorithm parse_detection_algorithm(const char *algorithm);
 void set_manual_threshold(RuntimeConfig &config, float threshold);
 
 }  // namespace espectre
-}  // namespace esphome

@@ -13,7 +13,6 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace esphome {
 namespace espectre {
 
 enum class NormalizedCSIPayloadTag : uint8_t {
@@ -39,4 +38,3 @@ NormalizedCSIPayload normalize_ht20_csi_payload(const int8_t *csi_data,
 const char *normalized_csi_payload_tag_to_string(NormalizedCSIPayloadTag tag);
 
 }  // namespace espectre
-}  // namespace esphome

@@ -16,7 +16,6 @@
 #include "runtime_snapshot.h"
 #include "threshold.h"
 
-namespace esphome {
 namespace espectre {
 
 // Vendor cluster for ESPectre diagnostics and runtime controls.
@@ -49,4 +48,3 @@ MatterPeriodicState snapshot_to_periodic_state(const RuntimeSnapshot &snapshot, 
 bool validate_matter_threshold(float threshold);
 
 }  // namespace espectre
-}  // namespace esphome

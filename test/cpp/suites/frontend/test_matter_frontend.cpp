@@ -10,8 +10,8 @@
 #include "matter_bindings_mock.h"
 #include "matter_surface.h"
 
-using namespace esphome::espectre;
-using esphome::espectre::matter_bindings_mock::MockMatterBindings;
+using namespace espectre;
+using espectre::matter_bindings_mock::MockMatterBindings;
 
 namespace {
 

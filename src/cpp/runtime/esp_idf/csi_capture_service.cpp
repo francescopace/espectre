@@ -6,7 +6,6 @@
 #include "csi_platform_config.h"
 #include "espectre_log.h"
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -190,4 +189,3 @@ void CsiCaptureService::log_wrong_sc_packet_(const wifi_csi_info_t *data, size_t
 }
 
 }  // namespace espectre
-}  // namespace esphome

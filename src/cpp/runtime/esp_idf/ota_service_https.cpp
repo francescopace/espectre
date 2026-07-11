@@ -12,7 +12,6 @@
 #include "esp_system.h"
 #include "protocol_json.h"
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -338,4 +337,3 @@ bool HttpsOtaService::parse_manifest_(const std::string &body, ManifestInfo *man
 }
 
 }  // namespace espectre
-}  // namespace esphome

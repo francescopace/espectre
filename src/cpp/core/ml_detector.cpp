@@ -15,7 +15,6 @@
 #include <cstring>
 #include "espectre_log.h"
 
-namespace esphome {
 namespace espectre {
 
 static const char *TAG = "MLDetector";
@@ -290,4 +289,3 @@ float MLDetector::predict(const float* features) {
 }
 
 }  // namespace espectre
-}  // namespace esphome

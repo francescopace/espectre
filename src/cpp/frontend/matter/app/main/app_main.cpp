@@ -37,27 +37,27 @@ using namespace chip::app::Clusters;
 
 namespace {
 
-esphome::espectre::MatterEspBindings g_bindings;
-esphome::espectre::MatterFrontend *g_frontend = nullptr;
+espectre::MatterEspBindings g_bindings;
+espectre::MatterFrontend *g_frontend = nullptr;
 uint16_t g_motion_endpoint_id = 0;
 
-esphome::espectre::RuntimeConfig build_runtime_config() {
-  esphome::espectre::RuntimeConfig config;
+espectre::RuntimeConfig build_runtime_config() {
+  espectre::RuntimeConfig config;
 #if CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_ML
-  config.detection_algorithm = esphome::espectre::DetectionAlgorithm::ML;
+  config.detection_algorithm = espectre::DetectionAlgorithm::ML;
 #elif CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_CLASSIC
-  config.detection_algorithm = esphome::espectre::DetectionAlgorithm::CLASSIC;
+  config.detection_algorithm = espectre::DetectionAlgorithm::CLASSIC;
 #else
-  config.detection_algorithm = esphome::espectre::DetectionAlgorithm::CLASSIC;
+  config.detection_algorithm = espectre::DetectionAlgorithm::CLASSIC;
 #endif
   return config;
 }
 
-const char *detector_name(const esphome::espectre::RuntimeConfig &config) {
+const char *detector_name(const espectre::RuntimeConfig &config) {
   switch (config.detection_algorithm) {
-    case esphome::espectre::DetectionAlgorithm::ML:
+    case espectre::DetectionAlgorithm::ML:
       return "ML";
-    case esphome::espectre::DetectionAlgorithm::CLASSIC:
+    case espectre::DetectionAlgorithm::CLASSIC:
     default:
       return "Classic";
   }
@@ -71,23 +71,23 @@ void configure_log_levels() {
 }
 
 cluster_t *create_espectre_vendor_cluster(endpoint_t *endpoint) {
-  cluster_t *vendor_cluster = cluster::create(endpoint, esphome::espectre::ESPECTRE_MATTER_VENDOR_CLUSTER_ID,
+  cluster_t *vendor_cluster = cluster::create(endpoint, espectre::ESPECTRE_MATTER_VENDOR_CLUSTER_ID,
                                             CLUSTER_FLAG_SERVER);
   if (vendor_cluster == nullptr) {
     return nullptr;
   }
 
-  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_MOVEMENT_METRIC, ATTRIBUTE_FLAG_NONE,
+  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_MOVEMENT_METRIC, ATTRIBUTE_FLAG_NONE,
                     esp_matter_nullable_float(0.0f));
-  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_THRESHOLD,
+  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_THRESHOLD,
                     ATTRIBUTE_FLAG_WRITABLE | ATTRIBUTE_FLAG_NONVOLATILE, esp_matter_nullable_float(1.0f));
-  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_CALIBRATING, ATTRIBUTE_FLAG_NONE,
+  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_CALIBRATING, ATTRIBUTE_FLAG_NONE,
                     esp_matter_bool(false));
-  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_READY_TO_PUBLISH, ATTRIBUTE_FLAG_NONE,
+  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_READY_TO_PUBLISH, ATTRIBUTE_FLAG_NONE,
                     esp_matter_bool(false));
-  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_STARTUP_THRESHOLD, ATTRIBUTE_FLAG_NONE,
+  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_STARTUP_THRESHOLD, ATTRIBUTE_FLAG_NONE,
                     esp_matter_nullable_float(0.0f));
-  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE,
+  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE,
                     ATTRIBUTE_FLAG_WRITABLE, esp_matter_bool(false));
   return vendor_cluster;
 }
@@ -141,11 +141,11 @@ esp_err_t app_identification_cb(identification::callback_type_t type, uint16_t e
 esp_err_t app_attribute_update_cb(attribute::callback_type_t type, uint16_t endpoint_id, uint32_t cluster_id,
                                   uint32_t attribute_id, esp_matter_attr_val_t *val, void *priv_data) {
   if (g_frontend == nullptr || endpoint_id != g_motion_endpoint_id ||
-      cluster_id != esphome::espectre::ESPECTRE_MATTER_VENDOR_CLUSTER_ID) {
+      cluster_id != espectre::ESPECTRE_MATTER_VENDOR_CLUSTER_ID) {
     return ESP_OK;
   }
 
-  if (attribute_id == esphome::espectre::ESPECTRE_MATTER_ATTR_THRESHOLD && val != nullptr &&
+  if (attribute_id == espectre::ESPECTRE_MATTER_ATTR_THRESHOLD && val != nullptr &&
       val->type == ESP_MATTER_VAL_TYPE_NULLABLE_FLOAT) {
     if (!g_frontend->handle_threshold_write(val->val.f)) {
       return ESP_FAIL;
@@ -153,7 +153,7 @@ esp_err_t app_attribute_update_cb(attribute::callback_type_t type, uint16_t endp
     return ESP_OK;
   }
 
-  if (attribute_id == esphome::espectre::ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE && val != nullptr &&
+  if (attribute_id == espectre::ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE && val != nullptr &&
       val->type == ESP_MATTER_VAL_TYPE_BOOLEAN && val->val.b) {
     if (!g_frontend->handle_recalibrate_request()) {
       return ESP_FAIL;
@@ -186,7 +186,7 @@ extern "C" void app_main() {
   }
   ESP_ERROR_CHECK(err);
   configure_log_levels();
-  esphome::espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
+  espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
 
   node::config_t node_config;
   std::snprintf(node_config.root_node.basic_information.node_label,
@@ -222,7 +222,7 @@ extern "C" void app_main() {
     return;
   }
 
-  static esphome::espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id);
+  static espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id);
   frontend.set_runtime_config(build_runtime_config());
   g_frontend = &frontend;
   ESP_LOGI(TAG, "ESPectre Matter smoke marker: endpoint %u configured, starting Matter stack",

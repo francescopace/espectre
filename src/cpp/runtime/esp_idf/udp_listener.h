@@ -19,7 +19,6 @@
 
 #include "lwip/sockets.h"
 
-namespace esphome {
 namespace espectre {
 
 /**
@@ -88,5 +87,4 @@ class UDPListener {
 };
 
 }  // namespace espectre
-}  // namespace esphome
 

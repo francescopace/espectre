@@ -7,7 +7,7 @@
 #include "standalone_wifi_service.h"
 #include "wifi_provisioning_service.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 namespace {
 

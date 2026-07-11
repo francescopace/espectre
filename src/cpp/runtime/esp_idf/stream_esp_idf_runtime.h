@@ -11,7 +11,6 @@
 #include "runtime_interface.h"
 #include "standalone_wifi_service.h"
 
-namespace esphome {
 namespace espectre {
 
 class StreamEspIdfRuntime : public IEspectreRuntime {
@@ -72,4 +71,3 @@ class StreamEspIdfRuntime : public IEspectreRuntime {
 };
 
 }  // namespace espectre
-}  // namespace esphome

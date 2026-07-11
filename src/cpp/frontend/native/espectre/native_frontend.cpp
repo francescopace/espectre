@@ -32,7 +32,6 @@
 #define ESPECTRE_HAVE_ESP_HEAP_CAPS 1
 #endif
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -432,4 +431,3 @@ void NativeFrontend::send_system_info_() {
 uint32_t NativeFrontend::now_ms_() const { return monotonic_now_ms(); }
 
 }  // namespace espectre
-}  // namespace esphome

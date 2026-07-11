@@ -4,7 +4,6 @@
 #include "esp_app_desc.h"
 #endif
 
-namespace esphome {
 namespace espectre {
 
 const char *espectre_firmware_version() {
@@ -19,4 +18,3 @@ const char *espectre_firmware_version() {
 }
 
 }  // namespace espectre
-}  // namespace esphome

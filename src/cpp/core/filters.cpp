@@ -14,7 +14,6 @@
 #include <cstdlib>
 #include "espectre_log.h"
 
-namespace esphome {
 namespace espectre {
 
 static const char *TAG = "CSI_Filters";
@@ -168,4 +167,3 @@ float hampel_filter_turbulence(hampel_turbulence_state_t *state, float turbulenc
 }
 
 }  // namespace espectre
-}  // namespace esphome

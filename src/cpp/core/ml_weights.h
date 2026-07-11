@@ -16,7 +16,6 @@
 
 #pragma once
 
-namespace esphome {
 namespace espectre {
 
 // Model metadata
@@ -52,4 +51,3 @@ constexpr const float* ML_MODEL_WEIGHTS[ML_MODEL_NUM_LAYERS] = {ML_W1, ML_W2, ML
 constexpr const float* ML_MODEL_BIASES[ML_MODEL_NUM_LAYERS] = {ML_B1, ML_B2, ML_B3};
 
 }  // namespace espectre
-}  // namespace esphome

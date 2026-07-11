@@ -13,7 +13,6 @@
 #include "esp_err.h"
 #include "esp_wifi.h"
 
-namespace esphome {
 namespace espectre {
 
 /**
@@ -76,5 +75,4 @@ class WiFiCSIReal : public IWiFiCSI {
 };
 
 }  // namespace espectre
-}  // namespace esphome
 

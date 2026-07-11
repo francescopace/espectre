@@ -15,7 +15,6 @@
 #endif
 
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -483,4 +482,3 @@ void StandaloneWifiService::wifi_event_handler_(void *arg, esp_event_base_t even
 }
 
 }  // namespace espectre
-}  // namespace esphome

@@ -24,7 +24,7 @@
 #define num_static_presence csi_test_data::num_static_presence()
 #define num_motion csi_test_data::num_motion()
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 static const char *TAG = "test_utils";
 

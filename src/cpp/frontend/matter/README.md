@@ -102,7 +102,8 @@ The Matter frontend keeps ownership boundaries explicit:
 - the Matter stack starts first
 - the shared ESPectre runtime is initialized after `esp_matter::start()`
 - Wi-Fi ownership remains with `esp-matter`
-- the firmware leaves normal Wi-Fi aggregation enabled for commissioning
+- the firmware keeps the shared Wi-Fi transport baseline active during
+  commissioning, including AMPDU enabled plus the larger Wi-Fi and lwIP queues
 - CSI services remain disarmed until commissioning completes
 - after commissioning, the reused runtime layers CSI Wi-Fi policy and capture
   setup on top of the initialized station stack

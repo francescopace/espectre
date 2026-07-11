@@ -4,7 +4,6 @@
 
 #include "runtime_config_utils.h"
 
-namespace esphome {
 namespace espectre {
 
 void visit_runtime_diagnostics(const RuntimeConfig &config,
@@ -50,4 +49,3 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
 }
 
 }  // namespace espectre
-}  // namespace esphome

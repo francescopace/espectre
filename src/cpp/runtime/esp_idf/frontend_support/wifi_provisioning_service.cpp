@@ -15,7 +15,6 @@
 #include "espectre_log.h"
 #include "protocol_json.h"
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -251,4 +250,3 @@ void WifiProvisioningService::notify_changed_() {
 }
 
 }  // namespace espectre
-}  // namespace esphome

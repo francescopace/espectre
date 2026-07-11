@@ -1,6 +1,5 @@
 #include "frontend_control_helpers.h"
 
-namespace esphome {
 namespace espectre {
 
 DeviceConfigBleCommandResult handle_ble_device_config_command(const std::string &command,
@@ -82,4 +81,3 @@ DeviceConfigBleCommandResult handle_ble_device_config_command(const std::string 
 }
 
 }  // namespace espectre
-}  // namespace esphome

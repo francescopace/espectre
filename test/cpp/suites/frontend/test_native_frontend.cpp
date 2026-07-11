@@ -15,10 +15,10 @@
 #include "mqtt_transport_mock.h"
 #include "ota_service_mock.h"
 
-using namespace esphome::espectre;
-using esphome::espectre::ble_bindings_mock::MockBleBindings;
-using esphome::espectre::mqtt_transport_mock::MockMqttTransport;
-using esphome::espectre::ota_service_mock::MockOtaService;
+using namespace espectre;
+using espectre::ble_bindings_mock::MockBleBindings;
+using espectre::mqtt_transport_mock::MockMqttTransport;
+using espectre::ota_service_mock::MockOtaService;
 
 namespace {
 

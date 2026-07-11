@@ -18,7 +18,6 @@
 #include "base_detector.h"
 #include "protocol_json.h"
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -505,4 +504,3 @@ bool parse_espectre_mqtt_config_command(const std::string &command, EspectreDevi
 }
 
 }  // namespace espectre
-}  // namespace esphome

@@ -4,7 +4,6 @@
 
 #include <esp_mac.h>
 
-namespace esphome {
 namespace espectre {
 
 uint64_t derive_runtime_device_id() {
@@ -18,4 +17,3 @@ uint64_t derive_runtime_device_id() {
 std::string derive_runtime_device_id_string() { return format_espectre_device_id(derive_runtime_device_id()); }
 
 }  // namespace espectre
-}  // namespace esphome

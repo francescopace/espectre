@@ -12,7 +12,7 @@
 #include "traffic_generator_manager.h"
 #include "esphome/core/log.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 static const char *TAG = "test_traffic_generator";
 

@@ -11,7 +11,7 @@
 
 #include <string>
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 void test_device_id_helpers_format_parse_and_pack_mac_consistently(void) {
   TEST_ASSERT_EQUAL_STRING("0x00007c2c6742bbac", format_espectre_device_id(0x00007C2C6742BBACULL).c_str());

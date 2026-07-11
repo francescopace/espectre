@@ -5,7 +5,6 @@
 #include "espectre_log.h"
 #include "runtime_frontend_controller.h"
 
-namespace esphome {
 namespace espectre {
 
 template <typename ResetStatusLogger>
@@ -22,4 +21,3 @@ inline void finalize_frontend_calibration(RuntimeFrontendController &runtime,
 }
 
 }  // namespace espectre
-}  // namespace esphome

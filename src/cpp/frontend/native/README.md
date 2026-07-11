@@ -153,9 +153,9 @@ provisioned live over BLE and persisted in NVS.
 Frontend-owned options in [`Kconfig.projbuild`](espectre/Kconfig.projbuild)
 remain useful as firmware defaults for reproducible images or first boot.
 Versioned transport defaults in [`sdkconfig.defaults`](app/sdkconfig.defaults)
-also tune the standalone native firmware for mixed BLE + Wi-Fi traffic, including
-larger Wi-Fi RX/TX buffers plus lwIP mailbox and IRAM optimizations inherited
-from the standalone streamer profile.
+also tune the standalone native firmware with the shared ESP-IDF Wi-Fi transport
+baseline now used across the standalone frontends: AMPDU enabled, larger Wi-Fi
+RX/TX buffers, plus lwIP mailbox and IRAM optimizations.
 
 | Option | Purpose |
 |--------|---------|

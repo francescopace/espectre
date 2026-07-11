@@ -15,7 +15,6 @@
 #include "filters.h"
 #include "utils.h"
 
-namespace esphome {
 namespace espectre {
 
 // ============================================================================
@@ -283,4 +282,3 @@ protected:
 };
 
 }  // namespace espectre
-}  // namespace esphome

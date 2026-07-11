@@ -21,7 +21,7 @@
 #include "esphome/core/log.h"
 #include "cnpy.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 static_assert(ML_MODEL_INPUT_SIZE == ML_NUM_FEATURES,
               "Exported model input size must match extracted ML feature count");
 

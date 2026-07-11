@@ -22,7 +22,6 @@
 #include "csi_format.h"
 #include "wifi_csi_interface.h"
 
-namespace esphome {
 namespace espectre {
 
 // Callback type for processed CSI data
@@ -163,4 +162,3 @@ class CsiPipeline {
 };
 
 }  // namespace espectre
-}  // namespace esphome

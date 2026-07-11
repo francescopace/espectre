@@ -1,6 +1,5 @@
 #include "matter_bindings_mock.h"
 
-namespace esphome {
 namespace espectre {
 namespace matter_bindings_mock {
 
@@ -32,4 +31,3 @@ void MockMatterBindings::report_fault(const char *message) {
 
 }  // namespace matter_bindings_mock
 }  // namespace espectre
-}  // namespace esphome

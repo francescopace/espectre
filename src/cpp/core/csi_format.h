@@ -17,7 +17,6 @@
 
 #include "utils.h"
 
-namespace esphome {
 namespace espectre {
 
 // =============================================================================
@@ -160,4 +159,3 @@ inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
 }
 
 }  // namespace espectre
-}  // namespace esphome

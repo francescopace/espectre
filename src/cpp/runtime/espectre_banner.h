@@ -1,6 +1,5 @@
 #pragma once
 
-namespace esphome {
 namespace espectre {
 
 inline constexpr const char *kEspectreAsciiLogoLines[] = {
@@ -21,4 +20,3 @@ inline void log_espectre_banner(Logger &&log_line) {
 }
 
 }  // namespace espectre
-}  // namespace esphome

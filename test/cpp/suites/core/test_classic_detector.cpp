@@ -13,7 +13,7 @@
 #undef protected
 #undef private
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 void setUp(void) {}
 void tearDown(void) {}

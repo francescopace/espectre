@@ -5,7 +5,6 @@
 
 #include "matter_bindings.h"
 
-namespace esphome {
 namespace espectre {
 namespace matter_bindings_mock {
 
@@ -52,4 +51,3 @@ class MockMatterBindings : public IMatterBindings {
 
 }  // namespace matter_bindings_mock
 }  // namespace espectre
-}  // namespace esphome

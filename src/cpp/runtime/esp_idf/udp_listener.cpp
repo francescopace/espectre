@@ -14,7 +14,6 @@
 #include <cstring>
 #include <fcntl.h>
 
-namespace esphome {
 namespace espectre {
 
 static const char *UDP_LISTENER_TAG = "UDPListener";
@@ -201,4 +200,3 @@ void UDPListener::loop() {
 }
 
 }  // namespace espectre
-}  // namespace esphome

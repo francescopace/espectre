@@ -14,7 +14,6 @@
 
 #include "matter_surface.h"
 
-namespace esphome {
 namespace espectre {
 
 class IMatterBindings {
@@ -29,4 +28,3 @@ class IMatterBindings {
 };
 
 }  // namespace espectre
-}  // namespace esphome

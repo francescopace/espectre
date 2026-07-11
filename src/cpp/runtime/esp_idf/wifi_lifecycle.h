@@ -14,7 +14,6 @@
 #include "esp_err.h"
 #include <functional>
 
-namespace esphome {
 namespace espectre {
 
 // Callback types
@@ -83,4 +82,3 @@ class WiFiLifecycleManager {
 };
 
 }  // namespace espectre
-}  // namespace esphome

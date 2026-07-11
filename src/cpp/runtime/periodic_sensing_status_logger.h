@@ -4,7 +4,6 @@
 
 #include "runtime_snapshot.h"
 
-namespace esphome {
 namespace espectre {
 
 class PeriodicSensingStatusLogger {
@@ -17,4 +16,3 @@ class PeriodicSensingStatusLogger {
 };
 
 }  // namespace espectre
-}  // namespace esphome

@@ -1,6 +1,5 @@
 #include "mqtt_transport_mock.h"
 
-namespace esphome {
 namespace espectre {
 namespace mqtt_transport_mock {
 
@@ -53,4 +52,3 @@ void MockMqttTransport::emit_connection(bool connected) {
 
 }  // namespace mqtt_transport_mock
 }  // namespace espectre
-}  // namespace esphome

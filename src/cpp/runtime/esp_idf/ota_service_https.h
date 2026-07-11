@@ -7,7 +7,6 @@
 #include "freertos/task.h"
 #include "ota_service.h"
 
-namespace esphome {
 namespace espectre {
 
 class HttpsOtaService : public IOtaService {
@@ -71,4 +70,3 @@ class HttpsOtaService : public IOtaService {
 };
 
 }  // namespace espectre
-}  // namespace esphome

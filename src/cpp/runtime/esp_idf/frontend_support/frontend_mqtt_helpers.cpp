@@ -4,7 +4,6 @@
 
 #include "espectre_log.h"
 
-namespace esphome {
 namespace espectre {
 
 bool setup_frontend_mqtt_transport(IMqttTransport *transport,
@@ -171,4 +170,3 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
 }
 
 }  // namespace espectre
-}  // namespace esphome

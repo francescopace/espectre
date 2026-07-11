@@ -14,7 +14,7 @@
 #include "nvs.h"
 #include "csi_format.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 void setUp(void) { nvs_mock_reset(); }
 

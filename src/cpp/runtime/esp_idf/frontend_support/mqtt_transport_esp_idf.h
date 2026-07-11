@@ -12,7 +12,6 @@
 #include "mqtt_transport.h"
 #include "mqtt_client.h"
 
-namespace esphome {
 namespace espectre {
 
 class EspIdfMqttTransport : public IMqttTransport {
@@ -44,4 +43,3 @@ class EspIdfMqttTransport : public IMqttTransport {
 };
 
 }  // namespace espectre
-}  // namespace esphome

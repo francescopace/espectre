@@ -15,7 +15,6 @@
 
 #include "ble_bindings.h"
 
-namespace esphome {
 namespace espectre {
 
 class NoopBleBindings : public IBleBindings {
@@ -46,4 +45,3 @@ class NoopBleBindings : public IBleBindings {
 };
 
 }  // namespace espectre
-}  // namespace esphome

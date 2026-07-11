@@ -10,7 +10,7 @@
 #include "frontend_runtime_shim.h"
 #include "runtime_frontend_controller.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 namespace {
 

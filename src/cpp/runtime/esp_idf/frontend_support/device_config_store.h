@@ -6,7 +6,6 @@
 #include "esp_err.h"
 #include "espectre_protocol.h"
 
-namespace esphome {
 namespace espectre {
 
 struct StoredWifiConfig {
@@ -26,4 +25,3 @@ esp_err_t save_stored_device_config(const EspectreDeviceConfig &config);
 esp_err_t clear_stored_device_config();
 
 }  // namespace espectre
-}  // namespace esphome

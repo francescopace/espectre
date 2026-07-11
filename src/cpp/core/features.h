@@ -17,7 +17,6 @@
 #include "ml_weights.h"
 #include "utils.h"
 
-namespace esphome {
 namespace espectre {
 
 constexpr uint8_t L1_DELTA_LAG = 10;
@@ -188,4 +187,3 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
 }
 
 }  // namespace espectre
-}  // namespace esphome

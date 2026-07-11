@@ -24,7 +24,6 @@
 #include <cstdint>
 #include <cstddef>
 
-namespace esphome {
 namespace espectre {
 
 // ML-specific constants
@@ -128,4 +127,3 @@ private:
 };
 
 }  // namespace espectre
-}  // namespace esphome

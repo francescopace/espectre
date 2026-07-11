@@ -18,7 +18,6 @@ using portMUX_TYPE = int;
 #define portEXIT_CRITICAL(mux) (void)(mux)
 #endif
 
-namespace esphome {
 namespace espectre {
 
 class CsiStreamTransport {
@@ -90,4 +89,3 @@ class CsiStreamTransport {
 };
 
 }  // namespace espectre
-}  // namespace esphome

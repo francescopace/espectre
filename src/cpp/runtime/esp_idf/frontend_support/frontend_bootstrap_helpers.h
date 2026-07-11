@@ -8,7 +8,6 @@
 #include "standalone_wifi_service.h"
 #include "wifi_provisioning_service.h"
 
-namespace esphome {
 namespace espectre {
 
 struct FrontendDeviceConfigDefaults {
@@ -44,4 +43,3 @@ esp_err_t setup_frontend_wifi_station(WifiProvisioningService *provisioning,
                                       const char *stored_config_message);
 
 }  // namespace espectre
-}  // namespace esphome

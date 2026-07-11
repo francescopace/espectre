@@ -12,7 +12,6 @@
 
 #include "espectre_protocol.h"
 
-namespace esphome {
 namespace espectre {
 
 class IMqttTransport {
@@ -33,4 +32,3 @@ class IMqttTransport {
 };
 
 }  // namespace espectre
-}  // namespace esphome

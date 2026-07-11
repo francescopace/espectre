@@ -7,7 +7,6 @@
 #include "esp_event.h"
 #include "wifi_lifecycle.h"
 
-namespace esphome {
 namespace espectre {
 
 using standalone_wifi_callback_t = std::function<void()>;
@@ -67,4 +66,3 @@ class StandaloneWifiService {
 };
 
 }  // namespace espectre
-}  // namespace esphome

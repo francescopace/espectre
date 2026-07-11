@@ -15,7 +15,6 @@
 #include "esp_err.h"
 #include "standalone_wifi_service.h"
 
-namespace esphome {
 namespace espectre {
 
 struct WifiProvisioningDefaults {
@@ -61,4 +60,3 @@ class WifiProvisioningService {
 };
 
 }  // namespace espectre
-}  // namespace esphome

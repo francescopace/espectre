@@ -11,7 +11,6 @@
 #include "csi_traffic_service.h"
 #include "wifi_lifecycle.h"
 
-namespace esphome {
 namespace espectre {
 
 class EspIdfRuntime : public IEspectreRuntime {
@@ -70,4 +69,3 @@ class EspIdfRuntime : public IEspectreRuntime {
 };
 
 }  // namespace espectre
-}  // namespace esphome

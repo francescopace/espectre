@@ -3,7 +3,6 @@
 #include <atomic>
 #include <utility>
 
-namespace esphome {
 namespace espectre {
 
 class DeferredLoopAction {
@@ -30,4 +29,3 @@ class DeferredLoopAction {
 };
 
 }  // namespace espectre
-}  // namespace esphome

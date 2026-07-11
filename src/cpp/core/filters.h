@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <cstddef>
 
-namespace esphome {
 namespace espectre {
 
 // =============================================================================
@@ -68,4 +67,3 @@ float hampel_filter(const float *window, size_t window_size,
 float hampel_filter_turbulence(hampel_turbulence_state_t *state, float turbulence);
 
 }  // namespace espectre
-}  // namespace esphome

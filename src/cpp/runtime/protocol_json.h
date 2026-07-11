@@ -4,7 +4,6 @@
 #include <utility>
 #include <vector>
 
-namespace esphome {
 namespace espectre {
 
 void append_json_string(std::string *out, const char *value);
@@ -17,4 +16,3 @@ bool parse_urlencoded_key_value_pairs(const std::string &payload,
                                       std::string *error = nullptr);
 
 }  // namespace espectre
-}  // namespace esphome

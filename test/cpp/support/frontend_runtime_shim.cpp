@@ -2,7 +2,6 @@
 
 #include "esp_idf_runtime.h"
 
-namespace esphome {
 namespace espectre {
 namespace frontend_runtime_shim {
 
@@ -71,4 +70,3 @@ void EspIdfRuntime::set_listener(IRuntimeListener *listener) {
 }
 
 }  // namespace espectre
-}  // namespace esphome

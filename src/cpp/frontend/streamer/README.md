@@ -145,9 +145,11 @@ Payload:
 Frontend-specific options are declared in [`Kconfig.projbuild`](espectre/Kconfig.projbuild).
 
 Versioned defaults live in [`sdkconfig.defaults`](app/sdkconfig.defaults).
-Chip-specific overrides may also live in `app/sdkconfig.defaults.<idf_target>`;
-the streamer currently ships an `ESP32` profile in
-[`sdkconfig.defaults.esp32`](app/sdkconfig.defaults.esp32).
+The streamer also carries the shared standalone ESP-IDF Wi-Fi transport
+baseline: AMPDU enabled, Wi-Fi buffers `16/128/128`, lwIP mailboxes `64/32`,
+and `CONFIG_LWIP_IRAM_OPTIMIZATION=y`.
+Chip-specific overrides may also live in `app/sdkconfig.defaults.<idf_target>`
+when a target needs extra tuning on top of that shared baseline.
 Local Wi-Fi credentials should live in `app/sdkconfig.wifi`, which is gitignored.
 The streamer reads Wi-Fi credentials from the active `sdkconfig` surface, so
 `app/sdkconfig.wifi` is the recommended machine-local override file.
@@ -307,8 +309,8 @@ present, and `sdkconfig.wifi` to `idf.py` for `build`.
 
 ```bash
 cd src/cpp/frontend/streamer/app
-idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi" set-target esp32
-idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi" build
+idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" set-target esp32
+idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" build
 ```
 
 </details>

@@ -27,7 +27,6 @@
 #include <cstdint>
 #include <vector>
 
-namespace esphome {
 namespace espectre {
 
 // =============================================================================
@@ -666,4 +665,3 @@ class StartupThresholdCalibrator {
 };
 
 }  // namespace espectre
-}  // namespace esphome

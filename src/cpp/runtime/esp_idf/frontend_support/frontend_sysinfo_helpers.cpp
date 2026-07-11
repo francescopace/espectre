@@ -2,7 +2,6 @@
 
 #include <cstdio>
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -114,4 +113,3 @@ std::vector<std::string> build_frontend_sysinfo_lines(const FrontendSysinfoBase 
 void append_sysinfo_end_line(std::vector<std::string> *lines) { append_line(lines, "END"); }
 
 }  // namespace espectre
-}  // namespace esphome

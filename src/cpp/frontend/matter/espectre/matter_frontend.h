@@ -16,7 +16,6 @@
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
 
-namespace esphome {
 namespace espectre {
 
 class MatterFrontend : public IRuntimeListener {
@@ -58,4 +57,3 @@ class MatterFrontend : public IRuntimeListener {
 };
 
 }  // namespace espectre
-}  // namespace esphome

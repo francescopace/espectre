@@ -5,7 +5,6 @@
 
 #include "esp_wifi.h"
 
-namespace esphome {
 namespace espectre {
 
 bool csi_frame_matches_local_identity(const wifi_csi_info_t *info,
@@ -13,4 +12,3 @@ bool csi_frame_matches_local_identity(const wifi_csi_info_t *info,
                                       const uint8_t *local_mac_addr);
 
 }  // namespace espectre
-}  // namespace esphome

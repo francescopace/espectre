@@ -4,7 +4,6 @@
 
 #include "ota_service.h"
 
-namespace esphome {
 namespace espectre {
 namespace ota_service_mock {
 
@@ -47,4 +46,3 @@ class MockOtaService : public IOtaService {
 
 }  // namespace ota_service_mock
 }  // namespace espectre
-}  // namespace esphome

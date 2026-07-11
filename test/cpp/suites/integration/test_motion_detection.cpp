@@ -29,7 +29,7 @@
 #include "esphome/core/log.h"
 #include "esp_system.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 // Include CSI data loader (loads from NPZ files)
 #include "csi_test_data.h"

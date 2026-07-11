@@ -15,7 +15,6 @@
 #include <cmath>
 #include <algorithm>
 
-namespace esphome {
 namespace espectre {
 
 // =============================================================================
@@ -235,4 +234,3 @@ inline int compare_float_abs(const void *a, const void *b) {
 }
 
 }  // namespace espectre
-}  // namespace esphome

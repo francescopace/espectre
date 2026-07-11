@@ -7,7 +7,6 @@
 
 #pragma once
 
-namespace esphome {
 namespace espectre {
 
 inline constexpr const char *ESPECTRE_BLE_SERVICE_UUID = "d33ff46b-2203-4775-bc6f-b3a2c36af8f0";
@@ -17,4 +16,3 @@ inline constexpr const char *ESPECTRE_BLE_CONTROL_UUID = "33ed9214-a8d7-40e8-82d
 inline constexpr const char *ESPECTRE_BLE_DEVICE_NAME = "ESPectre BLE";
 
 }  // namespace espectre
-}  // namespace esphome

@@ -25,7 +25,6 @@
 #define CONFIG_ESPECTRE_WIFI_CHANNEL 0
 #endif
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -303,4 +302,3 @@ void StreamEspIdfRuntime::handle_csi_packet_(const wifi_csi_info_t *info, const 
 }
 
 }  // namespace espectre
-}  // namespace esphome

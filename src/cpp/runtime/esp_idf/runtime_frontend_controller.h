@@ -7,7 +7,6 @@
 #include "runtime_interface.h"
 #include "runtime_snapshot.h"
 
-namespace esphome {
 namespace espectre {
 
 class RuntimeFrontendController {
@@ -45,4 +44,3 @@ class RuntimeFrontendController {
 };
 
 }  // namespace espectre
-}  // namespace esphome

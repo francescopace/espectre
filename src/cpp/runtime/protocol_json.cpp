@@ -3,7 +3,6 @@
 #include <cctype>
 #include <cstdint>
 
-namespace esphome {
 namespace espectre {
 
 void append_json_string(std::string *out, const char *value) {
@@ -221,4 +220,3 @@ bool parse_urlencoded_key_value_pairs(const std::string &payload,
 }
 
 }  // namespace espectre
-}  // namespace esphome

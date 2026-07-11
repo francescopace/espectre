@@ -2,7 +2,6 @@
 
 #include "nvs.h"
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -276,4 +275,3 @@ esp_err_t clear_stored_device_config() {
 }
 
 }  // namespace espectre
-}  // namespace esphome

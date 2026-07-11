@@ -34,16 +34,16 @@ namespace {
 
 constexpr int kWifiConnectMaxRetry = 8;
 
-esphome::espectre::NativeFrontend *g_frontend = nullptr;
-esphome::espectre::StandaloneWifiService g_wifi_manager;
-esphome::espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
+espectre::NativeFrontend *g_frontend = nullptr;
+espectre::StandaloneWifiService g_wifi_manager;
+espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
 
 void sync_frontend_wifi_info() {
   if (g_frontend == nullptr) {
     return;
   }
-  esphome::espectre::NativeFrontend::WifiProvisioningInfo info;
-  const esphome::espectre::StoredWifiConfig &wifi_config = g_wifi_provisioning.config();
+  espectre::NativeFrontend::WifiProvisioningInfo info;
+  const espectre::StoredWifiConfig &wifi_config = g_wifi_provisioning.config();
   info.ssid = wifi_config.ssid;
   info.bssid = wifi_config.bssid;
   info.channel = wifi_config.channel;
@@ -51,12 +51,12 @@ void sync_frontend_wifi_info() {
   info.password_set = g_wifi_provisioning.password_set();
   g_frontend->set_wifi_provisioning_info(info);
 
-  esphome::espectre::EspectreDeviceInfo device_info;
+  espectre::EspectreDeviceInfo device_info;
   device_info.frontend = "native";
-  device_info.firmware_version = esphome::espectre::espectre_firmware_version();
+  device_info.firmware_version = espectre::espectre_firmware_version();
   device_info.chip = CONFIG_IDF_TARGET;
 
-  esphome::espectre::StandaloneWifiInfo wifi_info;
+  espectre::StandaloneWifiInfo wifi_info;
   if (g_wifi_manager.get_info(&wifi_info)) {
     device_info.network.ip_address = wifi_info.ip_address;
     device_info.network.mac_address = wifi_info.mac_address;
@@ -65,18 +65,18 @@ void sync_frontend_wifi_info() {
   g_frontend->set_device_info(device_info);
 }
 
-esphome::espectre::RuntimeConfig make_runtime_config() {
-  esphome::espectre::RuntimeConfig config;
+espectre::RuntimeConfig make_runtime_config() {
+  espectre::RuntimeConfig config;
   return config;
 }
 
-esphome::espectre::EspectreDeviceConfig make_device_config() {
-  return esphome::espectre::load_frontend_device_config(esphome::espectre::FrontendDeviceConfigDefaults{
+espectre::EspectreDeviceConfig make_device_config() {
+  return espectre::load_frontend_device_config(espectre::FrontendDeviceConfigDefaults{
                                                             CONFIG_ESPECTRE_DEVICE_LABEL,
                                                             CONFIG_ESPECTRE_MQTT_HOST,
                                                             CONFIG_ESPECTRE_MQTT_PORT,
                                                             CONFIG_ESPECTRE_TOPIC_PREFIX,
-                                                            esphome::espectre::derive_runtime_device_id(),
+                                                            espectre::derive_runtime_device_id(),
                                                         },
                                                         TAG,
                                                         "Using ESPectre Protocol config provisioned over BLE",
@@ -94,10 +94,10 @@ void espectre_loop_task(void *arg) {
 }
 
 bool init_wifi_station() {
-  const esp_err_t setup_err = esphome::espectre::setup_frontend_wifi_station(
+  const esp_err_t setup_err = espectre::setup_frontend_wifi_station(
       &g_wifi_provisioning,
       &g_wifi_manager,
-      esphome::espectre::FrontendWifiStationOptions{CONFIG_ESPECTRE_WIFI_SSID,
+      espectre::FrontendWifiStationOptions{CONFIG_ESPECTRE_WIFI_SSID,
                                                     CONFIG_ESPECTRE_WIFI_PASSWORD,
                                                     CONFIG_ESPECTRE_WIFI_BSSID,
                                                     CONFIG_ESPECTRE_WIFI_CHANNEL,
@@ -121,16 +121,16 @@ bool handle_wifi_provisioning_command(const std::string &command, std::string *m
   return g_wifi_provisioning.handle_command(command, message);
 }
 
-bool handle_device_config_change(const esphome::espectre::EspectreDeviceConfig &config, bool clear, std::string *message) {
+bool handle_device_config_change(const espectre::EspectreDeviceConfig &config, bool clear, std::string *message) {
   if (clear) {
-    const esp_err_t err = esphome::espectre::clear_stored_device_config();
+    const esp_err_t err = espectre::clear_stored_device_config();
     if (message != nullptr) {
       *message = err == ESP_OK ? "device config cleared" : esp_err_to_name(err);
     }
     return err == ESP_OK;
   }
 
-  const esp_err_t err = esphome::espectre::save_stored_device_config(config);
+  const esp_err_t err = espectre::save_stored_device_config(config);
   if (message != nullptr) {
     *message = err == ESP_OK ? "device config saved" : esp_err_to_name(err);
   }
@@ -147,7 +147,7 @@ extern "C" void app_main() {
   }
   ESP_ERROR_CHECK(err);
 
-  esphome::espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
+  espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
 
   if (!init_wifi_station()) {
     ESP_LOGE(TAG, "Failed to initialize Wi-Fi station");
@@ -155,13 +155,13 @@ extern "C" void app_main() {
   }
 
 #if CONFIG_BT_ENABLED
-  static esphome::espectre::NimbleBleBindings bindings;
+  static espectre::NimbleBleBindings bindings;
 #else
-  static esphome::espectre::NoopBleBindings bindings;
+  static espectre::NoopBleBindings bindings;
 #endif
-  static esphome::espectre::EspIdfMqttTransport mqtt_transport;
-  static esphome::espectre::HttpsOtaService ota_service;
-  static esphome::espectre::NativeFrontend frontend(&bindings, &mqtt_transport, &ota_service);
+  static espectre::EspIdfMqttTransport mqtt_transport;
+  static espectre::HttpsOtaService ota_service;
+  static espectre::NativeFrontend frontend(&bindings, &mqtt_transport, &ota_service);
   frontend.set_runtime_config(make_runtime_config());
   frontend.set_device_config(make_device_config());
   g_frontend = &frontend;

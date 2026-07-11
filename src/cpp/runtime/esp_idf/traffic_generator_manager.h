@@ -22,7 +22,6 @@
 #include <sys/types.h>  // for ssize_t
 #include <string>
 
-namespace esphome {
 namespace espectre {
 
 /**
@@ -185,4 +184,3 @@ class TrafficGeneratorManager {
 };
 
 }  // namespace espectre
-}  // namespace esphome

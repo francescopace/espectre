@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 namespace {
 

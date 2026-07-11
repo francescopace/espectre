@@ -6,7 +6,6 @@
 
 #include "espectre_protocol.h"
 
-namespace esphome {
 namespace espectre {
 
 struct SysinfoCapabilities {
@@ -63,4 +62,3 @@ std::vector<std::string> build_frontend_sysinfo_lines(const FrontendSysinfoBase 
 void append_sysinfo_end_line(std::vector<std::string> *lines);
 
 }  // namespace espectre
-}  // namespace esphome

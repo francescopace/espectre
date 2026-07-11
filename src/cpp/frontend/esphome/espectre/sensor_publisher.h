@@ -19,6 +19,8 @@
 namespace esphome {
 namespace espectre {
 
+using namespace ::espectre;
+
 /**
  * Sensor Publisher
  * 

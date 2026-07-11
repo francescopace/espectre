@@ -9,7 +9,6 @@
 #include "espectre_log.h"
 #include "esp_wifi.h"
 
-namespace esphome {
 namespace espectre {
 
 static const char *WIFI_LIFECYCLE_TAG = "WiFiLifecycle";
@@ -268,4 +267,3 @@ void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event
 }
 
 }  // namespace espectre
-}  // namespace esphome

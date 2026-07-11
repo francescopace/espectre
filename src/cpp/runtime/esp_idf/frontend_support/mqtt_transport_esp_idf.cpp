@@ -11,7 +11,6 @@
 
 #include "esp_log.h"
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -168,4 +167,3 @@ void EspIdfMqttTransport::subscribe_commands_() {
 }
 
 }  // namespace espectre
-}  // namespace esphome

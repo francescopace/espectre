@@ -27,7 +27,6 @@
 #define ESPECTRE_HAVE_ESP_HEAP_CAPS 1
 #endif
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -658,4 +657,3 @@ void CsiStreamTransport::reset_runtime_telemetry_baseline_(const CsiTrafficServi
 }
 
 }  // namespace espectre
-}  // namespace esphome

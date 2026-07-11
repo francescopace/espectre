@@ -15,7 +15,7 @@
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 
-using namespace esphome::espectre;
+using namespace espectre;
 
 namespace {
 

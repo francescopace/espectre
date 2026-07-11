@@ -9,7 +9,6 @@
 #include "ota_service.h"
 #include "runtime_config_utils.h"
 
-namespace esphome {
 namespace espectre {
 
 using FrontendMqttConnectedCallback = std::function<void()>;
@@ -70,4 +69,3 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        FrontendMqttOtaStatusCallback ota_status_callback);
 
 }  // namespace espectre
-}  // namespace esphome

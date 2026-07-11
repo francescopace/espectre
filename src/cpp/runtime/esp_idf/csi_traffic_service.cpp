@@ -2,7 +2,6 @@
 
 #include "espectre_log.h"
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -78,4 +77,3 @@ bool CsiTrafficService::get_last_sender(sockaddr_in *out_addr) const { return ud
 uint64_t CsiTrafficService::get_packets_received() const { return udp_listener_.get_packets_received(); }
 
 }  // namespace espectre
-}  // namespace esphome

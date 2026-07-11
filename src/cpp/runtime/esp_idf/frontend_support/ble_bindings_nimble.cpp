@@ -21,7 +21,6 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
-namespace esphome {
 namespace espectre {
 
 namespace {
@@ -116,8 +115,8 @@ bool NimbleBleBindings::setup() {
     return false;
   }
 
-  nimble_port_freertos_init(&NimbleBleBindings::host_task_);
   setup_complete_ = true;
+  nimble_port_freertos_init(&NimbleBleBindings::host_task_);
   ESP_LOGI(TAG, "NimBLE bindings ready");
   return true;
 }
@@ -224,6 +223,9 @@ bool NimbleBleBindings::start_advertising_() {
     return false;
   }
 
+  ESP_LOGI(TAG, "Starting BLE advertising: addr_type=%u name=\"%s\"", static_cast<unsigned>(addr_type_),
+           device_name_.c_str());
+
   ble_hs_adv_fields fields{};
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
   fields.uuids128 = &g_service_uuid;
@@ -256,6 +258,7 @@ bool NimbleBleBindings::start_advertising_() {
     return false;
   }
   advertising_active_ = true;
+  ESP_LOGI(TAG, "BLE advertising started");
   return true;
 }
 
@@ -263,7 +266,15 @@ void NimbleBleBindings::on_sync_() {
   if (shutting_down_) {
     return;
   }
-  ble_hs_id_infer_auto(0, &addr_type_);
+
+  const int rc = ble_hs_id_infer_auto(0, &addr_type_);
+  if (rc != 0) {
+    advertising_active_ = false;
+    ESP_LOGE(TAG, "ble_hs_id_infer_auto failed: %d", rc);
+    return;
+  }
+
+  ESP_LOGI(TAG, "NimBLE host synced: addr_type=%u", static_cast<unsigned>(addr_type_));
   start_advertising_();
 }
 
@@ -428,4 +439,3 @@ int NimbleBleBindings::gatt_access_static_(uint16_t conn_handle,
 }
 
 }  // namespace espectre
-}  // namespace esphome
