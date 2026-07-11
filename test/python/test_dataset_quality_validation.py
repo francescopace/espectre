@@ -143,7 +143,7 @@ def test_capture_continuity_flags_low_rate_and_stream_gaps() -> None:
     assert "Low packet rate" in by_name["packet_rate"].message
     assert by_name["stream_seq_gaps"].status == "FAIL"
     assert "Missing stream packets: 92.2%" in by_name["stream_seq_gaps"].message
-    assert by_name["stream_seq_max_gap"].status == "WARN"
+    assert by_name["stream_seq_max_gap"].status == "FAIL"
 
 
 def test_capture_continuity_flags_large_inter_packet_gap() -> None:

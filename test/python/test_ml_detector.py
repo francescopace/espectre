@@ -143,19 +143,24 @@ class TestPredict:
     
     def test_predict_different_inputs_different_outputs(self):
         """Different inputs produce different outputs."""
-        # Use two real reference samples from the current exported model data.
-        # This avoids brittle hand-picked vectors that may both saturate to 0
-        # after retraining, while still verifying input sensitivity.
+        # Use real reference samples from the current exported model data.
+        # Pick the pair with the minimum and maximum exported outputs rather
+        # than assuming the first two samples should differ after retraining.
         test_data_path = generated_data_dir() / "ml_test_data.npz"
         if not test_data_path.exists():
             pytest.skip(f"Test data not found: {test_data_path}")
 
         test_data = np.load(test_data_path)
         features = test_data["features"]
+        expected_outputs = test_data["expected_outputs"]
 
-        # Pick two distinct feature vectors from reference set.
-        features1 = features[0].tolist()
-        features2 = features[1].tolist()
+        min_idx = int(np.argmin(expected_outputs))
+        max_idx = int(np.argmax(expected_outputs))
+        if min_idx == max_idx:
+            pytest.skip("Reference outputs are constant across exported test data")
+
+        features1 = features[min_idx].tolist()
+        features2 = features[max_idx].tolist()
 
         result1 = predict(features1)
         result2 = predict(features2)

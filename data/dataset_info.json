@@ -1,7 +1,7 @@
 {
-  "format_version": "1.0",
+  "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-08T16:28:44.085524",
+  "updated_at": "2026-07-11T20:04:20.143835",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -165,45 +165,6 @@
     ],
     "static_presence": [
       {
-        "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_120322_224513_0001.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T12:03:22.211915",
-        "duration_ms": 179953,
-        "num_packets": 17770,
-        "description": "HT20 static presence sample",
-        "environment": "living_room",
-        "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_121231_690177_0001.npz"
-      },
-      {
-        "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_123300_815785_0001.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T12:33:00.806055",
-        "duration_ms": 179953,
-        "num_packets": 17826,
-        "description": "HT20 static presence sample",
-        "environment": "bedroom",
-        "device_id": "0x0000acebe64ae708",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260704_123617_904895_0001.npz"
-      },
-      {
-        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260704_141842_520560_0001.npz",
-        "chip": "C5",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T14:18:42.509073",
-        "duration_ms": 179945,
-        "num_packets": 17444,
-        "description": "HT20 static presence sample",
-        "environment": "bedroom",
-        "device_id": "0x000030eda0e46278",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260704_142046_208982_0001.npz"
-      },
-      {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz",
         "chip": "C6",
         "subcarriers": 64,
@@ -215,32 +176,6 @@
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
         "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz"
-      },
-      {
-        "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_155658_712410_0001.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T15:56:58.697951",
-        "duration_ms": 179996,
-        "num_packets": 17761,
-        "description": "HT20 static presence sample",
-        "environment": "hobby_room",
-        "device_id": "0x0000acebe64ae708",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260704_155947_468944_0001.npz"
-      },
-      {
-        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260704_184649_979004_0001.npz",
-        "chip": "C5",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T18:46:49.966759",
-        "duration_ms": 180000,
-        "num_packets": 17474,
-        "description": "HT20 static presence sample",
-        "environment": "hobby_room",
-        "device_id": "0x000030eda0e46278",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260704_185343_276594_0001.npz"
       },
       {
         "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_190103_229855_0001.npz",
@@ -256,19 +191,6 @@
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260704_190325_096036_0001.npz"
       },
       {
-        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260704_193850_592133_0001.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T19:38:50.584926",
-        "duration_ms": 179954,
-        "num_packets": 17683,
-        "description": "HT20 static presence sample",
-        "environment": "bedroom",
-        "device_id": "0x000010b41de8ec00",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260704_194251_648972_0001.npz"
-      },
-      {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz",
         "chip": "C6",
         "subcarriers": 64,
@@ -282,59 +204,20 @@
         "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_195515_808506_0001.npz"
       },
       {
-        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260704_200911_606140_0001.npz",
-        "chip": "C5",
+        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz",
+        "chip": "S3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-07-04T20:09:11.593595",
-        "duration_ms": 179943,
-        "num_packets": 17490,
+        "collected_at": "2026-07-11T19:57:41.393871",
+        "duration_ms": 179994,
+        "num_packets": 17990,
         "description": "HT20 static presence sample",
-        "environment": "living_room",
-        "device_id": "0x000030eda0e46278",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260704_201203_743575_0001.npz"
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz"
       }
     ],
     "motion": [
-      {
-        "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260704_121231_690177_0001.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T12:12:31.682395",
-        "duration_ms": 89944,
-        "num_packets": 8822,
-        "description": "HT20 motion sample",
-        "environment": "living_room",
-        "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_120322_224513_0001.npz"
-      },
-      {
-        "filename": "motion_c3_64sc_dev0000acebe64ae708_20260704_123617_904895_0001.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T12:36:17.895166",
-        "duration_ms": 89936,
-        "num_packets": 8943,
-        "description": "HT20 motion sample",
-        "environment": "bedroom",
-        "device_id": "0x0000acebe64ae708",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_123300_815785_0001.npz"
-      },
-      {
-        "filename": "motion_c5_64sc_dev000030eda0e46278_20260704_142046_208982_0001.npz",
-        "chip": "C5",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T14:20:46.201304",
-        "duration_ms": 89936,
-        "num_packets": 8727,
-        "description": "HT20 motion sample",
-        "environment": "bedroom",
-        "device_id": "0x000030eda0e46278",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260704_141842_520560_0001.npz"
-      },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz",
         "chip": "C6",
@@ -347,32 +230,6 @@
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz"
-      },
-      {
-        "filename": "motion_c3_64sc_dev0000acebe64ae708_20260704_155947_468944_0001.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T15:59:47.459787",
-        "duration_ms": 89993,
-        "num_packets": 8860,
-        "description": "HT20 motion sample",
-        "environment": "hobby_room",
-        "device_id": "0x0000acebe64ae708",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_155658_712410_0001.npz"
-      },
-      {
-        "filename": "motion_c5_64sc_dev000030eda0e46278_20260704_185343_276594_0001.npz",
-        "chip": "C5",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T18:53:43.268320",
-        "duration_ms": 89942,
-        "num_packets": 8692,
-        "description": "HT20 motion sample",
-        "environment": "hobby_room",
-        "device_id": "0x000030eda0e46278",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260704_184649_979004_0001.npz"
       },
       {
         "filename": "motion_c3_64sc_dev0000acebe64ae708_20260704_190325_096036_0001.npz",
@@ -388,19 +245,6 @@
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_190103_229855_0001.npz"
       },
       {
-        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260704_194251_648972_0001.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T19:42:51.640700",
-        "duration_ms": 89951,
-        "num_packets": 8839,
-        "description": "HT20 motion sample",
-        "environment": "bedroom",
-        "device_id": "0x000010b41de8ec00",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260704_193850_592133_0001.npz"
-      },
-      {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260704_195515_808506_0001.npz",
         "chip": "C6",
         "subcarriers": 64,
@@ -414,17 +258,17 @@
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz"
       },
       {
-        "filename": "motion_c5_64sc_dev000030eda0e46278_20260704_201203_743575_0001.npz",
-        "chip": "C5",
+        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz",
+        "chip": "S3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-07-04T20:12:03.736889",
-        "duration_ms": 89991,
-        "num_packets": 8722,
+        "collected_at": "2026-07-11T20:04:03.153715",
+        "duration_ms": 89996,
+        "num_packets": 9000,
         "description": "HT20 motion sample",
-        "environment": "living_room",
-        "device_id": "0x000030eda0e46278",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260704_200911_606140_0001.npz"
+        "device_id": "0x000010b41de8ec00",
+        "environment": "bedroom",
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz"
       }
     ],
     "test": [
@@ -451,18 +295,6 @@
         "description": "quiet long-run",
         "environment": "bedroom",
         "device_id": "0x0000acebe64ae708"
-      },
-      {
-        "filename": "test_s3_64sc_dev000010b41de8ec00_20260704_151619_726071_0001.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T15:16:19.681273",
-        "duration_ms": 599944,
-        "num_packets": 59789,
-        "description": "HT20 test sample",
-        "environment": "living_room",
-        "device_id": "0x000010b41de8ec00"
       },
       {
         "filename": "test_c5_64sc_dev000030eda0e46278_20260704_151620_081075_0002.npz",
@@ -523,18 +355,6 @@
         "description": "HT20 test sample",
         "environment": "living_room",
         "device_id": "0x000030eda0e46278"
-      },
-      {
-        "filename": "test_c6_64sc_dev00007c2c6742bbac_20260708_162843_809530_0001.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-08T16:28:43.780454",
-        "duration_ms": 599993,
-        "num_packets": 59699,
-        "description": "HT20 test sample",
-        "environment": "bedroom",
-        "device_id": "0x00007c2c6742bbac"
       }
     ]
   },
