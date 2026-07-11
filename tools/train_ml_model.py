@@ -2448,7 +2448,7 @@ def resolve_cpp_feature_ids(feature_names):
 def export_cpp_weights(model, scaler, output_path, seed=None,
                        feature_names=None, scaler_mode=DEFAULT_SCALER_MODE):
     """
-    Export model weights to C++ header for ESPHome.
+    Export model weights to the shared C++ header.
     
     Generates ml_weights.h with constexpr weights.
     
@@ -2507,7 +2507,6 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
 
 #pragma once
 
-namespace esphome {{
 namespace espectre {{
 
 // Model metadata
@@ -2567,7 +2566,6 @@ constexpr uint8_t ML_FEATURE_IDS[{len(feature_ids)}] = {{{feature_ids_csv}}};
     )
     
     code += '''}  // namespace espectre
-}  // namespace esphome
 '''
     
     with open(output_path, 'w') as f:
