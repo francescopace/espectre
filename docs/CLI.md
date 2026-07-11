@@ -223,7 +223,7 @@ Examples:
 ## Related Documents
 
 - [`SETUP.md`](SETUP.md) for shared setup, frontend selection, and entry points
-- [`src/python/micro_espectre/README.md`](../src/python/micro_espectre/README.md)
+- [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md)
   for the MicroPython runtime workflow
 - frontend READMEs under `src/cpp/frontend/` for frontend-specific build, flash,
   provisioning, and protocol details

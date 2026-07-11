@@ -5,7 +5,7 @@ Keep it focused on collection, labels, and dataset format.
 
 Use:
 
-- [`src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md)
+- [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md)
   for streamer firmware setup, UDP protocol, Wi-Fi provisioning, and transport
   tuning
 - [`ML_TRAINING.md`](ML_TRAINING.md) for training, export, and validation
@@ -270,6 +270,6 @@ Before opening a PR:
 
 - [`ML_TRAINING.md`](ML_TRAINING.md) for model training, export, and regression
   checks
-- [`src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md)
+- [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md)
   for firmware-side streaming details
-- [`tools/README.md`](../tools/README.md) for analysis helpers
+- [`README.md` (tools)](../tools/README.md) for analysis helpers

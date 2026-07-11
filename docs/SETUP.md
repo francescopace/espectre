@@ -11,10 +11,10 @@ Use the `stable` channel for the latest official release, or `main` when you wan
 
 | Frontend | Best starting point | Frontend source of truth |
 |----------|---------------------|--------------------------|
-| `ESPHome` | [Web Flash](#web-flash-no-coding-required) for the quickest start, then the frontend README for YAML, Home Assistant, and local development | [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) |
-| `Native` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the native frontend README for local ESP-IDF workflow and [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) for the shared protocol surface over BLE | [`../src/cpp/frontend/native/README.md`](../src/cpp/frontend/native/README.md) |
-| `Matter` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the frontend README for commissioning and local ESP-IDF workflow | [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md) |
-| `Streamer` | Frontend README for the dedicated CSI stream workflow | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) |
+| `ESPHome` | [Web Flash](#web-flash-no-coding-required) for the quickest start, then the frontend README for YAML, Home Assistant, and local development | [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) |
+| `Native` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the native frontend README for local ESP-IDF workflow and [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) for the shared protocol surface over BLE | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
+| `Matter` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the frontend README for commissioning and local ESP-IDF workflow | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
+| `Streamer` | Frontend README for the dedicated CSI stream workflow | [`README.md`](../src/cpp/frontend/streamer/README.md) |
 
 ## Shared Prerequisites
 
@@ -178,11 +178,11 @@ notes that depend on the selected firmware surface.
 
 Use the frontend READMEs for complete prerequisites and chip-specific notes:
 
-- [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md)
-- [`../src/cpp/frontend/native/README.md`](../src/cpp/frontend/native/README.md)
-- [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md)
-- [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md)
-- [`../src/python/micro_espectre/README.md`](../src/python/micro_espectre/README.md)
+- [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md)
+- [`README.md` (native)](../src/cpp/frontend/native/README.md)
+- [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
+- [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md)
+- [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md)
 
 ## Web Flash (no coding required)
 
@@ -235,10 +235,10 @@ The next step depends on the frontend you chose:
 
 | Frontend | Continue here | What that README owns |
 |----------|---------------|-----------------------|
-| `ESPHome` | [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
-| `Native` | [`../src/cpp/frontend/native/README.md`](../src/cpp/frontend/native/README.md) | Build/flash workflow, Wi-Fi and MQTT setup, native control surface, and HTTPS OTA flow |
-| `Matter` | [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter surface, Matter-native OTA behavior, and local ESP-IDF workflow |
-| `Streamer` | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, Wi-Fi and minimal MQTT setup, and HTTPS OTA flow |
+| `ESPHome` | [`README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
+| `Native` | [`README.md`](../src/cpp/frontend/native/README.md) | Build/flash workflow, Wi-Fi and MQTT setup, native control surface, and HTTPS OTA flow |
+| `Matter` | [`README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter surface, Matter-native OTA behavior, and local ESP-IDF workflow |
+| `Streamer` | [`README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, Wi-Fi and minimal MQTT setup, and HTTPS OTA flow |
 
 ## Shared Runtime Concepts
 

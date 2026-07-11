@@ -62,6 +62,11 @@ ESPectre v3 success criteria:
 - [ ] Reduce long-recording false-positive caveats on C5/C6
 - [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
 
+### Deferred Follow-Ups
+
+- Evaluate LAN discovery for the streamer workflow via DNS-SD/mDNS so `./espectre collect` can browse reachable streamer nodes and optionally select a subset by `device_id`, while keeping explicit `--target` as the deterministic fallback and preserving CSI demultiplexing by `device_id`
+- Explore broader PHY and band support on the v3 platform, including HT40, Wi-Fi 6 / 802.11ax capabilities, and, where supported by hardware and exposed APIs, 5 GHz operation
+
 ---
 
 ## v4.x - Web Orchestration Layer
@@ -141,7 +146,7 @@ When a microcontroller or embedded Wi-Fi platform exposes practical 802.11bf-sty
 
 ## Roadmap Updates
 
-Last update: **July 3, 2026**
+Last update: **July 11, 2026**
 
 For discussion and proposed changes:
 

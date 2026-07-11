@@ -109,9 +109,9 @@ For testing without hardware or in unsupported browsers.
 
 The game is one example client built on the standalone ESPectre native frontend.
 
-The protocol source of truth lives in [`docs/ESPECTRE_PROTOCOL.md`](../../ESPECTRE_PROTOCOL.md).
+The protocol source of truth lives in [`ESPECTRE_PROTOCOL.md`](../../ESPECTRE_PROTOCOL.md).
 Native frontend workflow and firmware-specific notes live in
-[`src/cpp/frontend/native/README.md`](../../../src/cpp/frontend/native/README.md).
+[`README.md` (native)](../../../src/cpp/frontend/native/README.md).
 
 This game uses the native frontend over BLE in a straightforward way:
 
@@ -226,7 +226,7 @@ After connecting via BLE, the game displays a **System Info** panel showing the
 current ESPectre configuration and diagnostics exposed by the native frontend.
 
 For the exact field set and current semantics, see
-[`docs/ESPECTRE_PROTOCOL.md`](../../ESPECTRE_PROTOCOL.md).
+[`ESPECTRE_PROTOCOL.md`](../../ESPECTRE_PROTOCOL.md).
 
 ---
 
@@ -240,7 +240,7 @@ The game doubles as a fun way to tune your ESPectre system. The movement bar at 
 - Drag **right** → higher ESPectre threshold on device (less sensitive)
 
 Threshold drag sends the BLE runtime-threshold control defined in
-[`docs/ESPECTRE_PROTOCOL.md`](../../ESPECTRE_PROTOCOL.md) and updates the
+[`ESPECTRE_PROTOCOL.md`](../../ESPECTRE_PROTOCOL.md) and updates the
 ESPectre threshold for the active session.
 
 ### Runtime Controls via BLE

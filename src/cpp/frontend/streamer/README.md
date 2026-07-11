@@ -48,18 +48,18 @@ control plane.
 
 ## Directory Layout
 
-- [`espectre/stream_frontend.cpp`](espectre/stream_frontend.cpp),
-  [`espectre/stream_frontend.h`](espectre/stream_frontend.h):
+- [`stream_frontend.cpp`](espectre/stream_frontend.cpp),
+  [`stream_frontend.h`](espectre/stream_frontend.h):
   thin frontend adapter over `RuntimeFrontendController`
-- [`../../runtime/csi_stream_protocol.h`](../../runtime/csi_stream_protocol.h):
+- [`csi_stream_protocol.h`](../../runtime/csi_stream_protocol.h):
   UDP stream header and flags
-- [`../../runtime/esp_idf/stream_esp_idf_runtime.cpp`](../../runtime/esp_idf/stream_esp_idf_runtime.cpp),
-  [`../../runtime/esp_idf/stream_esp_idf_runtime.h`](../../runtime/esp_idf/stream_esp_idf_runtime.h):
+- [`stream_esp_idf_runtime.cpp`](../../runtime/esp_idf/stream_esp_idf_runtime.cpp),
+  [`stream_esp_idf_runtime.h`](../../runtime/esp_idf/stream_esp_idf_runtime.h):
   streamer-specific runtime backend
-- [`../../runtime/esp_idf/csi_stream_transport.cpp`](../../runtime/esp_idf/csi_stream_transport.cpp),
-  [`../../runtime/esp_idf/csi_stream_transport.h`](../../runtime/esp_idf/csi_stream_transport.h):
+- [`csi_stream_transport.cpp`](../../runtime/esp_idf/csi_stream_transport.cpp),
+  [`csi_stream_transport.h`](../../runtime/esp_idf/csi_stream_transport.h):
   pacing-driven CSI stream transport and telemetry
-- [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbuild):
+- [`Kconfig.projbuild`](espectre/Kconfig.projbuild):
   frontend-specific configuration surface
 - [`app/`](app/):
   standalone ESP-IDF firmware app
@@ -74,11 +74,11 @@ The streamer frontend uses these states:
 - `STREAMING`
 
 This state machine is implemented in
-[`../../runtime/esp_idf/stream_esp_idf_runtime.h`](../../runtime/esp_idf/stream_esp_idf_runtime.h).
+[`stream_esp_idf_runtime.h`](../../runtime/esp_idf/stream_esp_idf_runtime.h).
 
 ## UDP Stream Protocol
 
-Protocol constants live in [`../../runtime/csi_stream_protocol.h`](../../runtime/csi_stream_protocol.h).
+Protocol constants live in [`csi_stream_protocol.h`](../../runtime/csi_stream_protocol.h).
 
 ### UDP Pacing Packet
 
@@ -142,12 +142,12 @@ Payload:
 
 ## Frontend Configuration
 
-Frontend-specific options are declared in [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbuild).
+Frontend-specific options are declared in [`Kconfig.projbuild`](espectre/Kconfig.projbuild).
 
-Versioned defaults live in [`app/sdkconfig.defaults`](app/sdkconfig.defaults).
+Versioned defaults live in [`sdkconfig.defaults`](app/sdkconfig.defaults).
 Chip-specific overrides may also live in `app/sdkconfig.defaults.<idf_target>`;
 the streamer currently ships an `ESP32` profile in
-[`app/sdkconfig.defaults.esp32`](app/sdkconfig.defaults.esp32).
+[`sdkconfig.defaults.esp32`](app/sdkconfig.defaults.esp32).
 Local Wi-Fi credentials should live in `app/sdkconfig.wifi`, which is gitignored.
 The streamer reads Wi-Fi credentials from the active `sdkconfig` surface, so
 `app/sdkconfig.wifi` is the recommended machine-local override file.

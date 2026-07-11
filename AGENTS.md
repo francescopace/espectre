@@ -123,6 +123,7 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 - Use ADRs under `docs/adr/` for durable architectural or project-level decisions, including historically important rejected directions. Keep ADRs concise, one decision or coherent decision thread per file, and prefer links to related ADRs or changelog snapshots over mutable narrative docs.
 - Entry-point docs may include product/subproject branding in the title when established style supports it.
 - Other docs should use simple descriptive titles.
+- For internal Markdown links that point to files, use only the filename as the link text rather than the full relative path.
 - Emoji should be rare and purposeful, not ornamental.
 - Update `docs/CHANGELOG.md` only in the latest active section; do not rewrite historical release entries except to fix factual errors the user explicitly asked to correct.
 

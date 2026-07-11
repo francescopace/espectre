@@ -5,7 +5,7 @@ Keep it as a present-state guide: code layout, layer boundaries, and runtime
 surfaces that exist in the repository today.
 
 For the decision history behind this structure, use the ADR index in
-[`docs/adr/README.md`](adr/README.md), especially:
+[`README.md` (ADR)](adr/README.md), especially:
 
 - [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](adr/2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
 - [`2025-12-06-adopt-a-dual-platform-development-model.md`](adr/2025-12-06-adopt-a-dual-platform-development-model.md)
@@ -102,7 +102,7 @@ integration belong here, not in `core`.
 YAML/config-codegen, and external-component packaging.
 
 Source of truth for ESPHome workflow:
-[`src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md)
+[`README.md` (esphome)](../src/cpp/frontend/esphome/README.md)
 
 ### Native
 
@@ -112,7 +112,7 @@ configuration, and OTA-related control flows.
 
 Sources of truth:
 
-- [`src/cpp/frontend/native/README.md`](../src/cpp/frontend/native/README.md)
+- [`README.md` (native)](../src/cpp/frontend/native/README.md)
 - [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md)
 
 ### Matter
@@ -122,7 +122,7 @@ surface without pulling Matter-specific concerns into the shared detector or
 runtime layers.
 
 Source of truth:
-[`src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md)
+[`README.md` (matter)](../src/cpp/frontend/matter/README.md)
 
 ### Streamer
 
@@ -132,7 +132,7 @@ selects `StreamEspIdfRuntime` so the raw CSI transport path can stay focused and
 detector-free.
 
 Source of truth:
-[`src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md)
+[`README.md`](../src/cpp/frontend/streamer/README.md)
 
 ## Runtime Contract
 

@@ -18,19 +18,19 @@ The Matter frontend is responsible for:
 
 ## Directory Layout
 
-- [`espectre/matter_frontend.cpp`](espectre/matter_frontend.cpp),
-  [`espectre/matter_frontend.h`](espectre/matter_frontend.h):
+- [`matter_frontend.cpp`](espectre/matter_frontend.cpp),
+  [`matter_frontend.h`](espectre/matter_frontend.h):
   frontend adapter over the shared runtime frontend controller
-- [`espectre/matter_surface.h`](espectre/matter_surface.h):
+- [`matter_surface.h`](espectre/matter_surface.h):
   cluster and attribute IDs plus Matter mapping helpers
-- [`espectre/matter_bindings.h`](espectre/matter_bindings.h):
+- [`matter_bindings.h`](espectre/matter_bindings.h):
   boundary between the adapter and the Matter transport layer
 - [`app/`](app/):
   standalone ESP-IDF firmware app
-- [`app/main/app_main.cpp`](app/main/app_main.cpp):
+- [`app_main.cpp`](app/main/app_main.cpp):
   Matter node setup, endpoint creation, commissioning window behavior, and
   startup order
-- [`app/main/idf_component.yml`](app/main/idf_component.yml):
+- [`idf_component.yml`](app/main/idf_component.yml):
   `esp_matter` dependency declaration
 
 ## Getting Started
@@ -40,7 +40,7 @@ for the Matter workflow after flashing or when building locally.
 
 ### Browser-Flashed Firmware
 
-Start from [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md) for the
+Start from [`SETUP.md`](../../../../docs/SETUP.md) for the
 shared browser-flash entry point and supported image flow.
 
 After flashing a Matter image:
@@ -107,7 +107,7 @@ The Matter frontend keeps ownership boundaries explicit:
 - after commissioning, the reused runtime layers CSI Wi-Fi policy and capture
   setup on top of the initialized station stack
 
-That ordering is visible in [`app/main/app_main.cpp`](app/main/app_main.cpp).
+That ordering is visible in [`app_main.cpp`](app/main/app_main.cpp).
 
 Matter OTA follows the same ownership rule: OTA stays in the Matter frontend
 and app layer instead of reusing the shared MQTT-triggered HTTPS OTA service
@@ -150,7 +150,7 @@ The current frontend exposes:
 | Startup threshold | Vendor cluster `0xFFF1FC01`, attribute `0x0004` | nullable float | read-only |
 | Manual recalibration trigger | Vendor cluster `0xFFF1FC01`, attribute `0x0006` | boolean | writable trigger |
 
-Relevant constants live in [`espectre/matter_surface.h`](espectre/matter_surface.h).
+Relevant constants live in [`matter_surface.h`](espectre/matter_surface.h).
 
 ## What You Can Configure Today
 
@@ -164,7 +164,7 @@ What is not currently exposed as a Matter configuration surface:
 - full detector parameter parity with the ESPHome YAML surface
 - an end-user Matter-native workflow for every runtime knob
 - a separate frontend-owned tuning guide beyond the shared
-  [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md)
+  [`TUNING.md`](../../../../docs/TUNING.md)
 
 In practice, this frontend is best understood as:
 
@@ -196,8 +196,8 @@ Validation notes:
 - declared external dependency: `espressif/esp_matter`
 - Matter device type: occupancy sensor (`0x0107`)
 - development VID/PID: `0xFFF1` / `0x8000`
-- partition layout: [`app/partitions.csv`](app/partitions.csv)
-- defaults: [`app/sdkconfig.defaults`](app/sdkconfig.defaults)
+- partition layout: [`partitions.csv`](app/partitions.csv)
+- defaults: [`sdkconfig.defaults`](app/sdkconfig.defaults)
 
 No manual `esp_matter` clone is required.
 

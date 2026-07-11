@@ -18,22 +18,22 @@ The ESPHome frontend is responsible for:
 
 ## Directory Layout
 
-- [`espectre/__init__.py`](espectre/__init__.py):
+- [`__init__.py`](espectre/__init__.py):
   YAML schema, validation, codegen, shared local PlatformIO library registration, and ESPHome build flags
-- [`espectre/espectre.cpp`](espectre/espectre.cpp),
-  [`espectre/espectre.h`](espectre/espectre.h):
+- [`espectre.cpp`](espectre/espectre.cpp),
+  [`espectre.h`](espectre/espectre.h):
   ESPHome adapter over the shared runtime frontend controller
-- [`espectre/sensor_publisher.cpp`](espectre/sensor_publisher.cpp):
+- [`sensor_publisher.cpp`](espectre/sensor_publisher.cpp):
   movement and motion publishing
-- [`espectre/threshold_number.cpp`](espectre/threshold_number.cpp):
+- [`threshold_number.cpp`](espectre/threshold_number.cpp):
   runtime threshold control
-- [`espectre/calibrate_switch.cpp`](espectre/calibrate_switch.cpp):
+- [`calibrate_switch.cpp`](espectre/calibrate_switch.cpp):
   runtime recalibration trigger
 
 ## Getting Started
 
 If you want the browser-flash path, start from
-[`../../../../docs/SETUP.md`](../../../../docs/SETUP.md) and come back here
+[`SETUP.md`](../../../../docs/SETUP.md) and come back here
 after flashing `ESPHome`.
 
 After flashing, configure Wi-Fi with one of these provisioning paths:
@@ -63,10 +63,10 @@ is declared.
 
 ## Configuration Surface
 
-The ESPHome YAML schema is defined in [`espectre/__init__.py`](espectre/__init__.py).
+The ESPHome YAML schema is defined in [`__init__.py`](espectre/__init__.py).
 This README is the source of truth for ESPHome-specific syntax and entity
-mapping. Use [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md) for the
-shared configuration overview and [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md)
+mapping. Use [`SETUP.md`](../../../../docs/SETUP.md) for the
+shared configuration overview and [`TUNING.md`](../../../../docs/TUNING.md)
 for the "when and why" of tuning.
 
 ### Core Parameters
@@ -204,8 +204,8 @@ Examples live in:
 
 | File | Description |
 |------|-------------|
-| [`../../../../examples/home-assistant-dashboard.yaml`](../../../../examples/home-assistant-dashboard.yaml) | Production dashboard with motion entities |
-| [`../../../../examples/home-assistant-dashboard-dev.yaml`](../../../../examples/home-assistant-dashboard-dev.yaml) | Development dashboard with debug entities |
+| [`home-assistant-dashboard.yaml`](../../../../examples/home-assistant-dashboard.yaml) | Production dashboard with motion entities |
+| [`home-assistant-dashboard-dev.yaml`](../../../../examples/home-assistant-dashboard-dev.yaml) | Development dashboard with debug entities |
 
 To import a dashboard:
 
@@ -252,11 +252,11 @@ espectre:
 ```
 
 In that mode the runtime opens a UDP listener on port `5555`. Use
-[`../../../../examples/espectre_traffic_generator.py`](../../../../examples/espectre_traffic_generator.py)
+[`espectre_traffic_generator.py`](../../../../examples/espectre_traffic_generator.py)
 to drive one or more devices from the network.
 
 For rate recommendations, airtime tradeoffs, and placement guidance, see
-[`../../../../docs/TUNING.md`](../../../../docs/TUNING.md).
+[`TUNING.md`](../../../../docs/TUNING.md).
 
 ## Startup Calibration
 
@@ -428,8 +428,8 @@ esphome logs <your-config>.yaml --device espectre.local
 
 ## Packaging Notes
 
-[`espectre/__init__.py`](espectre/__init__.py) registers the local
-[`../../library.json`](../../library.json) package so PlatformIO builds the
+[`__init__.py`](espectre/__init__.py) registers the local
+[`library.json`](../../library.json) package so PlatformIO builds the
 canonical shared sources directly from `src/cpp/core/` and
 `src/cpp/runtime/esp_idf/`. This keeps ESPHome packaging aligned with the main
 repository layout across platforms.

@@ -8,7 +8,7 @@ mobile apps, smart-device integrations, and other custom tooling.
 
 This file is the source of truth for the native frontend firmware workflow and
 BLE-specific operational notes. The shared protocol surface is documented in
-[`docs/ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
+[`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
 ## Scope
 
@@ -44,7 +44,7 @@ BLE protocol mapping.
 
 ## Getting Started
 
-If you arrived here from [`docs/SETUP.md`](../../../../docs/SETUP.md),
+If you arrived here from [`SETUP.md`](../../../../docs/SETUP.md),
 this README is the next step for the standalone native firmware path.
 
 ### Browser-Flashed Firmware
@@ -52,9 +52,9 @@ this README is the next step for the standalone native firmware path.
 The web flasher can install published `Native` images for supported chips. After
 flashing, use a BLE client that understands this protocol, such as:
 
-- [`tools/web/espectre-ble.html`](../../../../tools/web/espectre-ble.html):
+- [`espectre-ble.html`](../../../../tools/web/espectre-ble.html):
   local Web Bluetooth provisioning and protocol test client
-- [`docs/web/game/README.md`](../../../../docs/web/game/README.md):
+- [`README.md`](../../../../docs/web/game/README.md):
   example interactive client built on the same BLE surface
 
 ### Local ESP-IDF Workflow
@@ -85,7 +85,7 @@ or `./espectre doctor` to inspect the detected environment.
 
 ### Local Web Bluetooth Test Client
 
-[`tools/web/espectre-ble.html`](../../../../tools/web/espectre-ble.html)
+[`espectre-ble.html`](../../../../tools/web/espectre-ble.html)
 is the reference browser client for local BLE validation, provisioning, and
 live diagnostics.
 
@@ -138,7 +138,7 @@ When telemetry notifications are disabled by the client, the standalone native
 frontend keeps `sysinfo` and control commands active but deregisters the live
 telemetry callback so BLE-only live telemetry is no longer produced in the
 background. The shared protocol semantics remain documented in
-[`docs/ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
+[`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
 The standalone native frontend uses the same shared periodic progress-bar sensing
 status log helper used by the ESPHome and Matter frontends, so the serial log
@@ -150,9 +150,9 @@ Unlike the ESPHome frontend, the standalone native firmware does not rely on YAM
 or Home Assistant for setup. In the current local-lab profile, Wi-Fi can be
 provisioned live over BLE and persisted in NVS.
 
-Frontend-owned options in [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbuild)
+Frontend-owned options in [`Kconfig.projbuild`](espectre/Kconfig.projbuild)
 remain useful as firmware defaults for reproducible images or first boot.
-Versioned transport defaults in [`app/sdkconfig.defaults`](app/sdkconfig.defaults)
+Versioned transport defaults in [`sdkconfig.defaults`](app/sdkconfig.defaults)
 also tune the standalone native firmware for mixed BLE + Wi-Fi traffic, including
 larger Wi-Fi RX/TX buffers plus lwIP mailbox and IRAM optimizations inherited
 from the standalone streamer profile.
@@ -189,7 +189,7 @@ comparable to ESPHome.
 
 The shared BLE protocol surface is documented in:
 
-- [`../../../../docs/ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md)
+- [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md)
 
 Use that file as the source of truth for:
 
@@ -201,11 +201,11 @@ Use that file as the source of truth for:
 
 Local implementation anchors:
 
-- [`../../runtime/ble_protocol.h`](../../runtime/ble_protocol.h):
+- [`ble_protocol.h`](../../runtime/ble_protocol.h):
   protocol constants such as UUIDs and default device name
-- [`espectre/native_frontend.cpp`](espectre/native_frontend.cpp):
+- [`native_frontend.cpp`](espectre/native_frontend.cpp):
   command handling, sysinfo emission, and telemetry serialization
-- [`../../runtime/espectre_protocol.cpp`](../../runtime/espectre_protocol.cpp):
+- [`espectre_protocol.cpp`](../../runtime/espectre_protocol.cpp):
   shared MQTT topic, payload, and command serialization
 
 ## OTA

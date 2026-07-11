@@ -166,7 +166,7 @@ Use ESPectre only in spaces where you have the right to deploy it, inform affect
 | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md) | Dataset collection workflow for contributors |
 | [ML_TRAINING.md](docs/ML_TRAINING.md) | Training, validation, and model export workflow |
 | [ROADMAP.md](docs/ROADMAP.md) | Release direction from v3 platform work to v4 web orchestration |
-| [docs/adr/README.md](docs/adr/README.md) | ADR index, conventions, and historical project decisions |
+| [README.md (ADR)](docs/adr/README.md) | ADR index, conventions, and historical project decisions |
 | [CHANGELOG.md](docs/CHANGELOG.md) | Release notes and version history |
 
 Frontend-specific docs:

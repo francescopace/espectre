@@ -101,5 +101,5 @@ When adding a notebook:
 
 - [ALGORITHMS.md](../docs/ALGORITHMS.md) — Algorithm documentation (Classic, historical baselines, fixed subcarriers, ML features)
 - [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md) — How to collect labeled CSI datasets
-- [tools/README.md](../tools/README.md) — Analysis scripts for advanced workflows
-- [tools/10_train_ml_model.py](../tools/10_train_ml_model.py) — Production ML training script
+- [README.md (tools)](../tools/README.md) — Analysis scripts for advanced workflows
+- [10_train_ml_model.py](../tools/10_train_ml_model.py) — Production ML training script
