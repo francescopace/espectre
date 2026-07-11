@@ -14,7 +14,7 @@ offline research.
 | # | Notebook | Description |
 |---|----------|-------------|
 | 01 | [CSI Data Explorer](01_csi_data_explorer.ipynb) | Load, visualize, and understand raw CSI data. Covers amplitude heatmaps, spatial turbulence, the historical moving-variance baseline, fixed-subcarrier analysis, and cross-chip comparison. |
-| 02 | [Feature Extraction & ML](02_feature_extraction_and_ml.ipynb) | Walk through the current 8-feature production pipeline, visualize feature distributions, and run the MLP neural network inference. Includes confusion matrix, ROC analysis, and comparison to baseline classifier. |
+| 02 | [Feature Extraction & ML](02_feature_extraction_and_ml.ipynb) | Walk through the current 6-feature production pipeline, visualize feature distributions, and run the MLP neural network inference. Includes confusion matrix, ROC analysis, and comparison to baseline classifier. |
 
 ## Setup
 
