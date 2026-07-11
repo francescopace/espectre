@@ -435,7 +435,7 @@ def main():
     )
     if not pairs:
         print("ERROR: no explicit dataset_info.json pairs matched the selected filters.")
-        print("Run tools/3_refresh_dataset_metadata.py --write if pair metadata is stale.")
+        print("Run tools/refresh_dataset_metadata.py --write if pair metadata is stale.")
         return
 
     if args.plot and len(pairs) != 1:

@@ -252,7 +252,7 @@ espectre:
 ```
 
 In that mode the runtime opens a UDP listener on port `5555`. Use
-[`espectre_traffic_generator.py`](../../../../examples/espectre_traffic_generator.py)
+[`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py)
 to drive one or more devices from the network.
 
 For rate recommendations, airtime tradeoffs, and placement guidance, see

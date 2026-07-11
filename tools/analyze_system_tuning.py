@@ -6,9 +6,9 @@ subcarrier set. This tool tunes parameters on the fixed production band; it
 does not search subcarrier combinations.
 
 Usage:
-    python tools/2_analyze_system_tuning.py              # Use default C6 dataset
-    python tools/2_analyze_system_tuning.py --chip S3    # Use S3 dataset
-    python tools/2_analyze_system_tuning.py --quick      # Quick mode (fewer tests)
+    python tools/analyze_system_tuning.py              # Use default C6 dataset
+    python tools/analyze_system_tuning.py --chip S3    # Use S3 dataset
+    python tools/analyze_system_tuning.py --quick      # Quick mode (fewer tests)
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

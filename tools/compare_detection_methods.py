@@ -4,9 +4,9 @@ Detection Methods Comparison
 Compares RSSI, Classic, and ML algorithms
 
 Usage:
-    python tools/7_compare_detection_methods.py              # Use C6 dataset
-    python tools/7_compare_detection_methods.py --chip S3    # Use S3 dataset
-    python tools/7_compare_detection_methods.py --plot       # Show visualization
+    python tools/compare_detection_methods.py              # Use C6 dataset
+    python tools/compare_detection_methods.py --chip S3    # Use S3 dataset
+    python tools/compare_detection_methods.py --plot       # Show visualization
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

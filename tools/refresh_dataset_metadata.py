@@ -12,10 +12,10 @@ production detector it evaluates (`classic`, or `ml` when relevant) on the
 quiet capture it needs, using the shared helpers in `tools/lib`.
 
 Usage:
-    python tools/3_refresh_dataset_metadata.py                  # Dry run
-    python tools/3_refresh_dataset_metadata.py --write          # Update dataset_info.json
-    python tools/3_refresh_dataset_metadata.py --write --force  # Rewrite even if unchanged
-    python tools/3_refresh_dataset_metadata.py --check          # Fail if stale
+    python tools/refresh_dataset_metadata.py                  # Dry run
+    python tools/refresh_dataset_metadata.py --write          # Update dataset_info.json
+    python tools/refresh_dataset_metadata.py --write --force  # Rewrite even if unchanged
+    python tools/refresh_dataset_metadata.py --check          # Fail if stale
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

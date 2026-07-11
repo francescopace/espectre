@@ -32,7 +32,7 @@ For data collection and ML datasets, see [ML_DATA_COLLECTION.md](../docs/ML_DATA
 
 ## Analysis Scripts
 
-### 1. Raw Data Analysis (`1_analyze_raw_data.py`)
+### 1. Raw Data Analysis (`analyze_raw_data.py`)
 
 **Purpose**: Analyze data quality and verify dataset integrity
 
@@ -43,14 +43,14 @@ For data collection and ML datasets, see [ML_DATA_COLLECTION.md](../docs/ML_DATA
 - Supports per-chip detailed mode on the most recent dataset for that chip
 
 ```bash
-python 1_analyze_raw_data.py           # Historical table from dataset_info.json
-python 1_analyze_raw_data.py --chip C6 # Detailed analysis on latest C6 dataset
-python 1_analyze_raw_data.py --chip C3 # Detailed analysis on latest C3 dataset
+python analyze_raw_data.py           # Historical table from dataset_info.json
+python analyze_raw_data.py --chip C6 # Detailed analysis on latest C6 dataset
+python analyze_raw_data.py --chip C3 # Detailed analysis on latest C3 dataset
 ```
 
 ---
 
-### 2. System Tuning (`2_analyze_system_tuning.py`)
+### 2. System Tuning (`analyze_system_tuning.py`)
 
 **Purpose**: Grid search for optimal Classic detector parameters on the fixed production band
 
@@ -60,14 +60,14 @@ python 1_analyze_raw_data.py --chip C3 # Detailed analysis on latest C3 dataset
 - Finds optimal parameter combinations
 
 ```bash
-python 2_analyze_system_tuning.py              # Full grid search (default: C6)
-python 2_analyze_system_tuning.py --chip S3    # Use S3 dataset
-python 2_analyze_system_tuning.py --quick      # Reduced parameter space
+python analyze_system_tuning.py              # Full grid search (default: C6)
+python analyze_system_tuning.py --chip S3    # Use S3 dataset
+python analyze_system_tuning.py --quick      # Reduced parameter space
 ```
 
 ---
 
-### 3. Dataset Metadata Refresh (`3_refresh_dataset_metadata.py`)
+### 3. Dataset Metadata Refresh (`refresh_dataset_metadata.py`)
 
 **Purpose**: Refresh derived fields in `data/dataset_info.json`
 
@@ -75,14 +75,14 @@ python 2_analyze_system_tuning.py --quick      # Reduced parameter space
 - Runs as a dry run by default, supports `--write` to update metadata, and supports `--check` for validation
 
 ```bash
-python 3_refresh_dataset_metadata.py          # Dry run
-python 3_refresh_dataset_metadata.py --write  # Update dataset_info.json
-python 3_refresh_dataset_metadata.py --check  # Fail if metadata is stale
+python refresh_dataset_metadata.py          # Dry run
+python refresh_dataset_metadata.py --write  # Update dataset_info.json
+python refresh_dataset_metadata.py --check  # Fail if metadata is stale
 ```
 
 ---
 
-### 4. Filter Location Analysis (`4_analyze_filter_location.py`)
+### 4. Filter Location Analysis (`analyze_filter_location.py`)
 
 **Purpose**: Compare filter placement in processing pipeline
 
@@ -91,14 +91,14 @@ python 3_refresh_dataset_metadata.py --check  # Fail if metadata is stale
 - Determines optimal filter location
 
 ```bash
-python 4_analyze_filter_location.py              # Use C6 dataset
-python 4_analyze_filter_location.py --chip S3    # Use S3 dataset
-python 4_analyze_filter_location.py --plot       # Show visualizations
+python analyze_filter_location.py              # Use C6 dataset
+python analyze_filter_location.py --chip S3    # Use S3 dataset
+python analyze_filter_location.py --plot       # Show visualizations
 ```
 
 ---
 
-### 5. Filter Turbulence Analysis (`5_analyze_filter_turbulence.py`)
+### 5. Filter Turbulence Analysis (`analyze_filter_turbulence.py`)
 
 **Purpose**: Run the production-aligned paired variance-baseline sweep and compare candidate detector variants
 
@@ -112,16 +112,16 @@ python 4_analyze_filter_location.py --plot       # Show visualizations
 **Current lesson**: the plain production baseline remains the safest global default. Online threshold tracking is chip-dependent, and per-subcarrier EMA normalization is still experimental.
 
 ```bash
-python 5_analyze_filter_turbulence.py
-python 5_analyze_filter_turbulence.py --variant baseline_tracking
-python 5_analyze_filter_turbulence.py --chip S3 --variant baseline_tracking
-python 5_analyze_filter_turbulence.py --compare-filters --filter-profile all
-python 5_analyze_filter_turbulence.py --dataset-id <pair_id> --plot
+python analyze_filter_turbulence.py
+python analyze_filter_turbulence.py --variant baseline_tracking
+python analyze_filter_turbulence.py --chip S3 --variant baseline_tracking
+python analyze_filter_turbulence.py --compare-filters --filter-profile all
+python analyze_filter_turbulence.py --dataset-id <pair_id> --plot
 ```
 
 ---
 
-### 6. Filter Parameters Optimization (`6_optimize_filter_params.py`)
+### 6. Filter Parameters Optimization (`optimize_filter_params.py`)
 
 **Purpose**: Run paired filter-parameter sweeps on top of the same production-aligned variance evaluator
 
@@ -132,16 +132,16 @@ python 5_analyze_filter_turbulence.py --dataset-id <pair_id> --plot
 - `--all` runs low-pass first, then a Hampel sweep using the best low-pass setting found in that run
 
 ```bash
-python 6_optimize_filter_params.py
-python 6_optimize_filter_params.py c6
-python 6_optimize_filter_params.py --hampel
-python 6_optimize_filter_params.py c6 --hampel
-python 6_optimize_filter_params.py --all
+python optimize_filter_params.py
+python optimize_filter_params.py c6
+python optimize_filter_params.py --hampel
+python optimize_filter_params.py c6 --hampel
+python optimize_filter_params.py --all
 ```
 
 ---
 
-### 7. Detection Methods Comparison (`7_compare_detection_methods.py`)
+### 7. Detection Methods Comparison (`compare_detection_methods.py`)
 
 **Purpose**: Compare different motion detection algorithms
 
@@ -150,16 +150,16 @@ python 6_optimize_filter_params.py --all
 - Shows separation between static presence and motion
 
 ```bash
-python 7_compare_detection_methods.py              # Use C6 dataset
-python 7_compare_detection_methods.py --chip S3    # Use S3 dataset
-python 7_compare_detection_methods.py --plot       # Show per-method comparison
+python compare_detection_methods.py              # Use C6 dataset
+python compare_detection_methods.py --chip S3    # Use S3 dataset
+python compare_detection_methods.py --plot       # Show per-method comparison
 ```
 
 ![Detection Methods Comparison](../docs/images/detection_method_comparison.png)
 
 ---
 
-### 8. I/Q Constellation Plotter (`8_plot_constellation.py`)
+### 8. I/Q Constellation Plotter (`plot_constellation.py`)
 
 **Purpose**: Visualize I/Q constellation diagrams
 
@@ -168,16 +168,16 @@ python 7_compare_detection_methods.py --plot       # Show per-method comparison
 - Reveals geometric signal characteristics
 
 ```bash
-python 8_plot_constellation.py              # Use C6 dataset
-python 8_plot_constellation.py --chip S3    # Use S3 dataset
-python 8_plot_constellation.py --packets 1000
-python 8_plot_constellation.py --packets 200 --offset 50  # Start from packet 50
-python 8_plot_constellation.py --grid       # One subplot per subcarrier
+python plot_constellation.py              # Use C6 dataset
+python plot_constellation.py --chip S3    # Use S3 dataset
+python plot_constellation.py --packets 1000
+python plot_constellation.py --packets 200 --offset 50  # Start from packet 50
+python plot_constellation.py --grid       # One subplot per subcarrier
 ```
 
 ---
 
-### 9. ESP32 Variant Comparison (`9_compare_chips.py`)
+### 9. ESP32 Variant Comparison (`compare_chips.py`)
 
 **Purpose**: Compare CSI characteristics between ESP32 variants
 
@@ -186,13 +186,13 @@ python 8_plot_constellation.py --grid       # One subplot per subcarrier
 - Helps choose optimal hardware for specific environments
 
 ```bash
-python 9_compare_chips.py
-python 9_compare_chips.py --plot
+python compare_chips.py
+python compare_chips.py --plot
 ```
 
 ---
 
-### 10. ML Model Training (`10_train_ml_model.py`)
+### 10. ML Model Training (`train_ml_model.py`)
 
 **Purpose**: Train, evaluate, and export the production ML model
 
@@ -215,23 +215,23 @@ The main repository workflow and this training stack target Python `3.14`.
   - `src/cpp/core/ml_weights.h`
 
 ```bash
-python 10_train_ml_model.py                # Train with default settings
-python 10_train_ml_model.py --info         # Show dataset and split info
-python 10_train_ml_model.py --experiment   # Run the FP-first MLP topology campaign
-python 10_train_ml_model.py --experiment --experiment-promote  # Promote the winner if it beats the baseline
-python 10_train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"  # Custom shortlist
-python 10_train_ml_model.py --fp-weight 2.0  # Penalize false positives 2x
-python 10_train_ml_model.py --scaler clipped_standard  # Robust clipping + z-score
-python 10_train_ml_model.py --batch-size 32  # Smaller-batch comparison
-python 10_train_ml_model.py --device cuda    # Force CUDA when available
-python 10_train_ml_model.py --device mps     # Force Apple GPU when available
-python 10_train_ml_model.py --no-cache       # Rebuild cached training matrix
-python 10_train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
-python 10_train_ml_model.py --seed-search-until-improvement 20  # Stop at first better seed
-python 10_train_ml_model.py --gain-stress-gate  # Stress exported model with artificial feature gain shifts
-python 10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25  # Custom stress multipliers
-python 10_train_ml_model.py --shap         # SHAP importance (200 samples)
-python 10_train_ml_model.py --shap 500     # SHAP importance (500 samples)
+python train_ml_model.py                # Train with default settings
+python train_ml_model.py --info         # Show dataset and split info
+python train_ml_model.py --experiment   # Run the FP-first MLP topology campaign
+python train_ml_model.py --experiment --experiment-promote  # Promote the winner if it beats the baseline
+python train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"  # Custom shortlist
+python train_ml_model.py --fp-weight 2.0  # Penalize false positives 2x
+python train_ml_model.py --scaler clipped_standard  # Robust clipping + z-score
+python train_ml_model.py --batch-size 32  # Smaller-batch comparison
+python train_ml_model.py --device cuda    # Force CUDA when available
+python train_ml_model.py --device mps     # Force Apple GPU when available
+python train_ml_model.py --no-cache       # Rebuild cached training matrix
+python train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
+python train_ml_model.py --seed-search-until-improvement 20  # Stop at first better seed
+python train_ml_model.py --gain-stress-gate  # Stress exported model with artificial feature gain shifts
+python train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25  # Custom stress multipliers
+python train_ml_model.py --shap         # SHAP importance (200 samples)
+python train_ml_model.py --shap 500     # SHAP importance (500 samples)
 ```
 
 For the complete ML training workflow, promotion guidance, gain-stress
@@ -239,7 +239,7 @@ diagnostics, and post-training regressions, see
 [ML_TRAINING.md](../docs/ML_TRAINING.md). For dataset preparation and labeling,
 see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md).
 
-### 11. Dataset Quality Validation (`11_validate_dataset_quality.py`)
+### 11. Dataset Quality Validation (`validate_dataset_quality.py`)
 
 Validates CSI datasets for integrity, signal quality, and ML readiness. It now checks per-file integrity for `empty`, `static_presence`, and `motion`, keeps pair validation focused on `static_presence`/`motion`, includes an `EMPTY SANITY` phase that measures how well `empty` separates from overlapping `static_presence` groups, and replays the production `ClassicDetector` startup calibration for each validated pair.
 
@@ -254,10 +254,10 @@ file. ML uses the same normalized base turbulence and exports the production
 Core-6 neural-detector features.
 
 ```bash
-python 11_validate_dataset_quality.py              # Full validation
-python 11_validate_dataset_quality.py --chip C6    # Validate C6 only
-python 11_validate_dataset_quality.py --report     # Generate markdown report
-python 11_validate_dataset_quality.py --strict     # Fail on warnings too
+python validate_dataset_quality.py              # Full validation
+python validate_dataset_quality.py --chip C6    # Validate C6 only
+python validate_dataset_quality.py --report     # Generate markdown report
+python validate_dataset_quality.py --strict     # Fail on warnings too
 ```
 
 ---
@@ -279,13 +279,13 @@ cd tools
 # see ../docs/ML_DATA_COLLECTION.md for details
 
 # 1. Analyze raw data
-python 1_analyze_raw_data.py
+python analyze_raw_data.py
 
 # 2. Optimize parameters
-python 2_analyze_system_tuning.py --quick
+python analyze_system_tuning.py --quick
 
 # 3. Compare filter placement
-python 4_analyze_filter_location.py --plot
+python analyze_filter_location.py --plot
 
 # 4. Run unit tests
 cd ..
@@ -296,13 +296,13 @@ pytest test/python -v
 
 ```bash
 # Compare detection methods
-python 7_compare_detection_methods.py --plot
+python compare_detection_methods.py --plot
 
 # Plot I/Q constellations (auto-finds most recent dataset)
-python 8_plot_constellation.py --chip S3 --packets 1000 --grid
+python plot_constellation.py --chip S3 --packets 1000 --grid
 
 # Compare ESP32 variants (auto-finds most recent datasets for available chips)
-python 9_compare_chips.py --plot
+python compare_chips.py --plot
 ```
 
 ---

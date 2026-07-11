@@ -1,5 +1,5 @@
 """
-Tests for the minimal Core-6 training helpers in `tools/10_train_ml_model.py`.
+Tests for the minimal Core-6 training helpers in `tools/train_ml_model.py`.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TRAIN_SCRIPT = REPO_ROOT / "tools" / "10_train_ml_model.py"
+TRAIN_SCRIPT = REPO_ROOT / "tools" / "train_ml_model.py"
 
 from features import calc_l1_delta, extract_features_by_name
 

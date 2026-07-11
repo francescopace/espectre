@@ -1,5 +1,5 @@
 """
-Tests for `tools/11_validate_dataset_quality.py`.
+Tests for `tools/validate_dataset_quality.py`.
 """
 
 import importlib.util
@@ -9,11 +9,11 @@ import numpy as np
 import pytest
 
 
-VALIDATOR_PATH = Path(__file__).resolve().parents[2] / "tools" / "11_validate_dataset_quality.py"
+VALIDATOR_PATH = Path(__file__).resolve().parents[2] / "tools" / "validate_dataset_quality.py"
 
 
 def _load_validator_module():
-    """Load the validator script directly despite its numeric filename."""
+    """Load the validator script directly from the tools directory."""
     spec = importlib.util.spec_from_file_location("dataset_quality_validation", VALIDATOR_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

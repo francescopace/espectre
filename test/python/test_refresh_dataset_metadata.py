@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
-MODULE_PATH = TOOLS_DIR / "3_refresh_dataset_metadata.py"
+MODULE_PATH = TOOLS_DIR / "refresh_dataset_metadata.py"
 
 
 def _load_module():

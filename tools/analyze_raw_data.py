@@ -4,9 +4,9 @@ Data Quality Analysis Tool
 Verifies data integrity, analyzes SNR statistics, and checks turbulence variance
 
 Usage:
-    python tools/1_analyze_raw_data.py           # Analyze all available datasets
-    python tools/1_analyze_raw_data.py --chip C6 # Analyze only C6 dataset
-    python tools/1_analyze_raw_data.py --chip S3 # Analyze only S3 dataset
+    python tools/analyze_raw_data.py           # Analyze all available datasets
+    python tools/analyze_raw_data.py --chip C6 # Analyze only C6 dataset
+    python tools/analyze_raw_data.py --chip S3 # Analyze only S3 dataset
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
-MODULE_PATH = TOOLS_DIR / "7_compare_detection_methods.py"
+MODULE_PATH = TOOLS_DIR / "compare_detection_methods.py"
 
 
 def _load_module():

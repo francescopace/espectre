@@ -27,11 +27,11 @@ from conftest import (
 from tools.lib.dataset_metadata import build_calibrated_classic_detector
 
 
-TRAIN_ML_MODEL_PATH = tools_dir() / "10_train_ml_model.py"
+TRAIN_ML_MODEL_PATH = tools_dir() / "train_ml_model.py"
 
 
 def _load_train_ml_model_module():
-    """Load the training script directly despite its numeric filename."""
+    """Load the training script directly from the tools directory."""
     spec = importlib.util.spec_from_file_location("train_ml_model_gate", TRAIN_ML_MODEL_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -185,7 +185,7 @@ class TestLongRecordings:
         """
         Evaluate the ML detector on the 60-second test recordings.
 
-        The output table is intentionally stable because 10_train_ml_model.py
+        The output table is intentionally stable because train_ml_model.py
         parses it during seed search.
         """
         if long_dataset is None:

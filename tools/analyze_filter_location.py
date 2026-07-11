@@ -8,9 +8,9 @@ Compares filtering at different stages:
 4. Filter amplitudes BEFORE calculating turbulence (paper-style)
 
 Usage:
-    python tools/4_analyze_filter_location.py              # Use C6 dataset
-    python tools/4_analyze_filter_location.py --chip S3    # Use S3 dataset
-    python tools/4_analyze_filter_location.py --plot       # Show visualization
+    python tools/analyze_filter_location.py              # Use C6 dataset
+    python tools/analyze_filter_location.py --chip S3    # Use S3 dataset
+    python tools/analyze_filter_location.py --plot       # Show visualization
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

@@ -244,7 +244,7 @@ The same production feature set is used by:
 
 - `src/python/micro_espectre/features.py`
 - `src/cpp/core/ml_*`
-- `tools/10_train_ml_model.py` exports
+- `tools/train_ml_model.py` exports
 
 ## Calibration Summary
 

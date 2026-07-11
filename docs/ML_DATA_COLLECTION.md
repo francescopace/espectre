@@ -245,7 +245,7 @@ Use:
 
 ```bash
 ./espectre collect --info
-python tools/10_train_ml_model.py --info
+python tools/train_ml_model.py --info
 ```
 
 The first command summarizes collected files. The second shows the dataset view

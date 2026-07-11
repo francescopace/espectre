@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
-MODULE_PATH = TOOLS_DIR / "6_optimize_filter_params.py"
+MODULE_PATH = TOOLS_DIR / "optimize_filter_params.py"
 
 
 def _load_module():

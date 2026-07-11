@@ -5,7 +5,7 @@ labeled CSI datasets.
 
 Use [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) first to build and validate
 the `empty`, `static_presence`, and `motion` datasets. This guide covers the
-next step: training `tools/10_train_ml_model.py`, interpreting its outputs, and
+next step: training `tools/train_ml_model.py`, interpreting its outputs, and
 running the key regressions before promoting new artifacts.
 
 ## Prerequisites
@@ -24,34 +24,34 @@ Python `3.14`.
 Run the default trainer:
 
 ```bash
-python tools/10_train_ml_model.py
+python tools/train_ml_model.py
 ```
 
 Useful variants:
 
 ```bash
-python tools/10_train_ml_model.py --info
-python tools/10_train_ml_model.py --scaler clipped_standard
-python tools/10_train_ml_model.py --device mps
-python tools/10_train_ml_model.py --exclude-chip ESP32
-python tools/10_train_ml_model.py --gain-stress-gate
-python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
-python tools/10_train_ml_model.py --seed-search-until-improvement 20
+python tools/train_ml_model.py --info
+python tools/train_ml_model.py --scaler clipped_standard
+python tools/train_ml_model.py --device mps
+python tools/train_ml_model.py --exclude-chip ESP32
+python tools/train_ml_model.py --gain-stress-gate
+python tools/train_ml_model.py --gain-stress-gate --environment bedroom
+python tools/train_ml_model.py --seed-search-until-improvement 20
 ```
 
 For exploratory architecture campaigns:
 
 ```bash
-python tools/10_train_ml_model.py --experiment
-python tools/10_train_ml_model.py --experiment --experiment-promote
-python tools/10_train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"
+python tools/train_ml_model.py --experiment
+python tools/train_ml_model.py --experiment --experiment-promote
+python tools/train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"
 ```
 
 For SHAP diagnostics:
 
 ```bash
-python tools/10_train_ml_model.py --shap
-python tools/10_train_ml_model.py --shap 500
+python tools/train_ml_model.py --shap
+python tools/train_ml_model.py --shap 500
 ```
 
 ## Default Behavior
@@ -112,15 +112,15 @@ generated weight files.
 
 `ml_test_data.npz` is an inference-regression artifact, not the main
 model-selection metric. Architecture and scaler choices should follow the
-grouped blocked-CV report emitted by `10_train_ml_model.py`.
+grouped blocked-CV report emitted by `train_ml_model.py`.
 
 ## Promotion Guidance
 
 For production artifact promotion, prefer one of these gated flows instead of a
 plain export:
 
-- `python tools/10_train_ml_model.py --seed-search-until-improvement <N>`
-- `python tools/10_train_ml_model.py --experiment --experiment-promote`
+- `python tools/train_ml_model.py --seed-search-until-improvement <N>`
+- `python tools/train_ml_model.py --experiment --experiment-promote`
 
 A plain training run always exports the current seed, while the gated flows
 replace artifacts only after a stricter grouped-CV improvement.
@@ -141,9 +141,9 @@ Use the exported-artifact gain-stress gate to quantify this risk without
 retraining or exporting a new model:
 
 ```bash
-python tools/10_train_ml_model.py --gain-stress-gate
-python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
-python tools/10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25
+python tools/train_ml_model.py --gain-stress-gate
+python tools/train_ml_model.py --gain-stress-gate --environment bedroom
+python tools/train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25
 ```
 
 `--gain-stress-gate` does not train or export. It loads the current exported
@@ -183,11 +183,11 @@ Recommended validations before promoting new artifacts:
 ```bash
 pytest test/python/test_validation_real_data.py::TestPerformanceMetrics::test_ml_detection_accuracy -v
 pytest test/python/test_validation_real_data.py::TestPerformanceMetrics::test_ml_empty_false_positive_rate -v
-python tools/10_train_ml_model.py --gain-stress-gate
-python tools/7_compare_detection_methods.py
+python tools/train_ml_model.py --gain-stress-gate
+python tools/compare_detection_methods.py
 ```
 
-Add `--plot` to `7_compare_detection_methods.py` to visualize the comparison.
+Add `--plot` to `compare_detection_methods.py` to visualize the comparison.
 
 ## Runtime Notes
 

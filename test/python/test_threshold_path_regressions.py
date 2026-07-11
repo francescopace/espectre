@@ -11,7 +11,7 @@ from tools.lib import variance_baseline_core
 
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
 VALIDATION_REAL_DATA_PATH = Path(__file__).resolve().parent / "test_validation_real_data.py"
-ANALYZE_FILTER_TURBULENCE_PATH = TOOLS_DIR / "5_analyze_filter_turbulence.py"
+ANALYZE_FILTER_TURBULENCE_PATH = TOOLS_DIR / "analyze_filter_turbulence.py"
 
 
 def _load_module(module_name: str, path: Path):
@@ -102,7 +102,7 @@ def test_run_fixed_subcarrier_calibration_uses_shared_variance_helper(monkeypatc
 
 def test_analyze_filter_turbulence_defaults_to_calibrate(monkeypatch) -> None:
     module = _load_module("analyze_filter_turbulence_threshold_defaults", ANALYZE_FILTER_TURBULENCE_PATH)
-    monkeypatch.setattr(sys, "argv", ["5_analyze_filter_turbulence.py"])
+    monkeypatch.setattr(sys, "argv", ["analyze_filter_turbulence.py"])
 
     args = module.parse_args()
 

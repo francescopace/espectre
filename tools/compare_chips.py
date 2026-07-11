@@ -14,7 +14,7 @@ Based on ESP-IDF issue #14271, known differences include:
 - C6: 128 bytes (64 subcarriers in HT20), includes L-LTF data, standard order
 
 Usage:
-    python tools/9_compare_chips.py [--plot]
+    python tools/compare_chips.py [--plot]
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

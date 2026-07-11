@@ -7,9 +7,9 @@ subcarriers, comparing static presence (stable) vs motion (dispersed) patterns.
 Uses a limited number of contiguous packets to avoid overcrowding.
 
 Usage:
-    python tools/8_plot_constellation.py              # Use C6 dataset
-    python tools/8_plot_constellation.py --chip S3    # Use S3 dataset
-    python tools/8_plot_constellation.py --chip S3 --packets 500 --offset 100
+    python tools/plot_constellation.py              # Use C6 dataset
+    python tools/plot_constellation.py --chip S3    # Use S3 dataset
+    python tools/plot_constellation.py --chip S3 --packets 500 --offset 100
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
@@ -305,16 +305,16 @@ def main():
         epilog="""
 Examples:
   # Plot using default C6 dataset
-  python tools/8_plot_constellation.py
+  python tools/plot_constellation.py
   
   # Plot using S3 dataset
-  python tools/8_plot_constellation.py --chip S3
+  python tools/plot_constellation.py --chip S3
   
   # Plot with more packets
-  python tools/8_plot_constellation.py --chip C6 --packets 800 --offset 100
+  python tools/plot_constellation.py --chip C6 --packets 800 --offset 100
   
   # Use grid layout (one subplot per subcarrier)
-  python tools/8_plot_constellation.py --chip S3 --grid
+  python tools/plot_constellation.py --chip S3 --grid
         """
     )
     

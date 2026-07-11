@@ -32,7 +32,7 @@ static_assert(ML_MODEL_INPUT_SIZE >= 1,
 constexpr uint16_t ML_MAX_SORT_SIZE = 200;
 
 // Canonical ML feature identifiers, shared with the exporter in
-// tools/10_train_ml_model.py (CPP_FEATURE_IDS).
+// tools/train_ml_model.py (CPP_FEATURE_IDS).
 enum MLFeatureId : uint8_t {
     ML_FEAT_TURB_SKEWNESS = 5,
     ML_FEAT_TURB_AUTOCORR = 6,
