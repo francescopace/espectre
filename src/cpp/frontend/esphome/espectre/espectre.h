@@ -57,6 +57,9 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_detection_algorithm(const std::string &algo) {
     this->runtime_.config().detection_algorithm = parse_detection_algorithm(algo.c_str());
   }
+  void set_classic_recovery_vote_enabled(bool enabled) {
+    this->runtime_.config().classic_recovery_vote_enabled = enabled;
+  }
   void set_publish_interval(uint32_t interval) { this->runtime_.config().publish_interval = interval; }
   void set_evaluation_interval(uint32_t interval) { this->runtime_.config().evaluation_interval = interval; }
   void set_motion_on_hits(uint8_t hits) { this->runtime_.config().motion_on_hits = hits; }

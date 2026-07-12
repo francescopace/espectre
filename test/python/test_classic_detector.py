@@ -76,9 +76,14 @@ class _FakeSub:
         pass
 
 
-def _decide(l1_metric, moving_variance, threshold=0.1, floor=1.0, vote=True):
+def _decide(l1_metric, moving_variance, threshold=0.1, floor=1.0, vote=True,
+            recovery_vote_configured=True):
     """Drive one fused decision with controlled sub-detector metrics."""
-    det = ClassicDetector(window_size=10, threshold=threshold)
+    det = ClassicDetector(
+        window_size=10,
+        threshold=threshold,
+        enable_recovery_vote=recovery_vote_configured,
+    )
     det._l1 = _FakeSub(l1_metric, threshold)
     det._variance_ctx = _FakeSub(moving_variance)
     det._floor_frozen = True                   # skip floor collection; use manual state
@@ -132,6 +137,19 @@ def test_no_vote_when_variance_below_ratio():
 def test_no_vote_when_gate_disabled():
     # l1 in band, variance elevated, but the dispersion gate disabled the vote -> IDLE
     assert _decide(l1_metric=0.08, moving_variance=5.0, vote=False) == MotionState.IDLE
+
+
+def test_no_vote_when_disabled_by_configuration():
+    assert _decide(
+        l1_metric=0.08,
+        moving_variance=5.0,
+        recovery_vote_configured=False,
+    ) == MotionState.IDLE
+
+
+def test_disabled_vote_does_not_allocate_variance_context():
+    det = ClassicDetector(window_size=10, enable_recovery_vote=False)
+    assert det._variance_ctx is None
 
 
 def test_no_vote_below_band():
@@ -204,4 +222,12 @@ def test_apply_startup_floor_disables_vote_when_snapshot_too_small():
     det = ClassicDetector(window_size=20, threshold=0.05)
     det.apply_startup_floor(1.0, True, 10)
     assert det._variance_floor == 1.0
+    assert not det._recovery_vote_enabled
+
+
+def test_apply_startup_floor_keeps_configured_vote_disabled():
+    det = ClassicDetector(window_size=20, enable_recovery_vote=False)
+    det.apply_startup_floor(1.0, True, 400)
+    assert det._floor_count == 0
+    assert det._variance_floor is None
     assert not det._recovery_vote_enabled

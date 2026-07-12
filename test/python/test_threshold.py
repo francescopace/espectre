@@ -15,6 +15,7 @@ from threshold import (
 class FakeDetector:
     def __init__(self):
         self.metric = 0.0
+        self.floor_metric = 0.01
         self.ready = True
 
     def is_ready(self):
@@ -22,6 +23,9 @@ class FakeDetector:
 
     def get_motion_metric(self):
         return self.metric
+
+    def get_last_moving_variance(self):
+        return self.floor_metric
 
 
 def feed(tracker, detector, values):
@@ -131,8 +135,8 @@ def test_motion_first_short_spike_falls_back_to_quiet_first() -> None:
     threshold, formula = tracker.calculate_threshold("auto")
     assert tracker.is_complete()
     assert tracker.get_phase_label() == "FALLBACK"
-    assert threshold == pytest.approx(0.12 * 1.03 * 1.1)
-    assert formula == "gated max x 1.1"
+    assert threshold == pytest.approx(0.05 * 1.1)
+    assert formula == "quiet anchor x 1.1"
 
 
 def test_motion_without_return_uses_fallback_inside_budget() -> None:
@@ -148,8 +152,41 @@ def test_motion_without_return_uses_fallback_inside_budget() -> None:
     threshold, formula = tracker.calculate_threshold("auto")
     assert tracker.is_complete()
     assert tracker.get_phase_label() == "FALLBACK"
-    assert threshold == pytest.approx(0.12 * 1.03 * 1.1)
-    assert formula == "gated max x 1.1"
+    assert threshold == pytest.approx(0.05 * 1.5 * 1.1)
+    assert formula == "quiet anchor x 1.1"
+
+
+@pytest.mark.parametrize("target_packets", [100, 101, 102])
+def test_motion_without_return_is_stable_at_budget_boundary(target_packets) -> None:
+    tracker = StartupThresholdCalibrator(
+        target_packets=target_packets,
+        auto_factor=1.1,
+        gate_enabled=True,
+    )
+    detector = FakeDetector()
+
+    feed(tracker, detector, [0.05] * 50 + [0.12] * (target_packets - 50))
+
+    threshold, _ = tracker.calculate_threshold("auto")
+    assert tracker.is_complete()
+    assert threshold == pytest.approx(0.05 * 1.5 * 1.1)
+
+
+def test_motion_first_preserves_validated_quiet_floor_samples() -> None:
+    tracker = StartupThresholdCalibrator(
+        target_packets=500,
+        auto_factor=1.1,
+        gate_enabled=True,
+    )
+    detector = FakeDetector()
+
+    feed(tracker, detector, [0.05] * 300 + [0.12] * 50 + [0.05] * 50)
+
+    floor, vote_enabled, sample_count = tracker.get_floor_snapshot()
+    assert tracker.is_complete()
+    assert floor == pytest.approx(0.01)
+    assert vote_enabled
+    assert sample_count >= 300
 
 
 def test_startup_gate_disabled_keeps_legacy_completion() -> None:

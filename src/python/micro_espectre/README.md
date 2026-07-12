@@ -142,6 +142,7 @@ Key config values live in `config.py`:
 
 ```python
 DETECTION_ALGORITHM = "classic"  # "classic" or "ml"
+CLASSIC_RECOVERY_VOTE_ENABLED = True  # False selects L1-only and skips variance calculation
 SEG_THRESHOLD = "auto"       # "auto", "min", or a manual threshold (classic: 0.0-10.0, ml: 0.0-1.0)
 SEG_WINDOW_SIZE = 100
 EVALUATION_INTERVAL = 25

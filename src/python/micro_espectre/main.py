@@ -78,6 +78,7 @@ def create_detector(detection_algorithm, initial_threshold):
         enable_hampel=config.ENABLE_HAMPEL_FILTER,
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
+        enable_recovery_vote=config.CLASSIC_RECOVERY_VOTE_ENABLED,
     )
 
 

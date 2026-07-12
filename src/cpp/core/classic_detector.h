@@ -41,7 +41,8 @@ constexpr uint16_t CLASSIC_VARIANCE_FLOOR_REFRESH = 100;
 class ClassicDetector : public BaseDetector {
 public:
     ClassicDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE,
-                    float threshold = CLASSIC_DEFAULT_THRESHOLD);
+                    float threshold = CLASSIC_DEFAULT_THRESHOLD,
+                    bool recovery_vote_enabled = true);
 
     ~ClassicDetector() override = default;
 
@@ -65,12 +66,15 @@ public:
     float get_startup_threshold_factor() const override { return CLASSIC_STARTUP_THRESHOLD_FACTOR; }
     bool startup_gate_enabled() const override { return true; }
     void on_startup_calibration_complete() override;
-    float get_startup_floor_metric() const override { return current_moving_variance_; }
+    float get_startup_floor_metric() const override {
+        return recovery_vote_configured_ ? current_moving_variance_ : 0.0f;
+    }
     void apply_startup_floor(float variance_floor, bool recovery_vote_enabled,
                              uint16_t sample_count) override;
 
     float get_variance_floor() const { return variance_floor_; }
     bool recovery_vote_enabled() const { return recovery_vote_enabled_; }
+    bool recovery_vote_configured() const { return recovery_vote_configured_; }
     float get_last_moving_variance() const { return current_moving_variance_; }
 
 private:
@@ -96,6 +100,7 @@ private:
     uint16_t floor_count_;
     uint16_t since_refresh_;
     float variance_floor_;
+    bool recovery_vote_configured_;
     bool recovery_vote_enabled_;
     bool floor_frozen_;
 };

@@ -193,6 +193,9 @@ The main repository workflow and this training stack target Python `3.14`.
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
 - Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms
 - Supports FP-first architecture campaigns, gain-shift diagnostics, and feature-importance analysis
+- Ranks long-recording candidates by deploy-time effective alarms, false-MOTION
+  policy evaluations, raw false positives, and worst-recording FP rate before
+  recall and F1
 - Exports weights for both platforms:
   - `src/python/micro_espectre/ml_weights.py`
   - `src/cpp/core/ml_weights.h`
@@ -224,16 +227,29 @@ see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md).
 
 ### 10. Dataset Quality Validation (`validate_dataset_quality.py`)
 
-Validates CSI datasets for metadata completeness, file integrity, signal quality, pair quality, and ML readiness. It checks per-file integrity for `empty`, `static_presence`, `motion`, and `test`, keeps pair validation focused on `static_presence`/`motion`, includes `EMPTY SANITY` and `QUIET TEST SANITY` phases, and replays the production `ClassicDetector` startup calibration for each validated pair. The same entry point can also refresh the derived pairing fields in `data/dataset_info.json` before validation.
+Validates the shared Classic and ML datasets for metadata completeness, file
+integrity, signal quality, pair quality, training readiness, and long-recording
+coverage. The terminal summary and generated report group results into common
+integrity, Classic readiness, ML readiness, and long-recording coverage. The
+same entry point can also refresh the derived pairing fields in
+`data/dataset_info.json` before validation.
 
 **Checks performed:**
-- Metadata completeness — required dataset metadata exists, pair links are reciprocal, and referenced files exist
-- File integrity — NPZ loads, expected keys exist, and shapes are valid
+- Metadata completeness — required dataset metadata exists, disk captures are
+  registered, pair links are reciprocal, and paired chip, subcarrier, device,
+  and environment metadata agree
+- File integrity — NPZ loads, CSI I/Q shape and declared subcarrier count agree,
+  per-packet arrays align, and the embedded label matches the dataset directory
 - Signal quality — amplitude range, zero-packet detection, packet cadence, and stream continuity
 - Pair validation — production-aligned threshold replay on explicit `static_presence` / `motion` pairs
-- Empty sanity — overlapping `empty` vs `static_presence` groups remain separable
+- Empty sanity — overlapping `empty` vs `static_presence` groups expose IDLE-domain shift by chip and environment
 - Quiet-test sanity — idle-only `test` recordings stay quiet under Classic replay
-- ML readiness — label balance, minimum samples, and chip diversity
+- ML readiness — binary balance with `empty + static_presence` mapped to IDLE,
+  usable windows after per-file warm-up, chip/environment coverage, and grouped
+  session coverage for three-fold CV
+- Long-recording coverage — quiet recordings are distinguished from mixed
+  recordings with `motion starts at packet N`; mixed annotations must leave
+  usable IDLE and MOTION segments after warm-up
 
 Turbulence mode follows runtime conventions: CV-normalized turbulence for every
 file. ML uses the same normalized base turbulence and exports the production

@@ -50,6 +50,7 @@ CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 
 # Detection algorithm
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
+CONF_CLASSIC_RECOVERY_VOTE_ENABLED = "classic_recovery_vote_enabled"
 
 # Threshold limits (keep in sync with csi_processor.h)
 THRESHOLD_MIN = 0.0
@@ -121,6 +122,7 @@ CONFIG_SCHEMA = cv.Schema({
     # CLASSIC: L1-Delta primary with variance recovery - adaptive threshold
     # ML: Machine Learning (MLP neural network) - higher accuracy, fixed subcarriers
     cv.Optional(CONF_DETECTION_ALGORITHM, default="classic"): cv.one_of("classic", "ml", lower=True),
+    cv.Optional(CONF_CLASSIC_RECOVERY_VOTE_ENABLED, default=True): cv.boolean,
     cv.Optional(CONF_EVALUATION_INTERVAL, default=25): cv.int_range(min=1, max=1000),
     cv.Optional(CONF_MOTION_ON_HITS, default=3): cv.int_range(min=1, max=20),
     cv.Optional(CONF_MOTION_OFF_HITS, default=3): cv.int_range(min=1, max=20),
@@ -230,6 +232,7 @@ async def to_code(config):
     cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
+    cg.add(var.set_classic_recovery_vote_enabled(config[CONF_CLASSIC_RECOVERY_VOTE_ENABLED]))
     cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))
     cg.add(var.set_evaluation_interval(config[CONF_EVALUATION_INTERVAL]))
     cg.add(var.set_motion_on_hits(config[CONF_MOTION_ON_HITS]))

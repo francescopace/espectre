@@ -177,8 +177,8 @@ void test_motion_first_short_spike_falls_back_to_quiet_first(void) {
         calibrator.observe(true, 0.05f);
     }
     TEST_ASSERT_TRUE(calibrator.is_complete());
-    TEST_ASSERT_EQUAL_FLOAT(0.1236f, calibrator.threshold_metric());
-    TEST_ASSERT_EQUAL_STRING("gated max", calibrator.statistic_name());
+    TEST_ASSERT_EQUAL_FLOAT(0.05f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_STRING("quiet anchor", calibrator.statistic_name());
 }
 
 void test_motion_without_return_uses_fallback_inside_budget(void) {
@@ -191,8 +191,46 @@ void test_motion_without_return_uses_fallback_inside_budget(void) {
         calibrator.observe(true, 0.12f);
     }
     TEST_ASSERT_TRUE(calibrator.is_complete());
-    TEST_ASSERT_EQUAL_FLOAT(0.1236f, calibrator.threshold_metric());
-    TEST_ASSERT_EQUAL_STRING("gated max", calibrator.statistic_name());
+    TEST_ASSERT_EQUAL_FLOAT(0.075f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_STRING("quiet anchor", calibrator.statistic_name());
+}
+
+void test_motion_without_return_is_stable_at_budget_boundary(void) {
+    for (uint16_t target_packets = 100; target_packets <= 102; ++target_packets) {
+        StartupThresholdCalibrator calibrator;
+        calibrator.begin(target_packets, true);
+        for (int i = 0; i < 50; ++i) {
+            calibrator.observe(true, 0.05f);
+        }
+        for (int i = 50; i < target_packets; ++i) {
+            calibrator.observe(true, 0.12f);
+        }
+        TEST_ASSERT_TRUE(calibrator.is_complete());
+        TEST_ASSERT_EQUAL_FLOAT(0.075f, calibrator.threshold_metric());
+    }
+}
+
+void test_motion_first_preserves_validated_quiet_floor_samples(void) {
+    StartupThresholdCalibrator calibrator;
+    calibrator.begin(500, true);
+    for (int i = 0; i < 300; ++i) {
+        calibrator.observe(true, 0.05f, 0.01f);
+    }
+    for (int i = 0; i < 50; ++i) {
+        calibrator.observe(true, 0.12f, 0.50f);
+    }
+    for (int i = 0; i < 50; ++i) {
+        calibrator.observe(true, 0.05f, 0.01f);
+    }
+
+    float floor = 0.0f;
+    bool vote_enabled = false;
+    uint16_t sample_count = 0;
+    calibrator.floor_snapshot(floor, vote_enabled, sample_count);
+    TEST_ASSERT_TRUE(calibrator.is_complete());
+    TEST_ASSERT_EQUAL_FLOAT(0.01f, floor);
+    TEST_ASSERT_TRUE(vote_enabled);
+    TEST_ASSERT_TRUE(sample_count >= STARTUP_FLOOR_MIN);
 }
 
 void test_detector_startup_gate_traits(void) {
@@ -276,6 +314,8 @@ int process(void) {
     RUN_TEST(test_motion_first_calibrator_accepts_quiet_motion_quiet_before_budget);
     RUN_TEST(test_motion_first_short_spike_falls_back_to_quiet_first);
     RUN_TEST(test_motion_without_return_uses_fallback_inside_budget);
+    RUN_TEST(test_motion_without_return_is_stable_at_budget_boundary);
+    RUN_TEST(test_motion_first_preserves_validated_quiet_floor_samples);
     RUN_TEST(test_detector_startup_gate_traits);
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
     RUN_TEST(test_classic_detector_move_semantics_and_base_accessors);

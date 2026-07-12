@@ -33,6 +33,7 @@ struct RuntimeConfig {
   ThresholdMode threshold_mode{ThresholdMode::AUTO};
   float segmentation_threshold{SEGMENTATION_DEFAULT_THRESHOLD};
   uint16_t segmentation_window_size{DETECTOR_DEFAULT_WINDOW_SIZE};
+  bool classic_recovery_vote_enabled{true};
   uint32_t traffic_generator_rate{100};
   RuntimeTrafficMode traffic_generator_mode{RuntimeTrafficMode::PING};
   CsiTrafficMode csi_traffic_mode{CsiTrafficMode::INTERNAL};

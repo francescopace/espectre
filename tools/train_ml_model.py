@@ -347,14 +347,13 @@ from config import (
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
     LOWPASS_CUTOFF,
-    MOTION_OFF_HITS,
-    MOTION_ON_HITS,
     SEG_WINDOW_SIZE,
 )
 from classic_detector import ClassicDetector
-from detector_interface import MotionState
-from runtime_policy import RuntimeMotionPolicy
 from segmentation import SegmentationContext
+from tools.lib.performance_report import (
+    evaluate_idle_runtime_policy as evaluate_idle_runtime_policy_states,
+)
 from features import (
     extract_features_by_name, DEFAULT_FEATURES,
 )
@@ -3495,22 +3494,7 @@ def summarize_gate(by_chip):
 
 def evaluate_idle_runtime_policy(probabilities, threshold=0.5):
     """Evaluate deploy-time cadence and hit filtering on an IDLE score stream."""
-    policy = RuntimeMotionPolicy(EVALUATION_INTERVAL, MOTION_ON_HITS, MOTION_OFF_HITS)
-    effective_alarms = 0
-    false_motion_evaluations = 0
-
-    for probability in np.asarray(probabilities)[EVALUATION_INTERVAL - 1::EVALUATION_INTERVAL]:
-        raw_state = MotionState.MOTION if probability > threshold else MotionState.IDLE
-        effective_state, changed = policy.apply_state(raw_state)
-        if changed and effective_state == MotionState.MOTION:
-            effective_alarms += 1
-        if effective_state == MotionState.MOTION:
-            false_motion_evaluations += 1
-
-    return {
-        'effective_alarms': effective_alarms,
-        'false_motion_evaluations': false_motion_evaluations,
-    }
+    return evaluate_idle_runtime_policy_states(np.asarray(probabilities) > threshold)
 
 
 def _layer_arrays_from_model(model):

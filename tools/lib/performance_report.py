@@ -534,11 +534,15 @@ def evaluate_classic_long_recording(
     movement_with_motion = 0
     movement_without_motion = 0
 
+    baseline_motion_states = []
+
     for i, pkt in enumerate(baseline_packets):
         detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
         detector.update_state()
         if i >= warmup and detector.get_state() == MotionState.MOTION:
             baseline_motion_packets += 1
+        if i >= warmup:
+            baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
 
     for i, pkt in enumerate(movement_packets):
         detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
@@ -561,6 +565,7 @@ def evaluate_classic_long_recording(
         if (precision + recall) > 0
         else 0.0
     )
+    policy_metrics = evaluate_idle_runtime_policy(baseline_motion_states)
     return {
         "adaptive_threshold": adaptive_threshold,
         "warmup": warmup,
@@ -574,6 +579,7 @@ def evaluate_classic_long_recording(
         "precision": precision,
         "fp_rate": fp_rate,
         "f1": f1,
+        **policy_metrics,
     }
 
 
@@ -592,7 +598,7 @@ def _average_detector_metrics(entries: Sequence[Dict[str, float]]) -> Optional[D
 def compute_performance_report_data() -> Dict[str, Dict[str, Dict[str, Dict[str, float]]]]:
     """Compute all metrics published in docs/PERFORMANCE.md."""
     paired_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
-    long_results: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    long_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
 
     for static_path, motion_path, _num_sc, chip, _dataset_id in get_available_paired_datasets():
         classic_result = compute_classic_dataset_result(
@@ -617,10 +623,10 @@ def compute_performance_report_data() -> Dict[str, Dict[str, Dict[str, Dict[str,
     for _test_path, baseline_packets, movement_packets, _motion_start, chip, _entry in get_available_long_test_datasets():
         classic_metrics = evaluate_classic_long_recording(baseline_packets, movement_packets)
         if classic_metrics is not None:
-            long_results["classic"][chip].append(classic_metrics["fp_rate"])
+            long_results["classic"][chip].append(classic_metrics)
 
         ml_metrics = evaluate_ml_long_recording(baseline_packets, movement_packets)
-        long_results["ml"][chip].append(ml_metrics["fp_rate"])
+        long_results["ml"][chip].append(ml_metrics)
 
     paired_summary: Dict[str, Dict[str, Dict[str, float]]] = {"classic": {}, "ml": {}}
     for algorithm, by_chip in paired_results.items():
@@ -631,12 +637,17 @@ def compute_performance_report_data() -> Dict[str, Dict[str, Dict[str, Dict[str,
 
     long_summary: Dict[str, Dict[str, Dict[str, float]]] = {"classic": {}, "ml": {}}
     for algorithm, by_chip in long_results.items():
-        for chip, fp_rates in by_chip.items():
-            if not fp_rates:
+        for chip, entries in by_chip.items():
+            if not entries:
                 continue
+            fp_rates = [entry["fp_rate"] for entry in entries]
             long_summary[algorithm][chip] = {
                 "avg_fp_rate": sum(fp_rates) / len(fp_rates),
                 "max_fp_rate": max(fp_rates),
+                "effective_alarms": sum(entry["effective_alarms"] for entry in entries),
+                "false_motion_evaluations": sum(
+                    entry["false_motion_evaluations"] for entry in entries
+                ),
             }
 
     return {
@@ -729,39 +740,43 @@ def render_performance_report_markdown(
         "",
         "## Long Quiet Real-Data Validation",
         "",
+        "Effective Alarms and False Motion Evals apply the deploy runtime policy to "
+        f"the raw per-packet states: one evaluation every {EVALUATION_INTERVAL} packets, "
+        f"{MOTION_ON_HITS} consecutive hits to enter MOTION, and {MOTION_OFF_HITS} to leave it. "
+        "They count triggered alarms and evaluations spent in a false MOTION state across "
+        "all quiet recordings per chip.",
+        "",
         "### Classic Detector",
         "",
-        "| Metric | C3 | C5 | C6 | S3 |",
-        "|--------|----|----|----|----|",
     ])
 
     long_quiet = report_data["long_quiet"]
-    for key, label in (
-        ("avg_fp_rate", "Avg FP Rate"),
-        ("max_fp_rate", "Max FP Rate"),
-    ):
-        values = []
-        for chip in CHIP_ORDER:
-            metrics = long_quiet["classic"].get(chip)
-            values.append(f"{metrics[key]:.2f}%" if metrics is not None else "N/A")
-        lines.append(f"| {label} | " + " | ".join(values) + " |")
+    long_row_specs = (
+        ("avg_fp_rate", "Avg FP Rate", lambda value: f"{value:.2f}%"),
+        ("max_fp_rate", "Max FP Rate", lambda value: f"{value:.2f}%"),
+        ("effective_alarms", "Effective Alarms", lambda value: f"{int(value)}"),
+        ("false_motion_evaluations", "False Motion Evals", lambda value: f"{int(value)}"),
+    )
+
+    def _append_long_quiet_table(algorithm):
+        lines.append("| Metric | C3 | C5 | C6 | S3 |")
+        lines.append("|--------|----|----|----|----|")
+        for key, label, formatter in long_row_specs:
+            values = []
+            for chip in CHIP_ORDER:
+                metrics = long_quiet[algorithm].get(chip)
+                value = metrics.get(key) if metrics is not None else None
+                values.append(formatter(value) if value is not None else "N/A")
+            lines.append(f"| {label} | " + " | ".join(values) + " |")
+
+    _append_long_quiet_table("classic")
 
     lines.extend([
         "",
         "### ML Detector",
         "",
-        "| Metric | C3 | C5 | C6 | S3 |",
-        "|--------|----|----|----|----|",
     ])
-    for key, label in (
-        ("avg_fp_rate", "Avg FP Rate"),
-        ("max_fp_rate", "Max FP Rate"),
-    ):
-        values = []
-        for chip in CHIP_ORDER:
-            metrics = long_quiet["ml"].get(chip)
-            values.append(f"{metrics[key]:.2f}%" if metrics is not None else "N/A")
-        lines.append(f"| {label} | " + " | ".join(values) + " |")
+    _append_long_quiet_table("ml")
 
     return "\n".join(lines) + "\n"
 

@@ -158,8 +158,21 @@ Current startup behavior:
 4. otherwise fall back internally to the quiet-only statistic inside the same
    startup budget
 
+The fallback keeps clean quiet-only calibration on the gated maximum. When
+startup contains movement-like chunks but not a complete trusted pattern, it
+uses the chunk median capped to the validated quiet-anchor band. This prevents
+partial movement from raising the threshold to motion level without lowering
+clean-session thresholds. The final packet is included in motion confirmation,
+and validated pre-motion quiet samples remain part of the variance-floor
+snapshot.
+
 The variance recovery path only activates when startup observed a quiet floor
 tight enough to trust.
+
+Set `classic_recovery_vote_enabled: false` in ESPHome or
+`CLASSIC_RECOVERY_VOTE_ENABLED = False` in Micro-ESPectre to keep the same
+L1-delta startup threshold calibration while disabling the variance recovery
+decision and its variance/floor computation at runtime.
 
 ### Gated Variance Recovery
 

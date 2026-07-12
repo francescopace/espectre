@@ -56,10 +56,41 @@ void test_classic_detector_uses_recovery_vote_in_ambiguous_band(void) {
     TEST_ASSERT_TRUE(detector.get_last_moving_variance() > CLASSIC_RECOVERY_VOTE_RATIO * detector.get_variance_floor());
 }
 
+void test_classic_detector_can_disable_recovery_vote(void) {
+    ClassicDetector detector(10, 1.0f, false);
+    int8_t csi[128] = {};
+    const uint8_t subcarrier = 1;
+
+    detector.process_packet(csi, sizeof(csi), &subcarrier, 1);
+    TEST_ASSERT_EQUAL(1, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(0, detector.get_buffer_count());
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_startup_floor_metric());
+
+    detector.apply_startup_floor(0.5f, true, CLASSIC_VARIANCE_FLOOR_MIN);
+    TEST_ASSERT_EQUAL(0, detector.floor_count_);
+    TEST_ASSERT_FALSE(detector.recovery_vote_enabled());
+
+    detector.delta_count_ = detector.window_size_;
+    for (uint16_t i = 0; i < detector.window_size_; i++) {
+        detector.delta_ring_[i] = 0.7f;
+        detector.turbulence_buffer_[i] = (i % 2 == 0) ? 0.0f : 3.0f;
+    }
+    detector.buffer_count_ = detector.window_size_;
+    detector.floor_count_ = CLASSIC_VARIANCE_FLOOR_MIN;
+    detector.variance_floor_ = 0.5f;
+    detector.recovery_vote_enabled_ = true;
+
+    detector.update_state();
+
+    TEST_ASSERT_FALSE(detector.recovery_vote_configured());
+    TEST_ASSERT_TRUE(detector.get_state() == MotionState::IDLE);
+}
+
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_classic_detector_clear_buffer_preserves_frozen_floor);
     RUN_TEST(test_classic_detector_uses_recovery_vote_in_ambiguous_band);
+    RUN_TEST(test_classic_detector_can_disable_recovery_vote);
     return UNITY_END();
 }
 

@@ -222,8 +222,12 @@ class StartupThresholdCalibrator {
     if (gate_enabled_ && !gate_accepted_) {
       observe_gate_metric_(motion_metric);
     }
-    if (gate_enabled_ && !motion_accepted_ && packet_count_ < target_packets_) {
+    if (gate_enabled_ && !motion_accepted_ && packet_count_ <= target_packets_) {
       observe_motion_chunk_(motion_metric, floor_metric);
+    }
+    if (gate_enabled_ && !gate_accepted_ && packet_count_ >= target_packets_ &&
+        chunk_count_ > 0 && ring_count_ < STARTUP_GATE_CHUNKS) {
+      close_gate_chunk_();
     }
   }
 
@@ -257,6 +261,11 @@ class StartupThresholdCalibrator {
       }
       return metric;
     }
+    if (quiet_anchor_ready_ && motion_level_count_ > 0) {
+      const float quiet_ceiling = quiet_ceiling_();
+      const float anchored_cap = STARTUP_GATE_ANCHOR_RATIO * quiet_ceiling;
+      return std::max(quiet_ceiling, std::min(ring_median_(), anchored_cap));
+    }
     if (!motion_confirmed_) {
       return STARTUP_NO_MOTION_FALLBACK_MARGIN * ring_max_();
     }
@@ -272,7 +281,13 @@ class StartupThresholdCalibrator {
       return "max";
     }
     if (gate_accepted_ || !motion_confirmed_) {
+      if (!gate_accepted_ && quiet_anchor_ready_ && motion_level_count_ > 0) {
+        return "quiet anchor";
+      }
       return "gated max";
+    }
+    if (quiet_anchor_ready_ && motion_level_count_ > 0) {
+      return "quiet anchor";
     }
     return "gated median";
   }
@@ -341,6 +356,10 @@ class StartupThresholdCalibrator {
       return;
     }
 
+    close_gate_chunk_();
+  }
+
+  void close_gate_chunk_() {
     if (ring_count_ == STARTUP_GATE_CHUNKS) {
       const float discarded = ring_[ring_next_];
       if (!has_discarded_chunk_ || discarded > discarded_chunk_max_) {
@@ -431,7 +450,9 @@ class StartupThresholdCalibrator {
           phase_ = Phase::SEEK_POST_MOTION_QUIET;
           consecutive_post_quiet_chunks_ = 0;
           post_quiet_level_count_ = 0;
-          clear_floor_ring_();
+          // The pre-motion samples already passed the quiet classifier. Keep
+          // them so an early successful bootstrap does not discard a valid
+          // variance-floor snapshot.
         }
         return;
       }

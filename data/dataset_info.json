@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-12T22:52:48.057196",
+  "updated_at": "2026-07-13T00:24:35.714958",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -431,6 +431,30 @@
         "description": "HT20 test sample",
         "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac"
+      },
+      {
+        "filename": "test_c3_64sc_dev0000acebe64ae708_20260712_235052_800678_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-12T23:50:52.765628",
+        "duration_ms": 599997,
+        "num_packets": 61309,
+        "description": "HT20 test sample",
+        "environment": "living_room",
+        "device_id": "0x0000acebe64ae708"
+      },
+      {
+        "filename": "test_s3_64sc_dev000010b41de8ec00_20260713_002325_306350_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-13T00:23:25.278501",
+        "duration_ms": 599976,
+        "num_packets": 60587,
+        "description": "HT20 test sample",
+        "environment": "living_room",
+        "device_id": "0x000010b41de8ec00"
       }
     ]
   },

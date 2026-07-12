@@ -21,12 +21,32 @@ def _fake_report_data():
         },
         "long_quiet": {
             "classic": {
-                "C3": {"avg_fp_rate": 0.30, "max_fp_rate": 0.42},
-                "S3": {"avg_fp_rate": 1.20, "max_fp_rate": 1.20},
+                "C3": {
+                    "avg_fp_rate": 0.30,
+                    "max_fp_rate": 0.42,
+                    "effective_alarms": 2,
+                    "false_motion_evaluations": 9,
+                },
+                "S3": {
+                    "avg_fp_rate": 1.20,
+                    "max_fp_rate": 1.20,
+                    "effective_alarms": 1,
+                    "false_motion_evaluations": 4,
+                },
             },
             "ml": {
-                "C3": {"avg_fp_rate": 0.00, "max_fp_rate": 0.00},
-                "S3": {"avg_fp_rate": 0.13, "max_fp_rate": 0.13},
+                "C3": {
+                    "avg_fp_rate": 0.00,
+                    "max_fp_rate": 0.00,
+                    "effective_alarms": 0,
+                    "false_motion_evaluations": 0,
+                },
+                "S3": {
+                    "avg_fp_rate": 0.13,
+                    "max_fp_rate": 0.13,
+                    "effective_alarms": 0,
+                    "false_motion_evaluations": 0,
+                },
             },
         },
     }
@@ -40,6 +60,8 @@ def test_render_performance_report_markdown_formats_missing_values_as_na() -> No
     assert "| Recall | 99.8% | N/A | N/A | 100.0% |" in markdown
     assert "| Avg FP Rate | 0.30% | N/A | N/A | 1.20% |" in markdown
     assert "| Max FP Rate | 0.00% | N/A | N/A | 0.13% |" in markdown
+    assert "| Effective Alarms | 2 | N/A | N/A | 1 |" in markdown
+    assert "| False Motion Evals | 0 | N/A | N/A | 0 |" in markdown
 
 
 def test_write_performance_report_writes_rendered_markdown(tmp_path, monkeypatch) -> None:

@@ -208,7 +208,9 @@ bool EspIdfRuntime::configure_detector_() {
     ml_detector_ = MLDetector(config_.segmentation_window_size, ml_threshold);
     detector_ = &ml_detector_;
   } else {
-    classic_detector_ = ClassicDetector(config_.segmentation_window_size, config_.segmentation_threshold);
+    classic_detector_ = ClassicDetector(config_.segmentation_window_size,
+                                        config_.segmentation_threshold,
+                                        config_.classic_recovery_vote_enabled);
     detector_ = &classic_detector_;
   }
   detector_->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);

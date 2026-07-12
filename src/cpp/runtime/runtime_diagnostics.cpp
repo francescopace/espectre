@@ -20,6 +20,7 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.segmentation_window_size));
   visitor("window", value);
   visitor("detector", snapshot.detector_name);
+  visitor("classic_recovery_vote", config.classic_recovery_vote_enabled ? "on" : "off");
   visitor("subcarriers", subcarrier_source_name(snapshot.subcarrier_source));
   visitor("lowpass", config.lowpass_enabled ? "on" : "off");
   std::snprintf(value, sizeof(value), "%.1f", config.lowpass_cutoff);

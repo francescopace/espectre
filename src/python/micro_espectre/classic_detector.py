@@ -85,6 +85,7 @@ class ClassicDetector(IDetector):
                  enable_hampel=True,
                  hampel_window=7,
                  hampel_threshold=5.0,
+                 enable_recovery_vote=True,
                  **_unused):
         """
         Initialize the fusion detector.
@@ -93,17 +94,19 @@ class ClassicDetector(IDetector):
         forwarded to the variance support detector; L1-Delta ignores them.
         """
         self._l1 = L1DeltaTracker(window_size=window_size, threshold=threshold)
-        # Variance support: reuse the shared segmentation context directly. Its
-        # threshold is unused because only the moving-variance metric is read.
-        self._variance_ctx = SegmentationContext(
-            window_size=window_size,
-            threshold=10.0,
-            enable_lowpass=enable_lowpass,
-            lowpass_cutoff=lowpass_cutoff,
-            enable_hampel=enable_hampel,
-            hampel_window=hampel_window,
-            hampel_threshold=hampel_threshold,
-        )
+        self._recovery_vote_configured = bool(enable_recovery_vote)
+        # Do not allocate or update the variance path in L1-only mode.
+        self._variance_ctx = None
+        if self._recovery_vote_configured:
+            self._variance_ctx = SegmentationContext(
+                window_size=window_size,
+                threshold=10.0,
+                enable_lowpass=enable_lowpass,
+                lowpass_cutoff=lowpass_cutoff,
+                enable_hampel=enable_hampel,
+                hampel_window=hampel_window,
+                hampel_threshold=hampel_threshold,
+            )
 
         # Bounded ring of IDLE variance metrics (pre-allocated, no per-packet alloc).
         self._variance_floor_ring = [0.0] * self.VARIANCE_FLOOR_SIZE
@@ -124,8 +127,9 @@ class ClassicDetector(IDetector):
         """Feed the packet to both the primary and the support detector."""
         self._packet_count += 1
         self._l1.process_packet(csi_data, selected_subcarriers)
-        turbulence = self._variance_ctx.calculate_spatial_turbulence(csi_data, selected_subcarriers)
-        self._variance_ctx.add_turbulence(turbulence)
+        if self._recovery_vote_configured and self._variance_ctx is not None:
+            turbulence = self._variance_ctx.calculate_spatial_turbulence(csi_data, selected_subcarriers)
+            self._variance_ctx.add_turbulence(turbulence)
 
     def _push_variance_floor(self, value):
         """Add one IDLE variance sample to the ring and refresh stats periodically."""
@@ -162,12 +166,14 @@ class ClassicDetector(IDetector):
             self._l1.update_metric()
         else:
             self._l1.update_state()
-        self._variance_ctx.update_state()
         l1v = self._l1.get_motion_metric()
-        if hasattr(self._variance_ctx, "current_moving_variance"):
-            moving_variance = self._variance_ctx.current_moving_variance
-        else:
-            moving_variance = self._variance_ctx.get_motion_metric()
+        moving_variance = 0.0
+        if self._recovery_vote_configured and self._variance_ctx is not None:
+            self._variance_ctx.update_state()
+            if hasattr(self._variance_ctx, "current_moving_variance"):
+                moving_variance = self._variance_ctx.current_moving_variance
+            else:
+                moving_variance = self._variance_ctx.get_motion_metric()
         self._last_moving_variance = moving_variance
         thr = self._l1.threshold if hasattr(self._l1, "threshold") else self._l1.get_threshold()
 
@@ -183,7 +189,8 @@ class ClassicDetector(IDetector):
         if ready:
             if l1v > thr:
                 motion = True
-            elif (self._recovery_vote_enabled and self._variance_floor is not None
+            elif (self._recovery_vote_configured
+                  and self._recovery_vote_enabled and self._variance_floor is not None
                   and l1v > band_low
                   and moving_variance > self.RECOVERY_VOTE_RATIO * self._variance_floor):
                 motion = True
@@ -226,7 +233,7 @@ class ClassicDetector(IDetector):
         and the detector runs as L1-Delta alone (safe default).
         """
         self._l1.set_adaptive_threshold(threshold)
-        self._floor_frozen = True
+        self._floor_frozen = self._recovery_vote_configured
 
     def get_last_moving_variance(self):
         """Expose the latest variance metric to the shared startup calibrator."""
@@ -234,6 +241,13 @@ class ClassicDetector(IDetector):
 
     def apply_startup_floor(self, variance_floor, recovery_vote_enabled, sample_count):
         """Freeze one validated startup floor snapshot supplied by the calibrator."""
+        if not self._recovery_vote_configured:
+            self._floor_idx = 0
+            self._floor_count = 0
+            self._variance_floor = None
+            self._recovery_vote_enabled = False
+            return
+
         count = max(0, min(int(sample_count), self.VARIANCE_FLOOR_SIZE))
         self._floor_idx = count % self.VARIANCE_FLOOR_SIZE
         self._floor_count = count
@@ -246,7 +260,11 @@ class ClassicDetector(IDetector):
             for i in range(self.VARIANCE_FLOOR_SIZE):
                 self._variance_floor_ring[i] = 0.0
         self._variance_floor = float(variance_floor) if count > 0 else None
-        self._recovery_vote_enabled = bool(recovery_vote_enabled) and count >= self.VARIANCE_FLOOR_MIN
+        self._recovery_vote_enabled = (
+            self._recovery_vote_configured
+            and bool(recovery_vote_enabled)
+            and count >= self.VARIANCE_FLOOR_MIN
+        )
 
     def is_ready(self):
         """Detection readiness follows the primary detector."""
@@ -254,14 +272,15 @@ class ClassicDetector(IDetector):
 
     def reset(self):
         """Reset runtime state while preserving frozen calibration when present."""
-        preserve_frozen_floor = self._floor_frozen
+        preserve_frozen_floor = self._recovery_vote_configured and self._floor_frozen
         preserved_floor = self._variance_floor
         preserved_vote = self._recovery_vote_enabled
         preserved_ring = None
         if preserve_frozen_floor:
             preserved_ring = list(self._variance_floor_ring)
         self._l1.reset()
-        self._variance_ctx.reset(full=True)
+        if self._recovery_vote_configured and self._variance_ctx is not None:
+            self._variance_ctx.reset(full=True)
         if preserve_frozen_floor and preserved_ring is not None:
             self._variance_floor_ring = preserved_ring
             self._floor_idx = self._floor_idx % self.VARIANCE_FLOOR_SIZE

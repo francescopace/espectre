@@ -250,7 +250,7 @@ ESPectre currently supports two runtime detector families:
 
 | Algorithm | Summary | Shared behavior |
 |-----------|---------|-----------------|
-| `Classic` | L1-delta primary with variance recovery | Uses startup threshold calibration |
+| `Classic` | L1-delta primary with optional variance recovery | Uses startup threshold calibration |
 | `ML` | Neural-network detector | Starts without threshold bootstrap |
 
 Use:

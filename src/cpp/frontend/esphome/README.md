@@ -76,6 +76,7 @@ All frontend parameters live under the `espectre:` section:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `detection_algorithm` | string | `classic` | Detection algorithm: `classic` or `ml` |
+| `classic_recovery_vote_enabled` | bool | `true` | Enable Classic moving-variance recovery below the L1-delta threshold; `false` selects L1-only and skips variance/floor computation |
 | `traffic_generator_rate` | int | `100` | Packets per second for CSI generation (`0-1000`, `0` disables the internal generator) |
 | `traffic_generator_mode` | string | `ping` | Traffic generator mode: `ping` or `dns` |
 | `publish_interval` | int | `auto` | Packets between periodic movement/log updates |
@@ -122,6 +123,7 @@ Threshold behavior:
 ```yaml
 espectre:
   detection_algorithm: classic
+  classic_recovery_vote_enabled: true
   traffic_generator_rate: 100
   traffic_generator_mode: ping
   segmentation_threshold: auto

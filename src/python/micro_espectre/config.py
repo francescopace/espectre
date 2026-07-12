@@ -41,6 +41,7 @@ DEFAULT_SUBCARRIERS = (14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50)
 # "classic" (default): L1-Delta primary + moving-variance recovery vote
 # "ml": Neural Network - learned patterns, fixed threshold
 DETECTION_ALGORITHM = "classic"
+CLASSIC_RECOVERY_VOTE_ENABLED = True  # False selects the L1-Delta-only Classic path
 
 # Threshold bootstrap configuration (fixed subcarriers, no disk I/O)
 CALIBRATION_NUM_WINDOWS = 10   # Number of windows worth of packets to collect

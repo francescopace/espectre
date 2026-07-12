@@ -44,8 +44,8 @@ See [ALGORITHMS.md](ALGORITHMS.md) for the full detector design.
 
 | Metric | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-S3 |
 |--------|----------|----------|----------|----------|
-| Recall | 99.8% | 100.0% | 98.7% | 100.0% |
-| Precision | 100.0% | 100.0% | 100.0% | 100.0% |
+| Recall | 99.8% | 100.0% | 98.8% | 100.0% |
+| Precision | 100.0% | 100.0% | 99.9% | 100.0% |
 | FP Rate | 0.0% | 0.0% | 0.0% | 0.0% |
 | F1-Score | 99.9% | 100.0% | 99.3% | 100.0% |
 
@@ -53,16 +53,22 @@ See [ALGORITHMS.md](ALGORITHMS.md) for the full detector design.
 
 ## Long Quiet Real-Data Validation
 
+Effective Alarms and False Motion Evals apply the deploy runtime policy to the raw per-packet states: one evaluation every 25 packets, 3 consecutive hits to enter MOTION, and 3 to leave it. They count triggered alarms and evaluations spent in a false MOTION state across all quiet recordings per chip.
+
 ### Classic Detector
 
 | Metric | C3 | C5 | C6 | S3 |
 |--------|----|----|----|----|
-| Avg FP Rate | 0.30% | 0.43% | 0.56% | 1.20% |
-| Max FP Rate | 0.42% | 1.06% | 0.96% | 1.20% |
+| Avg FP Rate | 0.46% | 0.43% | 0.39% | 2.45% |
+| Max FP Rate | 0.76% | 1.06% | 0.96% | 3.69% |
+| Effective Alarms | 7 | 6 | 5 | 20 |
+| False Motion Evals | 28 | 24 | 23 | 96 |
 
 ### ML Detector
 
 | Metric | C3 | C5 | C6 | S3 |
 |--------|----|----|----|----|
-| Avg FP Rate | 0.00% | 0.06% | 0.07% | 0.13% |
-| Max FP Rate | 0.00% | 0.19% | 0.13% | 0.13% |
+| Avg FP Rate | 0.00% | 0.04% | 0.06% | 0.02% |
+| Max FP Rate | 0.00% | 0.11% | 0.14% | 0.05% |
+| Effective Alarms | 0 | 1 | 1 | 0 |
+| False Motion Evals | 0 | 3 | 4 | 0 |

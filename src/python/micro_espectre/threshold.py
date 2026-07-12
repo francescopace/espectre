@@ -138,9 +138,14 @@ class StartupThresholdCalibrator:
         if self.gate_enabled:
             if not self.gate_accepted:
                 self._observe_gate_metric(current_metric)
-            if not self._motion_accepted and self.packet_count < self.target_packets:
+            if not self._motion_accepted and self.packet_count <= self.target_packets:
                 floor_metric = self._extract_floor_metric(detector)
                 self._observe_motion_chunk(current_metric, floor_metric)
+            if (not self.gate_accepted
+                    and self.packet_count >= self.target_packets
+                    and self._chunk_count > 0
+                    and len(self._chunk_ring) < self.gate_chunks):
+                self._close_gate_chunk()
         return current_metric
 
     def _extract_floor_metric(self, detector):
@@ -161,6 +166,11 @@ class StartupThresholdCalibrator:
         self._chunk_count += 1
         if self._chunk_count < self._chunk_size:
             return
+
+        self._close_gate_chunk()
+
+    def _close_gate_chunk(self):
+        """Commit the current full or final partial fallback chunk."""
 
         if len(self._chunk_ring) >= self.gate_chunks:
             discarded = self._chunk_ring.pop(0)
@@ -226,7 +236,9 @@ class StartupThresholdCalibrator:
                     self._phase = "SEEK_POST_MOTION_QUIET"
                     self._consecutive_post_quiet_chunks = 0
                     self._post_quiet_levels = []
-                    self._clear_floor_ring()
+                    # The pre-motion samples already passed the quiet
+                    # classifier. Preserve them so early motion-first success
+                    # does not discard a valid variance-floor snapshot.
                 return
 
             if motion_ratio <= STARTUP_QUIET_RETURN_RATIO:
@@ -351,6 +363,13 @@ class StartupThresholdCalibrator:
                     <= self.gate_anchor_ratio * _median_of(self._chunk_ring)):
                 metric = max(metric, self._discarded_chunk_max)
             return metric
+        if self._quiet_anchor_ready and self._motion_levels:
+            quiet_ceiling = self._quiet_ceiling()
+            anchored_cap = self.gate_anchor_ratio * quiet_ceiling
+            return max(
+                quiet_ceiling,
+                min(_median_of(self._chunk_ring), anchored_cap),
+            )
         if not self._motion_confirmed:
             return STARTUP_NO_MOTION_FALLBACK_MARGIN * max(self._chunk_ring)
         return _median_of(self._chunk_ring)
@@ -373,7 +392,13 @@ class StartupThresholdCalibrator:
         if not self.gate_enabled or not self._chunk_ring:
             return "max"
         if self.gate_accepted or not self._motion_confirmed:
+            if (not self.gate_accepted
+                    and self._quiet_anchor_ready
+                    and self._motion_levels):
+                return "quiet anchor"
             return "gated max"
+        if self._quiet_anchor_ready and self._motion_levels:
+            return "quiet anchor"
         return "gated median"
 
     def get_phase_label(self):

@@ -19,7 +19,8 @@ namespace espectre {
 
 static const char *TAG = "ClassicDetector";
 
-ClassicDetector::ClassicDetector(uint16_t window_size, float threshold)
+ClassicDetector::ClassicDetector(uint16_t window_size, float threshold,
+                                 bool recovery_vote_enabled)
     : BaseDetector(window_size)
     , threshold_(threshold)
     , current_l1_metric_(0.0f)
@@ -31,6 +32,7 @@ ClassicDetector::ClassicDetector(uint16_t window_size, float threshold)
     , floor_count_(0)
     , since_refresh_(0)
     , variance_floor_(0.0f)
+    , recovery_vote_configured_(recovery_vote_enabled)
     , recovery_vote_enabled_(false)
     , floor_frozen_(false) {
     threshold_ = clamp_threshold(threshold_, CLASSIC_MIN_THRESHOLD, CLASSIC_MAX_THRESHOLD);
@@ -44,7 +46,16 @@ ClassicDetector::ClassicDetector(uint16_t window_size, float threshold)
 void ClassicDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                      const uint8_t* selected_subcarriers,
                                      uint8_t num_subcarriers) {
-    BaseDetector::process_packet(csi_data, csi_len, selected_subcarriers, num_subcarriers);
+    if (recovery_vote_configured_) {
+        BaseDetector::process_packet(csi_data, csi_len, selected_subcarriers, num_subcarriers);
+    } else {
+        if (!csi_data) {
+            ESP_LOGE(TAG, "process_packet: NULL CSI data");
+            return;
+        }
+        packet_index_++;
+        total_packets_++;
+    }
 
     l1_packet_count_++;
 
@@ -89,13 +100,17 @@ void ClassicDetector::update_state() {
         current_l1_metric_ = 0.0f;
     }
 
-    current_moving_variance_ = (buffer_count_ >= window_size_) ? calculate_moving_variance_() : 0.0f;
+    current_moving_variance_ =
+        (recovery_vote_configured_ && buffer_count_ >= window_size_)
+            ? calculate_moving_variance_()
+            : 0.0f;
 
     bool motion = false;
     if (is_ready()) {
         if (current_l1_metric_ > threshold_) {
             motion = true;
-        } else if (recovery_vote_enabled_ && floor_count_ >= CLASSIC_VARIANCE_FLOOR_MIN &&
+        } else if (recovery_vote_configured_ && recovery_vote_enabled_ &&
+                   floor_count_ >= CLASSIC_VARIANCE_FLOOR_MIN &&
                    current_l1_metric_ > (CLASSIC_BAND_ALPHA * threshold_) &&
                    current_moving_variance_ > (CLASSIC_RECOVERY_VOTE_RATIO * variance_floor_)) {
             motion = true;
@@ -113,7 +128,7 @@ void ClassicDetector::reset() {
 }
 
 void ClassicDetector::clear_buffer() {
-    const bool preserve_frozen_floor = floor_frozen_;
+    const bool preserve_frozen_floor = recovery_vote_configured_ && floor_frozen_;
     const float preserved_floor = variance_floor_;
     const bool preserved_vote = recovery_vote_enabled_;
     const uint16_t preserved_floor_idx = floor_idx_;
@@ -158,13 +173,21 @@ bool ClassicDetector::set_threshold(float threshold) {
 }
 
 void ClassicDetector::on_startup_calibration_complete() {
-    floor_frozen_ = true;
+    floor_frozen_ = recovery_vote_configured_;
     ESP_LOGD(TAG, "Startup calibration frozen (floor=%.6f, vote=%s, samples=%u)",
              variance_floor_, recovery_vote_enabled_ ? "on" : "off", floor_count_);
 }
 
 void ClassicDetector::apply_startup_floor(float variance_floor, bool recovery_vote_enabled,
                                           uint16_t sample_count) {
+    if (!recovery_vote_configured_) {
+        floor_idx_ = 0;
+        floor_count_ = 0;
+        variance_floor_ = 0.0f;
+        recovery_vote_enabled_ = false;
+        return;
+    }
+
     floor_count_ = std::min<uint16_t>(sample_count, CLASSIC_VARIANCE_FLOOR_SIZE);
     floor_idx_ = floor_count_ % CLASSIC_VARIANCE_FLOOR_SIZE;
     for (uint16_t i = 0; i < floor_count_; i++) {
@@ -174,7 +197,8 @@ void ClassicDetector::apply_startup_floor(float variance_floor, bool recovery_vo
         variance_floor_ring_[i] = 0.0f;
     }
     variance_floor_ = (floor_count_ > 0) ? variance_floor : 0.0f;
-    recovery_vote_enabled_ = recovery_vote_enabled && floor_count_ >= CLASSIC_VARIANCE_FLOOR_MIN;
+    recovery_vote_enabled_ = recovery_vote_configured_ && recovery_vote_enabled &&
+                             floor_count_ >= CLASSIC_VARIANCE_FLOOR_MIN;
 }
 
 void ClassicDetector::clear_l1_state_() {
