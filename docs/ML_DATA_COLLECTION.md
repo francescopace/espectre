@@ -98,9 +98,9 @@ address and sends one CSI stream packet back for each received csi callback,
 embedding the latest available CSI sample in every stream packet.
 
 By default, `./espectre collect` keeps the requested `--pps` fixed. Add
-`--adaptive` when you want the collector to react to firmware-reported TX
-backpressure, which is useful on unstable links or when exploring higher pacing
-rates.
+`--adaptive` when you want the collector to keep the observed receive rate near
+the requested `--pps`, while still reacting immediately to firmware-reported TX
+backpressure.
 
 ### Save Semantics
 

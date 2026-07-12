@@ -50,7 +50,7 @@ Computed metrics:
 
 ## Detailed Check Summary
 
-- Total checks: 335
-- ✅ PASS: 301
-- ⚠️ WARN: 34
+- Total checks: 357
+- ✅ PASS: 322
+- ⚠️ WARN: 35
 - ❌ FAIL: 0

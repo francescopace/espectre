@@ -1385,7 +1385,7 @@ def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, caps
 
     output = capsys.readouterr().out
     assert FakePacingSender.last_instance is not None
-    assert FakePacingSender.last_instance.rate_updates == pytest.approx([85.0, 59.5, 61.5])
+    assert FakePacingSender.last_instance.rate_updates == pytest.approx([85.0, 59.5, 61.5, 63.5, 65.5])
     assert "bp:active(+4)" in output
     assert "Pps:" in output and "(adaptive)" in output
 

@@ -129,7 +129,7 @@ Common flags:
 | `--label` | Dataset label for saved collections |
 | `--samples` | Timed dataset mode: sample count |
 | `--pps` | UDP packet rate sent from the collector to the target device |
-| `--adaptive` | Opt in to backpressure-driven pacing instead of fixed `--pps` |
+| `--adaptive` | Hold the requested receive rate by trimming send pace from RX feedback and backpressure |
 | `--detector` | Live detector selection, comma-separated for parallel comparison |
 | `--no-save` | Run live inspection without writing dataset files |
 
@@ -137,7 +137,8 @@ In live streamer mode, `collect` sends ordinary UDP traffic to the
 target device. The device learns the collector IP from the source address of
 those packets and sends one CSI stream packet back for each received CSI callback.
 By default, `--pps` stays fixed. Add `--adaptive` when you want the collector
-to slow down on firmware-reported TX backpressure and recover more cautiously.
+to keep the observed receive rate near the requested `--pps`, while still
+backing off immediately on firmware-reported TX backpressure.
 
 Examples:
 

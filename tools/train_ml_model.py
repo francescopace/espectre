@@ -48,6 +48,7 @@ import sys
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 import numpy as np
 import random
@@ -58,6 +59,7 @@ import tempfile
 from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
+from functools import lru_cache
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT_PATH = SCRIPT_DIR.parent
@@ -341,12 +343,17 @@ from config import (
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
     ENABLE_LOWPASS_FILTER,
+    EVALUATION_INTERVAL,
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
     LOWPASS_CUTOFF,
+    MOTION_OFF_HITS,
+    MOTION_ON_HITS,
     SEG_WINDOW_SIZE,
 )
 from classic_detector import ClassicDetector
+from detector_interface import MotionState
+from runtime_policy import RuntimeMotionPolicy
 from segmentation import SegmentationContext
 from features import (
     extract_features_by_name, DEFAULT_FEATURES,
@@ -427,6 +434,8 @@ DEFAULT_REPORT_GROUP_KEYS = (
 )
 MAX_PROMOTION_TOTAL_FP_INCREASE = 0
 MAX_PROMOTION_FP_RATE_INCREASE = 0.0
+MAX_PROMOTION_EFFECTIVE_ALARM_INCREASE = 0
+MAX_PROMOTION_FALSE_MOTION_EVALUATION_INCREASE = 0
 ACTIVE_TORCH_DEVICE = DEFAULT_TORCH_DEVICE
 # ============================================================================
 # Data Loading
@@ -3477,22 +3486,68 @@ def summarize_gate(by_chip):
         'worst_chip_f1': float(np.min([row['f1'] for row in rows])),
         'total_fp': int(sum(row['fp'] for row in rows)),
         'total_fn': int(sum(row['fn'] for row in rows)),
+        'total_effective_alarms': int(sum(row.get('effective_alarms', 0) for row in rows)),
+        'total_false_motion_evaluations': int(
+            sum(row.get('false_motion_evaluations', 0) for row in rows)
+        ),
     }
 
 
-class StreamingEvaluator:
-    """Evaluate a trained model with the runtime-equivalent feature path."""
+def evaluate_idle_runtime_policy(probabilities, threshold=0.5):
+    """Evaluate deploy-time cadence and hit filtering on an IDLE score stream."""
+    policy = RuntimeMotionPolicy(EVALUATION_INTERVAL, MOTION_ON_HITS, MOTION_OFF_HITS)
+    effective_alarms = 0
+    false_motion_evaluations = 0
 
-    def __init__(self, model, scaler, feature_names):
+    for probability in np.asarray(probabilities)[EVALUATION_INTERVAL - 1::EVALUATION_INTERVAL]:
+        raw_state = MotionState.MOTION if probability > threshold else MotionState.IDLE
+        effective_state, changed = policy.apply_state(raw_state)
+        if changed and effective_state == MotionState.MOTION:
+            effective_alarms += 1
+        if effective_state == MotionState.MOTION:
+            false_motion_evaluations += 1
+
+    return {
+        'effective_alarms': effective_alarms,
+        'false_motion_evaluations': false_motion_evaluations,
+    }
+
+
+def _layer_arrays_from_model(model):
+    """Return [(weights, biases, is_output), ...] arrays from a torch model."""
+    raw_weights = extract_model_weights(model)
+    layers = []
+    for idx in range(0, len(raw_weights), 2):
+        weights = raw_weights[idx]
+        biases = raw_weights[idx + 1]
+        is_output = idx == len(raw_weights) - 2
+        layers.append((weights, biases, is_output))
+    return layers
+
+
+def _batch_predict_probabilities(features, center, scale, layers):
+    """Vectorized forward pass matching the runtime inference math."""
+    features = np.asarray(features, dtype=np.float32)
+    if features.size == 0:
+        return np.zeros(0, dtype=np.float64)
+    activations = (features - center) / scale
+    for weights, biases, is_output in layers:
+        activations = activations @ weights + biases
+        if not is_output:
+            activations = activations.clip(min=0.0)
+
+    logits = activations.reshape(-1).astype(np.float64)
+    probabilities = 1.0 / (1.0 + np.exp(-np.clip(logits, -20.0, 20.0)))
+    probabilities[logits < -20.0] = 0.0
+    probabilities[logits > 20.0] = 1.0
+    return probabilities
+
+
+class StreamingFeatureExtractor:
+    """Compute runtime-equivalent feature vectors from a CSI packet stream."""
+
+    def __init__(self, feature_names):
         self.feature_names = list(feature_names)
-        self.center, self.scale = get_preprocessor_arrays(scaler)
-        raw_weights = extract_model_weights(model)
-        self.layers = []
-        for idx in range(0, len(raw_weights), 2):
-            weights = raw_weights[idx]
-            biases = raw_weights[idx + 1]
-            is_output = idx == len(raw_weights) - 2
-            self.layers.append((weights, biases, is_output))
         self.context = SegmentationContext(
             window_size=SEG_WINDOW_SIZE,
             threshold=1.0,
@@ -3508,20 +3563,6 @@ class StreamingEvaluator:
         self.amplitude_history = (
             deque(maxlen=SEG_WINDOW_SIZE) if self.needs_amplitude_history else None
         )
-
-    def _predict_probability(self, features):
-        activations = (np.asarray(features, dtype=np.float32) - self.center) / self.scale
-        for weights, biases, is_output in self.layers:
-            activations = activations @ weights + biases
-            if not is_output:
-                activations = activations.clip(min=0.0)
-
-        logit = float(activations.reshape(-1)[0])
-        if logit < -20.0:
-            return 0.0
-        if logit > 20.0:
-            return 1.0
-        return 1.0 / (1.0 + np.exp(-logit))
 
     def process_packet(self, csi_data):
         turbulence, amplitudes = self.context.calculate_spatial_turbulence(
@@ -3540,7 +3581,7 @@ class StreamingEvaluator:
             self.context.turbulence_buffer[idx:]
             + self.context.turbulence_buffer[:idx]
         )
-        features = extract_features_by_name(
+        return extract_features_by_name(
             turb_list,
             len(turb_list),
             feature_names=self.feature_names,
@@ -3550,7 +3591,27 @@ class StreamingEvaluator:
                 else None
             ),
         )
-        return float(self._predict_probability(features))
+
+
+class StreamingEvaluator:
+    """Evaluate a trained model with the runtime-equivalent feature path."""
+
+    def __init__(self, model, scaler, feature_names):
+        self.extractor = StreamingFeatureExtractor(feature_names)
+        self.center, self.scale = get_preprocessor_arrays(scaler)
+        self.layers = _layer_arrays_from_model(model)
+
+    def process_packet(self, csi_data):
+        features = self.extractor.process_packet(csi_data)
+        if features is None:
+            return None
+        probabilities = _batch_predict_probabilities(
+            np.asarray(features, dtype=np.float32).reshape(1, -1),
+            self.center,
+            self.scale,
+            self.layers,
+        )
+        return float(probabilities[0])
 
 
 def evaluate_split(model, scaler, feature_names, static_presence_packets, motion_packets, threshold=0.5):
@@ -3625,24 +3686,138 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
     return summarize_gate(by_chip)
 
 
-def evaluate_long_gate(model, scaler, feature_names, threshold=0.5, chips=None):
-    """Evaluate a candidate on the curated long recordings."""
+@lru_cache(maxsize=4)
+def _long_gate_feature_splits(feature_names, chips):
+    """
+    Replay the curated long recordings once and cache their feature streams.
+
+    Feature extraction does not depend on model weights or scaler, so the
+    per-packet replay cost is paid once per (feature set, chip filter) and
+    every candidate evaluation reduces to a batched forward pass.
+    """
     from conftest import get_available_long_test_datasets
 
-    chips = tuple(chips or DEFAULT_LONG_GATE_CHIPS)
-    by_chip = {}
+    warmup = SEG_WINDOW_SIZE
+    splits = []
     for _, static_presence_packets, motion_packets, _, chip, _ in get_available_long_test_datasets(
         chips=chips
     ):
-        by_chip[chip] = evaluate_split(
-            model,
-            scaler,
-            feature_names,
-            static_presence_packets,
-            motion_packets,
-            threshold=threshold,
+        extractor = StreamingFeatureExtractor(feature_names)
+        static_presence_features = []
+        motion_features = []
+        for i, pkt in enumerate(static_presence_packets):
+            features = extractor.process_packet(pkt['csi_data'])
+            if i >= warmup and features is not None:
+                static_presence_features.append(features)
+        for i, pkt in enumerate(motion_packets):
+            features = extractor.process_packet(pkt['csi_data'])
+            if i >= warmup and features is not None:
+                motion_features.append(features)
+        splits.append({
+            'chip': chip,
+            'static_presence_features': np.asarray(
+                static_presence_features, dtype=np.float32
+            ).reshape(len(static_presence_features), len(feature_names)),
+            'motion_features': np.asarray(
+                motion_features, dtype=np.float32
+            ).reshape(len(motion_features), len(feature_names)),
+            'static_presence_eval_count': max(len(static_presence_packets) - warmup, 0),
+            'motion_eval_count': max(len(motion_packets) - warmup, 0),
+        })
+    return tuple(splits)
+
+
+def _evaluate_feature_split(split, center, scale, layers, threshold):
+    """Evaluate one cached long-recording split with a batched forward pass."""
+    static_presence_probs = _batch_predict_probabilities(
+        split['static_presence_features'], center, scale, layers
+    )
+    motion_probs = _batch_predict_probabilities(
+        split['motion_features'], center, scale, layers
+    )
+
+    fp = int(np.sum(static_presence_probs > threshold))
+    tp = int(np.sum(motion_probs > threshold))
+    fn = int(motion_probs.size) - tp
+    tn = max(split['static_presence_eval_count'] - fp, 0)
+    recall = tp / (tp + fn) * 100.0 if (tp + fn) else 0.0
+    precision = tp / (tp + fp) * 100.0 if (tp + fp) else 0.0
+    fp_rate = (
+        fp / split['static_presence_eval_count'] * 100.0
+        if split['static_presence_eval_count']
+        else 0.0
+    )
+    f1 = (
+        2 * (precision / 100.0) * (recall / 100.0) / ((precision + recall) / 100.0) * 100.0
+        if (precision + recall)
+        else 0.0
+    )
+    policy_metrics = evaluate_idle_runtime_policy(static_presence_probs, threshold)
+    return {
+        'recall': float(recall),
+        'precision': float(precision),
+        'fp_rate': float(fp_rate),
+        'f1': float(f1),
+        'tp': int(tp),
+        'fp': int(fp),
+        'tn': int(tn),
+        'fn': int(fn),
+        'static_presence_eval_count': int(split['static_presence_eval_count']),
+        'motion_eval_count': int(split['motion_eval_count']),
+        **policy_metrics,
+    }
+
+
+def _evaluate_long_gate_arrays(feature_names, center, scale, layers, threshold, chips):
+    """Evaluate inference arrays on every cached long recording.
+
+    Keys duplicate-chip recordings individually so the aggregates cover all
+    datasets, matching the pytest long-gate summary.
+    """
+    by_dataset = {}
+    for split in _long_gate_feature_splits(tuple(feature_names), chips):
+        key = split['chip']
+        suffix = 2
+        while key in by_dataset:
+            key = f"{split['chip']}#{suffix}"
+            suffix += 1
+        by_dataset[key] = _evaluate_feature_split(
+            split, center, scale, layers, threshold
         )
-    return summarize_gate(by_chip)
+    return summarize_gate(by_dataset)
+
+
+def evaluate_long_gate(model, scaler, feature_names, threshold=0.5, chips=None):
+    """Evaluate a candidate on the curated long recordings."""
+    chips = tuple(chips or DEFAULT_LONG_GATE_CHIPS)
+    center, scale = get_preprocessor_arrays(scaler)
+    layers = _layer_arrays_from_model(model)
+    return _evaluate_long_gate_arrays(feature_names, center, scale, layers, threshold, chips)
+
+
+def _load_exported_model_arrays():
+    """Load exported MicroPython weights as inference-ready arrays."""
+    weights_path = SRC_DIR / 'ml_weights.py'
+    spec = importlib.util.spec_from_file_location('_exported_ml_weights', weights_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    center = np.asarray(module.FEATURE_MEAN, dtype=np.float64)
+    scale = np.asarray(module.FEATURE_SCALE, dtype=np.float64)
+    layers = []
+    for idx, (weights, biases) in enumerate(zip(module.WEIGHTS, module.BIASES)):
+        layers.append((
+            np.asarray(weights, dtype=np.float32),
+            np.asarray(biases, dtype=np.float32),
+            idx == len(module.WEIGHTS) - 1,
+        ))
+    return list(module.FEATURE_NAMES), center, scale, layers
+
+
+def evaluate_exported_long_gate(threshold=0.5, chips=None):
+    """Evaluate the exported ml_weights artifacts on the curated long recordings."""
+    chips = tuple(chips or DEFAULT_LONG_GATE_CHIPS)
+    feature_names, center, scale, layers = _load_exported_model_arrays()
+    return _evaluate_long_gate_arrays(feature_names, center, scale, layers, threshold, chips)
 
 
 def _parse_long_recording_metrics(output):
@@ -3654,10 +3829,11 @@ def _parse_long_recording_metrics(output):
         r"\s*([0-9.]+)%\s*\|"
         r"\s*([0-9.]+)%\s*\|"
         r"\s*(\d+)\s*\|"
+        r"(?:\s*(\d+)\s*\|\s*(\d+)\s*\|)?"
     )
     rows = []
     for match in pattern.finditer(output):
-        chip, recall, precision, fp_rate, f1, fp_count = match.groups()
+        chip, recall, precision, fp_rate, f1, fp_count, alarms, false_motion = match.groups()
         rows.append({
             'chip': chip,
             'recall': float(recall),
@@ -3665,6 +3841,8 @@ def _parse_long_recording_metrics(output):
             'fp_rate': float(fp_rate),
             'f1': float(f1),
             'fp_count': int(fp_count),
+            'effective_alarms': int(alarms or 0),
+            'false_motion_evaluations': int(false_motion or 0),
         })
 
     if not rows:
@@ -3681,6 +3859,8 @@ def _parse_long_recording_metrics(output):
         'mean_f1': float(np.mean([r['f1'] for r in rows])),
         'worst_chip_f1': float(np.min([r['f1'] for r in rows])),
         'total_fp': int(sum(r['fp_count'] for r in rows)),
+        'total_effective_alarms': int(sum(r['effective_alarms'] for r in rows)),
+        'total_false_motion_evaluations': int(sum(r['false_motion_evaluations'] for r in rows)),
     }
 
 
@@ -3717,6 +3897,9 @@ def _run_ml_performance_tests():
         PYTEST_LONG_ML_GATE,
         '-v',
         '-s',
+        # Disable xdist: workers swallow the teardown summary table this
+        # function parses.
+        '-n0',
     ]
     result = subprocess.run(
         cmd,
@@ -3738,6 +3921,9 @@ def _run_ml_paired_tests():
         PYTEST_PAIRED_ML_GATE,
         '-v',
         '-s',
+        # Single-test gate: xdist only adds worker startup overhead and
+        # mangles diagnostic output.
+        '-n0',
     ]
     result = subprocess.run(
         cmd,
@@ -3749,10 +3935,24 @@ def _run_ml_paired_tests():
     return int(result.returncode), output
 
 
-def run_exported_ml_gates():
-    """Run all required gates for already-exported ML artifacts."""
+def run_exported_ml_gates(long_in_process=False):
+    """
+    Run all required gates for already-exported ML artifacts.
+
+    With long_in_process=True the long-recording gate is evaluated in this
+    process on cached feature streams instead of a pytest subprocess. That
+    keeps per-candidate seed-search cost low; the pytest form remains the
+    final verification for promoted artifacts.
+    """
     paired_rc, paired_output = _run_ml_paired_tests()
-    long_metrics, long_output = _run_ml_performance_tests()
+    if long_in_process:
+        long_metrics = evaluate_exported_long_gate()
+        long_output = (
+            "" if long_metrics is not None
+            else "in-process long gate: no curated long recordings available"
+        )
+    else:
+        long_metrics, long_output = _run_ml_performance_tests()
     return ExportedMLGateResult(
         paired_returncode=paired_rc,
         paired_output=paired_output,
@@ -3766,12 +3966,14 @@ def _real_ml_gate_key(real_metrics):
     if real_metrics is None:
         return None
     return (
-        real_metrics['mean_f1'],
-        real_metrics['worst_chip_f1'],
+        -real_metrics.get('total_effective_alarms', 0),
+        -real_metrics.get('total_false_motion_evaluations', 0),
         -real_metrics['total_fp'],
+        -real_metrics['max_fp_rate'],
         real_metrics['mean_recall'],
         real_metrics['pass_count'],
-        -real_metrics['max_fp_rate'],
+        real_metrics['worst_chip_f1'],
+        real_metrics['mean_f1'],
     )
 
 
@@ -3793,11 +3995,13 @@ def _format_long_ml_summary(real_metrics):
     """Build a short one-line summary for ML-only real-data gate metrics."""
     if real_metrics is None:
         return "long_gate=unavailable"
-    total = len(real_metrics.get('rows', []))
+    total = len(real_metrics.get('rows') or real_metrics.get('by_chip', {}))
     return (
         f"long_gate={total} "
         f"mean_f1={real_metrics['mean_f1']:.1f}% "
         f"worst_f1={real_metrics['worst_chip_f1']:.1f}% "
+        f"alarms={real_metrics.get('total_effective_alarms', 0)} "
+        f"false_motion_evals={real_metrics.get('total_false_motion_evaluations', 0)} "
         f"total_fp={real_metrics['total_fp']} "
         f"mean_recall={real_metrics['mean_recall']:.1f}%"
     )
@@ -3829,6 +4033,17 @@ def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, 
         > baseline_long.get('max_fp_rate', 0.0) + MAX_PROMOTION_FP_RATE_INCREASE
     ):
         return False
+    if (
+        candidate_long.get('total_effective_alarms', 0)
+        > baseline_long.get('total_effective_alarms', 0) + MAX_PROMOTION_EFFECTIVE_ALARM_INCREASE
+    ):
+        return False
+    if (
+        candidate_long.get('total_false_motion_evaluations', 0)
+        > baseline_long.get('total_false_motion_evaluations', 0)
+        + MAX_PROMOTION_FALSE_MOTION_EVALUATION_INCREASE
+    ):
+        return False
     return _combined_candidate_key(candidate_cv, candidate_gate.long_metrics) > _combined_candidate_key(
         static_presence_cv,
         static_presence_gate.long_metrics,
@@ -3842,7 +4057,7 @@ def _search_candidate_key(cv_metrics, gate=None):
     long_available = 1 if gate is not None and gate.long_metrics is not None else 0
     real_key = _real_ml_gate_key(gate.long_metrics if gate is not None else None)
     if real_key is None:
-        real_key = (-float('inf'),) * 6
+        real_key = (-float('inf'),) * 8
     return (gate_passed, paired_passed, long_available) + tuple(real_key) + build_candidate_key(cv_metrics)
 
 
@@ -3968,7 +4183,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         f"chip_min_recall={static_presence_chip.get('recall', 0.0):.1f}% "
         f"blocked_oof_f1={static_presence_metrics['oof_f1']:.1f}%"
     )
-    static_presence_gate = run_exported_ml_gates()
+    static_presence_gate = run_exported_ml_gates(long_in_process=True)
     print(f"Baseline exported ML gates: {_format_exported_gate_summary(static_presence_gate)}")
     broken_baseline_mode = not static_presence_gate.passed
     if broken_baseline_mode:
@@ -4052,7 +4267,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             trial_summaries.append((used_seed, metrics, None, 'export_failed'))
             continue
 
-        candidate_gate = run_exported_ml_gates()
+        candidate_gate = run_exported_ml_gates(long_in_process=True)
         print(f"  Exported ML gates: {_format_exported_gate_summary(candidate_gate)}")
         if not candidate_gate.passed:
             if candidate_gate.paired_returncode != 0 and candidate_gate.paired_output.strip():
@@ -4114,6 +4329,18 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                 f"{_format_exported_gate_summary(improved_gate)})"
             )
             return 0
+        # Candidates are gated with the in-process long gate; confirm the
+        # promoted artifacts once with the full pytest verification.
+        final_gate = run_exported_ml_gates()
+        print(f"Final exported ML gates: {_format_exported_gate_summary(final_gate)}")
+        if not final_gate.passed:
+            _restore_artifacts(saved_files)
+            print("\nFinal exported ML gate verification failed; previous artifacts restored")
+            if final_gate.paired_returncode != 0 and final_gate.paired_output.strip():
+                print(final_gate.paired_output.strip())
+            if final_gate.long_metrics is None and final_gate.long_output.strip():
+                print(final_gate.long_output.strip())
+            return 1
         print(
             f"\nSelected seed: {improved_seed} "
             f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "

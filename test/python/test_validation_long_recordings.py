@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
+from tools.lib.performance_report import (
+    evaluate_classic_long_recording as _evaluate_classic_long_recording,
+    evaluate_ml_long_recording as _evaluate_ml_long_recording,
+)
 from tools.lib.repo_paths import tools_dir
 
-from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE
-from classic_detector import ClassicDetector
-from detector_interface import MotionState
-from ml_detector import MLDetector
 from conftest import (
     DATA_DIR,
     DATASET_INFO_PATH,
@@ -24,7 +24,6 @@ from conftest import (
     extract_motion_start_from_description,
     get_available_long_test_datasets,
 )
-from tools.lib.dataset_metadata import build_calibrated_classic_detector
 
 
 TRAIN_ML_MODEL_PATH = tools_dir() / "train_ml_model.py"
@@ -37,121 +36,6 @@ def _load_train_ml_model_module():
     spec.loader.exec_module(module)
     return module
 
-
-def _evaluate_ml_long_recording(baseline_packets, movement_packets):
-    """Run MLDetector across a long recording split and return packet metrics."""
-    detector = MLDetector(
-        threshold=0.5,
-        window_size=SEG_WINDOW_SIZE,
-    )
-    warmup = SEG_WINDOW_SIZE
-
-    baseline_eval_count = max(len(baseline_packets) - warmup, 0)
-    movement_eval_count = max(len(movement_packets) - warmup, 0)
-    baseline_motion_packets = 0
-    movement_with_motion = 0
-    movement_without_motion = 0
-
-    for i, pkt in enumerate(baseline_packets):
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
-        detector.update_state()
-        if i >= warmup and detector.get_state() == MotionState.MOTION:
-            baseline_motion_packets += 1
-
-    for i, pkt in enumerate(movement_packets):
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
-        detector.update_state()
-        if i >= warmup:
-            if detector.get_state() == MotionState.MOTION:
-                movement_with_motion += 1
-            else:
-                movement_without_motion += 1
-
-    tp = movement_with_motion
-    fn = movement_without_motion
-    fp = baseline_motion_packets
-    tn = max(baseline_eval_count - baseline_motion_packets, 0)
-
-    recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
-    precision = tp / (tp + fp) * 100.0 if (tp + fp) > 0 else 0.0
-    fp_rate = fp / baseline_eval_count * 100.0 if baseline_eval_count > 0 else 0.0
-    f1 = (
-        2 * (precision / 100.0) * (recall / 100.0) / ((precision + recall) / 100.0) * 100.0
-        if (precision + recall) > 0
-        else 0.0
-    )
-
-    return {
-        "baseline_eval_count": baseline_eval_count,
-        "movement_eval_count": movement_eval_count,
-        "tp": tp,
-        "fn": fn,
-        "fp": fp,
-        "tn": tn,
-        "recall": recall,
-        "precision": precision,
-        "fp_rate": fp_rate,
-        "f1": f1,
-    }
-
-
-def _evaluate_classic_long_recording(baseline_packets, movement_packets):
-    """Run startup-calibrated ClassicDetector across a long recording split."""
-    calibrated = build_calibrated_classic_detector(
-        baseline_packets,
-        selected_subcarriers=DEFAULT_SUBCARRIERS,
-    )
-    if calibrated is None:
-        return None
-    detector, adaptive_threshold = calibrated
-    warmup = SEG_WINDOW_SIZE
-    baseline_eval_count = max(len(baseline_packets) - warmup, 0)
-    movement_eval_count = max(len(movement_packets) - warmup, 0)
-    baseline_motion_packets = 0
-    movement_with_motion = 0
-    movement_without_motion = 0
-
-    for i, pkt in enumerate(baseline_packets):
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
-        detector.update_state()
-        if i >= warmup and detector.get_state() == MotionState.MOTION:
-            baseline_motion_packets += 1
-
-    for i, pkt in enumerate(movement_packets):
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
-        detector.update_state()
-        if i >= warmup:
-            if detector.get_state() == MotionState.MOTION:
-                movement_with_motion += 1
-            else:
-                movement_without_motion += 1
-
-    tp = movement_with_motion
-    fn = movement_without_motion
-    fp = baseline_motion_packets
-    tn = max(baseline_eval_count - baseline_motion_packets, 0)
-    recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
-    precision = tp / (tp + fp) * 100.0 if (tp + fp) > 0 else 0.0
-    fp_rate = fp / baseline_eval_count * 100.0 if baseline_eval_count > 0 else 0.0
-    f1 = (
-        2 * (precision / 100.0) * (recall / 100.0) / ((precision + recall) / 100.0) * 100.0
-        if (precision + recall) > 0
-        else 0.0
-    )
-    return {
-        "adaptive_threshold": adaptive_threshold,
-        "warmup": warmup,
-        "baseline_eval_count": baseline_eval_count,
-        "movement_eval_count": movement_eval_count,
-        "tp": tp,
-        "fn": fn,
-        "fp": fp,
-        "tn": tn,
-        "recall": recall,
-        "precision": precision,
-        "fp_rate": fp_rate,
-        "f1": f1,
-    }
 
 class TestLongRecordings:
     """Validate MLDetector on the curated 60-second recordings."""
@@ -171,12 +55,13 @@ class TestLongRecordings:
         print("=" * 99)
         print("                    LONG RECORDING ML SUMMARY (for seed search)")
         print("=" * 99)
-        print("| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count |")
-        print("|--------|---------|-----------|---------|----------|----------|")
+        print("| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count | Alarms | False Motion Evals |")
+        print("|--------|---------|-----------|---------|----------|----------|--------|--------------------|")
         for row in sorted(cls._rows, key=lambda item: item["chip"]):
             print(
                 f"| {row['chip']:<6} | {row['recall']:>6.1f}% | {row['precision']:>8.1f}% | "
-                f"{row['fp_rate']:>6.1f}% | {row['f1']:>7.1f}% | {row['fp_count']:>8d} |"
+                f"{row['fp_rate']:>6.1f}% | {row['f1']:>7.1f}% | {row['fp_count']:>8d} | "
+                f"{row['effective_alarms']:>6d} | {row['false_motion_evaluations']:>18d} |"
             )
         print("-" * 99)
 
@@ -215,6 +100,8 @@ class TestLongRecordings:
         assert 0.0 <= metrics["precision"] <= 100.0
         assert 0.0 <= metrics["fp_rate"] <= 100.0
         assert 0.0 <= metrics["f1"] <= 100.0
+        assert metrics["effective_alarms"] >= 0
+        assert metrics["false_motion_evaluations"] >= 0
         assert str(entry.get("chip", "")).upper() == chip
 
 
@@ -322,16 +209,18 @@ class TestLongRecordingHelpers:
 ===================================================================================
                     LONG RECORDING ML SUMMARY (for seed search)
 ===================================================================================
-| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count |
-|--------|---------|-----------|---------|----------|----------|
-| C3     |   99.9% |     97.1% |    3.0% |    98.5% |       89 |
-| C5     |   98.4% |     96.3% |    4.1% |    97.3% |      121 |
-| C6     |   96.7% |     94.8% |    5.2% |    95.7% |      165 |
+| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count | Alarms | False Motion Evals |
+|--------|---------|-----------|---------|----------|----------|--------|--------------------|
+| C3     |   99.9% |     97.1% |    3.0% |    98.5% |       89 |      0 |                  0 |
+| C5     |   98.4% |     96.3% |    4.1% |    97.3% |      121 |      1 |                  4 |
+| C6     |   96.7% |     94.8% |    5.2% |    95.7% |      165 |      2 |                  9 |
 -----------------------------------------------------------------------------------
 """
         metrics = train_ml_model._parse_long_recording_metrics(output)
         assert metrics is not None
         assert metrics["pass_count"] == 2
         assert metrics["total_fp"] == 375
+        assert metrics["total_effective_alarms"] == 3
+        assert metrics["total_false_motion_evaluations"] == 13
         assert metrics["mean_f1"] == pytest.approx((98.5 + 97.3 + 95.7) / 3.0)
         assert metrics["worst_chip_f1"] == pytest.approx(95.7)

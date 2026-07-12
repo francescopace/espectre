@@ -9,7 +9,6 @@ License: GPLv3
 """
 
 import pytest
-import json
 from functools import lru_cache
 
 # ============================================================================
@@ -17,17 +16,23 @@ from functools import lru_cache
 # ============================================================================
 import numpy as np
 import math
-from pathlib import Path
 
-from tools.lib.repo_paths import data_dir
-
-# Import from src and tools
 from segmentation import SegmentationContext
 from features import (
     FEATURE_NAMES as RUNTIME_FEATURE_NAMES,
 )
 from filters import HampelFilter
 from tools.lib.csi_analysis import calculate_spatial_turbulence
+from tools.lib.performance_report import (
+    compute_classic_dataset_result as _compute_classic_dataset_result,
+    compute_ml_dataset_result as _compute_ml_dataset_result,
+    compute_ml_empty_fp_result as _compute_ml_empty_fp_result,
+    evaluate_detector_packets,
+    get_available_chip_types as _shared_get_available_chip_types,
+    get_available_empty_datasets as _shared_get_available_empty_datasets,
+    get_available_paired_datasets as _shared_get_available_paired_datasets,
+    load_real_data_cached as _load_real_data_cached,
+)
 from tools.lib.csi_io import load_npz_as_packets
 from tools.lib.dataset_metadata import (
     build_calibrated_classic_detector,
@@ -49,11 +54,6 @@ from conftest import get_classic_fp_rate_target, get_classic_recall_target, reco
 from threshold import StartupThresholdCalibrator, get_detector_auto_factor, get_detector_startup_gate
 
 
-# ============================================================================
-# Data Directory
-# ============================================================================
-
-DATA_DIR = data_dir()
 KEY_RUNTIME_FEATURE_GATES = {
     "turb_mad_over_mean": 0.5,
     "turb_autocorr": 0.5,
@@ -69,65 +69,23 @@ KEY_RUNTIME_FEATURE_GATES = {
 
 def get_available_datasets():
     """Get explicit static-presence/motion pairs (HT20: 64 SC only)."""
-    datasets = []
-
-    dataset_info_path = DATA_DIR / "dataset_info.json"
-    if not dataset_info_path.exists():
-        return datasets
-
-    with dataset_info_path.open("r") as f:
-        dataset_info = json.load(f)
-
-    files = dataset_info.get("files", {})
-    motion_by_filename = {
-        entry.get("filename"): entry
-        for entry in files.get("motion", [])
-        if entry.get("filename")
-    }
-
-    pair_entries = []
-    for static_entry in files.get("static_presence", []):
-        if static_entry.get("subcarriers") != 64:
-            continue
-        motion_filename = static_entry.get("optimal_pair_motion_file")
-        motion_entry = motion_by_filename.get(motion_filename)
-        if not motion_entry or motion_entry.get("subcarriers") != 64:
-            continue
-
-        chip = static_entry.get("chip")
-        static_path = DATA_DIR / "static_presence" / static_entry["filename"]
-        motion_path = DATA_DIR / "motion" / motion_filename
-        if not chip or not static_path.exists() or not motion_path.exists():
-            continue
-
-        environment = static_entry.get("environment") or "unknown"
-        dataset_id = f"{chip.lower()}_{environment}_{static_path.stem}"
-        pair_entries.append((chip, environment, static_path.name, static_path, motion_path, dataset_id))
-
-    for chip, _environment, _filename, static_path, motion_path, dataset_id in sorted(pair_entries):
-        datasets.append(pytest.param(
-            (static_path, motion_path, 64, chip, dataset_id),
-            id=dataset_id
-        ))
-
-    return datasets
+    return [
+        pytest.param(dataset, id=dataset[4])
+        for dataset in _shared_get_available_paired_datasets()
+    ]
 
 
 def get_available_empty_datasets():
     """Get empty-room recordings for ML false-positive gates."""
-    empty_dir = DATA_DIR / "empty"
-    datasets = []
-    for path in sorted(empty_dir.glob("empty_*_64sc_*.npz")):
-        datasets.append(pytest.param(path, id=path.stem))
-    return datasets
+    return [
+        pytest.param(path, id=path.stem)
+        for path in _shared_get_available_empty_datasets()
+    ]
 
 
 def get_available_chip_types():
     """Return the stable set of chips covered by the paired real-data datasets."""
-    chips = []
-    for dataset in get_available_datasets():
-        chips.append(dataset.values[0][3])
-    return sorted(dict.fromkeys(chips))
+    return _shared_get_available_chip_types()
 
 
 # ============================================================================
@@ -242,172 +200,7 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
 @lru_cache(maxsize=None)
 def _load_packets_cached(path_value):
     """Load and cache packet dictionaries for a .npz dataset."""
-    return tuple(load_npz_as_packets(Path(path_value)))
-
-
-@lru_cache(maxsize=None)
-def _load_real_data_cached(static_presence_path, motion_path):
-    """Cache paired static-presence and motion packet streams."""
-    return (
-        _load_packets_cached(str(static_presence_path)),
-        _load_packets_cached(str(motion_path)),
-    )
-
-
-@lru_cache(maxsize=None)
-def _load_empty_room_packets(empty_dataset_path):
-    """Cache empty-room packet streams across ML FP checks."""
-    return _load_packets_cached(str(empty_dataset_path))
-
-
-@lru_cache(maxsize=None)
-def _compute_classic_dataset_result(static_presence_path, motion_path, selected_band, window_size):
-    """Run the Classic replay once per dataset and cache the resulting metrics."""
-    static_presence_packets, motion_packets = _load_real_data_cached(
-        static_presence_path,
-        motion_path,
-    )
-    calibrated = build_calibrated_classic_detector(
-        static_presence_packets,
-        selected_subcarriers=selected_band,
-    )
-    if calibrated is None:
-        return None
-
-    detector, adaptive_threshold = calibrated
-    metrics = evaluate_detector_packets(
-        detector,
-        static_presence_packets,
-        motion_packets,
-        selected_band,
-    )
-    return adaptive_threshold, metrics
-
-
-@lru_cache(maxsize=None)
-def _compute_ml_dataset_result(
-    static_presence_path,
-    motion_path,
-    selected_subcarriers,
-    window_size,
-    threshold,
-    feature_names=(),
-):
-    """Run the ML replay once per dataset and cache metrics plus optional features."""
-    from ml_detector import MLDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES, predict
-    from detector_interface import MotionState
-
-    assert tuple(EXPORTED_FEATURE_NAMES) == tuple(RUNTIME_FEATURE_NAMES)
-
-    static_presence_packets, motion_packets = _load_real_data_cached(
-        static_presence_path,
-        motion_path,
-    )
-    detector = MLDetector(window_size=window_size, threshold=threshold)
-
-    feature_indices = {
-        feature_name: EXPORTED_FEATURE_NAMES.index(feature_name)
-        for feature_name in feature_names
-    }
-    static_series = {feature_name: [] for feature_name in feature_names}
-    motion_series = {feature_name: [] for feature_name in feature_names}
-
-    num_baseline = len(static_presence_packets)
-    num_movement = len(motion_packets)
-    warmup = window_size
-    static_presence_motion_packets = 0
-    static_presence_eval_count = max(num_baseline - warmup, 0)
-
-    for i, pkt in enumerate(static_presence_packets):
-        detector.process_packet(pkt["csi_data"], selected_subcarriers)
-        if not detector.is_ready():
-            continue
-
-        values = detector._extract_features()
-        probability = predict(values)
-        current_state = MotionState.MOTION if probability > threshold else MotionState.IDLE
-        if i >= warmup and feature_indices:
-            for feature_name, feature_idx in feature_indices.items():
-                value = float(values[feature_idx])
-                if np.isfinite(value):
-                    static_series[feature_name].append(value)
-        if i >= warmup and current_state == MotionState.MOTION:
-            static_presence_motion_packets += 1
-
-    motion_with_motion = 0
-    motion_without_motion = 0
-    motion_eval_count = max(num_movement - warmup, 0)
-    for i, pkt in enumerate(motion_packets):
-        detector.process_packet(pkt["csi_data"], selected_subcarriers)
-        values = detector._extract_features()
-        probability = predict(values)
-        current_state = MotionState.MOTION if probability > threshold else MotionState.IDLE
-        if i >= warmup:
-            if feature_indices:
-                for feature_name, feature_idx in feature_indices.items():
-                    value = float(values[feature_idx])
-                    if np.isfinite(value):
-                        motion_series[feature_name].append(value)
-            if current_state == MotionState.MOTION:
-                motion_with_motion += 1
-            else:
-                motion_without_motion += 1
-
-    pkt_tp = motion_with_motion
-    pkt_fn = motion_without_motion
-    pkt_tn = static_presence_eval_count - static_presence_motion_packets if static_presence_eval_count > 0 else 0
-    pkt_fp = static_presence_motion_packets
-    pkt_recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0.0
-    pkt_precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0.0
-    pkt_fp_rate = pkt_fp / static_presence_eval_count * 100.0 if static_presence_eval_count > 0 else 0.0
-    pkt_f1 = (
-        2 * (pkt_precision / 100.0) * (pkt_recall / 100.0) / ((pkt_precision + pkt_recall) / 100.0) * 100.0
-        if (pkt_precision + pkt_recall) > 0
-        else 0.0
-    )
-
-    metrics = {
-        "tp": pkt_tp,
-        "fn": pkt_fn,
-        "tn": pkt_tn,
-        "fp": pkt_fp,
-        "recall": pkt_recall,
-        "precision": pkt_precision,
-        "fp_rate": pkt_fp_rate,
-        "f1": pkt_f1,
-        "num_baseline": static_presence_eval_count,
-        "num_movement": motion_eval_count,
-    }
-    feature_payload = {
-        "baseline": {name: tuple(values) for name, values in static_series.items()},
-        "motion": {name: tuple(values) for name, values in motion_series.items()},
-    }
-    return metrics, feature_payload
-
-
-@lru_cache(maxsize=None)
-def _compute_ml_empty_fp_result(empty_dataset_path, selected_subcarriers, window_size, threshold):
-    """Run the empty-room ML FP replay once per dataset and cache the result."""
-    from ml_detector import MLDetector
-    from detector_interface import MotionState
-
-    packets = _load_empty_room_packets(empty_dataset_path)
-    detector = MLDetector(window_size=window_size, threshold=threshold)
-
-    eval_count = max(len(packets) - window_size, 0)
-    motion_packets = 0
-    for i, pkt in enumerate(packets):
-        detector.process_packet(pkt["csi_data"], selected_subcarriers)
-        detector.update_state()
-        if i >= window_size and detector.get_state() == MotionState.MOTION:
-            motion_packets += 1
-
-    fp_rate = motion_packets / eval_count * 100.0 if eval_count > 0 else 0.0
-    return {
-        "motion_packets": motion_packets,
-        "eval_count": eval_count,
-        "fp_rate": fp_rate,
-    }
+    return tuple(load_npz_as_packets(path_value))
 
 
 @lru_cache(maxsize=None)
@@ -478,54 +271,6 @@ def run_classic_calibration(static_presence_packets, selected_band, window_size)
         return 1.0
     threshold, _ = calibrator.calculate_threshold("auto")
     return float(threshold)
-
-
-def evaluate_detector_packets(detector, static_presence_packets, motion_packets, selected_band):
-    """Replay one baseline/motion pair through a calibrated detector."""
-    num_baseline = len(static_presence_packets)
-    num_movement = len(motion_packets)
-
-    static_presence_motion_packets = 0
-    for pkt in static_presence_packets:
-        detector.process_packet(pkt["csi_data"], selected_band)
-        detector.update_state()
-        if detector.get_state() == MotionState.MOTION:
-            static_presence_motion_packets += 1
-
-    motion_with_motion = 0
-    motion_without_motion = 0
-    for pkt in motion_packets:
-        detector.process_packet(pkt["csi_data"], selected_band)
-        detector.update_state()
-        if detector.get_state() == MotionState.MOTION:
-            motion_with_motion += 1
-        else:
-            motion_without_motion += 1
-
-    pkt_tp = motion_with_motion
-    pkt_fn = motion_without_motion
-    pkt_tn = num_baseline - static_presence_motion_packets
-    pkt_fp = static_presence_motion_packets
-    pkt_recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0.0
-    pkt_precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0.0
-    pkt_fp_rate = pkt_fp / num_baseline * 100.0 if num_baseline > 0 else 0.0
-    pkt_f1 = (
-        2 * (pkt_precision / 100.0) * (pkt_recall / 100.0) / ((pkt_precision + pkt_recall) / 100.0) * 100.0
-        if (pkt_precision + pkt_recall) > 0
-        else 0.0
-    )
-    return {
-        "tp": pkt_tp,
-        "fn": pkt_fn,
-        "tn": pkt_tn,
-        "fp": pkt_fp,
-        "recall": pkt_recall,
-        "precision": pkt_precision,
-        "fp_rate": pkt_fp_rate,
-        "f1": pkt_f1,
-        "num_baseline": num_baseline,
-        "num_movement": num_movement,
-    }
 
 
 # ============================================================================

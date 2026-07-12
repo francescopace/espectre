@@ -250,6 +250,26 @@ python validate_dataset_quality.py --strict         # Fail on warnings too
 
 ---
 
+### 11. Performance Report Generation (`generate_performance_report.py`)
+
+**Purpose**: Regenerate `docs/PERFORMANCE.md` from the current validation
+datasets
+
+- Reuses the shared performance replay helpers that also back the Python
+  paired real-data and long-recording validation suites
+- Recomputes the published Classic and ML aggregate tables directly from the
+  current `data/` captures
+- Keeps the checked regression behavior and the published documentation aligned
+  without copying metric logic into the Markdown file
+
+```bash
+python generate_performance_report.py
+python generate_performance_report.py --stdout
+python generate_performance_report.py --output /tmp/PERFORMANCE.md
+```
+
+---
+
 ## Usage Examples
 
 ### Basic Analysis Workflow

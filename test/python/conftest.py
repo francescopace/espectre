@@ -35,6 +35,10 @@ _prepend_sys_path(REPO_ROOT)
 _prepend_sys_path(TESTS_PATH)
 _prepend_sys_path(PYTHON_ROOT_PATH)
 
+from tools.lib.performance_report import (
+    extract_motion_start_from_description as _shared_extract_motion_start_from_description,
+    get_available_long_test_datasets as _shared_get_available_long_test_datasets,
+)
 from tools.lib.repo_paths import data_dir, python_src_dir
 
 # Add both the Python root and the Micro-ESPectre runtime source dir.
@@ -105,103 +109,14 @@ def ml_recall_target(chip_type):
     return get_ml_recall_target()
 
 
-@lru_cache(maxsize=1)
-def _load_dataset_info():
-    if not DATASET_INFO_PATH.exists():
-        return {"files": {}}
-    with open(DATASET_INFO_PATH, "r") as f:
-        return json.load(f)
-
-
 def extract_motion_start_from_description(description):
     """Extract motion start packet index from free-text test metadata."""
-    if not description:
-        return None
-
-    match = re.search(
-        r"motion\s+starts\s+at\s+packet(?:\s+index)?(?:\s+n\.)?\s+(\d+)",
-        str(description),
-        re.IGNORECASE,
-    )
-    if match:
-        return int(match.group(1))
-    return None
-
-
-def _normalize_long_test_chip_filter(chips):
-    """Normalize optional chip filters into a cacheable tuple."""
-    if not chips:
-        return None
-    return tuple(sorted({str(chip).upper() for chip in chips}))
-
-
-@lru_cache(maxsize=None)
-def _get_available_long_test_datasets_cached(chips_key):
-    """
-    Return available long test recordings with validated split metadata.
-
-    Each item is a tuple:
-        (test_path, static_presence_packets, motion_packets, motion_start_packet, chip, entry)
-
-    When test metadata does not annotate a motion start packet, the whole stream
-    is treated as baseline and the movement segment is empty.
-    """
-    from tools.lib.csi_io import load_npz_as_packets
-
-    dataset_info = _load_dataset_info()
-    test_entries = dataset_info.get("files", {}).get("test", [])
-    if not test_entries:
-        return []
-
-    requested = set(chips_key) if chips_key else None
-    datasets = []
-
-    for entry in test_entries:
-        chip = str(entry.get("chip", "")).upper()
-        if requested and chip not in requested:
-            continue
-
-        filename = entry.get("filename")
-        if not filename:
-            continue
-
-        test_path = DATA_DIR / "test" / filename
-        if not test_path.exists():
-            continue
-
-        packets = load_npz_as_packets(test_path)
-        if len(packets) < 2:
-            continue
-
-        motion_start_packet = extract_motion_start_from_description(entry.get("description"))
-        if motion_start_packet is None:
-            motion_start_packet = len(packets)
-
-        if motion_start_packet <= 0 or motion_start_packet > len(packets):
-            continue
-
-        static_presence_packets = packets[:motion_start_packet]
-        motion_packets = packets[motion_start_packet:]
-        datasets.append(
-            (
-                test_path,
-                static_presence_packets,
-                motion_packets,
-                motion_start_packet,
-                chip,
-                entry,
-            )
-        )
-
-    datasets.sort(key=lambda item: item[4])
-    return tuple(datasets)
+    return _shared_extract_motion_start_from_description(description)
 
 
 def get_available_long_test_datasets(chips=None):
     """Return cached long test recordings with validated split metadata."""
-    return _get_available_long_test_datasets_cached(
-        _normalize_long_test_chip_filter(chips)
-    )
+    return _shared_get_available_long_test_datasets(chips=chips)
 
 
 def build_long_test_params(chips=None):

@@ -291,7 +291,7 @@ def test_parse_packet_reads_adaptive_up_counters():
     assert packet.pacing_rx_total == 140
 
 
-def test_adaptive_pacing_controller_speeds_up_when_device_under_target_without_backpressure():
+def test_adaptive_pacing_controller_holds_when_receive_rate_matches_target():
     class FakePacingSender:
         def __init__(self):
             self.rate_updates = []
@@ -301,19 +301,63 @@ def test_adaptive_pacing_controller_speeds_up_when_device_under_target_without_b
 
     controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
     sender = FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17"}
+    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
 
     controller.observe_device(device_state, 0, 0, 0)
     controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
 
+    device_state["packet_count"] = 100
+    controller.observe_device(device_state, 0, 100, 100)
+    controller.maybe_adjust({1: device_state}, now=1.0, pacing_sender=sender)
+
+    assert sender.rate_updates == []
+    assert controller.last_action == "hold"
+
+
+def test_adaptive_pacing_controller_speeds_up_when_receive_rate_is_below_target():
+    class FakePacingSender:
+        def __init__(self):
+            self.rate_updates = []
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
+    sender = FakePacingSender()
+    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
+
+    controller.observe_device(device_state, 0, 0, 0)
+    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
+
+    device_state["packet_count"] = 80
     controller.observe_device(device_state, 0, 80, 80)
     controller.maybe_adjust({1: device_state}, now=1.1, pacing_sender=sender)
 
-    controller.observe_device(device_state, 0, 160, 160)
-    controller.maybe_adjust({1: device_state}, now=2.2, pacing_sender=sender)
-
     assert sender.rate_updates == pytest.approx([102.0])
     assert controller.last_action == "speedup"
+
+
+def test_adaptive_pacing_controller_trims_when_receive_rate_is_above_target():
+    class FakePacingSender:
+        def __init__(self):
+            self.rate_updates = []
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
+    sender = FakePacingSender()
+    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
+
+    controller.observe_device(device_state, 0, 0, 0)
+    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
+
+    device_state["packet_count"] = 120
+    controller.observe_device(device_state, 0, 120, 120)
+    controller.maybe_adjust({1: device_state}, now=1.1, pacing_sender=sender)
+
+    assert sender.rate_updates == pytest.approx([98.0])
+    assert controller.last_action == "trim"
 
 
 def test_receiver_configures_udp_receive_buffer(monkeypatch):

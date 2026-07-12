@@ -13,8 +13,8 @@ Checks performed:
   5. ML readiness          - Label balance, minimum samples, chip diversity
 
 Per-file integrity and signal-quality checks cover `empty`, `static_presence`,
-`motion`, and `test`. Pair validation and ML readiness intentionally focus on
-`static_presence` / `motion`.
+`motion`, and `test`. The final summary separates common integrity, Classic
+readiness, ML readiness, and long-recording coverage.
 
 SOURCE CODE ALIGNMENT:
   This script imports core functions directly from src/python/micro_espectre/ to ensure correctness:
@@ -215,19 +215,44 @@ def _build_empty_separation_score(
 # Validation checks
 # ------------------------------------------------------------------
 
+VALIDATION_DOMAINS = ('integrity', 'classic', 'ml', 'long_recording')
+VALIDATION_DOMAIN_LABELS = {
+    'integrity': 'Common integrity',
+    'classic': 'Classic readiness',
+    'ml': 'ML readiness',
+    'long_recording': 'Long-recording coverage',
+}
+
+
 class ValidationResult:
     """Single validation check result."""
 
-    def __init__(self, name, status, message, value=None):
+    def __init__(self, name, status, message, value=None, domain='integrity'):
         self.name = name
         self.status = status  # 'PASS', 'WARN', 'FAIL'
         self.message = message
         self.value = value
+        self.domain = domain
 
     def __repr__(self):
         icon = {'PASS': '✅', 'WARN': '⚠️', 'FAIL': '❌'}[self.status]
         val_str = f" ({self.value})" if self.value is not None else ""
         return f"{icon} {self.name}: {self.message}{val_str}"
+
+
+def _tag_results(results, domain):
+    """Assign a validation domain to results produced by one pipeline phase."""
+    for result in results:
+        result.domain = domain
+    return results
+
+
+def _result_counts(results):
+    """Return stable PASS/WARN/FAIL counts for a result collection."""
+    return {
+        status: sum(1 for result in results if result.status == status)
+        for status in ('PASS', 'WARN', 'FAIL')
+    }
 
 
 def _is_missing_metadata_value(value):
@@ -350,6 +375,20 @@ def refresh_pair_metadata(files, *, selected_chips=None):
             if motion_chip != static_chip or motion_sc != static_sc:
                 continue
 
+            static_device = str(static_entry.get("device_id", "")).strip()
+            motion_device = str(motion_entry.get("device_id", "")).strip()
+            if static_device and motion_device and static_device != motion_device:
+                continue
+
+            static_environment = str(static_entry.get("environment", "")).strip()
+            motion_environment = str(motion_entry.get("environment", "")).strip()
+            if (
+                static_environment
+                and motion_environment
+                and static_environment != motion_environment
+            ):
+                continue
+
             delta = abs((motion_ts - static_ts).total_seconds())
             if delta > PAIR_MAX_DELTA_SECONDS:
                 continue
@@ -455,6 +494,13 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
 
             if _is_missing_metadata_value(entry.get('environment')):
                 entry_errors.append("missing environment")
+            for required_field in ('filename', 'chip', 'subcarriers', 'num_packets', 'collected_at'):
+                if _is_missing_metadata_value(entry.get(required_field)):
+                    entry_errors.append(f"missing {required_field}")
+
+            primary_path = DATA_DIR / label / filename
+            if filename != '<missing filename>' and not primary_path.exists():
+                entry_errors.append("metadata entry target file is missing")
 
             pair_field = REQUIRED_PAIR_FIELD_BY_LABEL.get(label)
             if pair_field:
@@ -476,6 +522,17 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
                         reverse_field = REQUIRED_PAIR_FIELD_BY_LABEL[counterpart_label]
                         if counterpart_entry.get(reverse_field) != filename:
                             entry_errors.append(f"{pair_field} is not reciprocal")
+                        for shared_field in ('chip', 'subcarriers', 'device_id', 'environment'):
+                            left = entry.get(shared_field)
+                            right = counterpart_entry.get(shared_field)
+                            if (
+                                not _is_missing_metadata_value(left)
+                                and not _is_missing_metadata_value(right)
+                                and str(left) != str(right)
+                            ):
+                                entry_errors.append(
+                                    f"{pair_field} has mismatched {shared_field}"
+                                )
 
             result_name = f"metadata_{label}/{filename}"
             if entry_errors:
@@ -497,6 +554,24 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
             "FAIL",
             "No dataset_info entries found for metadata validation",
         ))
+
+    for label, entries in filtered_entries.items():
+        metadata_names = {
+            str(entry.get('filename')) for entry in entries if entry.get('filename')
+        }
+        label_dir = DATA_DIR / label
+        if not label_dir.exists():
+            continue
+        disk_names = {
+            path.name for path in label_dir.glob('*.npz')
+            if _entry_matches_chip({'filename': path.name}, chip_filter)
+        }
+        for orphan_name in sorted(disk_names - metadata_names):
+            results.append(ValidationResult(
+                f"metadata_orphan/{label}/{orphan_name}",
+                "FAIL",
+                "Capture exists on disk but is absent from dataset_info.json",
+            ))
 
     return results
 
@@ -543,12 +618,92 @@ def validate_file_integrity(filepath):
         return results, None
 
     csi = data[csi_key]
-    if csi_key in ('csi_data', 'csi'):
+    if csi_key == 'csi_data':
         results.append(ValidationResult("csi_key", "PASS",
             f"CSI data found (key: {csi_key})", f"shape={csi.shape}"))
-    else:
+    elif csi_key == 'csi':
         results.append(ValidationResult("csi_key", "WARN",
-            f"Using first key as CSI: {csi_key}", f"shape={csi.shape}"))
+            "Legacy CSI key found; current captures should use csi_data", f"shape={csi.shape}"))
+    else:
+        results.append(ValidationResult("csi_key", "FAIL",
+            f"No supported CSI key; first key is {csi_key}", f"shape={csi.shape}"))
+        return results, None
+
+    if csi.ndim != 2:
+        results.append(ValidationResult(
+            "csi_shape", "FAIL", f"CSI matrix must be 2D, got shape {csi.shape}"
+        ))
+        return results, None
+
+    if csi.shape[1] <= 0 or csi.shape[1] % 2 != 0:
+        results.append(ValidationResult(
+            "csi_shape", "FAIL", f"CSI width must contain I/Q pairs, got {csi.shape[1]}"
+        ))
+        return results, None
+
+    actual_subcarriers = csi.shape[1] // 2
+    declared_subcarriers = _read_scalar_metadata(data, 'num_subcarriers')
+    if declared_subcarriers is not None:
+        try:
+            declared_subcarriers = int(declared_subcarriers)
+        except (TypeError, ValueError):
+            declared_subcarriers = -1
+        if declared_subcarriers != actual_subcarriers:
+            results.append(ValidationResult(
+                "csi_shape",
+                "FAIL",
+                (
+                    f"CSI width implies {actual_subcarriers} subcarriers, but "
+                    f"num_subcarriers={declared_subcarriers}"
+                ),
+            ))
+        else:
+            results.append(ValidationResult(
+                "csi_shape", "PASS", f"Valid {actual_subcarriers}-subcarrier I/Q matrix"
+            ))
+    else:
+        results.append(ValidationResult(
+            "csi_shape",
+            "WARN",
+            f"Valid {actual_subcarriers}-subcarrier I/Q matrix without num_subcarriers metadata",
+        ))
+
+    packet_metadata_keys = (
+        'stream_seq_num', 'device_ticks_us', 'wifi_rx_ts_us', 'wifi_rx_start_ts_ns',
+        'channel', 'rssi_dbm', 'noise_floor_dbm',
+    )
+    mismatched = [
+        key for key in packet_metadata_keys
+        if key in data.files and np.asarray(data[key]).ndim > 0
+        and len(data[key]) != csi.shape[0]
+    ]
+    if mismatched:
+        results.append(ValidationResult(
+            "packet_metadata_shape",
+            "FAIL",
+            f"Per-packet metadata length mismatch: {', '.join(mismatched)}",
+        ))
+    else:
+        results.append(ValidationResult(
+            "packet_metadata_shape", "PASS", "Per-packet metadata lengths are coherent"
+        ))
+
+    embedded_label = _read_scalar_metadata(data, 'label')
+    directory_label = filepath.parent.name
+    if embedded_label is None:
+        results.append(ValidationResult(
+            "embedded_label", "WARN", "Capture has no embedded label metadata"
+        ))
+    elif directory_label in METADATA_LABELS and str(embedded_label).lower() != directory_label:
+        results.append(ValidationResult(
+            "embedded_label",
+            "FAIL",
+            f"Embedded label {embedded_label!r} does not match directory {directory_label!r}",
+        ))
+    else:
+        results.append(ValidationResult(
+            "embedded_label", "PASS", f"Embedded label is {embedded_label!r}"
+        ))
 
     return results, data
 
@@ -830,28 +985,77 @@ def validate_pair(bl_csi, mv_csi):
     return results, static_active_ratio, motion_active_ratio, threshold, motion_peak_ratio
 
 
-def validate_ml_readiness(dataset_info):
-    """Check if dataset is ready for ML training."""
+def _training_session_group(label, entry):
+    """Mirror the trainer's explicit-session, pair, then file grouping policy."""
+    for field in ('session', 'session_id', 'session_name'):
+        value = entry.get(field)
+        if not _is_missing_metadata_value(value):
+            return str(value)
+
+    pair_field = REQUIRED_PAIR_FIELD_BY_LABEL.get(label)
+    counterpart = entry.get(pair_field) if pair_field else None
+    filename = str(entry.get('filename', 'unknown'))
+    if counterpart:
+        names = sorted((filename, str(counterpart)))
+        return f"pair:{names[0]}::{names[1]}"
+    return f"file:{filename}"
+
+
+def _usable_window_count(entry):
+    """Estimate trainer windows for one file after its independent warm-up."""
+    try:
+        packets = int(entry.get('num_packets', 0) or 0)
+    except (TypeError, ValueError):
+        packets = 0
+    return max(0, packets - SEG_WINDOW_SIZE)
+
+
+def validate_ml_readiness(dataset_info, chip_filter=None):
+    """Check if the binary empty/static-presence/motion dataset is ML-ready."""
     results = []
 
-    static_presence_files = dataset_info.get('files', {}).get('static_presence', [])
-    motion_files = dataset_info.get('files', {}).get('motion', [])
+    files_by_label = dataset_info.get('files', {})
+    training_files = {
+        label: [
+            entry for entry in files_by_label.get(label, [])
+            if _entry_matches_chip(entry, chip_filter)
+        ]
+        for label in ('empty', 'static_presence', 'motion')
+    }
 
-    bl_packets = sum(f.get('num_packets', 0) for f in static_presence_files)
-    mv_packets = sum(f.get('num_packets', 0) for f in motion_files)
-    total = bl_packets + mv_packets
+    windows_by_label = {
+        label: sum(_usable_window_count(entry) for entry in entries)
+        for label, entries in training_files.items()
+    }
+    idle_windows = windows_by_label['empty'] + windows_by_label['static_presence']
+    motion_windows = windows_by_label['motion']
+    total = idle_windows + motion_windows
 
     if total > 0:
-        bl_ratio = bl_packets / total
-        if 0.3 <= bl_ratio <= 0.7:
+        idle_ratio = idle_windows / total
+        if 0.3 <= idle_ratio <= 0.7:
             results.append(ValidationResult("label_balance", "PASS",
-                f"Balance: {bl_ratio:.1%} static presence, {1-bl_ratio:.1%} motion", bl_ratio))
+                (
+                    f"Binary window balance: {idle_ratio:.1%} IDLE "
+                    f"(empty={windows_by_label['empty']}, "
+                    f"static_presence={windows_by_label['static_presence']}), "
+                    f"{1-idle_ratio:.1%} MOTION"
+                ), idle_ratio))
         else:
             results.append(ValidationResult("label_balance", "WARN",
-                f"Imbalanced: {bl_ratio:.1%} static presence, {1-bl_ratio:.1%} motion", bl_ratio))
+                (
+                    f"Imbalanced binary windows: {idle_ratio:.1%} IDLE "
+                    f"(empty={windows_by_label['empty']}, "
+                    f"static_presence={windows_by_label['static_presence']}), "
+                    f"{1-idle_ratio:.1%} MOTION"
+                ), idle_ratio))
+    else:
+        results.append(ValidationResult(
+            "label_balance", "FAIL", "No usable ML windows after per-file warm-up"
+        ))
 
     min_windows = 1000
-    estimated_windows = max(0, bl_packets - 100) + max(0, mv_packets - 100)
+    estimated_windows = total
     if estimated_windows < min_windows:
         results.append(ValidationResult("sample_count", "WARN",
             f"Low sample count: ~{estimated_windows} windows (target: {min_windows}+)", estimated_windows))
@@ -859,13 +1063,55 @@ def validate_ml_readiness(dataset_info):
         results.append(ValidationResult("sample_count", "PASS",
             f"~{estimated_windows} feature windows available", estimated_windows))
 
-    chips = {f.get('chip', 'unknown') for f in static_presence_files + motion_files}
-    if len(chips) >= 3:
+    all_training_entries = [
+        entry for entries in training_files.values() for entry in entries
+    ]
+    chips = {str(entry.get('chip', 'unknown')).upper() for entry in all_training_entries}
+    if chip_filter and chips:
+        results.append(ValidationResult("chip_diversity", "PASS",
+            f"Filtered ML scope contains chip: {sorted(chips)}", len(chips)))
+    elif len(chips) >= 3:
         results.append(ValidationResult("chip_diversity", "PASS",
             f"{len(chips)} chip types: {sorted(chips)}", len(chips)))
     else:
         results.append(ValidationResult("chip_diversity", "WARN",
             f"Only {len(chips)} chip type(s): {sorted(chips)}", len(chips)))
+
+    sessions_by_target = {'IDLE': set(), 'MOTION': set()}
+    for label, entries in training_files.items():
+        target = 'MOTION' if label == 'motion' else 'IDLE'
+        sessions_by_target[target].update(
+            _training_session_group(label, entry) for entry in entries
+        )
+
+    all_sessions = sessions_by_target['IDLE'] | sessions_by_target['MOTION']
+    min_folds = 3
+    if min(len(sessions_by_target['IDLE']), len(sessions_by_target['MOTION'])) >= min_folds:
+        session_status = "PASS"
+    else:
+        session_status = "WARN"
+    results.append(ValidationResult(
+        "session_group_coverage",
+        session_status,
+        (
+            f"{len(all_sessions)} grouped sessions: "
+            f"IDLE={len(sessions_by_target['IDLE'])}, "
+            f"MOTION={len(sessions_by_target['MOTION'])}; "
+            f"three-fold grouped CV expects at least {min_folds} per target"
+        ),
+        len(all_sessions),
+    ))
+
+    environments = {
+        str(entry.get('environment', 'unknown')) for entry in all_training_entries
+    }
+    unknown_environment = 'unknown' in environments or '' in environments
+    results.append(ValidationResult(
+        "environment_coverage",
+        "WARN" if unknown_environment or len(environments) < 2 else "PASS",
+        f"{len(environments)} ML environment group(s): {sorted(environments)}",
+        len(environments),
+    ))
 
     return results
 
@@ -1173,7 +1419,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
 
 
 def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
-    """Validate idle-only `test/` recordings used by the long quiet gate."""
+    """Validate long-recording coverage and replay idle-only Classic gates."""
     results = []
     test_entries = dataset_info.get("files", {}).get("test", [])
     if chip_filter:
@@ -1181,10 +1427,44 @@ def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
         test_entries = [entry for entry in test_entries if str(entry.get("chip", "")).upper() == chip_upper]
 
     idle_candidates = []
+    mixed_candidates = []
     for entry in test_entries:
-        if _extract_motion_start_from_description(entry.get("description")) is not None:
-            continue
-        idle_candidates.append(entry)
+        motion_start = _extract_motion_start_from_description(entry.get("description"))
+        if motion_start is None:
+            idle_candidates.append(entry)
+        else:
+            mixed_candidates.append((entry, motion_start))
+
+    results.append(ValidationResult(
+        "long_test_event_coverage",
+        "PASS" if mixed_candidates else "WARN",
+        (
+            f"{len(mixed_candidates)} mixed long recording(s) with an annotated motion start; "
+            "event recall and detection latency are unavailable" if not mixed_candidates else
+            f"{len(mixed_candidates)} mixed long recording(s) with an annotated motion start"
+        ),
+        len(mixed_candidates),
+    ))
+
+    for entry, motion_start in mixed_candidates:
+        filename = str(entry.get("filename", "<missing filename>"))
+        try:
+            num_packets = int(entry.get("num_packets", 0) or 0)
+        except (TypeError, ValueError):
+            num_packets = 0
+        valid = (
+            motion_start > SEG_WINDOW_SIZE
+            and num_packets - motion_start > SEG_WINDOW_SIZE
+        )
+        results.append(ValidationResult(
+            f"long_test_annotation/{filename}",
+            "PASS" if valid else "FAIL",
+            (
+                f"motion_start={motion_start}, packets={num_packets}; both IDLE and MOTION "
+                f"segments must exceed the {SEG_WINDOW_SIZE}-packet warm-up"
+            ),
+            motion_start,
+        ))
 
     if not idle_candidates:
         results.append(ValidationResult(
@@ -1292,6 +1572,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
         dataset_info,
         chip_filter=chip_filter,
     )
+    _tag_results(metadata_results, 'integrity')
     for r in metadata_results:
         print(f"   {r}")
         all_results.append(r)
@@ -1319,6 +1600,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
             print(f"\n📁 {label}/{npz_file.name}")
 
             integrity_results, data = validate_file_integrity(npz_file)
+            _tag_results(integrity_results, 'integrity')
             for r in integrity_results:
                 print(f"   {r}")
                 all_results.append(r)
@@ -1330,11 +1612,13 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
             npz_cache[npz_file] = (data, csi_key)
 
             quality_results = validate_signal_quality(data[csi_key])
+            _tag_results(quality_results, 'integrity')
             for r in quality_results:
                 print(f"   {r}")
                 all_results.append(r)
 
             continuity_results = validate_capture_continuity(data, data[csi_key])
+            _tag_results(continuity_results, 'integrity')
             for r in continuity_results:
                 print(f"   {r}")
                 all_results.append(r)
@@ -1404,6 +1688,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
             pair_res, static_active_ratio, motion_active_ratio, pair_threshold, motion_peak_ratio = validate_pair(
                 bl_data[bl_key], mv_data[mv_key],
             )
+            _tag_results(pair_res, 'classic')
             for r in pair_res:
                 print(f"   {r}")
                 all_results.append(r)
@@ -1434,6 +1719,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
         npz_cache,
         chip_filter=chip_filter,
     )
+    _tag_results(empty_results, 'ml')
     for r in empty_results:
         print(f"   {r}")
         all_results.append(r)
@@ -1450,6 +1736,11 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
         npz_cache,
         chip_filter=chip_filter,
     )
+    for result in quiet_test_results:
+        result.domain = (
+            'classic' if result.name.startswith('quiet_test_idle/')
+            else 'long_recording'
+        )
     for r in quiet_test_results:
         print(f"   {r}")
         all_results.append(r)
@@ -1461,7 +1752,8 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
     print("  ML READINESS")
     print("-" * 70)
 
-    ml_results = validate_ml_readiness(dataset_info)
+    ml_results = validate_ml_readiness(dataset_info, chip_filter=chip_filter)
+    _tag_results(ml_results, 'ml')
     for r in ml_results:
         print(f"   {r}")
         all_results.append(r)
@@ -1480,6 +1772,25 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
     print(f"   ⚠️  WARN: {warn_count}")
     print(f"   ❌ FAIL: {fail_count}")
     print(f"   Total checks: {len(all_results)}")
+
+    print("\n  RESULTS BY DOMAIN")
+    print("  " + "-" * 66)
+    print("  | Domain                    | PASS | WARN | FAIL | Result |")
+    print("  |---------------------------|-----:|-----:|-----:|--------|")
+    for domain in VALIDATION_DOMAINS:
+        domain_results = [result for result in all_results if result.domain == domain]
+        counts = _result_counts(domain_results)
+        if counts['FAIL']:
+            outcome = 'FAIL'
+        elif counts['WARN']:
+            outcome = 'WARN'
+        else:
+            outcome = 'PASS'
+        print(
+            f"  | {VALIDATION_DOMAIN_LABELS[domain]:<25} | "
+            f"{counts['PASS']:>4} | {counts['WARN']:>4} | {counts['FAIL']:>4} | "
+            f"{outcome:<6} |"
+        )
 
     if pair_results:
         pass_pairs = sum(1 for p in pair_results if p['status'] == 'PASS')
@@ -1557,7 +1868,7 @@ def _generate_report(pair_results, all_results, dataset_info):
             f"{p.get('sc_source', '?')} | {p.get('cv_mode', '?')} | {p['status']} |"
         )
 
-    lines.append(f"\n## Summary\n")
+    lines.append(f"\n## Classic Pair Summary\n")
     pass_pairs = sum(1 for p in pair_results if p['status'] == 'PASS')
     fail_pairs = sum(1 for p in pair_results if p['status'] == 'FAIL')
     lines.append(f"- total pairs: {len(pair_results)}")
@@ -1567,6 +1878,23 @@ def _generate_report(pair_results, all_results, dataset_info):
     pass_count = sum(1 for r in all_results if r.status == 'PASS')
     warn_count = sum(1 for r in all_results if r.status == 'WARN')
     fail_count = sum(1 for r in all_results if r.status == 'FAIL')
+    lines.append(f"\n## Validation Domains\n")
+    lines.append("| Domain | PASS | WARN | FAIL | Result |")
+    lines.append("|---|---:|---:|---:|---|")
+    for domain in VALIDATION_DOMAINS:
+        domain_results = [result for result in all_results if result.domain == domain]
+        counts = _result_counts(domain_results)
+        if counts['FAIL']:
+            outcome = 'FAIL'
+        elif counts['WARN']:
+            outcome = 'WARN'
+        else:
+            outcome = 'PASS'
+        lines.append(
+            f"| {VALIDATION_DOMAIN_LABELS[domain]} | {counts['PASS']} | "
+            f"{counts['WARN']} | {counts['FAIL']} | {outcome} |"
+        )
+
     lines.append(f"\n## Detailed Check Summary\n")
     lines.append(f"- Total checks: {len(all_results)}")
     lines.append(f"- ✅ PASS: {pass_count}")

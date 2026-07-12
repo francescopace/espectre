@@ -123,7 +123,20 @@ plain export:
 - `python tools/train_ml_model.py --experiment --experiment-promote`
 
 A plain training run always exports the current seed, while the gated flows
-replace artifacts only after a stricter grouped-CV improvement.
+replace artifacts only after a stricter grouped-CV improvement plus the
+real-data gates on exported artifacts: the paired regression suite and the
+long-recording gate on the curated `data/test/` captures. Candidates are
+scored with a fast in-process long gate (feature streams are replayed once
+per search and cached); the winner is then confirmed with the full pytest
+verification before the promotion is kept.
+
+The long gate also replays the production evaluation cadence and consecutive-hit
+policy. Candidate ranking is false-positive-first: effective IDLE-to-MOTION
+alarms, time spent in false MOTION measured in policy evaluations, raw false
+positives, and worst-recording FP rate precede recall and F1. Raw metrics remain
+useful diagnostics, while policy metrics represent user-visible false alarms
+more directly. Event recall and detection latency require long recordings with
+an annotated motion start and are not inferred from quiet-only captures.
 
 For exploratory retrains, `--scaler clipped_standard`, alternate `--device`
 choices, `--no-cache`, and smaller `--batch-size` values are available, but
@@ -183,9 +196,15 @@ Recommended validations before promoting new artifacts:
 ```bash
 pytest test/python/test_validation_real_data.py::TestPerformanceMetrics::test_ml_detection_accuracy -v
 pytest test/python/test_validation_real_data.py::TestPerformanceMetrics::test_ml_empty_false_positive_rate -v
+pytest test/python/test_validation_long_recordings.py -v
 python tools/train_ml_model.py --gain-stress-gate
+python tools/generate_performance_report.py
 python tools/compare_detection_methods.py
 ```
+
+`tools/generate_performance_report.py` rebuilds `docs/PERFORMANCE.md` from the
+same shared replay helpers used by the Python real-data validation suites, so
+the published performance tables stay aligned with the checked runtime behavior.
 
 Add `--plot` to `compare_detection_methods.py` to visualize the comparison.
 

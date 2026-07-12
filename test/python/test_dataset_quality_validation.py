@@ -250,6 +250,115 @@ def test_per_file_quality_labels_include_test_recordings() -> None:
     )
 
 
+def test_ml_readiness_uses_empty_as_idle_and_warmup_per_file() -> None:
+    module = _load_validator_module()
+    dataset_info = {
+        "files": {
+            "empty": [
+                {"filename": "empty.npz", "chip": "C3", "environment": "bedroom", "num_packets": 200},
+            ],
+            "static_presence": [
+                {
+                    "filename": "static.npz",
+                    "chip": "C3",
+                    "environment": "bedroom",
+                    "num_packets": 300,
+                    "optimal_pair_motion_file": "motion.npz",
+                },
+            ],
+            "motion": [
+                {
+                    "filename": "motion.npz",
+                    "chip": "C3",
+                    "environment": "bedroom",
+                    "num_packets": 400,
+                    "optimal_pair_static_presence_file": "static.npz",
+                },
+            ],
+        }
+    }
+
+    results = module.validate_ml_readiness(dataset_info)
+    by_name = {result.name: result for result in results}
+
+    assert by_name["sample_count"].value == 600
+    assert "empty=100" in by_name["label_balance"].message
+    assert "static_presence=200" in by_name["label_balance"].message
+
+
+def test_ml_readiness_respects_chip_filter() -> None:
+    module = _load_validator_module()
+    dataset_info = {
+        "files": {
+            "empty": [
+                {"filename": "empty_c3.npz", "chip": "C3", "num_packets": 200},
+                {"filename": "empty_c6.npz", "chip": "C6", "num_packets": 900},
+            ],
+            "static_presence": [],
+            "motion": [
+                {"filename": "motion_c3.npz", "chip": "C3", "num_packets": 200},
+                {"filename": "motion_c6.npz", "chip": "C6", "num_packets": 900},
+            ],
+        }
+    }
+
+    results = module.validate_ml_readiness(dataset_info, chip_filter="C3")
+    sample_count = next(result for result in results if result.name == "sample_count")
+
+    assert sample_count.value == 200
+
+
+def test_file_integrity_rejects_subcarrier_shape_mismatch(tmp_path) -> None:
+    module = _load_validator_module()
+    path = tmp_path / "bad.npz"
+    np.savez(
+        path,
+        csi_data=np.zeros((10, 128), dtype=np.int8),
+        num_subcarriers=np.array(52),
+    )
+
+    results, data = module.validate_file_integrity(path)
+    shape = next(result for result in results if result.name == "csi_shape")
+
+    assert data is not None
+    assert shape.status == "FAIL"
+    assert "implies 64 subcarriers" in shape.message
+
+
+def test_long_recording_coverage_warns_without_annotated_motion() -> None:
+    module = _load_validator_module()
+    dataset_info = {
+        "files": {
+            "test": [
+                {
+                    "filename": "quiet.npz",
+                    "chip": "C3",
+                    "description": "quiet long-run",
+                    "num_packets": 60000,
+                },
+            ],
+        }
+    }
+
+    class FakeNpz:
+        def __getitem__(self, key):
+            return np.zeros((200, 128), dtype=np.int8)
+
+    module._resolve_dataset_entry_path = lambda entry, label: Path("/tmp/quiet.npz")
+    module._load_cached_or_npz = lambda filepath, cache: (FakeNpz(), "csi_data")
+    module._evaluate_classic_quiet_fp = lambda csi: {
+        "fp_rate": 0.0,
+        "threshold": 1.0,
+        "eval_count": 100,
+    }
+
+    results = module.validate_quiet_test_recordings(dataset_info, {})
+    coverage = next(result for result in results if result.name == "long_test_event_coverage")
+
+    assert coverage.status == "WARN"
+    assert coverage.value == 0
+
+
 def test_metadata_completeness_fails_when_environment_is_missing() -> None:
     module = _load_validator_module()
 

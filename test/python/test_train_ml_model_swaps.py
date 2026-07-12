@@ -146,6 +146,52 @@ def test_search_candidate_key_prefers_passing_gate():
     assert module._search_candidate_key(cv, passing_gate) > module._search_candidate_key(cv, failing_gate)
 
 
+def test_idle_runtime_policy_rejects_isolated_hits_and_counts_alarm_duration():
+    module = _load_train_module()
+    stride = module.EVALUATION_INTERVAL
+
+    isolated = [0.0] * (stride * 4)
+    isolated[stride - 1] = 0.9
+    assert module.evaluate_idle_runtime_policy(isolated) == {
+        "effective_alarms": 0,
+        "false_motion_evaluations": 0,
+    }
+
+    burst = [0.0] * (stride * 8)
+    for evaluation in range(4):
+        burst[(evaluation + 1) * stride - 1] = 0.9
+    assert module.evaluate_idle_runtime_policy(burst) == {
+        "effective_alarms": 1,
+        "false_motion_evaluations": 4,
+    }
+
+
+def test_real_gate_ranking_prefers_fewer_effective_alarms_over_f1():
+    module = _load_train_module()
+    quieter = _long_metrics(
+        mean_f1=80.0,
+        worst_f1=75.0,
+        total_fp=20,
+        mean_recall=90.0,
+        pass_count=1,
+        max_fp_rate=2.0,
+    )
+    noisier = _long_metrics(
+        mean_f1=99.0,
+        worst_f1=98.0,
+        total_fp=10,
+        mean_recall=99.0,
+        pass_count=4,
+        max_fp_rate=1.0,
+    )
+    quieter["total_effective_alarms"] = 0
+    quieter["total_false_motion_evaluations"] = 0
+    noisier["total_effective_alarms"] = 1
+    noisier["total_false_motion_evaluations"] = 1
+
+    assert module._real_ml_gate_key(quieter) > module._real_ml_gate_key(noisier)
+
+
 def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkeypatch):
     module = _load_train_module()
 
@@ -208,7 +254,7 @@ def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkey
     monkeypatch.setattr(module, "describe_torch_device", lambda: "cpu")
     monkeypatch.setattr(module, "read_exported_seed", lambda: 111)
     monkeypatch.setattr(module, "train_all", lambda **kwargs: next(train_calls))
-    monkeypatch.setattr(module, "run_exported_ml_gates", lambda: next(gate_calls))
+    monkeypatch.setattr(module, "run_exported_ml_gates", lambda **kwargs: next(gate_calls))
 
     backup_counter = itertools.count()
     restore_calls = []

@@ -254,6 +254,7 @@ class AdaptivePacingController:
         max_pps: Optional[float] = None,
         additive_step_pps: Optional[float] = None,
         control_window_s: float = 1.0,
+        receive_tolerance_ratio: float = 0.05,
     ):
         initial_pps = float(initial_pps)
         min_pps = max(5.0, min(initial_pps, 10.0)) if min_pps is None else max(0.1, float(min_pps))
@@ -263,17 +264,17 @@ class AdaptivePacingController:
         )
         self.enabled = bool(enabled)
         self.current_pps = initial_pps
+        self.target_pps = initial_pps
         self.min_pps = min_pps
         self.max_pps = max_pps
         self.additive_step_pps = additive_step_pps
         self.control_window_s = max(0.1, float(control_window_s))
+        self.receive_tolerance_ratio = max(0.0, min(0.5, float(receive_tolerance_ratio)))
         self.last_control_at: Optional[float] = None
         self.backpressure_windows = 0
-        self.clean_windows = 0
         self.last_window_backpressure_delta = 0
         self.last_window_backpressure_source: Optional[str] = None
-        self.last_window_fresh_ratio: Optional[float] = None
-        self.last_window_pacing_ratio: Optional[float] = None
+        self.last_window_receive_ratio: Optional[float] = None
         self.last_action = "hold"
 
     def observe_device(
@@ -325,47 +326,57 @@ class AdaptivePacingController:
     def maybe_adjust(self, device_states: Dict[Any, Dict[str, Any]], *, now: float, pacing_sender: Any = None) -> None:
         if self.last_control_at is None:
             self.last_control_at = now
+            for device_state in device_states.values():
+                device_state["adaptive_prev_packet_total"] = int(device_state.get("packet_count", 0) or 0)
             return
-        if (now - self.last_control_at) < self.control_window_s:
+        elapsed_window_s = now - self.last_control_at
+        if elapsed_window_s < self.control_window_s:
             return
 
         worst_delta = 0
         tracked_devices = 0
         worst_sources: List[str] = []
-        target_packets = max(self.current_pps * self.control_window_s, 1.0)
-        best_fresh_ratio: Optional[float] = None
-        lowest_pacing_ratio: Optional[float] = None
+        target_packets = max(self.target_pps * elapsed_window_s, 1.0)
+        highest_receive_ratio: Optional[float] = None
+        lowest_receive_ratio: Optional[float] = None
         for device_state in device_states.values():
             window_delta = int(device_state.get("tx_backpressure_window_delta", 0) or 0)
             device_state["tx_backpressure_last_delta"] = window_delta
             device_state["tx_backpressure_window_delta"] = 0
+
+            packet_total = int(device_state.get("packet_count", 0) or 0)
+            previous_packet_total = device_state.get("adaptive_prev_packet_total")
+            receive_delta = 0
+            if previous_packet_total is not None and packet_total >= int(previous_packet_total):
+                receive_delta = packet_total - int(previous_packet_total)
+            device_state["adaptive_prev_packet_total"] = packet_total
+            device_state["receive_window_last_delta"] = receive_delta
+
             fresh_delta = int(device_state.get("stream_fresh_window_delta", 0) or 0)
             pacing_delta = int(device_state.get("pacing_rx_window_delta", 0) or 0)
             device_state["stream_fresh_last_delta"] = fresh_delta
             device_state["pacing_rx_last_delta"] = pacing_delta
             device_state["stream_fresh_window_delta"] = 0
             device_state["pacing_rx_window_delta"] = 0
-            if device_state.get("tx_backpressure_total") is None:
-                continue
             tracked_devices += 1
             if window_delta > worst_delta:
                 worst_delta = window_delta
                 worst_sources = [str(device_state.get("source_ip") or "?")]
             elif window_delta > 0 and window_delta == worst_delta:
                 worst_sources.append(str(device_state.get("source_ip") or "?"))
-            if pacing_delta > 0:
-                fresh_ratio = min(1.0, fresh_delta / pacing_delta)
-                pacing_ratio = min(1.0, pacing_delta / target_packets)
-                if best_fresh_ratio is None or fresh_ratio > best_fresh_ratio:
-                    best_fresh_ratio = fresh_ratio
-                if lowest_pacing_ratio is None or pacing_ratio < lowest_pacing_ratio:
-                    lowest_pacing_ratio = pacing_ratio
 
         self.last_control_at = now
         self.last_window_backpressure_delta = worst_delta
         self.last_window_backpressure_source = worst_sources[0] if worst_sources else None
-        self.last_window_fresh_ratio = best_fresh_ratio
-        self.last_window_pacing_ratio = lowest_pacing_ratio
+        if tracked_devices > 0:
+            for device_state in device_states.values():
+                receive_delta = int(device_state.get("receive_window_last_delta", 0) or 0)
+                receive_ratio = receive_delta / target_packets
+                if highest_receive_ratio is None or receive_ratio > highest_receive_ratio:
+                    highest_receive_ratio = receive_ratio
+                if lowest_receive_ratio is None or receive_ratio < lowest_receive_ratio:
+                    lowest_receive_ratio = receive_ratio
+        self.last_window_receive_ratio = lowest_receive_ratio
         if tracked_devices == 0:
             self.last_action = "hold"
             return
@@ -375,34 +386,26 @@ class AdaptivePacingController:
 
         if worst_delta > 0:
             self.backpressure_windows += 1
-            self.clean_windows = 0
             reduce_factor = 0.85 if self.backpressure_windows == 1 else 0.70
             self._apply_pacing_rate(self.current_pps * reduce_factor, action="slowdown", pacing_sender=pacing_sender)
             return
 
         self.backpressure_windows = 0
-        self.clean_windows += 1
-        if (
-            self.clean_windows >= 2
-            and best_fresh_ratio is not None
-            and lowest_pacing_ratio is not None
-            and best_fresh_ratio >= 0.90
-            and lowest_pacing_ratio <= 0.90
-        ):
+        lower_receive_bound = 1.0 - self.receive_tolerance_ratio
+        upper_receive_bound = 1.0 + self.receive_tolerance_ratio
+        if lowest_receive_ratio is not None and lowest_receive_ratio < lower_receive_bound:
             self._apply_pacing_rate(
                 self.current_pps + self.additive_step_pps,
                 action="speedup",
                 pacing_sender=pacing_sender,
             )
-            self.clean_windows = 0
             return
-        if self.clean_windows >= 3:
+        if highest_receive_ratio is not None and highest_receive_ratio > upper_receive_bound:
             self._apply_pacing_rate(
-                self.current_pps + self.additive_step_pps,
-                action="recovery",
+                self.current_pps - self.additive_step_pps,
+                action="trim",
                 pacing_sender=pacing_sender,
             )
-            self.clean_windows = 0
             return
         self.last_action = "hold"
 
