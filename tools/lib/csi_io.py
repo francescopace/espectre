@@ -31,13 +31,13 @@ except ImportError:
     import src.config as config
 
 MAGIC_STREAM = 0x4353
-STREAM_VERSION = 5
+STREAM_VERSION = 6
 DEFAULT_PORT = 5001
 STREAM_FLAG_FIRST_WORD_INVALID = 1 << 0
 STREAM_FLAG_WIFI_RX_TS_VALID = 1 << 1
 STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1 << 2
 STREAM_FLAG_CSI_FRESH = 1 << 3
-CSI_HEADER_FORMAT = "<HBBBBIHHQQIQBbbQ"
+CSI_HEADER_FORMAT = "<HBBBBIHHQQIQBbbQII"
 CSI_HEADER_STRUCT = struct.Struct(CSI_HEADER_FORMAT)
 MAX_STREAM_DATAGRAM_BYTES = 2048
 DEFAULT_SOCKET_RCVBUF_BYTES = 1024 * 1024
@@ -97,6 +97,8 @@ class CSIPacket:
     rssi_dbm: Optional[int] = None
     noise_floor_dbm: Optional[int] = None
     tx_backpressure_total: Optional[int] = None
+    stream_fresh_total: Optional[int] = None
+    pacing_rx_total: Optional[int] = None
     # False for older captures where the device could re-send its latest CSI
     # sample. Current streamer firmware emits only fresh CSI records.
     csi_fresh: bool = True
@@ -255,7 +257,7 @@ class AdaptivePacingController:
     ):
         initial_pps = float(initial_pps)
         min_pps = max(5.0, min(initial_pps, 10.0)) if min_pps is None else max(0.1, float(min_pps))
-        max_pps = max(initial_pps, min_pps) if max_pps is None else max(float(max_pps), min_pps)
+        max_pps = max(initial_pps * 1.25, min_pps) if max_pps is None else max(float(max_pps), min_pps)
         additive_step_pps = (
             max(1.0, initial_pps * 0.02) if additive_step_pps is None else max(0.1, float(additive_step_pps))
         )
@@ -270,18 +272,43 @@ class AdaptivePacingController:
         self.clean_windows = 0
         self.last_window_backpressure_delta = 0
         self.last_window_backpressure_source: Optional[str] = None
+        self.last_window_fresh_ratio: Optional[float] = None
+        self.last_window_pacing_ratio: Optional[float] = None
         self.last_action = "hold"
 
-    def observe_device(self, device_state: Dict[str, Any], tx_backpressure_total: Optional[int]) -> None:
-        if tx_backpressure_total is None:
-            return
-        total = int(tx_backpressure_total)
-        previous_total = device_state.get("tx_backpressure_total")
-        if previous_total is not None and total >= previous_total:
-            device_state["tx_backpressure_window_delta"] = int(device_state.get("tx_backpressure_window_delta", 0) or 0) + (
-                total - previous_total
-            )
-        device_state["tx_backpressure_total"] = total
+    def observe_device(
+        self,
+        device_state: Dict[str, Any],
+        tx_backpressure_total: Optional[int],
+        stream_fresh_total: Optional[int] = None,
+        pacing_rx_total: Optional[int] = None,
+    ) -> None:
+        if tx_backpressure_total is not None:
+            total = int(tx_backpressure_total)
+            previous_total = device_state.get("tx_backpressure_total")
+            if previous_total is not None and total >= previous_total:
+                device_state["tx_backpressure_window_delta"] = int(
+                    device_state.get("tx_backpressure_window_delta", 0) or 0
+                ) + (total - previous_total)
+            device_state["tx_backpressure_total"] = total
+
+        if stream_fresh_total is not None:
+            fresh_total = int(stream_fresh_total)
+            previous_fresh_total = device_state.get("stream_fresh_total")
+            if previous_fresh_total is not None and fresh_total >= previous_fresh_total:
+                device_state["stream_fresh_window_delta"] = int(device_state.get("stream_fresh_window_delta", 0) or 0) + (
+                    fresh_total - previous_fresh_total
+                )
+            device_state["stream_fresh_total"] = fresh_total
+
+        if pacing_rx_total is not None:
+            rx_total = int(pacing_rx_total)
+            previous_rx_total = device_state.get("pacing_rx_total")
+            if previous_rx_total is not None and rx_total >= previous_rx_total:
+                device_state["pacing_rx_window_delta"] = int(device_state.get("pacing_rx_window_delta", 0) or 0) + (
+                    rx_total - previous_rx_total
+                )
+            device_state["pacing_rx_total"] = rx_total
 
     def _apply_pacing_rate(self, new_pps: float, *, action: str, pacing_sender: Any) -> None:
         clamped_pps = max(self.min_pps, min(self.max_pps, float(new_pps)))
@@ -305,10 +332,19 @@ class AdaptivePacingController:
         worst_delta = 0
         tracked_devices = 0
         worst_sources: List[str] = []
+        target_packets = max(self.current_pps * self.control_window_s, 1.0)
+        best_fresh_ratio: Optional[float] = None
+        lowest_pacing_ratio: Optional[float] = None
         for device_state in device_states.values():
             window_delta = int(device_state.get("tx_backpressure_window_delta", 0) or 0)
             device_state["tx_backpressure_last_delta"] = window_delta
             device_state["tx_backpressure_window_delta"] = 0
+            fresh_delta = int(device_state.get("stream_fresh_window_delta", 0) or 0)
+            pacing_delta = int(device_state.get("pacing_rx_window_delta", 0) or 0)
+            device_state["stream_fresh_last_delta"] = fresh_delta
+            device_state["pacing_rx_last_delta"] = pacing_delta
+            device_state["stream_fresh_window_delta"] = 0
+            device_state["pacing_rx_window_delta"] = 0
             if device_state.get("tx_backpressure_total") is None:
                 continue
             tracked_devices += 1
@@ -317,10 +353,19 @@ class AdaptivePacingController:
                 worst_sources = [str(device_state.get("source_ip") or "?")]
             elif window_delta > 0 and window_delta == worst_delta:
                 worst_sources.append(str(device_state.get("source_ip") or "?"))
+            if pacing_delta > 0:
+                fresh_ratio = min(1.0, fresh_delta / pacing_delta)
+                pacing_ratio = min(1.0, pacing_delta / target_packets)
+                if best_fresh_ratio is None or fresh_ratio > best_fresh_ratio:
+                    best_fresh_ratio = fresh_ratio
+                if lowest_pacing_ratio is None or pacing_ratio < lowest_pacing_ratio:
+                    lowest_pacing_ratio = pacing_ratio
 
         self.last_control_at = now
         self.last_window_backpressure_delta = worst_delta
         self.last_window_backpressure_source = worst_sources[0] if worst_sources else None
+        self.last_window_fresh_ratio = best_fresh_ratio
+        self.last_window_pacing_ratio = lowest_pacing_ratio
         if tracked_devices == 0:
             self.last_action = "hold"
             return
@@ -337,6 +382,20 @@ class AdaptivePacingController:
 
         self.backpressure_windows = 0
         self.clean_windows += 1
+        if (
+            self.clean_windows >= 2
+            and best_fresh_ratio is not None
+            and lowest_pacing_ratio is not None
+            and best_fresh_ratio >= 0.90
+            and lowest_pacing_ratio <= 0.90
+        ):
+            self._apply_pacing_rate(
+                self.current_pps + self.additive_step_pps,
+                action="speedup",
+                pacing_sender=pacing_sender,
+            )
+            self.clean_windows = 0
+            return
         if self.clean_windows >= 3:
             self._apply_pacing_rate(
                 self.current_pps + self.additive_step_pps,
@@ -412,6 +471,8 @@ class CSIReceiver:
             rssi_dbm,
             noise_floor_dbm,
             tx_backpressure_total,
+            stream_fresh_total,
+            pacing_rx_total,
         ) = CSI_HEADER_STRUCT.unpack_from(data, offset)
 
         if magic != MAGIC_STREAM or version != STREAM_VERSION:
@@ -449,6 +510,8 @@ class CSIReceiver:
             rssi_dbm=int(rssi_dbm),
             noise_floor_dbm=int(noise_floor_dbm),
             tx_backpressure_total=int(tx_backpressure_total),
+            stream_fresh_total=int(stream_fresh_total),
+            pacing_rx_total=int(pacing_rx_total),
             csi_fresh=bool(flags & STREAM_FLAG_CSI_FRESH),
             _iq_complex=iq_complex,
             _amplitudes=amplitudes,
@@ -1047,6 +1110,12 @@ class CSICollector:
                             "tx_backpressure_total": None,
                             "tx_backpressure_window_delta": 0,
                             "tx_backpressure_last_delta": 0,
+                            "stream_fresh_total": None,
+                            "stream_fresh_window_delta": 0,
+                            "stream_fresh_last_delta": 0,
+                            "pacing_rx_total": None,
+                            "pacing_rx_window_delta": 0,
+                            "pacing_rx_last_delta": 0,
                         }
                         device_states[device_id] = state
                     else:
@@ -1059,7 +1128,12 @@ class CSICollector:
                             state["rssi_dbm"] = packet.rssi_dbm
                         state["last_seq"] = packet.seq_num
                     if pacing_controller is not None:
-                        pacing_controller.observe_device(state, packet.tx_backpressure_total)
+                        pacing_controller.observe_device(
+                            state,
+                            getattr(packet, "tx_backpressure_total", None),
+                            getattr(packet, "stream_fresh_total", None),
+                            getattr(packet, "pacing_rx_total", None),
+                        )
                     state["detector"].process_packet({"csi_data": packet.iq_raw})
                     state["processed_packets"] += 1
                     if state["processed_packets"] >= warmup_target:
@@ -1197,6 +1271,12 @@ class CSICollector:
                             "tx_backpressure_total": None,
                             "tx_backpressure_window_delta": 0,
                             "tx_backpressure_last_delta": 0,
+                            "stream_fresh_total": None,
+                            "stream_fresh_window_delta": 0,
+                            "stream_fresh_last_delta": 0,
+                            "pacing_rx_total": None,
+                            "pacing_rx_window_delta": 0,
+                            "pacing_rx_last_delta": 0,
                         }
                         device_states[device_id] = state
                     else:
@@ -1209,7 +1289,12 @@ class CSICollector:
                             state["rssi_dbm"] = packet.rssi_dbm
                         state["last_seq"] = packet.seq_num
                     if pacing_controller is not None:
-                        pacing_controller.observe_device(state, packet.tx_backpressure_total)
+                        pacing_controller.observe_device(
+                            state,
+                            getattr(packet, "tx_backpressure_total", None),
+                            getattr(packet, "stream_fresh_total", None),
+                            getattr(packet, "pacing_rx_total", None),
+                        )
                     state["detector"].process_packet({"csi_data": packet.iq_raw})
                     state["processed_packets"] += 1
                     if state["processed_packets"] >= warmup_target:

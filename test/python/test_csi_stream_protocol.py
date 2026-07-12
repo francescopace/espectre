@@ -10,6 +10,7 @@ import pytest
 
 from tools.lib import dataset_metadata
 from tools.lib.csi_io import (
+    AdaptivePacingController,
     UdpPacingSender,
     CSICollector,
     CSIReceiver,
@@ -38,6 +39,8 @@ def build_packet(
     rssi_dbm=-42,
     noise_floor_dbm=-96,
     tx_backpressure_total=0,
+    stream_fresh_total=0,
+    pacing_rx_total=0,
 ):
     payload_values = payload if payload is not None else [1, 2, 3, 4]
     payload = np.array(payload_values, dtype=np.int8).tobytes()
@@ -59,6 +62,8 @@ def build_packet(
         rssi_dbm,
         noise_floor_dbm,
         tx_backpressure_total,
+        stream_fresh_total,
+        pacing_rx_total,
     )
     return header + payload
 
@@ -269,6 +274,46 @@ def test_parse_packet_reads_tx_backpressure_total():
 
     assert packet is not None
     assert packet.tx_backpressure_total == 17
+
+
+def test_parse_packet_reads_adaptive_up_counters():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    packet = receiver._parse_packet(
+        build_packet(
+            seq_num=44,
+            stream_fresh_total=123,
+            pacing_rx_total=140,
+        )
+    )
+
+    assert packet is not None
+    assert packet.stream_fresh_total == 123
+    assert packet.pacing_rx_total == 140
+
+
+def test_adaptive_pacing_controller_speeds_up_when_device_under_target_without_backpressure():
+    class FakePacingSender:
+        def __init__(self):
+            self.rate_updates = []
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
+    sender = FakePacingSender()
+    device_state = {"source_ip": "192.168.1.17"}
+
+    controller.observe_device(device_state, 0, 0, 0)
+    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
+
+    controller.observe_device(device_state, 0, 80, 80)
+    controller.maybe_adjust({1: device_state}, now=1.1, pacing_sender=sender)
+
+    controller.observe_device(device_state, 0, 160, 160)
+    controller.maybe_adjust({1: device_state}, now=2.2, pacing_sender=sender)
+
+    assert sender.rate_updates == pytest.approx([102.0])
+    assert controller.last_action == "speedup"
 
 
 def test_receiver_configures_udp_receive_buffer(monkeypatch):

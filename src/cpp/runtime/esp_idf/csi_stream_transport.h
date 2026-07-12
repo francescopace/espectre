@@ -66,7 +66,7 @@ class CsiStreamTransport {
   uint64_t latest_csi_sent_total_{0U};
   int stream_sock_{-1};
 
-  std::array<uint8_t, STREAM_MAX_BATCH_RECORDS *(sizeof(CsiStreamHeaderV5) + HT20_CSI_LEN)> batch_buffer_{};
+  std::array<uint8_t, STREAM_MAX_BATCH_RECORDS *(sizeof(CsiStreamHeaderV6) + HT20_CSI_LEN)> batch_buffer_{};
   size_t batch_len_{0U};
   uint8_t batch_records_pending_{0U};
   uint64_t batch_first_ms_{0U};
@@ -81,6 +81,7 @@ class CsiStreamTransport {
   uint64_t stream_tx_error_total_{0U};
   uint64_t stream_tx_backpressure_total_{0U};
   uint64_t last_pacing_streamed_total_{0U};
+  uint32_t latest_pacing_rx_total_{0U};
 
   uint64_t last_log_ms_{0U};
   uint64_t prev_log_sample_ms_{0U};

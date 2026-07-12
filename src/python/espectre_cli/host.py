@@ -236,8 +236,163 @@ def collect_csi_data(args) -> None:
 
 def _run_live_collect(args) -> None:
     """Run the host-side live collect pipeline."""
+    class _FallbackAdaptivePacingController:
+        def __init__(
+            self,
+            *,
+            initial_pps,
+            enabled=False,
+            min_pps=None,
+            max_pps=None,
+            additive_step_pps=None,
+            control_window_s=1.0,
+        ):
+            initial_pps = float(initial_pps)
+            min_pps = max(5.0, min(initial_pps, 10.0)) if min_pps is None else max(0.1, float(min_pps))
+            max_pps = max(initial_pps * 1.25, min_pps) if max_pps is None else max(float(max_pps), min_pps)
+            additive_step_pps = (
+                max(1.0, initial_pps * 0.02) if additive_step_pps is None else max(0.1, float(additive_step_pps))
+            )
+            self.enabled = bool(enabled)
+            self.current_pps = float(initial_pps)
+            self.min_pps = min_pps
+            self.max_pps = max_pps
+            self.additive_step_pps = additive_step_pps
+            self.control_window_s = max(0.1, float(control_window_s))
+            self.last_control_at = None
+            self.backpressure_windows = 0
+            self.clean_windows = 0
+            self.last_window_backpressure_delta = 0
+            self.last_window_backpressure_source = None
+            self.last_window_fresh_ratio = None
+            self.last_window_pacing_ratio = None
+            self.last_action = "hold"
+
+        def observe_device(
+            self,
+            device_state,
+            tx_backpressure_total,
+            stream_fresh_total=None,
+            pacing_rx_total=None,
+        ):
+            if tx_backpressure_total is not None:
+                total = int(tx_backpressure_total)
+                previous_total = device_state.get("tx_backpressure_total")
+                if previous_total is not None and total >= previous_total:
+                    device_state["tx_backpressure_window_delta"] = int(
+                        device_state.get("tx_backpressure_window_delta", 0) or 0
+                    ) + (total - previous_total)
+                device_state["tx_backpressure_total"] = total
+            if stream_fresh_total is not None:
+                fresh_total = int(stream_fresh_total)
+                previous_fresh_total = device_state.get("stream_fresh_total")
+                if previous_fresh_total is not None and fresh_total >= previous_fresh_total:
+                    device_state["stream_fresh_window_delta"] = int(
+                        device_state.get("stream_fresh_window_delta", 0) or 0
+                    ) + (fresh_total - previous_fresh_total)
+                device_state["stream_fresh_total"] = fresh_total
+            if pacing_rx_total is not None:
+                rx_total = int(pacing_rx_total)
+                previous_rx_total = device_state.get("pacing_rx_total")
+                if previous_rx_total is not None and rx_total >= previous_rx_total:
+                    device_state["pacing_rx_window_delta"] = int(device_state.get("pacing_rx_window_delta", 0) or 0) + (
+                        rx_total - previous_rx_total
+                    )
+                device_state["pacing_rx_total"] = rx_total
+
+        def _apply_pacing_rate(self, new_pps, *, action, pacing_sender):
+            clamped_pps = max(self.min_pps, min(self.max_pps, float(new_pps)))
+            if abs(clamped_pps - self.current_pps) < 1e-9:
+                self.last_action = action
+                return
+            if pacing_sender is None or not hasattr(pacing_sender, "set_rate_pps"):
+                self.last_action = "hold"
+                return
+            pacing_sender.set_rate_pps(clamped_pps)
+            self.current_pps = clamped_pps
+            self.last_action = action
+
+        def maybe_adjust(self, device_states, *, now, pacing_sender=None):
+            if self.last_control_at is None:
+                self.last_control_at = now
+                return
+            if (now - self.last_control_at) < self.control_window_s:
+                return
+
+            worst_delta = 0
+            worst_source = None
+            target_packets = max(self.current_pps * self.control_window_s, 1.0)
+            best_fresh_ratio = None
+            lowest_pacing_ratio = None
+            for device_state in device_states.values():
+                window_delta = int(device_state.get("tx_backpressure_window_delta", 0) or 0)
+                device_state["tx_backpressure_last_delta"] = window_delta
+                device_state["tx_backpressure_window_delta"] = 0
+                fresh_delta = int(device_state.get("stream_fresh_window_delta", 0) or 0)
+                pacing_delta = int(device_state.get("pacing_rx_window_delta", 0) or 0)
+                device_state["stream_fresh_last_delta"] = fresh_delta
+                device_state["pacing_rx_last_delta"] = pacing_delta
+                device_state["stream_fresh_window_delta"] = 0
+                device_state["pacing_rx_window_delta"] = 0
+                if window_delta > worst_delta:
+                    worst_delta = window_delta
+                    worst_source = str(device_state.get("source_ip") or "?")
+                if pacing_delta > 0:
+                    fresh_ratio = min(1.0, fresh_delta / pacing_delta)
+                    pacing_ratio = min(1.0, pacing_delta / target_packets)
+                    if best_fresh_ratio is None or fresh_ratio > best_fresh_ratio:
+                        best_fresh_ratio = fresh_ratio
+                    if lowest_pacing_ratio is None or pacing_ratio < lowest_pacing_ratio:
+                        lowest_pacing_ratio = pacing_ratio
+
+            self.last_control_at = now
+            self.last_window_backpressure_delta = worst_delta
+            self.last_window_backpressure_source = worst_source
+            self.last_window_fresh_ratio = best_fresh_ratio
+            self.last_window_pacing_ratio = lowest_pacing_ratio
+            if not self.enabled:
+                self.last_action = "hold"
+                return
+            if worst_delta > 0:
+                self.backpressure_windows += 1
+                self.clean_windows = 0
+                reduce_factor = 0.85 if self.backpressure_windows == 1 else 0.70
+                self._apply_pacing_rate(self.current_pps * reduce_factor, action="slowdown", pacing_sender=pacing_sender)
+                return
+
+            self.backpressure_windows = 0
+            self.clean_windows += 1
+            if (
+                self.clean_windows >= 2
+                and best_fresh_ratio is not None
+                and lowest_pacing_ratio is not None
+                and best_fresh_ratio >= 0.90
+                and lowest_pacing_ratio <= 0.90
+            ):
+                self._apply_pacing_rate(
+                    self.current_pps + self.additive_step_pps,
+                    action="speedup",
+                    pacing_sender=pacing_sender,
+                )
+                self.clean_windows = 0
+                return
+            if self.clean_windows >= 3:
+                self._apply_pacing_rate(
+                    self.current_pps + self.additive_step_pps,
+                    action="recovery",
+                    pacing_sender=pacing_sender,
+                )
+                self.clean_windows = 0
+                return
+            self.last_action = "hold"
+
     try:
-        from tools.lib.csi_io import AdaptivePacingController, CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
+        try:
+            from tools.lib.csi_io import AdaptivePacingController, CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
+        except ImportError:
+            from tools.lib.csi_io import CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
+
+            AdaptivePacingController = _FallbackAdaptivePacingController
         import config
         from console_output import format_calibration_status_line, format_detection_publish_line
         from detector_interface import (
@@ -255,7 +410,12 @@ def _run_live_collect(args) -> None:
         )
     except ImportError:
         try:
-            from tools.lib.csi_io import AdaptivePacingController, CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
+            try:
+                from tools.lib.csi_io import AdaptivePacingController, CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
+            except ImportError:
+                from tools.lib.csi_io import CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
+
+                AdaptivePacingController = _FallbackAdaptivePacingController
             import src.config as config
             from src.console_output import format_calibration_status_line, format_detection_publish_line
             from src.detector_interface import (
@@ -488,6 +648,12 @@ def _run_live_collect(args) -> None:
             "tx_backpressure_total": None,
             "tx_backpressure_window_delta": 0,
             "tx_backpressure_last_delta": 0,
+            "stream_fresh_total": None,
+            "stream_fresh_window_delta": 0,
+            "stream_fresh_last_delta": 0,
+            "pacing_rx_total": None,
+            "pacing_rx_window_delta": 0,
+            "pacing_rx_last_delta": 0,
             "slots": [build_detector_slot(kind) for kind in detector_kinds],
         }
         device_state["label"] = format_device_label(device_state)
@@ -511,9 +677,12 @@ def _run_live_collect(args) -> None:
         rssi_dbm = getattr(pkt, "rssi_dbm", None)
         if rssi_dbm is not None:
             device_state["rssi_dbm"] = int(rssi_dbm)
-        tx_backpressure_total = getattr(pkt, "tx_backpressure_total", None)
-        if tx_backpressure_total is not None:
-            adaptive_pacing.observe_device(device_state, tx_backpressure_total)
+        adaptive_pacing.observe_device(
+            device_state,
+            getattr(pkt, "tx_backpressure_total", None),
+            getattr(pkt, "stream_fresh_total", None),
+            getattr(pkt, "pacing_rx_total", None),
+        )
         device_state["label"] = format_device_label(device_state)
         return device_state
 

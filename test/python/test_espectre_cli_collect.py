@@ -761,7 +761,7 @@ def test_collect_timed_adaptive_adjusts_legacy_pacing(monkeypatch) -> None:
     )
 
     assert saved_files == [Path("sample_1.npz")]
-    assert pacing_sender.rate_updates == pytest.approx([85.0, 59.5])
+    assert pacing_sender.rate_updates == pytest.approx([85.0])
 
 
 def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> None:
@@ -1313,7 +1313,7 @@ def test_collect_live_keeps_fixed_pacing_without_adaptive(monkeypatch, capsys) -
     assert FakePacingSender.last_instance is not None
     assert FakePacingSender.last_instance.rate_updates == []
     assert "bp:active(+4)" in output
-    assert "Adaptive:" in output and "OFF" in output
+    assert "Pps:" in output and "(fixed)" in output
 
 
 def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, capsys) -> None:
@@ -1387,7 +1387,7 @@ def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, caps
     assert FakePacingSender.last_instance is not None
     assert FakePacingSender.last_instance.rate_updates == pytest.approx([85.0, 59.5, 61.5])
     assert "bp:active(+4)" in output
-    assert "Adaptive:" in output and "ON" in output
+    assert "Pps:" in output and "(adaptive)" in output
 
 
 def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None:

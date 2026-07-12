@@ -34,10 +34,10 @@ enum StreamFlags : uint8_t {
 };
 
 static constexpr uint16_t STREAM_MAGIC = 0x4353U;
-static constexpr uint8_t STREAM_VERSION = 5U;
+static constexpr uint8_t STREAM_VERSION = 6U;
 
 #pragma pack(push, 1)
-struct CsiStreamHeaderV5 {
+struct CsiStreamHeaderV6 {
   uint16_t magic;
   uint8_t version;
   uint8_t header_len;
@@ -57,13 +57,15 @@ struct CsiStreamHeaderV5 {
   int8_t rssi_dbm;
   int8_t noise_floor_dbm;
   uint64_t tx_backpressure_total;
+  uint32_t stream_fresh_total;
+  uint32_t pacing_rx_total;
 };
 #pragma pack(pop)
 
-static_assert(sizeof(CsiStreamHeaderV5) == 53U, "CSI stream header size must remain stable");
+static_assert(sizeof(CsiStreamHeaderV6) == 61U, "CSI stream header size must remain stable");
 
 static constexpr size_t STREAM_MAX_CSI_LEN_BYTES = 512U;
-static constexpr size_t STREAM_MAX_PACKET_BYTES = sizeof(CsiStreamHeaderV5) + STREAM_MAX_CSI_LEN_BYTES;
+static constexpr size_t STREAM_MAX_PACKET_BYTES = sizeof(CsiStreamHeaderV6) + STREAM_MAX_CSI_LEN_BYTES;
 
 // Senders may concatenate up to this many complete records (header followed by
 // payload) into one UDP datagram; receivers parse records back-to-back until

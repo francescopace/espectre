@@ -31,7 +31,7 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.stream";
-constexpr size_t kStreamRecordMaxBytes = sizeof(CsiStreamHeaderV5) + HT20_CSI_LEN;
+constexpr size_t kStreamRecordMaxBytes = sizeof(CsiStreamHeaderV6) + HT20_CSI_LEN;
 // Upper bound on how long a partial batch may wait for more pacing slots
 // before it is flushed, so low pacing rates keep bounded record latency.
 constexpr uint64_t kStreamBatchFlushMs = 100U;
@@ -222,7 +222,7 @@ static_assert(sizeof(wifi_pkt_rx_ctrl_time_t) == sizeof(wifi_pkt_rx_ctrl_t),
               "timestamp overlay must match wifi_pkt_rx_ctrl_t");
 #endif
 
-bool fill_rx_timestamp_metadata(const wifi_pkt_rx_ctrl_t &rx_ctrl, CsiStreamHeaderV5 *header) {
+bool fill_rx_timestamp_metadata(const wifi_pkt_rx_ctrl_t &rx_ctrl, CsiStreamHeaderV6 *header) {
   if (header == nullptr) {
     return false;
   }
@@ -284,6 +284,7 @@ void CsiStreamTransport::reset_session() {
   stream_tx_total_ = 0U;
   stream_tx_error_total_ = 0U;
   stream_tx_backpressure_total_ = 0U;
+  latest_pacing_rx_total_ = 0U;
   last_log_ms_ = 0U;
   prev_log_sample_ms_ = 0U;
   prev_csi_callback_total_ = 0U;
@@ -362,6 +363,7 @@ void CsiStreamTransport::update_from_traffic(const CsiTrafficService &traffic_se
   }
 
   const uint64_t pacing_rx_total = traffic_service.get_packets_received();
+  latest_pacing_rx_total_ = static_cast<uint32_t>(pacing_rx_total);
   const bool should_stream = collector_ip_addr_ != 0U && streaming_ready;
   if (!should_stream) {
     drop_stream_batch_();
@@ -537,8 +539,8 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
     return 0U;
   }
 
-  auto *header = reinterpret_cast<CsiStreamHeaderV5 *>(buffer);
-  *header = CsiStreamHeaderV5{};
+  auto *header = reinterpret_cast<CsiStreamHeaderV6 *>(buffer);
+  *header = CsiStreamHeaderV6{};
   header->magic = STREAM_MAGIC;
   header->version = STREAM_VERSION;
   header->header_len = static_cast<uint8_t>(sizeof(*header));
@@ -558,6 +560,9 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
   header->noise_floor_dbm = -128;
 #endif
   header->tx_backpressure_total = stream_tx_backpressure_total_;
+  header->stream_fresh_total =
+      static_cast<uint32_t>(stream_fresh_total_.load(std::memory_order_relaxed) + 1U);
+  header->pacing_rx_total = latest_pacing_rx_total_;
 
   if (sample.first_word_invalid) {
     header->flags |= STREAM_FLAG_FIRST_WORD_INVALID;
