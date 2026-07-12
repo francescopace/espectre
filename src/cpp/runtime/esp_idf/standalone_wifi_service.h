@@ -34,6 +34,7 @@ class StandaloneWifiService {
                   standalone_wifi_callback_t disconnected_cb = {});
   esp_err_t start();
   esp_err_t update_station_config(const StandaloneWifiConfig &config);
+  void loop();
   bool get_info(StandaloneWifiInfo *info) const;
   void shutdown();
 

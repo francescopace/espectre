@@ -63,6 +63,11 @@ add_espectre_test(test_wifi_lifecycle
     LIBRARIES espectre_runtime_testlib
 )
 
+add_espectre_test(test_pending_event
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_pending_event.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
 add_espectre_test(test_wifi_provisioning_service
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_wifi_provisioning_service.cpp"
     LIBRARIES espectre_runtime_testlib

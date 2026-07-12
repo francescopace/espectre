@@ -279,6 +279,12 @@ esp_err_t StandaloneWifiService::start() {
   return err;
 }
 
+void StandaloneWifiService::loop() {
+  if (config_.manage_csi_lifecycle) {
+    wifi_lifecycle_.process_pending_events();
+  }
+}
+
 esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfig &config) {
   if (!setup_complete_) {
     ESP_LOGE(TAG, "Cannot update Wi-Fi station config before setup");

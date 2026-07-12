@@ -28,7 +28,7 @@
 #include "runtime_frontend_controller.h"
 
 namespace esphome {
-namespace espectre {
+namespace espectre_component {
 
 using namespace ::espectre;
 
@@ -108,5 +108,5 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   bool threshold_republished_{false};
 };
 
-}  // namespace espectre
+}  // namespace espectre_component
 }  // namespace esphome

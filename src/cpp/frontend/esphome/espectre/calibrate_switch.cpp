@@ -10,7 +10,7 @@
 #include "esphome/core/log.h"
 
 namespace esphome {
-namespace espectre {
+namespace espectre_component {
 
 static const char *const TAG_CALIBRATE = "espectre.calibrate";
 
@@ -57,6 +57,6 @@ void ESpectreCalibrateSwitch::write_state(bool state) {
   }
 }
 
-}  // namespace espectre
+}  // namespace espectre_component
 }  // namespace esphome
 

@@ -27,6 +27,8 @@ All notable changes to this project will be documented in this file.
 - **Motion-first startup calibration for Classic thresholds** with internal quiet-only fallback.
 - **Parallel multi-detector live collect** through `./espectre collect --detector classic,ml`.
 - **BLE-assisted Wi-Fi provisioning for the streamer firmware** via `tools/web/espectre-ble.html`
+- **Uplink CSI record batching in the streamer transport**: up to 8 records per UDP datagram via `ESPECTRE_STREAM_TX_BATCH_RECORDS` (default 4), cutting uplink packet rate and airtime pressure.
+- **ESP32-specific streamer `sdkconfig` profile** with shallower Wi-Fi TX/RX buffer caps and lwIP IPv6 disabled to fit the original ESP32 resource budget.
 - **Updated architecture documentation** in `docs/ARCHITECTURE.md`
 
 Historical decision context for the Classic and ML promotions now lives in:

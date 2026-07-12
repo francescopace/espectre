@@ -10,7 +10,7 @@
 #include "esphome/core/log.h"
 
 namespace esphome {
-namespace espectre {
+namespace espectre_component {
 
 static const char *const TAG_THRESHOLD = "espectre.threshold";
 
@@ -43,6 +43,6 @@ void ESpectreThresholdNumber::republish_state() {
   }
 }
 
-}  // namespace espectre
+}  // namespace espectre_component
 }  // namespace esphome
 

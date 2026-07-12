@@ -98,12 +98,10 @@ void MLDetector::update_state() {
     if (state_ == MotionState::IDLE) {
         if (current_probability_ > threshold_) {
             state_ = MotionState::MOTION;
-            ESP_LOGV(TAG, "Motion started (prob=%.3f)", current_probability_);
         }
     } else {
         if (current_probability_ <= threshold_) {
             state_ = MotionState::IDLE;
-            ESP_LOGV(TAG, "Motion ended (prob=%.3f)", current_probability_);
         }
     }
 }

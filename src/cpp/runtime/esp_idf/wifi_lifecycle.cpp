@@ -183,86 +183,100 @@ void WiFiLifecycleManager::unregister_handlers() {
     esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, connected_instance_);
     connected_instance_ = nullptr;
   }
-  
+
   if (disconnected_instance_) {
     esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, disconnected_instance_);
     disconnected_instance_ = nullptr;
   }
-  
+
+  connected_event_.clear();
+  disconnected_event_.clear();
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi event handlers unregistered");
 }
 
+void WiFiLifecycleManager::process_pending_events() {
+  if (disconnected_event_.take()) {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi disconnected");
+    if (disconnected_callback_) {
+      disconnected_callback_();
+    }
+  }
+
+  if (connected_event_.take()) {
+    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi connected");
+    log_connect_diagnostics_();
+    if (connected_callback_) {
+      connected_callback_();
+    }
+  }
+}
+
+void WiFiLifecycleManager::log_connect_diagnostics_() {
+  bool promiscuous = false;
+  esp_wifi_get_promiscuous(&promiscuous);
+  ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
+
+  wifi_ps_type_t ps_type;
+  esp_err_t ps_err = esp_wifi_get_ps(&ps_type);
+  if (ps_err == ESP_OK) {
+    const char* ps_str = (ps_type == WIFI_PS_NONE) ? "NONE" :
+                         (ps_type == WIFI_PS_MIN_MODEM) ? "MIN_MODEM" : "MAX_MODEM";
+    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Power Save: %s", ps_str);
+  } else {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Power Save: unavailable (%s)", esp_err_to_name(ps_err));
+  }
+
+  uint16_t protocol = 0;
+  esp_err_t protocol_err = get_wifi_protocol_for_log_(&protocol);
+  if (protocol_err == ESP_OK) {
+    const int has_11b = (protocol & WIFI_PROTOCOL_11B) ? 1 : 0;
+    const int has_11g = (protocol & WIFI_PROTOCOL_11G) ? 1 : 0;
+    const int has_11n = (protocol & WIFI_PROTOCOL_11N) ? 1 : 0;
+#ifdef WIFI_PROTOCOL_11AX
+    const int has_11ax = (protocol & WIFI_PROTOCOL_11AX) ? 1 : 0;
+#else
+    const int has_11ax = 0;
+#endif
+    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
+             protocol, has_11b, has_11g, has_11n, has_11ax);
+    if ((protocol & WIFI_PROTOCOL_11N) == 0) {
+      ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi protocol does not include 11n support: 0x%04X", protocol);
+    }
+  } else {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Protocol: unavailable (%s)", esp_err_to_name(protocol_err));
+  }
+
+  wifi_bandwidth_t bw = WIFI_BW_HT20;
+  esp_err_t bw_err = get_wifi_bandwidth_for_log_(&bw);
+  if (bw_err == ESP_OK) {
+    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Bandwidth: %s", bandwidth_to_str_(bw));
+  } else {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Bandwidth: unavailable (%s)", esp_err_to_name(bw_err));
+  }
+}
+
+// The event handlers run on the default event loop task (sys_evt), so they
+// must remain short and non-blocking. They only record the event;
+// process_pending_events() does the work from the runtime loop.
 void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_base,
                                              int32_t event_id, void* event_data) {
   (void)event_base;
   (void)event_data;
-  
+
   WiFiLifecycleManager* manager = static_cast<WiFiLifecycleManager*>(arg);
-  
-  // WiFi connected (got IP address)
+
   if (event_id == IP_EVENT_STA_GOT_IP) {
-    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi connected");
-    
-    // Log current WiFi parameters for debugging
-    bool promiscuous = false;
-    esp_wifi_get_promiscuous(&promiscuous);
-    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
-    
-    wifi_ps_type_t ps_type;
-    esp_err_t ps_err = esp_wifi_get_ps(&ps_type);
-    if (ps_err == ESP_OK) {
-      const char* ps_str = (ps_type == WIFI_PS_NONE) ? "NONE" :
-                           (ps_type == WIFI_PS_MIN_MODEM) ? "MIN_MODEM" : "MAX_MODEM";
-      ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Power Save: %s", ps_str);
-    } else {
-      ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Power Save: unavailable (%s)", esp_err_to_name(ps_err));
-    }
-    
-    uint16_t protocol = 0;
-    esp_err_t protocol_err = get_wifi_protocol_for_log_(&protocol);
-    if (protocol_err == ESP_OK) {
-      const int has_11b = (protocol & WIFI_PROTOCOL_11B) ? 1 : 0;
-      const int has_11g = (protocol & WIFI_PROTOCOL_11G) ? 1 : 0;
-      const int has_11n = (protocol & WIFI_PROTOCOL_11N) ? 1 : 0;
-#ifdef WIFI_PROTOCOL_11AX
-      const int has_11ax = (protocol & WIFI_PROTOCOL_11AX) ? 1 : 0;
-#else
-      const int has_11ax = 0;
-#endif
-      ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
-               protocol, has_11b, has_11g, has_11n, has_11ax);
-      if ((protocol & WIFI_PROTOCOL_11N) == 0) {
-        ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi protocol does not include 11n support: 0x%04X", protocol);
-      }
-    } else {
-      ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Protocol: unavailable (%s)", esp_err_to_name(protocol_err));
-    }
-    
-    wifi_bandwidth_t bw = WIFI_BW_HT20;
-    esp_err_t bw_err = get_wifi_bandwidth_for_log_(&bw);
-    if (bw_err == ESP_OK) {
-      ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Bandwidth: %s", bandwidth_to_str_(bw));
-    } else {
-      ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Bandwidth: unavailable (%s)", esp_err_to_name(bw_err));
-    }
-    
-    if (manager->connected_callback_) {
-      manager->connected_callback_();
-    }
+    manager->connected_event_.post();
   }
 }
 
 void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event_base,
                                                int32_t event_id, void* event_data) {
-  
+
   WiFiLifecycleManager* manager = static_cast<WiFiLifecycleManager*>(arg);
-  
-  // WiFi disconnected
+
   if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi disconnected");
-    if (manager->disconnected_callback_) {
-      manager->disconnected_callback_();
-    }
+    manager->disconnected_event_.post();
   }
 }
 

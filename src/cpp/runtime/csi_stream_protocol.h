@@ -28,9 +28,8 @@ enum StreamFlags : uint8_t {
   STREAM_FLAG_FIRST_WORD_INVALID = 1u << 0,
   STREAM_FLAG_WIFI_RX_TS_VALID = 1u << 1,
   STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1u << 2,
-  // Set when the packet carries a CSI sample not sent in a previous packet.
-  // Cleared on repeats of the latest available sample emitted to keep the
-  // traffic-paced stream at the target rate.
+  // Set on every emitted CSI record. The streamer only transmits fresh CSI
+  // samples, so stale repeats are dropped instead of being sent.
   STREAM_FLAG_CSI_FRESH = 1u << 3,
 };
 
@@ -65,5 +64,10 @@ static_assert(sizeof(CsiStreamHeaderV5) == 53U, "CSI stream header size must rem
 
 static constexpr size_t STREAM_MAX_CSI_LEN_BYTES = 512U;
 static constexpr size_t STREAM_MAX_PACKET_BYTES = sizeof(CsiStreamHeaderV5) + STREAM_MAX_CSI_LEN_BYTES;
+
+// Senders may concatenate up to this many complete records (header followed by
+// payload) into one UDP datagram; receivers parse records back-to-back until
+// the datagram is exhausted.
+static constexpr size_t STREAM_MAX_BATCH_RECORDS = 8U;
 
 }  // namespace espectre

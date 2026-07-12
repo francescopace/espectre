@@ -13,7 +13,7 @@
 #include "esphome/components/number/number.h"
 
 namespace esphome {
-namespace espectre {
+namespace espectre_component {
 
 // Forward declaration
 class ESpectreComponent;
@@ -35,6 +35,6 @@ class ESpectreThresholdNumber : public number::Number, public Component {
   ESpectreComponent *parent_{nullptr};
 };
 
-}  // namespace espectre
+}  // namespace espectre_component
 }  // namespace esphome
 

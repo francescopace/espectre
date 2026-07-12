@@ -120,6 +120,12 @@ void EspIdfRuntime::shutdown() {
 }
 
 void EspIdfRuntime::loop() {
+  wifi_lifecycle_.process_pending_events();
+  bool calibration_success = false;
+  if (calibration_finished_event_.take(calibration_success)) {
+    finish_threshold_calibration_(calibration_success);
+  }
+  csi_pipeline_.loop();
   csi_traffic_service_.loop();
 }
 
@@ -218,6 +224,12 @@ bool EspIdfRuntime::configure_detector_() {
 }
 
 void EspIdfRuntime::on_wifi_connected_() {
+  // Connect events are processed from the loop task; the connection may have
+  // dropped again in the meantime. The next IP_EVENT_STA_GOT_IP retriggers.
+  if (!has_wifi_ip_()) {
+    return;
+  }
+
   wifi_ready_ = true;
   if (!services_armed_) {
     ESP_LOGI(RUNTIME_TAG, "WiFi connected, waiting for Matter commissioning before starting CSI services");
@@ -273,7 +285,8 @@ void EspIdfRuntime::on_wifi_connected_() {
 void EspIdfRuntime::on_wifi_disconnected_() {
   wifi_ready_ = false;
   csi_wifi_lifecycle_ready_ = false;
-  threshold_calibration_active_ = false;
+  threshold_calibration_active_.store(false, std::memory_order_relaxed);
+  calibration_finished_event_.clear();
   csi_pipeline_.set_packet_interceptor({});
   csi_pipeline_.set_local_identity(0U, nullptr);
   csi_pipeline_.disable();
@@ -306,7 +319,8 @@ bool EspIdfRuntime::start_calibration_() {
   // runtime calibration flow.
   threshold_calibrator_.begin(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS,
                               detector_ != nullptr && detector_->startup_gate_enabled());
-  threshold_calibration_active_ = true;
+  calibration_finished_event_.clear();
+  threshold_calibration_active_.store(true, std::memory_order_relaxed);
   csi_pipeline_.clear_detector_buffer();
   csi_pipeline_.set_packet_interceptor(
       [this](const int8_t *csi_data, size_t csi_len) { return handle_threshold_calibration_packet_(csi_data, csi_len); });
@@ -316,7 +330,7 @@ bool EspIdfRuntime::start_calibration_() {
 }
 
 bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len) {
-  if (!threshold_calibration_active_ || detector_ == nullptr) {
+  if (!threshold_calibration_active_.load(std::memory_order_relaxed) || detector_ == nullptr) {
     return false;
   }
 
@@ -327,13 +341,14 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
                                 detector_->get_startup_floor_metric());
 
   if (threshold_calibrator_.is_complete()) {
-    finish_threshold_calibration_(threshold_calibrator_.is_successful());
+    threshold_calibration_active_.store(false, std::memory_order_relaxed);
+    calibration_finished_event_.post(threshold_calibrator_.is_successful());
   }
   return true;
 }
 
 void EspIdfRuntime::finish_threshold_calibration_(bool success) {
-  threshold_calibration_active_ = false;
+  threshold_calibration_active_.store(false, std::memory_order_relaxed);
   csi_pipeline_.set_packet_interceptor({});
   snapshot_.calibrating = false;
 

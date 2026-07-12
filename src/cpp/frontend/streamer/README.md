@@ -18,8 +18,9 @@ The streamer frontend is responsible for:
 - receiving lightweight host UDP pacing traffic
 - immediate AGC-active normalized startup
 - packaging CSI into the UDP stream format
-- sending one uplink CSI datagram toward the collector for each valid UDP
-  pacing packet received from the host
+- emitting one uplink CSI record toward the collector for each valid UDP
+  pacing packet received from the host, batching several records per
+  datagram to reduce uplink packet rate
 
 Use [`ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md) for the
 ML data collection workflow.
@@ -129,16 +130,18 @@ Flags:
 | 0 | `STREAM_FLAG_FIRST_WORD_INVALID` | Espressif CSI flag |
 | 1 | `STREAM_FLAG_WIFI_RX_TS_VALID` | `wifi_rx_ts_us` valid |
 | 2 | `STREAM_FLAG_WIFI_RX_START_TS_NS_VALID` | `wifi_rx_start_ts_ns` valid |
-| 3 | `STREAM_FLAG_CSI_FRESH` | first transmission of this CSI sample |
+| 3 | `STREAM_FLAG_CSI_FRESH` | fresh CSI sample record |
 
 Payload:
 
 - raw I/Q values in Espressif ordering
-- typical HT20 packet: `53 + 128 = 181 bytes`
-- the sender emits one complete CSI stream record per UDP datagram
-- before the first CSI sample is captured, the stream sends a one-byte filler
-  datagram per pacing slot; the collector ignores it because it does not carry
-  the stream magic
+- typical HT20 record: `53 + 128 = 181 bytes`
+- the sender concatenates up to `ESPECTRE_STREAM_TX_BATCH_RECORDS` complete
+  records (default 4, maximum 8) into one UDP datagram; the receiver parses
+  records back-to-back until the datagram is exhausted
+- partial batches are flushed after `100 ms` so low pacing rates keep bounded
+  record latency
+- pacing slots without a fresh CSI sample produce no stream record
 
 ## Frontend Configuration
 
@@ -228,32 +231,36 @@ Runtime behavior notes:
   pacing packet
 - CSI capture excludes 802.11 ACK frames (`dump_ack_en=0`) and keeps only
   frames transmitted by the associated AP (source MAC equals the BSSID)
-- the CSI callback keeps a single latest-wins sample; the stream sender embeds
-  it in every stream datagram, marking first transmissions with
-  `STREAM_FLAG_CSI_FRESH` and clearing the flag on repeats
+- the CSI callback keeps a single latest-wins sample; the stream sender emits
+  a record only when a fresh sample is available and marks emitted records with
+  `STREAM_FLAG_CSI_FRESH`
 - the stream always carries the full normalized CSI payload
-- the stream socket requests the WMM/EDCA voice access category (IP TOS `0xC0`,
-  TID 6, AC_VO) so uplink timing stays as tight as the link allows
-- AMPDU stays enabled on the streamer firmware; CSI no longer depends on
-  per-frame ACK observations
+- the stream socket uses the default best-effort access category (TID 0,
+  AC_BE), which supports AMPDU and avoids routing sustained CSI traffic
+  through the short, non-aggregating voice queue
+- AMPDU stays enabled on the streamer firmware; CSI is sourced from ordinary
+  collector-paced unicast data frames rather than ACK observations
 
 Periodic telemetry focuses on the traffic-paced flow:
 
 - `csi_ap`: valid CSI callbacks sourced from the associated AP
 - `csi_filt`: valid CSI callbacks dropped by the BSSID source filter
 - `udp_rx`: valid UDP pacing packets received
-- `udp_tx`: stream datagrams accepted by `sendto()`
-- `fresh`: stream packets carrying a new CSI sample
-- `repeat`: stream packets re-sending the latest CSI sample
+- `udp_tx`: stream datagrams accepted by `sendto()`; with record batching each
+  datagram carries up to `ESPECTRE_STREAM_TX_BATCH_RECORDS` records
+- `fresh`: stream records carrying a new CSI sample
+- `repeat`: pacing slots that arrived without a fresh CSI sample ready to send
 - `tx_err`: datagrams rejected by `sendto()`
 - `tx_bp`: datagrams rejected specifically because the TX path reported
   backpressure (`ENOMEM`, `ENOBUFS`, `EAGAIN`, or `EWOULDBLOCK`)
 - `age_ms`: age of the last accepted CSI sample
 
-In a healthy stream, `udp_tx` should sit close to `udp_rx`, and `fresh` should track
-the downlink CSI opportunities (`csi_ap`). A high `repeat` share means the AP
-is not generating enough downlink frames toward the device; increasing
-collector pacing rate or adding downlink traffic raises CSI freshness.
+In a healthy stream, `udp_tx` should sit close to the emitted fresh-record rate
+divided by the configured batch size, and `fresh` should track the downlink CSI
+opportunities (`csi_ap`). A high `repeat` share means the AP is not generating
+enough downlink frames toward the device, so pacing is out-running fresh CSI
+arrival and the streamer is intentionally dropping stale slots instead of
+re-sending old samples.
 
 ## Pacing-Driven Flow
 
@@ -270,10 +277,11 @@ The streamer is responsible for:
 
 - learning the collector IP from the source address of valid UDP pacing
   traffic
-- embedding the latest AP-sourced CSI sample in every stream datagram
-- flagging first transmissions with `STREAM_FLAG_CSI_FRESH`
-- sending one CSI datagram for each valid UDP pacing packet received, and
-  retargeting live when the collector address changes
+- embedding the latest AP-sourced CSI sample only when it is fresh
+- flagging emitted CSI records with `STREAM_FLAG_CSI_FRESH`
+- emitting CSI records only for pacing slots that coincide with a fresh sample,
+  batching them into uplink datagrams, and retargeting live when the collector
+  address changes
 
 When multiple streamers share the same target, the host collector is
 expected to demultiplex incoming CSI by `device_id` and save one dataset file

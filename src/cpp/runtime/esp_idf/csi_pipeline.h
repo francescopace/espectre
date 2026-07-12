@@ -20,6 +20,7 @@
 #include "esp_err.h"
 #include "esp_wifi.h"
 #include "csi_format.h"
+#include "pending_event.h"
 #include "wifi_csi_interface.h"
 
 namespace espectre {
@@ -80,6 +81,9 @@ class CsiPipeline {
    * @return ESP_OK on success
    */
   esp_err_t disable();
+
+  /** Drain diagnostics and frontend notifications from the runtime loop. */
+  void loop();
   
   /**
    * Process incoming CSI packet
@@ -132,6 +136,8 @@ class CsiPipeline {
   
  private:
   void process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized);
+  void clear_detector_buffer_deferred_();
+  void request_motion_state_callback_(MotionState previous_state, MotionState current_state);
   MotionState update_effective_motion_state_(MotionState detector_state);
   void reset_motion_state_filter_(MotionState state = MotionState::IDLE);
   
@@ -155,6 +161,13 @@ class CsiPipeline {
   MotionState pending_motion_state_{MotionState::IDLE};
   uint32_t local_ip_addr_{0U};
   std::array<uint8_t, 6> local_mac_addr_{};
+
+  // Deferred notifications: posted from the CSI callback, drained by loop().
+  PendingEvent<MotionState> motion_state_event_;
+  PendingEvent<float, float> live_telemetry_event_;
+  PendingEvent<MotionState, uint32_t> packet_publish_event_;
+  PendingEvent<uint32_t> perf_log_event_;
+  PendingEvent<uint8_t, uint8_t> channel_change_event_;
 
   CsiCaptureService capture_service_;
 

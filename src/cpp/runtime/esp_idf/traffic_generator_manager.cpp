@@ -99,11 +99,6 @@ static bool bind_socket_to_sta_interface(int sock) {
     return true;
 }
 
-// IP precedence 6 (TOS 0xC0): the Wi-Fi driver maps the top three TOS bits to
-// the 802.11 TID, so generator traffic queues on the WMM/EDCA voice access
-// category (AC_VO) for the tightest transmit timing.
-static constexpr int TRAFFIC_IP_TOS_AC_VO = 0xC0;
-
 static int create_udp_socket() {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock < 0) {
@@ -113,11 +108,6 @@ static int create_udp_socket() {
 
     if (!bind_socket_to_sta_interface(sock)) {
         ESP_LOGW(TRAFFIC_TAG, "Continuing without explicit UDP socket binding");
-    }
-
-    int tos = TRAFFIC_IP_TOS_AC_VO;
-    if (setsockopt(sock, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)) != 0) {
-        ESP_LOGW(TRAFFIC_TAG, "Failed to set UDP socket TOS (errno=%d)", errno);
     }
 
     int flags = fcntl(sock, F_GETFL, 0);
@@ -510,7 +500,7 @@ bool TrafficGeneratorManager::start_ping_() {
   ping_config.interval_ms = 1000 / rate_pps_;   // Interval based on rate
   ping_config.timeout_ms = std::min<uint32_t>(1000, std::max<uint32_t>(200, ping_config.interval_ms * 4));
   ping_config.data_size = 0;                    // No payload (header only, smallest possible)
-  ping_config.tos = TRAFFIC_IP_TOS_AC_VO;       // WMM/EDCA voice access category
+  ping_config.tos = 0;                          // Default best-effort access category (AC_BE)
   ping_config.task_stack_size = 2560;           // Stack size for ping task
   ping_config.task_prio = 5;                    // Same priority as DNS mode
   

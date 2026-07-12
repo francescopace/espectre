@@ -67,7 +67,7 @@ CONF_THRESHOLD_NUMBER = "threshold_number"
 # Switch controls
 CONF_CALIBRATE_SWITCH = "calibrate_switch"
 
-espectre_ns = cg.esphome_ns.namespace("espectre")
+espectre_ns = cg.esphome_ns.namespace("espectre_component")
 ESpectreComponent = espectre_ns.class_("ESpectreComponent", cg.Component)
 ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.Number, cg.Component)
 ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
@@ -194,6 +194,12 @@ FINAL_VALIDATE_SCHEMA = cv.All(
 
 async def to_code(config):
     cg.add_library("espectre-shared", None, _library_uri(_LIBRARY_ROOT))
+
+    # PlatformIO compiles the shared library without the ESPHome source tree on
+    # its include path, so espectre_log.h would fall back to vanilla esp_log,
+    # which ESPHome builds strip below ERROR (CONFIG_LOG_DEFAULT_LEVEL=ERROR).
+    # Expose the ESPHome headers so shared runtime logs reach the ESPHome logger.
+    cg.add_build_flag("-Isrc")
 
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)

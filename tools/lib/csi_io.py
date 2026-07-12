@@ -97,8 +97,8 @@ class CSIPacket:
     rssi_dbm: Optional[int] = None
     noise_floor_dbm: Optional[int] = None
     tx_backpressure_total: Optional[int] = None
-    # False when the device re-sent its latest CSI sample to keep the
-    # traffic-paced stream at the target rate (see STREAM_FLAG_CSI_FRESH).
+    # False for older captures where the device could re-send its latest CSI
+    # sample. Current streamer firmware emits only fresh CSI records.
     csi_fresh: bool = True
     source_ip: Optional[str] = None
     _iq_complex: Optional[np.ndarray] = None

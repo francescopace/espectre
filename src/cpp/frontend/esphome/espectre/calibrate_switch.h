@@ -14,7 +14,7 @@
 #include "esphome/components/switch/switch.h"
 
 namespace esphome {
-namespace espectre {
+namespace espectre_component {
 
 // Forward declaration
 class ESpectreComponent;
@@ -35,6 +35,6 @@ class ESpectreCalibrateSwitch : public switch_::Switch, public Component {
   ESpectreComponent *parent_{nullptr};
 };
 
-}  // namespace espectre
+}  // namespace espectre_component
 }  // namespace esphome
 

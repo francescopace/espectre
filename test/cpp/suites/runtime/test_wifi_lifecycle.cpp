@@ -52,6 +52,11 @@ void test_wifi_lifecycle_register_handlers_dispatches_and_unregisters(void) {
   esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, nullptr);
   esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, nullptr);
 
+  // Handlers only record events; callbacks fire from process_pending_events().
+  TEST_ASSERT_EQUAL(0, connected_calls);
+  TEST_ASSERT_EQUAL(0, disconnected_calls);
+
+  manager.process_pending_events();
   TEST_ASSERT_EQUAL(1, connected_calls);
   TEST_ASSERT_EQUAL(1, disconnected_calls);
 
@@ -61,6 +66,7 @@ void test_wifi_lifecycle_register_handlers_dispatches_and_unregisters(void) {
   esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, nullptr);
   esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, nullptr);
 
+  manager.process_pending_events();
   TEST_ASSERT_EQUAL(1, connected_calls);
   TEST_ASSERT_EQUAL(1, disconnected_calls);
 }
@@ -134,11 +140,15 @@ void test_standalone_wifi_service_managed_lifecycle_dispatches_after_csi_init(vo
                                          [&disconnected_calls]() { disconnected_calls++; }));
 
   esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, nullptr);
+  TEST_ASSERT_EQUAL(0, connected_calls);
+
+  service.loop();
   TEST_ASSERT_EQUAL(1, connected_calls);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_promiscuous_call_count);
   TEST_ASSERT_FALSE(g_esp_wifi_mock.last_promiscuous);
 
   esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, nullptr);
+  service.loop();
   TEST_ASSERT_EQUAL(1, disconnected_calls);
 }
 

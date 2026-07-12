@@ -8,7 +8,7 @@
 #include "sensor_publisher.h"
 
 namespace esphome {
-namespace espectre {
+namespace espectre_component {
 
 void SensorPublisher::publish_motion_binary(MotionState motion_state) {
   bool is_motion = (motion_state == MotionState::MOTION);
@@ -29,5 +29,5 @@ void SensorPublisher::log_status(const char *tag,
   status_logger_.log_status(tag, snapshot, packets_per_publish);
 }
 
-}  // namespace espectre
+}  // namespace espectre_component
 }  // namespace esphome

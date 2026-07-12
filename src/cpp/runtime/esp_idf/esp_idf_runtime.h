@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -7,6 +8,7 @@
 #include "classic_detector.h"
 #include "csi_pipeline.h"
 #include "ml_detector.h"
+#include "pending_event.h"
 #include "runtime_interface.h"
 #include "csi_traffic_service.h"
 #include "wifi_lifecycle.h"
@@ -59,7 +61,9 @@ class EspIdfRuntime : public IEspectreRuntime {
   CsiTrafficService csi_traffic_service_;
 
   StartupThresholdCalibrator threshold_calibrator_;
-  bool threshold_calibration_active_{false};
+  std::atomic<bool> threshold_calibration_active_{false};
+  // Posted from the CSI callback with the outcome, completed from the loop.
+  PendingEvent<bool> calibration_finished_event_;
   bool services_armed_{true};
   bool live_telemetry_enabled_{true};
   bool wifi_ready_{false};

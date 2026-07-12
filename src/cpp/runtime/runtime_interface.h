@@ -42,6 +42,7 @@ struct RuntimeConfig {
   uint64_t device_id{0U};
   uint16_t collector_port{5001};
   uint32_t stream_log_interval_ms{1000};
+  uint8_t stream_tx_batch_records{4};
   uint32_t publish_interval{100};
   uint32_t evaluation_interval{25};
   uint8_t motion_on_hits{3};

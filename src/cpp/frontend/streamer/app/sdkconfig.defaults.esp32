@@ -1,0 +1,12 @@
+# ESP32-specific overrides.
+#
+# The original ESP32 has less heap, IRAM, and airtime headroom than the
+# C-series/S-series targets tuned in sdkconfig.defaults. Under airtime
+# saturation a deep TX queue only buffers seconds of stale CSI records in
+# heap, so prefer a shallow queue that fails sendto() fast and drops the
+# stale record instead.
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=48
+
+# The streamer data path is IPv4-only; reclaim lwIP IPv6 RAM and flash.
+CONFIG_LWIP_IPV6=n

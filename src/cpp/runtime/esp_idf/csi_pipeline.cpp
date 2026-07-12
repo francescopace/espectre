@@ -15,14 +15,6 @@ namespace espectre {
 
 static const char *TAG = "CsiPipeline";
 
-static void publish_motion_state_if_changed_(MotionState previous_state,
-                                             MotionState current_state,
-                                             const motion_state_callback_t &callback) {
-  if (callback && previous_state != current_state) {
-    callback(current_state);
-  }
-}
-
 void CsiPipeline::init(BaseDetector* detector,
                      uint32_t publish_rate,
                      IWiFiCSI* wifi_csi) {
@@ -52,6 +44,11 @@ bool CsiPipeline::set_threshold(float threshold) {
 }
 
 void CsiPipeline::clear_detector_buffer() {
+  clear_detector_buffer_deferred_();
+  loop();
+}
+
+void CsiPipeline::clear_detector_buffer_deferred_() {
   if (detector_) {
     MotionState previous_state = effective_motion_state_;
     // Cold reset: clear turbulence history and state.
@@ -59,7 +56,43 @@ void CsiPipeline::clear_detector_buffer() {
     detector_->clear_buffer();
     packets_since_evaluation_ = 0;
     reset_motion_state_filter_();
-    publish_motion_state_if_changed_(previous_state, effective_motion_state_, motion_state_callback_);
+    request_motion_state_callback_(previous_state, effective_motion_state_);
+  }
+}
+
+void CsiPipeline::request_motion_state_callback_(MotionState previous_state, MotionState current_state) {
+  if (previous_state == current_state) {
+    return;
+  }
+  motion_state_event_.post(current_state);
+}
+
+void CsiPipeline::loop() {
+  capture_service_.loop();
+
+  uint32_t detection_time_us = 0U;
+  if (perf_log_event_.take(detection_time_us)) {
+    ESP_LOGD(TAG, "[perf] Detection time: %u us", static_cast<unsigned>(detection_time_us));
+  }
+  uint8_t previous_channel = 0U;
+  uint8_t current_channel = 0U;
+  if (channel_change_event_.take(previous_channel, current_channel)) {
+    ESP_LOGW(TAG, "WiFi channel changed: %u -> %u, resetting detection buffer",
+             static_cast<unsigned>(previous_channel), static_cast<unsigned>(current_channel));
+  }
+  MotionState motion_state = MotionState::IDLE;
+  if (motion_state_event_.take(motion_state) && motion_state_callback_) {
+    motion_state_callback_(motion_state);
+  }
+  float movement = 0.0f;
+  float threshold = 0.0f;
+  if (live_telemetry_event_.take(movement, threshold) && live_telemetry_callback_) {
+    live_telemetry_callback_(movement, threshold);
+  }
+  MotionState publish_state = MotionState::IDLE;
+  uint32_t publish_count = 0U;
+  if (packet_publish_event_.take(publish_state, publish_count) && packet_callback_) {
+    packet_callback_(publish_state, publish_count);
   }
 }
 
@@ -105,6 +138,9 @@ void CsiPipeline::process_packet(wifi_csi_info_t* data) {
     return;
   }
   capture_service_.process_packet(data);
+  // Direct callers are synchronous test/host paths. The hardware callback
+  // enters through CsiCaptureService and is drained by the runtime loop.
+  loop();
 }
 
 void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
@@ -140,20 +176,18 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     MotionState previous_state = effective_motion_state_;
     detector_->update_state();
     MotionState current_state = update_effective_motion_state_(detector_->get_state());
-    publish_motion_state_if_changed_(previous_state, current_state, motion_state_callback_);
+    request_motion_state_callback_(previous_state, current_state);
     packets_since_evaluation_ = 0;
     
     // Log detection time periodically (every ~10 seconds at 100 pps)
     if (should_measure) {
       int64_t elapsed_us = esp_timer_get_time() - start_us;
-      ESP_LOGD(TAG, "[perf] Detection time: %lld us", (long long)elapsed_us);
+      perf_log_event_.post(static_cast<uint32_t>(elapsed_us));
     }
-    
+
     // Emit live telemetry on each detector evaluation tick.
     if (live_telemetry_callback_) {
-      float movement = detector_->get_motion_metric();
-      float threshold = detector_->get_threshold();
-      live_telemetry_callback_(movement, threshold);
+      live_telemetry_event_.post(detector_->get_motion_metric(), detector_->get_threshold());
     }
   
     // Periodic publish callback
@@ -161,15 +195,14 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
       // Detect WiFi channel changes
       uint8_t packet_channel = data->rx_ctrl.channel;
       if (current_channel_ != 0 && packet_channel != current_channel_) {
-        ESP_LOGW(TAG, "WiFi channel changed: %d -> %d, resetting detection buffer",
-                 current_channel_, packet_channel);
-        clear_detector_buffer();
+        channel_change_event_.post(current_channel_, packet_channel);
+        clear_detector_buffer_deferred_();
         current_state = effective_motion_state_;
       }
       current_channel_ = packet_channel;
-      
+
       if (packet_callback_) {
-        packet_callback_(current_state, packets_processed_);
+        packet_publish_event_.post(current_state, packets_processed_);
       }
       packets_processed_ = 0;
     }
@@ -208,6 +241,11 @@ esp_err_t CsiPipeline::disable() {
   enabled_ = false;
   packet_callback_ = nullptr;
   capture_service_.set_packet_callback({});
+  motion_state_event_.clear();
+  live_telemetry_event_.clear();
+  packet_publish_event_.clear();
+  perf_log_event_.clear();
+  channel_change_event_.clear();
   packets_since_evaluation_ = 0;
   reset_motion_state_filter_();
   return ESP_OK;

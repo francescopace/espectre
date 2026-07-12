@@ -22,7 +22,7 @@ namespace espectre {
 
 class CsiStreamTransport {
  public:
-  void configure(uint64_t device_id, uint16_t collector_port, uint32_t log_interval_ms);
+  void configure(uint64_t device_id, uint16_t collector_port, uint32_t log_interval_ms, uint8_t tx_batch_records);
   void reset_session();
   void clear_ap_bssid();
   void set_ap_bssid(const uint8_t *bssid, size_t len);
@@ -48,11 +48,15 @@ class CsiStreamTransport {
   bool ensure_stream_socket_();
   void close_stream_socket_();
   bool send_stream_datagram_();
+  bool send_datagram_(const void *payload, size_t payload_len);
+  bool flush_stream_batch_();
+  void drop_stream_batch_();
   void reset_runtime_telemetry_baseline_(const CsiTrafficService &traffic_service);
 
   uint64_t device_id_{0U};
   uint16_t collector_port_{5001U};
   uint32_t log_interval_ms_{1000U};
+  uint8_t tx_batch_records_{1U};
   std::atomic<uint32_t> stream_seq_{0U};
   uint32_t collector_ip_addr_{0U};
   std::array<uint8_t, 6> ap_bssid_{};
@@ -61,6 +65,11 @@ class CsiStreamTransport {
   LatestCsiSample latest_csi_{};
   uint64_t latest_csi_sent_total_{0U};
   int stream_sock_{-1};
+
+  std::array<uint8_t, STREAM_MAX_BATCH_RECORDS *(sizeof(CsiStreamHeaderV5) + HT20_CSI_LEN)> batch_buffer_{};
+  size_t batch_len_{0U};
+  uint8_t batch_records_pending_{0U};
+  uint64_t batch_first_ms_{0U};
 
   std::atomic<uint32_t> last_csi_ms_{0U};
   std::atomic<uint64_t> csi_callback_total_{0U};
@@ -84,7 +93,6 @@ class CsiStreamTransport {
   uint64_t prev_tx_success_total_{0U};
   uint64_t prev_tx_error_total_{0U};
   uint64_t prev_tx_backpressure_total_{0U};
-  bool stream_active_last_tick_{true};
   bool last_tx_backpressure_{false};
 };
 

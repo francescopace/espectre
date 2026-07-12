@@ -20,7 +20,7 @@ void CsiCaptureService::init(IWiFiCSI *wifi_csi) {
 }
 
 void CsiCaptureService::reset_session() {
-  filtered_packets_ = 0U;
+  filtered_packets_.store(0U, std::memory_order_relaxed);
   callback_invocations_.store(0U, std::memory_order_relaxed);
   null_or_empty_packets_.store(0U, std::memory_order_relaxed);
   interceptor_drops_.store(0U, std::memory_order_relaxed);
@@ -32,8 +32,19 @@ void CsiCaptureService::reset_session() {
   last_set_callback_err_.store(ESP_OK, std::memory_order_relaxed);
   last_set_enabled_err_.store(ESP_OK, std::memory_order_relaxed);
   last_disable_err_.store(ESP_OK, std::memory_order_relaxed);
-  collapse_logged_ = false;
-  remap_logged_ = false;
+  collapse_seen_.store(false, std::memory_order_relaxed);
+  remap_seen_.store(false, std::memory_order_relaxed);
+  collapse_log_event_.clear();
+  remap_log_event_.clear();
+}
+
+void CsiCaptureService::loop() {
+  if (collapse_log_event_.take()) {
+    ESP_LOGI(TAG, "CSI double-length collapse active: 256->128 and/or 228->114");
+  }
+  if (remap_log_event_.take()) {
+    ESP_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
+  }
 }
 
 esp_err_t CsiCaptureService::enable() {
@@ -115,29 +126,26 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   const NormalizedCSIPayload normalized =
       normalize_ht20_csi_payload(data->buf, data->len, csi_remapped, sizeof(csi_remapped));
 
-  if (!collapse_logged_ &&
-      (normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT20 ||
-       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64)) {
-    ESP_LOGI(TAG, "CSI double-length collapse active: 256->128 and/or 228->114");
-    collapse_logged_ = true;
+  if (normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT20 ||
+      normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64) {
+    if (!collapse_seen_.exchange(true, std::memory_order_relaxed)) {
+      collapse_log_event_.post();
+    }
   }
 
-  if (!remap_logged_ &&
-      (normalized.tag == NormalizedCSIPayloadTag::HT57_TO_64 ||
-       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64)) {
-    ESP_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
-    remap_logged_ = true;
+  if (normalized.tag == NormalizedCSIPayloadTag::HT57_TO_64 ||
+      normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64) {
+    if (!remap_seen_.exchange(true, std::memory_order_relaxed)) {
+      remap_log_event_.post();
+    }
   }
 
   if (packet_callback_) {
     packet_callback_(data, normalized);
   }
   if (!normalized.valid() || normalized.len != HT20_CSI_LEN) {
-    filtered_packets_++;
+    filtered_packets_.fetch_add(1U, std::memory_order_relaxed);
     normalized_invalid_packets_.fetch_add(1U, std::memory_order_relaxed);
-    if (filtered_packets_ % 100 == 1) {
-      log_wrong_sc_packet_(data, data->len);
-    }
     return;
   }
 
@@ -159,33 +167,6 @@ esp_err_t CsiCaptureService::configure_platform_specific_() {
   ESP_LOGI(TAG, "Using host CSI configuration");
 #endif
   return configure_ht20_csi(wifi_csi_);
-}
-
-void CsiCaptureService::log_wrong_sc_packet_(const wifi_csi_info_t *data, size_t csi_len) const {
-  const auto &rx = data->rx_ctrl;
-#if CONFIG_SOC_WIFI_HE_SUPPORT
-  ESP_LOGW(TAG,
-           "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
-           "[ch=%u bb=%u est_len=%u est_vld=%u]",
-           static_cast<unsigned long>(filtered_packets_),
-           csi_len,
-           HT20_CSI_LEN,
-           static_cast<unsigned>(rx.channel),
-           static_cast<unsigned>(rx.cur_bb_format),
-           static_cast<unsigned>(rx.rx_channel_estimate_len),
-           static_cast<unsigned>(rx.rx_channel_estimate_info_vld));
-#else
-  ESP_LOGW(TAG,
-           "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
-           "[ch=%u sig_mode=%u cwb=%u mcs=%u]",
-           static_cast<unsigned long>(filtered_packets_),
-           csi_len,
-           HT20_CSI_LEN,
-           static_cast<unsigned>(rx.channel),
-           static_cast<unsigned>(rx.sig_mode),
-           static_cast<unsigned>(rx.cwb),
-           static_cast<unsigned>(rx.mcs));
-#endif
 }
 
 }  // namespace espectre

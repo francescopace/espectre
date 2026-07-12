@@ -103,14 +103,6 @@ void ClassicDetector::update_state() {
     }
 
     const MotionState next_state = motion ? MotionState::MOTION : MotionState::IDLE;
-    if (next_state != state_) {
-        ESP_LOGV(TAG, "State change %s -> %s at packet %lu (l1=%.6f, thr=%.6f, variance=%.6f, floor=%.6f, vote=%s)",
-                 state_ == MotionState::MOTION ? "MOTION" : "IDLE",
-                 next_state == MotionState::MOTION ? "MOTION" : "IDLE",
-                 static_cast<unsigned long>(packet_index_),
-                 current_l1_metric_, threshold_, current_moving_variance_, variance_floor_,
-                 recovery_vote_enabled_ ? "on" : "off");
-    }
     state_ = next_state;
 }
 

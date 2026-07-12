@@ -18,7 +18,6 @@
 #include "runtime_time.h"
 #include "sdkconfig.h"
 
-#include "freertos/task.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 
@@ -32,9 +31,10 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.stream";
-constexpr uint32_t kTxBackpressureDelayMs = 2U;
-constexpr int kStreamIpTosAcVo = 0xC0;
-constexpr uint8_t kStreamFillerByte = 0xA5;
+constexpr size_t kStreamRecordMaxBytes = sizeof(CsiStreamHeaderV5) + HT20_CSI_LEN;
+// Upper bound on how long a partial batch may wait for more pacing slots
+// before it is flushed, so low pacing rates keep bounded record latency.
+constexpr uint64_t kStreamBatchFlushMs = 100U;
 
 float current_free_memory_kb() {
 #ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
@@ -156,11 +156,6 @@ bool bind_socket_to_sta_interface(int sock) {
   return true;
 }
 
-TickType_t delay_ms_to_ticks(uint32_t delay_ms) {
-  const TickType_t ticks = pdMS_TO_TICKS(delay_ms);
-  return ticks > 0 ? ticks : 1;
-}
-
 int create_stream_socket() {
   const int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (sock < 0) {
@@ -170,11 +165,6 @@ int create_stream_socket() {
 
   if (!bind_socket_to_sta_interface(sock)) {
     ESP_LOGW(TAG, "Continuing without explicit stream socket binding");
-  }
-
-  const int tos = kStreamIpTosAcVo;
-  if (setsockopt(sock, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)) != 0) {
-    ESP_LOGW(TAG, "Failed to set stream socket TOS (errno=%d)", errno);
   }
 
   const int flags = fcntl(sock, F_GETFL, 0);
@@ -269,14 +259,19 @@ uint64_t counter_delta(uint64_t current, uint64_t previous) {
 
 }  // namespace
 
-void CsiStreamTransport::configure(uint64_t device_id, uint16_t collector_port, uint32_t log_interval_ms) {
+void CsiStreamTransport::configure(uint64_t device_id,
+                                   uint16_t collector_port,
+                                   uint32_t log_interval_ms,
+                                   uint8_t tx_batch_records) {
   device_id_ = device_id;
   collector_port_ = collector_port;
   log_interval_ms_ = log_interval_ms;
+  tx_batch_records_ = std::clamp<uint8_t>(tx_batch_records, 1U, STREAM_MAX_BATCH_RECORDS);
 }
 
 void CsiStreamTransport::reset_session() {
   close_stream_socket_();
+  drop_stream_batch_();
   collector_ip_addr_ = 0U;
   stream_seq_.store(0U, std::memory_order_relaxed);
   last_pacing_streamed_total_ = 0U;
@@ -300,7 +295,6 @@ void CsiStreamTransport::reset_session() {
   prev_tx_success_total_ = 0U;
   prev_tx_error_total_ = 0U;
   prev_tx_backpressure_total_ = 0U;
-  stream_active_last_tick_ = true;
   last_tx_backpressure_ = false;
 
   portENTER_CRITICAL(&latch_lock_);
@@ -360,14 +354,16 @@ void CsiStreamTransport::update_from_traffic(const CsiTrafficService &traffic_se
     char addr_text[16];
     format_ipv4_addr(collector_ip_addr_, addr_text, sizeof(addr_text));
     ESP_LOGI(TAG,
-             "Learned collector address from UDP pacing sender: %s:%u",
+             "Collector learned from UDP pacing: address=%s pacing_port=%u stream_port=%u",
              addr_text,
+             static_cast<unsigned>(ntohs(sender_addr.sin_port)),
              static_cast<unsigned>(collector_port_));
   }
 
   const uint64_t pacing_rx_total = traffic_service.get_packets_received();
   const bool should_stream = collector_ip_addr_ != 0U && streaming_ready;
   if (!should_stream) {
+    drop_stream_batch_();
     last_pacing_streamed_total_ = pacing_rx_total;
     return;
   }
@@ -375,28 +371,29 @@ void CsiStreamTransport::update_from_traffic(const CsiTrafficService &traffic_se
   const uint64_t pending_packets = pacing_rx_total >= last_pacing_streamed_total_
                                        ? pacing_rx_total - last_pacing_streamed_total_
                                        : pacing_rx_total;
-  if (pending_packets == 0U) {
-    return;
-  }
-
-  if (!ensure_stream_socket_()) {
-    stream_tx_error_total_ += pending_packets;
+  if (pending_packets > 0U) {
+    if (!ensure_stream_socket_()) {
+      stream_tx_error_total_ += pending_packets;
+    } else {
+      for (uint64_t idx = 0U; idx < pending_packets; idx++) {
+        if (send_stream_datagram_()) {
+          continue;
+        }
+        if (last_tx_backpressure_) {
+          const uint64_t unsent_packets = pending_packets - idx - 1U;
+          stream_tx_error_total_ += unsent_packets;
+          stream_tx_backpressure_total_ += unsent_packets;
+          break;
+        }
+      }
+    }
     last_pacing_streamed_total_ = pacing_rx_total;
-    return;
   }
 
-  for (uint64_t idx = 0U; idx < pending_packets; idx++) {
-    if (send_stream_datagram_()) {
-      continue;
-    }
-    if (last_tx_backpressure_) {
-      const uint64_t unsent_packets = pending_packets - idx - 1U;
-      stream_tx_error_total_ += unsent_packets;
-      stream_tx_backpressure_total_ += unsent_packets;
-      break;
-    }
+  if (batch_records_pending_ > 0U &&
+      static_cast<uint64_t>(monotonic_now_ms()) - batch_first_ms_ >= kStreamBatchFlushMs) {
+    flush_stream_batch_();
   }
-  last_pacing_streamed_total_ = pacing_rx_total;
 }
 
 void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_service,
@@ -447,59 +444,41 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
   const uint32_t csi_capture_bad_sc = capture_service.normalized_invalid_packets();
   const uint32_t csi_capture_valid = capture_service.valid_packets();
 
-  const bool stream_active =
-      csi_accepted_pps > 1.0F || csi_filtered_pps > 1.0F || tx_pps > 1.0F || traffic_rx_pps > 1.0F;
-  if (stream_active) {
-    ESP_LOGI(TAG,
-             "state=STREAMING csi_ap=%.0f csi_filt=%.0f udp_rx=%.1f udp_tx=%.0f fresh=%.0f repeat=%.0f"
-             " tx_err=%.0f tx_bp=%.0f age_ms=%" PRIu32,
-             static_cast<double>(csi_accepted_pps),
-             static_cast<double>(csi_filtered_pps),
-             static_cast<double>(traffic_rx_pps),
-             static_cast<double>(tx_pps),
-             static_cast<double>(stream_fresh_pps),
-             static_cast<double>(stream_repeat_pps),
-             static_cast<double>(tx_error_pps),
-             static_cast<double>(tx_backpressure_pps),
-             csi_age_ms);
-    if (tx_error_pps > 0.0F) {
-      ESP_LOGW(TAG,
-               "stream anomalies: tx_err=%.0f heap=%.1fKB min=%.1fKB",
-               static_cast<double>(tx_error_pps),
-               static_cast<double>(current_free_memory_kb()),
-               static_cast<double>(minimum_free_memory_kb()));
-    }
-    if (tx_pps > 1.0F && csi_callback_pps == 0.0F) {
-      const bool csi_enabled = capture_service.is_enabled();
-      const char *csi_health = !csi_enabled ? "not_armed"
-                              : csi_capture_callbacks == 0U ? "armed_no_callback"
-                              : csi_capture_valid == 0U     ? "callback_no_valid_packets"
-                                                            : "callback_silent";
-      ESP_LOGW(TAG,
-               "csi stalled: cb=%" PRIu32 " null=%" PRIu32 " raw_drop=%" PRIu32 " bad_sc=%" PRIu32
-               " valid=%" PRIu32 " health=%s armed=%d"
-               " enable_attempts=%" PRIu32 " cfg=%s set_cb=%s set_csi=%s"
-               " udp_rx=%.2f heap=%.1f min=%.1f state=%s",
-               csi_capture_callbacks,
-               csi_capture_null,
-               csi_capture_raw_drop,
-               csi_capture_bad_sc,
-               csi_capture_valid,
-               csi_health,
-               csi_enabled ? 1 : 0,
-               capture_service.enable_attempts(),
-               esp_err_to_name(capture_service.last_configure_err()),
-               esp_err_to_name(capture_service.last_set_callback_err()),
-               esp_err_to_name(capture_service.last_set_enabled_err()),
-               static_cast<double>(traffic_rx_pps),
-               static_cast<double>(current_free_memory_kb()),
-               static_cast<double>(minimum_free_memory_kb()),
-               state_name != nullptr ? state_name : "unknown");
-    }
-  } else if (stream_active_last_tick_) {
-    ESP_LOGW(TAG, "stream idle: no traffic/csi activity for %" PRIu32 " ms", csi_age_ms);
-  }
-  stream_active_last_tick_ = stream_active;
+  const bool csi_enabled = capture_service.is_enabled();
+  const bool traffic_active = traffic_rx_pps > 1.0F;
+  const char *csi_health = !csi_enabled                     ? "not_armed"
+                           : !traffic_active                ? "idle"
+                           : csi_capture_callbacks == 0U    ? "armed_no_callback"
+                           : csi_capture_valid == 0U        ? "callback_no_valid_packets"
+                           : csi_callback_pps < 1.0F        ? "callback_silent"
+                                                            : "ok";
+
+  ESP_LOGI(TAG,
+           "state=%s health=%s csi_ap=%.0f csi_filt=%.0f cb=%" PRIu32 " valid=%" PRIu32
+           " null=%" PRIu32 " raw_drop=%" PRIu32 " bad_sc=%" PRIu32
+           " udp_rx=%.1f udp_tx=%.0f fresh=%.0f repeat=%.0f"
+           " tx_err=%.0f/%" PRIu64 " tx_bp=%.0f/%" PRIu64
+           " age_ms=%" PRIu32 " heap=%.1f min=%.1f",
+           state_name != nullptr ? state_name : "unknown",
+           csi_health,
+           static_cast<double>(csi_accepted_pps),
+           static_cast<double>(csi_filtered_pps),
+           csi_capture_callbacks,
+           csi_capture_valid,
+           csi_capture_null,
+           csi_capture_raw_drop,
+           csi_capture_bad_sc,
+           static_cast<double>(traffic_rx_pps),
+           static_cast<double>(tx_pps),
+           static_cast<double>(stream_fresh_pps),
+           static_cast<double>(stream_repeat_pps),
+           static_cast<double>(tx_error_pps),
+           tx_error_total,
+           static_cast<double>(tx_backpressure_pps),
+           tx_backpressure_total,
+           csi_age_ms,
+           static_cast<double>(current_free_memory_kb()),
+           static_cast<double>(minimum_free_memory_kb()));
 
   prev_csi_callback_total_ = csi_callback_total;
   prev_csi_accepted_total_ = csi_accepted_total;
@@ -515,7 +494,7 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
 }
 
 size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_len) {
-  if (buffer == nullptr || buffer_len < STREAM_MAX_PACKET_BYTES) {
+  if (buffer == nullptr || buffer_len < kStreamRecordMaxBytes) {
     return 0U;
   }
 
@@ -531,6 +510,10 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
   portEXIT_CRITICAL(&latch_lock_);
 
   if (!valid) {
+    return 0U;
+  }
+  if (!fresh) {
+    stream_repeat_total_.fetch_add(1U, std::memory_order_relaxed);
     return 0U;
   }
 
@@ -565,12 +548,8 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
   if (fill_rx_timestamp_metadata(sample.rx_ctrl, header)) {
     header->flags |= STREAM_FLAG_WIFI_RX_START_TS_NS_VALID;
   }
-  if (fresh) {
-    header->flags |= STREAM_FLAG_CSI_FRESH;
-    stream_fresh_total_.fetch_add(1U, std::memory_order_relaxed);
-  } else {
-    stream_repeat_total_.fetch_add(1U, std::memory_order_relaxed);
-  }
+  header->flags |= STREAM_FLAG_CSI_FRESH;
+  stream_fresh_total_.fetch_add(1U, std::memory_order_relaxed);
 
   header->csi_len_bytes = static_cast<uint16_t>(
       build_transport_csi_payload_(sample.csi.data(), sample.len, buffer + sizeof(*header), &header->num_subcarriers));
@@ -606,15 +585,38 @@ bool CsiStreamTransport::send_stream_datagram_() {
     return false;
   }
 
-  uint8_t packet[STREAM_MAX_PACKET_BYTES];
-  const size_t packet_len = build_stream_packet_(packet, sizeof(packet));
-  const void *payload = packet;
-  size_t payload_len = packet_len;
-  if (payload_len == 0U) {
-    payload = &kStreamFillerByte;
-    payload_len = sizeof(kStreamFillerByte);
+  const size_t record_len = build_stream_packet_(batch_buffer_.data() + batch_len_, batch_buffer_.size() - batch_len_);
+  if (record_len == 0U) {
+    return true;
   }
 
+  if (batch_records_pending_ == 0U) {
+    batch_first_ms_ = static_cast<uint64_t>(monotonic_now_ms());
+  }
+  batch_len_ += record_len;
+  batch_records_pending_++;
+  if (batch_records_pending_ < tx_batch_records_) {
+    return true;
+  }
+  return flush_stream_batch_();
+}
+
+bool CsiStreamTransport::flush_stream_batch_() {
+  if (batch_records_pending_ == 0U) {
+    return true;
+  }
+  const bool sent = send_datagram_(batch_buffer_.data(), batch_len_);
+  drop_stream_batch_();
+  return sent;
+}
+
+void CsiStreamTransport::drop_stream_batch_() {
+  batch_len_ = 0U;
+  batch_records_pending_ = 0U;
+  batch_first_ms_ = 0U;
+}
+
+bool CsiStreamTransport::send_datagram_(const void *payload, size_t payload_len) {
   sockaddr_in collector_addr{};
   collector_addr.sin_family = AF_INET;
   collector_addr.sin_addr.s_addr = collector_ip_addr_;
@@ -633,11 +635,9 @@ bool CsiStreamTransport::send_stream_datagram_() {
   if (backpressure) {
     last_tx_backpressure_ = true;
     stream_tx_backpressure_total_++;
-    vTaskDelay(delay_ms_to_ticks(kTxBackpressureDelayMs));
     return false;
   }
 
-  ESP_LOGW(TAG, "Stream send failed (sent=%d, errno=%d)", static_cast<int>(sent), send_errno);
   close_stream_socket_();
   return false;
 }
@@ -653,7 +653,6 @@ void CsiStreamTransport::reset_runtime_telemetry_baseline_(const CsiTrafficServi
   prev_tx_error_total_ = stream_tx_error_total_;
   prev_tx_backpressure_total_ = stream_tx_backpressure_total_;
   prev_log_sample_ms_ = static_cast<uint64_t>(monotonic_now_ms());
-  stream_active_last_tick_ = true;
 }
 
 }  // namespace espectre

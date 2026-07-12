@@ -109,7 +109,10 @@ bool StreamEspIdfRuntime::setup() {
       [this](const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) { this->handle_csi_packet_(info, normalized); });
 
   csi_traffic_service_.init(to_csi_traffic_config(config_));
-  stream_transport_.configure(config_.device_id, config_.collector_port, config_.stream_log_interval_ms);
+  stream_transport_.configure(config_.device_id,
+                              config_.collector_port,
+                              config_.stream_log_interval_ms,
+                              config_.stream_tx_batch_records);
   stream_transport_.reset_session();
 
   if (!init_wifi_station_()) {
@@ -139,6 +142,8 @@ void StreamEspIdfRuntime::loop() {
     return;
   }
 
+  wifi_manager_.loop();
+  capture_service_.loop();
   csi_traffic_service_.loop();
 
   if (!wifi_connected_.load(std::memory_order_relaxed)) {
@@ -251,14 +256,18 @@ void StreamEspIdfRuntime::stop_capture_() {
 }
 
 void StreamEspIdfRuntime::on_wifi_connected_() {
+  // The callback is deferred to the runtime loop, so a disconnect may have
+  // arrived before this connect event was processed.
+  StandaloneWifiInfo wifi_info;
+  if (!wifi_manager_.get_info(&wifi_info) || !wifi_info.connected || wifi_info.ip_address[0] == '\0') {
+    return;
+  }
+
   wifi_connected_.store(true, std::memory_order_relaxed);
   ap_bssid_.fill(0U);
   stream_transport_.reset_session();
 
-  StandaloneWifiInfo wifi_info;
-  if (wifi_manager_.get_info(&wifi_info)) {
-    snapshot_.ready_to_publish = false;
-  }
+  snapshot_.ready_to_publish = false;
   wifi_ap_record_t ap_info{};
   if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
     std::copy(std::begin(ap_info.bssid), std::end(ap_info.bssid), ap_bssid_.begin());

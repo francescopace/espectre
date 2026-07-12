@@ -22,7 +22,7 @@
 #include "sdkconfig.h"
 
 namespace esphome {
-namespace espectre {
+namespace espectre_component {
 
 void ESpectreComponent::setup() {
   ESP_LOGI(TAG, "Initializing ESPectre component...");
@@ -167,5 +167,5 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "");
 }
 
-}  // namespace espectre
+}  // namespace espectre_component
 }  // namespace esphome

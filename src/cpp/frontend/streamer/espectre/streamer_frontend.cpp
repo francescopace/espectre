@@ -27,6 +27,7 @@ RuntimeConfig StreamerFrontend::build_runtime_config_() const {
   config.device_id = derive_runtime_device_id();
   config.collector_port = static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT);
   config.stream_log_interval_ms = static_cast<uint32_t>(CONFIG_ESPECTRE_STREAM_LOG_INTERVAL_MS);
+  config.stream_tx_batch_records = static_cast<uint8_t>(CONFIG_ESPECTRE_STREAM_TX_BATCH_RECORDS);
   return config;
 }
 

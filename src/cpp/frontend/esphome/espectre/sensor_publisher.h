@@ -17,7 +17,7 @@
 #include "runtime_snapshot.h"
 
 namespace esphome {
-namespace espectre {
+namespace espectre_component {
 
 using namespace ::espectre;
 
@@ -76,5 +76,5 @@ class SensorPublisher {
   PeriodicSensingStatusLogger status_logger_{};
 };
 
-}  // namespace espectre
+}  // namespace espectre_component
 }  // namespace esphome

@@ -7,6 +7,7 @@
 #include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_wifi.h"
+#include "pending_event.h"
 #include "utils.h"
 #include "wifi_csi_interface.h"
 
@@ -22,10 +23,11 @@ class CsiCaptureService {
 
   esp_err_t enable();
   esp_err_t disable();
+  void loop();
   void process_packet(wifi_csi_info_t *data);
 
   bool is_enabled() const { return enabled_; }
-  uint32_t filtered_packets() const { return filtered_packets_; }
+  uint32_t filtered_packets() const { return filtered_packets_.load(std::memory_order_relaxed); }
   uint32_t callback_invocations() const { return callback_invocations_.load(std::memory_order_relaxed); }
   uint32_t null_or_empty_packets() const { return null_or_empty_packets_.load(std::memory_order_relaxed); }
   uint32_t interceptor_drops() const { return interceptor_drops_.load(std::memory_order_relaxed); }
@@ -52,14 +54,13 @@ class CsiCaptureService {
  private:
   static void IRAM_ATTR csi_rx_callback_wrapper_(void *ctx, wifi_csi_info_t *data);
   esp_err_t configure_platform_specific_();
-  void log_wrong_sc_packet_(const wifi_csi_info_t *data, size_t csi_len) const;
 
   bool enabled_{false};
   IWiFiCSI *wifi_csi_{nullptr};
   WiFiCSIReal default_wifi_csi_;
   csi_capture_raw_packet_interceptor_t raw_packet_interceptor_;
   csi_capture_packet_callback_t packet_callback_;
-  uint32_t filtered_packets_{0U};
+  std::atomic<uint32_t> filtered_packets_{0U};
   std::atomic<uint32_t> callback_invocations_{0U};
   std::atomic<uint32_t> null_or_empty_packets_{0U};
   std::atomic<uint32_t> interceptor_drops_{0U};
@@ -71,8 +72,10 @@ class CsiCaptureService {
   std::atomic<int32_t> last_set_callback_err_{ESP_OK};
   std::atomic<int32_t> last_set_enabled_err_{ESP_OK};
   std::atomic<int32_t> last_disable_err_{ESP_OK};
-  bool collapse_logged_{false};
-  bool remap_logged_{false};
+  std::atomic<bool> collapse_seen_{false};
+  std::atomic<bool> remap_seen_{false};
+  PendingEvent<> collapse_log_event_;
+  PendingEvent<> remap_log_event_;
 };
 
 }  // namespace espectre

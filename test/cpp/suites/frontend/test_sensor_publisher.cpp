@@ -9,7 +9,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/sensor/sensor.h"
 
-using namespace esphome::espectre;
+using namespace esphome::espectre_component;
 
 void test_sensor_publisher_publish_motion_binary_only(void) {
     SensorPublisher publisher;

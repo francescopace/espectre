@@ -151,8 +151,6 @@ void BaseDetector::clear_buffer() {
     lowpass_filter_reset(&lowpass_state_);
     hampel_turbulence_init(&hampel_state_, hampel_state_.window_size, 
                            hampel_state_.threshold, hampel_state_.enabled);
-    
-    ESP_LOGD(TAG, "Buffer cleared");
 }
 
 // ============================================================================

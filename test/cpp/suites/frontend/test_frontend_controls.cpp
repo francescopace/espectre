@@ -12,7 +12,7 @@
 #include "esphome/core/hal.h"
 #include "frontend_runtime_shim.h"
 
-using namespace esphome::espectre;
+using namespace esphome::espectre_component;
 
 namespace {
 

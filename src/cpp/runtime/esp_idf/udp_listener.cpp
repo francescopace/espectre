@@ -188,14 +188,6 @@ void UDPListener::loop() {
     packets_received_++;
     last_sender_ipv4_.store(src_addr.sin_addr.s_addr, std::memory_order_relaxed);
     last_sender_port_.store(src_addr.sin_port, std::memory_order_relaxed);
-    if (packets_received_ == 1U) {
-      char sender_ip[16] = {0};
-      inet_ntoa_r(src_addr.sin_addr, sender_ip, sizeof(sender_ip));
-      ESP_LOGI(UDP_LISTENER_TAG,
-               "First UDP traffic accepted from=%s:%u",
-               sender_ip,
-               static_cast<unsigned>(ntohs(src_addr.sin_port)));
-    }
   }
 }
 
