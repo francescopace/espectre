@@ -10,12 +10,46 @@
 
 #pragma once
 
-#include <atomic>
 #include <cstddef>
+#include <mutex>
+#if defined(ESP_PLATFORM)
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
+#endif
 #include <tuple>
 #include <utility>
 
 namespace espectre {
+
+namespace detail {
+
+class PendingEventLock {
+ public:
+  void lock() {
+#if defined(ESP_PLATFORM)
+    portENTER_CRITICAL_SAFE(&mux_);
+#else
+    mutex_.lock();
+#endif
+  }
+
+  void unlock() {
+#if defined(ESP_PLATFORM)
+    portEXIT_CRITICAL_SAFE(&mux_);
+#else
+    mutex_.unlock();
+#endif
+  }
+
+ private:
+#if defined(ESP_PLATFORM)
+  portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
+#else
+  std::mutex mutex_;
+#endif
+};
+
+}  // namespace detail
 
 /**
  * Single-slot mailbox carrying an event with an optional payload.
@@ -24,44 +58,49 @@ namespace espectre {
  * coalesce to the most recent one. take() consumes at most one event per
  * call. Single producer, single consumer.
  *
- * Each payload field is an individual lock-free atomic, so fields never
- * tear; a take() racing a post() may pair fields from two consecutive
- * posts, which coalescing channels tolerate by design.
+ * Access is serialized with a lightweight critical section. On ESP-IDF this
+ * remains safe from both task and ISR context, including the CSI callback
+ * path. On host builds, tests use a regular mutex with the same coalescing
+ * semantics.
  */
 template <typename... Ts>
 class PendingEvent {
-  static_assert((std::atomic<Ts>::is_always_lock_free && ...),
-                "payload fields must be lock-free atomic types");
-
  public:
   void post(Ts... values) {
+    std::lock_guard<detail::PendingEventLock> lock(lock_);
     store_(std::index_sequence_for<Ts...>{}, values...);
-    pending_.store(true, std::memory_order_release);
+    pending_ = true;
   }
 
   bool take(Ts &...out) {
-    if (!pending_.exchange(false, std::memory_order_acquire)) {
+    std::lock_guard<detail::PendingEventLock> lock(lock_);
+    if (!pending_) {
       return false;
     }
+    pending_ = false;
     load_(std::index_sequence_for<Ts...>{}, out...);
     return true;
   }
 
-  void clear() { pending_.store(false, std::memory_order_relaxed); }
+  void clear() {
+    std::lock_guard<detail::PendingEventLock> lock(lock_);
+    pending_ = false;
+  }
 
  private:
   template <std::size_t... Is>
   void store_(std::index_sequence<Is...>, Ts... values) {
-    (std::get<Is>(values_).store(values, std::memory_order_relaxed), ...);
+    ((std::get<Is>(values_) = values), ...);
   }
 
   template <std::size_t... Is>
   void load_(std::index_sequence<Is...>, Ts &...out) const {
-    ((out = std::get<Is>(values_).load(std::memory_order_relaxed)), ...);
+    ((out = std::get<Is>(values_)), ...);
   }
 
-  std::tuple<std::atomic<Ts>...> values_{};
-  std::atomic<bool> pending_{false};
+  detail::PendingEventLock lock_{};
+  std::tuple<Ts...> values_{};
+  bool pending_{false};
 };
 
 }  // namespace espectre
