@@ -240,6 +240,114 @@ class UdpPacingSender:
                 break
 
 
+class AdaptivePacingController:
+    """Track firmware backpressure telemetry and optionally adjust pacing."""
+
+    def __init__(
+        self,
+        *,
+        initial_pps: float,
+        enabled: bool = False,
+        min_pps: Optional[float] = None,
+        max_pps: Optional[float] = None,
+        additive_step_pps: Optional[float] = None,
+        control_window_s: float = 1.0,
+    ):
+        initial_pps = float(initial_pps)
+        min_pps = max(5.0, min(initial_pps, 10.0)) if min_pps is None else max(0.1, float(min_pps))
+        max_pps = max(initial_pps, min_pps) if max_pps is None else max(float(max_pps), min_pps)
+        additive_step_pps = (
+            max(1.0, initial_pps * 0.02) if additive_step_pps is None else max(0.1, float(additive_step_pps))
+        )
+        self.enabled = bool(enabled)
+        self.current_pps = initial_pps
+        self.min_pps = min_pps
+        self.max_pps = max_pps
+        self.additive_step_pps = additive_step_pps
+        self.control_window_s = max(0.1, float(control_window_s))
+        self.last_control_at: Optional[float] = None
+        self.backpressure_windows = 0
+        self.clean_windows = 0
+        self.last_window_backpressure_delta = 0
+        self.last_window_backpressure_source: Optional[str] = None
+        self.last_action = "hold"
+
+    def observe_device(self, device_state: Dict[str, Any], tx_backpressure_total: Optional[int]) -> None:
+        if tx_backpressure_total is None:
+            return
+        total = int(tx_backpressure_total)
+        previous_total = device_state.get("tx_backpressure_total")
+        if previous_total is not None and total >= previous_total:
+            device_state["tx_backpressure_window_delta"] = int(device_state.get("tx_backpressure_window_delta", 0) or 0) + (
+                total - previous_total
+            )
+        device_state["tx_backpressure_total"] = total
+
+    def _apply_pacing_rate(self, new_pps: float, *, action: str, pacing_sender: Any) -> None:
+        clamped_pps = max(self.min_pps, min(self.max_pps, float(new_pps)))
+        if abs(clamped_pps - self.current_pps) < 1e-9:
+            self.last_action = action
+            return
+        if pacing_sender is None or not hasattr(pacing_sender, "set_rate_pps"):
+            self.last_action = "hold"
+            return
+        pacing_sender.set_rate_pps(clamped_pps)
+        self.current_pps = clamped_pps
+        self.last_action = action
+
+    def maybe_adjust(self, device_states: Dict[Any, Dict[str, Any]], *, now: float, pacing_sender: Any = None) -> None:
+        if self.last_control_at is None:
+            self.last_control_at = now
+            return
+        if (now - self.last_control_at) < self.control_window_s:
+            return
+
+        worst_delta = 0
+        tracked_devices = 0
+        worst_sources: List[str] = []
+        for device_state in device_states.values():
+            window_delta = int(device_state.get("tx_backpressure_window_delta", 0) or 0)
+            device_state["tx_backpressure_last_delta"] = window_delta
+            device_state["tx_backpressure_window_delta"] = 0
+            if device_state.get("tx_backpressure_total") is None:
+                continue
+            tracked_devices += 1
+            if window_delta > worst_delta:
+                worst_delta = window_delta
+                worst_sources = [str(device_state.get("source_ip") or "?")]
+            elif window_delta > 0 and window_delta == worst_delta:
+                worst_sources.append(str(device_state.get("source_ip") or "?"))
+
+        self.last_control_at = now
+        self.last_window_backpressure_delta = worst_delta
+        self.last_window_backpressure_source = worst_sources[0] if worst_sources else None
+        if tracked_devices == 0:
+            self.last_action = "hold"
+            return
+        if not self.enabled:
+            self.last_action = "hold"
+            return
+
+        if worst_delta > 0:
+            self.backpressure_windows += 1
+            self.clean_windows = 0
+            reduce_factor = 0.85 if self.backpressure_windows == 1 else 0.70
+            self._apply_pacing_rate(self.current_pps * reduce_factor, action="slowdown", pacing_sender=pacing_sender)
+            return
+
+        self.backpressure_windows = 0
+        self.clean_windows += 1
+        if self.clean_windows >= 3:
+            self._apply_pacing_rate(
+                self.current_pps + self.additive_step_pps,
+                action="recovery",
+                pacing_sender=pacing_sender,
+            )
+            self.clean_windows = 0
+            return
+        self.last_action = "hold"
+
+
 class CSIReceiver:
     """UDP receiver for CSI data with callback support."""
 
@@ -725,6 +833,16 @@ class CSICollector:
         return "[" + ("#" * filled) + ("-" * (width - filled)) + "]"
 
     @staticmethod
+    def _format_backpressure_text(device_state: Dict[str, Any]) -> str:
+        total = device_state.get("tx_backpressure_total")
+        if total is None:
+            return " | bp:--"
+        recent_delta = int(device_state.get("tx_backpressure_last_delta", 0) or 0)
+        if recent_delta > 0:
+            return f" | bp:active(+{recent_delta})"
+        return " | bp:no"
+
+    @staticmethod
     def _supports_inline_terminal(stream: Any = None) -> bool:
         target_stream = sys.stdout if stream is None else stream
         isatty = getattr(target_stream, "isatty", None)
@@ -842,7 +960,7 @@ class CSICollector:
                 lines.append(
                     f"    ip={expected_ip} chip=? ch=-- rssi=--- "
                     f"{CSICollector._build_status_bar(0.0)} "
-                    f"mv=--/{threshold:.3f} pps=-- | WAITING"
+                    f"mv=--/{threshold:.3f} pps=-- | WAITING | bp:--"
                 )
         for device_id in sorted(device_states):
             state = device_states[device_id]
@@ -871,11 +989,21 @@ class CSICollector:
                 f"rssi={'---' if rssi_dbm is None else str(int(rssi_dbm))} "
                 f"{CSICollector._build_status_bar(mv_ratio)} "
                 f"mv={mv_text}/{threshold:.3f} pps={'--' if current_pps is None else str(int(current_pps))} "
-                f"| {status}"
+                f"| {status}{CSICollector._format_backpressure_text(state)}"
             )
         return lines
 
     def _wait_for_ready_state(self, quiet: bool = False, summary_prefix: str = "  ") -> Dict[int, Dict[str, Any]]:
+        return self._wait_for_ready_state_with_pacing(quiet=quiet, summary_prefix=summary_prefix)
+
+    def _wait_for_ready_state_with_pacing(
+        self,
+        quiet: bool = False,
+        summary_prefix: str = "  ",
+        *,
+        pacing_controller: Optional[AdaptivePacingController] = None,
+        pacing_sender: Any = None,
+    ) -> Dict[int, Dict[str, Any]]:
         if self.receiver.sock is None:
             raise RuntimeError("Receiver socket is not initialized")
         self.receiver.reset_stats()
@@ -916,6 +1044,9 @@ class CSICollector:
                             "channel": packet.channel,
                             "rssi_dbm": packet.rssi_dbm,
                             "last_seq": packet.seq_num,
+                            "tx_backpressure_total": None,
+                            "tx_backpressure_window_delta": 0,
+                            "tx_backpressure_last_delta": 0,
                         }
                         device_states[device_id] = state
                     else:
@@ -927,6 +1058,8 @@ class CSICollector:
                         if packet.rssi_dbm is not None:
                             state["rssi_dbm"] = packet.rssi_dbm
                         state["last_seq"] = packet.seq_num
+                    if pacing_controller is not None:
+                        pacing_controller.observe_device(state, packet.tx_backpressure_total)
                     state["detector"].process_packet({"csi_data": packet.iq_raw})
                     state["processed_packets"] += 1
                     if state["processed_packets"] >= warmup_target:
@@ -939,6 +1072,8 @@ class CSICollector:
                             state["stable_since"] = None
 
                 now = time.monotonic()
+                if pacing_controller is not None:
+                    pacing_controller.maybe_adjust(device_states, now=now, pacing_sender=pacing_sender)
                 summary = self._summarize_ready_devices(
                     device_states,
                     expected_device_count=self.expected_device_count,
@@ -1010,6 +1145,8 @@ class CSICollector:
         quiet: bool = False,
         initial_device_states: Optional[Dict[int, Dict[str, Any]]] = None,
         summary_prefix: str = "  ",
+        pacing_controller: Optional[AdaptivePacingController] = None,
+        pacing_sender: Any = None,
     ) -> List[CSIPacket]:
         if self.receiver.sock is None:
             raise RuntimeError("Receiver socket is not initialized")
@@ -1057,6 +1194,9 @@ class CSICollector:
                             "channel": packet.channel,
                             "rssi_dbm": packet.rssi_dbm,
                             "last_seq": packet.seq_num,
+                            "tx_backpressure_total": None,
+                            "tx_backpressure_window_delta": 0,
+                            "tx_backpressure_last_delta": 0,
                         }
                         device_states[device_id] = state
                     else:
@@ -1068,6 +1208,8 @@ class CSICollector:
                         if packet.rssi_dbm is not None:
                             state["rssi_dbm"] = packet.rssi_dbm
                         state["last_seq"] = packet.seq_num
+                    if pacing_controller is not None:
+                        pacing_controller.observe_device(state, packet.tx_backpressure_total)
                     state["detector"].process_packet({"csi_data": packet.iq_raw})
                     state["processed_packets"] += 1
                     if state["processed_packets"] >= warmup_target:
@@ -1079,6 +1221,8 @@ class CSICollector:
                         else:
                             state["stable_since"] = None
                 now = time.monotonic()
+                if pacing_controller is not None:
+                    pacing_controller.maybe_adjust(device_states, now=now, pacing_sender=pacing_sender)
                 if now - last_pps_time >= 1.0:
                     delta = processed_packets - last_pps_count
                     elapsed = now - last_pps_time
@@ -1121,8 +1265,23 @@ class CSICollector:
                     last_render = now
         return packets
 
-    def collect_timed(self, duration: float, num_samples: int = 1, quiet: bool = False) -> List[Path]:
+    def collect_timed(
+        self,
+        duration: float,
+        num_samples: int = 1,
+        quiet: bool = False,
+        *,
+        pacing_sender: Any = None,
+        adaptive: bool = False,
+    ) -> List[Path]:
         saved_files: List[Path] = []
+        initial_pacing_pps = 0.0
+        if pacing_sender is not None and hasattr(pacing_sender, "get_rate_pps"):
+            try:
+                initial_pacing_pps = float(pacing_sender.get_rate_pps())
+            except (TypeError, ValueError):
+                initial_pacing_pps = 0.0
+        pacing_controller = AdaptivePacingController(initial_pps=max(1.0, initial_pacing_pps), enabled=adaptive)
         if not quiet:
             print(f'\n{"=" * 60}')
             print(f"  CSI Data Collection: {self.label}")
@@ -1130,6 +1289,7 @@ class CSICollector:
             print(f"  Duration per sample: {duration}s")
             print(f"  Samples to collect:  {num_samples}")
             print(f"  Ready gate:          implicit ({self.READY_STABLE_SECONDS:.1f}s stable)")
+            print(f"  Pacing mode:         {'adaptive' if adaptive else 'fixed'}")
             print(f'{"=" * 60}\n')
         self.receiver.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.receiver.sock.bind((self.receiver.bind_host, self.port))
@@ -1139,12 +1299,19 @@ class CSICollector:
                 self._reset_live_status_block()
                 summary_prefix = f"  Sample {sample_idx + 1}/{num_samples} | "
                 self._drain_udp_backlog()
-                ready_device_states = self._wait_for_ready_state(quiet=quiet, summary_prefix=summary_prefix)
+                ready_device_states = self._wait_for_ready_state_with_pacing(
+                    quiet=quiet,
+                    summary_prefix=summary_prefix,
+                    pacing_controller=pacing_controller,
+                    pacing_sender=pacing_sender,
+                )
                 packets = self._collect_with_live_status(
                     duration,
                     quiet=quiet,
                     initial_device_states=ready_device_states,
                     summary_prefix=summary_prefix,
+                    pacing_controller=pacing_controller,
+                    pacing_sender=pacing_sender,
                 )
                 sample_files = self.save_samples_by_device(packets)
                 if sample_files:

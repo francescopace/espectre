@@ -76,6 +76,169 @@ def test_metadata_refresh_recommendation_triggers_for_missing_pair_warning() -> 
     assert module.should_recommend_dataset_metadata_refresh([], missing_motion_pair_count=1) is True
 
 
+def test_refresh_metadata_respects_chip_filter() -> None:
+    module = _load_validator_module()
+
+    info = {
+        "updated_at": "2026-07-12T10:00:00",
+        "files": {
+            "static_presence": [
+                {
+                    "filename": "static_presence_c3_64sc_dev1_20260712_100000_0001.npz",
+                    "chip": "C3",
+                    "subcarriers": 64,
+                    "collected_at": "2026-07-12T10:00:00.000000",
+                },
+                {
+                    "filename": "static_presence_c6_64sc_dev2_20260712_100000_0001.npz",
+                    "chip": "C6",
+                    "subcarriers": 64,
+                    "collected_at": "2026-07-12T10:00:00.000000",
+                    "optimal_pair_motion_file": "keep_motion.npz",
+                },
+            ],
+            "motion": [
+                {
+                    "filename": "motion_c3_64sc_dev1_20260712_100500_0001.npz",
+                    "chip": "C3",
+                    "subcarriers": 64,
+                    "collected_at": "2026-07-12T10:05:00.000000",
+                },
+                {
+                    "filename": "motion_c6_64sc_dev2_20260712_100500_0001.npz",
+                    "chip": "C6",
+                    "subcarriers": 64,
+                    "collected_at": "2026-07-12T10:05:00.000000",
+                    "optimal_pair_static_presence_file": "keep_static.npz",
+                },
+            ],
+        },
+    }
+
+    refreshed, pair_rows = module.refresh_metadata(info, chip_filter="C3")
+
+    assert refreshed["files"]["static_presence"][0]["optimal_pair_motion_file"] == (
+        "motion_c3_64sc_dev1_20260712_100500_0001.npz"
+    )
+    assert refreshed["files"]["motion"][0]["optimal_pair_static_presence_file"] == (
+        "static_presence_c3_64sc_dev1_20260712_100000_0001.npz"
+    )
+    assert refreshed["files"]["static_presence"][1]["optimal_pair_motion_file"] == "keep_motion.npz"
+    assert refreshed["files"]["motion"][1]["optimal_pair_static_presence_file"] == "keep_static.npz"
+    assert len(pair_rows) == 1
+
+
+def test_run_validation_refresh_metadata_writes_dataset_info(monkeypatch, tmp_path) -> None:
+    module = _load_validator_module()
+
+    dataset_info_path = tmp_path / "dataset_info.json"
+    dataset_info_path.write_text(
+        """
+{
+  "updated_at": "2026-07-12T10:00:00",
+  "files": {
+    "static_presence": [
+      {
+        "filename": "static_presence_c3_64sc_dev1_20260712_100000_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "collected_at": "2026-07-12T10:00:00.000000",
+        "environment": "lab"
+      }
+    ],
+    "motion": [
+      {
+        "filename": "motion_c3_64sc_dev1_20260712_100500_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "collected_at": "2026-07-12T10:05:00.000000",
+        "environment": "lab"
+      }
+    ]
+  }
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(module, "DATASET_INFO", dataset_info_path)
+    monkeypatch.setattr(module, "validate_metadata_completeness", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "validate_empty_sanity", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "validate_quiet_test_recordings", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "validate_ml_readiness", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "should_recommend_dataset_metadata_refresh", lambda *args, **kwargs: False)
+
+    exit_code = module.run_validation(refresh_metadata_first=True)
+
+    refreshed = module.load_dataset_info()
+    static_entry = refreshed["files"]["static_presence"][0]
+    motion_entry = refreshed["files"]["motion"][0]
+
+    assert exit_code == 0
+    assert static_entry["optimal_pair_motion_file"] == motion_entry["filename"]
+    assert motion_entry["optimal_pair_static_presence_file"] == static_entry["filename"]
+
+
+def test_run_validation_refresh_metadata_force_writes_when_unchanged(monkeypatch, tmp_path) -> None:
+    module = _load_validator_module()
+
+    dataset_info_path = tmp_path / "dataset_info.json"
+    dataset_info_path.write_text(
+        """
+{
+  "updated_at": "2026-07-12T10:00:00",
+  "files": {
+    "static_presence": [
+      {
+        "filename": "static_presence_c3_64sc_dev1_20260712_100000_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "collected_at": "2026-07-12T10:00:00.000000",
+        "environment": "lab",
+        "optimal_pair_motion_file": "motion_c3_64sc_dev1_20260712_100500_0001.npz"
+      }
+    ],
+    "motion": [
+      {
+        "filename": "motion_c3_64sc_dev1_20260712_100500_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "collected_at": "2026-07-12T10:05:00.000000",
+        "environment": "lab",
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev1_20260712_100000_0001.npz"
+      }
+    ]
+  }
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    save_calls = []
+    original_save = module.save_dataset_info
+
+    def tracked_save(info):
+        save_calls.append(info)
+        original_save(info)
+
+    monkeypatch.setattr(module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(module, "DATASET_INFO", dataset_info_path)
+    monkeypatch.setattr(module, "save_dataset_info", tracked_save)
+    monkeypatch.setattr(module, "validate_metadata_completeness", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "validate_empty_sanity", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "validate_quiet_test_recordings", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "validate_ml_readiness", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "should_recommend_dataset_metadata_refresh", lambda *args, **kwargs: False)
+
+    exit_code = module.run_validation(refresh_metadata_first=True)
+
+    assert exit_code == 0
+    assert len(save_calls) == 1
+
+
 def test_per_file_quality_labels_include_test_recordings() -> None:
     module = _load_validator_module()
 

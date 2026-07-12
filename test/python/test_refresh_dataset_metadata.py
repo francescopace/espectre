@@ -1,4 +1,4 @@
-"""Tests for dataset metadata refresh tooling."""
+"""Tests for dataset metadata refresh helpers in the validator."""
 
 from __future__ import annotations
 
@@ -7,18 +7,18 @@ from pathlib import Path
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
-MODULE_PATH = TOOLS_DIR / "refresh_dataset_metadata.py"
+MODULE_PATH = TOOLS_DIR / "validate_dataset_quality.py"
 
 
 def _load_module():
-    spec = importlib.util.spec_from_file_location("refresh_dataset_metadata", MODULE_PATH)
+    spec = importlib.util.spec_from_file_location("validate_dataset_quality", MODULE_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 
 
-def test_refresh_metadata_writes_pair_fields_and_strips_legacy_thresholds():
+def test_refresh_metadata_writes_pair_fields():
     module = _load_module()
     info = {
         "updated_at": "2026-07-04T00:00:00",
@@ -66,3 +66,4 @@ def test_refresh_metadata_writes_pair_fields_and_strips_legacy_thresholds():
             "delta_seconds": 365.0,
         }
     ]
+    assert empty_entry["filename"] == "empty_s3_64sc_dev1_20260704_100000_0001.npz"

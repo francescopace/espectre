@@ -33,19 +33,19 @@ See [ALGORITHMS.md](ALGORITHMS.md) for the full detector design.
 
 | Metric | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-S3 |
 |--------|----------|----------|----------|----------|
-| Recall | 96.0% | N/A | 98.6% | 99.4% |
-| Precision | 99.7% | N/A | 96.8% | 91.4% |
-| FP Rate | 0.2% | N/A | 1.7% | 4.7% |
-| F1-Score | 97.8% | N/A | 97.6% | 95.3% |
+| Recall | 98.0% | 99.9% | 98.6% | 99.4% |
+| Precision | 99.3% | 100.0% | 96.8% | 91.4% |
+| FP Rate | 0.3% | 0.0% | 1.7% | 4.7% |
+| F1-Score | 98.6% | 100.0% | 97.6% | 95.3% |
 
 ### ML Detector
 
 | Metric | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-S3 |
 |--------|----------|----------|----------|----------|
-| Recall | 99.8% | N/A | 98.8% | 100.0% |
-| Precision | 100.0% | N/A | 99.9% | 100.0% |
-| FP Rate | 0.0% | N/A | 0.1% | 0.0% |
-| F1-Score | 99.9% | N/A | 99.3% | 100.0% |
+| Recall | 99.9% | 100.0% | 98.8% | 100.0% |
+| Precision | 100.0% | 100.0% | 99.9% | 100.0% |
+| FP Rate | 0.0% | 0.0% | 0.0% | 0.0% |
+| F1-Score | 99.9% | 100.0% | 99.4% | 100.0% |
 
 ---
 
@@ -62,5 +62,5 @@ See [ALGORITHMS.md](ALGORITHMS.md) for the full detector design.
 
 | Metric | C3 | C5 | C6 | S3 |
 |--------|----|----|----|----|
-| Avg FP Rate | 0.00% | 0.08% | 0.07% | N/A |
-| Max FP Rate | 0.00% | 0.24% | 0.14% | N/A |
+| Avg FP Rate | 0.00% | 0.06% | 0.07% | N/A |
+| Max FP Rate | 0.00% | 0.16% | 0.14% | N/A |

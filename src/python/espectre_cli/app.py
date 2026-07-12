@@ -80,7 +80,12 @@ def _add_collect_parser(
         "--pps",
         type=int,
         default=100,
-        help="UDP pacing rate in packets per second (default: 100)",
+        help="UDP pacing rate in packets per second (fixed by default, default: 100)",
+    )
+    collect_parser.add_argument(
+        "--adaptive",
+        action="store_true",
+        help="Enable adaptive pacing from firmware backpressure feedback",
     )
     collect_parser.add_argument(
         "--detector",

@@ -65,24 +65,7 @@ python analyze_system_tuning.py --chip S3    # Use S3 dataset
 python analyze_system_tuning.py --quick      # Reduced parameter space
 ```
 
----
-
-### 3. Dataset Metadata Refresh (`refresh_dataset_metadata.py`)
-
-**Purpose**: Refresh derived fields in `data/dataset_info.json`
-
-- Writes nearest 1:1 `static_presence` / `motion` pairing metadata for matching chip and subcarrier captures
-- Runs as a dry run by default, supports `--write` to update metadata, and supports `--check` for validation
-
-```bash
-python refresh_dataset_metadata.py          # Dry run
-python refresh_dataset_metadata.py --write  # Update dataset_info.json
-python refresh_dataset_metadata.py --check  # Fail if metadata is stale
-```
-
----
-
-### 4. Filter Location Analysis (`analyze_filter_location.py`)
+### 3. Filter Location Analysis (`analyze_filter_location.py`)
 
 **Purpose**: Compare filter placement in processing pipeline
 
@@ -98,7 +81,7 @@ python analyze_filter_location.py --plot       # Show visualizations
 
 ---
 
-### 5. Filter Turbulence Analysis (`analyze_filter_turbulence.py`)
+### 4. Filter Turbulence Analysis (`analyze_filter_turbulence.py`)
 
 **Purpose**: Run the production-aligned paired variance-baseline sweep and compare candidate detector variants
 
@@ -121,7 +104,7 @@ python analyze_filter_turbulence.py --dataset-id <pair_id> --plot
 
 ---
 
-### 6. Filter Parameters Optimization (`optimize_filter_params.py`)
+### 5. Filter Parameters Optimization (`optimize_filter_params.py`)
 
 **Purpose**: Run paired filter-parameter sweeps on top of the same production-aligned variance evaluator
 
@@ -141,7 +124,7 @@ python optimize_filter_params.py --all
 
 ---
 
-### 7. Detection Methods Comparison (`compare_detection_methods.py`)
+### 6. Detection Methods Comparison (`compare_detection_methods.py`)
 
 **Purpose**: Compare different motion detection algorithms
 
@@ -159,7 +142,7 @@ python compare_detection_methods.py --plot       # Show per-method comparison
 
 ---
 
-### 8. I/Q Constellation Plotter (`plot_constellation.py`)
+### 7. I/Q Constellation Plotter (`plot_constellation.py`)
 
 **Purpose**: Visualize I/Q constellation diagrams
 
@@ -177,7 +160,7 @@ python plot_constellation.py --grid       # One subplot per subcarrier
 
 ---
 
-### 9. ESP32 Variant Comparison (`compare_chips.py`)
+### 8. ESP32 Variant Comparison (`compare_chips.py`)
 
 **Purpose**: Compare CSI characteristics between ESP32 variants
 
@@ -192,7 +175,7 @@ python compare_chips.py --plot
 
 ---
 
-### 10. ML Model Training (`train_ml_model.py`)
+### 9. ML Model Training (`train_ml_model.py`)
 
 **Purpose**: Train, evaluate, and export the production ML model
 
@@ -239,25 +222,30 @@ diagnostics, and post-training regressions, see
 [ML_TRAINING.md](../docs/ML_TRAINING.md). For dataset preparation and labeling,
 see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md).
 
-### 11. Dataset Quality Validation (`validate_dataset_quality.py`)
+### 10. Dataset Quality Validation (`validate_dataset_quality.py`)
 
-Validates CSI datasets for integrity, signal quality, and ML readiness. It now checks per-file integrity for `empty`, `static_presence`, and `motion`, keeps pair validation focused on `static_presence`/`motion`, includes an `EMPTY SANITY` phase that measures how well `empty` separates from overlapping `static_presence` groups, and replays the production `ClassicDetector` startup calibration for each validated pair.
+Validates CSI datasets for metadata completeness, file integrity, signal quality, pair quality, and ML readiness. It checks per-file integrity for `empty`, `static_presence`, `motion`, and `test`, keeps pair validation focused on `static_presence`/`motion`, includes `EMPTY SANITY` and `QUIET TEST SANITY` phases, and replays the production `ClassicDetector` startup calibration for each validated pair. The same entry point can also refresh the derived pairing fields in `data/dataset_info.json` before validation.
 
 **Checks performed:**
-- File integrity — NPZ loads, expected keys exist, shapes are valid
-- Signal quality — amplitude range, zero-packet detection
-- Pair validation — static-presence vs motion variance ratio
-- ML readiness — label balance, minimum samples, chip diversity
+- Metadata completeness — required dataset metadata exists, pair links are reciprocal, and referenced files exist
+- File integrity — NPZ loads, expected keys exist, and shapes are valid
+- Signal quality — amplitude range, zero-packet detection, packet cadence, and stream continuity
+- Pair validation — production-aligned threshold replay on explicit `static_presence` / `motion` pairs
+- Empty sanity — overlapping `empty` vs `static_presence` groups remain separable
+- Quiet-test sanity — idle-only `test` recordings stay quiet under Classic replay
+- ML readiness — label balance, minimum samples, and chip diversity
 
 Turbulence mode follows runtime conventions: CV-normalized turbulence for every
 file. ML uses the same normalized base turbulence and exports the production
 Core-6 neural-detector features.
 
 ```bash
-python validate_dataset_quality.py              # Full validation
-python validate_dataset_quality.py --chip C6    # Validate C6 only
-python validate_dataset_quality.py --report     # Generate markdown report
-python validate_dataset_quality.py --strict     # Fail on warnings too
+python validate_dataset_quality.py                  # Full validation
+python validate_dataset_quality.py --chip C6        # Validate C6 only
+python validate_dataset_quality.py --refresh-metadata  # Force-refresh pair metadata first
+python validate_dataset_quality.py --chip C6 --refresh-metadata  # Force-refresh and validate one chip
+python validate_dataset_quality.py --report         # Generate markdown report
+python validate_dataset_quality.py --strict         # Fail on warnings too
 ```
 
 ---

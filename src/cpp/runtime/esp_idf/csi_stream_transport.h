@@ -94,6 +94,7 @@ class CsiStreamTransport {
   uint64_t prev_tx_error_total_{0U};
   uint64_t prev_tx_backpressure_total_{0U};
   bool last_tx_backpressure_{false};
+  bool telemetry_paused_no_traffic_{false};
 };
 
 }  // namespace espectre

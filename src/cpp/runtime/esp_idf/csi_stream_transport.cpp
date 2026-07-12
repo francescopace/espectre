@@ -296,6 +296,7 @@ void CsiStreamTransport::reset_session() {
   prev_tx_error_total_ = 0U;
   prev_tx_backpressure_total_ = 0U;
   last_tx_backpressure_ = false;
+  telemetry_paused_no_traffic_ = false;
 
   portENTER_CRITICAL(&latch_lock_);
   latest_csi_ = LatestCsiSample{};
@@ -400,6 +401,7 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
                                                const CsiTrafficService &traffic_service,
                                                bool streaming_ready,
                                                const char *state_name) {
+  (void)state_name;
   const uint64_t now_ms = static_cast<uint64_t>(monotonic_now_ms());
   if (last_log_ms_ != 0U && now_ms - last_log_ms_ < log_interval_ms_) {
     return;
@@ -420,9 +422,26 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
   const uint64_t stream_fresh_total = stream_fresh_total_.load(std::memory_order_relaxed);
   const uint64_t stream_repeat_total = stream_repeat_total_.load(std::memory_order_relaxed);
   const uint64_t traffic_valid_total = traffic_service.get_packets_received();
+  const uint64_t traffic_rx_delta = counter_delta(traffic_valid_total, prev_traffic_rx_total_);
   const uint64_t tx_success_total = stream_tx_total_;
   const uint64_t tx_error_total = stream_tx_error_total_;
   const uint64_t tx_backpressure_total = stream_tx_backpressure_total_;
+  const uint64_t tx_error_delta = counter_delta(tx_error_total, prev_tx_error_total_);
+  const uint64_t tx_backpressure_delta = counter_delta(tx_backpressure_total, prev_tx_backpressure_total_);
+
+  if (traffic_rx_delta == 0U) {
+    if (!telemetry_paused_no_traffic_) {
+      ESP_LOGI(TAG, "UDP pacing idle, suspending periodic stream telemetry");
+      telemetry_paused_no_traffic_ = true;
+    }
+    reset_runtime_telemetry_baseline_(traffic_service);
+    last_log_ms_ = now_ms;
+    return;
+  }
+  if (telemetry_paused_no_traffic_) {
+    ESP_LOGI(TAG, "UDP pacing resumed, stream telemetry re-enabled");
+    telemetry_paused_no_traffic_ = false;
+  }
 
   const auto to_pps = [dt_ms](uint64_t delta) { return static_cast<float>(delta) * 1000.0F / static_cast<float>(dt_ms); };
   const float csi_callback_pps = to_pps(counter_delta(csi_callback_total, prev_csi_callback_total_));
@@ -438,47 +457,48 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
   const uint32_t last_csi_ms = last_csi_ms_.load(std::memory_order_relaxed);
   const uint32_t csi_age_ms =
       (last_csi_ms > 0U && now_ms >= last_csi_ms) ? static_cast<uint32_t>(now_ms - last_csi_ms) : 0U;
-  const uint32_t csi_capture_callbacks = capture_service.callback_invocations();
-  const uint32_t csi_capture_null = capture_service.null_or_empty_packets();
   const uint32_t csi_capture_raw_drop = capture_service.interceptor_drops();
   const uint32_t csi_capture_bad_sc = capture_service.normalized_invalid_packets();
   const uint32_t csi_capture_valid = capture_service.valid_packets();
 
   const bool csi_enabled = capture_service.is_enabled();
-  const bool traffic_active = traffic_rx_pps > 1.0F;
-  const char *csi_health = !csi_enabled                     ? "not_armed"
-                           : !traffic_active                ? "idle"
-                           : csi_capture_callbacks == 0U    ? "armed_no_callback"
-                           : csi_capture_valid == 0U        ? "callback_no_valid_packets"
-                           : csi_callback_pps < 1.0F        ? "callback_silent"
-                                                            : "ok";
+  const char *csi_health = !csi_enabled                  ? "not_armed"
+                          : capture_service.callback_invocations() == 0U ? "armed_no_callback"
+                          : csi_capture_valid == 0U      ? "callback_no_valid_packets"
+                          : csi_callback_pps < 1.0F      ? "callback_silent"
+                                                         : "ok";
 
-  ESP_LOGI(TAG,
-           "state=%s health=%s csi_ap=%.0f csi_filt=%.0f cb=%" PRIu32 " valid=%" PRIu32
-           " null=%" PRIu32 " raw_drop=%" PRIu32 " bad_sc=%" PRIu32
-           " udp_rx=%.1f udp_tx=%.0f fresh=%.0f repeat=%.0f"
-           " tx_err=%.0f/%" PRIu64 " tx_bp=%.0f/%" PRIu64
-           " age_ms=%" PRIu32 " heap=%.1f min=%.1f",
-           state_name != nullptr ? state_name : "unknown",
-           csi_health,
-           static_cast<double>(csi_accepted_pps),
-           static_cast<double>(csi_filtered_pps),
-           csi_capture_callbacks,
-           csi_capture_valid,
-           csi_capture_null,
-           csi_capture_raw_drop,
-           csi_capture_bad_sc,
-           static_cast<double>(traffic_rx_pps),
-           static_cast<double>(tx_pps),
-           static_cast<double>(stream_fresh_pps),
-           static_cast<double>(stream_repeat_pps),
-           static_cast<double>(tx_error_pps),
-           tx_error_total,
-           static_cast<double>(tx_backpressure_pps),
-           tx_backpressure_total,
-           csi_age_ms,
-           static_cast<double>(current_free_memory_kb()),
-           static_cast<double>(minimum_free_memory_kb()));
+  if (std::strcmp(csi_health, "ok") == 0 && tx_error_delta == 0U && tx_backpressure_delta == 0U) {
+    ESP_LOGI(TAG,
+             "csi_ap=%.0f udp_rx=%.1f udp_tx=%.0f fresh=%.0f age_ms=%" PRIu32,
+             static_cast<double>(csi_accepted_pps),
+             static_cast<double>(traffic_rx_pps),
+             static_cast<double>(tx_pps),
+             static_cast<double>(stream_fresh_pps),
+             csi_age_ms);
+  } else {
+    ESP_LOGI(TAG,
+             "csi_ap=%.0f csi_filt=%.0f valid=%" PRIu32
+             " raw_drop=%" PRIu32 " bad_sc=%" PRIu32
+             " udp_rx=%.1f udp_tx=%.0f fresh=%.0f"
+             " tx_err=%.0f/%" PRIu64 " tx_bp=%.0f/%" PRIu64
+             " age_ms=%" PRIu32 " heap=%.1f min=%.1f",
+             static_cast<double>(csi_accepted_pps),
+             static_cast<double>(csi_filtered_pps),
+             csi_capture_valid,
+             csi_capture_raw_drop,
+             csi_capture_bad_sc,
+             static_cast<double>(traffic_rx_pps),
+             static_cast<double>(tx_pps),
+             static_cast<double>(stream_fresh_pps),
+             static_cast<double>(tx_error_pps),
+             tx_error_total,
+             static_cast<double>(tx_backpressure_pps),
+             tx_backpressure_total,
+             csi_age_ms,
+             static_cast<double>(current_free_memory_kb()),
+             static_cast<double>(minimum_free_memory_kb()));
+  }
 
   prev_csi_callback_total_ = csi_callback_total;
   prev_csi_accepted_total_ = csi_accepted_total;

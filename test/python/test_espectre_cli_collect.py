@@ -25,6 +25,7 @@ def _make_collect_args(**overrides) -> argparse.Namespace:
         "target": "192.168.1.15",
         "target_port": 9999,
         "pps": 100,
+        "adaptive": False,
         "contributor": None,
         "description": None,
     }
@@ -44,6 +45,7 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
         "target": "192.168.1.15",
         "target_port": 9999,
         "pps": 100,
+        "adaptive": False,
         "detector": "classic",
         "no_save": False,
         "contributor": None,
@@ -332,6 +334,15 @@ def test_collect_parser_accepts_pps() -> None:
     args = parser.parse_args(["collect", "--target", "192.168.1.15", "--pps", "42"])
 
     assert args.pps == 42
+    assert args.adaptive is False
+
+
+def test_collect_parser_accepts_adaptive() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["collect", "--target", "192.168.1.15", "--adaptive"])
+
+    assert args.adaptive is True
 
 
 def test_collect_parser_accepts_detector_choice_and_no_save() -> None:
@@ -571,7 +582,7 @@ def test_collect_csi_data_handles_interrupt_and_runtime_error(monkeypatch) -> No
         def __init__(self, **kwargs):
             pass
 
-        def collect_timed(self, duration: float, num_samples: int):
+        def collect_timed(self, duration: float, num_samples: int, **kwargs):
             raise KeyboardInterrupt
 
     class FakePacingSender:
@@ -603,21 +614,29 @@ def test_collect_applies_start_delay_before_starting_pacing(monkeypatch) -> None
         def __init__(self, **kwargs):
             events.append(("collector_init", kwargs["label"], kwargs["bind_host"], kwargs["expected_device_count"]))
 
-        def collect_timed(self, duration: float, num_samples: int):
-            events.append(("collect_timed", duration, num_samples))
+        def collect_timed(self, duration: float, num_samples: int, **kwargs):
+            events.append(("collect_timed", duration, num_samples, kwargs))
             return [Path("sample_1.npz"), Path("sample_2.npz")]
 
     class FakePacingSender:
+        last_instance = None
+
         def __init__(self, **kwargs):
             events.append(
                 ("sender_init", kwargs["target_host"], kwargs.get("interval_s"))
             )
+            self.kwargs = kwargs
+            self.rate_updates = []
+            FakePacingSender.last_instance = self
 
         def start(self):
             events.append("start")
 
         def stop(self):
             events.append("stop")
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
 
     fake_csi_utils.CSICollector = FakeCollector
     fake_csi_utils.UdpPacingSender = FakePacingSender
@@ -631,10 +650,118 @@ def test_collect_applies_start_delay_before_starting_pacing(monkeypatch) -> None
 
     assert ("delay", 5.0) in events
     assert ("sender_init", ["192.168.1.17", "192.168.1.24", "192.168.1.29"], 0.01) in events
-    assert ("collect_timed", 10.0, 2) in events
+    collect_event = next(event for event in events if isinstance(event, tuple) and event[0] == "collect_timed")
+    assert collect_event[1] == 10.0
+    assert collect_event[2] == 2
+    assert collect_event[3]["adaptive"] is False
+    assert collect_event[3]["pacing_sender"] is FakePacingSender.last_instance
+    assert FakePacingSender.last_instance.rate_updates == []
     assert ("collector_init", "static_presence", "127.0.0.1", 3) in events
     assert events.index(("delay", 5.0)) < events.index("start")
     assert events[-1] == "stop"
+
+
+def test_collect_timed_adaptive_adjusts_legacy_pacing(monkeypatch) -> None:
+    import importlib
+
+    csi_io = importlib.import_module("tools.lib.csi_io")
+    clock = {"now": 0.0}
+
+    class FakeReadyDetector:
+        def __init__(self):
+            self.window_size = 1
+            self._context = type("Ctx", (), {"current_moving_variance": 0.0})()
+
+        def process_packet(self, packet):
+            self._context.current_moving_variance = 0.0
+
+    class FakePacket:
+        def __init__(self, seq_num: int, tx_backpressure_total: int):
+            self.seq_num = seq_num
+            self.device_id = 0xABC123
+            self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
+            self.source_ip = "192.168.1.29"
+            self.channel = 8
+            self.rssi_dbm = -47
+            self.chip = "s3"
+            self.tx_backpressure_total = tx_backpressure_total
+
+    packets_by_token = {
+        b"ready": [FakePacket(1, 0)],
+        b"rec1": [FakePacket(2, 5)],
+        b"rec2": [FakePacket(3, 9)],
+        b"rec3": [FakePacket(4, 9)],
+        b"rec4": [FakePacket(5, 9)],
+    }
+
+    class FakeSocket:
+        def __init__(self, *args, **kwargs):
+            self.timeout = None
+            self.events = [
+                (0.0, b"ready"),
+                (1.2, b"rec1"),
+                (2.4, b"rec2"),
+                (3.6, b"rec3"),
+                (4.8, b"rec4"),
+            ]
+
+        def bind(self, addr):
+            pass
+
+        def settimeout(self, value):
+            self.timeout = value
+
+        def gettimeout(self):
+            return self.timeout
+
+        def recvfrom(self, max_bytes):
+            if self.timeout == 0.0:
+                raise BlockingIOError
+            if not self.events:
+                raise csi_io.socket.timeout
+            next_time, token = self.events.pop(0)
+            clock["now"] = next_time
+            return token, ("192.168.1.29", 5001)
+
+        def close(self):
+            pass
+
+    class FakePacingSender:
+        def __init__(self):
+            self.rate_updates = []
+
+        def get_rate_pps(self):
+            return 100.0
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    monkeypatch.setattr(csi_io.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(csi_io.socket, "socket", lambda *args, **kwargs: FakeSocket(*args, **kwargs))
+    monkeypatch.setattr(csi_io.CSICollector, "_build_ready_detector", lambda self: FakeReadyDetector())
+    monkeypatch.setattr(csi_io.CSICollector, "READY_STABLE_SECONDS", 0.0)
+    monkeypatch.setattr(csi_io.CSICollector, "save_samples_by_device", lambda self, packets: [Path("sample_1.npz")])
+
+    collector = csi_io.CSICollector(
+        label="motion",
+        port=5001,
+        bind_host="127.0.0.1",
+        expected_device_count=1,
+        expected_source_hosts=["192.168.1.29"],
+    )
+    monkeypatch.setattr(collector.receiver, "_parse_packets", lambda data: packets_by_token[data])
+
+    pacing_sender = FakePacingSender()
+    saved_files = collector.collect_timed(
+        duration=1.0,
+        num_samples=1,
+        quiet=True,
+        pacing_sender=pacing_sender,
+        adaptive=True,
+    )
+
+    assert saved_files == [Path("sample_1.npz")]
+    assert pacing_sender.rate_updates == pytest.approx([85.0, 59.5])
 
 
 def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> None:
@@ -1117,6 +1244,78 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
     assert "No live capture packets received; nothing saved" in output
 
 
+def test_collect_live_keeps_fixed_pacing_without_adaptive(monkeypatch, capsys) -> None:
+    clock = {"now": 0.0}
+
+    class FakePacket:
+        def __init__(self, seq_num: int, tx_backpressure_total: int):
+            self.seq_num = seq_num
+            self.device_id = 0xABC123
+            self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
+            self.source_ip = "192.168.1.29"
+            self.channel = 8
+            self.rssi_dbm = -47
+            self.chip = "s3"
+            self.tx_backpressure_total = tx_backpressure_total
+
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            self._callbacks = []
+            self.dropped_count = 0
+            self.pps = 100
+
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
+            packet_schedule = [
+                (0.0, FakePacket(1, 0)),
+                (1.2, FakePacket(2, 5)),
+                (2.4, FakePacket(3, 9)),
+                (3.6, FakePacket(4, 9)),
+            ]
+            for current_time, packet in packet_schedule:
+                clock["now"] = current_time
+                for callback in self._callbacks:
+                    callback(packet)
+            raise KeyboardInterrupt
+
+        def stop(self):
+            pass
+
+    class FakePacingSender:
+        last_instance = None
+
+        def __init__(self, **kwargs):
+            self.rate_updates = []
+            FakePacingSender.last_instance = self
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    _install_live_collect_modules(
+        monkeypatch,
+        FakeReceiver,
+        FakePacingSender,
+        config_overrides={"PUBLISH_INTERVAL": 1, "EVALUATION_INTERVAL": 1},
+    )
+    monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
+
+    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="ml", no_save=True))
+
+    output = capsys.readouterr().out
+    assert FakePacingSender.last_instance is not None
+    assert FakePacingSender.last_instance.rate_updates == []
+    assert "bp:active(+4)" in output
+    assert "Adaptive:" in output and "OFF" in output
+
+
 def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, capsys) -> None:
     clock = {"now": 0.0}
 
@@ -1182,12 +1381,13 @@ def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, caps
     )
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
-    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="ml", no_save=True))
+    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="ml", no_save=True, adaptive=True))
 
     output = capsys.readouterr().out
     assert FakePacingSender.last_instance is not None
     assert FakePacingSender.last_instance.rate_updates == pytest.approx([85.0, 59.5, 61.5])
     assert "bp:active(+4)" in output
+    assert "Adaptive:" in output and "ON" in output
 
 
 def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None:

@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-11T20:04:20.143835",
+  "updated_at": "2026-07-12T19:35:59.123437",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -215,6 +215,32 @@
         "environment": "bedroom",
         "device_id": "0x000010b41de8ec00",
         "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz"
+      },
+      {
+        "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260712_172816_395303_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-12T17:28:16.385626",
+        "duration_ms": 179922,
+        "num_packets": 18000,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64ae708",
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260712_173027_716425_0001.npz"
+      },
+      {
+        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-12T19:04:49.585200",
+        "duration_ms": 179982,
+        "num_packets": 17352,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x000030eda0e46278",
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz"
       }
     ],
     "motion": [
@@ -269,6 +295,32 @@
         "device_id": "0x000010b41de8ec00",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz"
+      },
+      {
+        "filename": "motion_c3_64sc_dev0000acebe64ae708_20260712_173027_716425_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-12T17:30:27.708717",
+        "duration_ms": 89995,
+        "num_packets": 9008,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64ae708",
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260712_172816_395303_0001.npz"
+      },
+      {
+        "filename": "motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-12T19:26:53.570226",
+        "duration_ms": 89966,
+        "num_packets": 8651,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x000030eda0e46278",
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz"
       }
     ],
     "test": [

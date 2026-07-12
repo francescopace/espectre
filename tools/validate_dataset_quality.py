@@ -30,6 +30,7 @@ Usage:
     python validate_dataset_quality.py              # Full validation
     python validate_dataset_quality.py --chip C6    # Validate C6 only
     python validate_dataset_quality.py --report     # Generate markdown report
+    python validate_dataset_quality.py --refresh-metadata  # Force-refresh dataset_info.json first
     python validate_dataset_quality.py --strict     # Fail on warnings too
 
 Author: Hadi (hadikurniawanar@gmail.com)
@@ -40,6 +41,7 @@ import json
 import argparse
 import datetime
 import re
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -76,6 +78,7 @@ from config import (  # noqa: E402
 DATA_DIR = SCRIPT_DIR.parent / "data"
 DATASET_INFO = DATA_DIR / "dataset_info.json"
 REPORT_OUTPUT = generated_data_dir() / "DATASET_QUALITY_CHECK.md"
+PAIR_MAX_DELTA_SECONDS = 30 * 60
 
 # Quality thresholds
 # Keep these aligned with the current collection defaults (~100 pps) and the
@@ -272,6 +275,159 @@ def _extract_motion_start_from_description(description):
     if match:
         return int(match.group(1))
     return None
+
+
+def load_dataset_info():
+    """Load dataset_info.json."""
+    with open(DATASET_INFO, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_dataset_info(info):
+    """Write dataset_info.json with stable formatting."""
+    with open(DATASET_INFO, "w", encoding="utf-8") as f:
+        json.dump(info, f, indent=2)
+        f.write("\n")
+
+
+def parse_iso_timestamp(value):
+    """Parse an ISO timestamp string, returning None when unavailable."""
+    if not value:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _entry_matches_selected_chips(entry, selected_chips):
+    """Return True when an entry should be refreshed for the selected chips."""
+    if selected_chips is None:
+        return True
+    return str(entry.get("chip", "")).upper() in selected_chips
+
+
+def refresh_pair_metadata(files, *, selected_chips=None):
+    """
+    Refresh explicit static_presence/motion pairing fields.
+
+    Pairing policy:
+    - same chip
+    - same subcarrier count
+    - timestamps within PAIR_MAX_DELTA_SECONDS
+    - nearest 1:1 greedy assignment by time delta
+    """
+    static_entries = files.get("static_presence", [])
+    motion_entries = files.get("motion", [])
+
+    for entry in static_entries:
+        if _entry_matches_selected_chips(entry, selected_chips):
+            entry.pop("optimal_pair_motion_file", None)
+    for entry in motion_entries:
+        if _entry_matches_selected_chips(entry, selected_chips):
+            entry.pop("optimal_pair_static_presence_file", None)
+
+    candidates = []
+    for static_index, static_entry in enumerate(static_entries):
+        if not _entry_matches_selected_chips(static_entry, selected_chips):
+            continue
+        static_name = static_entry.get("filename")
+        static_ts = parse_iso_timestamp(static_entry.get("collected_at"))
+        static_chip = str(static_entry.get("chip", "")).upper()
+        static_sc = int(static_entry.get("subcarriers", 0) or 0)
+        if not static_name or static_ts is None or not static_chip or static_sc <= 0:
+            continue
+
+        for motion_index, motion_entry in enumerate(motion_entries):
+            if not _entry_matches_selected_chips(motion_entry, selected_chips):
+                continue
+            motion_name = motion_entry.get("filename")
+            motion_ts = parse_iso_timestamp(motion_entry.get("collected_at"))
+            motion_chip = str(motion_entry.get("chip", "")).upper()
+            motion_sc = int(motion_entry.get("subcarriers", 0) or 0)
+            if not motion_name or motion_ts is None:
+                continue
+            if motion_chip != static_chip or motion_sc != static_sc:
+                continue
+
+            delta = abs((motion_ts - static_ts).total_seconds())
+            if delta > PAIR_MAX_DELTA_SECONDS:
+                continue
+
+            candidates.append(
+                (
+                    delta,
+                    str(static_name),
+                    str(motion_name),
+                    static_index,
+                    motion_index,
+                )
+            )
+
+    used_static = set()
+    used_motion = set()
+    pair_rows = []
+
+    for delta, static_name, motion_name, static_index, motion_index in sorted(candidates):
+        if static_index in used_static or motion_index in used_motion:
+            continue
+
+        static_entry = static_entries[static_index]
+        motion_entry = motion_entries[motion_index]
+        static_entry["optimal_pair_motion_file"] = motion_name
+        motion_entry["optimal_pair_static_presence_file"] = static_name
+        used_static.add(static_index)
+        used_motion.add(motion_index)
+        pair_rows.append(
+            {
+                "static_presence": static_name,
+                "motion": motion_name,
+                "delta_seconds": round(float(delta), 3),
+            }
+        )
+
+    return pair_rows
+
+
+def refresh_metadata(info, chip_filter=None):
+    """Return a refreshed copy of dataset_info and derived metadata summaries."""
+    refreshed = deepcopy(info)
+    files = refreshed.get("files", {})
+    if chip_filter:
+        if isinstance(chip_filter, str):
+            selected_chips = {chip_filter.upper()}
+        else:
+            selected_chips = {str(chip).upper() for chip in chip_filter}
+    else:
+        selected_chips = None
+    pair_rows = refresh_pair_metadata(files, selected_chips=selected_chips)
+
+    if pair_rows:
+        refreshed["updated_at"] = datetime.datetime.now().isoformat(timespec="microseconds")
+
+    return refreshed, pair_rows
+
+
+def normalize_updated_at(info, value):
+    """Return a copy with updated_at set to a stable comparison value."""
+    normalized = deepcopy(info)
+    normalized["updated_at"] = value
+    return normalized
+
+
+def summarize_pair_rows(pair_rows):
+    """Print a compact summary of refreshed static_presence/motion pairs."""
+    print(f"Resolved {len(pair_rows)} static_presence/motion pairs")
+    if not pair_rows:
+        return
+    by_chip = {}
+    for row in pair_rows:
+        filename = row["static_presence"]
+        parts = filename.split("_")
+        chip = parts[2].upper() if len(parts) >= 3 else "UNKNOWN"
+        by_chip[chip] = by_chip.get(chip, 0) + 1
+    for chip in sorted(by_chip):
+        print(f"  {chip:<15} count={by_chip[chip]:2d}")
 
 def validate_metadata_completeness(dataset_info, chip_filter=None):
     """Check derived/manual dataset_info fields required by training workflows."""
@@ -1085,7 +1241,7 @@ def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
 # Main validation pipeline
 # ------------------------------------------------------------------
 
-def run_validation(chip_filter=None, strict=False, generate_report=False):
+def run_validation(chip_filter=None, strict=False, generate_report=False, refresh_metadata_first=False):
     """Run full dataset validation."""
 
     print("=" * 70)
@@ -1099,12 +1255,27 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
 
     # Load dataset info
     if DATASET_INFO.exists():
-        with open(DATASET_INFO) as f:
-            dataset_info = json.load(f)
+        dataset_info = load_dataset_info()
         print(f"📋 Loaded dataset_info.json (updated: {dataset_info.get('updated_at', 'unknown')})")
     else:
         print("⚠️  dataset_info.json not found, scanning files directly")
         dataset_info = {'files': {'empty': [], 'static_presence': [], 'motion': []}}
+
+    if refresh_metadata_first and DATASET_INFO.exists():
+        print("\n" + "-" * 70)
+        print("  METADATA REFRESH")
+        print("-" * 70)
+
+        refreshed_info, refreshed_pairs = refresh_metadata(dataset_info, chip_filter=chip_filter)
+        summarize_pair_rows(refreshed_pairs)
+        comparable_refreshed = normalize_updated_at(refreshed_info, dataset_info.get("updated_at"))
+        is_unchanged = comparable_refreshed == dataset_info
+        save_dataset_info(refreshed_info)
+        dataset_info = refreshed_info
+        if is_unchanged:
+            print(f"Force-wrote {DATASET_INFO}")
+        else:
+            print(f"Wrote {DATASET_INFO}")
 
     all_results = []
     pair_results = []
@@ -1319,7 +1490,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
         missing_motion_pair_count=missing_motion_pair_count,
     ):
         print("\n💡 Metadata refresh recommended:")
-        print("   Run `python tools/refresh_dataset_metadata.py --write`")
+        print("   Run `python tools/validate_dataset_quality.py --refresh-metadata`")
         print("   to regenerate explicit static_presence/motion pair metadata.")
 
     if generate_report:
@@ -1420,6 +1591,7 @@ Examples:
   python validate_dataset_quality.py              # Full validation
   python validate_dataset_quality.py --chip C6    # Validate C6 only
   python validate_dataset_quality.py --report     # Generate markdown report
+  python validate_dataset_quality.py --refresh-metadata  # Force-refresh metadata first
   python validate_dataset_quality.py --strict     # Fail on warnings
         """
     )
@@ -1427,6 +1599,11 @@ Examples:
                        help='Filter by chip type (e.g., C6, S3, C3, ESP32)')
     parser.add_argument('--report', action='store_true',
                        help='Generate DATASET_QUALITY_CHECK.md report')
+    parser.add_argument(
+        '--refresh-metadata',
+        action='store_true',
+        help='Force-refresh derived dataset_info pair metadata before validation',
+    )
     parser.add_argument('--strict', action='store_true',
                        help='Treat warnings as failures')
 
@@ -1435,7 +1612,8 @@ Examples:
     exit_code = run_validation(
         chip_filter=args.chip,
         strict=args.strict,
-        generate_report=args.report
+        generate_report=args.report,
+        refresh_metadata_first=args.refresh_metadata,
     )
     sys.exit(exit_code)
 

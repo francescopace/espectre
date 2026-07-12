@@ -185,7 +185,8 @@ def _collect_dataset_csi_data(args) -> None:
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
     print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)} ({target_mode})")
     print(
-        f"  {Fore.CYAN}Pacing:{Style.RESET_ALL}  {pacing_pps:g}pps UDP traffic on {args.target_port}"
+        f"  {Fore.CYAN}Pps:{Style.RESET_ALL}     {pacing_pps:g}pps "
+        f"({'adaptive' if getattr(args, 'adaptive', False) else 'fixed'}) UDP traffic on {args.target_port}"
     )
     if args.description:
         print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
@@ -206,7 +207,12 @@ def _collect_dataset_csi_data(args) -> None:
     try:
         _wait_before_collection(args.start_delay)
         pacing_sender.start()
-        saved = collector.collect_timed(duration=sample_duration, num_samples=args.samples)
+        saved = collector.collect_timed(
+            duration=sample_duration,
+            num_samples=args.samples,
+            pacing_sender=pacing_sender,
+            adaptive=bool(getattr(args, "adaptive", False)),
+        )
         if saved:
             print(f"{Fore.GREEN}✅ Collected {len(saved)} device file(s) for label '{args.label}'{Style.RESET_ALL}")
         else:
@@ -231,7 +237,7 @@ def collect_csi_data(args) -> None:
 def _run_live_collect(args) -> None:
     """Run the host-side live collect pipeline."""
     try:
-        from tools.lib.csi_io import CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
+        from tools.lib.csi_io import AdaptivePacingController, CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
         import config
         from console_output import format_calibration_status_line, format_detection_publish_line
         from detector_interface import (
@@ -249,7 +255,7 @@ def _run_live_collect(args) -> None:
         )
     except ImportError:
         try:
-            from tools.lib.csi_io import CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
+            from tools.lib.csi_io import AdaptivePacingController, CSICollector, CSIReceiver, UdpPacingSender, get_default_bind_host
             import src.config as config
             from src.console_output import format_calibration_status_line, format_detection_publish_line
             from src.detector_interface import (
@@ -303,6 +309,7 @@ def _run_live_collect(args) -> None:
         raise SystemExit(1)
 
     initial_pacing_pps = float(args.pps)
+    adaptive_enabled = bool(getattr(args, "adaptive", False))
     base_window_packets = max(1, int(getattr(config, "SEG_WINDOW_SIZE", 100)))
     effective_window_packets = max(1, int(round(initial_pacing_pps)))
     effective_evaluation_interval = max(1, effective_window_packets // 4)
@@ -314,10 +321,6 @@ def _run_live_collect(args) -> None:
     calibration_window_count = max(1.0, base_calibration_target_packets / float(base_window_packets))
     calibration_target_packets = max(1, int(round(effective_window_packets * calibration_window_count)))
     summary_evaluation_interval = effective_evaluation_interval
-    adaptive_min_pps = max(5.0, min(initial_pacing_pps, 10.0))
-    adaptive_max_pps = max(initial_pacing_pps, adaptive_min_pps)
-    adaptive_additive_step_pps = max(1.0, initial_pacing_pps * 0.02)
-    adaptive_control_window_seconds = 1.0
 
     def get_initial_threshold(kind):
         if isinstance(raw_threshold_setting, (int, float)):
@@ -510,76 +513,9 @@ def _run_live_collect(args) -> None:
             device_state["rssi_dbm"] = int(rssi_dbm)
         tx_backpressure_total = getattr(pkt, "tx_backpressure_total", None)
         if tx_backpressure_total is not None:
-            tx_backpressure_total = int(tx_backpressure_total)
-            previous_total = device_state.get("tx_backpressure_total")
-            if previous_total is not None and tx_backpressure_total >= previous_total:
-                device_state["tx_backpressure_window_delta"] += tx_backpressure_total - previous_total
-            device_state["tx_backpressure_total"] = tx_backpressure_total
+            adaptive_pacing.observe_device(device_state, tx_backpressure_total)
         device_state["label"] = format_device_label(device_state)
         return device_state
-
-    def apply_pacing_rate(new_pps, *, action):
-        controller = state["adaptive_pacing"]
-        clamped_pps = max(controller["min_pps"], min(controller["max_pps"], float(new_pps)))
-        current_pps = float(controller["current_pps"])
-        if abs(clamped_pps - current_pps) < 1e-9:
-            controller["last_action"] = action
-            return
-        if not hasattr(pacing_sender, "set_rate_pps"):
-            controller["last_action"] = "hold"
-            return
-        pacing_sender.set_rate_pps(clamped_pps)
-        controller["current_pps"] = clamped_pps
-        controller["last_action"] = action
-
-    def maybe_adjust_pacing(now):
-        controller = state["adaptive_pacing"]
-        last_control_at = controller["last_control_at"]
-        if last_control_at is None:
-            controller["last_control_at"] = now
-            return
-        if (now - last_control_at) < controller["control_window_s"]:
-            return
-
-        worst_delta = 0
-        tracked_devices = 0
-        for device_state in state["devices"].values():
-            window_delta = int(device_state.get("tx_backpressure_window_delta", 0) or 0)
-            device_state["tx_backpressure_last_delta"] = window_delta
-            device_state["tx_backpressure_window_delta"] = 0
-            if device_state.get("tx_backpressure_total") is None:
-                continue
-            tracked_devices += 1
-            worst_delta = max(worst_delta, window_delta)
-
-        controller["last_control_at"] = now
-        controller["last_window_backpressure_delta"] = worst_delta
-        controller["last_window_backpressure_source"] = None
-        if tracked_devices == 0:
-            controller["last_action"] = "hold"
-            return
-
-        if worst_delta > 0:
-            worst_sources = [
-                str(device_state.get("source_ip") or "?")
-                for device_state in state["devices"].values()
-                if int(device_state.get("tx_backpressure_last_delta", 0) or 0) == worst_delta
-            ]
-            if worst_sources:
-                controller["last_window_backpressure_source"] = worst_sources[0]
-            controller["backpressure_windows"] += 1
-            controller["clean_windows"] = 0
-            reduce_factor = 0.85 if controller["backpressure_windows"] == 1 else 0.70
-            apply_pacing_rate(controller["current_pps"] * reduce_factor, action="slowdown")
-            return
-
-        controller["backpressure_windows"] = 0
-        controller["clean_windows"] += 1
-        if controller["clean_windows"] >= 3:
-            apply_pacing_rate(controller["current_pps"] + controller["additive_step_pps"], action="recovery")
-            controller["clean_windows"] = 0
-            return
-        controller["last_action"] = "hold"
 
     def update_device_pps(device_state, now):
         if device_state["pps_window_started_at"] is None:
@@ -911,6 +847,7 @@ def _run_live_collect(args) -> None:
         source_host=resolved_bind_ip,
         interval_s=1.0 / pacing_pps,
     )
+    adaptive_pacing = AdaptivePacingController(initial_pps=pacing_pps, enabled=adaptive_enabled)
     capture_writer = None
     if save_enabled:
         capture_writer = CSICollector(
@@ -937,19 +874,6 @@ def _run_live_collect(args) -> None:
         "summary_line_count": 0,
         "summary_use_inline": supports_inline_terminal(),
         "calibration_active": bool(calibrated_kinds),
-        "adaptive_pacing": {
-            "current_pps": pacing_pps,
-            "min_pps": adaptive_min_pps,
-            "max_pps": adaptive_max_pps,
-            "additive_step_pps": adaptive_additive_step_pps,
-            "control_window_s": adaptive_control_window_seconds,
-            "last_control_at": None,
-            "backpressure_windows": 0,
-            "clean_windows": 0,
-            "last_window_backpressure_delta": 0,
-            "last_window_backpressure_source": None,
-            "last_action": "hold",
-        },
     }
 
     def handle_sigint(_signum, _frame):
@@ -974,7 +898,7 @@ def _run_live_collect(args) -> None:
             device_state["last_seq_num"] = int(seq_num)
         device_state["dropped_count"] += check_sequence_by_device(pkt)
         update_device_pps(device_state, now)
-        maybe_adjust_pacing(now)
+        adaptive_pacing.maybe_adjust(state["devices"], now=now, pacing_sender=pacing_sender)
 
         if state["calibration_active"]:
             process_calibration_packet(device_state, pkt)
@@ -1053,7 +977,10 @@ def _run_live_collect(args) -> None:
     if calibrated_kinds:
         threshold_text = raw_threshold_setting if isinstance(raw_threshold_setting, str) else f"{float(raw_threshold_setting):.4f}"
         print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {threshold_text} (after startup calibration)")
-    print(f"  {Fore.CYAN}Pacing:{Style.RESET_ALL}    {pacing_pps:g}pps")
+    print(
+        f"  {Fore.CYAN}Pps:{Style.RESET_ALL}       {pacing_pps:g}pps "
+        f"({'adaptive' if adaptive_enabled else 'fixed'})"
+    )
     print(f"  {Fore.CYAN}Window:{Style.RESET_ALL}    {effective_window_packets} pkts")
     print(f"  {Fore.CYAN}Evaluation:{Style.RESET_ALL} {effective_evaluation_interval} pkts")
     print(f"  {Fore.CYAN}Low-pass:{Style.RESET_ALL}  {'ON' if config.ENABLE_LOWPASS_FILTER else 'OFF'}")

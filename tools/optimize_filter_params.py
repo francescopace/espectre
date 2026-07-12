@@ -303,7 +303,7 @@ def main():
     )
     if not pairs:
         print("ERROR: no explicit dataset_info.json pairs matched the selected filters.")
-        print("Run tools/refresh_dataset_metadata.py --write if pair metadata is stale.")
+        print("Run tools/validate_dataset_quality.py --refresh-metadata if pair metadata is stale.")
         return
 
     print_header(pairs, args.chip)
