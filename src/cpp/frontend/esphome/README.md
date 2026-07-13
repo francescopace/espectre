@@ -71,7 +71,9 @@ for the "when and why" of tuning.
 
 ### Core Parameters
 
-All frontend parameters live under the `espectre:` section:
+The shared sensing options, defaults, and ranges are documented in
+[`SETUP.md`](../../../../docs/SETUP.md). In ESPHome, those shared options live
+under the `espectre:` section:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -79,7 +81,7 @@ All frontend parameters live under the `espectre:` section:
 | `classic_recovery_vote_enabled` | bool | `true` | Enable Classic moving-variance recovery below the L1-delta threshold; `false` selects L1-only and skips variance/floor computation |
 | `traffic_generator_rate` | int | `100` | Packets per second for CSI generation (`0-1000`, `0` disables the internal generator) |
 | `traffic_generator_mode` | string | `ping` | Traffic generator mode: `ping` or `dns` |
-| `publish_interval` | int | `auto` | Packets between periodic movement/log updates |
+| `publish_interval` | int | `100` | Packets between periodic movement/log updates |
 | `evaluation_interval` | int | `25` | Packets between internal detector evaluations |
 | `motion_on_hits` | int | `3` | Consecutive hits required before entering `MOTION` |
 | `motion_off_hits` | int | `3` | Consecutive hits required before returning to `IDLE` |

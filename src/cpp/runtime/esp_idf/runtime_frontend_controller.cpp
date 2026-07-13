@@ -76,7 +76,7 @@ void RuntimeFrontendController::quiesce_for_ota() {
 }
 
 bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
-  if (!validate_runtime_threshold(threshold)) {
+  if (!validate_runtime_threshold_for_algorithm(threshold, config_.detection_algorithm)) {
     return false;
   }
   if (runtime_) {

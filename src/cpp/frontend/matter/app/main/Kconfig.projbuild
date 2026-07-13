@@ -6,22 +6,4 @@ config ESPECTRE_MATTER_NODE_LABEL
     help
         Node label exposed through the Matter Basic Information cluster.
 
-choice ESPECTRE_MATTER_DETECTION_ALGORITHM
-    prompt "ESPectre Matter detection algorithm"
-    default ESPECTRE_MATTER_DETECTION_ALGORITHM_CLASSIC
-    help
-        Select the detector used by the ESPectre Matter frontend runtime.
-
-    config ESPECTRE_MATTER_DETECTION_ALGORITHM_CLASSIC
-        bool "CLASSIC"
-        help
-            L1-Delta primary detector with variance recovery and startup
-            threshold calibration.
-
-    config ESPECTRE_MATTER_DETECTION_ALGORITHM_ML
-        bool "ML"
-        help
-            Neural-network detector with fixed threshold and no startup calibration.
-endchoice
-
 endmenu

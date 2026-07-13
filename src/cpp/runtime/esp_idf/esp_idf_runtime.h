@@ -3,11 +3,10 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include "base_detector.h"
-#include "classic_detector.h"
 #include "csi_pipeline.h"
-#include "ml_detector.h"
 #include "pending_event.h"
 #include "runtime_interface.h"
 #include "csi_traffic_service.h"
@@ -52,9 +51,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   RuntimeCapabilities capabilities_{};
   IRuntimeListener *listener_{nullptr};
 
-  BaseDetector *detector_{nullptr};
-  ClassicDetector classic_detector_;
-  MLDetector ml_detector_;
+  std::unique_ptr<BaseDetector> detector_;
 
   CsiPipeline csi_pipeline_;
   WiFiLifecycleManager wifi_lifecycle_;

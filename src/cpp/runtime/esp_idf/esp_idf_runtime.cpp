@@ -2,11 +2,14 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include "espectre_log.h"
 #include "esp_err.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
+#include "classic_detector.h"
 #include "csi_format.h"
+#include "ml_detector.h"
 #include "runtime_config_utils.h"
 
 #if __has_include("esp_heap_caps.h")
@@ -70,7 +73,7 @@ bool EspIdfRuntime::setup() {
 
   csi_traffic_service_.init(to_csi_traffic_config(config_));
 
-  csi_pipeline_.init(detector_, config_.publish_interval);
+  csi_pipeline_.init(detector_.get(), config_.publish_interval);
   csi_pipeline_.set_evaluation_interval(config_.evaluation_interval);
   csi_pipeline_.set_motion_on_hits(config_.motion_on_hits);
   csi_pipeline_.set_motion_off_hits(config_.motion_off_hits);
@@ -160,8 +163,12 @@ void EspIdfRuntime::set_live_telemetry_enabled(bool enabled) {
 }
 
 bool EspIdfRuntime::set_threshold_runtime(float threshold) {
-  if (!validate_runtime_threshold(threshold)) {
-    ESP_LOGW(RUNTIME_TAG, "Rejected invalid runtime threshold: %.6f", threshold);
+  if (!validate_runtime_threshold_for_algorithm(threshold, config_.detection_algorithm)) {
+    ESP_LOGW(RUNTIME_TAG,
+             "Rejected invalid runtime threshold: %.6f (detector=%s max=%.3f)",
+             threshold,
+             detection_algorithm_name(config_.detection_algorithm),
+             static_cast<double>(runtime_threshold_max(config_.detection_algorithm)));
     return false;
   }
   if (!csi_pipeline_.set_threshold(threshold)) {
@@ -195,7 +202,8 @@ RuntimeCapabilities EspIdfRuntime::get_capabilities() const { return capabilitie
 void EspIdfRuntime::set_listener(IRuntimeListener *listener) { listener_ = listener; }
 
 bool EspIdfRuntime::configure_detector_() {
-  if (config_.threshold_mode == ThresholdMode::MANUAL && !validate_runtime_threshold(config_.segmentation_threshold)) {
+  if (config_.threshold_mode == ThresholdMode::MANUAL &&
+      !validate_runtime_threshold_for_algorithm(config_.segmentation_threshold, config_.detection_algorithm)) {
     notify_fault_("Invalid manual threshold");
     return false;
   }
@@ -205,21 +213,20 @@ bool EspIdfRuntime::configure_detector_() {
                                                                                  : ML_DEFAULT_THRESHOLD;
     config_.segmentation_threshold = ml_threshold;
     snapshot_.threshold = ml_threshold;
-    ml_detector_ = MLDetector(config_.segmentation_window_size, ml_threshold);
-    detector_ = &ml_detector_;
+    detector_ = std::make_unique<MLDetector>(config_.segmentation_window_size, ml_threshold);
   } else {
-    classic_detector_ = ClassicDetector(config_.segmentation_window_size,
-                                        config_.segmentation_threshold,
-                                        config_.classic_recovery_vote_enabled);
-    detector_ = &classic_detector_;
+    detector_ = std::make_unique<ClassicDetector>(config_.segmentation_window_size,
+                                                  config_.segmentation_threshold,
+                                                  config_.classic_recovery_vote_enabled);
   }
-  detector_->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
-  detector_->configure_hampel(config_.hampel_enabled, config_.hampel_window, config_.hampel_threshold);
 
   if (detector_ == nullptr) {
     notify_fault_("Failed to configure detector");
     return false;
   }
+
+  detector_->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
+  detector_->configure_hampel(config_.hampel_enabled, config_.hampel_window, config_.hampel_threshold);
 
   snapshot_.detector_name = detector_->get_name();
   return true;

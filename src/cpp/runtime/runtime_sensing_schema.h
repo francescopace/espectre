@@ -1,0 +1,117 @@
+#pragma once
+
+#include <cstdint>
+
+#include "base_detector.h"
+#include "csi_traffic_types.h"
+#include "filters.h"
+#include "ml_detector.h"
+#include "threshold.h"
+
+namespace espectre {
+
+enum class DetectionAlgorithm {
+  CLASSIC,
+  ML,
+};
+
+enum class RuntimeProfile {
+  SENSING,
+  STREAM,
+};
+
+enum class RuntimeTrafficMode {
+  DNS,
+  PING,
+};
+
+constexpr const char *const RUNTIME_THRESHOLD_MODE_AUTO_NAME = "auto";
+constexpr const char *const RUNTIME_THRESHOLD_MODE_MIN_NAME = "min";
+constexpr const char *const RUNTIME_THRESHOLD_MODE_MANUAL_NAME = "manual";
+constexpr const char *const RUNTIME_THRESHOLD_MODE_DEFAULT_NAME = "auto";
+
+constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME = "dns";
+constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME = "ping";
+constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME = "ping";
+
+constexpr const char *const RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME = "classic";
+constexpr const char *const RUNTIME_DETECTION_ALGORITHM_ML_NAME = "ml";
+constexpr const char *const RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME = "classic";
+
+constexpr float RUNTIME_THRESHOLD_MIN = 0.0f;
+constexpr float RUNTIME_THRESHOLD_MAX = 10.0f;
+constexpr float RUNTIME_ML_THRESHOLD_MAX = 1.0f;
+constexpr float RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT = 1.0f;
+
+constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN = 10;
+constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX = 200;
+constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT = 100;
+
+constexpr bool RUNTIME_CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT = true;
+
+constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MIN = 0;
+constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MAX = 1000;
+constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT = 100;
+
+constexpr uint32_t RUNTIME_INTERVAL_MIN = 1;
+constexpr uint32_t RUNTIME_INTERVAL_MAX = 1000;
+constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_DEFAULT = 100;
+constexpr uint32_t RUNTIME_EVALUATION_INTERVAL_DEFAULT = 25;
+
+constexpr uint8_t RUNTIME_MOTION_HITS_MIN = 1;
+constexpr uint8_t RUNTIME_MOTION_HITS_MAX = 20;
+constexpr uint8_t RUNTIME_MOTION_ON_HITS_DEFAULT = 3;
+constexpr uint8_t RUNTIME_MOTION_OFF_HITS_DEFAULT = 3;
+
+constexpr bool RUNTIME_LOWPASS_ENABLED_DEFAULT = false;
+constexpr float RUNTIME_LOWPASS_CUTOFF_MIN = 5.0f;
+constexpr float RUNTIME_LOWPASS_CUTOFF_MAX = 20.0f;
+constexpr float RUNTIME_LOWPASS_CUTOFF_DEFAULT = 11.0f;
+
+constexpr bool RUNTIME_HAMPEL_ENABLED_DEFAULT = true;
+constexpr uint8_t RUNTIME_HAMPEL_WINDOW_MIN = 3;
+constexpr uint8_t RUNTIME_HAMPEL_WINDOW_MAX = 11;
+constexpr uint8_t RUNTIME_HAMPEL_WINDOW_DEFAULT = 7;
+constexpr float RUNTIME_HAMPEL_THRESHOLD_MIN = 1.0f;
+constexpr float RUNTIME_HAMPEL_THRESHOLD_MAX = 10.0f;
+constexpr float RUNTIME_HAMPEL_THRESHOLD_DEFAULT = 5.0f;
+
+constexpr uint16_t RUNTIME_STREAM_COLLECTOR_PORT_DEFAULT = 5001;
+constexpr uint32_t RUNTIME_STREAM_LOG_INTERVAL_MS_DEFAULT = 1000;
+constexpr uint8_t RUNTIME_STREAM_TX_BATCH_RECORDS_DEFAULT = 4;
+
+constexpr uint16_t RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT = 5555;
+
+constexpr uint32_t runtime_publish_interval_default(uint32_t traffic_generator_rate) {
+  return traffic_generator_rate > 0U ? traffic_generator_rate : RUNTIME_PUBLISH_INTERVAL_DEFAULT;
+}
+
+constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
+  return algorithm == DetectionAlgorithm::ML ? RUNTIME_ML_THRESHOLD_MAX : RUNTIME_THRESHOLD_MAX;
+}
+
+static_assert(RUNTIME_THRESHOLD_MIN == 0.0f, "Runtime threshold min must stay at zero");
+static_assert(RUNTIME_THRESHOLD_MAX == SEGMENTATION_MAX_THRESHOLD, "Runtime threshold max drifted from threshold.h");
+static_assert(RUNTIME_ML_THRESHOLD_MAX == ML_MAX_THRESHOLD, "Runtime ML threshold max drifted from ml_detector.h");
+static_assert(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT == SEGMENTATION_DEFAULT_THRESHOLD,
+              "Runtime segmentation threshold default drifted from threshold.h");
+static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN == DETECTOR_MIN_WINDOW_SIZE,
+              "Runtime segmentation window min drifted from base_detector.h");
+static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX == DETECTOR_MAX_WINDOW_SIZE,
+              "Runtime segmentation window max drifted from base_detector.h");
+static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT == DETECTOR_DEFAULT_WINDOW_SIZE,
+              "Runtime segmentation window default drifted from base_detector.h");
+static_assert(RUNTIME_LOWPASS_CUTOFF_MIN == LOWPASS_CUTOFF_MIN, "Runtime lowpass cutoff min drifted from filters.h");
+static_assert(RUNTIME_LOWPASS_CUTOFF_MAX == LOWPASS_CUTOFF_MAX, "Runtime lowpass cutoff max drifted from filters.h");
+static_assert(RUNTIME_LOWPASS_CUTOFF_DEFAULT == LOWPASS_CUTOFF_DEFAULT,
+              "Runtime lowpass cutoff default drifted from filters.h");
+static_assert(RUNTIME_HAMPEL_WINDOW_MIN == HAMPEL_TURBULENCE_WINDOW_MIN,
+              "Runtime Hampel window min drifted from filters.h");
+static_assert(RUNTIME_HAMPEL_WINDOW_MAX == HAMPEL_TURBULENCE_WINDOW_MAX,
+              "Runtime Hampel window max drifted from filters.h");
+static_assert(RUNTIME_HAMPEL_WINDOW_DEFAULT == HAMPEL_TURBULENCE_WINDOW_DEFAULT,
+              "Runtime Hampel window default drifted from filters.h");
+static_assert(RUNTIME_HAMPEL_THRESHOLD_DEFAULT == HAMPEL_TURBULENCE_THRESHOLD_DEFAULT,
+              "Runtime Hampel threshold default drifted from filters.h");
+
+}  // namespace espectre

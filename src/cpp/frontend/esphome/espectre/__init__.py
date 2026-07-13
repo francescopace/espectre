@@ -9,6 +9,7 @@ License: GPLv3
 """
 
 from pathlib import Path
+import re
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
@@ -52,12 +53,6 @@ CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
 CONF_CLASSIC_RECOVERY_VOTE_ENABLED = "classic_recovery_vote_enabled"
 
-# Threshold limits (keep in sync with csi_processor.h)
-THRESHOLD_MIN = 0.0
-THRESHOLD_MAX = 10.0
-ML_THRESHOLD_MAX = 1.0
-THRESHOLD_DEFAULT = 1.0
-
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
 CONF_MOTION_SENSOR = "motion_sensor"
@@ -74,11 +69,75 @@ ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.N
 ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
 
 _LIBRARY_ROOT = Path(__file__).resolve().parents[3]
+_SCHEMA_HEADER = _LIBRARY_ROOT / "runtime" / "runtime_sensing_schema.h"
+_SCHEMA_CONST_PATTERN = re.compile(
+    r"constexpr\s+(?:const char \*const|bool|float|uint8_t|uint16_t|uint32_t)\s+"
+    r"(RUNTIME_[A-Z0-9_]+)\s*=\s*([^;]+);"
+)
 
 
 def _library_uri(path: Path) -> str:
     """Return a PlatformIO-compatible file URI for local libraries."""
     return path.resolve().as_uri()
+
+
+def _parse_schema_literal(raw_value):
+    raw_value = raw_value.strip()
+    if raw_value in ("true", "false"):
+        return raw_value == "true"
+    if raw_value.startswith('"') and raw_value.endswith('"'):
+        return raw_value[1:-1]
+    if raw_value.endswith(("f", "F", "u", "U")):
+        raw_value = raw_value[:-1]
+    if "." in raw_value or "e" in raw_value.lower():
+        return float(raw_value)
+    return int(raw_value)
+
+
+def _load_runtime_schema(schema_path: Path):
+    constants = {}
+    for line in schema_path.read_text(encoding="utf-8").splitlines():
+        match = _SCHEMA_CONST_PATTERN.search(line)
+        if match is None:
+            continue
+        constants[match.group(1)] = _parse_schema_literal(match.group(2))
+    return constants
+
+
+_RUNTIME_SCHEMA = _load_runtime_schema(_SCHEMA_HEADER)
+
+THRESHOLD_MIN = _RUNTIME_SCHEMA["RUNTIME_THRESHOLD_MIN"]
+THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_THRESHOLD_MAX"]
+ML_THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_ML_THRESHOLD_MAX"]
+THRESHOLD_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_THRESHOLD_MODE_DEFAULT_NAME"]
+SEGMENTATION_WINDOW_SIZE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT"]
+SEGMENTATION_WINDOW_SIZE_MIN = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN"]
+SEGMENTATION_WINDOW_SIZE_MAX = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX"]
+TRAFFIC_GENERATOR_RATE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT"]
+TRAFFIC_GENERATOR_RATE_MIN = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_RATE_MIN"]
+TRAFFIC_GENERATOR_RATE_MAX = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_RATE_MAX"]
+TRAFFIC_GENERATOR_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME"]
+DETECTION_ALGORITHM_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME"]
+CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT"]
+PUBLISH_INTERVAL_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_PUBLISH_INTERVAL_DEFAULT"]
+EVALUATION_INTERVAL_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_EVALUATION_INTERVAL_DEFAULT"]
+INTERVAL_MIN = _RUNTIME_SCHEMA["RUNTIME_INTERVAL_MIN"]
+INTERVAL_MAX = _RUNTIME_SCHEMA["RUNTIME_INTERVAL_MAX"]
+MOTION_HITS_MIN = _RUNTIME_SCHEMA["RUNTIME_MOTION_HITS_MIN"]
+MOTION_HITS_MAX = _RUNTIME_SCHEMA["RUNTIME_MOTION_HITS_MAX"]
+MOTION_ON_HITS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_MOTION_ON_HITS_DEFAULT"]
+MOTION_OFF_HITS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_MOTION_OFF_HITS_DEFAULT"]
+LOWPASS_ENABLED_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_LOWPASS_ENABLED_DEFAULT"]
+LOWPASS_CUTOFF_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_LOWPASS_CUTOFF_DEFAULT"]
+LOWPASS_CUTOFF_MIN = _RUNTIME_SCHEMA["RUNTIME_LOWPASS_CUTOFF_MIN"]
+LOWPASS_CUTOFF_MAX = _RUNTIME_SCHEMA["RUNTIME_LOWPASS_CUTOFF_MAX"]
+HAMPEL_ENABLED_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_ENABLED_DEFAULT"]
+HAMPEL_WINDOW_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_WINDOW_DEFAULT"]
+HAMPEL_WINDOW_MIN = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_WINDOW_MIN"]
+HAMPEL_WINDOW_MAX = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_WINDOW_MAX"]
+HAMPEL_THRESHOLD_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_THRESHOLD_DEFAULT"]
+HAMPEL_THRESHOLD_MIN = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_THRESHOLD_MIN"]
+HAMPEL_THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_THRESHOLD_MAX"]
 
 
 def validate_segmentation_threshold(value):
@@ -109,35 +168,54 @@ CONFIG_SCHEMA = cv.Schema({
     #   - number: fixed manual threshold
     #       * classic: 0.0-10.0
     #       * ml: 0.0-1.0
-    cv.Optional(CONF_SEGMENTATION_THRESHOLD, default="auto"): validate_segmentation_threshold,
-    cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=100): cv.int_range(min=10, max=200),
+    cv.Optional(CONF_SEGMENTATION_THRESHOLD, default=THRESHOLD_MODE_DEFAULT): validate_segmentation_threshold,
+    cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=SEGMENTATION_WINDOW_SIZE_DEFAULT): cv.int_range(
+        min=SEGMENTATION_WINDOW_SIZE_MIN, max=SEGMENTATION_WINDOW_SIZE_MAX
+    ),
     
     # Traffic generator (0 = disabled, use external WiFi traffic)
-    cv.Optional(CONF_TRAFFIC_GENERATOR_RATE, default=100): cv.int_range(min=0, max=1000),
+    cv.Optional(CONF_TRAFFIC_GENERATOR_RATE, default=TRAFFIC_GENERATOR_RATE_DEFAULT): cv.int_range(
+        min=TRAFFIC_GENERATOR_RATE_MIN, max=TRAFFIC_GENERATOR_RATE_MAX
+    ),
     
     # Traffic generator mode: ping (default) or dns
-    cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default="ping"): cv.one_of("dns", "ping", lower=True),
+    cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default=TRAFFIC_GENERATOR_MODE_DEFAULT): cv.one_of(
+        "dns", "ping", lower=True
+    ),
     
     # Detection algorithm: classic (default) or ml
     # CLASSIC: L1-Delta primary with variance recovery - adaptive threshold
     # ML: Machine Learning (MLP neural network) - higher accuracy, fixed subcarriers
-    cv.Optional(CONF_DETECTION_ALGORITHM, default="classic"): cv.one_of("classic", "ml", lower=True),
-    cv.Optional(CONF_CLASSIC_RECOVERY_VOTE_ENABLED, default=True): cv.boolean,
-    cv.Optional(CONF_EVALUATION_INTERVAL, default=25): cv.int_range(min=1, max=1000),
-    cv.Optional(CONF_MOTION_ON_HITS, default=3): cv.int_range(min=1, max=20),
-    cv.Optional(CONF_MOTION_OFF_HITS, default=3): cv.int_range(min=1, max=20),
+    cv.Optional(CONF_DETECTION_ALGORITHM, default=DETECTION_ALGORITHM_DEFAULT): cv.one_of("classic", "ml", lower=True),
+    cv.Optional(CONF_CLASSIC_RECOVERY_VOTE_ENABLED, default=CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT): cv.boolean,
+    cv.Optional(CONF_EVALUATION_INTERVAL, default=EVALUATION_INTERVAL_DEFAULT): cv.int_range(
+        min=INTERVAL_MIN, max=INTERVAL_MAX
+    ),
+    cv.Optional(CONF_MOTION_ON_HITS, default=MOTION_ON_HITS_DEFAULT): cv.int_range(
+        min=MOTION_HITS_MIN, max=MOTION_HITS_MAX
+    ),
+    cv.Optional(CONF_MOTION_OFF_HITS, default=MOTION_OFF_HITS_DEFAULT): cv.int_range(
+        min=MOTION_HITS_MIN, max=MOTION_HITS_MAX
+    ),
 
-    # Publish interval in packets (default: same as traffic_generator_rate, or 100 if traffic is 0)
-    cv.Optional(CONF_PUBLISH_INTERVAL): cv.int_range(min=1, max=1000),
+    cv.Optional(CONF_PUBLISH_INTERVAL, default=PUBLISH_INTERVAL_DEFAULT): cv.int_range(
+        min=INTERVAL_MIN, max=INTERVAL_MAX
+    ),
     
     # Low-pass filter for noise reduction (disabled by default)
-    cv.Optional(CONF_LOWPASS_ENABLED, default=False): cv.boolean,
-    cv.Optional(CONF_LOWPASS_CUTOFF, default=11.0): cv.float_range(min=5.0, max=20.0),
+    cv.Optional(CONF_LOWPASS_ENABLED, default=LOWPASS_ENABLED_DEFAULT): cv.boolean,
+    cv.Optional(CONF_LOWPASS_CUTOFF, default=LOWPASS_CUTOFF_DEFAULT): cv.float_range(
+        min=LOWPASS_CUTOFF_MIN, max=LOWPASS_CUTOFF_MAX
+    ),
     
     # Hampel filter for turbulence outlier removal
-    cv.Optional(CONF_HAMPEL_ENABLED, default=True): cv.boolean,
-    cv.Optional(CONF_HAMPEL_WINDOW, default=7): cv.int_range(min=3, max=11),
-    cv.Optional(CONF_HAMPEL_THRESHOLD, default=5.0): cv.float_range(min=1.0, max=10.0),
+    cv.Optional(CONF_HAMPEL_ENABLED, default=HAMPEL_ENABLED_DEFAULT): cv.boolean,
+    cv.Optional(CONF_HAMPEL_WINDOW, default=HAMPEL_WINDOW_DEFAULT): cv.int_range(
+        min=HAMPEL_WINDOW_MIN, max=HAMPEL_WINDOW_MAX
+    ),
+    cv.Optional(CONF_HAMPEL_THRESHOLD, default=HAMPEL_THRESHOLD_DEFAULT): cv.float_range(
+        min=HAMPEL_THRESHOLD_MIN, max=HAMPEL_THRESHOLD_MAX
+    ),
     
     # Sensors - optional with defaults, always created
     cv.Optional(CONF_MOVEMENT_SENSOR, default={"name": "Movement Score"}): sensor.sensor_schema(
@@ -165,15 +243,6 @@ CONFIG_SCHEMA = cv.Schema({
 }).extend(cv.COMPONENT_SCHEMA)
 
 
-def _compute_publish_interval(config):
-    """Compute publish_interval default based on traffic_generator_rate."""
-    traffic_rate = config[CONF_TRAFFIC_GENERATOR_RATE]
-    if CONF_PUBLISH_INTERVAL not in config or config[CONF_PUBLISH_INTERVAL] is None:
-        # Default: use traffic rate, or 100 if traffic is disabled
-        config[CONF_PUBLISH_INTERVAL] = traffic_rate if traffic_rate > 0 else 100
-    return config
-
-
 def _validate_threshold_for_detector(config):
     """Enforce detector-specific manual threshold ranges."""
     threshold_value = config[CONF_SEGMENTATION_THRESHOLD]
@@ -189,7 +258,6 @@ def _validate_threshold_for_detector(config):
 
 
 FINAL_VALIDATE_SCHEMA = cv.All(
-    _compute_publish_interval,
     _validate_threshold_for_detector,
 )
 

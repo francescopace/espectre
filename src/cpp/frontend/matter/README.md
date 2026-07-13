@@ -76,9 +76,9 @@ Notes:
 - On Windows, use `.\espectre.cmd matter ...` and `.\espectre.cmd monitor --port COM5`.
 - If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor`
   or `./espectre doctor` for troubleshooting.
-- the Matter frontend detector is selected through `sdkconfig`
-  (`ESPECTRE_MATTER_DETECTION_ALGORITHM`: `CLASSIC` or `ML`); the
-  default is `CLASSIC`
+- shared sensing options are selected through the shared ESPectre sensing
+  `sdkconfig` menu; `matter` currently overrides `ESPECTRE_DETECTION_ALGORITHM`
+  to `CLASSIC` in [`sdkconfig.defaults`](app/sdkconfig.defaults)
 - the first build downloads managed components and compiles `esp_matter`, so it
   is significantly slower than incremental builds
 
@@ -154,6 +154,10 @@ The current frontend exposes:
 Relevant constants live in [`matter_surface.h`](espectre/matter_surface.h).
 
 ## What You Can Configure Today
+
+The shared sensing options, defaults, and ranges are documented in
+[`SETUP.md`](../../../../docs/SETUP.md). This README covers only the Matter-owned
+surface and the runtime controls exposed through Matter attributes.
 
 Today the Matter surface exposes runtime control for:
 

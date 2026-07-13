@@ -36,6 +36,9 @@ The current native frontend preserves the protocol already used by
   provisioning helpers
 - `espectre/Kconfig.projbuild`:
   frontend-owned Wi-Fi configuration knobs
+- `../../runtime/esp_idf/espectre_config/Kconfig.projbuild`:
+  shared sensing/runtime configuration knobs consumed by the standalone sensing
+  frontends
 
 The firmware app uses the shared standalone Wi-Fi manager for STA setup,
 BSSID/channel fast scan, CSI Wi-Fi policy, and retry behavior. The frontend
@@ -152,6 +155,9 @@ provisioned live over BLE and persisted in NVS.
 
 Frontend-owned options in [`Kconfig.projbuild`](espectre/Kconfig.projbuild)
 remain useful as firmware defaults for reproducible images or first boot.
+Shared sensing options and their defaults now live in
+[`SETUP.md`](../../../../docs/SETUP.md), and can be overridden per frontend in
+[`sdkconfig.defaults`](app/sdkconfig.defaults).
 Versioned transport defaults in [`sdkconfig.defaults`](app/sdkconfig.defaults)
 also tune the standalone native firmware with the shared ESP-IDF Wi-Fi transport
 baseline now used across the standalone frontends: AMPDU enabled, larger Wi-Fi

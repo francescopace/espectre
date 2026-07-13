@@ -244,6 +244,49 @@ The next step depends on the frontend you chose:
 
 These concepts are shared across the C++ platform, even though each frontend exposes them differently.
 
+### Shared Sensing Options
+
+These options belong to the shared sensing runtime and are the common source of
+truth across the sensing frontends. The exact user-facing syntax differs by frontend:
+
+- `ESPHome`: YAML under `espectre:`
+- `Native`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
+- `Matter`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
+
+Support in this phase:
+
+| Frontend | Shared sensing options available |
+|----------|----------------------------------|
+| `ESPHome` | yes |
+| `Native` | yes |
+| `Matter` | yes |
+| `Streamer` | no, streamer keeps its own stream/collector runtime profile |
+
+| Option | Type / values | Default | Range / notes |
+|--------|---------------|---------|---------------|
+| `detection_algorithm` | `classic` or `ml` | `classic` | Shared detector family |
+| `threshold_mode` | `auto`, `min`, or `manual` | `auto` | Shared threshold mode |
+| `segmentation_threshold` | float | `1.0` | `classic`: `0.0-10.0`, `ml`: `0.0-1.0`; used when `threshold_mode=manual` |
+| `segmentation_window_size` | int | `100` | `10-200` packets |
+| `classic_recovery_vote_enabled` | bool | `true` | Classic-only variance recovery vote |
+| `traffic_generator_rate` | int | `100` | `0-1000`; `0` disables internal traffic generation |
+| `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
+| `publish_interval` | int | `100` | `1-1000` packets between periodic updates |
+| `evaluation_interval` | int | `25` | `1-1000` packets between detector evaluations |
+| `motion_on_hits` | int | `3` | `1-20` consecutive hits for `IDLE -> MOTION` |
+| `motion_off_hits` | int | `3` | `1-20` consecutive hits for `MOTION -> IDLE` |
+| `lowpass_enabled` | bool | `false` | Enables low-pass filtering |
+| `lowpass_cutoff` | float | `11.0` | `5.0-20.0` Hz |
+| `hampel_enabled` | bool | `true` | Enables Hampel outlier filtering |
+| `hampel_window` | int | `7` | `3-11` samples |
+| `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
+
+Use the frontend README for the exact syntax and local workflow:
+
+- [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md)
+- [`README.md` (native)](../src/cpp/frontend/native/README.md)
+- [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
+
 ### Detection Algorithms
 
 ESPectre currently supports two runtime detector families:

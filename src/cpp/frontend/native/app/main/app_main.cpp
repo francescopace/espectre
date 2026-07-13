@@ -25,6 +25,7 @@
 #include "frontend_bootstrap_helpers.h"
 #include "ota_service_https.h"
 #include "mqtt_transport_esp_idf.h"
+#include "runtime_sensing_kconfig.h"
 #include "standalone_wifi_service.h"
 #include "wifi_provisioning_service.h"
 
@@ -65,10 +66,7 @@ void sync_frontend_wifi_info() {
   g_frontend->set_device_info(device_info);
 }
 
-espectre::RuntimeConfig make_runtime_config() {
-  espectre::RuntimeConfig config;
-  return config;
-}
+espectre::RuntimeConfig make_runtime_config() { return espectre::make_runtime_sensing_config_from_kconfig(); }
 
 espectre::EspectreDeviceConfig make_device_config() {
   return espectre::load_frontend_device_config(espectre::FrontendDeviceConfigDefaults{

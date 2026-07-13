@@ -3,56 +3,42 @@
 #include <cstdint>
 #include <string>
 
-#include "threshold.h"
-#include "utils.h"
 #include "runtime_capabilities.h"
 #include "runtime_events.h"
 #include "runtime_snapshot.h"
+#include "runtime_sensing_schema.h"
 #include "csi_traffic_types.h"
+#include "threshold.h"
+#include "utils.h"
 
 namespace espectre {
-
-enum class DetectionAlgorithm {
-  CLASSIC,
-  ML,
-};
-
-enum class RuntimeProfile {
-  SENSING,
-  STREAM,
-};
-
-enum class RuntimeTrafficMode {
-  DNS,
-  PING,
-};
 
 struct RuntimeConfig {
   RuntimeProfile runtime_profile{RuntimeProfile::SENSING};
   DetectionAlgorithm detection_algorithm{DetectionAlgorithm::CLASSIC};
   ThresholdMode threshold_mode{ThresholdMode::AUTO};
-  float segmentation_threshold{SEGMENTATION_DEFAULT_THRESHOLD};
-  uint16_t segmentation_window_size{DETECTOR_DEFAULT_WINDOW_SIZE};
-  bool classic_recovery_vote_enabled{true};
-  uint32_t traffic_generator_rate{100};
+  float segmentation_threshold{RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT};
+  uint16_t segmentation_window_size{RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT};
+  bool classic_recovery_vote_enabled{RUNTIME_CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT};
+  uint32_t traffic_generator_rate{RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT};
   RuntimeTrafficMode traffic_generator_mode{RuntimeTrafficMode::PING};
   CsiTrafficMode csi_traffic_mode{CsiTrafficMode::INTERNAL};
-  uint16_t csi_traffic_udp_port{5555};
+  uint16_t csi_traffic_udp_port{RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT};
   std::string csi_traffic_multicast_group;
   std::string csi_traffic_expected_payload;
   uint64_t device_id{0U};
-  uint16_t collector_port{5001};
-  uint32_t stream_log_interval_ms{1000};
-  uint8_t stream_tx_batch_records{4};
-  uint32_t publish_interval{100};
-  uint32_t evaluation_interval{25};
-  uint8_t motion_on_hits{3};
-  uint8_t motion_off_hits{3};
-  bool lowpass_enabled{false};
-  float lowpass_cutoff{11.0f};
-  bool hampel_enabled{true};
-  uint8_t hampel_window{7};
-  float hampel_threshold{5.0f};
+  uint16_t collector_port{RUNTIME_STREAM_COLLECTOR_PORT_DEFAULT};
+  uint32_t stream_log_interval_ms{RUNTIME_STREAM_LOG_INTERVAL_MS_DEFAULT};
+  uint8_t stream_tx_batch_records{RUNTIME_STREAM_TX_BATCH_RECORDS_DEFAULT};
+  uint32_t publish_interval{RUNTIME_PUBLISH_INTERVAL_DEFAULT};
+  uint32_t evaluation_interval{RUNTIME_EVALUATION_INTERVAL_DEFAULT};
+  uint8_t motion_on_hits{RUNTIME_MOTION_ON_HITS_DEFAULT};
+  uint8_t motion_off_hits{RUNTIME_MOTION_OFF_HITS_DEFAULT};
+  bool lowpass_enabled{RUNTIME_LOWPASS_ENABLED_DEFAULT};
+  float lowpass_cutoff{RUNTIME_LOWPASS_CUTOFF_DEFAULT};
+  bool hampel_enabled{RUNTIME_HAMPEL_ENABLED_DEFAULT};
+  uint8_t hampel_window{RUNTIME_HAMPEL_WINDOW_DEFAULT};
+  float hampel_threshold{RUNTIME_HAMPEL_THRESHOLD_DEFAULT};
 };
 
 class IEspectreRuntime {

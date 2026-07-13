@@ -14,6 +14,7 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/../espectre"
+    "${CMAKE_CURRENT_LIST_DIR}/../../../runtime/esp_idf/espectre_config"
 )
 
 project(espectre-native)

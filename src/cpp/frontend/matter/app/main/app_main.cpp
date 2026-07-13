@@ -26,6 +26,7 @@
 #include "matter_bindings_esp_matter.h"
 #include "matter_frontend.h"
 #include "matter_surface.h"
+#include "runtime_sensing_kconfig.h"
 
 static const char *TAG = "espectre.matter.app";
 
@@ -41,17 +42,7 @@ espectre::MatterEspBindings g_bindings;
 espectre::MatterFrontend *g_frontend = nullptr;
 uint16_t g_motion_endpoint_id = 0;
 
-espectre::RuntimeConfig build_runtime_config() {
-  espectre::RuntimeConfig config;
-#if CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_ML
-  config.detection_algorithm = espectre::DetectionAlgorithm::ML;
-#elif CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_CLASSIC
-  config.detection_algorithm = espectre::DetectionAlgorithm::CLASSIC;
-#else
-  config.detection_algorithm = espectre::DetectionAlgorithm::CLASSIC;
-#endif
-  return config;
-}
+espectre::RuntimeConfig build_runtime_config() { return espectre::make_runtime_sensing_config_from_kconfig(); }
 
 const char *detector_name(const espectre::RuntimeConfig &config) {
   switch (config.detection_algorithm) {

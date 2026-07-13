@@ -38,7 +38,9 @@ CONFIG_ENABLE_COMMISSIONABLE_DEVICE_TYPE=y
 
 # ESPectre Matter runtime
 CONFIG_ESPECTRE_MATTER_NODE_LABEL="ESPectre Matter"
-CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_ML=y
+
+# ESPectre sensing runtime
+CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC=y
 
 # Reduce CHIP serial noise in the Matter frontend by compiling out
 # progress/detail logs and keeping only CHIP errors.
