@@ -723,7 +723,7 @@ void test_csi_pipeline_clear_detector_buffer(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_motion_metric());
 }
 
-void test_csi_pipeline_samples_detection_time_on_evaluation_tick(void) {
+void test_csi_pipeline_aggregates_detection_timing_on_evaluation_ticks(void) {
     ClassicDetector detector(10, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
@@ -733,19 +733,26 @@ void test_csi_pipeline_samples_detection_time_on_evaluation_tick(void) {
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
 
-    for (uint32_t packet = 0; packet < 999U; packet++) {
+    for (uint32_t packet = 0; packet < TEST_EVALUATION_INTERVAL - 1U; packet++) {
         manager.process_packet(&csi_info);
     }
 
-    uint32_t detection_time_us = 0U;
-    TEST_ASSERT_FALSE(manager.take_detection_time_us(&detection_time_us));
+    DetectionTimingStats timing;
+    TEST_ASSERT_FALSE(manager.take_detection_timing(&timing));
 
     manager.process_packet(&csi_info);
+    for (uint32_t packet = 0; packet < TEST_EVALUATION_INTERVAL; packet++) {
+        manager.process_packet(&csi_info);
+    }
 
-    TEST_ASSERT_TRUE(manager.take_detection_time_us(&detection_time_us));
-    TEST_ASSERT_TRUE(detection_time_us > 0U);
-    TEST_ASSERT_FALSE(manager.take_detection_time_us(&detection_time_us));
-    TEST_ASSERT_FALSE(manager.take_detection_time_us(nullptr));
+    TEST_ASSERT_TRUE(manager.take_detection_timing(&timing));
+    TEST_ASSERT_EQUAL_INT(2, timing.samples);
+    TEST_ASSERT_TRUE(timing.duration_sum_us > 0U);
+    TEST_ASSERT_TRUE(timing.minimum_us > 0U);
+    TEST_ASSERT_TRUE(timing.maximum_us >= timing.minimum_us);
+    TEST_ASSERT_TRUE(timing.duration_sum_us >= timing.minimum_us + timing.maximum_us);
+    TEST_ASSERT_FALSE(manager.take_detection_timing(&timing));
+    TEST_ASSERT_FALSE(manager.take_detection_timing(nullptr));
 }
 
 // ============================================================================
@@ -823,7 +830,7 @@ int process(void) {
     
     // Clear buffer test
     RUN_TEST(test_csi_pipeline_clear_detector_buffer);
-    RUN_TEST(test_csi_pipeline_samples_detection_time_on_evaluation_tick);
+    RUN_TEST(test_csi_pipeline_aggregates_detection_timing_on_evaluation_ticks);
     
     // Legacy normalization tests
     RUN_TEST(test_csi_pipeline_filters_unicast_frames_for_other_device);

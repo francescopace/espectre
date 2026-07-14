@@ -20,6 +20,7 @@
 #include <esp_matter_cluster.h>
 #include <esp_matter_endpoint.h>
 #include <esp_matter_ota.h>
+#include <platform/CHIPDeviceLayer.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
 #include "espectre_banner.h"
@@ -98,6 +99,18 @@ void open_commissioning_window_if_necessary() {
   if (err != CHIP_NO_ERROR) {
     ESP_LOGE(TAG, "Failed to open commissioning window");
   }
+}
+
+void sync_post_start_state_on_chip_thread(intptr_t arg) {
+  (void) arg;
+
+  const bool commissioned = has_commissioned_fabric();
+  if (g_frontend != nullptr) {
+    g_frontend->set_runtime_services_armed(commissioned);
+  }
+
+  ESP_LOGI(TAG, "ESPectre Matter CSI services: %s", commissioned ? "armed" : "waiting for commissioning");
+  PrintOnboardingCodes(chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));
 }
 
 void app_event_cb(const ChipDeviceEvent *event, intptr_t arg) {
@@ -215,6 +228,7 @@ extern "C" void app_main() {
 
   static espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id);
   frontend.set_runtime_config(build_runtime_config());
+  frontend.set_runtime_services_armed(false);
   g_frontend = &frontend;
   ESP_LOGI(TAG, "ESPectre Matter smoke marker: endpoint %u configured, starting Matter stack",
            g_motion_endpoint_id);
@@ -228,10 +242,8 @@ extern "C" void app_main() {
     ESP_LOGE(TAG, "Failed to start Matter (%d)", err);
     return;
   }
+  chip::DeviceLayer::PlatformMgr().ScheduleWork(sync_post_start_state_on_chip_thread, 0);
   esp_matter_ota_requestor_start();
-
-  frontend.set_runtime_services_armed(has_commissioned_fabric());
-  PrintOnboardingCodes(chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));
 
   if (!frontend.setup()) {
     ESP_LOGE(TAG, "Failed to initialize ESPectre Matter frontend");
@@ -239,7 +251,6 @@ extern "C" void app_main() {
   }
 
   ESP_LOGI(TAG, "ESPectre Matter detector: %s", detector_name(frontend.runtime_config()));
-  ESP_LOGI(TAG, "ESPectre Matter CSI services: %s", frontend.runtime_services_armed() ? "armed" : "waiting for commissioning");
 
   xTaskCreate(espectre_loop_task, "espectre_loop", 8192, nullptr, 5, nullptr);
 

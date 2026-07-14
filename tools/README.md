@@ -296,8 +296,8 @@ variants in order:
 
 1. ESPHome Dev Classic
 2. ESPHome Dev ML
-3. Native Debug Classic
-4. Native Debug ML
+3. Native Classic
+4. Native ML
 
 Each frontend starts with a clean Classic build. Its ML variant reuses the same
 build directory for an incremental build. To reduce total runtime, the ML build
@@ -307,6 +307,12 @@ the tool evaluates firmware size, application-partition space, packet rate,
 motion-state logging, heap, runtime load, loop timing, and detector timing.
 Motion transitions are recorded for context but do not affect the result
 because the environment may be occupied.
+
+Detector timing covers the shared runtime state-evaluation step, not the
+per-packet ingestion step. The runtime measures every evaluation tick and
+reports accumulated duration, sample count, minimum, and maximum. The tool
+computes the overall average from total duration divided by total samples and
+ignores telemetry windows without detector samples for timing statistics.
 Keep local ESPHome and Native Wi-Fi credentials configured. Native falls back
 to the local Streamer `sdkconfig.wifi` when it has no frontend-local Wi-Fi
 defaults.

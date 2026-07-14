@@ -56,12 +56,18 @@ void RuntimeDebugTelemetry::record_loop_duration(uint32_t duration_us) {
   loop_samples_++;
 }
 
-void RuntimeDebugTelemetry::record_detection_time(uint32_t duration_us) {
-  detection_duration_sum_us_ += duration_us;
+void RuntimeDebugTelemetry::record_detection_timing(uint64_t duration_sum_us,
+                                                    uint32_t samples,
+                                                    uint32_t minimum_us,
+                                                    uint32_t maximum_us) {
+  if (samples == 0U) {
+    return;
+  }
+  detection_duration_sum_us_ += duration_sum_us;
   detection_duration_min_us_ =
-      detection_samples_ == 0U ? duration_us : std::min(detection_duration_min_us_, duration_us);
-  detection_duration_max_us_ = std::max(detection_duration_max_us_, duration_us);
-  detection_samples_++;
+      detection_samples_ == 0U ? minimum_us : std::min(detection_duration_min_us_, minimum_us);
+  detection_duration_max_us_ = std::max(detection_duration_max_us_, maximum_us);
+  detection_samples_ += samples;
 }
 
 void RuntimeDebugTelemetry::log_if_due(const char *tag) {
@@ -99,7 +105,8 @@ void RuntimeDebugTelemetry::log_if_due(const char *tag) {
   ESP_LOGD(tag,
            "[telemetry] heap_free=%lu heap_min=%lu heap_largest=%lu cpu_mhz=%" PRIu32
            " runtime_load=%.2f%% loop_avg_us=%" PRIu32 " loop_max_us=%" PRIu32
-           " detection_samples=%" PRIu32 " detection_avg_us=%" PRIu32
+           " detection_samples=%" PRIu32 " detection_sum_us=%" PRIu64
+           " detection_avg_us=%" PRIu32
            " detection_min_us=%" PRIu32 " detection_max_us=%" PRIu32,
            heap_free,
            heap_minimum,
@@ -109,6 +116,7 @@ void RuntimeDebugTelemetry::log_if_due(const char *tag) {
            loop_average_us,
            loop_duration_max_us_,
            detection_samples_,
+           detection_duration_sum_us_,
            detection_average_us,
            detection_duration_min_us_,
            detection_duration_max_us_);

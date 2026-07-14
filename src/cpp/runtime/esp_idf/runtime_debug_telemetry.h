@@ -8,7 +8,10 @@ class RuntimeDebugTelemetry {
  public:
   void reset();
   void record_loop_duration(uint32_t duration_us);
-  void record_detection_time(uint32_t duration_us);
+  void record_detection_timing(uint64_t duration_sum_us,
+                               uint32_t samples,
+                               uint32_t minimum_us,
+                               uint32_t maximum_us);
   void log_if_due(const char *tag);
 
  private:

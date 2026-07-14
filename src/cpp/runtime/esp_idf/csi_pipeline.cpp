@@ -150,10 +150,6 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     return;
   }
 
-  if (packets_since_perf_sample_ < 1000U) {
-    packets_since_perf_sample_++;
-  }
-  
   detector_->process_packet(csi_data, csi_len, DEFAULT_SUBCARRIERS, NUM_SUBCARRIERS);
   
   // Evaluate state on the internal cadence, but always refresh before a periodic publish.
@@ -164,8 +160,7 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   const bool should_evaluate = should_publish || packets_since_evaluation_ >= evaluation_interval_;
   
   if (should_evaluate) {
-    const bool should_measure = packets_since_perf_sample_ >= 1000U;
-    const int64_t start_us = should_measure ? esp_timer_get_time() : 0;
+    const int64_t start_us = esp_timer_get_time();
     // Update detector state on the internal cadence.
     MotionState previous_state = effective_motion_state_;
     detector_->update_state();
@@ -173,12 +168,8 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     request_motion_state_callback_(previous_state, current_state);
     packets_since_evaluation_ = 0;
     
-    // Sample detector evaluation periodically (every ~10 seconds at 100 pps).
-    if (should_measure) {
-      int64_t elapsed_us = esp_timer_get_time() - start_us;
-      perf_log_event_.post(static_cast<uint32_t>(elapsed_us));
-      packets_since_perf_sample_ = 0U;
-    }
+    const int64_t elapsed_us = esp_timer_get_time() - start_us;
+    detection_timing_.record(static_cast<uint32_t>(elapsed_us));
 
     // Emit live telemetry on each detector evaluation tick.
     if (live_telemetry_callback_) {
@@ -204,11 +195,8 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   }
 }
 
-bool CsiPipeline::take_detection_time_us(uint32_t *duration_us) {
-  if (duration_us == nullptr) {
-    return false;
-  }
-  return perf_log_event_.take(*duration_us);
+bool CsiPipeline::take_detection_timing(DetectionTimingStats *stats) {
+  return detection_timing_.take(stats);
 }
 
 void CsiPipeline::capture_packet_callback_(void *context,
@@ -252,10 +240,9 @@ esp_err_t CsiPipeline::disable() {
   motion_state_event_.clear();
   live_telemetry_event_.clear();
   packet_publish_event_.clear();
-  perf_log_event_.clear();
+  detection_timing_.clear();
   channel_change_event_.clear();
   packets_since_evaluation_ = 0;
-  packets_since_perf_sample_ = 0;
   reset_motion_state_filter_();
   return ESP_OK;
 }

@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <functional>
 
 #include "base_detector.h"
@@ -24,6 +26,46 @@
 #include "wifi_csi_interface.h"
 
 namespace espectre {
+
+struct DetectionTimingStats {
+  uint64_t duration_sum_us{0U};
+  uint32_t samples{0U};
+  uint32_t minimum_us{0U};
+  uint32_t maximum_us{0U};
+};
+
+class PendingDetectionTiming {
+ public:
+  void record(uint32_t duration_us) {
+    std::lock_guard<detail::PendingEventLock> lock(lock_);
+    stats_.duration_sum_us += duration_us;
+    stats_.minimum_us = stats_.samples == 0U ? duration_us : std::min(stats_.minimum_us, duration_us);
+    stats_.maximum_us = std::max(stats_.maximum_us, duration_us);
+    stats_.samples++;
+  }
+
+  bool take(DetectionTimingStats *stats) {
+    if (stats == nullptr) {
+      return false;
+    }
+    std::lock_guard<detail::PendingEventLock> lock(lock_);
+    if (stats_.samples == 0U) {
+      return false;
+    }
+    *stats = stats_;
+    stats_ = {};
+    return true;
+  }
+
+  void clear() {
+    std::lock_guard<detail::PendingEventLock> lock(lock_);
+    stats_ = {};
+  }
+
+ private:
+  detail::PendingEventLock lock_{};
+  DetectionTimingStats stats_{};
+};
 
 // Callback type for processed CSI data
 using csi_processed_callback_t = std::function<void(MotionState, uint32_t)>;
@@ -134,7 +176,7 @@ class CsiPipeline {
    */
   void clear_detector_buffer();
   void set_local_identity(uint32_t local_ip_addr, const uint8_t *local_mac_addr);
-  bool take_detection_time_us(uint32_t *duration_us);
+  bool take_detection_timing(DetectionTimingStats *stats);
   
  private:
   void process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized);
@@ -157,7 +199,6 @@ class CsiPipeline {
   uint32_t evaluation_interval_{25};
   volatile uint32_t packets_processed_{0};
   uint32_t packets_since_evaluation_{0};
-  uint32_t packets_since_perf_sample_{0};
   uint8_t current_channel_{0};
   uint8_t motion_on_hits_{3};
   uint8_t motion_off_hits_{3};
@@ -171,7 +212,7 @@ class CsiPipeline {
   PendingEvent<MotionState> motion_state_event_;
   PendingEvent<float, float> live_telemetry_event_;
   PendingEvent<MotionState, uint32_t> packet_publish_event_;
-  PendingEvent<uint32_t> perf_log_event_;
+  PendingDetectionTiming detection_timing_;
   PendingEvent<uint8_t, uint8_t> channel_change_event_;
 
   CsiCaptureService capture_service_;

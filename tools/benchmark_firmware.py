@@ -15,7 +15,6 @@ import signal
 import statistics
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from typing import Iterator, Sequence
@@ -105,6 +104,7 @@ class RuntimeMetrics:
     runtime_load_mean: float | None = None
     loop_avg_us_mean: float | None = None
     loop_max_us_max: int | None = None
+    detection_samples: int = 0
     detection_avg_us_mean: float | None = None
     detection_min_us: int | None = None
     detection_max_us: int | None = None
@@ -331,9 +331,12 @@ def analyze_monitor_output(output: str) -> tuple[RuntimeMetrics, list[str]]:
     runtime_load = values("runtime_load")
     loop_avg = values("loop_avg_us")
     loop_max = values("loop_max_us")
-    detection_avg = values("detection_avg_us")
-    detection_min = values("detection_min_us")
-    detection_max = values("detection_max_us")
+    detection_windows = [sample for sample in telemetry if sample.get("detection_samples", 0) > 0]
+    detection_samples = int(sum(sample["detection_samples"] for sample in detection_windows))
+    detection_sum_us = sum(
+        sample.get("detection_sum_us", sample.get("detection_avg_us", 0) * sample["detection_samples"])
+        for sample in detection_windows
+    )
 
     metrics.heap_free_last = int(heap_free[-1]) if heap_free else None
     metrics.heap_min = int(min(heap_min)) if heap_min else None
@@ -341,9 +344,14 @@ def analyze_monitor_output(output: str) -> tuple[RuntimeMetrics, list[str]]:
     metrics.runtime_load_mean = statistics.fmean(runtime_load) if runtime_load else None
     metrics.loop_avg_us_mean = statistics.fmean(loop_avg) if loop_avg else None
     metrics.loop_max_us_max = int(max(loop_max)) if loop_max else None
-    metrics.detection_avg_us_mean = statistics.fmean(detection_avg) if detection_avg else None
-    metrics.detection_min_us = int(min(detection_min)) if detection_min else None
-    metrics.detection_max_us = int(max(detection_max)) if detection_max else None
+    metrics.detection_samples = detection_samples
+    metrics.detection_avg_us_mean = detection_sum_us / detection_samples if detection_samples else None
+    metrics.detection_min_us = (
+        int(min(sample["detection_min_us"] for sample in detection_windows)) if detection_windows else None
+    )
+    metrics.detection_max_us = (
+        int(max(sample["detection_max_us"] for sample in detection_windows)) if detection_windows else None
+    )
 
     if len(pps_values) < MIN_STATUS_SAMPLES:
         reasons.append(f"only {len(pps_values)} motion/packet-rate samples were logged")
@@ -357,7 +365,7 @@ def analyze_monitor_output(output: str) -> tuple[RuntimeMetrics, list[str]]:
         reasons.append(f"only {len(telemetry)} shared telemetry samples were logged")
     if heap_free and heap_free[-1] < heap_free[0] * 0.95:
         reasons.append("free heap declined by more than 5% during monitoring")
-    if not detection_avg or not any(value > 0 for value in detection_avg):
+    if detection_samples == 0:
         reasons.append("detector timing was not logged")
     for pattern in FATAL_PATTERNS:
         if pattern in text:
@@ -436,11 +444,11 @@ def native_case_environment(chip: str, detector: str) -> Iterator[dict[str, str]
             "",
         ]
     )
-    file_descriptor, temporary_name = tempfile.mkstemp(prefix="espectre-benchmark-", suffix=".defaults", text=True)
-    temporary_path = Path(temporary_name)
+    temporary_path = app_dir / f".espectre-benchmark-{chip}-{detector}.defaults"
+    if temporary_path.exists():
+        raise RuntimeError(f"temporary benchmark defaults already exist: {temporary_path}")
     try:
-        with os.fdopen(file_descriptor, "w", encoding="utf-8") as handle:
-            handle.write(override)
+        temporary_path.write_text(override, encoding="utf-8")
         defaults.append(temporary_path)
         env = os.environ.copy()
         env["SDKCONFIG_DEFAULTS"] = ";".join(str(path.resolve()) for path in defaults)
@@ -723,6 +731,7 @@ def render_report(chip: str, port: str, started_at: datetime, results: Sequence[
                 f"| Runtime load | {format_number(runtime.runtime_load_mean, '%')} mean |",
                 f"| Loop average | {format_number(runtime.loop_avg_us_mean, ' us')} |",
                 f"| Loop maximum | {format_number(runtime.loop_max_us_max, ' us')} |",
+                f"| Detection samples | {runtime.detection_samples} |",
                 f"| Detection average | {format_number(runtime.detection_avg_us_mean, ' us')} |",
                 f"| Detection minimum | {format_number(runtime.detection_min_us, ' us')} |",
                 f"| Detection maximum | {format_number(runtime.detection_max_us, ' us')} |",

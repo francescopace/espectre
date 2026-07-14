@@ -17,7 +17,7 @@ def _passing_monitor_output() -> str:
             "[telemetry] "
             f"heap_free={200000 - index * 100} heap_min=180000 heap_largest=110000 "
             "cpu_mhz=160 runtime_load=1.20% loop_avg_us=120 loop_max_us=400 "
-            f"detection_samples=1 detection_avg_us={40 + index} "
+            f"detection_samples=1 detection_sum_us={40 + index} detection_avg_us={40 + index} "
             f"detection_min_us={38 + index} detection_max_us={45 + index}"
         )
         for index in range(benchmark.MIN_TELEMETRY_SAMPLES)
@@ -89,6 +89,7 @@ def test_analyze_monitor_output_accepts_stable_runtime() -> None:
     assert metrics.heap_free_last == 198900
     assert metrics.heap_min == 180000
     assert metrics.runtime_load_mean == 1.2
+    assert metrics.detection_samples == benchmark.MIN_TELEMETRY_SAMPLES
     assert metrics.detection_avg_us_mean == 45.5
     assert metrics.detection_min_us == 38
     assert metrics.detection_max_us == 56
@@ -109,6 +110,26 @@ def test_analyze_monitor_output_allows_motion_transitions() -> None:
     assert not any("motion state" in reason for reason in reasons)
     assert any("shared telemetry samples" in reason for reason in reasons)
     assert any("detector timing was not logged" in reason for reason in reasons)
+
+
+def test_analyze_monitor_output_weights_detection_windows_and_ignores_empty_ones() -> None:
+    output = "\n".join(
+        [
+            "[telemetry] detection_samples=2 detection_sum_us=100 "
+            "detection_avg_us=50 detection_min_us=40 detection_max_us=60",
+            "[telemetry] detection_samples=0 detection_sum_us=0 "
+            "detection_avg_us=0 detection_min_us=0 detection_max_us=0",
+            "[telemetry] detection_samples=8 detection_sum_us=1600 "
+            "detection_avg_us=200 detection_min_us=180 detection_max_us=220",
+        ]
+    )
+
+    metrics, _reasons = benchmark.analyze_monitor_output(output)
+
+    assert metrics.detection_samples == 10
+    assert metrics.detection_avg_us_mean == 170.0
+    assert metrics.detection_min_us == 40
+    assert metrics.detection_max_us == 220
 
 
 def test_analyze_monitor_output_passes_with_continuous_motion_transitions() -> None:

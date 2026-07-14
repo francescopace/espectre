@@ -119,9 +119,12 @@ void EspIdfRuntime::loop() {
     finish_threshold_calibration_(calibration_success);
   }
   csi_pipeline_.loop();
-  uint32_t detection_time_us = 0U;
-  if (csi_pipeline_.take_detection_time_us(&detection_time_us)) {
-    debug_telemetry_.record_detection_time(detection_time_us);
+  DetectionTimingStats detection_timing;
+  if (csi_pipeline_.take_detection_timing(&detection_timing)) {
+    debug_telemetry_.record_detection_timing(detection_timing.duration_sum_us,
+                                             detection_timing.samples,
+                                             detection_timing.minimum_us,
+                                             detection_timing.maximum_us);
   }
   csi_traffic_service_.loop();
 }
