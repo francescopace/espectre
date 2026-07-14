@@ -221,14 +221,18 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(config),
                                                        info.chip.empty() ? nullptr : info.chip.c_str());
   const std::string device_label = espectre_effective_device_label(config);
-  std::string out = "{";
-  out += json_pair_string("protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  out += json_pair_string("device_id", device_id.c_str());
-  out += json_pair_string("device_name", device_name.c_str());
-  out += json_pair_string("device_label", device_label.c_str());
-  out += json_pair_string("frontend", info.frontend.empty() ? "native" : info.frontend.c_str());
-  out += json_pair_string("firmware_version", info.firmware_version.empty() ? "unknown" : info.firmware_version.c_str());
-  out += json_pair_string("chip", info.chip.empty() ? "unknown" : info.chip.c_str());
+  std::string out;
+  out.reserve(192U + device_id.size() + device_name.size() + device_label.size() +
+              info.frontend.size() + info.firmware_version.size() + info.chip.size() +
+              info.network.ip_address.size() + info.network.mac_address.size() + info.detector.size());
+  out = "{";
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  append_json_pair(&out, "device_id", device_id.c_str());
+  append_json_pair(&out, "device_name", device_name.c_str());
+  append_json_pair(&out, "device_label", device_label.c_str());
+  append_json_pair(&out, "frontend", info.frontend.empty() ? "native" : info.frontend.c_str());
+  append_json_pair(&out, "firmware_version", info.firmware_version.empty() ? "unknown" : info.firmware_version.c_str());
+  append_json_pair(&out, "chip", info.chip.empty() ? "unknown" : info.chip.c_str());
   out += ",\"supports_ota\":";
   out += info.supports_ota ? "true" : "false";
 
@@ -236,11 +240,11 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
     out += ",\"network\":{";
     bool first = true;
     if (!info.network.ip_address.empty()) {
-      out += json_pair_string("ip_address", info.network.ip_address.c_str(), first);
+      append_json_pair(&out, "ip_address", info.network.ip_address.c_str(), first);
       first = false;
     }
     if (!info.network.mac_address.empty()) {
-      out += json_pair_string("mac_address", info.network.mac_address.c_str(), first);
+      append_json_pair(&out, "mac_address", info.network.mac_address.c_str(), first);
       first = false;
     }
     if (info.network.channel > 0U) {
@@ -256,7 +260,7 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
 
   if (!info.detector.empty()) {
     out += ",\"detection\":{";
-    out += json_pair_string("algorithm", info.detector.c_str(), true);
+    append_json_pair(&out, "algorithm", info.detector.c_str(), true);
     out += "}";
   }
   out += "}";
@@ -314,14 +318,17 @@ std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
                                          bool accepted,
                                          const char *message) {
   const std::string device_id = espectre_effective_device_id(config);
-  std::string out = "{";
-  out += json_pair_string("protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  out += json_pair_string("device_id", device_id.c_str());
-  out += json_pair_string("command_id", command.command_id.c_str());
-  out += json_pair_string("command", command.command.c_str());
+  std::string out;
+  out.reserve(128U + device_id.size() + command.command_id.size() + command.command.size() +
+              (message != nullptr ? std::strlen(message) : 0U));
+  out = "{";
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  append_json_pair(&out, "device_id", device_id.c_str());
+  append_json_pair(&out, "command_id", command.command_id.c_str());
+  append_json_pair(&out, "command", command.command.c_str());
   out += ",\"accepted\":";
   out += accepted ? "true" : "false";
-  out += json_pair_string("message", message != nullptr ? message : "");
+  append_json_pair(&out, "message", message != nullptr ? message : "");
   out += "}";
   return out;
 }
@@ -330,21 +337,24 @@ std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
                                     const EspectreOtaStatus &status,
                                     uint32_t timestamp_ms) {
   const std::string device_id = espectre_effective_device_id(config);
-  std::string out = "{";
-  out += json_pair_string("protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  out += json_pair_string("device_id", device_id.c_str());
-  out += json_pair_string("state", ota_state_name(status.state));
+  std::string out;
+  out.reserve(192U + device_id.size() + status.current_version.size() + status.target_version.size() +
+              status.manifest_url.size() + status.image_url.size() + status.message.size());
+  out = "{";
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  append_json_pair(&out, "device_id", device_id.c_str());
+  append_json_pair(&out, "state", ota_state_name(status.state));
   out += ",\"timestamp_ms\":";
   out += std::to_string(static_cast<unsigned>(timestamp_ms));
   out += ",\"busy\":";
   out += status.busy ? "true" : "false";
   out += ",\"update_available\":";
   out += status.update_available ? "true" : "false";
-  out += json_pair_string("current_version", status.current_version.empty() ? "unknown" : status.current_version.c_str());
-  out += json_pair_string("target_version", status.target_version.c_str());
-  out += json_pair_string("manifest_url", status.manifest_url.c_str());
-  out += json_pair_string("image_url", status.image_url.c_str());
-  out += json_pair_string("message", status.message.c_str());
+  append_json_pair(&out, "current_version", status.current_version.empty() ? "unknown" : status.current_version.c_str());
+  append_json_pair(&out, "target_version", status.target_version.c_str());
+  append_json_pair(&out, "manifest_url", status.manifest_url.c_str());
+  append_json_pair(&out, "image_url", status.image_url.c_str());
+  append_json_pair(&out, "message", status.message.c_str());
   out += "}";
   return out;
 }

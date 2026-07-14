@@ -71,5 +71,7 @@ static constexpr size_t STREAM_MAX_PACKET_BYTES = sizeof(CsiStreamHeaderV6) + ST
 // payload) into one UDP datagram; receivers parse records back-to-back until
 // the datagram is exhausted.
 static constexpr size_t STREAM_MAX_BATCH_RECORDS = 8U;
+// Seven current V6 records fit in one Ethernet MTU after UDP/IP headers.
+static constexpr size_t STREAM_MAX_TX_BATCH_RECORDS = 7U;
 
 }  // namespace espectre

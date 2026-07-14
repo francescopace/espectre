@@ -28,10 +28,9 @@ class CsiTrafficService {
   bool is_running() const;
   bool get_last_sender(sockaddr_in *out_addr) const;
   uint64_t get_packets_received() const;
-  const CsiTrafficServiceConfig &config() const { return config_; }
 
  private:
-  CsiTrafficServiceConfig config_{};
+  CsiTrafficMode mode_{CsiTrafficMode::INTERNAL};
   TrafficGeneratorManager traffic_generator_;
   UDPListener udp_listener_;
 };

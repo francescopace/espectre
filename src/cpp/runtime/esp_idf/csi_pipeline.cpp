@@ -21,10 +21,7 @@ void CsiPipeline::init(BaseDetector* detector,
   detector_ = detector;
   publish_rate_ = publish_rate;
   capture_service_.init(wifi_csi);
-  capture_service_.set_packet_callback(
-      [this](const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
-        this->process_normalized_packet_(data, normalized);
-      });
+  capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
   reset_motion_state_filter_();
   
   ESP_LOGD(TAG, "CSI Pipeline initialized with %s detector", 
@@ -151,11 +148,10 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     return;
   }
 
-  packets_filtered_ = capture_service_.filtered_packets();
-  int8_t *csi_data = const_cast<int8_t *>(normalized.data);
-  size_t csi_len = normalized.len;
+  const int8_t *csi_data = normalized.data;
+  const size_t csi_len = normalized.len;
 
-  if (packet_interceptor_ && packet_interceptor_(csi_data, csi_len)) {
+  if (packet_interceptor_ && packet_interceptor_(packet_interceptor_context_, csi_data, csi_len)) {
     return;
   }
 
@@ -209,6 +205,15 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   }
 }
 
+void CsiPipeline::capture_packet_callback_(void *context,
+                                           const wifi_csi_info_t *data,
+                                           const NormalizedCSIPayload &normalized) {
+  auto *pipeline = static_cast<CsiPipeline *>(context);
+  if (pipeline != nullptr) {
+    pipeline->process_normalized_packet_(data, normalized);
+  }
+}
+
 esp_err_t CsiPipeline::enable(csi_processed_callback_t packet_callback) {
   if (enabled_) {
     ESP_LOGW(TAG, "CSI already enabled");
@@ -216,10 +221,7 @@ esp_err_t CsiPipeline::enable(csi_processed_callback_t packet_callback) {
   }
   
   packet_callback_ = packet_callback;
-  capture_service_.set_packet_callback(
-      [this](const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
-        this->process_normalized_packet_(data, normalized);
-      });
+  capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
 
   esp_err_t err = capture_service_.enable();
   if (err == ESP_OK) {
@@ -240,7 +242,7 @@ esp_err_t CsiPipeline::disable() {
   
   enabled_ = false;
   packet_callback_ = nullptr;
-  capture_service_.set_packet_callback({});
+  capture_service_.set_packet_callback(nullptr, nullptr);
   motion_state_event_.clear();
   live_telemetry_event_.clear();
   packet_publish_event_.clear();

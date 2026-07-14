@@ -95,12 +95,6 @@ void test_threshold_helpers_cover_modes_and_ranges(void) {
     TEST_ASSERT_EQUAL_FLOAT(DEFAULT_ADAPTIVE_FACTOR, get_threshold_factor(ThresholdMode::AUTO));
     TEST_ASSERT_EQUAL_FLOAT(1.0f, get_threshold_factor(ThresholdMode::MIN));
 
-    std::vector<float> empty;
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, calculate_max_value(empty));
-
-    std::vector<float> values = {1.0f, 2.0f, 3.0f, 9.0f};
-    TEST_ASSERT_EQUAL_FLOAT(9.0f, calculate_max_value(values));
-
     TEST_ASSERT_TRUE(is_valid_threshold(2.0f, 0.1f, 3.0f));
     TEST_ASSERT_FALSE(is_valid_threshold(NAN, 0.1f, 3.0f));
     TEST_ASSERT_FALSE(is_valid_threshold(0.0f, 0.1f, 3.0f));
@@ -111,12 +105,6 @@ void test_threshold_helpers_cover_modes_and_ranges(void) {
     TEST_ASSERT_EQUAL_FLOAT(3.0f, clamp_threshold(9.0f, 0.1f, 3.0f));
     TEST_ASSERT_EQUAL_FLOAT(2.0f, clamp_threshold(2.0f, 0.1f, 3.0f));
 
-    float adaptive_threshold = 0.0f;
-    float factor = 0.0f;
-    calculate_adaptive_threshold(values, ThresholdMode::AUTO, adaptive_threshold, factor);
-    TEST_ASSERT_EQUAL_FLOAT(DEFAULT_ADAPTIVE_FACTOR, factor);
-    TEST_ASSERT_TRUE(adaptive_threshold > 0.0f);
-    TEST_ASSERT_EQUAL_FLOAT(calculate_max_value(values) * 1.1f, calculate_adaptive_threshold(values, 1.1f));
 }
 
 void test_startup_threshold_calibrator_gate_disabled_matches_max(void) {

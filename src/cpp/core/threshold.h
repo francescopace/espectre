@@ -25,7 +25,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <vector>
 
 namespace espectre {
 
@@ -98,19 +97,6 @@ enum class ThresholdMode {
 
 
 /**
- * Calculate the maximum value from a vector.
- * 
- * @param values Vector of numeric values
- * @return Maximum value (1.0f if vector is empty)
- */
-inline float calculate_max_value(const std::vector<float>& values) {
-  if (values.empty()) {
-    return 1.0f;
-  }
-  return *std::max_element(values.begin(), values.end());
-}
-
-/**
  * Get threshold multiplier from mode
  *
  * @param mode Threshold mode (AUTO or MIN)
@@ -122,42 +108,6 @@ inline float get_threshold_factor(ThresholdMode mode, float auto_factor = DEFAUL
     return auto_factor;
   }
   return 1.0f;  // MIN: no multiplier
-}
-
-/**
- * Calculate adaptive threshold from calibration baseline values
- * 
- * Shared startup path: threshold = max(cal_values) x factor for the current
- * production modes
- * 
- * AUTO mode applies a 1.3x multiplier to reduce false positives.
- * MIN mode uses the raw max moving variance for maximum sensitivity.
- * 
- * @param cal_values Vector of moving variance values from calibration
- * @param mode Threshold mode (AUTO or MIN)
- * @param out_threshold Output: calculated adaptive threshold
- * @param out_factor Output: multiplier used
- */
-inline void calculate_adaptive_threshold(
-    const std::vector<float>& cal_values,
-    ThresholdMode mode,
-    float& out_threshold,
-    float& out_factor) {
-  out_factor = get_threshold_factor(mode);
-  out_threshold = calculate_max_value(cal_values) * out_factor;
-}
-
-/**
- * Calculate adaptive threshold with an explicit factor.
- *
- * @param cal_values Vector of moving variance values from baseline
- * @param factor Multiplier to apply to the max moving variance
- * @return Calculated adaptive threshold
- */
-inline float calculate_adaptive_threshold(
-    const std::vector<float>& cal_values,
-    float factor) {
-  return calculate_max_value(cal_values) * factor;
 }
 
 /**
@@ -175,7 +125,6 @@ class StartupThresholdCalibrator {
     has_value_ = false;
     max_motion_metric_ = 0.0f;
     gate_accepted_ = false;
-    fallback_used_ = false;
     chunk_size_ = 0;
     chunk_count_ = 0;
     chunk_max_ = 0.0f;
@@ -309,25 +258,23 @@ class StartupThresholdCalibrator {
     }
   }
 
-  void floor_snapshot(float& out_floor, bool& out_vote_enabled, uint16_t& out_count) const {
+  void floor_snapshot(float& out_floor, bool& out_vote_enabled, uint16_t& out_count) {
     if (floor_count_ == 0) {
       out_floor = 0.0f;
       out_vote_enabled = false;
       out_count = 0;
       return;
     }
-    float ordered[STARTUP_FLOOR_SIZE];
-    std::copy(floor_ring_, floor_ring_ + floor_count_, ordered);
-    std::sort(ordered, ordered + floor_count_);
-    float median = 0.0f;
-    if (floor_count_ % 2 != 0) {
-      median = ordered[floor_count_ / 2];
-    } else {
-      median = 0.5f * (ordered[floor_count_ / 2 - 1] + ordered[floor_count_ / 2]);
-    }
+    const uint16_t median_index = floor_count_ / 2U;
+    std::nth_element(floor_ring_, floor_ring_ + median_index, floor_ring_ + floor_count_);
+    const float median_high = floor_ring_[median_index];
+    const float median = (floor_count_ % 2U != 0U)
+                             ? median_high
+                             : 0.5f * (*std::max_element(floor_ring_, floor_ring_ + median_index) + median_high);
     const uint16_t p99_index = std::min<uint16_t>(
         floor_count_ - 1, static_cast<uint16_t>(0.99f * static_cast<float>(floor_count_)));
-    const float p99 = ordered[p99_index];
+    std::nth_element(floor_ring_, floor_ring_ + p99_index, floor_ring_ + floor_count_);
+    const float p99 = floor_ring_[p99_index];
     out_floor = median;
     out_count = floor_count_;
     out_vote_enabled = floor_count_ >= STARTUP_FLOOR_MIN && median > 0.0f &&
@@ -649,7 +596,6 @@ class StartupThresholdCalibrator {
   bool has_value_{false};
   float max_motion_metric_{0.0f};
   bool gate_accepted_{false};
-  bool fallback_used_{false};
   uint32_t chunk_size_{0};
   uint32_t chunk_count_{0};
   float chunk_max_{0.0f};

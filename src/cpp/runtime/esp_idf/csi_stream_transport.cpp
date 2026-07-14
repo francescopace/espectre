@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <new>
 #include <fcntl.h>
 #include <net/if.h>
 
@@ -266,7 +267,13 @@ void CsiStreamTransport::configure(uint64_t device_id,
   device_id_ = device_id;
   collector_port_ = collector_port;
   log_interval_ms_ = log_interval_ms;
-  tx_batch_records_ = std::clamp<uint8_t>(tx_batch_records, 1U, STREAM_MAX_BATCH_RECORDS);
+  tx_batch_records_ = std::clamp<uint8_t>(tx_batch_records, 1U, STREAM_MAX_TX_BATCH_RECORDS);
+  batch_capacity_ = static_cast<size_t>(tx_batch_records_) * kStreamRecordMaxBytes;
+  batch_buffer_.reset(new (std::nothrow) uint8_t[batch_capacity_]);
+  if (!batch_buffer_) {
+    batch_capacity_ = 0U;
+    ESP_LOGE(TAG, "Failed to allocate %u-record stream batch", static_cast<unsigned>(tx_batch_records_));
+  }
 }
 
 void CsiStreamTransport::reset_session() {
@@ -459,7 +466,6 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
   const uint32_t last_csi_ms = last_csi_ms_.load(std::memory_order_relaxed);
   const uint32_t csi_age_ms =
       (last_csi_ms > 0U && now_ms >= last_csi_ms) ? static_cast<uint32_t>(now_ms - last_csi_ms) : 0U;
-  const uint32_t csi_capture_raw_drop = capture_service.interceptor_drops();
   const uint32_t csi_capture_bad_sc = capture_service.normalized_invalid_packets();
   const uint32_t csi_capture_valid = capture_service.valid_packets();
 
@@ -481,14 +487,13 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
   } else {
     ESP_LOGI(TAG,
              "csi_ap=%.0f csi_filt=%.0f valid=%" PRIu32
-             " raw_drop=%" PRIu32 " bad_sc=%" PRIu32
+             " bad_sc=%" PRIu32
              " udp_rx=%.1f udp_tx=%.0f fresh=%.0f"
              " tx_err=%.0f/%" PRIu64 " tx_bp=%.0f/%" PRIu64
              " age_ms=%" PRIu32 " heap=%.1f min=%.1f",
              static_cast<double>(csi_accepted_pps),
              static_cast<double>(csi_filtered_pps),
              csi_capture_valid,
-             csi_capture_raw_drop,
              csi_capture_bad_sc,
              static_cast<double>(traffic_rx_pps),
              static_cast<double>(tx_pps),
@@ -602,7 +607,7 @@ void CsiStreamTransport::close_stream_socket_() {
 
 bool CsiStreamTransport::send_stream_datagram_() {
   last_tx_backpressure_ = false;
-  if (collector_ip_addr_ == 0U) {
+  if (collector_ip_addr_ == 0U || !batch_buffer_) {
     return false;
   }
   if (!ensure_stream_socket_()) {
@@ -610,7 +615,7 @@ bool CsiStreamTransport::send_stream_datagram_() {
     return false;
   }
 
-  const size_t record_len = build_stream_packet_(batch_buffer_.data() + batch_len_, batch_buffer_.size() - batch_len_);
+  const size_t record_len = build_stream_packet_(batch_buffer_.get() + batch_len_, batch_capacity_ - batch_len_);
   if (record_len == 0U) {
     return true;
   }
@@ -630,7 +635,7 @@ bool CsiStreamTransport::flush_stream_batch_() {
   if (batch_records_pending_ == 0U) {
     return true;
   }
-  const bool sent = send_datagram_(batch_buffer_.data(), batch_len_);
+  const bool sent = send_datagram_(batch_buffer_.get(), batch_len_);
   drop_stream_batch_();
   return sent;
 }

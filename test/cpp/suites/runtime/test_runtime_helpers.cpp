@@ -7,6 +7,7 @@
 #include "test_harness.h"
 
 #include "runtime_config_utils.h"
+#include "mqtt_payload_assembler.h"
 #include "runtime_diagnostics.h"
 #include "wifi_csi_interface.h"
 
@@ -80,11 +81,38 @@ void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {
     TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "startup_threshold=0.125000") != lines.end());
 }
 
+void test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads(void) {
+    MqttPayloadAssembler assembler;
+
+    TEST_ASSERT_TRUE(assembler.append("ping", 4, 4, 0) == MqttPayloadAssembler::Result::COMPLETE);
+    TEST_ASSERT_EQUAL_STRING("ping", assembler.payload().c_str());
+    assembler.reset();
+
+    TEST_ASSERT_TRUE(assembler.append("calib", 5, 9, 0) == MqttPayloadAssembler::Result::INCOMPLETE);
+    TEST_ASSERT_TRUE(assembler.append("rate", 4, 9, 5) == MqttPayloadAssembler::Result::COMPLETE);
+    TEST_ASSERT_EQUAL_STRING("calibrate", assembler.payload().c_str());
+}
+
+void test_mqtt_payload_assembler_rejects_invalid_fragments(void) {
+    MqttPayloadAssembler assembler;
+
+    TEST_ASSERT_TRUE(assembler.append("abc", 3, 6, 0) == MqttPayloadAssembler::Result::INCOMPLETE);
+    TEST_ASSERT_TRUE(assembler.append("def", 3, 6, 2) == MqttPayloadAssembler::Result::INVALID);
+    TEST_ASSERT_TRUE(assembler.payload().empty());
+
+    std::string oversized(MqttPayloadAssembler::MAX_PAYLOAD_SIZE + 1U, 'x');
+    TEST_ASSERT_TRUE(assembler.append(oversized.data(), oversized.size(), oversized.size(), 0) ==
+                     MqttPayloadAssembler::Result::INVALID);
+    TEST_ASSERT_TRUE(assembler.payload().empty());
+}
+
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi);
     RUN_TEST(test_runtime_config_utils_validate_and_name_modes);
     RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);
+    RUN_TEST(test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads);
+    RUN_TEST(test_mqtt_payload_assembler_rejects_invalid_fragments);
     return UNITY_END();
 }
 

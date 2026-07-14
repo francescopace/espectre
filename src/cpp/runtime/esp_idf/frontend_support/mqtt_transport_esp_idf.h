@@ -10,6 +10,7 @@
 #include <string>
 
 #include "mqtt_transport.h"
+#include "mqtt_payload_assembler.h"
 #include "mqtt_client.h"
 
 namespace espectre {
@@ -31,11 +32,14 @@ class EspIdfMqttTransport : public IMqttTransport {
   void subscribe_commands_();
 
   esp_mqtt_client_handle_t client_{nullptr};
-  EspectreDeviceConfig config_{};
   CommandCallback command_callback_{};
   ConnectionCallback connection_callback_{};
+  MqttPayloadAssembler command_payload_assembler_{};
   std::string broker_uri_{};
+  std::string mqtt_username_{};
+  std::string mqtt_password_{};
   std::string topic_base_{};
+  std::string publish_topic_{};
   std::string command_topic_{};
   std::string last_will_topic_{};
   std::string last_will_payload_{};

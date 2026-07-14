@@ -106,14 +106,15 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
         return;
     }
     
-    float turbulence = 0.0f;
-    if (selected_subcarriers && num_subcarriers > 0) {
-        turbulence = calculate_spatial_turbulence_from_csi(
-            csi_data, csi_len, selected_subcarriers, num_subcarriers);
-    }
+    float amplitudes[HT20_SELECTED_BAND_SIZE];
+    const uint8_t amplitude_count = extract_subcarrier_amplitudes(
+        csi_data, csi_len, selected_subcarriers, num_subcarriers,
+        amplitudes, HT20_SELECTED_BAND_SIZE);
+    process_amplitudes(amplitudes, amplitude_count);
+}
 
-    // Add to buffer with filtering
-    add_turbulence_to_buffer(turbulence);
+void BaseDetector::process_amplitudes(const float* amplitudes, uint8_t count) {
+    add_turbulence_to_buffer(calculate_spatial_turbulence_from_amplitudes(amplitudes, count));
 }
 
 void BaseDetector::reset() {

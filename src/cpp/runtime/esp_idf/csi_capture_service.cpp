@@ -23,7 +23,6 @@ void CsiCaptureService::reset_session() {
   filtered_packets_.store(0U, std::memory_order_relaxed);
   callback_invocations_.store(0U, std::memory_order_relaxed);
   null_or_empty_packets_.store(0U, std::memory_order_relaxed);
-  interceptor_drops_.store(0U, std::memory_order_relaxed);
   normalized_invalid_packets_.store(0U, std::memory_order_relaxed);
   valid_packets_.store(0U, std::memory_order_relaxed);
   enable_attempts_.store(0U, std::memory_order_relaxed);
@@ -117,11 +116,6 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
     return;
   }
 
-  if (raw_packet_interceptor_ && raw_packet_interceptor_(data)) {
-    interceptor_drops_.fetch_add(1U, std::memory_order_relaxed);
-    return;
-  }
-
   int8_t csi_remapped[HT20_CSI_LEN];
   const NormalizedCSIPayload normalized =
       normalize_ht20_csi_payload(data->buf, data->len, csi_remapped, sizeof(csi_remapped));
@@ -141,7 +135,7 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   }
 
   if (packet_callback_) {
-    packet_callback_(data, normalized);
+    packet_callback_(packet_callback_context_, data, normalized);
   }
   if (!normalized.valid() || normalized.len != HT20_CSI_LEN) {
     filtered_packets_.fetch_add(1U, std::memory_order_relaxed);

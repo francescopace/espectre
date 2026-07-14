@@ -124,6 +124,15 @@ inline uint8_t extract_subcarrier_amplitudes(const int8_t* csi_data,
     return valid_count;
 }
 
+inline float calculate_spatial_turbulence_from_amplitudes(const float* amplitudes,
+                                                          uint8_t count) {
+    if (amplitudes == nullptr || count == 0) {
+        return 0.0f;
+    }
+    const float variance = calculate_variance_two_pass(amplitudes, count);
+    return calculate_turbulence_from_variance(variance, amplitudes, count);
+}
+
 /**
  * Calculate spatial turbulence directly from raw CSI data (I/Q pairs)
  *
@@ -142,20 +151,11 @@ inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
                                                    size_t csi_len,
                                                    const uint8_t* subcarriers,
                                                    uint8_t num_subcarriers) {
-    float amplitudes[12];
-    uint8_t compact_indices[12];
+    float amplitudes[HT20_SELECTED_BAND_SIZE];
     uint8_t valid_count = extract_subcarrier_amplitudes(
-        csi_data, csi_len, subcarriers, num_subcarriers, amplitudes, 12);
-    if (valid_count == 0) {
-        return 0.0f;
-    }
-    for (uint8_t i = 0; i < valid_count; i++) {
-        compact_indices[i] = i;
-    }
-
-    return calculate_spatial_turbulence(
-        amplitudes, compact_indices, valid_count,
-        static_cast<uint16_t>(valid_count));
+        csi_data, csi_len, subcarriers, num_subcarriers,
+        amplitudes, HT20_SELECTED_BAND_SIZE);
+    return calculate_spatial_turbulence_from_amplitudes(amplitudes, valid_count);
 }
 
 }  // namespace espectre

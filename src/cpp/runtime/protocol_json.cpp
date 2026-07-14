@@ -37,15 +37,16 @@ void append_json_string(std::string *out, const char *value) {
   out->push_back('"');
 }
 
-std::string json_pair_string(const char *key, const char *value, bool first) {
-  std::string out;
-  if (!first) {
-    out.append(",");
+void append_json_pair(std::string *out, const char *key, const char *value, bool first) {
+  if (out == nullptr) {
+    return;
   }
-  append_json_string(&out, key);
-  out.append(":");
-  append_json_string(&out, value);
-  return out;
+  if (!first) {
+    out->append(",");
+  }
+  append_json_string(out, key);
+  out->append(":");
+  append_json_string(out, value);
 }
 
 std::string extract_json_string(const std::string &payload, const char *key) {

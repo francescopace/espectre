@@ -1,0 +1,88 @@
+#pragma once
+
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
+
+#include "csi_format.h"
+#include "detector_limits.h"
+#include "features.h"
+#include "utils.h"
+
+namespace espectre {
+
+class L1DeltaTracker {
+ public:
+  void configure(uint16_t capacity) {
+    capacity_ = std::min<uint16_t>(capacity, DETECTOR_MAX_WINDOW_SIZE);
+    clear();
+  }
+
+  void clear() {
+    std::memset(profile_ring_, 0, sizeof(profile_ring_));
+    std::memset(profile_len_, 0, sizeof(profile_len_));
+    std::memset(delta_ring_, 0, sizeof(delta_ring_));
+    profile_index_ = 0U;
+    delta_index_ = 0U;
+    delta_count_ = 0U;
+    delta_sum_ = 0.0f;
+  }
+
+  void process(const float *amplitudes, uint8_t amplitude_count) {
+    if (capacity_ == 0U) {
+      return;
+    }
+
+    float profile[HT20_SELECTED_BAND_SIZE];
+    const uint8_t profile_len = normalize_amplitude_profile(amplitudes, amplitude_count, profile);
+    const float *reference = profile_ring_[profile_index_];
+    const uint8_t reference_len = profile_len_[profile_index_];
+
+    if (profile_len > 0U && reference_len == profile_len) {
+      float total = 0.0f;
+      for (uint8_t i = 0U; i < profile_len; i++) {
+        total += std::fabs(profile[i] - reference[i]);
+      }
+      const float delta = total / profile_len;
+      if (delta_count_ >= capacity_) {
+        delta_sum_ -= delta_ring_[delta_index_];
+      }
+      delta_ring_[delta_index_] = delta;
+      delta_sum_ += delta;
+      delta_index_ = (delta_index_ + 1U) % capacity_;
+      if (delta_count_ < capacity_) {
+        delta_count_++;
+      }
+    }
+
+    std::memcpy(profile_ring_[profile_index_], profile, profile_len * sizeof(float));
+    profile_len_[profile_index_] = profile_len;
+    profile_index_ = (profile_index_ + 1U) % L1_DELTA_LAG;
+  }
+
+  uint16_t count() const { return delta_count_; }
+  float mean() const { return delta_count_ > 0U ? delta_sum_ / delta_count_ : 0.0f; }
+
+  uint16_t build_series(float *out) const {
+    if (out == nullptr || capacity_ == 0U || delta_count_ == 0U) {
+      return 0U;
+    }
+    const uint16_t start = delta_count_ < capacity_ ? 0U : delta_index_;
+    for (uint16_t i = 0U; i < delta_count_; i++) {
+      out[i] = delta_ring_[(start + i) % capacity_];
+    }
+    return delta_count_;
+  }
+
+ private:
+  uint16_t capacity_{0U};
+  float profile_ring_[L1_DELTA_LAG][HT20_SELECTED_BAND_SIZE]{};
+  uint8_t profile_len_[L1_DELTA_LAG]{};
+  uint8_t profile_index_{0U};
+  float delta_ring_[DETECTOR_MAX_WINDOW_SIZE]{};
+  uint16_t delta_index_{0U};
+  uint16_t delta_count_{0U};
+  float delta_sum_{0.0f};
+};
+
+}  // namespace espectre

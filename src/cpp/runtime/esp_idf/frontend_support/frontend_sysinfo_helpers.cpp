@@ -102,6 +102,7 @@ void append_sysinfo_network_lines(std::vector<std::string> *lines,
 
 std::vector<std::string> build_frontend_sysinfo_lines(const FrontendSysinfoBase &base) {
   std::vector<std::string> lines;
+  lines.reserve(24U);
   append_sysinfo_protocol_lines(
       &lines, base.frontend, base.capabilities, base.include_proto_version, ESPECTRE_PROTOCOL_VERSION);
   append_sysinfo_identity_lines(&lines, base.device_config, base.device_info, base.include_firmware_version);

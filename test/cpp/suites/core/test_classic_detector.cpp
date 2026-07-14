@@ -38,9 +38,11 @@ void test_classic_detector_clear_buffer_preserves_frozen_floor(void) {
 void test_classic_detector_uses_recovery_vote_in_ambiguous_band(void) {
     ClassicDetector detector(10, 1.0f);
 
-    detector.delta_count_ = detector.window_size_;
+    detector.l1_tracker_.delta_count_ = detector.window_size_;
+    detector.l1_tracker_.delta_sum_ = 0.0f;
     for (uint16_t i = 0; i < detector.window_size_; i++) {
-        detector.delta_ring_[i] = 0.7f;  // ambiguous band: 0.6 < l1 <= 1.0
+        detector.l1_tracker_.delta_ring_[i] = 0.7f;  // ambiguous band: 0.6 < l1 <= 1.0
+        detector.l1_tracker_.delta_sum_ += 0.7f;
         detector.turbulence_buffer_[i] = (i % 2 == 0) ? 0.0f : 3.0f;
     }
     detector.buffer_count_ = detector.window_size_;
@@ -70,9 +72,11 @@ void test_classic_detector_can_disable_recovery_vote(void) {
     TEST_ASSERT_EQUAL(0, detector.floor_count_);
     TEST_ASSERT_FALSE(detector.recovery_vote_enabled());
 
-    detector.delta_count_ = detector.window_size_;
+    detector.l1_tracker_.delta_count_ = detector.window_size_;
+    detector.l1_tracker_.delta_sum_ = 0.0f;
     for (uint16_t i = 0; i < detector.window_size_; i++) {
-        detector.delta_ring_[i] = 0.7f;
+        detector.l1_tracker_.delta_ring_[i] = 0.7f;
+        detector.l1_tracker_.delta_sum_ += 0.7f;
         detector.turbulence_buffer_[i] = (i % 2 == 0) ? 0.0f : 3.0f;
     }
     detector.buffer_count_ = detector.window_size_;

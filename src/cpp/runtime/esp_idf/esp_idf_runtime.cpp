@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <new>
 #include "espectre_log.h"
 #include "esp_err.h"
 #include "esp_wifi.h"
@@ -296,7 +297,7 @@ void EspIdfRuntime::on_wifi_disconnected_() {
   csi_wifi_lifecycle_ready_ = false;
   threshold_calibration_active_.store(false, std::memory_order_relaxed);
   calibration_finished_event_.clear();
-  csi_pipeline_.set_packet_interceptor({});
+  csi_pipeline_.set_packet_interceptor(nullptr, nullptr);
   csi_pipeline_.set_local_identity(0U, nullptr);
   csi_pipeline_.disable();
   csi_traffic_service_.stop();
@@ -326,55 +327,68 @@ bool EspIdfRuntime::start_calibration_() {
   // Calibrate on the runtime detector itself (cold-cleared first), so the
   // observed metric matches the configured algorithm. Mirrors the Python
   // runtime calibration flow.
-  threshold_calibrator_.begin(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS,
-                              detector_ != nullptr && detector_->startup_gate_enabled());
+  threshold_calibrator_.reset(new (std::nothrow) StartupThresholdCalibrator());
+  if (!threshold_calibrator_) {
+    snapshot_.calibrating = false;
+    notify_fault_("Failed to allocate startup calibrator");
+    return false;
+  }
+  threshold_calibrator_->begin(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS,
+                               detector_ != nullptr && detector_->startup_gate_enabled());
   calibration_finished_event_.clear();
   threshold_calibration_active_.store(true, std::memory_order_relaxed);
   csi_pipeline_.clear_detector_buffer();
-  csi_pipeline_.set_packet_interceptor(
-      [this](const int8_t *csi_data, size_t csi_len) { return handle_threshold_calibration_packet_(csi_data, csi_len); });
+  csi_pipeline_.set_packet_interceptor(&EspIdfRuntime::threshold_calibration_packet_callback_, this);
   ESP_LOGI(RUNTIME_TAG, "Starting %s threshold calibration with fixed subcarriers",
            detector_ != nullptr ? detector_->get_name() : "detector");
   return true;
 }
 
 bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len) {
-  if (!threshold_calibration_active_.load(std::memory_order_relaxed) || detector_ == nullptr) {
+  if (!threshold_calibration_active_.load(std::memory_order_relaxed) || detector_ == nullptr ||
+      !threshold_calibrator_) {
     return false;
   }
 
   detector_->process_packet(csi_data, csi_len, snapshot_.fixed_subcarriers.data(),
                             HT20_SELECTED_BAND_SIZE);
   detector_->update_state();
-  threshold_calibrator_.observe(detector_->is_ready(), detector_->get_motion_metric(),
-                                detector_->get_startup_floor_metric());
+  threshold_calibrator_->observe(detector_->is_ready(), detector_->get_motion_metric(),
+                                 detector_->get_startup_floor_metric());
 
-  if (threshold_calibrator_.is_complete()) {
+  if (threshold_calibrator_->is_complete()) {
     threshold_calibration_active_.store(false, std::memory_order_relaxed);
-    calibration_finished_event_.post(threshold_calibrator_.is_successful());
+    calibration_finished_event_.post(threshold_calibrator_->is_successful());
   }
   return true;
 }
 
+bool EspIdfRuntime::threshold_calibration_packet_callback_(void *context,
+                                                           const int8_t *csi_data,
+                                                           size_t csi_len) {
+  auto *runtime = static_cast<EspIdfRuntime *>(context);
+  return runtime != nullptr && runtime->handle_threshold_calibration_packet_(csi_data, csi_len);
+}
+
 void EspIdfRuntime::finish_threshold_calibration_(bool success) {
   threshold_calibration_active_.store(false, std::memory_order_relaxed);
-  csi_pipeline_.set_packet_interceptor({});
+  csi_pipeline_.set_packet_interceptor(nullptr, nullptr);
   snapshot_.calibrating = false;
 
-  if (success) {
+  if (success && threshold_calibrator_) {
     float adaptive_threshold = 0.0f;
     const ThresholdMode adaptive_mode =
         (config_.threshold_mode == ThresholdMode::MANUAL) ? ThresholdMode::AUTO : config_.threshold_mode;
     const float auto_factor =
         detector_ != nullptr ? detector_->get_startup_threshold_factor() : DEFAULT_ADAPTIVE_FACTOR;
     const float factor = get_threshold_factor(adaptive_mode, auto_factor);
-    adaptive_threshold = threshold_calibrator_.threshold_metric() * factor;
+    adaptive_threshold = threshold_calibrator_->threshold_metric() * factor;
     snapshot_.startup_threshold = adaptive_threshold;
     if (detector_ != nullptr) {
       float variance_floor = 0.0f;
       bool vote_enabled = false;
       uint16_t floor_count = 0;
-      threshold_calibrator_.floor_snapshot(variance_floor, vote_enabled, floor_count);
+      threshold_calibrator_->floor_snapshot(variance_floor, vote_enabled, floor_count);
       detector_->apply_startup_floor(variance_floor, vote_enabled, floor_count);
       detector_->on_startup_calibration_complete();
     }
@@ -382,7 +396,7 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
     if (config_.threshold_mode != ThresholdMode::MANUAL) {
       set_threshold_runtime(adaptive_threshold);
       ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (%s x %.1f)", adaptive_threshold,
-               threshold_calibrator_.statistic_name(), factor);
+               threshold_calibrator_->statistic_name(), factor);
     }
     csi_pipeline_.clear_detector_buffer();
   }
@@ -391,6 +405,7 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
     listener_->on_calibration_finished(snapshot_, success);
   }
   ESP_LOGD(RUNTIME_TAG, "Calibration %s", success ? "completed successfully" : "failed");
+  threshold_calibrator_.reset();
 }
 
 void EspIdfRuntime::notify_fault_(const char *message) {

@@ -17,8 +17,8 @@
 #include "base_detector.h"
 #include "csi_format.h"
 #include "features.h"
+#include "l1_delta_tracker.h"
 #include "utils.h"
-#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -34,9 +34,7 @@ constexpr float CLASSIC_RECOVERY_VOTE_RATIO = 3.0f;
 constexpr float CLASSIC_RECOVERY_DISPERSION_CUT = 4.0f;
 
 constexpr uint8_t CLASSIC_L1_LAG = L1_DELTA_LAG;
-constexpr uint16_t CLASSIC_VARIANCE_FLOOR_SIZE = 1000;
 constexpr uint16_t CLASSIC_VARIANCE_FLOOR_MIN = 300;
-constexpr uint16_t CLASSIC_VARIANCE_FLOOR_REFRESH = 100;
 
 class ClassicDetector : public BaseDetector {
 public:
@@ -58,7 +56,7 @@ public:
     void update_state() override;
     void reset() override;
     void clear_buffer() override;
-    bool is_ready() const override { return delta_count_ >= window_size_; }
+    bool is_ready() const override { return l1_tracker_.count() >= window_size_; }
     float get_motion_metric() const override { return current_l1_metric_; }
     bool set_threshold(float threshold) override;
     float get_threshold() const override { return threshold_; }
@@ -80,25 +78,14 @@ public:
 private:
     void clear_l1_state_();
     float calculate_moving_variance_() const;
-    void push_variance_floor_(float value);
-    void refresh_variance_floor_();
 
     float threshold_;
     float current_l1_metric_;
     float current_moving_variance_;
 
-    float profile_ring_[CLASSIC_L1_LAG][HT20_SELECTED_BAND_SIZE];
-    uint8_t profile_len_[CLASSIC_L1_LAG];
+    L1DeltaTracker l1_tracker_;
 
-    float delta_ring_[DETECTOR_MAX_WINDOW_SIZE];
-    uint16_t delta_index_;
-    uint16_t delta_count_;
-    uint32_t l1_packet_count_;
-
-    float variance_floor_ring_[CLASSIC_VARIANCE_FLOOR_SIZE];
-    uint16_t floor_idx_;
     uint16_t floor_count_;
-    uint16_t since_refresh_;
     float variance_floor_;
     bool recovery_vote_configured_;
     bool recovery_vote_enabled_;

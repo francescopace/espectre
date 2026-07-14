@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include "detector_limits.h"
 #include "filters.h"
 #include "utils.h"
 
@@ -25,18 +26,6 @@ enum class MotionState {
     IDLE,       // No motion detected
     MOTION      // Motion in progress
 };
-
-// ============================================================================
-// DETECTOR CONSTANTS
-// ============================================================================
-
-constexpr uint16_t DETECTOR_DEFAULT_WINDOW_SIZE = 100;
-constexpr uint16_t DETECTOR_MIN_WINDOW_SIZE = 10;
-constexpr uint16_t DETECTOR_MAX_WINDOW_SIZE = 200;
-
-// Calibration buffer size = 10 windows worth of packets
-constexpr uint16_t CALIBRATION_NUM_WINDOWS = 10;
-constexpr uint16_t CALIBRATION_DEFAULT_BUFFER_SIZE = DETECTOR_DEFAULT_WINDOW_SIZE * CALIBRATION_NUM_WINDOWS;
 
 // ============================================================================
 // BASE DETECTOR CLASS
@@ -259,6 +248,8 @@ public:
     bool is_hampel_enabled() const { return hampel_state_.enabled; }
 
 protected:
+    void process_amplitudes(const float* amplitudes, uint8_t count);
+
     /**
      * Add turbulence value to buffer (with filtering)
      */

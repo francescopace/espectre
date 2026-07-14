@@ -40,6 +40,9 @@ class EspIdfRuntime : public IEspectreRuntime {
   void on_wifi_disconnected_();
   bool start_calibration_();
   bool handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len);
+  static bool threshold_calibration_packet_callback_(void *context,
+                                                     const int8_t *csi_data,
+                                                     size_t csi_len);
   void finish_threshold_calibration_(bool success);
   void notify_fault_(const char *message);
   bool has_wifi_ip_() const;
@@ -57,7 +60,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   WiFiLifecycleManager wifi_lifecycle_;
   CsiTrafficService csi_traffic_service_;
 
-  StartupThresholdCalibrator threshold_calibrator_;
+  std::unique_ptr<StartupThresholdCalibrator> threshold_calibrator_;
   std::atomic<bool> threshold_calibration_active_{false};
   // Posted from the CSI callback with the outcome, completed from the loop.
   PendingEvent<bool> calibration_finished_event_;

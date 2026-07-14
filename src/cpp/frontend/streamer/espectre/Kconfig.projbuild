@@ -42,7 +42,7 @@ menu "ESPectre CSI Streamer"
 
     config ESPECTRE_STREAM_TX_BATCH_RECORDS
         int "CSI records per uplink stream datagram"
-        range 1 8
+        range 1 7
         default 4
         help
             Number of CSI stream records concatenated into one uplink UDP

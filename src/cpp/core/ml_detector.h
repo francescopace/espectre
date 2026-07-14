@@ -21,6 +21,7 @@
 #include "base_detector.h"
 #include "csi_format.h"
 #include "features.h"
+#include "l1_delta_tracker.h"
 #include <cstdint>
 #include <cstddef>
 
@@ -52,8 +53,8 @@ public:
     ~MLDetector() override = default;
     
     // Move semantics inherited from BaseDetector
-    MLDetector(MLDetector&& other) noexcept;
-    MLDetector& operator=(MLDetector&& other) noexcept;
+    MLDetector(MLDetector&& other) noexcept = default;
+    MLDetector& operator=(MLDetector&& other) noexcept = default;
     
     // Disable copy
     MLDetector(const MLDetector&) = delete;
@@ -78,19 +79,6 @@ private:
      * Extract ML features from the turbulence buffer and L1-delta series
      */
     void extract_features(float* features_out);
-
-    /**
-     * Reconstruct the L1-delta series in chronological order.
-     *
-     * @param out Destination buffer (at least DETECTOR_MAX_WINDOW_SIZE)
-     * @return Number of valid delta samples written
-     */
-    uint16_t build_delta_series(float* out) const;
-
-    /**
-     * Reset the L1-delta profile and delta rings (cold clear).
-     */
-    void clear_l1_state_();
 
     /**
      * L1-delta ring capacity for this window: window_size - lag (0 if window
@@ -118,12 +106,7 @@ private:
     // Mirrors the shared L1-delta tracker rings; keep aligned with the Python
     // features.l1_delta_series reference.
     bool uses_l1_features_;
-    float profile_ring_[L1_DELTA_LAG][HT20_SELECTED_BAND_SIZE];
-    uint8_t profile_len_[L1_DELTA_LAG];
-    float delta_ring_[DETECTOR_MAX_WINDOW_SIZE];
-    uint16_t delta_index_;
-    uint16_t delta_count_;
-    uint32_t l1_packet_count_;
+    L1DeltaTracker l1_tracker_;
 };
 
 }  // namespace espectre

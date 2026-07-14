@@ -104,9 +104,7 @@ bool StreamEspIdfRuntime::setup() {
   }
 
   capture_service_.init();
-  capture_service_.set_raw_packet_interceptor({});
-  capture_service_.set_packet_callback(
-      [this](const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) { this->handle_csi_packet_(info, normalized); });
+  capture_service_.set_packet_callback(&StreamEspIdfRuntime::capture_packet_callback_, this);
 
   csi_traffic_service_.init(to_csi_traffic_config(config_));
   stream_transport_.configure(config_.device_id,
@@ -308,6 +306,15 @@ void StreamEspIdfRuntime::notify_fault_(const char *message) {
 
 void StreamEspIdfRuntime::handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) {
   stream_transport_.handle_csi_packet(info, normalized, state_.load(std::memory_order_relaxed) == WorkflowState::STREAMING);
+}
+
+void StreamEspIdfRuntime::capture_packet_callback_(void *context,
+                                                   const wifi_csi_info_t *info,
+                                                   const NormalizedCSIPayload &normalized) {
+  auto *runtime = static_cast<StreamEspIdfRuntime *>(context);
+  if (runtime != nullptr) {
+    runtime->handle_csi_packet_(info, normalized);
+  }
 }
 
 }  // namespace espectre

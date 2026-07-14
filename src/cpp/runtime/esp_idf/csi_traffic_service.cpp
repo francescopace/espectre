@@ -11,24 +11,24 @@ static const char *const TAG = "CsiTrafficService";
 }  // namespace
 
 void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
-  config_ = config;
-  traffic_generator_.init(config_.rate_pps, config_.traffic_mode);
-  udp_listener_.init(config_.udp_port);
-  if (!config_.multicast_group.empty()) {
-    udp_listener_.set_multicast_group(config_.multicast_group.c_str());
+  mode_ = config.mode;
+  traffic_generator_.init(config.rate_pps, config.traffic_mode);
+  udp_listener_.init(config.udp_port);
+  if (!config.multicast_group.empty()) {
+    udp_listener_.set_multicast_group(config.multicast_group.c_str());
   } else {
     udp_listener_.set_multicast_group(nullptr);
   }
-  if (!config_.expected_payload.empty()) {
-    udp_listener_.set_expected_payload(reinterpret_cast<const uint8_t *>(config_.expected_payload.data()),
-                                       config_.expected_payload.size());
+  if (!config.expected_payload.empty()) {
+    udp_listener_.set_expected_payload(reinterpret_cast<const uint8_t *>(config.expected_payload.data()),
+                                       config.expected_payload.size());
   } else {
     udp_listener_.set_expected_payload(nullptr, 0U);
   }
 }
 
 bool CsiTrafficService::start() {
-  switch (config_.mode) {
+  switch (mode_) {
     case CsiTrafficMode::INTERNAL:
       return traffic_generator_.is_running() ? true : traffic_generator_.start();
     case CsiTrafficMode::EXTERNAL:
@@ -60,7 +60,7 @@ void CsiTrafficService::loop() {
 }
 
 bool CsiTrafficService::is_running() const {
-  switch (config_.mode) {
+  switch (mode_) {
     case CsiTrafficMode::INTERNAL:
       return traffic_generator_.is_running();
     case CsiTrafficMode::EXTERNAL:

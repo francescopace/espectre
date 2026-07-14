@@ -2,7 +2,9 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 
 #include "csi_capture_service.h"
 #include "csi_format.h"
@@ -66,7 +68,8 @@ class CsiStreamTransport {
   uint64_t latest_csi_sent_total_{0U};
   int stream_sock_{-1};
 
-  std::array<uint8_t, STREAM_MAX_BATCH_RECORDS *(sizeof(CsiStreamHeaderV6) + HT20_CSI_LEN)> batch_buffer_{};
+  std::unique_ptr<uint8_t[]> batch_buffer_;
+  size_t batch_capacity_{0U};
   size_t batch_len_{0U};
   uint8_t batch_records_pending_{0U};
   uint64_t batch_first_ms_{0U};

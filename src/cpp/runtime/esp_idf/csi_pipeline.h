@@ -35,7 +35,7 @@ using motion_state_callback_t = std::function<void(MotionState)>;
 using live_telemetry_callback_t = std::function<void(float movement, float threshold)>;
 
 // Callback type for intercepting normalized CSI packets before detector processing.
-using csi_packet_interceptor_t = std::function<bool(const int8_t *, size_t)>;
+using csi_packet_interceptor_t = bool (*)(void *, const int8_t *, size_t);
 
 /**
  * CSI Pipeline
@@ -100,8 +100,9 @@ class CsiPipeline {
    * When present, normalized CSI packets are offered to the interceptor before
    * the detector sees them. Returning true consumes the packet.
    */
-  void set_packet_interceptor(csi_packet_interceptor_t interceptor) {
-    packet_interceptor_ = std::move(interceptor);
+  void set_packet_interceptor(csi_packet_interceptor_t interceptor, void *context = nullptr) {
+    packet_interceptor_ = interceptor;
+    packet_interceptor_context_ = context;
   }
   
   /**
@@ -136,6 +137,9 @@ class CsiPipeline {
   
  private:
   void process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized);
+  static void capture_packet_callback_(void *context,
+                                       const wifi_csi_info_t *data,
+                                       const NormalizedCSIPayload &normalized);
   void clear_detector_buffer_deferred_();
   void request_motion_state_callback_(MotionState previous_state, MotionState current_state);
   MotionState update_effective_motion_state_(MotionState detector_state);
@@ -143,14 +147,14 @@ class CsiPipeline {
   
   bool enabled_{false};
   BaseDetector* detector_{nullptr};
-  csi_packet_interceptor_t packet_interceptor_;
+  csi_packet_interceptor_t packet_interceptor_{nullptr};
+  void *packet_interceptor_context_{nullptr};
   csi_processed_callback_t packet_callback_;
   motion_state_callback_t motion_state_callback_;
   live_telemetry_callback_t live_telemetry_callback_;
   uint32_t publish_rate_{100};
   uint32_t evaluation_interval_{25};
   volatile uint32_t packets_processed_{0};
-  volatile uint32_t packets_filtered_{0};
   uint32_t packets_since_evaluation_{0};
   uint32_t packets_total_{0};
   uint8_t current_channel_{0};

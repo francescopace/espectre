@@ -1,7 +1,6 @@
 #pragma once
 
 #include <atomic>
-#include <functional>
 
 #include "csi_payload_normalizer.h"
 #include "esp_attr.h"
@@ -13,8 +12,7 @@
 
 namespace espectre {
 
-using csi_capture_raw_packet_interceptor_t = std::function<bool(const wifi_csi_info_t *)>;
-using csi_capture_packet_callback_t = std::function<void(const wifi_csi_info_t *, const NormalizedCSIPayload &)>;
+using csi_capture_packet_callback_t = void (*)(void *, const wifi_csi_info_t *, const NormalizedCSIPayload &);
 
 class CsiCaptureService {
  public:
@@ -30,7 +28,6 @@ class CsiCaptureService {
   uint32_t filtered_packets() const { return filtered_packets_.load(std::memory_order_relaxed); }
   uint32_t callback_invocations() const { return callback_invocations_.load(std::memory_order_relaxed); }
   uint32_t null_or_empty_packets() const { return null_or_empty_packets_.load(std::memory_order_relaxed); }
-  uint32_t interceptor_drops() const { return interceptor_drops_.load(std::memory_order_relaxed); }
   uint32_t normalized_invalid_packets() const {
     return normalized_invalid_packets_.load(std::memory_order_relaxed);
   }
@@ -46,10 +43,10 @@ class CsiCaptureService {
   }
   esp_err_t last_disable_err() const { return static_cast<esp_err_t>(last_disable_err_.load(std::memory_order_relaxed)); }
 
-  void set_raw_packet_interceptor(csi_capture_raw_packet_interceptor_t interceptor) {
-    raw_packet_interceptor_ = std::move(interceptor);
+  void set_packet_callback(csi_capture_packet_callback_t callback, void *context = nullptr) {
+    packet_callback_ = callback;
+    packet_callback_context_ = context;
   }
-  void set_packet_callback(csi_capture_packet_callback_t callback) { packet_callback_ = std::move(callback); }
 
  private:
   static void IRAM_ATTR csi_rx_callback_wrapper_(void *ctx, wifi_csi_info_t *data);
@@ -58,12 +55,11 @@ class CsiCaptureService {
   bool enabled_{false};
   IWiFiCSI *wifi_csi_{nullptr};
   WiFiCSIReal default_wifi_csi_;
-  csi_capture_raw_packet_interceptor_t raw_packet_interceptor_;
-  csi_capture_packet_callback_t packet_callback_;
+  csi_capture_packet_callback_t packet_callback_{nullptr};
+  void *packet_callback_context_{nullptr};
   std::atomic<uint32_t> filtered_packets_{0U};
   std::atomic<uint32_t> callback_invocations_{0U};
   std::atomic<uint32_t> null_or_empty_packets_{0U};
-  std::atomic<uint32_t> interceptor_drops_{0U};
   std::atomic<uint32_t> normalized_invalid_packets_{0U};
   std::atomic<uint32_t> valid_packets_{0U};
   std::atomic<uint32_t> enable_attempts_{0U};

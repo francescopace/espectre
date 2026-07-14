@@ -16,11 +16,7 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
       snapshot_(frontend_runtime_shim::state.snapshot),
       capabilities_(frontend_runtime_shim::state.capabilities),
       listener_(nullptr),
-      detector_(nullptr),
-      classic_detector_(config.segmentation_window_size,
-                        config.segmentation_threshold,
-                        config.classic_recovery_vote_enabled),
-      ml_detector_(config.segmentation_window_size, config.segmentation_threshold) {
+      detector_(nullptr) {
   frontend_runtime_shim::state.last_instance = this;
   if (frontend_runtime_shim::state.snapshot.threshold == SEGMENTATION_DEFAULT_THRESHOLD) {
     snapshot_.threshold = config.segmentation_threshold;

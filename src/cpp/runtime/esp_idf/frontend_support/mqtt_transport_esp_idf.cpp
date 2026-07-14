@@ -37,8 +37,7 @@ std::string make_topic_base(const EspectreDeviceConfig &config) {
 }  // namespace
 
 bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
-  config_ = config;
-  if (config_.mqtt_host.empty()) {
+  if (config.mqtt_host.empty()) {
     return false;
   }
 
@@ -46,18 +45,21 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
     shutdown();
   }
 
-  broker_uri_ = make_broker_uri(config_);
-  topic_base_ = make_topic_base(config_);
+  broker_uri_ = make_broker_uri(config);
+  mqtt_username_ = config.mqtt_username;
+  mqtt_password_ = config.mqtt_password;
+  topic_base_ = make_topic_base(config);
+  publish_topic_.reserve(topic_base_.size() + 24U);
   command_topic_ = topic_base_ + "commands/request";
   last_will_topic_ = topic_base_ + "status";
-  last_will_payload_ = espectre_status_payload(config_, false, 0);
+  last_will_payload_ = espectre_status_payload(config, false, 0);
   esp_mqtt_client_config_t mqtt_config{};
   mqtt_config.broker.address.uri = broker_uri_.c_str();
-  if (!config_.mqtt_username.empty()) {
-    mqtt_config.credentials.username = config_.mqtt_username.c_str();
+  if (!mqtt_username_.empty()) {
+    mqtt_config.credentials.username = mqtt_username_.c_str();
   }
-  if (!config_.mqtt_password.empty()) {
-    mqtt_config.credentials.authentication.password = config_.mqtt_password.c_str();
+  if (!mqtt_password_.empty()) {
+    mqtt_config.credentials.authentication.password = mqtt_password_.c_str();
   }
   mqtt_config.session.last_will.topic = last_will_topic_.c_str();
   mqtt_config.session.last_will.msg = last_will_payload_.c_str();
@@ -86,6 +88,7 @@ void EspIdfMqttTransport::loop() {}
 
 void EspIdfMqttTransport::shutdown() {
   connected_ = false;
+  command_payload_assembler_.reset();
   if (client_ == nullptr) {
     return;
   }
@@ -103,10 +106,14 @@ bool EspIdfMqttTransport::publish(const std::string &topic, const std::string &p
 }
 
 bool EspIdfMqttTransport::publish_suffix(const char *suffix, const std::string &payload, bool retain) {
-  if (suffix == nullptr || suffix[0] == '\0') {
+  if (client_ == nullptr || !connected_ || suffix == nullptr || suffix[0] == '\0') {
     return false;
   }
-  return publish(topic_base_ + suffix, payload, retain);
+  publish_topic_.assign(topic_base_);
+  publish_topic_.append(suffix);
+  const int id = esp_mqtt_client_publish(
+      client_, publish_topic_.c_str(), payload.c_str(), 0, 0, retain ? 1 : 0);
+  return id >= 0;
 }
 
 void EspIdfMqttTransport::set_command_callback(CommandCallback callback) {
@@ -151,7 +158,17 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
       break;
     case MQTT_EVENT_DATA:
       if (command_callback_ && event->data != nullptr && event->data_len > 0) {
-        command_callback_(std::string(event->data, event->data_len));
+        const auto result = command_payload_assembler_.append(
+            event->data,
+            static_cast<size_t>(event->data_len),
+            static_cast<size_t>(event->total_data_len),
+            static_cast<size_t>(event->current_data_offset));
+        if (result == MqttPayloadAssembler::Result::COMPLETE) {
+          command_callback_(command_payload_assembler_.payload());
+          command_payload_assembler_.reset();
+        } else if (result == MqttPayloadAssembler::Result::INVALID) {
+          ESP_LOGW(TAG, "Rejected invalid or oversized MQTT command payload");
+        }
       }
       break;
     default:
