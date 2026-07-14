@@ -4,6 +4,16 @@
 
 Brief description of the changes in this PR.
 
+## Affected Area
+
+- [ ] Shared core/runtime
+- [ ] ESPHome
+- [ ] Matter
+- [ ] Native
+- [ ] Streamer
+- [ ] Micro-ESPectre / Python tooling
+- [ ] Documentation / GitHub / CI
+
 ## Type of Change
 
 - [ ] Bug fix (non-breaking change that fixes an issue)
@@ -35,4 +45,5 @@ Closes #
 - [ ] I have updated the documentation accordingly
 - [ ] I have added an entry to CHANGELOG.md (if applicable)
 - [ ] My changes generate no new warnings
+- [ ] My commits include `Signed-off-by` trailers (`git commit -s`)
 

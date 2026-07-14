@@ -1,0 +1,151 @@
+name: Bug report
+description: Report a reproducible bug in firmware, tooling, docs, or CI
+title: "[BUG] "
+labels:
+  - bug
+body:
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before You Start
+      description: A quick check helps keep triage fast.
+      options:
+        - label: I searched existing issues for similar reports.
+          required: true
+        - label: I can reproduce this issue on a current release or recent `main` snapshot.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Frontend or area
+      description: Pick the closest match.
+      options:
+        - ESPHome
+        - Matter
+        - Native
+        - Streamer
+        - Micro-ESPectre
+        - Shared core/runtime
+        - Docs
+        - CI/tooling
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_path
+    attributes:
+      label: Installation path
+      description: How are you using or building ESPectre?
+      options:
+        - Web Flash
+        - ESPectre CLI
+        - ESP-IDF directly
+        - ESPHome local build
+        - MicroPython workflow
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ESPectre version or commit
+      description: Release tag, `main`, snapshot, or commit SHA.
+      placeholder: "3.0.0, main, snapshot, or a1b2c3d"
+    validations:
+      required: true
+
+  - type: input
+    id: board
+    attributes:
+      label: Board and chip
+      description: Include the board name when possible.
+      placeholder: "XIAO ESP32-C6, ESP32-S3 DevKitC-1, or generic ESP32-C3"
+    validations:
+      required: true
+
+  - type: input
+    id: host_os
+    attributes:
+      label: Host OS
+      description: Required for local builds, tooling, web, or collector issues.
+      placeholder: "macOS 15, Ubuntu 24.04, Windows 11, or N/A"
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      description: Fill if relevant for your path.
+      placeholder: "Home Assistant 2026.7, ESPHome 2026.6, Apple Home, Google Home, or N/A"
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A short summary of the problem.
+      placeholder: "After flashing the Matter image, commissioning fails right after BLE discovery."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: "The device should finish commissioning and expose occupancy."
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Be as concrete as possible.
+      placeholder: |
+        1. Flash ...
+        2. Configure ...
+        3. Run ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config or command
+      description: Paste the relevant frontend config, CLI command, `sdkconfig` diff, collector settings, or Python/YAML snippet. Remove secrets first.
+      render: text
+      placeholder: |
+        ./espectre native build --chip c3 --clean
+        
+        # or relevant YAML / sdkconfig lines / collector command
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste serial logs, CLI output, collector output, or browser console logs.
+      render: text
+      placeholder: |
+        Paste logs here
+
+  - type: textarea
+    id: crash_artifacts
+    attributes:
+      label: Crash debug artifacts
+      description: If this is a crash, attach the `.elf` and `.map` files, then note the paths here.
+      value: |
+        ESPHome: `.esphome/build/<device-name>/.pioenvs/<device-name>/firmware.elf` and `firmware.map`
+        Matter: `src/cpp/frontend/matter/app/build-<target>/espectre-matter.elf` and the corresponding `.map`
+        Native: `src/cpp/frontend/native/app/build-<target>/espectre-native.elf` and the corresponding `.map`
+        Streamer: `src/cpp/frontend/streamer/app/build-<target>/espectre-streamer.elf` and the corresponding `.map`
+
+        For collector or tooling bugs, also include the exact command you ran and any related host-side logs.
+      render: text
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Screenshots, references, related issues, router model, or anything else useful.

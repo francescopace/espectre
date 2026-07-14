@@ -3,7 +3,7 @@ description: 'Run ESP32 firmware smoke test in QEMU emulator'
 
 inputs:
   config:
-    description: 'ESPHome config path used for the build'
+    description: 'Optional ESPHome config path when smoke-testing an ESPHome build'
     required: false
   firmware:
     description: 'Path to a prebuilt firmware image already suitable for QEMU flash'

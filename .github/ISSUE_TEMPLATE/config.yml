@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Design discussion or open-ended question
+    url: https://github.com/francescopace/espectre/discussions
+    about: Use GitHub Discussions for broad design topics, integration ideas, and open-ended questions.

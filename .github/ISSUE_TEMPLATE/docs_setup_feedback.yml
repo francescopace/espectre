@@ -1,0 +1,62 @@
+name: Docs, setup, or UX feedback
+description: Report confusing setup, missing docs, or onboarding friction
+title: "[DOCS] "
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - README
+        - Setup guide
+        - Frontend README
+        - Web flasher
+        - CLI UX
+        - Documentation site
+        - GitHub templates / CI UX
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frontend
+    attributes:
+      label: Related frontend
+      description: Pick the closest match if relevant.
+      options:
+        - ESPHome
+        - Matter
+        - Native
+        - Streamer
+        - Micro-ESPectre
+        - Shared / multiple
+        - Not frontend-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What was confusing or missing?
+      placeholder: "I followed the setup guide for Matter, but it is not clear when the commissioning window should appear."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expectation
+    attributes:
+      label: What would have helped?
+      placeholder: "A short note after flashing that explains the expected commissioning behavior."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Relevant context
+      description: Link the page, command, screenshot, or step where the confusion happened.
+      render: text
+      placeholder: |
+        Page or file:
+        Exact command:
+        Screenshot or log:

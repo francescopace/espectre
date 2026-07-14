@@ -1,0 +1,36 @@
+name: Other
+description: Use this when your report does not fit the structured forms above
+title: "[OTHER] "
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Frontend or area
+      options:
+        - ESPHome
+        - Matter
+        - Native
+        - Streamer
+        - Micro-ESPectre
+        - Shared core/runtime
+        - Docs
+        - CI/tooling
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the issue, question, or topic.
+      placeholder: "Describe what you want to report or ask."
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional details
+      description: Include links, context, related issues, or anything useful for triage.
+      render: text

@@ -1,4 +1,4 @@
-# Gitignore settings for ESPHome
+# Gitignore settings for local QEMU smoke-test configs
 # This is an example and may include too much for your use-case.
 # You can modify this file to suit your needs.
 /.esphome/

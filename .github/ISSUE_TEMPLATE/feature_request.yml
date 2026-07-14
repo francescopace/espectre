@@ -1,0 +1,91 @@
+name: Feature request
+description: Propose a new capability or meaningful improvement
+title: "[FEATURE] "
+labels:
+  - enhancement
+body:
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before You Start
+      options:
+        - label: I searched existing issues for related requests.
+          required: true
+        - label: I checked `docs/ROADMAP.md` to see whether this is already planned.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Frontend or area
+      description: Pick the closest match.
+      options:
+        - ESPHome
+        - Matter
+        - Native
+        - Streamer
+        - Micro-ESPectre
+        - Shared core
+        - Shared runtime
+        - Docs
+        - CI/tooling
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A concise description of the feature.
+      placeholder: "Add a guided Wi-Fi provisioning flow for the native frontend web client."
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What are you trying to accomplish, why does it matter, and who benefits?
+      placeholder: |
+        I want to ...
+        This matters because ...
+        The main users are ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you want.
+      placeholder: |
+        The feature should ...
+        Users would interact with it by ...
+        Configuration would live in ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds, rejected ideas, or competing approaches.
+      placeholder: "I also considered ..."
+
+  - type: textarea
+    id: implementation_notes
+    attributes:
+      label: Implementation notes
+      description: Optional technical context such as affected modules, constraints, or likely challenges.
+      placeholder: |
+        Affected modules:
+        Potential challenges:
+        Related docs or prior issues:
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to help implement this feature.
