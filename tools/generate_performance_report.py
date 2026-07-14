@@ -24,6 +24,7 @@ from tools.lib.performance_report import (
     render_performance_report_markdown,
     write_performance_report,
 )
+from tools.lib.cpp_parity import verify_cpp_report_parity
 
 
 def _format_duration(seconds: float) -> str:
@@ -86,6 +87,8 @@ def main() -> int:
     started_at = datetime.now().astimezone()
     progress("starting report generation")
     report_data = compute_performance_report_data(progress=progress)
+    progress("starting C++ parity verification")
+    verify_cpp_report_parity(report_data, progress=progress)
     progress("collecting execution metadata")
     execution_info = {
         "last_update": datetime.now().astimezone().date().isoformat(),

@@ -65,6 +65,7 @@ class EspIdfRuntime : public IEspectreRuntime {
 
   std::unique_ptr<StartupThresholdCalibrator> threshold_calibrator_;
   std::atomic<bool> threshold_calibration_active_{false};
+  uint32_t calibration_packets_since_evaluation_{0};
   std::atomic<uint8_t> next_calibration_progress_percent_{25U};
   PendingEvent<uint8_t, uint32_t, uint16_t> calibration_progress_event_;
   // Posted from the CSI callback with the outcome, completed from the loop.

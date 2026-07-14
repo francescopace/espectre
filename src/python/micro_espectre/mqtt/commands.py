@@ -18,6 +18,16 @@ SEG_THRESHOLD_MAX = 10.0
 ML_THRESHOLD_MAX = 1.0
 
 
+def _is_ascii_alnum(char):
+    """Return whether one character is an ASCII letter or digit."""
+    code = ord(char)
+    return (
+        48 <= code <= 57
+        or 65 <= code <= 90
+        or 97 <= code <= 122
+    )
+
+
 def _threshold_bounds_for_detector(detector):
     """Return the accepted threshold range for the active detector."""
     algorithm = str(getattr(detector, "ALGORITHM", "")).lower()
@@ -30,7 +40,7 @@ def _normalize_chip_label(chip):
     """Normalize chip identifiers to the shared short labels used by firmware."""
     if not chip:
         return "UNK"
-    normalized = ''.join(ch for ch in str(chip).upper() if ch.isalnum())
+    normalized = ''.join(ch for ch in str(chip).upper() if _is_ascii_alnum(ch))
     if normalized == "ESP32C3":
         return "C3"
     if normalized == "ESP32C5":
@@ -46,7 +56,9 @@ def _normalize_chip_label(chip):
 
 def _protocol_device_name(device_id, chip):
     """Build the immutable ESPectre device name from chip and device_id."""
-    compact_id = ''.join(ch for ch in str(device_id).lower() if ch.isalnum())
+    compact_id = ''.join(
+        ch for ch in str(device_id).lower() if _is_ascii_alnum(ch)
+    )
     suffix = compact_id[-6:] if compact_id else "000000"
     return "ESPectre {} {}".format(_normalize_chip_label(chip), suffix)
 

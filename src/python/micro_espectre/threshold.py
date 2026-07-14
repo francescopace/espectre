@@ -119,28 +119,37 @@ class StartupThresholdCalibrator:
         self._floor_idx = 0
         self._floor_count = 0
 
-    def observe_detector(self, detector):
+    def observe_detector(self, detector, packet_weight=1):
         """
-        Consume one processed detector step.
+        Consume one evaluated detector step representing one or more packets.
 
         Returns the current motion metric when the detector is ready,
         otherwise ``None``.
         """
-        self.packet_count += 1
+        remaining_budget = self.target_packets - self.packet_count
+        weight = min(max(1, int(packet_weight)), remaining_budget)
+        if weight <= 0:
+            return None
+        initial_remaining = remaining_budget
+        self.packet_count += weight
         if not detector.is_ready():
             return None
 
-        self.ready_packet_count += 1
+        self.ready_packet_count += weight
         current_metric = float(detector.get_motion_metric())
         if self.max_motion_metric is None or current_metric > self.max_motion_metric:
             self.max_motion_metric = current_metric
             self.max_moving_variance = current_metric
         if self.gate_enabled:
             if not self.gate_accepted:
-                self._observe_gate_metric(current_metric)
+                self._observe_gate_metric(
+                    current_metric,
+                    weight,
+                    initial_remaining,
+                )
             if not self._motion_accepted and self.packet_count <= self.target_packets:
                 floor_metric = self._extract_floor_metric(detector)
-                self._observe_motion_chunk(current_metric, floor_metric)
+                self._observe_motion_chunk(current_metric, floor_metric, weight)
             if (not self.gate_accepted
                     and self.packet_count >= self.target_packets
                     and self._chunk_count > 0
@@ -155,19 +164,26 @@ class StartupThresholdCalibrator:
             return float(getter())
         return float(getattr(detector, "_last_moving_variance", 0.0))
 
-    def _observe_gate_metric(self, metric):
-        """Fold one ready-state metric into the fallback quiet-first chunk ring."""
+    def _observe_gate_metric(self, metric, weight=1, initial_remaining=None):
+        """Fold one weighted metric into the fallback quiet-first chunk ring."""
         if self._chunk_size is None:
-            remaining = self.target_packets - self.packet_count + 1
+            remaining = (
+                initial_remaining
+                if initial_remaining is not None
+                else self.target_packets - self.packet_count + 1
+            )
             self._chunk_size = max(1, remaining // self.gate_chunks)
 
-        if self._chunk_count == 0 or metric > self._chunk_max:
-            self._chunk_max = metric
-        self._chunk_count += 1
-        if self._chunk_count < self._chunk_size:
-            return
-
-        self._close_gate_chunk()
+        remaining_weight = weight
+        while remaining_weight > 0 and not self.gate_accepted:
+            if self._chunk_count == 0 or metric > self._chunk_max:
+                self._chunk_max = metric
+            available = self._chunk_size - self._chunk_count
+            take = min(remaining_weight, available)
+            self._chunk_count += take
+            remaining_weight -= take
+            if self._chunk_count >= self._chunk_size:
+                self._close_gate_chunk()
 
     def _close_gate_chunk(self):
         """Commit the current full or final partial fallback chunk."""
@@ -185,25 +201,31 @@ class StartupThresholdCalibrator:
         if len(self._chunk_ring) >= self.gate_chunks and self._gate_ok():
             self.gate_accepted = True
 
-    def _observe_motion_chunk(self, metric, floor_metric):
-        """Accumulate one ready-state sample into the motion-first chunker."""
-        if self._motion_chunk_count == 0 or metric > self._motion_chunk_max:
-            self._motion_chunk_max = metric
-        self._motion_chunk_sum += metric
-        self._motion_chunk_count += 1
-        self._chunk_floor_samples.append(floor_metric)
+    def _observe_motion_chunk(self, metric, floor_metric, weight=1):
+        """Accumulate one weighted sample into the motion-first chunker."""
+        remaining_weight = weight
+        while remaining_weight > 0 and not self._motion_accepted:
+            if self._motion_chunk_count == 0 or metric > self._motion_chunk_max:
+                self._motion_chunk_max = metric
+            available = STARTUP_MOTION_CHUNK_SIZE - self._motion_chunk_count
+            take = min(remaining_weight, available)
+            self._motion_chunk_sum += metric * take
+            self._motion_chunk_count += take
+            for _ in range(take):
+                self._chunk_floor_samples.append(floor_metric)
+            remaining_weight -= take
 
-        if self._motion_chunk_count < STARTUP_MOTION_CHUNK_SIZE:
-            return
+            if self._motion_chunk_count < STARTUP_MOTION_CHUNK_SIZE:
+                continue
 
-        level = self._motion_chunk_sum / self._motion_chunk_count
-        peak = self._motion_chunk_max
-        floor_samples = self._chunk_floor_samples
-        self._motion_chunk_sum = 0.0
-        self._motion_chunk_max = 0.0
-        self._motion_chunk_count = 0
-        self._chunk_floor_samples = []
-        self._consume_closed_motion_chunk(level, peak, floor_samples)
+            level = self._motion_chunk_sum / self._motion_chunk_count
+            peak = self._motion_chunk_max
+            floor_samples = self._chunk_floor_samples
+            self._motion_chunk_sum = 0.0
+            self._motion_chunk_max = 0.0
+            self._motion_chunk_count = 0
+            self._chunk_floor_samples = []
+            self._consume_closed_motion_chunk(level, peak, floor_samples)
 
     def _consume_closed_motion_chunk(self, level, peak, floor_samples):
         """Classify a closed startup chunk for motion-first calibration."""

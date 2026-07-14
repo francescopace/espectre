@@ -275,8 +275,11 @@ datasets
   paired real-data and long-recording validation suites
 - Recomputes the published Classic and ML aggregate tables directly from the
   current `data/` captures
+- Builds and runs the host-side C++ integration suites before publishing so
+  Python and C++ drift is caught immediately
 - Keeps the checked regression behavior and the published documentation aligned
-  without copying metric logic into the Markdown file
+  without copying metric logic into the Markdown file or trusting only one
+  implementation
 
 ```bash
 python generate_performance_report.py

@@ -2,9 +2,6 @@
 Shared console formatting helpers for live motion detection output.
 """
 
-from __future__ import annotations
-
-
 def format_progress_bar(
     progress,
     width=20,

@@ -30,6 +30,13 @@ if (
 ):
     reexec_env = os.environ.copy()
     reexec_env["ESPECTRE_SKIP_VENV_REEXEC"] = "1"
+    venv_bin = str(REPO_VENV_PYTHON.parent)
+    current_path = reexec_env.get("PATH", "")
+    reexec_env["PATH"] = (
+        venv_bin + os.pathsep + current_path
+        if current_path
+        else venv_bin
+    )
     os.execve(str(REPO_VENV_PYTHON), [str(REPO_VENV_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]], reexec_env)
 
 PYTHON_SRC_DIR = REPO_ROOT / "src" / "python"

@@ -347,6 +347,7 @@ bool EspIdfRuntime::start_calibration_() {
                                detector_ != nullptr && detector_->startup_gate_enabled());
   calibration_finished_event_.clear();
   calibration_progress_event_.clear();
+  calibration_packets_since_evaluation_ = 0;
   next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
   threshold_calibration_active_.store(true, std::memory_order_relaxed);
   csi_pipeline_.clear_detector_buffer();
@@ -364,9 +365,18 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
 
   detector_->process_packet(csi_data, csi_len, snapshot_.fixed_subcarriers.data(),
                             HT20_SELECTED_BAND_SIZE);
+  calibration_packets_since_evaluation_++;
+  const uint32_t evaluation_interval = std::max<uint32_t>(config_.evaluation_interval, 1U);
+  if (calibration_packets_since_evaluation_ < evaluation_interval) {
+    return true;
+  }
+
+  const uint16_t packet_weight = static_cast<uint16_t>(
+      std::min<uint32_t>(calibration_packets_since_evaluation_, UINT16_MAX));
+  calibration_packets_since_evaluation_ = 0;
   detector_->update_state();
   threshold_calibrator_->observe(detector_->is_ready(), detector_->get_motion_metric(),
-                                 detector_->get_startup_floor_metric());
+                                 detector_->get_startup_floor_metric(), packet_weight);
 
   const uint32_t packet_count = threshold_calibrator_->packet_count();
   const uint16_t target_packets = threshold_calibrator_->target_packets();

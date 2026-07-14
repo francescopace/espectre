@@ -182,11 +182,19 @@ def estimate_runtime_threshold(
         gate_enabled=get_detector_startup_gate(detector),
     )
     band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)
+    packets_since_evaluation = 0
     for pkt in packets:
         csi_data = pkt["csi_data"] if isinstance(pkt, dict) else pkt
         detector.process_packet(csi_data, band)
+        packets_since_evaluation += 1
+        if packets_since_evaluation < config.EVALUATION_INTERVAL:
+            continue
         detector.update_state()
-        calibrator.observe_detector(detector)
+        calibrator.observe_detector(
+            detector,
+            packet_weight=packets_since_evaluation,
+        )
+        packets_since_evaluation = 0
         if calibrator.is_complete():
             break
     if not calibrator.is_successful():
@@ -224,11 +232,19 @@ def build_calibrated_classic_detector(
         gate_enabled=get_detector_startup_gate(detector),
     )
     band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)
+    packets_since_evaluation = 0
     for pkt in packets:
         csi_data = pkt["csi_data"] if isinstance(pkt, dict) else pkt
         detector.process_packet(csi_data, band)
+        packets_since_evaluation += 1
+        if packets_since_evaluation < config.EVALUATION_INTERVAL:
+            continue
         detector.update_state()
-        calibrator.observe_detector(detector)
+        calibrator.observe_detector(
+            detector,
+            packet_weight=packets_since_evaluation,
+        )
+        packets_since_evaluation = 0
         if calibrator.is_complete():
             break
     if not calibrator.is_successful():
@@ -480,4 +496,3 @@ def select_dataset_interactively(
                 prefer_latest=True,
             )
         print("Selection out of range.")
-

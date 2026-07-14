@@ -134,6 +134,28 @@ void test_startup_threshold_calibrator_gate_accepts_clean_startup(void) {
     TEST_ASSERT_EQUAL_STRING("gated max", calibrator.statistic_name());
 }
 
+void test_startup_threshold_calibrator_weighted_observation_matches_repeated(void) {
+    StartupThresholdCalibrator weighted;
+    StartupThresholdCalibrator repeated;
+    weighted.begin(200, true);
+    repeated.begin(200, true);
+    const float metrics[] = {0.05f, 0.05f, 0.12f, 0.12f, 0.05f, 0.05f};
+    const float floors[] = {0.01f, 0.01f, 0.50f, 0.50f, 0.01f, 0.01f};
+    for (size_t i = 0; i < sizeof(metrics) / sizeof(metrics[0]); ++i) {
+        weighted.observe(true, metrics[i], floors[i], 25U);
+        for (uint16_t packet = 0; packet < 25U; ++packet) {
+            repeated.observe(true, metrics[i], floors[i]);
+        }
+    }
+
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(repeated.packet_count()),
+                          static_cast<int>(weighted.packet_count()));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(repeated.ready_packet_count()),
+                          static_cast<int>(weighted.ready_packet_count()));
+    TEST_ASSERT_EQUAL_FLOAT(repeated.threshold_metric(), weighted.threshold_metric());
+    TEST_ASSERT_EQUAL_STRING(repeated.statistic_name(), weighted.statistic_name());
+}
+
 void test_motion_first_calibrator_accepts_quiet_motion_quiet_before_budget(void) {
     StartupThresholdCalibrator calibrator;
     calibrator.begin(200, true);
@@ -299,6 +321,7 @@ int process(void) {
     RUN_TEST(test_threshold_helpers_cover_modes_and_ranges);
     RUN_TEST(test_startup_threshold_calibrator_gate_disabled_matches_max);
     RUN_TEST(test_startup_threshold_calibrator_gate_accepts_clean_startup);
+    RUN_TEST(test_startup_threshold_calibrator_weighted_observation_matches_repeated);
     RUN_TEST(test_motion_first_calibrator_accepts_quiet_motion_quiet_before_budget);
     RUN_TEST(test_motion_first_short_spike_falls_back_to_quiet_first);
     RUN_TEST(test_motion_without_return_uses_fallback_inside_budget);

@@ -152,13 +152,24 @@ class StartupThresholdCalibrator {
   }
 
   /**
-   * Consume one processed detector step.
+   * Consume one evaluated detector step representing one or more packets.
    *
    * @param detector_ready Whether the detector metric window is full
    * @param motion_metric Current detector motion metric
    * @param floor_metric Detector-specific startup floor metric
+   * @param packet_weight Number of processed packets represented by the metric
    */
-  void observe(bool detector_ready, float motion_metric, float floor_metric = 0.0f) {
+  void observe(bool detector_ready, float motion_metric, float floor_metric = 0.0f,
+               uint16_t packet_weight = 1U) {
+    const uint32_t remaining = target_packets_ > packet_count_ ? target_packets_ - packet_count_ : 0U;
+    const uint32_t weight = std::min<uint32_t>(std::max<uint16_t>(packet_weight, 1U), remaining);
+    for (uint32_t i = 0; i < weight; i++) {
+      observe_one_(detector_ready, motion_metric, floor_metric);
+    }
+  }
+
+ private:
+  void observe_one_(bool detector_ready, float motion_metric, float floor_metric) {
     packet_count_++;
     if (!detector_ready) {
       return;
@@ -180,6 +191,7 @@ class StartupThresholdCalibrator {
     }
   }
 
+ public:
   /// True once motion-first succeeds early or the startup budget is spent.
   bool is_complete() const {
     return motion_accepted_ || packet_count_ >= target_packets_;

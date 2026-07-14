@@ -53,6 +53,7 @@ class _FakeResponse:
 def _create_micro_src_tree(base_dir: Path) -> None:
     files = [
         "__init__.py",
+        "branding.py",
         "config.py",
         "config_local.py",
         "device_utils.py",
@@ -85,6 +86,14 @@ def test_calculate_sha256_matches_hashlib(tmp_path: Path) -> None:
     firmware.write_bytes(payload)
 
     assert micro._calculate_sha256(firmware) == hashlib.sha256(payload).hexdigest()
+
+
+def test_device_sources_avoid_unsupported_future_annotations() -> None:
+    for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES:
+        source = micro.PYTHON_SRC_DIR / rel_path
+        assert "from __future__ import annotations" not in source.read_text(
+            encoding="utf-8"
+        ), rel_path
 
 
 def test_require_mpremote_accepts_installed_binary(monkeypatch) -> None:
@@ -302,10 +311,11 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
     mkdir_calls = [cmd for cmd in calls if "mkdir" in cmd]
     cp_calls = [cmd for cmd in calls if "cp" in cmd]
     assert len(mkdir_calls) == 2
-    assert len(cp_calls) == 20
+    assert len(cp_calls) == 21
     assert any(cmd[-1] == ":src/" for cmd in cp_calls)
     assert any(cmd[-1] == ":src/mqtt/" for cmd in cp_calls)
     assert any(cmd[-2].endswith("console_output.py") for cmd in cp_calls)
+    assert any(cmd[-2].endswith("branding.py") for cmd in cp_calls)
     assert any(cmd[-2].endswith("classic_detector.py") for cmd in cp_calls)
 
 
@@ -377,7 +387,13 @@ def test_run_application_starts_mpremote_process(monkeypatch) -> None:
 
     micro.run_application(_make_args())
 
-    assert started == [["mpremote", "connect", "/dev/cu.usbmodem1", "run", "src/main.py"]]
+    assert started == [[
+        "mpremote",
+        "connect",
+        "/dev/cu.usbmodem1",
+        "exec",
+        "from src.main import main; main()",
+    ]]
 
 
 def test_run_application_handles_keyboard_interrupt_and_resets_device(monkeypatch) -> None:
@@ -423,7 +439,7 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
         SimpleNamespace(stdout="csi_start,csi_stop\n", stderr=""),
         SimpleNamespace(stdout="(1, 24, 0)\n", stderr=""),
         SimpleNamespace(
-                stdout="['__init__.py', 'config.py', 'config_local.py', 'device_utils.py', 'utils.py', 'threshold.py', 'filters.py', "
+                stdout="['__init__.py', 'branding.py', 'config.py', 'config_local.py', 'device_utils.py', 'utils.py', 'threshold.py', 'filters.py', "
             "'features.py', 'segmentation.py', 'detector_interface.py', 'runtime_policy.py', 'classic_detector.py', "
             "'ml_detector.py', 'ml_weights.py', 'traffic_generator.py', 'console_output.py', 'main.py', 'mqtt']\n",
             stderr="",

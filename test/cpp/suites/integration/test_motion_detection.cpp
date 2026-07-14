@@ -25,6 +25,7 @@
 #include "classic_detector.h"
 #include "filters.h"
 #include "ml_detector.h"
+#include "runtime_sensing_schema.h"
 #include "threshold.h"
 #include "esphome/core/log.h"
 #include "esp_system.h"
@@ -74,12 +75,18 @@ static bool build_calibrated_classic_detector(ClassicDetector& detector, int cal
                                               int pkt_size, float& out_threshold) {
     StartupThresholdCalibrator calibrator;
     calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
+    uint16_t packets_since_evaluation = 0;
     for (int i = 0; i < calibration_packets; i++) {
         detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
                                 selected_band, selected_size);
+        packets_since_evaluation++;
+        if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
+            continue;
+        }
         detector.update_state();
         calibrator.observe(detector.is_ready(), detector.get_motion_metric(),
-                           detector.get_startup_floor_metric());
+                           detector.get_startup_floor_metric(), packets_since_evaluation);
+        packets_since_evaluation = 0;
         if (calibrator.is_complete()) {
             break;
         }
@@ -155,6 +162,23 @@ static int dataset_count_for_chip(const char* chip_name) {
     int count = 0;
     for (const auto& r : g_results) {
         if (strcmp(r.chip_name, chip_name) == 0) {
+            count++;
+        }
+    }
+    return count;
+}
+
+static int valid_result_count_for_chip(const char* chip_name, const char* algorithm) {
+    int count = 0;
+    for (const auto& r : g_results) {
+        if (strcmp(r.chip_name, chip_name) != 0) {
+            continue;
+        }
+        const PerformanceResult& value =
+            (strcmp(algorithm, "ml") == 0) ? r.ml
+            : (strcmp(algorithm, "classic") == 0) ? r.classic
+                                                  : r.classic;
+        if (value.valid) {
             count++;
         }
     }
@@ -238,6 +262,59 @@ static void print_summary_table() {
     printf("--------------------------------------------------------------------------------\n");
 }
 
+static void write_algorithm_json(FILE* handle, const char* algorithm) {
+    bool first_chip = true;
+    for (auto chip : csi_test_data::get_supported_chips()) {
+        const char* chip_name = csi_test_data::chip_name(chip);
+        const PerformanceResult metrics = mean_result_for_chip(chip_name, algorithm);
+        const int count = valid_result_count_for_chip(chip_name, algorithm);
+        if (!metrics.valid || count == 0) {
+            continue;
+        }
+        if (!first_chip) {
+            fprintf(handle, ",");
+        }
+        first_chip = false;
+        fprintf(
+            handle,
+            "\"%s\":{\"count\":%d,\"recall\":%.6f,\"precision\":%.6f,\"fp_rate\":%.6f,\"f1\":%.6f}",
+            chip_name,
+            count,
+            metrics.recall,
+            metrics.precision,
+            metrics.fp_rate,
+            metrics.f1);
+    }
+}
+
+static void write_parity_payload_if_requested() {
+    const char* output_dir = getenv("ESPECTRE_PARITY_OUTPUT_DIR");
+    if (output_dir == nullptr || output_dir[0] == '\0') {
+        return;
+    }
+
+    std::string path = std::string(output_dir) + "/test_motion_detection.json";
+    FILE* handle = fopen(path.c_str(), "w");
+    if (handle == nullptr) {
+        printf("WARNING: failed to open parity output path: %s\n", path.c_str());
+        return;
+    }
+
+    fprintf(handle, "{");
+    fprintf(handle, "\"suite\":\"test_motion_detection\",");
+    fprintf(handle, "\"paired\":{");
+    fprintf(handle, "\"classic\":{");
+    write_algorithm_json(handle, "classic");
+    fprintf(handle, "},");
+    fprintf(handle, "\"ml\":{");
+    write_algorithm_json(handle, "ml");
+    fprintf(handle, "}");
+    fprintf(handle, "}");
+    fprintf(handle, "}\n");
+    fclose(handle);
+    printf("Wrote parity metrics to %s\n", path.c_str());
+}
+
 // ============================================================================
 // Chip-Specific Configuration
 // ============================================================================
@@ -251,7 +328,7 @@ inline uint16_t get_window_size() { return DETECTOR_DEFAULT_WINDOW_SIZE; }
 inline bool get_enable_hampel() { return true; }
 
 // Classic targets
-inline float get_classic_fp_rate_target() { return 6.1f; }
+inline float get_classic_fp_rate_target() { return 5.0f; }
 inline float get_classic_recall_target() { return 95.0f; }
 inline float get_ml_fp_rate_target() { return 5.0f; }
 inline float get_ml_recall_target() { return 95.0f; }
@@ -444,6 +521,7 @@ int run_tests_for_pair(int pair_index) {
 
 int process(void) {
     int failures = 0;
+    g_results.clear();
     const int pair_count = csi_test_data::get_available_pair_count();
     if (pair_count <= 0) {
         printf("ERROR: No complete 64 SC static-presence/motion dataset pairs available\n");
@@ -456,6 +534,7 @@ int process(void) {
     
     // Print summary table at the end
     print_summary_table();
+    write_parity_payload_if_requested();
     
     return failures;
 }

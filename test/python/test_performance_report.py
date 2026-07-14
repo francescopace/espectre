@@ -2,8 +2,11 @@
 Tests for the shared performance-report helpers.
 """
 
+import sys
 from pathlib import Path
 
+import tools.generate_performance_report as generate_report
+from tools.lib import cpp_parity
 from tools.lib import performance_report as report
 
 
@@ -11,23 +14,25 @@ def _fake_report_data():
     return {
         "paired": {
             "classic": {
-                "C3": {"recall": 98.0, "precision": 99.3, "fp_rate": 0.3, "f1": 98.6},
-                "C5": {"recall": 99.9, "precision": 100.0, "fp_rate": 0.0, "f1": 100.0},
+                "C3": {"count": 1, "recall": 98.0, "precision": 99.3, "fp_rate": 0.3, "f1": 98.6},
+                "C5": {"count": 1, "recall": 99.9, "precision": 100.0, "fp_rate": 0.0, "f1": 100.0},
             },
             "ml": {
-                "C3": {"recall": 99.8, "precision": 100.0, "fp_rate": 0.0, "f1": 99.9},
-                "S3": {"recall": 100.0, "precision": 100.0, "fp_rate": 0.0, "f1": 100.0},
+                "C3": {"count": 1, "recall": 99.8, "precision": 100.0, "fp_rate": 0.0, "f1": 99.9},
+                "S3": {"count": 1, "recall": 100.0, "precision": 100.0, "fp_rate": 0.0, "f1": 100.0},
             },
         },
         "long_quiet": {
             "classic": {
                 "C3": {
+                    "count": 1,
                     "avg_fp_rate": 0.30,
                     "max_fp_rate": 0.42,
                     "effective_alarms": 2,
                     "false_motion_evaluations": 9,
                 },
                 "S3": {
+                    "count": 1,
                     "avg_fp_rate": 1.20,
                     "max_fp_rate": 1.20,
                     "effective_alarms": 1,
@@ -36,12 +41,14 @@ def _fake_report_data():
             },
             "ml": {
                 "C3": {
+                    "count": 1,
                     "avg_fp_rate": 0.00,
                     "max_fp_rate": 0.00,
                     "effective_alarms": 0,
                     "false_motion_evaluations": 0,
                 },
                 "S3": {
+                    "count": 1,
                     "avg_fp_rate": 0.13,
                     "max_fp_rate": 0.13,
                     "effective_alarms": 0,
@@ -76,6 +83,7 @@ def test_render_performance_report_markdown_formats_missing_values_as_na() -> No
     assert "| Effective Alarms | 2 | N/A | N/A | 1 |" in markdown
     assert "| False Motion Evals | 0 | N/A | N/A | 0 |" in markdown
     assert "Per-chip live firmware reports" in markdown
+    assert "also verifies that the host-side C++ integration suites stay aligned" in markdown
 
 
 def test_render_performance_report_markdown_includes_execution_info_when_provided() -> None:
@@ -122,3 +130,120 @@ def test_write_performance_report_uses_provided_report_data(tmp_path, monkeypatc
         _fake_report_data(),
         execution_info=_fake_execution_info(),
     )
+
+
+def test_compare_cpp_and_python_report_data_accepts_matching_payloads() -> None:
+    cpp_report_data = {
+        "paired": {
+            "classic": {
+                "C3": {"count": 1, "recall": 98.0, "precision": 99.3, "fp_rate": 0.3, "f1": 98.6},
+                "C5": {"count": 1, "recall": 99.9, "precision": 100.0, "fp_rate": 0.0, "f1": 100.0},
+            },
+            "ml": {
+                "C3": {"count": 1, "recall": 99.8, "precision": 100.0, "fp_rate": 0.0, "f1": 99.9},
+                "S3": {"count": 1, "recall": 100.0, "precision": 100.0, "fp_rate": 0.0, "f1": 100.0},
+            },
+        },
+        "long_quiet": {
+            "classic": {
+                "C3": {
+                    "count": 1,
+                    "avg_fp_rate": 0.30,
+                    "max_fp_rate": 0.42,
+                    "effective_alarms": 2,
+                    "false_motion_evaluations": 9,
+                },
+                "S3": {
+                    "count": 1,
+                    "avg_fp_rate": 1.20,
+                    "max_fp_rate": 1.20,
+                    "effective_alarms": 1,
+                    "false_motion_evaluations": 4,
+                },
+            },
+            "ml": {
+                "C3": {
+                    "count": 1,
+                    "avg_fp_rate": 0.00,
+                    "max_fp_rate": 0.00,
+                    "effective_alarms": 0,
+                    "false_motion_evaluations": 0,
+                },
+                "S3": {
+                    "count": 1,
+                    "avg_fp_rate": 0.13,
+                    "max_fp_rate": 0.13,
+                    "effective_alarms": 0,
+                    "false_motion_evaluations": 0,
+                },
+            },
+        },
+    }
+
+    assert cpp_parity.compare_cpp_and_python_report_data(_fake_report_data(), cpp_report_data) == []
+
+
+def test_compare_cpp_and_python_report_data_reports_drift() -> None:
+    cpp_report_data = {
+        "paired": {
+            "classic": {
+                "C3": {"count": 1, "recall": 97.0, "precision": 99.3, "fp_rate": 0.3, "f1": 98.6},
+            },
+            "ml": {},
+        },
+        "long_quiet": {
+            "classic": {
+                "C3": {
+                    "count": 1,
+                    "avg_fp_rate": 0.30,
+                    "max_fp_rate": 0.42,
+                    "effective_alarms": 3,
+                    "false_motion_evaluations": 9,
+                },
+            },
+            "ml": {},
+        },
+    }
+
+    mismatches = cpp_parity.compare_cpp_and_python_report_data(_fake_report_data(), cpp_report_data)
+
+    assert any("paired/classic/C3/recall" in mismatch for mismatch in mismatches)
+    assert any("long_quiet/classic/C3/effective_alarms" in mismatch for mismatch in mismatches)
+    assert any("paired/ml/C3: missing c++ metrics" in mismatch for mismatch in mismatches)
+
+
+def test_generate_performance_report_main_runs_cpp_parity_before_write(monkeypatch, tmp_path) -> None:
+    calls = []
+    output_path = tmp_path / "PERFORMANCE.md"
+    fake_report = _fake_report_data()
+
+    def _fake_compute(*, progress=None):
+        calls.append("compute")
+        return fake_report
+
+    def _fake_verify(report_data, *, progress=None, build_dir=None):
+        calls.append("verify")
+        assert report_data is fake_report
+        return {"paired": {}, "long_quiet": {}}
+
+    def _fake_write(path, *, report_data=None, progress=None, execution_info=None):
+        calls.append("write")
+        assert path == output_path
+        assert report_data is fake_report
+        assert execution_info["paired_dataset_count"] == 2
+        assert execution_info["long_quiet_dataset_count"] == 1
+        return output_path
+
+    monkeypatch.setattr(generate_report, "compute_performance_report_data", _fake_compute)
+    monkeypatch.setattr(generate_report, "verify_cpp_report_parity", _fake_verify)
+    monkeypatch.setattr(generate_report, "write_performance_report", _fake_write)
+    monkeypatch.setattr(generate_report, "get_available_paired_datasets", lambda: [1, 2])
+    monkeypatch.setattr(generate_report, "get_available_long_test_datasets", lambda: [1])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["generate_performance_report.py", "--output", str(output_path), "--quiet"],
+    )
+
+    assert generate_report.main() == 0
+    assert calls == ["compute", "verify", "write"]

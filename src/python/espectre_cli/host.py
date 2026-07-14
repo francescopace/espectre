@@ -630,6 +630,7 @@ def _run_live_collect(args) -> None:
                 auto_factor=get_detector_auto_factor(detector),
                 gate_enabled=get_detector_startup_gate(detector),
             ) if needs_calibration else None,
+            "calibration_packets_since_evaluation": 0,
             "calibration_done": not needs_calibration,
             "calibration_success": not needs_calibration,
             "calibration_threshold_source": None if needs_calibration else "fixed",
@@ -856,8 +857,18 @@ def _run_live_collect(args) -> None:
                 continue
 
             calibration_detector.process_packet(pkt.iq_raw, subcarriers)
+            slot["calibration_packets_since_evaluation"] += 1
+            if (
+                slot["calibration_packets_since_evaluation"]
+                < effective_evaluation_interval
+            ):
+                continue
             calibration_metrics = calibration_detector.update_state()
-            calibration_tracker.observe_detector(calibration_detector)
+            calibration_tracker.observe_detector(
+                calibration_detector,
+                packet_weight=slot["calibration_packets_since_evaluation"],
+            )
+            slot["calibration_packets_since_evaluation"] = 0
             slot["motion_metric"] = extract_motion_metric(calibration_metrics)
             slot["metric_threshold"] = calibration_metrics.get("threshold", calibration_detector.get_threshold())
             slot["status"] = getattr(calibration_tracker, "get_phase_label", lambda: "CALIBRATING")()
@@ -1104,19 +1115,20 @@ def _run_live_collect(args) -> None:
             runtime_policy = slot["runtime_policy"]
             detector.process_packet(pkt.iq_raw, subcarriers)
             runtime_policy.note_packet()
+            if not runtime_policy.should_evaluate(should_publish):
+                continue
             metrics = detector.update_state()
             slot["motion_metric"] = extract_motion_metric(metrics)
             slot["metric_threshold"] = metrics["threshold"]
 
-            if runtime_policy.should_evaluate(should_publish):
-                effective_state, _ = runtime_policy.apply_state(metrics["state"])
-                runtime_policy.after_evaluation()
-                slot["effective_state"] = effective_state
-                slot["status"] = get_slot_status(slot)
-                should_render_summary = True
+            effective_state, _ = runtime_policy.apply_state(metrics["state"])
+            runtime_policy.after_evaluation()
+            slot["effective_state"] = effective_state
+            slot["status"] = get_slot_status(slot)
+            should_render_summary = True
 
-                if should_publish:
-                    device_state["last_publish_at"] = now
+            if should_publish:
+                device_state["last_publish_at"] = now
 
         update_ready_gate_state(device_state, now)
         if should_publish:

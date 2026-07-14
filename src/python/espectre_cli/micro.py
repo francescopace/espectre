@@ -30,6 +30,7 @@ from .common import (
 
 MICRO_DEVICE_RELATIVE_FILES = [
     "__init__.py",
+    "branding.py",
     "config.py",
     "config_local.py",
     "device_utils.py",
@@ -365,7 +366,15 @@ def run_application(args) -> None:
 
     process = None
     try:
-        process = subprocess.Popen(["mpremote", "connect", port, "run", "src/main.py"])
+        process = subprocess.Popen(
+            [
+                "mpremote",
+                "connect",
+                port,
+                "exec",
+                "from src.main import main; main()",
+            ]
+        )
         process.wait()
     except subprocess.CalledProcessError as e:
         print(f"\n{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")

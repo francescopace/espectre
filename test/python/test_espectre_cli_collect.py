@@ -162,8 +162,8 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
             self.packet_count = 0
             self.max_moving_variance = None
 
-        def observe_detector(self, detector):
-            self.packet_count += 1
+        def observe_detector(self, detector, packet_weight=1):
+            self.packet_count += packet_weight
             if not detector.is_ready():
                 return None
             current_mv = float(detector.get_motion_metric())
@@ -1777,8 +1777,8 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
             self.packet_count = 0
             self.max_moving_variance = None
 
-        def observe_detector(self, detector):
-            self.packet_count += 1
+        def observe_detector(self, detector, packet_weight=1):
+            self.packet_count += packet_weight
             if not detector.is_ready():
                 return None
             current_mv = float(detector.get_motion_metric())

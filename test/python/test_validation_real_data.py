@@ -41,6 +41,7 @@ from tools.lib.variance_baseline_core import calibrate_startup_threshold
 from config import (
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
+    EVALUATION_INTERVAL,
     ENABLE_HAMPEL_FILTER,
     ENABLE_LOWPASS_FILTER,
     SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
@@ -261,10 +262,18 @@ def run_classic_calibration(static_presence_packets, selected_band, window_size)
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
+    packets_since_evaluation = 0
     for pkt in static_presence_packets:
         detector.process_packet(pkt["csi_data"], selected_band)
+        packets_since_evaluation += 1
+        if packets_since_evaluation < EVALUATION_INTERVAL:
+            continue
         detector.update_state()
-        calibrator.observe_detector(detector)
+        calibrator.observe_detector(
+            detector,
+            packet_weight=packets_since_evaluation,
+        )
+        packets_since_evaluation = 0
         if calibrator.is_complete():
             break
     if not calibrator.is_successful():

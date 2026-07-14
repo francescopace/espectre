@@ -80,6 +80,41 @@ def test_startup_threshold_calibrator_tracks_generic_motion_metric() -> None:
     assert formula == "max x 1.1"
 
 
+def test_weighted_observation_matches_repeated_packet_observations() -> None:
+    weighted = StartupThresholdCalibrator(
+        target_packets=200,
+        auto_factor=1.1,
+        gate_enabled=True,
+    )
+    repeated = StartupThresholdCalibrator(
+        target_packets=200,
+        auto_factor=1.1,
+        gate_enabled=True,
+    )
+    weighted_detector = FakeDetector()
+    repeated_detector = FakeDetector()
+
+    for metric, floor in ((0.05, 0.01), (0.05, 0.01),
+                          (0.12, 0.50), (0.12, 0.50),
+                          (0.05, 0.01), (0.05, 0.01)):
+        weighted_detector.metric = metric
+        weighted_detector.floor_metric = floor
+        weighted.observe_detector(weighted_detector, packet_weight=25)
+        for _ in range(25):
+            repeated_detector.metric = metric
+            repeated_detector.floor_metric = floor
+            repeated.observe_detector(repeated_detector)
+
+    assert weighted.packet_count == repeated.packet_count
+    assert weighted.ready_packet_count == repeated.ready_packet_count
+    assert weighted.get_phase_label() == repeated.get_phase_label()
+    weighted_threshold, weighted_formula = weighted.calculate_threshold("auto")
+    repeated_threshold, repeated_formula = repeated.calculate_threshold("auto")
+    assert weighted_threshold == pytest.approx(repeated_threshold)
+    assert weighted_formula == repeated_formula
+    assert weighted.get_floor_snapshot() == repeated.get_floor_snapshot()
+
+
 def test_get_detector_startup_gate_reads_detector_attribute() -> None:
     class GatedDetector:
         STARTUP_GATE = True

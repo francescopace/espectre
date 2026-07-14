@@ -16,10 +16,7 @@ from src.device_utils import (
     normalize_ht20_csi_payload,
     csi_read_frame,
 )
-try:
-    from micro_espectre.branding import ASCII_BANNER
-except ImportError:
-    from branding import ASCII_BANNER
+from src.branding import ASCII_BANNER
 from src.console_output import format_calibration_status_line, format_detection_publish_line
 from src.detector_interface import (
     detector_needs_startup_calibration,
@@ -255,15 +252,19 @@ def run_startup_calibration(wlan, detector, traffic_gen):
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
+    evaluation_interval = max(1, int(getattr(config, 'EVALUATION_INTERVAL', 25)))
 
     print('')
     print('-'*60)
-    print(f'{detector_name} Threshold Bootstrap (up to ~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
+    print(f'{detector_name} Threshold Bootstrap ({config.CALIBRATION_BUFFER_SIZE} packets, evaluate every {evaluation_interval}) [HT20: {NUM_SUBCARRIERS} SC]')
     print('-'*60)
 
     max_timeout_ms = 15000
     filtered_count = 0
     calibration_progress = 0
+    packets_since_evaluation = 0
+    next_progress_report = 100
+    dropped_at_calibration_start = wlan.csi_dropped()
     last_progress_time = time.ticks_ms()
     last_packet_time = last_progress_time
     last_progress_count = 0
@@ -302,17 +303,28 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                 remap_logged = True
             del frame
             detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
-            detector.update_state()
-            calibration_tracker.observe_detector(detector)
+            packets_since_evaluation += 1
             last_packet_time = time.ticks_ms()
 
+            if packets_since_evaluation < evaluation_interval:
+                continue
+
+            detector.update_state()
+            calibration_tracker.observe_detector(
+                detector,
+                packet_weight=packets_since_evaluation,
+            )
+            packets_since_evaluation = 0
             calibration_progress = calibration_tracker.packet_count
-            if calibration_progress % 100 == 0:
+            if calibration_progress >= next_progress_report:
                 current_time = time.ticks_ms()
                 elapsed = time.ticks_diff(current_time, last_progress_time)
                 packets_delta = calibration_progress - last_progress_count
                 pps = int((packets_delta * 1000) / elapsed) if elapsed > 0 else 0
-                dropped = wlan.csi_dropped()
+                dropped = max(
+                    0,
+                    wlan.csi_dropped() - dropped_at_calibration_start,
+                )
                 tg_pps = traffic_gen.get_actual_pps()
                 current_mv = detector.get_motion_metric() if detector.is_ready() else None
                 print(
@@ -332,6 +344,8 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                 )
                 last_progress_time = current_time
                 last_progress_count = calibration_progress
+                while next_progress_report <= calibration_progress:
+                    next_progress_report += 100
         else:
             time.sleep_us(100)
             if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
@@ -520,6 +534,7 @@ def main():
     
     # Main CSI processing loop with integrated MQTT publishing
     publish_counter = 0
+    processed_packet_count = 0
     mqtt_poll_counter = 0
     filtered_count = 0  # Packets with wrong SC count
     last_publish_time = time.ticks_ms()
@@ -527,6 +542,7 @@ def main():
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
     frame_result = None
+    dropped_at_main_loop_start = wlan.csi_dropped()
     
     publish_rate = getattr(config, 'PUBLISH_INTERVAL', None)
     if publish_rate is None:
@@ -576,6 +592,7 @@ def main():
                 
                 # Process packet through detector interface
                 detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
+                processed_packet_count += 1
 
                 # Poll MQTT commands every 10 packets to reduce hot-loop overhead
                 # without making command responsiveness noticeable to users.
@@ -614,6 +631,11 @@ def main():
                         progress = motion_metric / threshold if threshold > 0 else 0
                         print(
                             format_detection_publish_line(
+                                packet_count=processed_packet_count,
+                                dropped_count=max(
+                                    0,
+                                    wlan.csi_dropped() - dropped_at_main_loop_start,
+                                ),
                                 pps=pps,
                                 motion_metric=motion_metric,
                                 threshold=threshold,
