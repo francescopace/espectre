@@ -17,6 +17,11 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
     return;
   }
 
+  if (snapshot.calibrating) {
+    last_log_time_ms_ = 0;
+    return;
+  }
+
   const float motion_metric = snapshot.movement_metric;
   const float threshold = snapshot.threshold;
   const bool is_motion = (snapshot.motion_state == MotionState::MOTION);

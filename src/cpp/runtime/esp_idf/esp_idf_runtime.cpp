@@ -133,10 +133,12 @@ void EspIdfRuntime::log_calibration_progress_(uint8_t percent, uint32_t packets,
   if (target_packets == 0U) {
     return;
   }
-  ESP_LOGI(RUNTIME_TAG, "Calibration %u%% (%" PRIu32 "/%u packets)",
-           static_cast<unsigned>(percent),
-           static_cast<uint32_t>(packets),
-           static_cast<unsigned>(target_packets));
+  const float progress = static_cast<float>(packets) / static_cast<float>(target_packets);
+  log_progress_bar(RUNTIME_TAG, progress, 20, -1,
+                   "calibration %3u%% | %" PRIu32 "/%u packets",
+                   static_cast<unsigned>(percent),
+                   static_cast<uint32_t>(packets),
+                   static_cast<unsigned>(target_packets));
 }
 
 void EspIdfRuntime::set_services_armed(bool armed) {
