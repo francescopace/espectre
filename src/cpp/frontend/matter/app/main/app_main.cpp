@@ -8,6 +8,7 @@
 #include <esp_err.h>
 #include <esp_event.h>
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
 #include <nvs_flash.h>
 #include <sdkconfig.h>
 
@@ -17,23 +18,20 @@
 #include <app/server/Server.h>
 #include <esp_matter.h>
 #include <esp_matter_attribute.h>
-#include <esp_matter_cluster.h>
+#include <esp_matter_core.h>
 #include <esp_matter_endpoint.h>
-#include <esp_matter_ota.h>
 #include <platform/CHIPDeviceLayer.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
 #include "espectre_banner.h"
 #include "matter_bindings_esp_matter.h"
 #include "matter_frontend.h"
-#include "matter_surface.h"
 #include "runtime_sensing_kconfig.h"
 
 static const char *TAG = "espectre.matter.app";
 
 using namespace esp_matter;
 using namespace esp_matter::attribute;
-using namespace esp_matter::cluster;
 using namespace esp_matter::endpoint;
 using namespace chip::app::Clusters;
 
@@ -55,36 +53,18 @@ const char *detector_name(const espectre::RuntimeConfig &config) {
   }
 }
 
-bool has_commissioned_fabric() { return chip::Server::GetInstance().GetFabricTable().FabricCount() != 0; }
+bool has_commissioned_fabric() {
+  lock::ScopedChipStackLock chip_stack_lock(portMAX_DELAY);
+  return chip::Server::GetInstance().GetFabricTable().FabricCount() != 0;
+}
 
 void configure_log_levels() {
   // CHIP logs are reduced at build time; mute esp-matter attribute chatter at runtime.
   esp_log_level_set("esp_matter_attribute", ESP_LOG_WARN);
 }
 
-cluster_t *create_espectre_vendor_cluster(endpoint_t *endpoint) {
-  cluster_t *vendor_cluster = cluster::create(endpoint, espectre::ESPECTRE_MATTER_VENDOR_CLUSTER_ID,
-                                            CLUSTER_FLAG_SERVER);
-  if (vendor_cluster == nullptr) {
-    return nullptr;
-  }
-
-  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_MOVEMENT_METRIC, ATTRIBUTE_FLAG_NONE,
-                    esp_matter_nullable_float(0.0f));
-  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_THRESHOLD,
-                    ATTRIBUTE_FLAG_WRITABLE | ATTRIBUTE_FLAG_NONVOLATILE, esp_matter_nullable_float(1.0f));
-  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_CALIBRATING, ATTRIBUTE_FLAG_NONE,
-                    esp_matter_bool(false));
-  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_READY_TO_PUBLISH, ATTRIBUTE_FLAG_NONE,
-                    esp_matter_bool(false));
-  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_STARTUP_THRESHOLD, ATTRIBUTE_FLAG_NONE,
-                    esp_matter_nullable_float(0.0f));
-  attribute::create(vendor_cluster, espectre::ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE,
-                    ATTRIBUTE_FLAG_WRITABLE, esp_matter_bool(false));
-  return vendor_cluster;
-}
-
 void open_commissioning_window_if_necessary() {
+  lock::ScopedChipStackLock chip_stack_lock(portMAX_DELAY);
   if (chip::Server::GetInstance().GetFabricTable().FabricCount() != 0) {
     return;
   }
@@ -104,13 +84,18 @@ void open_commissioning_window_if_necessary() {
 void sync_post_start_state_on_chip_thread(intptr_t arg) {
   (void) arg;
 
-  const bool commissioned = has_commissioned_fabric();
+  bool commissioned = false;
+  {
+    lock::ScopedChipStackLock chip_stack_lock(portMAX_DELAY);
+    commissioned = has_commissioned_fabric();
+    PrintOnboardingCodes(chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));
+  }
+
   if (g_frontend != nullptr) {
     g_frontend->set_runtime_services_armed(commissioned);
   }
 
   ESP_LOGI(TAG, "ESPectre Matter CSI services: %s", commissioned ? "armed" : "waiting for commissioning");
-  PrintOnboardingCodes(chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));
 }
 
 void app_event_cb(const ChipDeviceEvent *event, intptr_t arg) {
@@ -144,29 +129,12 @@ esp_err_t app_identification_cb(identification::callback_type_t type, uint16_t e
 
 esp_err_t app_attribute_update_cb(attribute::callback_type_t type, uint16_t endpoint_id, uint32_t cluster_id,
                                   uint32_t attribute_id, esp_matter_attr_val_t *val, void *priv_data) {
-  if (g_frontend == nullptr || endpoint_id != g_motion_endpoint_id ||
-      cluster_id != espectre::ESPECTRE_MATTER_VENDOR_CLUSTER_ID) {
-    return ESP_OK;
-  }
-
-  if (attribute_id == espectre::ESPECTRE_MATTER_ATTR_THRESHOLD && val != nullptr &&
-      val->type == ESP_MATTER_VAL_TYPE_NULLABLE_FLOAT) {
-    if (!g_frontend->handle_threshold_write(val->val.f)) {
-      return ESP_FAIL;
-    }
-    return ESP_OK;
-  }
-
-  if (attribute_id == espectre::ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE && val != nullptr &&
-      val->type == ESP_MATTER_VAL_TYPE_BOOLEAN && val->val.b) {
-    if (!g_frontend->handle_recalibrate_request()) {
-      return ESP_FAIL;
-    }
-    esp_matter_attr_val_t cleared = esp_matter_bool(false);
-    attribute::update(endpoint_id, cluster_id, attribute_id, &cleared);
-    return ESP_OK;
-  }
-
+  (void) type;
+  (void) endpoint_id;
+  (void) cluster_id;
+  (void) attribute_id;
+  (void) val;
+  (void) priv_data;
   return ESP_OK;
 }
 
@@ -213,18 +181,7 @@ extern "C" void app_main() {
     return;
   }
 
-  if (create_espectre_vendor_cluster(motion_endpoint) == nullptr) {
-    ESP_LOGE(TAG, "Failed to create ESPectre vendor cluster");
-    return;
-  }
-
   g_motion_endpoint_id = endpoint::get_id(motion_endpoint);
-
-  err = esp_matter_ota_requestor_init();
-  if (err != ESP_OK && err != ESP_ERR_NOT_SUPPORTED) {
-    ESP_LOGE(TAG, "Failed to initialize Matter OTA requestor (%d)", err);
-    return;
-  }
 
   static espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id);
   frontend.set_runtime_config(build_runtime_config());
@@ -243,7 +200,6 @@ extern "C" void app_main() {
     return;
   }
   chip::DeviceLayer::PlatformMgr().ScheduleWork(sync_post_start_state_on_chip_thread, 0);
-  esp_matter_ota_requestor_start();
 
   if (!frontend.setup()) {
     ESP_LOGE(TAG, "Failed to initialize ESPectre Matter frontend");

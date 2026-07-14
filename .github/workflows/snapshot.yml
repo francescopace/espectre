@@ -29,7 +29,7 @@ jobs:
         id: filter
         run: |
           # Check if any code files changed in the last commit
-          if git diff --name-only HEAD~1 HEAD | grep -qE '^(src/|examples/[^/]+\.yaml$)'; then
+          if git diff --name-only HEAD~1 HEAD | grep -qE '^(src/|examples/[^/]+\.yaml$|\.github/workflows/snapshot\.yml$|\.github/scripts/build_[^/]+_firmware\.sh$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
             echo "Code changes detected, will build snapshot"
           else
@@ -38,7 +38,7 @@ jobs:
           fi
 
   build:
-    name: Build ${{ matrix.chip }} (${{ matrix.algorithm }})
+    name: Build ${{ matrix.chip }}
     needs: check-changes
     if: needs.check-changes.outputs.should_build == 'true'
     runs-on: ubuntu-latest
@@ -48,40 +48,16 @@ jobs:
         include:
           - chip: ESP32
             config: examples/espectre-esp32.yaml
-            algorithm: classic
-          - chip: ESP32
-            config: examples/espectre-esp32.yaml
-            algorithm: ml
           - chip: ESP32-S2
             config: examples/espectre-s2.yaml
-            algorithm: classic
-          - chip: ESP32-S2
-            config: examples/espectre-s2.yaml
-            algorithm: ml
           - chip: ESP32-S3
             config: examples/espectre-s3.yaml
-            algorithm: classic
-          - chip: ESP32-S3
-            config: examples/espectre-s3.yaml
-            algorithm: ml
           - chip: ESP32-C3
             config: examples/espectre-c3.yaml
-            algorithm: classic
-          - chip: ESP32-C3
-            config: examples/espectre-c3.yaml
-            algorithm: ml
           - chip: ESP32-C5
             config: examples/espectre-c5.yaml
-            algorithm: classic
-          - chip: ESP32-C5
-            config: examples/espectre-c5.yaml
-            algorithm: ml
           - chip: ESP32-C6
             config: examples/espectre-c6.yaml
-            algorithm: classic
-          - chip: ESP32-C6
-            config: examples/espectre-c6.yaml
-            algorithm: ml
     
     steps:
       - uses: actions/checkout@v7
@@ -112,27 +88,20 @@ jobs:
           pip install -r requirements.txt
       
       - name: Compile
-        run: esphome -s git_ref ${{ github.event.workflow_run.head_sha }} -s detection_algorithm ${{ matrix.algorithm }} compile ${{ matrix.config }}
+        run: esphome -s git_ref ${{ github.event.workflow_run.head_sha }} -s detection_algorithm classic compile ${{ matrix.config }}
       
       - name: Rename firmware files
         run: |
           mkdir -p output
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
-          ALGO="${{ matrix.algorithm }}"
           find examples/.esphome/build -name "firmware*.bin" -exec cp {} output/ \;
-          if [ "$ALGO" = "ml" ]; then
-            mv "output/firmware.factory.bin" "output/espectre-snapshot-${CHIP}-ml.bin"
-            mv "output/firmware.ota.bin" "output/espectre-snapshot-${CHIP}-ml-ota.bin"
-          else
-            mv "output/firmware.factory.bin" "output/espectre-snapshot-${CHIP}.bin"
-            mv "output/firmware.ota.bin" "output/espectre-snapshot-${CHIP}-ota.bin"
-          fi
+          mv "output/firmware.factory.bin" "output/espectre-snapshot-${CHIP}.bin"
       
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v7
         with:
-          name: firmware-${{ matrix.chip }}-${{ matrix.algorithm }}
-          path: output/espectre-*.bin
+          name: firmware-${{ matrix.chip }}
+          path: output/espectre-snapshot-*.bin
           retention-days: 1
 
   build-matter:
@@ -178,9 +147,6 @@ jobs:
         env:
           MATTER_TARGET: ${{ matrix.target }}
           MATTER_OUTPUT: ${{ github.workspace }}/output/espectre-matter-snapshot-${{ matrix.target }}.bin
-          MATTER_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-matter-snapshot-${{ matrix.target }}-ota.bin
-          MATTER_OTA_VERSION: ${{ github.run_number }}
-          MATTER_OTA_VERSION_STR: snapshot-${{ github.run_number }}
 
       - name: Upload Matter firmware artifact
         uses: actions/upload-artifact@v7
@@ -230,7 +196,6 @@ jobs:
         env:
           NATIVE_TARGET: ${{ matrix.target }}
           NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-snapshot-${{ matrix.target }}.bin
-          NATIVE_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-native-snapshot-${{ matrix.target }}-ota.bin
 
       - name: Upload native firmware artifact
         uses: actions/upload-artifact@v7
@@ -239,59 +204,9 @@ jobs:
           path: output/espectre-native-*.bin
           retention-days: 1
 
-  build-streamer:
-    name: Build streamer ${{ matrix.chip }}
-    needs: check-changes
-    if: needs.check-changes.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - chip: ESP32
-            target: esp32
-          - chip: ESP32-C3
-            target: esp32c3
-          - chip: ESP32-C5
-            target: esp32c5
-          - chip: ESP32-C6
-            target: esp32c6
-          - chip: ESP32-S3
-            target: esp32s3
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Cache streamer toolchain
-        uses: actions/cache@v6
-        with:
-          path: .github/.cache/streamer-home
-          key: streamer-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-${{ hashFiles('.github/scripts/build_streamer_firmware.sh', 'src/cpp/frontend/streamer/app/sdkconfig*.defaults', 'src/cpp/frontend/streamer/app/partitions.csv') }}
-          restore-keys: |
-            streamer-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-
-            streamer-${{ runner.os }}-idf-v5.5-
-
-      - name: Build streamer firmware
-        run: |
-          mkdir -p output
-          bash .github/scripts/build_streamer_firmware.sh
-        env:
-          STREAMER_TARGET: ${{ matrix.target }}
-          STREAMER_OUTPUT: ${{ github.workspace }}/output/espectre-streamer-snapshot-${{ matrix.target }}.bin
-          STREAMER_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-streamer-snapshot-${{ matrix.target }}-ota.bin
-
-      - name: Upload streamer firmware artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: firmware-streamer-${{ matrix.chip }}
-          path: output/espectre-streamer-*.bin
-          retention-days: 1
-
   release:
     name: Create Snapshot Release
-    needs: [build, build-matter, build-native, build-streamer]
+    needs: [build, build-matter, build-native]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -300,11 +215,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.14'
 
       - name: Download all firmware artifacts
         uses: actions/download-artifact@v8
@@ -316,13 +226,22 @@ jobs:
       - name: List firmware files
         run: ls -la firmware/
 
-      - name: Build IDF OTA manifests
+      - name: Verify published firmware matrix
         run: |
-          python .github/scripts/build_idf_ota_manifests.py \
-            --firmware-dir firmware \
-            --release-tag snapshot \
-            --version "main"
-      
+          expected_count=0
+          for chip in esp32 esp32s2 esp32s3 esp32c3 esp32c5 esp32c6; do
+            test -s "firmware/espectre-snapshot-${chip}.bin"
+            expected_count=$((expected_count + 1))
+          done
+          for frontend in matter native; do
+            for chip in esp32 esp32c3 esp32c5 esp32c6 esp32s3; do
+              test -s "firmware/espectre-${frontend}-snapshot-${chip}.bin"
+              expected_count=$((expected_count + 1))
+            done
+          done
+          actual_count=$(find firmware -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')
+          test "${actual_count}" -eq "${expected_count}"
+
       - name: Delete existing snapshot release
         run: gh release delete snapshot --yes --cleanup-tag || true
         env:
@@ -343,7 +262,6 @@ jobs:
             **Date:** ${{ github.event.workflow_run.created_at }}
           files: |
             firmware/*.bin
-            firmware/*.json
           draft: false
           prerelease: true
           make_latest: false

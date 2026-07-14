@@ -1048,6 +1048,24 @@ def _git_revision() -> str:
 def render_report(chip: str, port: str, started_at: datetime, results: Sequence[BenchmarkResult]) -> str:
     chip_label = CHIP_LABELS[chip]
     overall = "PASS" if len(results) == len(CASES) and all(result.status == "PASS" for result in results) else "FAIL"
+
+    def format_summary_bytes(value: int | None) -> str:
+        if value is None:
+            return "N/A"
+        if value < 1024:
+            return f"{value:,} bytes"
+        if value < 1024 * 1024:
+            return f"{value / 1024:.1f} KiB"
+        return f"{value / (1024 * 1024):.2f} MiB"
+
+    def format_summary_partition_free(bytes_value: int | None, percent_value: float | None) -> str:
+        if bytes_value is None:
+            return "N/A"
+        formatted = format_summary_bytes(bytes_value)
+        if percent_value is not None:
+            formatted += f" ({percent_value:.1f}%)"
+        return formatted
+
     lines = [
         "<!-- Generated file. Do not edit manually. -->",
         "",
@@ -1061,26 +1079,24 @@ def render_report(chip: str, port: str, started_at: datetime, results: Sequence[
         "",
         "## Summary",
         "",
-        "| Firmware | Result | Binary size | Partition free | Mean PPS | Telemetry samples | Detection average |",
-        "|---|---:|---:|---:|---:|---:|---:|",
+        "| Frontend | Detector | Result | Binary size | Partition free | CPU load | Min free heap |",
+        "|---|---|---:|---:|---:|---:|---:|",
     ]
     for result in results:
         build = result.build_metrics
         runtime = result.runtime_metrics
-        partition_free = format_bytes(build.partition_free_bytes)
-        if build.partition_free_percent is not None:
-            partition_free += f" ({build.partition_free_percent:.1f}%)"
+        frontend_label, detector_label = result.case.label.rsplit(" ", 1)
         lines.append(
             "| "
             + " | ".join(
                 [
-                    result.case.label,
+                    frontend_label,
+                    detector_label,
                     f"**{result.status}**",
-                    format_bytes(build.firmware_size_bytes),
-                    partition_free,
-                    format_number(runtime.pps_mean, " pps"),
-                    format_number(runtime.telemetry_samples),
-                    format_number(runtime.detection_avg_us_mean, " us"),
+                    format_summary_bytes(build.firmware_size_bytes),
+                    format_summary_partition_free(build.partition_free_bytes, build.partition_free_percent),
+                    format_number(runtime.runtime_load_mean, "%"),
+                    format_summary_bytes(runtime.heap_min),
                 ]
             )
             + " |"
@@ -1090,6 +1106,76 @@ def render_report(chip: str, port: str, started_at: datetime, results: Sequence[
     for result in results:
         build = result.build_metrics
         runtime = result.runtime_metrics
+        detail_rows = [f"| Benchmark mode | {result.case.benchmark_mode} |"]
+
+        if result.build:
+            detail_rows.append(f"| Build duration | {format_duration(result.build.duration_seconds)} |")
+        if result.flash:
+            detail_rows.append(f"| Flash duration | {format_duration(result.flash.duration_seconds)} |")
+        if result.monitor:
+            detail_rows.append(f"| Monitor duration | {format_duration(result.monitor.duration_seconds)} |")
+        if result.collect:
+            detail_rows.append(f"| Collect duration | {format_duration(result.collect.duration_seconds)} |")
+
+        if build.firmware_size_bytes is not None:
+            detail_rows.append(f"| Firmware binary | {format_bytes(build.firmware_size_bytes)} |")
+        if build.partition_used_bytes is not None:
+            detail_rows.append(f"| Application partition used | {format_bytes(build.partition_used_bytes)} |")
+        if build.partition_free_bytes is not None:
+            detail_rows.append(f"| Application partition free | {format_bytes(build.partition_free_bytes)} |")
+        if build.ram_used_bytes is not None:
+            detail_rows.append(f"| Build RAM used | {format_bytes(build.ram_used_bytes)} |")
+
+        if runtime.startup_state is not None:
+            detail_rows.append(f"| Startup state | {runtime.startup_state} |")
+
+        if result.case.benchmark_mode in {"runtime", "stream"} and runtime.status_samples > 0:
+            detail_rows.append(f"| Packet-rate samples | {runtime.status_samples} |")
+            detail_rows.append(
+                f"| Packet rate | {format_number(runtime.pps_mean, ' pps')} mean, "
+                f"{format_number(runtime.pps_min)} min, {format_number(runtime.pps_max)} max, "
+                f"{format_number(runtime.pps_stddev)} standard deviation |"
+            )
+
+        if runtime.telemetry_samples > 0:
+            detail_rows.append(f"| Telemetry samples | {runtime.telemetry_samples} |")
+        if runtime.heap_free_last is not None:
+            detail_rows.append(f"| Last free heap | {format_bytes(runtime.heap_free_last)} |")
+        if runtime.heap_min is not None:
+            detail_rows.append(f"| Minimum free heap | {format_bytes(runtime.heap_min)} |")
+        if runtime.heap_largest_last is not None:
+            detail_rows.append(f"| Last largest heap block | {format_bytes(runtime.heap_largest_last)} |")
+        if runtime.runtime_load_mean is not None:
+            detail_rows.append(f"| Runtime load | {format_number(runtime.runtime_load_mean, '%')} mean |")
+        if runtime.loop_avg_us_mean is not None:
+            detail_rows.append(f"| Loop average | {format_number(runtime.loop_avg_us_mean, ' us')} |")
+        if runtime.loop_max_us_max is not None:
+            detail_rows.append(f"| Loop maximum | {format_number(runtime.loop_max_us_max, ' us')} |")
+
+        if result.case.benchmark_mode == "runtime" and result.monitor:
+            detail_rows.append(f"| Detection samples | {runtime.detection_samples} |")
+            if runtime.detection_avg_us_mean is not None:
+                detail_rows.append(f"| Detection average | {format_number(runtime.detection_avg_us_mean, ' us')} |")
+            if runtime.detection_min_us is not None:
+                detail_rows.append(f"| Detection minimum | {format_number(runtime.detection_min_us, ' us')} |")
+            if runtime.detection_max_us is not None:
+                detail_rows.append(f"| Detection maximum | {format_number(runtime.detection_max_us, ' us')} |")
+
+        if result.case.benchmark_mode == "stream":
+            if runtime.stream_telemetry_samples > 0:
+                detail_rows.append(f"| Stream telemetry samples | {runtime.stream_telemetry_samples} |")
+            if runtime.stream_csi_ap_mean is not None:
+                detail_rows.append(f"| Stream CSI accepted | {format_number(runtime.stream_csi_ap_mean, ' pps')} |")
+            if runtime.stream_udp_rx_mean is not None:
+                detail_rows.append(f"| Stream UDP RX | {format_number(runtime.stream_udp_rx_mean, ' pps')} |")
+            if runtime.stream_udp_tx_mean is not None:
+                detail_rows.append(f"| Stream UDP TX | {format_number(runtime.stream_udp_tx_mean, ' pps')} |")
+            if runtime.stream_fresh_mean is not None:
+                detail_rows.append(f"| Stream fresh records | {format_number(runtime.stream_fresh_mean, ' pps')} |")
+            detail_rows.append(f"| Stream TX backpressure total | {format_number(runtime.stream_tx_backpressure_total)} |")
+            detail_rows.append(f"| Host collect devices | {runtime.collect_devices_observed} |")
+            detail_rows.append(f"| Host collect packets | {runtime.collect_packets_seen} |")
+
         lines.extend(
             [
                 f"### {result.case.label}",
@@ -1098,47 +1184,7 @@ def render_report(chip: str, port: str, started_at: datetime, results: Sequence[
                 "",
                 "| Metric | Value |",
                 "|---|---:|",
-                f"| Benchmark mode | {result.case.benchmark_mode} |",
-                f"| Build duration | {format_duration(result.build.duration_seconds) if result.build else 'N/A'} |",
-                f"| Flash duration | {format_duration(result.flash.duration_seconds) if result.flash else 'N/A'} |",
-                f"| Monitor duration | {format_duration(result.monitor.duration_seconds) if result.monitor else 'N/A'} |",
-                f"| Collect duration | {format_duration(result.collect.duration_seconds) if result.collect else 'N/A'} |",
-                f"| Firmware binary | {format_bytes(build.firmware_size_bytes)} |",
-                f"| Application partition used | {format_bytes(build.partition_used_bytes)} |",
-                f"| Application partition free | {format_bytes(build.partition_free_bytes)} |",
-                f"| Build RAM used | {format_bytes(build.ram_used_bytes)} |",
-                f"| Startup state | {runtime.startup_state or 'N/A'} |",
-                f"| Packet-rate samples | {runtime.status_samples} |",
-                (
-                    f"| Packet rate | {format_number(runtime.pps_mean, ' pps')} mean, "
-                    f"{format_number(runtime.pps_min)} min, {format_number(runtime.pps_max)} max, "
-                    f"{format_number(runtime.pps_stddev)} standard deviation |"
-                ),
-                f"| Dominant motion state | {runtime.dominant_motion_state or 'N/A'} |",
-                f"| Motion transitions | {runtime.motion_transitions} |",
-                f"| Dominant state share | {format_number(runtime.dominant_state_share_percent, '%')} |",
-                f"| Secondary samples | {runtime.secondary_status_samples} |",
-                f"| Secondary dominant state | {runtime.secondary_dominant_motion_state or 'N/A'} |",
-                f"| Secondary state share | {format_number(runtime.secondary_dominant_state_share_percent, '%')} |",
-                f"| Telemetry samples | {runtime.telemetry_samples} |",
-                f"| Stream telemetry samples | {runtime.stream_telemetry_samples} |",
-                f"| Stream CSI accepted | {format_number(runtime.stream_csi_ap_mean, ' pps')} |",
-                f"| Stream UDP RX | {format_number(runtime.stream_udp_rx_mean, ' pps')} |",
-                f"| Stream UDP TX | {format_number(runtime.stream_udp_tx_mean, ' pps')} |",
-                f"| Stream fresh records | {format_number(runtime.stream_fresh_mean, ' pps')} |",
-                f"| Stream TX backpressure total | {format_number(runtime.stream_tx_backpressure_total)} |",
-                f"| Host collect devices | {runtime.collect_devices_observed} |",
-                f"| Host collect packets | {runtime.collect_packets_seen} |",
-                f"| Last free heap | {format_bytes(runtime.heap_free_last)} |",
-                f"| Minimum free heap | {format_bytes(runtime.heap_min)} |",
-                f"| Last largest heap block | {format_bytes(runtime.heap_largest_last)} |",
-                f"| Runtime load | {format_number(runtime.runtime_load_mean, '%')} mean |",
-                f"| Loop average | {format_number(runtime.loop_avg_us_mean, ' us')} |",
-                f"| Loop maximum | {format_number(runtime.loop_max_us_max, ' us')} |",
-                f"| Detection samples | {runtime.detection_samples} |",
-                f"| Detection average | {format_number(runtime.detection_avg_us_mean, ' us')} |",
-                f"| Detection minimum | {format_number(runtime.detection_min_us, ' us')} |",
-                f"| Detection maximum | {format_number(runtime.detection_max_us, ' us')} |",
+                *detail_rows,
                 "",
             ]
         )
@@ -1157,7 +1203,6 @@ def render_report(chip: str, port: str, started_at: datetime, results: Sequence[
             "- ESPHome and Native runtime benchmarks log at least "
             f"{MIN_STATUS_SAMPLES} valid motion states with non-zero packet rates",
             f"- ESPHome and Native mean packet rate remains between {EXPECTED_PPS_MIN} and {EXPECTED_PPS_MAX} pps",
-            "- ESPHome and Native motion transitions are informational and do not affect the result",
             "- ESPHome and Native detector timing is present",
             "- Matter smoke benchmarks log a boot marker and the commissioning startup state",
             "- Streamer benchmarks log the device IP, reach STREAMING, and sustain host collect around the target packet rate",

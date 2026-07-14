@@ -27,7 +27,7 @@ frontend paths, and an embeddable foundation for custom firmware and OEM product
 | **ESPHome frontend** | Production Home Assistant path kept on top of the shared platform |
 | **Native frontend** | Standalone custom GATT surface for generic BLE clients and web integrations |
 | **ESPectre Protocol** | Shared BLE+MQTT Protocol baseline for provisioning, telemetry, status, info, commands, monitor integration, and reusable runtime protocol services |
-| **Matter frontend** | Matter occupancy and diagnostics surface proving a second ecosystem-facing frontend |
+| **Matter frontend** | Matter occupancy surface proving a second ecosystem-facing frontend |
 | **Streamer frontend** | Standalone CSI UDP streamer for dataset collection, host tooling, and realtime fusion experiments |
 | **SDK-oriented firmware path** | Ability to assemble alternate firmware targets from shared platform layers for custom devices and OEM products |
 | **Practical sensing** | Presence and occupancy baselines, plus reusable inference/tooling foundations |
@@ -66,6 +66,7 @@ ESPectre v3 success criteria:
 
 - Evaluate LAN discovery for the streamer workflow via DNS-SD/mDNS so `./espectre collect` can browse reachable streamer nodes and optionally select a subset by `device_id`, while keeping explicit `--target` as the deterministic fallback and preserving CSI demultiplexing by `device_id`
 - Explore broader PHY and band support on the v3 platform, including HT40, Wi-Fi 6 / 802.11ax capabilities, and, where supported by hardware and exposed APIs, 5 GHz operation
+- Evaluate a future Matter OTA design for a later 3.x or post-v3 release, including Requestor-plus-Provider ownership and release artifact expectations
 
 ---
 
@@ -100,7 +101,7 @@ sensitive radio data to leave the user environment.
 - [x] Implement BLE-assisted Wi-Fi and MQTT provisioning
 - [x] Persist Wi-Fi and ESPectre Protocol settings on the native firmware path
 - [x] Move ESPectre Protocol helpers and ESP-IDF protocol services into shared runtime layers
-- [x] Reuse BLE-assisted Wi-Fi provisioning on the streamer firmware path
+- [x] Keep the streamer firmware on a narrow Wi-Fi-only streaming path without a separate BLE, MQTT, or OTA control surface
 - [x] Publish MQTT telemetry, status, info, stats, and command results from native firmware
 - [x] Align `micro-espectre` MQTT payloads and commands with the ESPectre Protocol baseline
 - [x] Adapt the existing web monitor into a protocol validation and MQTT dashboard client

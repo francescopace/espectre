@@ -12,8 +12,6 @@
 
 #include <cstdint>
 
-#include "matter_surface.h"
-
 namespace espectre {
 
 class IMatterBindings {
@@ -21,9 +19,6 @@ class IMatterBindings {
   virtual ~IMatterBindings() = default;
 
   virtual void publish_motion(uint16_t endpoint_id, bool motion_detected) = 0;
-  virtual void publish_periodic_state(uint16_t endpoint_id, const MatterPeriodicState &state) = 0;
-  virtual void publish_threshold(uint16_t endpoint_id, float threshold) = 0;
-  virtual void publish_calibrating(uint16_t endpoint_id, bool calibrating) = 0;
   virtual void report_fault(const char *message) = 0;
 };
 

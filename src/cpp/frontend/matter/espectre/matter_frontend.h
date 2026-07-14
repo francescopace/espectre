@@ -32,9 +32,6 @@ class MatterFrontend : public IRuntimeListener {
   void shutdown();
   ~MatterFrontend();
 
-  bool handle_threshold_write(float threshold);
-  bool handle_recalibrate_request();
-
   const RuntimeSnapshot &snapshot() const { return runtime_.snapshot(); }
   const RuntimeCapabilities &capabilities() const { return runtime_.capabilities(); }
   bool is_setup_complete() const { return runtime_.is_setup_complete(); }
@@ -53,7 +50,6 @@ class MatterFrontend : public IRuntimeListener {
   uint16_t endpoint_id_;
   RuntimeFrontendController runtime_;
   PeriodicSensingStatusLogger status_logger_{};
-  bool threshold_republished_{false};
 };
 
 }  // namespace espectre

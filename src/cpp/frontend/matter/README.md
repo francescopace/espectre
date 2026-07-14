@@ -12,8 +12,7 @@ The Matter frontend is responsible for:
 
 - Matter-specific surface mapping
 - Matter firmware app startup and commissioning flow
-- vendor-cluster diagnostics and runtime controls
-- Matter-native OTA requestor behavior
+- standard occupancy publishing over Matter
 - target-specific build, flash, and monitor workflow
 
 ## Directory Layout
@@ -48,8 +47,7 @@ After flashing a Matter image:
 1. power-cycle if needed and wait for the device to boot
 2. use a Matter controller that supports BLE commissioning
 3. commission the device into your target fabric
-4. continue using the Matter surface documented below for runtime visibility and
-   control
+4. use the standard Matter occupancy surface exposed by the firmware
 
 The current implementation relies on BLE commissioning, so `ESP32-S2` is not
 part of the supported target set.
@@ -110,10 +108,6 @@ The Matter frontend keeps ownership boundaries explicit:
 
 That ordering is visible in [`app_main.cpp`](app/main/app_main.cpp).
 
-Matter OTA follows the same ownership rule: OTA stays in the Matter frontend
-and app layer instead of reusing the shared MQTT-triggered HTTPS OTA service
-used by the standalone native and streamer frontends.
-
 The Matter frontend also uses the same shared periodic progress-bar sensing
 status log helper used by the ESPHome and standalone native frontends, so runtime
 serial diagnostics stay aligned across the ecosystem-facing firmware targets.
@@ -144,28 +138,16 @@ The current frontend exposes:
 | Feature | Matter mapping | Type | Access |
 |---------|----------------|------|--------|
 | Motion detected | `OccupancySensing` occupancy bitmap | bitmap | read-only |
-| Movement metric | Vendor cluster `0xFFF1FC01`, attribute `0x0000` | nullable float | read-only |
-| Threshold | Vendor cluster `0xFFF1FC01`, attribute `0x0001` | nullable float | writable, nonvolatile |
-| Calibrating | Vendor cluster `0xFFF1FC01`, attribute `0x0002` | boolean | read-only |
-| Ready-to-publish | Vendor cluster `0xFFF1FC01`, attribute `0x0003` | boolean | read-only |
-| Startup threshold | Vendor cluster `0xFFF1FC01`, attribute `0x0004` | nullable float | read-only |
-| Manual recalibration trigger | Vendor cluster `0xFFF1FC01`, attribute `0x0006` | boolean | writable trigger |
-
-Relevant constants live in [`matter_surface.h`](espectre/matter_surface.h).
 
 ## What You Can Configure Today
 
 The shared sensing options, defaults, and ranges are documented in
 [`SETUP.md`](../../../../docs/SETUP.md). This README covers only the Matter-owned
-surface and the runtime controls exposed through Matter attributes.
-
-Today the Matter surface exposes runtime control for:
-
-- threshold updates through the writable vendor attribute
-- manual recalibration through the writable vendor attribute
+surface.
 
 What is not currently exposed as a Matter configuration surface:
 
+- writable ESPectre runtime controls
 - full detector parameter parity with the ESPHome YAML surface
 - an end-user Matter-native workflow for every runtime knob
 - a separate frontend-owned tuning guide beyond the shared
@@ -173,8 +155,8 @@ What is not currently exposed as a Matter configuration surface:
 
 In practice, this frontend is best understood as:
 
-- a Matter-native occupancy and diagnostics surface
-- with limited writable runtime controls
+- a Matter-native occupancy surface
+- without ESPectre-specific writable controls
 - over the shared ESPectre runtime
 
 ## Targets and Validation
@@ -208,17 +190,17 @@ No manual `esp_matter` clone is required.
 
 ## OTA
 
-The Matter frontend uses the Matter OTA requestor path.
+Matter OTA is not supported in the current firmware scope.
 
-Current implementation notes:
+Current behavior:
 
-- the firmware enables the Matter OTA requestor in `sdkconfig.defaults`
-- OTA clusters are added from the Matter app layer before `esp_matter::start()`
-- the requestor is started after the Matter stack starts
-- the shared ESPectre MQTT OTA path is not used by Matter
+- the Matter frontend does not expose the Matter OTA requestor path
+- the shared ESPectre MQTT-triggered HTTPS OTA service is not reused by Matter
+- published Matter images are full firmware images intended for manual flashing
+  and commissioning workflows
 
-Provider-side image distribution and controller UX remain Matter-ecosystem
-concerns rather than ESPectre Protocol MQTT concerns.
+Future Matter OTA work, if it returns, should come back as a complete
+Requestor-plus-Provider design rather than a direct firmware download path.
 
 ## Matter-Specific Troubleshooting
 
@@ -255,7 +237,8 @@ Check that:
    enabled and device type `0x0107`
 4. Wi-Fi CSI policy logs appear only after `Commissioning complete`
 
-### Runtime values are visible but not all tuning knobs are writable
+### Runtime values are not exposed as writable Matter controls
 
-That is expected in the current frontend. The Matter surface exposes threshold
-and recalibration today, not the full ESPHome parameter surface.
+That is expected in the current frontend. The Matter surface is intentionally
+kept to standard occupancy behavior instead of mirroring the broader ESPectre
+runtime control plane.

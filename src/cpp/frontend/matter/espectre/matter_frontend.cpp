@@ -8,6 +8,7 @@
 #include "matter_frontend.h"
 
 #include "espectre_log.h"
+#include "matter_surface.h"
 #include "runtime_listener_utils.h"
 
 namespace espectre {
@@ -52,31 +53,7 @@ void MatterFrontend::loop() {
   runtime_.loop();
 }
 
-bool MatterFrontend::handle_threshold_write(float threshold) {
-  if (!validate_matter_threshold(threshold)) {
-    ESP_LOGW(TAG, "Rejected invalid threshold write: %.3f", threshold);
-    return false;
-  }
-  if (!runtime_.capabilities().supports_runtime_threshold_updates) {
-    ESP_LOGW(TAG, "Runtime threshold updates are not supported");
-    return false;
-  }
-
-  return runtime_.set_threshold_runtime(threshold);
-}
-
-bool MatterFrontend::handle_recalibrate_request() {
-  if (!runtime_.capabilities().supports_manual_recalibration) {
-    ESP_LOGW(TAG, "Manual recalibration is not supported");
-    return false;
-  }
-  return runtime_.trigger_recalibration();
-}
-
 void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
-  if (!snapshot.ready_to_publish) {
-    threshold_republished_ = false;
-  }
   runtime_.record_snapshot(snapshot);
   if (!snapshot.ready_to_publish) {
     return;
@@ -86,36 +63,22 @@ void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
-  if (!runtime_.snapshot().ready_to_publish && snapshot.ready_to_publish) {
-    threshold_republished_ = false;
-  }
   runtime_.record_snapshot(snapshot);
   if (!snapshot.ready_to_publish) {
     return;
   }
 
-  if (!threshold_republished_) {
-    bindings_->publish_threshold(endpoint_id_, snapshot.threshold);
-    threshold_republished_ = true;
-  }
-
   status_logger_.log_status(TAG, snapshot, packets_received);
-  bindings_->publish_periodic_state(endpoint_id_, snapshot_to_periodic_state(snapshot, packets_received));
 }
 
 void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   runtime_.record_snapshot(snapshot);
   runtime_.config().segmentation_threshold = snapshot.threshold;
-  bindings_->publish_threshold(endpoint_id_, snapshot.threshold);
 }
 
-void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
-  runtime_.record_snapshot(snapshot);
-  bindings_->publish_calibrating(endpoint_id_, true);
-}
+void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
 
 void MatterFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
-  bindings_->publish_calibrating(endpoint_id_, false);
   finalize_frontend_calibration(runtime_, snapshot, [this]() { status_logger_.reset(); }, success, TAG);
 }
 

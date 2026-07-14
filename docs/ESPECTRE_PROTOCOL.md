@@ -276,12 +276,6 @@ Identity/config semantics for the current BLE control surface:
 - `SET_WIFI_CONFIG:...` replaces the full persisted Wi-Fi station block in one write and applies it immediately
 - `CLEAR_WIFI` clears only persisted Wi-Fi station settings
 
-Frontend notes:
-
-- the standalone native frontend exposes the full current MQTT telemetry/status/info/stats command plane
-- the standalone streamer frontend exposes `info`, `stats`, `ota_check`, `ota_start`, `ota_status`, and command results over MQTT
-- Matter does not use this MQTT command plane for OTA; it follows the Matter OTA requestor/provider flow instead
-
 ## Current BLE Telemetry Surface
 
 The standalone native frontend currently exposes two data paths:

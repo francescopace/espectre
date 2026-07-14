@@ -17,7 +17,49 @@ namespace {
 
 static const char *const TAG = "espectre.mqtt";
 
+bool has_uri_scheme(const std::string &value) {
+  return value.find("://") != std::string::npos;
+}
+
+bool uri_authority_has_port(const std::string &authority) {
+  if (authority.empty()) {
+    return false;
+  }
+  if (authority.front() == '[') {
+    const size_t close = authority.find(']');
+    return close != std::string::npos && close + 1 < authority.size() && authority[close + 1] == ':';
+  }
+  const size_t first_colon = authority.find(':');
+  const size_t last_colon = authority.rfind(':');
+  return first_colon != std::string::npos && first_colon == last_colon;
+}
+
+std::string append_port_to_uri(const std::string &uri, uint16_t port) {
+  const size_t scheme_pos = uri.find("://");
+  if (scheme_pos == std::string::npos) {
+    return uri;
+  }
+
+  const size_t authority_start = scheme_pos + 3U;
+  const size_t suffix_start = uri.find_first_of("/?#", authority_start);
+  const std::string authority = uri.substr(
+      authority_start, suffix_start == std::string::npos ? std::string::npos : suffix_start - authority_start);
+  if (authority.empty() || uri_authority_has_port(authority)) {
+    return uri;
+  }
+
+  char port_suffix[8];
+  std::snprintf(port_suffix, sizeof(port_suffix), ":%u", static_cast<unsigned>(port));
+  if (suffix_start == std::string::npos) {
+    return uri + port_suffix;
+  }
+  return uri.substr(0, suffix_start) + port_suffix + uri.substr(suffix_start);
+}
+
 std::string make_broker_uri(const EspectreDeviceConfig &config) {
+  if (has_uri_scheme(config.mqtt_host)) {
+    return append_port_to_uri(config.mqtt_host, config.mqtt_port);
+  }
   char uri[192];
   std::snprintf(uri, sizeof(uri), "mqtt://%s:%u", config.mqtt_host.c_str(), static_cast<unsigned>(config.mqtt_port));
   return uri;

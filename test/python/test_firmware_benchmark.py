@@ -430,6 +430,8 @@ def test_render_report_contains_generated_summary(monkeypatch) -> None:
             pps_mean=100.0,
             dominant_state_share_percent=100.0,
             detection_avg_us_mean=42.0,
+            runtime_load_mean=1.25,
+            heap_min=180000,
         ),
     )
 
@@ -442,10 +444,92 @@ def test_render_report_contains_generated_summary(monkeypatch) -> None:
 
     assert markdown.startswith("<!-- Generated file. Do not edit manually. -->")
     assert "# ESP32-C3 Firmware Performance" in markdown
-    assert "| Esphome Classic | **PASS** |" in markdown
-    assert "| Firmware | Result | Binary size | Partition free | Mean PPS |" in markdown
+    assert "| Esphome | Classic | **PASS** |" in markdown
+    assert "| Frontend | Detector | Result | Binary size | Partition free | CPU load | Min free heap |" in markdown
+    assert "| Esphome | Classic | **PASS** | 810.0 KiB | 976.6 KiB (54.5%) | 1.25% | 175.8 KiB |" in markdown
     assert "| Benchmark mode | runtime |" in markdown
+    assert "| Dominant motion state |" not in markdown
+    assert "| Motion transitions |" not in markdown
     assert "Git revision: `abc123`" in markdown
     assert "Serial port:" not in markdown
     assert "| Device IP |" not in markdown
     assert "Overall result: **FAIL**" in markdown
+
+
+def test_render_report_omits_irrelevant_rows_for_smoke_and_stream() -> None:
+    successful = benchmark.CommandResult(["ok"], 0, 1.0, "ok")
+    matter_result = benchmark.BenchmarkResult(
+        case=benchmark.BenchmarkCase("matter", "classic", benchmark_mode="smoke"),
+        status="PASS",
+        build=successful,
+        flash=successful,
+        monitor=successful,
+        build_metrics=benchmark.BuildMetrics(
+            firmware_size_bytes=1500000,
+            partition_used_bytes=1500000,
+            partition_free_bytes=400000,
+        ),
+        runtime_metrics=benchmark.RuntimeMetrics(
+            startup_state="waiting for commissioning",
+            telemetry_samples=12,
+            heap_free_last=26000,
+            heap_min=22000,
+            heap_largest_last=14000,
+            runtime_load_mean=0.1,
+            loop_avg_us_mean=10.0,
+            loop_max_us_max=80,
+        ),
+    )
+    streamer_result = benchmark.BenchmarkResult(
+        case=benchmark.BenchmarkCase("streamer", "collect", benchmark_mode="stream"),
+        status="PASS",
+        build=successful,
+        flash=successful,
+        monitor=successful,
+        collect=successful,
+        build_metrics=benchmark.BuildMetrics(
+            firmware_size_bytes=800000,
+            partition_used_bytes=800000,
+            partition_free_bytes=200000,
+        ),
+        runtime_metrics=benchmark.RuntimeMetrics(
+            startup_state="STREAMING",
+            status_samples=120,
+            pps_mean=100.0,
+            pps_min=99,
+            pps_max=101,
+            pps_stddev=1.0,
+            telemetry_samples=12,
+            stream_telemetry_samples=50,
+            stream_csi_ap_mean=99.0,
+            stream_udp_rx_mean=100.0,
+            stream_udp_tx_mean=25.0,
+            stream_fresh_mean=98.0,
+            stream_tx_backpressure_total=0,
+            collect_devices_observed=1,
+            collect_packets_seen=12000,
+            heap_free_last=180000,
+            heap_min=160000,
+            heap_largest_last=110000,
+            runtime_load_mean=3.5,
+            loop_avg_us_mean=70.0,
+            loop_max_us_max=90000,
+        ),
+    )
+
+    markdown = benchmark.render_report("c3", "/dev/test", datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc), [matter_result, streamer_result])
+
+    matter_section = markdown.split("### Matter Classic", 1)[1].split("### Streamer Collect", 1)[0]
+    streamer_section = markdown.split("### Streamer Collect", 1)[1]
+
+    assert "| Startup state | waiting for commissioning |" in matter_section
+    assert "| Telemetry samples | 12 |" in matter_section
+    assert "| Packet-rate samples |" not in matter_section
+    assert "| Stream telemetry samples |" not in matter_section
+    assert "| Detection average |" not in matter_section
+
+    assert "| Collect duration | 1.0s |" in streamer_section
+    assert "| Stream telemetry samples | 50 |" in streamer_section
+    assert "| Host collect packets | 12000 |" in streamer_section
+    assert "| Detection average |" not in streamer_section
+    assert "| Build RAM used |" not in streamer_section

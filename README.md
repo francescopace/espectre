@@ -29,17 +29,16 @@ the ML workflow, training process, and model export path, see
 
 ## Why It Matters
 
-ESPectre started as a Home Assistant-friendly Wi-Fi motion detector. The v3 release turns it into a reusable Wi-Fi sensing platform:
+ESPectre started as a Home Assistant-friendly Wi-Fi motion detector. With v3, it becomes a reusable Wi-Fi sensing platform:
 
 - **Smart home ready**: ESPHome remains the production path for Home Assistant.
-- **Matter path**: published Matter firmware opens the door to Apple Home, Google Home, Alexa, and other controller-based smart-home setups.
-- **Native firmware**: standalone BLE/MQTT firmware works without Home Assistant and can be driven from web clients or custom integrations.
-- **OTA across frontends**: every published firmware path has an OTA story, but the mechanism depends on the frontend: ESPHome uses its native OTA flow, Native and Streamer use HTTPS OTA triggered over MQTT, and Matter follows the Matter OTA ecosystem.
-- **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed into custom ESP32 firmware and OEM products.
-- **Research and ML tooling**: streamer firmware, notebooks, collection tools, and training docs support CSI datasets and future sensing models.
+- **Matter path**: production-ready Matter firmware opens the door to Apple Home, Google Home, Alexa, and other controller-based smart-home setups.
+- **Native firmware**: standalone BLE, MQTT, and OTA firmware works without Home Assistant and can be driven by web clients or custom integrations.
+- **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed in custom ESP32 firmware and OEM products.
+- **Research and ML tooling**: streamer firmware, notebooks, collection tools, and training docs support CSI dataset creation and future sensing models.
 
-The long-term idea is simple: ordinary Wi-Fi smart devices can become ambient sensing nodes.  
-Lights, switches, HVAC devices, appliances, and custom ESP32 products can add motion or occupancy awareness without adding cameras or dedicated sensors.
+The long-term idea is simple: ordinary Wi-Fi smart devices can double as ambient sensing nodes.  
+Lights, switches, HVAC devices, appliances, and custom ESP32 products can add motion or occupancy awareness without cameras or dedicated sensors.
 
 ## Quick Start
 

@@ -50,3 +50,11 @@ def test_native_frontend_defaults_disable_unused_mqtt_websocket_transports():
     assert "CONFIG_MQTT_TRANSPORT_SSL=y" in defaults
     assert "# CONFIG_MQTT_TRANSPORT_WEBSOCKET is not set" in defaults
     assert "# CONFIG_MQTT_TRANSPORT_WEBSOCKET_SECURE is not set" in defaults
+
+
+def test_matter_frontend_defaults_do_not_enable_ota_requestor():
+    defaults = (
+        REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app" / "sdkconfig.defaults"
+    ).read_text(encoding="utf-8")
+
+    assert "CONFIG_ENABLE_OTA_REQUESTOR=y" not in defaults

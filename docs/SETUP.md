@@ -24,14 +24,16 @@ Use the `stable` channel for the latest official release, or `main` when you wan
 - USB cable for flashing
 - 2.4 GHz Wi-Fi network
 
-Current entry-point support by frontend:
+Current chip support by frontend:
 
-| Frontend | Supported published targets | Notes |
-|----------|-----------------------------|-------|
-| `ESPHome` | `ESP32-S3`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32`, `ESP32-S2` (experimental) | Published web-flash images use the default detector profile; the frontend README covers `classic` and `ml` configuration |
-| `Native` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Standalone native frontend exposed over BLE and MQTT, with HTTPS OTA triggered over MQTT |
-| `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Requires BLE commissioning, so `ESP32-S2` is excluded; OTA stays in the Matter ecosystem |
-| `Streamer` | local build workflow | Not part of the browser flasher path |
+| Frontend | Supported chips | Delivery |
+|----------|-----------------|----------|
+| `ESPHome` | `ESP32-S3`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32` | Published web-flash images |
+| `Native` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
+| `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
+| `Streamer` | `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, `ESP32-S3` | Local build workflow |
+
+Use the frontend README for the workflow and surface details after you choose the firmware path.
 
 ### Software
 
@@ -235,8 +237,8 @@ The next step depends on the frontend you chose:
 |----------|---------------|-----------------------|
 | `ESPHome` | [`README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
 | `Native` | [`README.md`](../src/cpp/frontend/native/README.md) | Build/flash workflow, Wi-Fi and MQTT setup, native control surface, and HTTPS OTA flow |
-| `Matter` | [`README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter surface, Matter-native OTA behavior, and local ESP-IDF workflow |
-| `Streamer` | [`README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, Wi-Fi and minimal MQTT setup, and HTTPS OTA flow |
+| `Matter` | [`README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter occupancy surface, and local ESP-IDF workflow |
+| `Streamer` | [`README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, build-time Wi-Fi setup, and the frontend's intentionally narrow scope |
 
 ## Shared Runtime Concepts
 
