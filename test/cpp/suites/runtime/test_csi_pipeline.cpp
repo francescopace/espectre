@@ -723,6 +723,31 @@ void test_csi_pipeline_clear_detector_buffer(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_motion_metric());
 }
 
+void test_csi_pipeline_samples_detection_time_on_evaluation_tick(void) {
+    ClassicDetector detector(10, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
+    manager.set_evaluation_interval(TEST_EVALUATION_INTERVAL);
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    for (uint32_t packet = 0; packet < 999U; packet++) {
+        manager.process_packet(&csi_info);
+    }
+
+    uint32_t detection_time_us = 0U;
+    TEST_ASSERT_FALSE(manager.take_detection_time_us(&detection_time_us));
+
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_TRUE(manager.take_detection_time_us(&detection_time_us));
+    TEST_ASSERT_TRUE(detection_time_us > 0U);
+    TEST_ASSERT_FALSE(manager.take_detection_time_us(&detection_time_us));
+    TEST_ASSERT_FALSE(manager.take_detection_time_us(nullptr));
+}
+
 // ============================================================================
 // LEGACY NORMALIZATION TESTS
 // ============================================================================
@@ -798,6 +823,7 @@ int process(void) {
     
     // Clear buffer test
     RUN_TEST(test_csi_pipeline_clear_detector_buffer);
+    RUN_TEST(test_csi_pipeline_samples_detection_time_on_evaluation_tick);
     
     // Legacy normalization tests
     RUN_TEST(test_csi_pipeline_filters_unicast_frames_for_other_device);

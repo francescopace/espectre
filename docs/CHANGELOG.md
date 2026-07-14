@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 
 - **New source layout under `src/cpp/`** with shared `core`, `runtime`, and `frontend` layers.
 - **Shared runtime/frontend infrastructure** with explicit runtime contracts, common frontend orchestration, and reusable ESP-IDF protocol services.
+- **Shared ESP-IDF runtime debug telemetry** for periodic heap, configured CPU frequency, runtime-loop load, loop timing, and detector evaluation timing across frontends.
 - **Matter frontend and release surface**, including published artifacts for releases, snapshots, and the web flasher.
 - **Shared HTTPS OTA service for ESP-IDF frontends** under `runtime/esp_idf`.
 - **L1-delta as the primary Classic runtime metric** in both the Python and C++ runtimes.

@@ -9,6 +9,7 @@
 #include "csi_pipeline.h"
 #include "pending_event.h"
 #include "runtime_interface.h"
+#include "runtime_debug_telemetry.h"
 #include "csi_traffic_service.h"
 #include "wifi_lifecycle.h"
 
@@ -36,6 +37,7 @@ class EspIdfRuntime : public IEspectreRuntime {
  private:
   void update_live_telemetry_callback_();
   bool configure_detector_();
+  void log_calibration_progress_(uint8_t percent, uint32_t packets, uint16_t target_packets);
   void on_wifi_connected_();
   void on_wifi_disconnected_();
   bool start_calibration_();
@@ -59,9 +61,12 @@ class EspIdfRuntime : public IEspectreRuntime {
   CsiPipeline csi_pipeline_;
   WiFiLifecycleManager wifi_lifecycle_;
   CsiTrafficService csi_traffic_service_;
+  RuntimeDebugTelemetry debug_telemetry_;
 
   std::unique_ptr<StartupThresholdCalibrator> threshold_calibrator_;
   std::atomic<bool> threshold_calibration_active_{false};
+  std::atomic<uint8_t> next_calibration_progress_percent_{25U};
+  PendingEvent<uint8_t, uint32_t, uint16_t> calibration_progress_event_;
   // Posted from the CSI callback with the outcome, completed from the loop.
   PendingEvent<bool> calibration_finished_event_;
   bool services_armed_{true};

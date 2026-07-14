@@ -383,6 +383,7 @@ esp_err_t StandaloneWifiService::apply_started_csi_policy() {
     ESP_LOGW(TAG, "Failed to apply started Wi-Fi CSI policy: %s", esp_err_to_name(policy_err));
     return policy_err;
   }
+  WiFiLifecycleManager::log_csi_runtime_state(TAG);
   ESP_LOGI(TAG, "Started Wi-Fi CSI policy applied");
 
   return ps_err == ESP_OK ? ESP_OK : ps_err;

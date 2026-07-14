@@ -124,6 +124,14 @@ esp_err_t WiFiLifecycleManager::init() {
     return ret;
   }
 
+  // Keep the radio awake for CSI sensing. ESPHome can still leave STA power
+  // save enabled at runtime even when PM-related sdkconfig options are off.
+  ret = esp_wifi_set_ps(WIFI_PS_NONE);
+  if (ret != ESP_OK) {
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to disable WiFi power save: %s", esp_err_to_name(ret));
+    return ret;
+  }
+
   // IMPORTANT: Promiscuous mode MUST be called BEFORE configuring CSI
   // This initializes internal WiFi structures required for CSI, even when set to false
   ret = esp_wifi_set_promiscuous(false);
@@ -132,6 +140,7 @@ esp_err_t WiFiLifecycleManager::init() {
     return ret;
   }
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi CSI lifecycle ready: promiscuous=disabled");
+  log_csi_runtime_state(WIFI_LIFECYCLE_TAG);
 
   return ESP_OK;
 }
@@ -204,26 +213,26 @@ void WiFiLifecycleManager::process_pending_events() {
 
   if (connected_event_.take()) {
     ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi connected");
-    log_connect_diagnostics_();
     if (connected_callback_) {
       connected_callback_();
     }
   }
 }
 
-void WiFiLifecycleManager::log_connect_diagnostics_() {
+void WiFiLifecycleManager::log_csi_runtime_state(const char *tag) {
+  const char *log_tag = tag != nullptr ? tag : WIFI_LIFECYCLE_TAG;
   bool promiscuous = false;
   esp_wifi_get_promiscuous(&promiscuous);
-  ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
+  ESP_LOGD(log_tag, "WiFi Promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
 
   wifi_ps_type_t ps_type;
   esp_err_t ps_err = esp_wifi_get_ps(&ps_type);
   if (ps_err == ESP_OK) {
     const char* ps_str = (ps_type == WIFI_PS_NONE) ? "NONE" :
                          (ps_type == WIFI_PS_MIN_MODEM) ? "MIN_MODEM" : "MAX_MODEM";
-    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Power Save: %s", ps_str);
+    ESP_LOGD(log_tag, "WiFi Power Save: %s", ps_str);
   } else {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Power Save: unavailable (%s)", esp_err_to_name(ps_err));
+    ESP_LOGW(log_tag, "WiFi Power Save: unavailable (%s)", esp_err_to_name(ps_err));
   }
 
   uint16_t protocol = 0;
@@ -237,21 +246,21 @@ void WiFiLifecycleManager::log_connect_diagnostics_() {
 #else
     const int has_11ax = 0;
 #endif
-    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
+    ESP_LOGD(log_tag, "WiFi Protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
              protocol, has_11b, has_11g, has_11n, has_11ax);
     if ((protocol & WIFI_PROTOCOL_11N) == 0) {
-      ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi protocol does not include 11n support: 0x%04X", protocol);
+      ESP_LOGW(log_tag, "WiFi protocol does not include 11n support: 0x%04X", protocol);
     }
   } else {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Protocol: unavailable (%s)", esp_err_to_name(protocol_err));
+    ESP_LOGW(log_tag, "WiFi Protocol: unavailable (%s)", esp_err_to_name(protocol_err));
   }
 
   wifi_bandwidth_t bw = WIFI_BW_HT20;
   esp_err_t bw_err = get_wifi_bandwidth_for_log_(&bw);
   if (bw_err == ESP_OK) {
-    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Bandwidth: %s", bandwidth_to_str_(bw));
+    ESP_LOGD(log_tag, "WiFi Bandwidth: %s", bandwidth_to_str_(bw));
   } else {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Bandwidth: unavailable (%s)", esp_err_to_name(bw_err));
+    ESP_LOGW(log_tag, "WiFi Bandwidth: unavailable (%s)", esp_err_to_name(bw_err));
   }
 }
 

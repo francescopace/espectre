@@ -118,6 +118,7 @@ bool StreamEspIdfRuntime::setup() {
   }
 
   setup_complete_ = true;
+  debug_telemetry_.reset();
   ESP_LOGI(TAG,
            "Stream runtime ready: collector=learned:%u traffic_rx_port=%u",
            static_cast<unsigned>(config_.collector_port),
@@ -136,6 +137,7 @@ void StreamEspIdfRuntime::shutdown() {
 }
 
 void StreamEspIdfRuntime::loop() {
+  RuntimeDebugLoopScope debug_scope(debug_telemetry_, TAG);
   if (!setup_complete_) {
     return;
   }

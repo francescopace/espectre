@@ -303,6 +303,28 @@ Whatever frontend you use, keep an eye on:
 - readiness or calibration progress
 - packet flow
 
+### Firmware Performance Check
+
+Use a `DEBUG` build when comparing firmware variants. Record the binary size
+and free application-partition space from the build summary, then monitor the
+device for several minutes after startup has settled.
+
+The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10
+seconds at `DEBUG` level. Check that:
+
+- packet flow stays close to the configured rate, normally around `100 pps`
+- motion state remains stable when the environment is still
+- `heap_free`, `heap_min`, and `heap_largest` settle instead of declining
+  continuously
+- `runtime_load`, `loop_avg_us`, and `loop_max_us` remain reasonably stable
+- `detection_avg_us`, `detection_min_us`, and `detection_max_us` remain stable
+  when comparing detector variants
+
+For `ml`, detector timing includes feature extraction, inference, and state
+update. `runtime_load` measures the ESPectre runtime loop only; it is not
+whole-system CPU utilization. Compare results on the same target, Wi-Fi setup,
+traffic rate, and log level.
+
 ## Short Version
 
 1. start with `classic`, `auto`, `window_size: 100`, and no low-pass filter

@@ -134,6 +134,7 @@ class CsiPipeline {
    */
   void clear_detector_buffer();
   void set_local_identity(uint32_t local_ip_addr, const uint8_t *local_mac_addr);
+  bool take_detection_time_us(uint32_t *duration_us);
   
  private:
   void process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized);
@@ -156,7 +157,7 @@ class CsiPipeline {
   uint32_t evaluation_interval_{25};
   volatile uint32_t packets_processed_{0};
   uint32_t packets_since_evaluation_{0};
-  uint32_t packets_total_{0};
+  uint32_t packets_since_perf_sample_{0};
   uint8_t current_channel_{0};
   uint8_t motion_on_hits_{3};
   uint8_t motion_off_hits_{3};

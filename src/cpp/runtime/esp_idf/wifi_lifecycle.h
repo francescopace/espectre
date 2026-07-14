@@ -56,6 +56,14 @@ class WiFiLifecycleManager {
    * the HT20/11n policy instead of the target's HE/11ax default.
   */
   static esp_err_t apply_csi_wifi_policy();
+
+  /**
+   * Log the current Wi-Fi CSI-related runtime state after policy application.
+   *
+   * This is intended to run after changing power-save, protocol, bandwidth,
+   * or promiscuous settings so the logs reflect the effective runtime state.
+   */
+  static void log_csi_runtime_state(const char *tag);
   
   /**
    * Register WiFi event handlers
@@ -82,8 +90,6 @@ class WiFiLifecycleManager {
   void process_pending_events();
 
  private:
-  void log_connect_diagnostics_();
-
   // Static handlers for ESP-IDF C API (separated by event type)
   static void ip_event_handler_(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data);

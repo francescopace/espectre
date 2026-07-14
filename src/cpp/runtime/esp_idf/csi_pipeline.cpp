@@ -66,11 +66,6 @@ void CsiPipeline::request_motion_state_callback_(MotionState previous_state, Mot
 
 void CsiPipeline::loop() {
   capture_service_.loop();
-
-  uint32_t detection_time_us = 0U;
-  if (perf_log_event_.take(detection_time_us)) {
-    ESP_LOGD(TAG, "[perf] Detection time: %u us", static_cast<unsigned>(detection_time_us));
-  }
   uint8_t previous_channel = 0U;
   uint8_t current_channel = 0U;
   if (channel_change_event_.take(previous_channel, current_channel)) {
@@ -155,8 +150,9 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     return;
   }
 
-  const bool should_measure = (packets_total_++ % 1000 == 0);
-  int64_t start_us = should_measure ? esp_timer_get_time() : 0;
+  if (packets_since_perf_sample_ < 1000U) {
+    packets_since_perf_sample_++;
+  }
   
   detector_->process_packet(csi_data, csi_len, DEFAULT_SUBCARRIERS, NUM_SUBCARRIERS);
   
@@ -168,6 +164,8 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   const bool should_evaluate = should_publish || packets_since_evaluation_ >= evaluation_interval_;
   
   if (should_evaluate) {
+    const bool should_measure = packets_since_perf_sample_ >= 1000U;
+    const int64_t start_us = should_measure ? esp_timer_get_time() : 0;
     // Update detector state on the internal cadence.
     MotionState previous_state = effective_motion_state_;
     detector_->update_state();
@@ -175,10 +173,11 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     request_motion_state_callback_(previous_state, current_state);
     packets_since_evaluation_ = 0;
     
-    // Log detection time periodically (every ~10 seconds at 100 pps)
+    // Sample detector evaluation periodically (every ~10 seconds at 100 pps).
     if (should_measure) {
       int64_t elapsed_us = esp_timer_get_time() - start_us;
       perf_log_event_.post(static_cast<uint32_t>(elapsed_us));
+      packets_since_perf_sample_ = 0U;
     }
 
     // Emit live telemetry on each detector evaluation tick.
@@ -203,6 +202,13 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
       packets_processed_ = 0;
     }
   }
+}
+
+bool CsiPipeline::take_detection_time_us(uint32_t *duration_us) {
+  if (duration_us == nullptr) {
+    return false;
+  }
+  return perf_log_event_.take(*duration_us);
 }
 
 void CsiPipeline::capture_packet_callback_(void *context,
@@ -249,6 +255,7 @@ esp_err_t CsiPipeline::disable() {
   perf_log_event_.clear();
   channel_change_event_.clear();
   packets_since_evaluation_ = 0;
+  packets_since_perf_sample_ = 0;
   reset_motion_state_filter_();
   return ESP_OK;
 }

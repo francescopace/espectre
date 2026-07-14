@@ -1,6 +1,7 @@
 #include "esp_idf_runtime.h"
 
 #include <algorithm>
+#include <cinttypes>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -12,11 +13,6 @@
 #include "csi_format.h"
 #include "ml_detector.h"
 #include "runtime_config_utils.h"
-
-#if __has_include("esp_heap_caps.h")
-#include "esp_heap_caps.h"
-#define ESPECTRE_HAVE_ESP_HEAP_CAPS 1
-#endif
 
 namespace espectre {
 
@@ -95,21 +91,7 @@ bool EspIdfRuntime::setup() {
       ESP_LOGI(RUNTIME_TAG, "WiFi is ready, deferring CSI services until commissioning completes");
     }
   }
-  ESP_LOGD(RUNTIME_TAG, "[resources] Free heap: %lu bytes, largest block: %lu bytes",
-           static_cast<unsigned long>(
-#ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
-               heap_caps_get_free_size(MALLOC_CAP_DEFAULT)
-#else
-               0UL
-#endif
-               ),
-           static_cast<unsigned long>(
-#ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
-               heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)
-#else
-               0UL
-#endif
-               ));
+  debug_telemetry_.reset();
   return true;
 }
 
@@ -124,13 +106,34 @@ void EspIdfRuntime::shutdown() {
 }
 
 void EspIdfRuntime::loop() {
+  RuntimeDebugLoopScope debug_scope(debug_telemetry_, RUNTIME_TAG);
   wifi_lifecycle_.process_pending_events();
+  uint8_t calibration_percent = 0U;
+  uint32_t calibration_packets = 0U;
+  uint16_t calibration_target_packets = 0U;
+  if (calibration_progress_event_.take(calibration_percent, calibration_packets, calibration_target_packets)) {
+    log_calibration_progress_(calibration_percent, calibration_packets, calibration_target_packets);
+  }
   bool calibration_success = false;
   if (calibration_finished_event_.take(calibration_success)) {
     finish_threshold_calibration_(calibration_success);
   }
   csi_pipeline_.loop();
+  uint32_t detection_time_us = 0U;
+  if (csi_pipeline_.take_detection_time_us(&detection_time_us)) {
+    debug_telemetry_.record_detection_time(detection_time_us);
+  }
   csi_traffic_service_.loop();
+}
+
+void EspIdfRuntime::log_calibration_progress_(uint8_t percent, uint32_t packets, uint16_t target_packets) {
+  if (target_packets == 0U) {
+    return;
+  }
+  ESP_LOGI(RUNTIME_TAG, "Calibration %u%% (%" PRIu32 "/%u packets)",
+           static_cast<unsigned>(percent),
+           static_cast<uint32_t>(packets),
+           static_cast<unsigned>(target_packets));
 }
 
 void EspIdfRuntime::set_services_armed(bool armed) {
@@ -296,6 +299,8 @@ void EspIdfRuntime::on_wifi_disconnected_() {
   wifi_ready_ = false;
   csi_wifi_lifecycle_ready_ = false;
   threshold_calibration_active_.store(false, std::memory_order_relaxed);
+  next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
+  calibration_progress_event_.clear();
   calibration_finished_event_.clear();
   csi_pipeline_.set_packet_interceptor(nullptr, nullptr);
   csi_pipeline_.set_local_identity(0U, nullptr);
@@ -336,6 +341,8 @@ bool EspIdfRuntime::start_calibration_() {
   threshold_calibrator_->begin(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS,
                                detector_ != nullptr && detector_->startup_gate_enabled());
   calibration_finished_event_.clear();
+  calibration_progress_event_.clear();
+  next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
   threshold_calibration_active_.store(true, std::memory_order_relaxed);
   csi_pipeline_.clear_detector_buffer();
   csi_pipeline_.set_packet_interceptor(&EspIdfRuntime::threshold_calibration_packet_callback_, this);
@@ -356,6 +363,17 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
   threshold_calibrator_->observe(detector_->is_ready(), detector_->get_motion_metric(),
                                  detector_->get_startup_floor_metric());
 
+  const uint32_t packet_count = threshold_calibrator_->packet_count();
+  const uint16_t target_packets = threshold_calibrator_->target_packets();
+  uint8_t next_progress = next_calibration_progress_percent_.load(std::memory_order_relaxed);
+  while (next_progress <= 100U &&
+         (static_cast<uint64_t>(packet_count) * 100U) >=
+             (static_cast<uint64_t>(target_packets) * next_progress)) {
+    calibration_progress_event_.post(next_progress, std::min<uint32_t>(packet_count, target_packets), target_packets);
+    next_progress = static_cast<uint8_t>(next_progress + 25U);
+  }
+  next_calibration_progress_percent_.store(next_progress, std::memory_order_relaxed);
+
   if (threshold_calibrator_->is_complete()) {
     threshold_calibration_active_.store(false, std::memory_order_relaxed);
     calibration_finished_event_.post(threshold_calibrator_->is_successful());
@@ -372,6 +390,8 @@ bool EspIdfRuntime::threshold_calibration_packet_callback_(void *context,
 
 void EspIdfRuntime::finish_threshold_calibration_(bool success) {
   threshold_calibration_active_.store(false, std::memory_order_relaxed);
+  next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
+  calibration_progress_event_.clear();
   csi_pipeline_.set_packet_interceptor(nullptr, nullptr);
   snapshot_.calibrating = false;
 
