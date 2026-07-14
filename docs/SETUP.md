@@ -194,9 +194,10 @@ Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 
 Release and snapshot publishing provide one full-flash image for each supported
 chip on the `ESPHome`, `Native`, and `Matter` frontends. GitHub Releases also
-provide application-only OTA payloads for ESPHome and Native. GitHub Pages
-stages only the full-flash images used by the browser flasher. The published
-`ESPHome` image uses the default `Classic` detector.
+provide application-only OTA payloads for Native. GitHub Pages stages only the
+full-flash images used by the browser flasher. The published `ESPHome` image
+uses the default `Classic` detector; subsequent ESPHome updates are compiled
+and installed through ESPHome Device Builder.
 
 The `ML` detector remains available through a local ESPHome build with
 `detection_algorithm: ml`; it is not published as a separate precompiled image.
@@ -205,11 +206,12 @@ build time.
 
 | Publication surface | Full-flash images | OTA payloads | Manifests |
 |---------------------|------------------:|-------------:|-----------|
-| GitHub Release or snapshot | 15 | 10 | unified manifest plus 5 Native per-chip OTA manifests |
+| GitHub Release or snapshot | 15 | 5 | unified manifest plus 5 Native per-chip OTA manifests |
 | GitHub Pages | 15 | 0 | factory-only web-flash manifest |
 
-The OTA payloads are five ESPHome and five Native application binaries. Matter
-does not use this OTA flow, and Streamer firmware is not published.
+The OTA payloads are five Native application binaries. ESPHome Device Builder
+produces its OTA image from the adopted device configuration. Matter does not
+use this OTA flow, and Streamer firmware is not published.
 
 To flash:
 
@@ -284,7 +286,8 @@ Support in this phase:
 | `segmentation_threshold` | float | `1.0` | `classic`: `0.0-10.0`, `ml`: `0.0-1.0`; used when `threshold_mode=manual` |
 | `segmentation_window_size` | int | `100` | `10-200` packets |
 | `classic_recovery_vote_enabled` | bool | `true` | Classic-only variance recovery vote |
-| `traffic_generator_rate` | int | `100` | `0-1000`; `0` disables internal traffic generation |
+| `traffic_generator_rate` | int | `100` | Target valid local CSI rate, `0-1000`; `0` disables internal traffic generation |
+| `traffic_generator_adaptive` | bool | `true` | Adjusts DNS or ICMP send pacing from valid local CSI callbacks |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
 | `publish_interval` | int | `100` | `1-1000` packets between periodic updates |
 | `evaluation_interval` | int | `25` | `1-1000` packets between detector evaluations |

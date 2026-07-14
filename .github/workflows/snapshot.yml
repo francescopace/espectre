@@ -92,9 +92,8 @@ jobs:
         run: |
           mkdir -p output
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
-          find examples/.esphome/build -name "firmware*.bin" -exec cp {} output/ \;
+          find examples/.esphome/build -name "firmware.factory.bin" -exec cp {} output/ \;
           mv "output/firmware.factory.bin" "output/espectre-snapshot-${CHIP}.bin"
-          mv "output/firmware.ota.bin" "output/espectre-snapshot-${CHIP}-ota.bin"
       
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v7

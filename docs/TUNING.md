@@ -120,11 +120,17 @@ For frontends that expose the shared internal traffic generator:
 ```yaml
 espectre:
   traffic_generator_rate: 100
+  traffic_generator_adaptive: true
 ```
+
+The rate is the target for valid local CSI callbacks. By default, the shared
+runtime adjusts the DNS or ICMP send pace every control window to hold that
+target. Set `traffic_generator_adaptive: false` only when you need a fixed
+network send rate for an experiment.
 
 Rules of thumb:
 
-- `100 pps`: default and recommended
+- `100 pps`: default and recommended CSI target
 - lower values: less overhead, less temporal detail
 - higher values: more detail, more CPU and Wi-Fi cost
 

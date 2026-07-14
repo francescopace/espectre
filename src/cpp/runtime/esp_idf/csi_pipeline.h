@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <functional>
 
@@ -151,6 +152,9 @@ class CsiPipeline {
    * Check if CSI is currently enabled
    */
   bool is_enabled() const { return enabled_; }
+  uint64_t accepted_packets_total() const {
+    return accepted_packets_total_.load(std::memory_order_relaxed);
+  }
   
   /**
    * Set callback for live telemetry updates.
@@ -198,6 +202,7 @@ class CsiPipeline {
   uint32_t publish_rate_{100};
   uint32_t evaluation_interval_{25};
   volatile uint32_t packets_processed_{0};
+  std::atomic<uint64_t> accepted_packets_total_{0U};
   uint32_t packets_since_evaluation_{0};
   uint8_t current_channel_{0};
   uint8_t motion_on_hits_{3};

@@ -51,6 +51,9 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   }
   void set_segmentation_window_size(uint16_t size) { this->runtime_.config().segmentation_window_size = size; }
   void set_traffic_generator_rate(uint32_t rate) { this->runtime_.config().traffic_generator_rate = rate; }
+  void set_traffic_generator_adaptive(bool adaptive) {
+    this->runtime_.config().traffic_generator_adaptive = adaptive;
+  }
   void set_traffic_generator_mode(const std::string &mode) { 
     this->runtime_.config().traffic_generator_mode = parse_traffic_mode(mode.c_str());
   }

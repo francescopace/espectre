@@ -47,10 +47,11 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 Once Wi-Fi is configured, the device is discovered automatically by Home
 Assistant through ESPHome.
 
-Release and snapshot channels publish one full-flash and one OTA image per
-supported chip, using the default `classic` detector. GitHub Pages stages only
-the full-flash image for the browser flasher. To use `ml`, build locally with
-`detection_algorithm: ml`; there is no separate precompiled ML image.
+Release and snapshot channels publish one full-flash image per supported chip,
+using the default `classic` detector. After adoption, ESPHome Device Builder
+compiles and installs updates wirelessly from the device YAML. To use `ml`,
+build locally with `detection_algorithm: ml`; there is no separate precompiled
+ML image.
 
 ## Integration Surface
 
@@ -114,6 +115,7 @@ espectre:
   detection_algorithm: classic
   classic_recovery_vote_enabled: true
   traffic_generator_rate: 100
+  traffic_generator_adaptive: true
   traffic_generator_mode: ping
   segmentation_threshold: auto
   segmentation_window_size: 100
@@ -189,6 +191,18 @@ Once the device is flashed and connected to Wi-Fi:
 The ESPHome frontend exposes movement, motion, threshold control, and
 recalibration as Home Assistant entities.
 
+To manage configuration and OTA updates, install ESPHome Device Builder and
+adopt the discovered device. The imported configuration keeps the Git ref
+embedded by the installed firmware: release builds remain pinned to their
+release tag, while snapshot builds remain pinned to their source commit. Change
+the ref after `@` in the adopted `packages` URL when you want ESPHome to compile
+and install a newer version:
+
+```yaml
+packages:
+  francescopace.espectre: github://francescopace/espectre/examples/espectre-c6.yaml@3.0.0
+```
+
 ### Dashboard Examples
 
 Examples live in:
@@ -221,8 +235,14 @@ powered on.
 ```yaml
 espectre:
   traffic_generator_rate: 100
+  traffic_generator_adaptive: true
   traffic_generator_mode: ping
 ```
+
+`traffic_generator_rate` is the target rate of valid local CSI callbacks. The
+adaptive controller is enabled by default and changes the network send pace to
+hold that target. Set `traffic_generator_adaptive: false` to interpret the
+configured rate as a fixed DNS or ICMP send rate.
 
 Available modes:
 

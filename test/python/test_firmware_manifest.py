@@ -20,14 +20,12 @@ def _load_module():
     return module
 
 
-def test_parsers_accept_published_factory_and_ota_images():
+def test_parsers_accept_only_published_factory_and_native_ota_images():
     module = _load_module()
 
     assert module.parse_esphome_asset("espectre-3.0.0-esp32c3.bin", "espectre-3.0.0-") is not None
     assert module.parse_esphome_asset("espectre-3.0.0-esp32c3-ml.bin", "espectre-3.0.0-") is None
-    esphome_ota = module.parse_esphome_asset("espectre-3.0.0-esp32c3-ota.bin", "espectre-3.0.0-")
-    assert esphome_ota is not None
-    assert esphome_ota["build_type"] == "ota"
+    assert module.parse_esphome_asset("espectre-3.0.0-esp32c3-ota.bin", "espectre-3.0.0-") is None
 
     assert module.parse_matter_asset("espectre-matter-3.0.0-esp32c3.bin", "espectre-matter-3.0.0-") is not None
     assert module.parse_matter_asset("espectre-matter-3.0.0-esp32c3-ota.bin", "espectre-matter-3.0.0-") is None
@@ -38,13 +36,12 @@ def test_parsers_accept_published_factory_and_ota_images():
     assert native_ota["build_type"] == "ota"
 
 
-def test_manifest_contains_fifteen_factory_and_ten_ota_images(tmp_path):
+def test_manifest_contains_fifteen_factory_and_five_native_ota_images(tmp_path):
     module = _load_module()
     chips = ("esp32", "esp32s3", "esp32c3", "esp32c5", "esp32c6")
 
     for chip in chips:
         (tmp_path / f"espectre-3.0.0-{chip}.bin").write_bytes(b"esphome")
-        (tmp_path / f"espectre-3.0.0-{chip}-ota.bin").write_bytes(b"esphome-ota")
         (tmp_path / f"espectre-matter-3.0.0-{chip}.bin").write_bytes(b"matter")
         (tmp_path / f"espectre-native-3.0.0-{chip}.bin").write_bytes(b"native")
         (tmp_path / f"espectre-native-3.0.0-{chip}-ota.bin").write_bytes(b"native-ota")
@@ -66,10 +63,10 @@ def test_manifest_contains_fifteen_factory_and_ten_ota_images(tmp_path):
     )
 
     artifacts = [artifact for frontend in manifest["frontends"].values() for artifact in frontend["artifacts"]]
-    assert len(artifacts) == 25
+    assert len(artifacts) == 20
     assert {artifact["chip"] for artifact in artifacts} == set(chips)
     assert sum(artifact["build_type"] == "factory" for artifact in artifacts) == 15
-    assert sum(artifact["build_type"] == "ota" for artifact in artifacts) == 10
+    assert sum(artifact["build_type"] == "ota" for artifact in artifacts) == 5
     assert output.is_file()
     module.validate_complete_matrix(manifest)
 

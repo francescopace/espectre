@@ -59,11 +59,18 @@ config ESPECTRE_CLASSIC_RECOVERY_VOTE_ENABLED
     default y
 
 config ESPECTRE_TRAFFIC_GENERATOR_RATE
-    int "Traffic generator rate (pps)"
+    int "Target valid CSI rate (pps)"
     range 0 1000
     default 100
     help
         Zero disables internal traffic generation and expects external traffic.
+
+config ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE
+    bool "Adapt traffic rate from valid CSI callbacks"
+    default y
+    help
+        Adjust the internal DNS or ping send rate to keep valid local CSI
+        callbacks close to the configured target rate.
 
 choice ESPECTRE_TRAFFIC_GENERATOR_MODE
     prompt "Traffic generator mode"

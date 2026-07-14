@@ -283,6 +283,23 @@ void test_csi_pipeline_process_packet_short_data(void) {
     TEST_ASSERT_EQUAL(MotionState::IDLE, detector.get_state());
 }
 
+void test_csi_pipeline_counts_valid_local_packets_for_traffic_feedback(void) {
+    ClassicDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info{};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(1U, manager.accepted_packets_total());
+
+    csi_info.len = 5U;
+    manager.process_packet(&csi_info);
+    TEST_ASSERT_EQUAL(1U, manager.accepted_packets_total());
+}
+
 void test_csi_pipeline_process_packet_valid_data(void) {
     ClassicDetector detector(50, 1.0f);
     CsiPipeline manager;
@@ -778,6 +795,7 @@ void test_csi_pipeline_filters_unicast_frames_for_other_device(void) {
 
     TEST_ASSERT_EQUAL(MotionState::IDLE, detector.get_state());
     TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_motion_metric());
+    TEST_ASSERT_EQUAL(0U, manager.accepted_packets_total());
 }
 
 // ============================================================================
@@ -803,6 +821,7 @@ int process(void) {
     // Process packet tests
     RUN_TEST(test_csi_pipeline_process_packet_null_data);
     RUN_TEST(test_csi_pipeline_process_packet_short_data);
+    RUN_TEST(test_csi_pipeline_counts_valid_local_packets_for_traffic_feedback);
     RUN_TEST(test_csi_pipeline_process_packet_valid_data);
     RUN_TEST(test_csi_pipeline_motion_state_callback_fires_before_periodic_publish);
     RUN_TEST(test_csi_pipeline_motion_state_callback_does_not_repeat_without_new_edge);

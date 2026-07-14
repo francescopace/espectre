@@ -51,8 +51,8 @@ If you want the fastest path, use the browser flasher:
 
 Published ESPHome images use the default Classic detector. ML firmware and the
 credential-bound Streamer frontend are built locally from source.
-GitHub Releases also provide OTA payloads for ESPHome and Native; the browser
-flasher downloads only the full-flash images staged on GitHub Pages.
+GitHub Releases also provide Native OTA payloads; ESPHome updates are compiled
+and installed through ESPHome Device Builder after the device is adopted.
 
 Supported hardware:
 

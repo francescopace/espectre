@@ -31,6 +31,7 @@ CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
           ? CsiTrafficMode::EXTERNAL
           : config.csi_traffic_mode;
   csi_traffic_config.rate_pps = config.traffic_generator_rate;
+  csi_traffic_config.adaptive = config.traffic_generator_adaptive;
   csi_traffic_config.traffic_mode = to_traffic_mode(config.traffic_generator_mode);
   csi_traffic_config.udp_port = config.csi_traffic_udp_port;
   csi_traffic_config.multicast_group = config.csi_traffic_multicast_group;
@@ -119,6 +120,7 @@ void EspIdfRuntime::loop() {
     finish_threshold_calibration_(calibration_success);
   }
   csi_pipeline_.loop();
+  csi_traffic_service_.observe_accepted_csi(csi_pipeline_.accepted_packets_total());
   DetectionTimingStats detection_timing;
   if (csi_pipeline_.take_detection_timing(&detection_timing)) {
     debug_telemetry_.record_detection_timing(detection_timing.duration_sum_us,

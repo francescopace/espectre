@@ -21,6 +21,7 @@ struct RuntimeConfig {
   uint16_t segmentation_window_size{RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT};
   bool classic_recovery_vote_enabled{RUNTIME_CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT};
   uint32_t traffic_generator_rate{RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT};
+  bool traffic_generator_adaptive{RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT};
   RuntimeTrafficMode traffic_generator_mode{RuntimeTrafficMode::PING};
   CsiTrafficMode csi_traffic_mode{CsiTrafficMode::INTERNAL};
   uint16_t csi_traffic_udp_port{RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT};

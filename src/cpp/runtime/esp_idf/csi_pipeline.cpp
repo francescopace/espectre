@@ -22,6 +22,7 @@ void CsiPipeline::init(BaseDetector* detector,
   publish_rate_ = publish_rate;
   capture_service_.init(wifi_csi);
   capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
+  accepted_packets_total_.store(0U, std::memory_order_relaxed);
   reset_motion_state_filter_();
   
   ESP_LOGD(TAG, "CSI Pipeline initialized with %s detector", 
@@ -142,6 +143,8 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   if (!csi_frame_matches_local_identity(data, local_ip_addr_, local_mac_addr_.data())) {
     return;
   }
+
+  accepted_packets_total_.fetch_add(1U, std::memory_order_relaxed);
 
   const int8_t *csi_data = normalized.data;
   const size_t csi_len = normalized.len;

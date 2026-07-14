@@ -134,7 +134,8 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
   if (config.traffic_generator_rate > 0) {
     ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", traffic_mode_name(config.traffic_generator_mode));
-    ESP_LOGCONFIG(TAG, " ├─ Rate ............... %u pps", config.traffic_generator_rate);
+    ESP_LOGCONFIG(TAG, " ├─ Target ............. %u valid CSI pps", config.traffic_generator_rate);
+    ESP_LOGCONFIG(TAG, " ├─ Adaptive ........... %s", config.traffic_generator_adaptive ? "YES" : "NO");
     ESP_LOGCONFIG(TAG, " └─ Status ............. %s", snapshot.ready_to_publish ? "[ACTIVE]" : "[IDLE]");
   } else {
     ESP_LOGCONFIG(TAG, " └─ Mode ............... External Traffic");

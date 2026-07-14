@@ -47,7 +47,6 @@ espectre:
 # Dashboard import for easy adoption
 dashboard_import:
   package_import_url: github://francescopace/espectre/examples/espectre-esp32.yaml@${git_ref}
-  import_full_config: true
 
 # WiFi with fallback AP for provisioning
 wifi:

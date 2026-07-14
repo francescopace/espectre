@@ -35,6 +35,7 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
   visitor("traffic_mode", traffic_mode_name(config.traffic_generator_mode));
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.traffic_generator_rate));
   visitor("traffic_rate", value);
+  visitor("traffic_adaptive", config.traffic_generator_adaptive ? "on" : "off");
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.publish_interval));
   visitor("publish_interval", value);
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.evaluation_interval));

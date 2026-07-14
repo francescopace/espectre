@@ -10,6 +10,7 @@
 #include "test_harness.h"
 #include <cstdint>
 #include "traffic_generator_manager.h"
+#include "traffic_rate_controller.h"
 #include "esphome/core/log.h"
 
 using namespace espectre;
@@ -147,6 +148,46 @@ void test_handle_send_error_handles_negative_sent_value(void) {
     TEST_ASSERT_TRUE(needs_backoff);
 }
 
+void test_adaptive_rate_controller_trims_excess_csi_rate(void) {
+    TrafficRateController controller;
+    controller.init(100U, true);
+
+    TEST_ASSERT_FALSE(controller.observe(0U, 1));
+    TEST_ASSERT_TRUE(controller.observe(400U, 2000001));
+    TEST_ASSERT_EQUAL(200U, controller.observed_pps());
+    TEST_ASSERT_EQUAL(70U, controller.current_pps());
+}
+
+void test_adaptive_rate_controller_holds_inside_tolerance(void) {
+    TrafficRateController controller;
+    controller.init(100U, true);
+
+    controller.observe(0U, 1);
+    TEST_ASSERT_FALSE(controller.observe(202U, 2000001));
+    TEST_ASSERT_EQUAL(101U, controller.observed_pps());
+    TEST_ASSERT_EQUAL(100U, controller.current_pps());
+}
+
+void test_adaptive_rate_controller_recovers_additively(void) {
+    TrafficRateController controller;
+    controller.init(100U, true);
+
+    controller.observe(0U, 1);
+    TEST_ASSERT_TRUE(controller.observe(100U, 2000001));
+    TEST_ASSERT_EQUAL(50U, controller.observed_pps());
+    TEST_ASSERT_EQUAL(102U, controller.current_pps());
+}
+
+void test_fixed_rate_controller_observes_without_adjusting(void) {
+    TrafficRateController controller;
+    controller.init(100U, false);
+
+    controller.observe(0U, 1);
+    TEST_ASSERT_FALSE(controller.observe(400U, 2000001));
+    TEST_ASSERT_EQUAL(200U, controller.observed_pps());
+    TEST_ASSERT_EQUAL(100U, controller.current_pps());
+}
+
 // ============================================================================
 // ENTRY POINT
 // ============================================================================
@@ -165,6 +206,10 @@ int process(void) {
     RUN_TEST(test_handle_send_error_logs_single_error_message);
     RUN_TEST(test_handle_send_error_logs_multiple_errors_summary);
     RUN_TEST(test_handle_send_error_handles_negative_sent_value);
+    RUN_TEST(test_adaptive_rate_controller_trims_excess_csi_rate);
+    RUN_TEST(test_adaptive_rate_controller_holds_inside_tolerance);
+    RUN_TEST(test_adaptive_rate_controller_recovers_additively);
+    RUN_TEST(test_fixed_rate_controller_observes_without_adjusting);
     
     return UNITY_END();
 }
@@ -174,4 +219,3 @@ extern "C" void app_main(void) { process(); }
 #else
 int main(int argc, char **argv) { return process(); }
 #endif
-

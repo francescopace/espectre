@@ -12,6 +12,7 @@ namespace espectre {
 struct CsiTrafficServiceConfig {
   CsiTrafficMode mode{CsiTrafficMode::INTERNAL};
   uint32_t rate_pps{100U};
+  bool adaptive{true};
   TrafficGeneratorMode traffic_mode{TrafficGeneratorMode::PING};
   uint16_t udp_port{5555U};
   std::string multicast_group;
@@ -28,6 +29,7 @@ class CsiTrafficService {
   bool is_running() const;
   bool get_last_sender(sockaddr_in *out_addr) const;
   uint64_t get_packets_received() const;
+  void observe_accepted_csi(uint64_t accepted_csi_total);
 
  private:
   CsiTrafficMode mode_{CsiTrafficMode::INTERNAL};

@@ -34,6 +34,9 @@
 #ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE
 #define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE 100
 #endif
+#ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE
+#define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE 1
+#endif
 #ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
 #define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS 0
 #endif
@@ -123,6 +126,7 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
   config.segmentation_window_size = static_cast<uint16_t>(CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE);
   config.classic_recovery_vote_enabled = CONFIG_ESPECTRE_CLASSIC_RECOVERY_VOTE_ENABLED;
   config.traffic_generator_rate = static_cast<uint32_t>(CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE);
+  config.traffic_generator_adaptive = CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE;
 #if CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
   config.traffic_generator_mode = RuntimeTrafficMode::DNS;
 #else

@@ -12,7 +12,7 @@ static const char *const TAG = "CsiTrafficService";
 
 void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
   mode_ = config.mode;
-  traffic_generator_.init(config.rate_pps, config.traffic_mode);
+  traffic_generator_.init(config.rate_pps, config.traffic_mode, config.adaptive);
   udp_listener_.init(config.udp_port);
   if (!config.multicast_group.empty()) {
     udp_listener_.set_multicast_group(config.multicast_group.c_str());
@@ -75,5 +75,11 @@ bool CsiTrafficService::is_running() const {
 bool CsiTrafficService::get_last_sender(sockaddr_in *out_addr) const { return udp_listener_.get_last_sender(out_addr); }
 
 uint64_t CsiTrafficService::get_packets_received() const { return udp_listener_.get_packets_received(); }
+
+void CsiTrafficService::observe_accepted_csi(uint64_t accepted_csi_total) {
+  if (mode_ == CsiTrafficMode::INTERNAL) {
+    traffic_generator_.observe_accepted_csi(accepted_csi_total);
+  }
+}
 
 }  // namespace espectre

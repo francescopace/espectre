@@ -30,6 +30,7 @@
       "+<runtime/protocol_json.cpp>",
       "+<runtime/runtime_config_utils.cpp>",
       "+<runtime/runtime_diagnostics.cpp>",
+      "+<runtime/traffic_rate_controller.cpp>",
       "+<runtime/esp_idf/csi_capture_service.cpp>",
       "+<runtime/esp_idf/csi_stream_transport.cpp>",
       "+<runtime/esp_idf/csi_pipeline.cpp>",
