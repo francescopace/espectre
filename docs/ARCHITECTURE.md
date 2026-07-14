@@ -1,8 +1,8 @@
 # Architecture Guide
 
-This document describes the current firmware-side architecture of ESPectre.
-Keep it as a present-state guide: code layout, layer boundaries, and runtime
-surfaces that exist in the repository today.
+This document describes the current firmware-side architecture of ESPectre:
+code layout, layer boundaries, and runtime surfaces that exist in the
+repository today.
 
 For the decision history behind this structure, use the ADR index in
 [`README.md` (ADR)](adr/README.md), especially:
@@ -101,8 +101,8 @@ integration belong here, not in `core`.
 `src/cpp/frontend/esphome/` maps the shared runtime into ESPHome entities,
 YAML/config-codegen, and external-component packaging.
 
-Source of truth for ESPHome workflow:
-[`README.md` (esphome)](../src/cpp/frontend/esphome/README.md)
+For the ESPHome workflow, see
+[`README.md` (esphome)](../src/cpp/frontend/esphome/README.md).
 
 ### Native
 
@@ -110,7 +110,7 @@ Source of truth for ESPHome workflow:
 surface and reuses the shared ESP-IDF frontend-support services for
 provisioning, device configuration, and OTA-related control flows.
 
-Sources of truth:
+For the native workflow and protocol surface, see:
 
 - [`README.md` (native)](../src/cpp/frontend/native/README.md)
 - [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md)
@@ -121,8 +121,8 @@ Sources of truth:
 surface without pulling Matter-specific concerns into the shared detector or
 runtime layers.
 
-Source of truth:
-[`README.md` (matter)](../src/cpp/frontend/matter/README.md)
+For the Matter workflow, see
+[`README.md` (matter)](../src/cpp/frontend/matter/README.md).
 
 ### Streamer
 
@@ -131,8 +131,8 @@ the same controller/runtime contract as the other standalone frontends, but it
 selects `StreamEspIdfRuntime` so the raw CSI transport path can stay focused and
 detector-free.
 
-Source of truth:
-[`README.md`](../src/cpp/frontend/streamer/README.md)
+For the streamer workflow, see
+[`README.md` (streamer)](../src/cpp/frontend/streamer/README.md).
 
 ## Runtime Contract
 
@@ -171,22 +171,21 @@ Wi-Fi or CSI pipeline services.
 ESPectre Protocol is the shared device-facing message model used by the
 standalone ESP-IDF frontends and related tools.
 
-Use [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) as the source of truth for:
+See [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) for:
 
 - message families
 - BLE and MQTT transport mapping
 - payload semantics
 - OTA-related command surfaces
 
-This file only describes where the protocol sits architecturally: at the
-frontend/runtime integration boundary for the non-ESPHome standalone firmware
-paths.
+Architecturally, the protocol sits at the frontend/runtime integration
+boundary for the non-ESPHome standalone firmware paths.
 
 ## Packaging Note For ESPHome
 
 ESPHome still expects a component-shaped entry point under the external
 components root. For that reason, `src/cpp/frontend/esphome/espectre/` acts as
-the ESPHome packaging root even though shared source of truth now lives under
+the ESPHome packaging root even though the shared sources live under
 `src/cpp/core/` and `src/cpp/runtime/`.
 
 ## Current Status

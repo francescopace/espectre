@@ -3,16 +3,16 @@
 This document is the shared setup hub for choosing a frontend and finding the right installation path.
 
 ESPectre now exposes multiple frontends, and each frontend owns its own configuration surface, integration workflow, and troubleshooting. 
-This guide keeps only the shared entry points and links you to the frontend-specific source of truth.
+This guide covers the shared entry points and links you to the frontend-specific README for everything else.
 
 Use the `stable` channel for the latest official release, or `main` when you want the newest development snapshot.
 
 ## Choose Your Frontend
 
-| Frontend | Best starting point | Frontend source of truth |
-|----------|---------------------|--------------------------|
+| Frontend | Best starting point | Frontend README |
+|----------|---------------------|-----------------|
 | `ESPHome` | [Web Flash](#web-flash-no-coding-required) for the quickest start, then the frontend README for YAML, Home Assistant, and local development | [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) |
-| `Native` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the native frontend README for local ESP-IDF workflow and [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) for the shared protocol surface over BLE | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
+| `Native` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the native frontend README for local ESP-IDF workflow | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
 | `Matter` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the frontend README for commissioning and local ESP-IDF workflow | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
 | `Streamer` | Frontend README for the dedicated CSI stream workflow | [`README.md`](../src/cpp/frontend/streamer/README.md) |
 
@@ -166,7 +166,7 @@ Windows PowerShell:
 Use the repository CLI from the repository root for local build, flash, monitor,
 and host-tool tasks.
 
-The repository [CLI.md](CLI.md) is the source of truth for:
+See the repository [CLI.md](CLI.md) for:
 
 - launcher syntax on each host
 - namespace and command coverage
@@ -174,9 +174,7 @@ The repository [CLI.md](CLI.md) is the source of truth for:
 - common wrapper patterns such as `doctor`, serial monitoring, and CLI examples
 
 Use the frontend READMEs for frontend-specific prerequisites, examples, and
-notes that depend on the selected firmware surface.
-
-Use the frontend READMEs for complete prerequisites and chip-specific notes:
+chip-specific notes:
 
 - [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md)
 - [`README.md` (native)](../src/cpp/frontend/native/README.md)
@@ -246,8 +244,9 @@ These concepts are shared across the C++ platform, even though each frontend exp
 
 ### Shared Sensing Options
 
-These options belong to the shared sensing runtime and are the common source of
-truth across the sensing frontends. The exact user-facing syntax differs by frontend:
+These options belong to the shared sensing runtime and apply to all sensing
+frontends. This table is the canonical reference for names, defaults, and
+ranges; the exact user-facing syntax differs by frontend:
 
 - `ESPHome`: YAML under `espectre:`
 - `Native`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
@@ -287,51 +286,31 @@ Use the frontend README for the exact syntax and local workflow:
 - [`README.md` (native)](../src/cpp/frontend/native/README.md)
 - [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
 
-### Detection Algorithms
+### Detection Algorithms And Startup
 
-ESPectre currently supports two runtime detector families:
+ESPectre supports two runtime detector families, `classic` and `ml`. At boot,
+the sensing path starts with AGC active: `classic` performs startup threshold
+calibration, while `ml` starts as soon as CSI capture is ready.
 
-| Algorithm | Summary | Shared behavior |
-|-----------|---------|-----------------|
-| `Classic` | L1-delta primary with optional variance recovery | Uses startup threshold calibration |
-| `ML` | Neural-network detector | Starts without threshold bootstrap |
-
-Use:
+See:
 
 - [ALGORITHMS.md](ALGORITHMS.md) for detector behavior and formulas
-- [TUNING.md](TUNING.md) for the practical startup and threshold workflow
+- [TUNING.md](TUNING.md) for the practical startup and threshold workflow,
+  including the `quiet -> motion -> quiet` behavior and the quiet-only fallback
 - the frontend README for configuration syntax
-
-### Startup Behavior
-
-At boot:
-
-1. the sensing path starts with AGC active
-2. `classic` performs startup threshold calibration
-3. `ml` starts once CSI capture is ready
-4. the runtime transitions into steady-state detection
-
-Keep this document at the entry-point level. For the actual startup guidance,
-including the `quiet -> motion -> quiet` behavior and the quiet-only fallback,
-use [TUNING.md](TUNING.md).
 
 ### Traffic Generation
 
 Motion detection frontends depend on CSI packets. 
 For the shared detection runtime, traffic is generated internally by default, but the way that traffic is configured or exposed belongs to each frontend surface.
 
-The standalone `streamer` frontend is collector-paced: the host sends ordinary
-UDP traffic, the device learns the collector IP from the packet source address,
-and the stream-specific runtime backend returns one CSI datagram toward the
-collector for each accepted pacing step.
-Use the streamer frontend README as the source of truth for that workflow and
-for its Wi-Fi setup options via the active `sdkconfig` defaults.
+The standalone `streamer` frontend does not use the internal generator; it is
+collector-paced. See the streamer frontend README for that workflow.
 
 If you are tuning `traffic_generator_rate`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 
 ## Frontend-Specific Workflows
 
-This guide is intentionally a shared entry point only. 
 For build commands, commissioning steps, protocol details, integration behavior, and frontend-level configuration, continue in the local README of the frontend you selected.
 
 ## Next Steps

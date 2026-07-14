@@ -35,8 +35,8 @@ The Matter frontend is responsible for:
 
 ## Getting Started
 
-If you came from the shared setup hub, this README is now the source of truth
-for the Matter workflow after flashing or when building locally.
+If you came from the shared setup hub, this README covers the Matter workflow
+after flashing or when building locally.
 
 ### Browser-Flashed Firmware
 
@@ -58,10 +58,10 @@ part of the supported target set.
 
 Before building locally, complete the shared
 [`ESP-IDF Local Build Prerequisite`](../../../../docs/SETUP.md#esp-idf-local-build-prerequisite).
-The repository CLI auto-detects a reusable ESP-IDF install, so prefer the
-wrapper-first workflow without a mandatory pre-check:
-Use [`CLI.md`](../../../../docs/CLI.md) as the source of truth
-for shared CLI syntax, host-side tools, and wrapper behavior.
+The repository CLI auto-detects a reusable ESP-IDF install, so the wrapper-first
+workflow does not require a separate setup check before build.
+See [`CLI.md`](../../../../docs/CLI.md) for shared CLI syntax, host-side
+tools, and wrapper behavior.
 
 Repository CLI:
 
@@ -133,9 +133,9 @@ Current behavior from the firmware app:
 - a failed commissioning attempt is logged when the fail-safe timer expires
 - removing the last fabric re-opens the commissioning window automatically
 
-This README intentionally documents only the firmware-owned behavior. The exact
-controller UX, QR/manual-pairing presentation, and fabric-management screens
-depend on the Matter controller you use.
+Only the firmware-owned behavior is documented here. The exact controller UX,
+QR/manual-pairing presentation, and fabric-management screens depend on the
+Matter controller you use.
 
 ## Exposed Matter Surface
 

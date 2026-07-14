@@ -3,9 +3,8 @@
 ESPectre ships with a repository CLI wrapper for host tools, MicroPython device
 workflows, and local frontend build/flash flows.
 
-Use this document as the source of truth for the shared CLI surface. Use
-frontend READMEs for frontend-specific configuration, prerequisites, and
-operational details.
+This document covers the shared CLI surface. See the frontend READMEs for
+frontend-specific configuration, prerequisites, and operational details.
 
 ## Launchers
 

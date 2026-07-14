@@ -16,7 +16,7 @@ Install the ML training stack:
 pip install -r requirements-ml.txt
 ```
 
-The main repository workflow and the  ML training stack both target
+The main repository workflow and the ML training stack both target
 Python `3.14`.
 
 ## Basic Training Workflow
@@ -220,4 +220,4 @@ To switch the Python runtime to ML detection:
 DETECTION_ALGORITHM = "ml"
 ```
 
-For algorithm details, see [ALGORITHMS.md](ALGORITHMS.md#ml-neural-network-detector).
+For algorithm details, see [ALGORITHMS.md](ALGORITHMS.md#ml-detector).

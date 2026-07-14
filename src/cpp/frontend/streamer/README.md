@@ -7,8 +7,7 @@ Like `esphome`, `native`, and `matter`, the streamer now goes through the shared
 path for raw CSI collection and transport to host-side tooling through a
 stream-specific backend.
 
-This file is the source of truth for the streamer frontend surface and UDP
-protocol.
+This README covers the streamer frontend surface and the UDP stream protocol.
 
 ## Scope
 
@@ -123,6 +122,7 @@ Header layout:
 | `rssi_dbm` | `int8` | RSSI |
 | `noise_floor_dbm` | `int8` | Noise floor |
 | `tx_backpressure_total` | `uint64` | Cumulative TX backpressure events |
+
 Flags:
 
 | Bit | Constant | Meaning |
@@ -291,10 +291,10 @@ per device. Mixed-device `.npz` files are not part of the supported workflow.
 
 Before building locally, complete the shared
 [`ESP-IDF Local Build Prerequisite`](../../../../docs/SETUP.md#esp-idf-local-build-prerequisite).
-The repository CLI auto-detects a reusable ESP-IDF install, so prefer the
-wrapper-first workflow without a mandatory pre-check:
-Use [`CLI.md`](../../../../docs/CLI.md) as the source of truth
-for shared CLI syntax, host-side tools, and wrapper behavior.
+The repository CLI auto-detects a reusable ESP-IDF install, so the wrapper-first
+workflow does not require a separate setup check before build.
+See [`CLI.md`](../../../../docs/CLI.md) for shared CLI syntax, host-side
+tools, and wrapper behavior.
 
 Repository CLI:
 

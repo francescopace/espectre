@@ -1,7 +1,7 @@
 # ML Data Collection Guide
 
-This guide covers the current data-collection workflow for ESPectre datasets.
-Keep it focused on collection, labels, and dataset format.
+This guide covers the current data-collection workflow for ESPectre datasets:
+collection, labels, and the dataset format.
 
 Use:
 
@@ -43,14 +43,14 @@ streamer frontend
   -> one .npz per device_id
 ```
 
-The streamer frontend README is the source of truth for:
+See the streamer frontend README for:
 
 - build and flash steps
 - local Wi-Fi configuration
 - UDP packet format
 - transport tuning
 
-This document assumes that the streamer is already running and reachable.
+This guide assumes that the streamer is already running and reachable.
 
 ## Quick Start
 
@@ -86,21 +86,11 @@ Use `test` only for mixed sessions that are not label-homogeneous.
 `./espectre collect` is the host-side entry point for live inspection and
 dataset capture in the workflow described above.
 
-For the full command reference, supported modes, options, and examples, see
-[`CLI.md#collect`](CLI.md#collect).
+For the full command reference, supported modes, options, pacing behavior, and
+examples, see [`CLI.md#collect`](CLI.md#collect).
 
 Each saved capture emits one `.npz` per `device_id`. Mixed-device files are not
 part of the supported workflow.
-
-In live streamer mode, collection sends ordinary UDP traffic to the
-target device. The device learns the collector IP from the packet source
-address and sends one CSI stream packet back for each received csi callback,
-embedding the latest available CSI sample in every stream packet.
-
-By default, `./espectre collect` keeps the requested `--pps` fixed. Add
-`--adaptive` when you want the collector to keep the observed receive rate near
-the requested `--pps`, while still reacting immediately to firmware-reported TX
-backpressure.
 
 ### Save Semantics
 

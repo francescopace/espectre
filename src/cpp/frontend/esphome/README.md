@@ -64,34 +64,17 @@ is declared.
 ## Configuration Surface
 
 The ESPHome YAML schema is defined in [`__init__.py`](espectre/__init__.py).
-This README is the source of truth for ESPHome-specific syntax and entity
-mapping. Use [`SETUP.md`](../../../../docs/SETUP.md) for the
-shared configuration overview and [`TUNING.md`](../../../../docs/TUNING.md)
-for the "when and why" of tuning.
+This README covers ESPHome-specific syntax and entity mapping. See
+[`SETUP.md`](../../../../docs/SETUP.md) for the shared configuration overview
+and [`TUNING.md`](../../../../docs/TUNING.md) for the "when and why" of tuning.
 
 ### Core Parameters
 
-The shared sensing options, defaults, and ranges are documented in
-[`SETUP.md`](../../../../docs/SETUP.md). In ESPHome, those shared options live
-under the `espectre:` section:
+The shared sensing options, with their defaults and ranges, are documented in
+the [`Shared Sensing Options`](../../../../docs/SETUP.md#shared-sensing-options)
+table in `SETUP.md`. In ESPHome, those options live under the `espectre:`
+section with the same names, as shown in the example below.
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `detection_algorithm` | string | `classic` | Detection algorithm: `classic` or `ml` |
-| `classic_recovery_vote_enabled` | bool | `true` | Enable Classic moving-variance recovery below the L1-delta threshold; `false` selects L1-only and skips variance/floor computation |
-| `traffic_generator_rate` | int | `100` | Packets per second for CSI generation (`0-1000`, `0` disables the internal generator) |
-| `traffic_generator_mode` | string | `ping` | Traffic generator mode: `ping` or `dns` |
-| `publish_interval` | int | `100` | Packets between periodic movement/log updates |
-| `evaluation_interval` | int | `25` | Packets between internal detector evaluations |
-| `motion_on_hits` | int | `3` | Consecutive hits required before entering `MOTION` |
-| `motion_off_hits` | int | `3` | Consecutive hits required before returning to `IDLE` |
-| `segmentation_threshold` | string/float | `auto` | Threshold mode: `auto`, `min`, or a numeric manual threshold (`classic`: `0.0-10.0`, `ml`: `0.0-1.0`) |
-| `segmentation_window_size` | int | `100` | Shared detector window in packets for classic variance recovery and ML features (`10-200`) |
-| `lowpass_enabled` | bool | `false` | Enable low-pass filtering |
-| `lowpass_cutoff` | float | `11.0` | Low-pass cutoff in Hz (`5-20`) |
-| `hampel_enabled` | bool | `true` | Enable Hampel outlier filtering |
-| `hampel_window` | int | `7` | Hampel window size (`3-11`) |
-| `hampel_threshold` | float | `5.0` | Hampel sensitivity (`1.0-10.0`) |
 These options are applied from YAML during firmware configuration. Runtime
 control is exposed separately through the entities below:
 
@@ -104,11 +87,6 @@ control is exposed separately through the entities below:
 
 ### Detection Algorithm Selection
 
-| Algorithm | Summary | Shared behavior |
-|-----------|---------|-----------------|
-| `classic` | L1-Delta primary with variance recovery | Adaptive startup threshold bootstrap |
-| `ml` | Neural-network detector | Faster boot, no threshold bootstrap |
-
 ```yaml
 espectre:
   detection_algorithm: classic  # or ml
@@ -119,6 +97,10 @@ Threshold behavior:
 - range: `classic` `0.0-10.0`, `ml` `0.0-1.0`
 - `classic` default: `auto` (shared adaptive startup calibration; motion-first with internal quiet-first fallback)
 - `ml` default: `0.5`
+
+See [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for how the two
+detectors differ and [`TUNING.md`](../../../../docs/TUNING.md) for choosing
+between them.
 
 ### Example
 
@@ -264,18 +246,10 @@ For rate recommendations, airtime tradeoffs, and placement guidance, see
 
 ## Startup Calibration
 
-In `classic` mode, keep the room quiet after boot so the runtime can
-complete the startup threshold bootstrap.
-
-Startup behavior:
-
-1. AGC-active startup with detector-specific normalized metrics
-2. adaptive threshold bootstrap for `classic`
-3. normal motion detection loop
-
-With the default `segmentation_window_size: 100`, `classic` uses a startup
-budget of up to `1000` packets. This is a maximum, not a fixed wait, so clean
-motion-first startups may finish earlier. `ML` skips threshold bootstrap.
+In `classic` mode, keep the room quiet after boot so the runtime can complete
+the startup threshold bootstrap; `ml` skips the bootstrap and starts as soon
+as CSI capture is ready. For the startup workflow and budget details, see
+[`TUNING.md`](../../../../docs/TUNING.md).
 
 Runtime recalibration is exposed as the `calibrate_switch` entity in Home
 Assistant.
@@ -307,8 +281,8 @@ external_components:
 
 ### Repository CLI
 
-Use [`CLI.md`](../../../../docs/CLI.md) as the source of truth
-for shared CLI syntax, host-side tools, and wrapper behavior.
+See [`CLI.md`](../../../../docs/CLI.md) for shared CLI syntax, host-side
+tools, and wrapper behavior.
 
 ```bash
 ./espectre esphome build --chip c6 --clean

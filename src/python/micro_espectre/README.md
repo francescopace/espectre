@@ -95,9 +95,9 @@ Host-side workflows live at the repository CLI root:
 | `./espectre ui ...` | Open local browser tools |
 | `./espectre monitor ...` | Attach to serial logs with auto-reconnect |
 
-Use the repository [CLI.md](../../../docs/CLI.md) as the source of truth for
-current CLI syntax and host-side workflow behavior. Use the shared
-[SETUP.md](../../../docs/SETUP.md) for setup and frontend selection.
+See the repository [CLI.md](../../../docs/CLI.md) for current CLI syntax and
+host-side workflow behavior, and the shared [SETUP.md](../../../docs/SETUP.md)
+for setup and frontend selection.
 
 ## Configure Wi-Fi and MQTT
 
@@ -133,10 +133,8 @@ Boot -> AGC-active startup -> Classic threshold bootstrap or ML startup -> Detec
 
 ### Detection Algorithms
 
-| Algorithm | Method | Startup behavior |
-|-----------|--------|------------------|
-| `classic` | L1-Delta primary with a gated variance recovery vote | Motion-first threshold bootstrap on the L1-Delta primary metric, with an internal quiet-first fallback and a startup-frozen variance floor |
-| `ml` | Core-6 MLP over turbulence and L1-delta windows | Immediate startup with normalized AGC-active turbulence |
+Micro-ESPectre implements the same two detector families as the C++ platform,
+`classic` and `ml`, described in [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 
 Key config values live in `config.py`:
 
@@ -150,17 +148,11 @@ MOTION_ON_HITS = 3
 MOTION_OFF_HITS = 3
 ```
 
-In startup-calibrated modes, `SEG_THRESHOLD = "auto"` means startup threshold =
-`threshold_metric x detector_factor`:
-
-- `classic`: `x 1.1`
-
-In `classic`, startup first builds a quiet anchor, then tries to use one clean
-`quiet -> motion -> quiet` sequence to finish early. If that does not happen
-inside the startup budget, the shared calibrator falls back internally to the
-quiet-only path. Keep the room quiet immediately after boot. For the practical
-startup workflow, use [TUNING.md](../../../docs/TUNING.md). For detector theory,
-use [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
+In `classic`, `SEG_THRESHOLD = "auto"` selects the shared startup threshold
+calibration; keep the room quiet immediately after boot. For the practical
+startup workflow, see [TUNING.md](../../../docs/TUNING.md). For the
+calibration formulas and detector theory, see
+[ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 
 ### Filters
 

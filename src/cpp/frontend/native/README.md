@@ -6,8 +6,8 @@ Its role is to expose the shared ESPectre runtime through a lightweight custom
 GATT surface that can be used by generic BLE clients, including web clients,
 mobile apps, smart-device integrations, and other custom tooling.
 
-This file is the source of truth for the native frontend firmware workflow and
-BLE-specific operational notes. The shared protocol surface is documented in
+This README covers the native frontend firmware workflow and BLE-specific
+operational notes. The shared protocol surface is documented in
 [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
 ## Scope
@@ -66,8 +66,8 @@ Before building locally, complete the shared
 [`ESP-IDF Local Build Prerequisite`](../../../../docs/SETUP.md#esp-idf-local-build-prerequisite).
 The repository CLI auto-detects a reusable ESP-IDF install, so the wrapper-first
 workflow does not require a separate setup check before build.
-Use [`CLI.md`](../../../../docs/CLI.md) as the source of truth
-for shared CLI syntax, host-side tools, and wrapper behavior.
+See [`CLI.md`](../../../../docs/CLI.md) for shared CLI syntax, host-side
+tools, and wrapper behavior.
 
 CI QEMU smoke currently covers `ESP32`, `ESP32-S3`, and `ESP32-C3` for the
 native frontend. `ESP32-C5` and `ESP32-C6` remain build-only because the
@@ -197,7 +197,7 @@ The shared BLE protocol surface is documented in:
 
 - [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md)
 
-Use that file as the source of truth for:
+That file defines:
 
 - service and characteristic UUIDs
 - telemetry payload format

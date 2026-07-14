@@ -17,17 +17,13 @@ It works with Home Assistant, Matter, native BLE/MQTT firmware, and custom smart
 Wi-Fi signals bounce around a room. When a person moves, those reflections change.  
 ESPectre reads Channel State Information (CSI) from an ESP32 Wi-Fi chip and turns those tiny radio-channel changes into motion and movement-score signals.
 
-The shared detection pipeline covers:
+Two detectors run on-device:
 
-- CSI capture and normalization
-- AGC-active normalization and startup behavior
-- Adaptive thresholds and filtering
-- Motion detectors:
-  - `ClassicDetector`, the default non-ML detector that fuses normalized profile displacement with a guarded moving-variance recovery vote
-  - `MLDetector`, a project-trained neural model with open weights, open data, and an open-source training pipeline
+- `classic`, the default signal-processing detector with adaptive startup calibration
+- `ml`, a project-trained neural model with open weights, open data, and an open-source training pipeline
 
 For the signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md).  
-For benchmarks and current caveats, see [PERFORMANCE.md](docs/PERFORMANCE.md).   
+For benchmarks and current caveats, see [PERFORMANCE.md](docs/PERFORMANCE.md).  
 For the ML workflow, training process, and model export path, see [ML_TRAINING.md](docs/ML_TRAINING.md).
 
 ## Why It Matters
@@ -96,8 +92,9 @@ It also creates a practical path for smart-device integrations where ESPectre se
 Use:
 
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the current internal model
-- [ADR Guide](docs/adr/README.md) for the historical decision record
 - [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) for the shared BLE/MQTT protocol
+- [ADR Guide](docs/adr/README.md) for the historical decision record
+
 
 ## For Device Makers
 
