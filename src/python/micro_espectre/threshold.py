@@ -314,8 +314,6 @@ class StartupThresholdCalibrator:
         """Reset the startup floor snapshot being built for ClassicDetector."""
         self._floor_idx = 0
         self._floor_count = 0
-        for i in range(STARTUP_FLOOR_SIZE):
-            self._floor_ring[i] = 0.0
 
     def _record_floor_samples(self, values):
         """Append one validated-quiet chunk of floor samples to the snapshot ring."""
@@ -413,7 +411,8 @@ class StartupThresholdCalibrator:
         """Return a frozen startup variance-floor snapshot for ClassicDetector."""
         if self._floor_count <= 0:
             return 0.0, False, 0
-        ordered = sorted(self._floor_ring[:self._floor_count])
+        ordered = self._floor_ring[:self._floor_count]
+        ordered.sort()
         n = len(ordered)
         median = ordered[n // 2] if n % 2 else 0.5 * (ordered[n // 2 - 1] + ordered[n // 2])
         p99 = ordered[min(n - 1, int(0.99 * n))]

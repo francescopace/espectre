@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 import hashlib
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -17,7 +16,6 @@ from .common import (
     FIRMWARE_HASHES,
     FIRMWARE_NAME_PREFIX,
     FIRMWARE_RELEASE_URL,
-    MICRO_CHIP_CHOICES,
     Fore,
     PYTHON_SRC_DIR,
     Style,
@@ -34,6 +32,7 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "__init__.py",
     "config.py",
     "config_local.py",
+    "device_utils.py",
     "utils.py",
     "threshold.py",
     "filters.py",
@@ -303,6 +302,14 @@ def deploy_code(args) -> None:
         print()
         raise SystemExit(1)
 
+    files_to_upload = _files_to_upload(config_local_path)
+    missing_files = [src for src, _dst in files_to_upload if not Path(src).exists()]
+    if missing_files:
+        print(f"{Fore.RED}Cannot deploy: required source files are missing:{Style.RESET_ALL}")
+        for missing in missing_files:
+            print(f"  {missing}")
+        raise SystemExit(1)
+
     print_box_banner("Deploying Code to Device")
     print()
     print(f"{Fore.CYAN}Port: {port}{Style.RESET_ALL}")
@@ -328,11 +335,7 @@ def deploy_code(args) -> None:
         subprocess.run(["mpremote", "connect", port, "mkdir", ":src/mqtt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
         print(f"{Fore.YELLOW}📤 Uploading files...{Style.RESET_ALL}")
-        files_to_upload = _files_to_upload(config_local_path)
         for src, dst in files_to_upload:
-            if not Path(src).exists():
-                print(f"{Fore.RED}  ❌ File not found: {src}{Style.RESET_ALL}")
-                continue
             print(f"  {src} → {dst}")
             subprocess.run(["mpremote", "connect", port, "cp", src, dst], check=True, capture_output=True)
 

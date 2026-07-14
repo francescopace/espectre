@@ -66,16 +66,7 @@ class ClassicDetector(IDetector):
     # see the ClassicDetector promotion ADR).
     BAND_ALPHA = 0.6            # lower edge of the ambiguous band (x threshold)
     RECOVERY_VOTE_RATIO = 3.0       # variance must exceed K x its own session floor
-    RECOVERY_DISPERSION_CUT = 4.0   # enable the vote only if p99/median < cut
-
-    # Variance-floor estimator (bounded, MicroPython-friendly). Built from the quiet
-    # startup window and frozen at calibration: a live gate was tried and
-    # rejected (a long low-contrast motion trough is locally indistinguishable
-    # from sustained quiet, so it tripped the dispersion latch and lost the
-    # recovery it was meant to protect). See the ClassicDetector promotion ADR.
-    VARIANCE_FLOOR_SIZE = 1000      # ring of quiet startup variance samples for median/p99
     VARIANCE_FLOOR_MIN = 300        # samples before the vote may enable
-    VARIANCE_FLOOR_REFRESH = 100    # recompute median/dispersion every N samples
 
     def __init__(self,
                  window_size=100,
@@ -106,14 +97,11 @@ class ClassicDetector(IDetector):
                 enable_hampel=enable_hampel,
                 hampel_window=hampel_window,
                 hampel_threshold=hampel_threshold,
+                allocate_amplitude_buffer=False,
             )
 
-        # Bounded ring of IDLE variance metrics (pre-allocated, no per-packet alloc).
-        self._variance_floor_ring = [0.0] * self.VARIANCE_FLOOR_SIZE
-        self._floor_idx = 0
         self._floor_count = 0
-        self._since_refresh = 0
-        self._variance_floor = None           # median of the ring
+        self._variance_floor = None           # median supplied by startup calibration
         self._recovery_vote_enabled = False   # dispersion gate result
         self._floor_frozen = False            # set once startup calibration completes
 
@@ -128,32 +116,11 @@ class ClassicDetector(IDetector):
         self._packet_count += 1
         self._l1.process_packet(csi_data, selected_subcarriers)
         if self._recovery_vote_configured and self._variance_ctx is not None:
-            turbulence = self._variance_ctx.calculate_spatial_turbulence(csi_data, selected_subcarriers)
+            turbulence = self._variance_ctx.calculate_turbulence_from_amplitudes(
+                self._l1._amplitude_buffer,
+                self._l1._amplitude_count,
+            )
             self._variance_ctx.add_turbulence(turbulence)
-
-    def _push_variance_floor(self, value):
-        """Add one IDLE variance sample to the ring and refresh stats periodically."""
-        self._variance_floor_ring[self._floor_idx] = value
-        self._floor_idx = (self._floor_idx + 1) % self.VARIANCE_FLOOR_SIZE
-        if self._floor_count < self.VARIANCE_FLOOR_SIZE:
-            self._floor_count += 1
-        self._since_refresh += 1
-        if (self._floor_count >= self.VARIANCE_FLOOR_MIN
-                and self._since_refresh >= self.VARIANCE_FLOOR_REFRESH):
-            self._refresh_variance_floor()
-            self._since_refresh = 0
-
-    def _refresh_variance_floor(self):
-        """Recompute the variance session floor (median) and the dispersion gate."""
-        ordered = sorted(self._variance_floor_ring[:self._floor_count])
-        n = len(ordered)
-        median = ordered[n // 2] if n % 2 else 0.5 * (ordered[n // 2 - 1] + ordered[n // 2])
-        p99 = ordered[min(n - 1, int(0.99 * n))]
-        self._variance_floor = median
-        if median > 0.0:
-            self._recovery_vote_enabled = (p99 / median) < self.RECOVERY_DISPERSION_CUT
-        else:
-            self._recovery_vote_enabled = False
 
     def update_state(self):
         """
@@ -179,12 +146,6 @@ class ClassicDetector(IDetector):
 
         ready = self._l1.is_ready()
         band_low = self.BAND_ALPHA * thr
-        variance_ready = (
-            self._variance_ctx.is_ready()
-            if hasattr(self._variance_ctx, "is_ready")
-            else self._variance_ctx.buffer_count >= self._variance_ctx.window_size
-        )
-
         motion = False
         if ready:
             if l1v > thr:
@@ -242,23 +203,13 @@ class ClassicDetector(IDetector):
     def apply_startup_floor(self, variance_floor, recovery_vote_enabled, sample_count):
         """Freeze one validated startup floor snapshot supplied by the calibrator."""
         if not self._recovery_vote_configured:
-            self._floor_idx = 0
             self._floor_count = 0
             self._variance_floor = None
             self._recovery_vote_enabled = False
             return
 
-        count = max(0, min(int(sample_count), self.VARIANCE_FLOOR_SIZE))
-        self._floor_idx = count % self.VARIANCE_FLOOR_SIZE
+        count = max(0, int(sample_count))
         self._floor_count = count
-        if count > 0:
-            for i in range(count):
-                self._variance_floor_ring[i] = float(variance_floor)
-            for i in range(count, self.VARIANCE_FLOOR_SIZE):
-                self._variance_floor_ring[i] = 0.0
-        else:
-            for i in range(self.VARIANCE_FLOOR_SIZE):
-                self._variance_floor_ring[i] = 0.0
         self._variance_floor = float(variance_floor) if count > 0 else None
         self._recovery_vote_enabled = (
             self._recovery_vote_configured
@@ -275,24 +226,16 @@ class ClassicDetector(IDetector):
         preserve_frozen_floor = self._recovery_vote_configured and self._floor_frozen
         preserved_floor = self._variance_floor
         preserved_vote = self._recovery_vote_enabled
-        preserved_ring = None
-        if preserve_frozen_floor:
-            preserved_ring = list(self._variance_floor_ring)
         self._l1.reset()
         if self._recovery_vote_configured and self._variance_ctx is not None:
             self._variance_ctx.reset(full=True)
-        if preserve_frozen_floor and preserved_ring is not None:
-            self._variance_floor_ring = preserved_ring
-            self._floor_idx = self._floor_idx % self.VARIANCE_FLOOR_SIZE
-            self._floor_count = min(self._floor_count, self.VARIANCE_FLOOR_SIZE)
+        if preserve_frozen_floor:
             self._variance_floor = preserved_floor
             self._recovery_vote_enabled = preserved_vote
         else:
-            self._floor_idx = 0
             self._floor_count = 0
             self._variance_floor = None
             self._recovery_vote_enabled = False
-        self._since_refresh = 0
         self._floor_frozen = preserve_frozen_floor
         self._state = MotionState.IDLE
         self._packet_count = 0

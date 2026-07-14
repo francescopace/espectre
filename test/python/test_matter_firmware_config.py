@@ -46,10 +46,10 @@ def test_matter_defaults_apply_shared_wifi_transport_baseline():
     assert "CONFIG_ESP_WIFI_CSI_ENABLED=y" in defaults
     assert "CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n" in defaults
     assert "CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n" in defaults
-    assert "CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=16" in defaults
-    assert "CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=128" in defaults
-    assert "CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=128" in defaults
+    assert "CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=10" in defaults
+    assert "CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32" in defaults
+    assert "CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=48" in defaults
     assert "CONFIG_LWIP_IRAM_OPTIMIZATION=y" in defaults
-    assert "CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=64" in defaults
-    assert "CONFIG_LWIP_UDP_RECVMBOX_SIZE=32" in defaults
+    assert "CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=32" in defaults
+    assert "CONFIG_LWIP_UDP_RECVMBOX_SIZE=16" in defaults
     assert "CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE=n" in defaults

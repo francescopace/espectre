@@ -10,9 +10,9 @@ License: GPLv3
 import math
 
 try:
-    from src.utils import insertion_sort
+    from src.device_utils import insertion_sort
 except ImportError:
-    from utils import insertion_sort
+    from device_utils import insertion_sort
 
 
 class LowPassFilter:
@@ -170,7 +170,9 @@ class HampelFilter:
         """
         # Add to circular buffer
         self.buffer[self.index] = value
-        self.index = (self.index + 1) % self.window_size
+        self.index += 1
+        if self.index >= self.window_size:
+            self.index = 0
         if self.count < self.window_size:
             self.count += 1
         

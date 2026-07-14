@@ -16,6 +16,26 @@ try:
 except ImportError:
     from mqtt.commands import MQTTCommands
 
+MQTT_RECONNECT_INITIAL_MS = 1000
+MQTT_RECONNECT_MAX_MS = 60000
+
+
+def _ticks_ms():
+    ticks_fn = getattr(time, "ticks_ms", None)
+    if ticks_fn is not None:
+        return ticks_fn()
+    return int(time.time() * 1000)
+
+
+def _ticks_diff(new, old):
+    diff_fn = getattr(time, "ticks_diff", None)
+    return diff_fn(new, old) if diff_fn is not None else new - old
+
+
+def _ticks_add(value, delta):
+    add_fn = getattr(time, "ticks_add", None)
+    return add_fn(value, delta) if add_fn is not None else value + delta
+
 
 class MQTTHandler:
     """MQTT handler with publishing and command support"""
@@ -36,6 +56,10 @@ class MQTTHandler:
         self.global_state = global_state
         self.client = None
         self.cmd_handler = None
+        self.connected = False
+        self._stopping = False
+        self._next_reconnect_ms = 0
+        self._reconnect_backoff_ms = MQTT_RECONNECT_INITIAL_MS
         self.start_time = time.time()
         
         # ESPectre Protocol topics
@@ -56,6 +80,17 @@ class MQTTHandler:
         
     def connect(self):
         """Connect to MQTT broker"""
+        self._stopping = False
+        try:
+            self._connect_client()
+            return self.client
+        except Exception as e:
+            print(f"MQTT connection failed: {e}")
+            self._mark_disconnected()
+            return None
+
+    def _connect_client(self):
+        """Create, connect, subscribe, and announce one MQTT client."""
         self.client = MQTTClient(
             self.config.MQTT_CLIENT_ID,
             self.config.MQTT_BROKER,
@@ -86,11 +121,52 @@ class MQTTHandler:
         
         # Subscribe to command topic
         self.client.subscribe(self.cmd_topic)
-        #print(f'Subscribed to: {self.cmd_topic}')
+        self.connected = True
+        self._next_reconnect_ms = 0
+        self._reconnect_backoff_ms = MQTT_RECONNECT_INITIAL_MS
         self.publish_status(True)
         self.publish_info()
-        
-        return self.client
+        if not self.connected:
+            raise OSError("MQTT connection lost during session setup")
+
+    def _mark_disconnected(self):
+        """Schedule a non-blocking reconnect after a transport failure."""
+        if not self.connected and self._next_reconnect_ms:
+            return
+        self.connected = False
+        self._next_reconnect_ms = _ticks_add(
+            _ticks_ms(), self._reconnect_backoff_ms
+        )
+        self._reconnect_backoff_ms = min(
+            self._reconnect_backoff_ms * 2,
+            MQTT_RECONNECT_MAX_MS,
+        )
+        if self.client:
+            try:
+                self.client.disconnect()
+            except Exception:
+                pass
+
+    def _reconnect_if_due(self):
+        """Attempt one reconnect when the backoff deadline has elapsed."""
+        if self._stopping or self.connected:
+            return self.connected
+        now = _ticks_ms()
+        if self._next_reconnect_ms and _ticks_diff(now, self._next_reconnect_ms) < 0:
+            return False
+        try:
+            print("Reconnecting to MQTT broker...")
+            self._connect_client()
+            print("MQTT reconnected")
+            return True
+        except Exception as e:
+            print(f"MQTT reconnect failed: {e}")
+            self._next_reconnect_ms = _ticks_add(now, self._reconnect_backoff_ms)
+            self._reconnect_backoff_ms = min(
+                self._reconnect_backoff_ms * 2,
+                MQTT_RECONNECT_MAX_MS,
+            )
+            return False
     
     def _on_message(self, topic, msg):
         """Callback for incoming MQTT messages"""
@@ -106,10 +182,13 @@ class MQTTHandler:
     
     def check_messages(self):
         """Check for incoming MQTT messages (non-blocking)"""
+        if not self.connected and not self._reconnect_if_due():
+            return
         try:
             self.client.check_msg()
         except Exception as e:
             print(f"Error checking MQTT messages: {e}")
+            self._mark_disconnected()
     
     def publish_state(self, current_variance, current_state, current_threshold):
         """
@@ -120,6 +199,11 @@ class MQTTHandler:
             current_state: Current state (0=IDLE, 1=MOTION)
             current_threshold: Current threshold
         """
+        if not self.connected:
+            self.last_variance = current_variance
+            self.last_state = current_state
+            return
+
         state_str = 'motion' if current_state == 1 else 'idle'
         timestamp_ms = int(time.time() * 1000)
         health = {
@@ -142,6 +226,7 @@ class MQTTHandler:
             self.client.publish(self.telemetry_topic, json.dumps(payload))
         except Exception as e:
             print(f"Error publishing to MQTT: {e}")
+            self._mark_disconnected()
         
         # Update state
         self.last_variance = current_variance
@@ -149,6 +234,7 @@ class MQTTHandler:
     
     def disconnect(self):
         """Disconnect from MQTT broker"""
+        self._stopping = True
         if self.client:
             try:
                 self.publish_status(False)
@@ -156,6 +242,7 @@ class MQTTHandler:
                 print('MQTT disconnected')
             except Exception as e:
                 print(f"Error disconnecting MQTT: {e}")
+        self.connected = False
     
     def publish_info(self):
         """Publish system info"""
@@ -176,3 +263,5 @@ class MQTTHandler:
             self.client.publish(self.status_topic, json.dumps(payload))
         except Exception as e:
             print(f"Error publishing MQTT status: {e}")
+            if not self._stopping:
+                self._mark_disconnected()

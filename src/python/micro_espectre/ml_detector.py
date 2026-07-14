@@ -19,23 +19,23 @@ import math
 try:
     from src.detector_interface import IDetector, MotionState
     from src.segmentation import SegmentationContext
-    from src.features import extract_features_by_name
+    from src.features import L1_DELTA_LAG, L1DeltaTracker, extract_features_by_name
     from src.config import DEFAULT_SUBCARRIERS
 except ImportError:
     from detector_interface import IDetector, MotionState
     from segmentation import SegmentationContext
-    from features import extract_features_by_name
+    from features import L1_DELTA_LAG, L1DeltaTracker, extract_features_by_name
     from config import DEFAULT_SUBCARRIERS
 
 try:
     from src.ml_weights import (
         FEATURE_MEAN, FEATURE_SCALE,
-        MODEL_LAYER_SIZES, WEIGHTS, BIASES, FEATURE_NAMES,
+        WEIGHTS, BIASES, FEATURE_NAMES,
     )
 except ImportError:
     from ml_weights import (
         FEATURE_MEAN, FEATURE_SCALE,
-        MODEL_LAYER_SIZES, WEIGHTS, BIASES, FEATURE_NAMES,
+        WEIGHTS, BIASES, FEATURE_NAMES,
     )
 
 # Re-export for convenience
@@ -56,6 +56,17 @@ for _lw in WEIGHTS:
     _n_out = len(_lw[0])
     _WEIGHTS_T.append([[_lw[i][j] for i in range(_n_in)] for j in range(_n_out)])
 del _lw, _n_in, _n_out
+
+# On MicroPython the generated source matrix is no longer needed after the
+# transposed runtime layout has been built. Clearing it releases its nested
+# list containers while keeping CPython analysis/test imports unchanged.
+try:
+    import sys
+    if sys.implementation.name == "micropython":
+        WEIGHTS.clear()
+except (AttributeError, ImportError):
+    pass
+del WEIGHTS
 
 # ============================================================================
 # Neural Network Inference Functions
@@ -97,25 +108,44 @@ def predict(features):
     Returns:
         float: Motion probability (0.0 to 1.0)
     """
-    n_feat = len(features)
-    activations = [0.0] * n_feat
-    for i in range(n_feat):
-        activations[i] = (features[i] - FEATURE_MEAN[i]) / FEATURE_SCALE[i]
+    workspace_size = max(
+        len(FEATURE_MEAN),
+        max(len(layer_biases) for layer_biases in BIASES),
+    )
+    return _predict_with_workspace(
+        features,
+        [0.0] * workspace_size,
+        [0.0] * workspace_size,
+    )
 
+
+def _predict_with_workspace(features, activation_a, activation_b):
+    """Run inference using two reusable activation buffers."""
+    n_feat = len(features)
+    if len(activation_a) < n_feat or len(activation_b) < n_feat:
+        raise ValueError("Activation workspace is too small")
+    for i in range(n_feat):
+        activation_a[i] = (features[i] - FEATURE_MEAN[i]) / FEATURE_SCALE[i]
+
+    activations = activation_a
+    next_activations = activation_b
+    n_active = n_feat
     n_layers = len(_WEIGHTS_T)
     for layer_idx in range(n_layers):
         weights_t = _WEIGHTS_T[layer_idx]
         biases = BIASES[layer_idx]
         n_out = len(biases)
-        next_activations = [0.0] * n_out
+        if len(next_activations) < n_out:
+            raise ValueError("Activation workspace is too small")
         is_last = layer_idx == n_layers - 1
         for j in range(n_out):
             val = biases[j]
             w_row = weights_t[j]
-            for i in range(len(activations)):
+            for i in range(n_active):
                 val += activations[i] * w_row[i]
             next_activations[j] = val if is_last else (val if val > 0 else 0.0)
-        activations = next_activations
+        activations, next_activations = next_activations, activations
+        n_active = n_out
 
     return sigmoid(activations[0]) * ML_METRIC_SCALE
 
@@ -190,11 +220,24 @@ class MLDetector(IDetector):
             str(name).startswith('l1_') for name in FEATURE_NAMES
         )
         if self._use_amplitude_history:
-            self._amplitude_history = [None] * window_size
+            delta_window = max(2, window_size - L1_DELTA_LAG)
+            self._l1_tracker = L1DeltaTracker(
+                window_size=delta_window,
+                lag=L1_DELTA_LAG,
+                allocate_amplitude_buffer=False,
+            )
+            self._l1_series_buffer = [0.0] * delta_window
         else:
-            self._amplitude_history = None
-        self._amplitude_index = 0
-        self._amplitude_count = 0
+            self._l1_tracker = None
+            self._l1_series_buffer = None
+        self._ordered_turbulence = [0.0] * window_size
+        self._feature_buffer = [0.0] * len(FEATURE_NAMES)
+        workspace_size = max(
+            len(FEATURE_MEAN),
+            max(len(layer_biases) for layer_biases in BIASES),
+        )
+        self._activation_a = [0.0] * workspace_size
+        self._activation_b = [0.0] * workspace_size
         
         # For tracking (optional)
         self.probability_history = []
@@ -211,12 +254,13 @@ class MLDetector(IDetector):
         """
         self._packet_count += 1
 
-        amplitudes = None
         if self._use_amplitude_history:
-            turbulence, amplitudes = self._context.calculate_spatial_turbulence(
-                csi_data,
-                selected_subcarriers,
-                return_amplitudes=True,
+            turbulence = self._context.calculate_spatial_turbulence(
+                csi_data, selected_subcarriers
+            )
+            self._l1_tracker.process_amplitudes(
+                self._context._amplitude_buffer,
+                self._context._amplitude_count,
             )
         else:
             # Fast path for the default exported models: only the turbulence window is needed.
@@ -226,8 +270,6 @@ class MLDetector(IDetector):
 
         # Add to buffer
         self._context.add_turbulence(turbulence)
-        if self._use_amplitude_history:
-            self._store_amplitudes(amplitudes)
     
     def update_state(self):
         """
@@ -248,7 +290,11 @@ class MLDetector(IDetector):
         features = self._extract_features()
         
         # Run neural network
-        self._current_probability = predict(features)
+        self._current_probability = _predict_with_workspace(
+            features,
+            self._activation_a,
+            self._activation_b,
+        )
         
         # Update state
         if self._current_probability > self._threshold:
@@ -283,39 +329,27 @@ class MLDetector(IDetector):
         ctx = self._context
         
         # Build chronological list from circular buffer
-        if ctx.buffer_count < ctx.window_size:
-            # Buffer not full yet: data is in order from index 0
-            turb_list = ctx.turbulence_buffer[:ctx.buffer_count]
+        turb_list = self._ordered_turbulence
+        count = ctx.buffer_count
+        if count < ctx.window_size:
+            for i in range(count):
+                turb_list[i] = ctx.turbulence_buffer[i]
         else:
-            # Buffer is full and has wrapped: reconstruct order
-            # buffer_index points to the NEXT write position (oldest value)
             idx = ctx.buffer_index
-            turb_list = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
+            for i in range(count):
+                turb_list[i] = ctx.turbulence_buffer[(idx + i) % count]
 
-        amplitude_history = self._get_amplitude_history()
+        l1_count = 0
+        if self._l1_tracker is not None:
+            l1_count = self._l1_tracker.copy_deltas_into(self._l1_series_buffer)
         return extract_features_by_name(
-            turb_list, len(turb_list),
+            turb_list, count,
             feature_names=FEATURE_NAMES,
-            amplitude_history=amplitude_history,
+            l1_series=self._l1_series_buffer,
+            l1_series_count=l1_count,
+            out=self._feature_buffer,
+            reuse_turbulence_buffer=True,
         )
-
-    def _store_amplitudes(self, amplitudes):
-        """Store the latest amplitude profile in a circular history."""
-        if self._amplitude_history is None:
-            return
-        self._amplitude_history[self._amplitude_index] = amplitudes
-        self._amplitude_index = (self._amplitude_index + 1) % len(self._amplitude_history)
-        if self._amplitude_count < len(self._amplitude_history):
-            self._amplitude_count += 1
-
-    def _get_amplitude_history(self):
-        """Return amplitude history ordered from oldest to newest."""
-        if self._amplitude_history is None or self._amplitude_count == 0:
-            return None
-        if self._amplitude_count < len(self._amplitude_history):
-            return self._amplitude_history[:self._amplitude_count]
-        idx = self._amplitude_index
-        return self._amplitude_history[idx:] + self._amplitude_history[:idx]
     
     def get_state(self):
         """Get current motion state."""
@@ -343,13 +377,12 @@ class MLDetector(IDetector):
     def reset(self):
         """Reset detector state."""
         self._context.reset(full=True)
+        self._packet_count = 0
         self._state = MotionState.IDLE
         self._current_probability = 0.0
         self._motion_count = 0
-        if self._amplitude_history is not None:
-            self._amplitude_history = [None] * len(self._amplitude_history)
-        self._amplitude_index = 0
-        self._amplitude_count = 0
+        if self._l1_tracker is not None:
+            self._l1_tracker.reset()
         self.probability_history = []
         self.state_history = []
     

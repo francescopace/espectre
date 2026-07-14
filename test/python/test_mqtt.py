@@ -185,6 +185,24 @@ class TestMQTTHandler:
         assert handler.cmd_topic == "test/espectre/devices/test-device/commands/request"
         assert handler.accepted_topic == "test/espectre/devices/test-device/commands/accepted"
         assert handler.rejected_topic == "test/espectre/devices/test-device/commands/rejected"
+
+    @patch('mqtt.handler.MQTTClient')
+    def test_initial_connection_failure_schedules_reconnect(
+        self,
+        mock_client_class,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+    ):
+        """A missing broker at boot must not terminate the sensing runtime."""
+        from mqtt.handler import MQTTHandler
+
+        mock_client_class.return_value.connect.side_effect = OSError("offline")
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan)
+
+        assert handler.connect() is None
+        assert handler.connected is False
+        assert handler._next_reconnect_ms != 0
     
     def test_publish_state_idle(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance, mock_global_state):
         """Test publishing idle state"""
@@ -192,6 +210,7 @@ class TestMQTTHandler:
         
         handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
         handler.client = mock_mqtt_client_instance
+        handler.connected = True
         
         handler.publish_state(
             current_variance=0.5,
@@ -223,6 +242,7 @@ class TestMQTTHandler:
         
         handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
         handler.client = mock_mqtt_client_instance
+        handler.connected = True
         
         handler.publish_state(
             current_variance=5.0,
@@ -244,6 +264,7 @@ class TestMQTTHandler:
         
         handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan)
         handler.client = mock_mqtt_client_instance
+        handler.connected = True
         mock_mqtt_client_instance.publish.side_effect = Exception("Network error")
         
         # Should not raise exception
@@ -259,7 +280,8 @@ class TestMQTTHandler:
         
         handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan)
         handler.client = mock_mqtt_client_instance
-        
+        handler.connected = True
+
         handler.check_messages()
         
         mock_mqtt_client_instance.check_msg.assert_called_once()
@@ -270,10 +292,41 @@ class TestMQTTHandler:
         
         handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan)
         handler.client = mock_mqtt_client_instance
+        handler.connected = True
         mock_mqtt_client_instance.check_msg.side_effect = Exception("Error")
         
         # Should not raise exception
         handler.check_messages()
+
+        assert handler.connected is False
+        assert handler._next_reconnect_ms != 0
+
+    def test_check_messages_reconnects_after_backoff(
+        self,
+        monkeypatch,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+    ):
+        """A failed poll should reconnect, resubscribe, and resume polling."""
+        import mqtt.handler as handler_module
+
+        handler = handler_module.MQTTHandler(mock_config, mock_segmentation, mock_wlan)
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+        mock_mqtt_client_instance.check_msg.side_effect = OSError("disconnected")
+        handler.check_messages()
+
+        replacement = MagicMock()
+        monkeypatch.setattr(handler_module, "MQTTClient", lambda *args, **kwargs: replacement)
+        handler._next_reconnect_ms = 0
+        handler.check_messages()
+
+        assert handler.connected is True
+        replacement.connect.assert_called_once()
+        replacement.subscribe.assert_called_once_with(handler.cmd_topic)
+        replacement.check_msg.assert_called_once()
     
     def test_disconnect(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
         """Test disconnecting from MQTT broker"""

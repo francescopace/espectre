@@ -55,6 +55,7 @@ def _create_micro_src_tree(base_dir: Path) -> None:
         "__init__.py",
         "config.py",
         "config_local.py",
+        "device_utils.py",
         "utils.py",
         "threshold.py",
         "filters.py",
@@ -301,7 +302,7 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
     mkdir_calls = [cmd for cmd in calls if "mkdir" in cmd]
     cp_calls = [cmd for cmd in calls if "cp" in cmd]
     assert len(mkdir_calls) == 2
-    assert len(cp_calls) == 19
+    assert len(cp_calls) == 20
     assert any(cmd[-1] == ":src/" for cmd in cp_calls)
     assert any(cmd[-1] == ":src/mqtt/" for cmd in cp_calls)
     assert any(cmd[-2].endswith("console_output.py") for cmd in cp_calls)
@@ -324,6 +325,23 @@ def test_deploy_code_rejects_invalid_healthcheck(monkeypatch, tmp_path: Path) ->
 
     with pytest.raises(SystemExit):
         micro.deploy_code(_make_args())
+
+
+def test_deploy_code_rejects_incomplete_source_tree(monkeypatch, tmp_path: Path) -> None:
+    src_dir = tmp_path / "src"
+    _create_micro_src_tree(src_dir)
+    (src_dir / "device_utils.py").unlink()
+    calls = []
+
+    monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
+    monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro.subprocess, "run", lambda *args, **kwargs: calls.append(args))
+
+    with pytest.raises(SystemExit):
+        micro.deploy_code(_make_args())
+
+    assert calls == []
 
 
 def test_deploy_code_exits_on_copy_failure(monkeypatch, tmp_path: Path) -> None:
@@ -405,7 +423,7 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
         SimpleNamespace(stdout="csi_start,csi_stop\n", stderr=""),
         SimpleNamespace(stdout="(1, 24, 0)\n", stderr=""),
         SimpleNamespace(
-            stdout="['__init__.py', 'config.py', 'config_local.py', 'utils.py', 'threshold.py', 'filters.py', "
+                stdout="['__init__.py', 'config.py', 'config_local.py', 'device_utils.py', 'utils.py', 'threshold.py', 'filters.py', "
             "'features.py', 'segmentation.py', 'detector_interface.py', 'runtime_policy.py', 'classic_detector.py', "
             "'ml_detector.py', 'ml_weights.py', 'traffic_generator.py', 'console_output.py', 'main.py', 'mqtt']\n",
             stderr="",

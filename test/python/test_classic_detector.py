@@ -152,29 +152,18 @@ def test_disabled_vote_does_not_allocate_variance_context():
     assert det._variance_ctx is None
 
 
+def test_disabled_vote_can_update_state_without_variance_context():
+    det = ClassicDetector(window_size=10, enable_recovery_vote=False)
+
+    metrics = det.update_state()
+
+    assert metrics["state"] == MotionState.IDLE
+    assert metrics["moving_variance"] == 0.0
+
+
 def test_no_vote_below_band():
     # deep-quiet l1 (below BAND_ALPHA*thr) never triggers the vote -> IDLE
     assert _decide(l1_metric=0.03, moving_variance=5.0) == MotionState.IDLE
-
-
-# --- frozen dispersion gate ------------------------------------------------
-
-def test_tight_floor_enables_vote():
-    det = ClassicDetector(window_size=10)
-    for i in range(400):
-        det._push_variance_floor(1.0 + 0.01 * (i % 5))   # tight spread, p99/median ~1.04
-    det._refresh_variance_floor()
-    assert det._recovery_vote_enabled
-
-
-def test_bursty_floor_disables_vote():
-    det = ClassicDetector(window_size=10)
-    for _ in range(396):
-        det._push_variance_floor(1.0)
-    for _ in range(4):
-        det._push_variance_floor(100.0)                   # heavy upper tail -> p99/median high
-    det._refresh_variance_floor()
-    assert not det._recovery_vote_enabled
 
 
 # --- integration on crafted CSI --------------------------------------------
@@ -216,6 +205,12 @@ def test_reset_preserves_frozen_floor_state():
     assert det._floor_frozen
     assert det.get_state() == MotionState.IDLE
     assert det.total_packets == 0
+
+
+def test_classic_does_not_allocate_legacy_floor_ring():
+    det = ClassicDetector(window_size=20)
+
+    assert not hasattr(det, "_variance_floor_ring")
 
 
 def test_apply_startup_floor_disables_vote_when_snapshot_too_small():

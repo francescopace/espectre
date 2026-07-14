@@ -12,10 +12,10 @@ License: GPLv3
 import math
 
 try:
-    from src.utils import to_signed_int8, calculate_variance
+    from src.device_utils import to_signed_int8, calculate_variance
     from src.detector_interface import MotionState
 except ImportError:
-    from utils import to_signed_int8, calculate_variance
+    from device_utils import to_signed_int8, calculate_variance
     from detector_interface import MotionState
 
 
@@ -47,7 +47,8 @@ class SegmentationContext:
                  lowpass_cutoff=11.0,
                  enable_hampel=True,
                  hampel_window=7,
-                 hampel_threshold=5.0):
+                 hampel_threshold=5.0,
+                 allocate_amplitude_buffer=True):
         """
         Initialize segmentation context
         
@@ -80,7 +81,11 @@ class SegmentationContext:
         
         # Last amplitudes (stored for external use)
         self.last_amplitudes = None
-        self._amplitude_buffer = [0.0] * self.AMPLITUDE_BUFFER_SIZE
+        self._amplitude_buffer = (
+            [0.0] * self.AMPLITUDE_BUFFER_SIZE
+            if allocate_amplitude_buffer
+            else None
+        )
         self._amplitude_count = 0
 
         # Initialize low-pass filter if enabled
@@ -193,6 +198,13 @@ class SegmentationContext:
         return math.sqrt(variance) / mean if mean > 0 else 0.0
 
     @staticmethod
+    def calculate_turbulence_from_amplitudes(amplitude_buffer, count):
+        """Calculate turbulence from a previously extracted amplitude profile."""
+        return SegmentationContext._turbulence_from_amplitude_buffer(
+            amplitude_buffer, count
+        )
+
+    @staticmethod
     def compute_spatial_turbulence(csi_data, selected_subcarriers=None):
         """
         Calculate spatial turbulence from CSI subcarrier amplitudes
@@ -218,6 +230,8 @@ class SegmentationContext:
 
     def _compute_spatial_turbulence_in_buffer(self, csi_data, selected_subcarriers=None):
         """Fast instance path: reuse pre-allocated amplitude buffer."""
+        if self._amplitude_buffer is None:
+            raise RuntimeError("Amplitude extraction buffer is disabled")
         if len(csi_data) < 2:
             self._amplitude_count = 0
             return 0.0
@@ -329,7 +343,9 @@ class SegmentationContext:
         
         # Store value in circular buffer
         self.turbulence_buffer[self.buffer_index] = filtered_turbulence
-        self.buffer_index = (self.buffer_index + 1) % self.window_size
+        self.buffer_index += 1
+        if self.buffer_index >= self.window_size:
+            self.buffer_index = 0
         if self.buffer_count < self.window_size:
             self.buffer_count += 1
         
@@ -387,7 +403,6 @@ class SegmentationContext:
         self.packet_index = 0
         
         if full:
-            self.turbulence_buffer = [0.0] * self.window_size
             self.buffer_index = 0
             self.buffer_count = 0
             self.current_moving_variance = 0.0

@@ -229,6 +229,14 @@ class TestMLDetector:
         detector = MLDetector(window_size=100, threshold=0.7)
         assert detector._threshold == 0.7
         assert detector._context.window_size == 100
+
+    def test_l1_history_uses_streaming_delta_window(self):
+        detector = MLDetector(window_size=100)
+
+        assert detector._l1_tracker is not None
+        assert len(detector._l1_tracker._profile_ring) == 10
+        assert len(detector._l1_tracker._delta_ring) == 90
+        assert not hasattr(detector, "_amplitude_history")
     
     def test_get_name(self):
         """Test get_name returns 'ML'."""
@@ -308,6 +316,7 @@ class TestMLDetector:
         assert detector._motion_count == 0
         assert detector.probability_history == []
         assert detector.state_history == []
+        assert detector.total_packets == 0
 
 
 class TestMLDetectorProcessing:

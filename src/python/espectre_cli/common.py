@@ -3,28 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import shlex
-import signal
-import subprocess
 import sys
 import time
-import webbrowser
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 try:
     import yaml
-    import paho.mqtt.client as mqtt
     from colorama import Fore, Style, init
     from dotenv import load_dotenv
-    from prompt_toolkit import PromptSession, print_formatted_text
-    from prompt_toolkit.completion import NestedCompleter
-    from prompt_toolkit.formatted_text import FormattedText, HTML
-    from prompt_toolkit.history import FileHistory
-    from prompt_toolkit.styles import Style as PromptStyle
 except ImportError as e:
     print(f"Error: Missing dependency {e.name}. Please install requirements.txt")
     print("pip install -r requirements.txt")
@@ -55,14 +43,6 @@ FIRMWARE_HASHES = {
     "ESP32_CSI_S3.bin": "0466fa4a6bbca941a91d978d44019c3a1cb3e7666a7bc44b46870827137ea0eb",
 }
 MICRO_CHIP_CHOICES = ["esp32", "c3", "s3", "c5", "c6"]
-
-try:
-    from paho.mqtt.enums import CallbackAPIVersion
-
-    PAHO_V2 = True
-except ImportError:
-    CallbackAPIVersion = None
-    PAHO_V2 = False
 
 init()
 load_dotenv()

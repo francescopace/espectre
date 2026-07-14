@@ -9,21 +9,26 @@ import time
 from datetime import datetime
 from typing import Any, Dict
 
+import paho.mqtt.client as mqtt
+import yaml
+from prompt_toolkit import PromptSession, print_formatted_text
+from prompt_toolkit.completion import NestedCompleter
+from prompt_toolkit.formatted_text import FormattedText, HTML
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.styles import Style as PromptStyle
+
+try:
+    from paho.mqtt.enums import CallbackAPIVersion
+
+    PAHO_V2 = True
+except ImportError:
+    CallbackAPIVersion = None
+    PAHO_V2 = False
+
 from .common import (
-    CallbackAPIVersion,
     CompactDumper,
     Fore,
-    FormattedText,
-    HTML,
-    FileHistory,
-    NestedCompleter,
-    PAHO_V2,
-    PromptSession,
-    PromptStyle,
     Style,
-    mqtt,
-    print_formatted_text,
-    yaml,
 )
 from .host import open_web_ui
 from micro_espectre.branding import ASCII_BANNER

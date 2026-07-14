@@ -165,23 +165,29 @@ class TrafficGenerator:
 
         return (~checksum) & 0xFFFF
     
-    def _dns_task(self): 
-        """Background task that sends DNS queries (runs with increased stack)"""
-        
-        # Use DNS queries to generate bidirectional traffic
-        # DNS always generates a reply, which triggers CSI
-        try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            # Set socket to non-blocking mode to avoid delays
-            self.sock.setblocking(False)
-        except Exception as e:
-            print(f"Failed to create socket: {e}")
+    def _run_sender_task(self, mode):
+        """Run the shared paced send loop for DNS and ICMP traffic."""
+        if self.rate_pps <= 0:
             self.running = False
             return
-        
-        # Pre-resolve destination address (avoid repeated lookups)
-        dest_addr = (self.gateway_ip, 53)
+
+        is_ping = mode == MODE_PING
+        try:
+            if is_ping:
+                self.sock = socket.socket(socket.AF_INET, SOCK_RAW, IPPROTO_ICMP)
+            else:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.sock.setblocking(False)
+        except Exception as e:
+            label = "ping socket" if is_ping else "socket"
+            print(f"Failed to create {label}: {e}")
+            self.running = False
+            return
+
+        dest_addr = (self.gateway_ip, 1 if is_ping else 53)
         send_packet, use_connected_send = self._prepare_sender(self.sock, dest_addr)
+        build_packet = self._build_ping_packet if is_ping else None
+        send_error_label = "Ping socket error" if is_ping else "Socket error"
         ticks_us = time.ticks_us
         ticks_ms = time.ticks_ms
         ticks_diff = time.ticks_diff
@@ -190,149 +196,19 @@ class TrafficGenerator:
         last_send_error_log = 0
         last_task_error_log = 0
         consecutive_enomem = 0
-
-        # Track loop time and pps for diagnostics (updated periodically)
         loop_time_sum_us = 0
         window_start_time = ticks_us()
         window_packet_count = 0
-        
-        # Microsecond timing with fractional accumulator (aligned with C++ implementation)
-        # This compensates for integer division error (e.g., 1000000/100 = 10000µs exact)
         interval_us = 1000000 // self.rate_pps
         remainder_us = 1000000 % self.rate_pps
         accumulator = 0
-        
-        next_send_time = ticks_us()
-        
-        while self.running:
-            try:
-                loop_start = ticks_us()
-                
-                # Send DNS query to gateway (port 53)
-                # Gateway will forward and reply, generating incoming traffic → CSI
-                try:
-                    if use_connected_send:
-                        send_packet(DNS_QUERY)
-                    else:
-                        send_packet(DNS_QUERY, dest_addr)
-                    self.packet_count += 1
-                    window_packet_count += 1
-                    consecutive_enomem = 0
-                        
-                except OSError as e:
-                    self.error_count += 1
-                    now_ms = ticks_ms()
-                    if ticks_diff(now_ms, last_send_error_log) >= SEND_ERROR_LOG_INTERVAL_MS:
-                        print(f"Socket error: {e}")
-                        last_send_error_log = now_ms
-                    if self._extract_errno(e) == ENOMEM_ERRNO:
-                        consecutive_enomem += 1
-                        backoff_ms = SEND_ERROR_BACKOFF_MS * consecutive_enomem
-                        if backoff_ms > SEND_ERROR_BACKOFF_MAX_MS:
-                            backoff_ms = SEND_ERROR_BACKOFF_MAX_MS
-                        sleep_ms_fn(backoff_ms)
-                        next_send_time = ticks_us()
-                        window_start_time = next_send_time
-                        window_packet_count = 0
-                        continue
-                    consecutive_enomem = 0
-                
-                # Calculate next send time with fractional accumulator for precise rate
-                accumulator += remainder_us
-                extra_us = accumulator // self.rate_pps
-                accumulator %= self.rate_pps
-                
-                next_send_time += interval_us + extra_us
-                
-                # Track loop time for averaging
-                loop_time_us = ticks_diff(ticks_us(), loop_start)
-                loop_time_sum_us += loop_time_us
-                
-                # Periodic metrics update (no GC needed - no allocations in loop)
-                if window_packet_count >= METRICS_INTERVAL:
-                    # Update average loop time (no lock needed - single writer)
-                    self.avg_loop_time_ms = (loop_time_sum_us / METRICS_INTERVAL) / 1000
-                    loop_time_sum_us = 0
-                    
-                    # Update actual pps (moving window)
-                    window_elapsed = ticks_diff(ticks_us(), window_start_time)
-                    if window_elapsed > 0:
-                        self.actual_pps = (window_packet_count * 1000000) / window_elapsed
-                    
-                    window_start_time = ticks_us()
-                    window_packet_count = 0
-                
-                # Sleep until next send time
-                now = ticks_us()
-                sleep_for_us = ticks_diff(next_send_time, now)
-                
-                if sleep_for_us > 100:
-                    # Convert to ms for sleep (minimum 1ms to yield to other threads)
-                    sleep_ms = sleep_for_us // 1000
-                    if sleep_ms > 0:
-                        sleep_ms_fn(sleep_ms)
-                    else:
-                        sleep_us_fn(sleep_for_us)
-                elif sleep_for_us < -100000:
-                    # We're more than 100ms behind, reset timing
-                    next_send_time = ticks_us()
-                else:
-                    # Small sleep to yield
-                    sleep_us_fn(100)
-                
-            except Exception as e:
-                self.error_count += 1
-                now_ms = ticks_ms()
-                if ticks_diff(now_ms, last_task_error_log) >= SEND_ERROR_LOG_INTERVAL_MS:
-                    print(f"Traffic generator error: {e}")
-                    last_task_error_log = now_ms
-                sleep_ms_fn(interval_us // 1000)
-        
-        # Cleanup
-        if self.sock:
-            self.sock.close()
-            self.sock = None
-        
-        #print(f"📡 Traffic generator task stopped ({self.packet_count} packets sent, {self.error_count} errors)")
-
-    def _ping_task(self):
-        """Background task that sends ICMP echo requests."""
-        try:
-            self.sock = socket.socket(socket.AF_INET, SOCK_RAW, IPPROTO_ICMP)
-            self.sock.setblocking(False)
-        except Exception as e:
-            print(f"Failed to create ping socket: {e}")
-            self.running = False
-            return
-
-        dest_addr = (self.gateway_ip, 1)
-        send_packet, use_connected_send = self._prepare_sender(self.sock, dest_addr)
-        build_ping_packet = self._build_ping_packet
-        ticks_us = time.ticks_us
-        ticks_ms = time.ticks_ms
-        ticks_diff = time.ticks_diff
-        sleep_ms_fn = time.sleep_ms
-        sleep_us_fn = time.sleep_us
-        last_send_error_log = 0
-        last_task_error_log = 0
-        consecutive_enomem = 0
-
-        loop_time_sum_us = 0
-        window_start_time = ticks_us()
-        window_packet_count = 0
-
-        interval_us = 1000000 // self.rate_pps
-        remainder_us = 1000000 % self.rate_pps
-        accumulator = 0
-
         next_send_time = ticks_us()
 
         while self.running:
             try:
                 loop_start = ticks_us()
-
                 try:
-                    packet = build_ping_packet()
+                    packet = build_packet() if is_ping else DNS_QUERY
                     if use_connected_send:
                         send_packet(packet)
                     else:
@@ -344,43 +220,41 @@ class TrafficGenerator:
                     self.error_count += 1
                     now_ms = ticks_ms()
                     if ticks_diff(now_ms, last_send_error_log) >= SEND_ERROR_LOG_INTERVAL_MS:
-                        print(f"Ping socket error: {e}")
+                        print(f"{send_error_label}: {e}")
                         last_send_error_log = now_ms
                     if self._extract_errno(e) == ENOMEM_ERRNO:
                         consecutive_enomem += 1
-                        backoff_ms = SEND_ERROR_BACKOFF_MS * consecutive_enomem
-                        if backoff_ms > SEND_ERROR_BACKOFF_MAX_MS:
-                            backoff_ms = SEND_ERROR_BACKOFF_MAX_MS
+                        backoff_ms = min(
+                            SEND_ERROR_BACKOFF_MS * consecutive_enomem,
+                            SEND_ERROR_BACKOFF_MAX_MS,
+                        )
                         sleep_ms_fn(backoff_ms)
                         next_send_time = ticks_us()
                         window_start_time = next_send_time
                         window_packet_count = 0
+                        loop_time_sum_us = 0
                         continue
                     consecutive_enomem = 0
 
                 accumulator += remainder_us
-                extra_us = accumulator // self.rate_pps
-                accumulator %= self.rate_pps
-
+                if accumulator >= self.rate_pps:
+                    extra_us = 1
+                    accumulator -= self.rate_pps
+                else:
+                    extra_us = 0
                 next_send_time += interval_us + extra_us
-
-                loop_time_us = ticks_diff(ticks_us(), loop_start)
-                loop_time_sum_us += loop_time_us
+                loop_time_sum_us += ticks_diff(ticks_us(), loop_start)
 
                 if window_packet_count >= METRICS_INTERVAL:
-                    self.avg_loop_time_ms = (loop_time_sum_us / METRICS_INTERVAL) / 1000
-                    loop_time_sum_us = 0
-
+                    self.avg_loop_time_ms = (loop_time_sum_us / window_packet_count) / 1000
                     window_elapsed = ticks_diff(ticks_us(), window_start_time)
                     if window_elapsed > 0:
                         self.actual_pps = (window_packet_count * 1000000) / window_elapsed
-
+                    loop_time_sum_us = 0
                     window_start_time = ticks_us()
                     window_packet_count = 0
 
-                now = ticks_us()
-                sleep_for_us = ticks_diff(next_send_time, now)
-
+                sleep_for_us = ticks_diff(next_send_time, ticks_us())
                 if sleep_for_us > 100:
                     sleep_ms = sleep_for_us // 1000
                     if sleep_ms > 0:
@@ -391,18 +265,25 @@ class TrafficGenerator:
                     next_send_time = ticks_us()
                 else:
                     sleep_us_fn(100)
-
             except Exception as e:
                 self.error_count += 1
                 now_ms = ticks_ms()
                 if ticks_diff(now_ms, last_task_error_log) >= SEND_ERROR_LOG_INTERVAL_MS:
                     print(f"Traffic generator error: {e}")
                     last_task_error_log = now_ms
-                sleep_ms_fn(interval_us // 1000)
+                sleep_ms_fn(max(1, interval_us // 1000))
 
         if self.sock:
             self.sock.close()
             self.sock = None
+
+    def _dns_task(self):
+        """Background task that sends DNS queries."""
+        self._run_sender_task(MODE_DNS)
+
+    def _ping_task(self):
+        """Background task that sends ICMP echo requests."""
+        self._run_sender_task(MODE_PING)
     
     def start(self, rate_pps, max_retries=3, retry_delay=2, mode=None):
         """
@@ -419,6 +300,10 @@ class TrafficGenerator:
         """
         if self.running:
             print("Traffic generator already running")
+            return False
+
+        if rate_pps == 0:
+            self.rate_pps = 0
             return False
 
         if mode is not None:
@@ -444,6 +329,8 @@ class TrafficGenerator:
         # Reset counters
         self.packet_count = 0
         self.error_count = 0
+        self.actual_pps = 0
+        self.avg_loop_time_ms = 0
         self.rate_pps = rate_pps
         self.start_time = time.ticks_ms()
         self.running = True

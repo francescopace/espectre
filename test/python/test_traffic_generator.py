@@ -199,6 +199,17 @@ class TestTrafficGeneratorStart:
         result = traffic_gen.start(TRAFFIC_RATE_MAX + 1)
         
         assert result is False
+
+    def test_start_zero_keeps_generator_stopped(self, traffic_gen):
+        """A zero rate means disabled and must not start a sender thread."""
+        mock_thread.start_new_thread.reset_mock()
+
+        result = traffic_gen.start(0)
+
+        assert result is False
+        assert traffic_gen.running is False
+        assert traffic_gen.rate_pps == 0
+        mock_thread.start_new_thread.assert_not_called()
     
     def test_start_no_gateway_ip(self, traffic_gen):
         """Test start when gateway IP cannot be obtained"""
@@ -400,4 +411,3 @@ class TestTrafficGeneratorDnsTask:
 
         assert mock_sock.send.call_count == 0
         assert mock_sock.sendto.call_count >= 1
-

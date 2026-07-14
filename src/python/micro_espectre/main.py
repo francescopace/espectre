@@ -11,6 +11,11 @@ import time
 import gc
 import os
 import src.config as config
+from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN, SEG_THRESHOLD
+from src.device_utils import (
+    normalize_ht20_csi_payload,
+    csi_read_frame,
+)
 try:
     from micro_espectre.branding import ASCII_BANNER
 except ImportError:
@@ -25,13 +30,6 @@ from src.detector_interface import (
 )
 
 ML_DEFAULT_THRESHOLD = 0.5
-
-# Import HT20 constants from config
-from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN, SEG_THRESHOLD
-from src.utils import (
-    normalize_ht20_csi_payload,
-    csi_read_frame,
-)
 
 # Global state for calibration mode and performance metrics
 class GlobalState:
@@ -143,7 +141,7 @@ def print_wifi_status(wlan):
 def connect_wifi():
     """Connect to WiFi"""
     
-    print(f"Activating WiFi interface...")
+    print("Activating WiFi interface...")
     
     gc.collect()
     wlan = network.WLAN(network.STA_IF)
@@ -202,7 +200,7 @@ def connect_wifi():
         raise Exception("Connection timeout")
 
 
-def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart_traffic_gen=True):
+def run_startup_calibration(wlan, detector, traffic_gen):
     """
     Run startup calibration with fixed subcarriers.
     
@@ -210,15 +208,10 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
         wlan: WLAN instance
         detector: IDetector instance
         traffic_gen: TrafficGenerator instance
-        chip_type: Chip type ('C5', 'C6', 'S3', etc.) for subcarrier filtering
-        restart_traffic_gen: Restart the traffic generator before returning
-    
     Returns:
         bool: True if startup calibration completed
     """
     detector_name = detector.get_name()
-    detector_algorithm = get_detector_algorithm(detector)
-
     if not detector_uses_startup_calibration(detector):
         g_state.calibration_mode = True
 
@@ -268,12 +261,11 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     print(f'{detector_name} Threshold Bootstrap (up to ~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
     print('-'*60)
 
-    timeout_counter = 0
-    max_timeout = 15000  # 15 seconds
-    packets_read = 0
+    max_timeout_ms = 15000
     filtered_count = 0
     calibration_progress = 0
     last_progress_time = time.ticks_ms()
+    last_packet_time = last_progress_time
     last_progress_count = 0
     collapse_logged = False
     remap_logged = False
@@ -282,8 +274,6 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     
     while not calibration_tracker.is_complete():
         frame = csi_read_frame(wlan, frame_result)
-        packets_read += 1
-        
         if frame:
             frame_result = frame
             csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
@@ -295,6 +285,13 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
                 if filtered_count % 100 == 1:
                     print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {raw_len} bytes, expected {EXPECTED_CSI_LEN})")
                 del frame
+                time.sleep_us(100)
+                if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
+                    print(f"Timeout waiting for valid CSI packets (collected {calibration_progress}/{config.CALIBRATION_BUFFER_SIZE})")
+                    print("Startup calibration aborted")
+                    detector.reset()
+                    g_state.calibration_mode = False
+                    return False
                 continue
 
             if remap_tag in ('double_ht20', 'double_ht57_and_remap') and not collapse_logged:
@@ -307,7 +304,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
             detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
             detector.update_state()
             calibration_tracker.observe_detector(detector)
-            timeout_counter = 0  # Reset timeout on successful read
+            last_packet_time = time.ticks_ms()
 
             calibration_progress = calibration_tracker.packet_count
             if calibration_progress % 100 == 0:
@@ -337,9 +334,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
                 last_progress_count = calibration_progress
         else:
             time.sleep_us(100)
-            timeout_counter += 1
-
-            if timeout_counter >= max_timeout:
+            if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
                 print(f"Timeout waiting for CSI packets (collected {calibration_progress}/{config.CALIBRATION_BUFFER_SIZE})")
                 print("Startup calibration aborted")
                 detector.reset()
@@ -487,7 +482,16 @@ def main():
                 sys.exit(1)
         print_heap('after_csi_flow_check')
     
-    run_startup_calibration(wlan, detector, traffic_gen, g_state.chip_type, restart_traffic_gen=False)
+    calibration_ok = run_startup_calibration(
+        wlan,
+        detector,
+        traffic_gen,
+    )
+    if not calibration_ok:
+        if traffic_gen.is_running():
+            traffic_gen.stop()
+        cleanup_wifi(wlan)
+        raise RuntimeError("Startup calibration failed")
     print_heap('after_calibration')
     
     mqtt_enabled = getattr(config, 'MQTT_ENABLED', True)
@@ -500,10 +504,6 @@ def main():
         mqtt_handler.connect()
         print_heap('after_mqtt_connect')
         
-        # Publish info after boot (always, to show current configuration)
-        #print('Publishing system info...')
-        mqtt_handler.publish_info()
-        print_heap('after_publish_info')
     else:
         print('MQTT disabled')
 
@@ -521,7 +521,6 @@ def main():
     # Main CSI processing loop with integrated MQTT publishing
     publish_counter = 0
     mqtt_poll_counter = 0
-    last_dropped = 0
     filtered_count = 0  # Packets with wrong SC count
     last_publish_time = time.ticks_ms()
     collapse_logged = False
@@ -561,6 +560,8 @@ def main():
                     if filtered_count % 100 == 1:
                         print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {raw_len} bytes, expected {EXPECTED_CSI_LEN})")
                     del frame
+                    g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    time.sleep_us(100)
                     continue
 
                 if remap_tag in ('double_ht20', 'double_ht57_and_remap') and not collapse_logged:
@@ -607,10 +608,6 @@ def main():
                         
                         # Calculate packets per second
                         pps = int((publish_counter * 1000) / time_delta) if time_delta > 0 else 0
-                        
-                        dropped = wlan.csi_dropped()
-                        dropped_delta = dropped - last_dropped
-                        last_dropped = dropped
                         
                         motion_metric = metrics.get('motion_metric', 0.0)
                         threshold = metrics['threshold']

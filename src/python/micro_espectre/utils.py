@@ -9,115 +9,22 @@ License: GPLv3
 """
 
 import math
-
-HT20_CSI_LEN = 128
-HT20_CSI_LEN_SHORT = 114
-HT20_CSI_LEN_SHORT_DOUBLE = 228
-HT20_CSI_SHORT_LEFT_PAD = 8
-HT20_CSI_SHORT_COPY_END = HT20_CSI_SHORT_LEFT_PAD + HT20_CSI_LEN_SHORT
-HT20_CSI_SHORT_RIGHT_PAD = HT20_CSI_LEN - HT20_CSI_SHORT_COPY_END
-HT20_CSI_SHORT_LEFT_ZEROS = b"\x00" * HT20_CSI_SHORT_LEFT_PAD
-HT20_CSI_SHORT_RIGHT_ZEROS = b"\x00" * HT20_CSI_SHORT_RIGHT_PAD
-
-_CSI_READ_SUPPORTS_REUSE = None
-
-
-def csi_read_frame(wlan, reuse_frame=None):
-    """
-    Read a CSI frame, reusing the previous result tuple when supported.
-
-    Newer firmware accepts an optional previous result object:
-        frame = wlan.csi_read(previous_frame)
-
-    Older firmware only accepts wlan.csi_read() with no reuse argument.
-    Cache the capability after the first call so hot loops avoid repeated
-    exception handling on legacy firmware.
-    """
-    global _CSI_READ_SUPPORTS_REUSE
-
-    if _CSI_READ_SUPPORTS_REUSE is not False:
-        try:
-            frame = wlan.csi_read(reuse_frame)
-            _CSI_READ_SUPPORTS_REUSE = True
-            return frame
-        except TypeError:
-            _CSI_READ_SUPPORTS_REUSE = False
-
-    return wlan.csi_read()
-
-
-def normalize_ht20_csi_payload(csi_data, expected_len=128, chip_type=None, remap_buffer=None):
-    """
-    Normalize CSI payload length to HT20 expected layout.
-
-    Handles:
-    - Doubled HT payload (2x expected): keep first HT-LTF block
-    - Doubled short HT payload (228 bytes): collapse to 114 bytes
-    - Short HT payload (114 bytes): remap to 128 bytes with guard padding
-
-    Args:
-        csi_data: Raw CSI payload (bytes/bytearray)
-        expected_len: Target HT20 payload length (default: 128)
-        chip_type: Optional chip hint ('C5', 'ESP32-C5', etc.)
-        remap_buffer: Optional pre-allocated bytearray(expected_len) reused by caller
-
-    Returns:
-        tuple: (normalized_payload, raw_len, remap_tag)
-            - normalized_payload: bytes-like object or None if unsupported length
-            - raw_len: original payload length
-            - remap_tag: None | 'double_ht20' | 'double_ht57_and_remap' | 'ht57_to_64'
-    """
-    raw_len = len(csi_data)
-    input_len = raw_len
-
-    # STBC workaround: two HT-LTF blocks, keep first 64 SC (HT20).
-    if raw_len == expected_len * 2:
-        return csi_data[:expected_len], input_len, 'double_ht20'
-
-    if raw_len == expected_len:
-        return csi_data, input_len, None
-
-    # Best-effort fallback for short HT estimates:
-    # - 228 bytes can represent 2 x 114-byte short HT blocks (collapse to first block)
-    # - 114 bytes represents 57 complex samples that we remap to HT20 (128 bytes)
-    if expected_len != HT20_CSI_LEN:
-        return None, input_len, None
-
-    short_double_collapsed = False
-    if raw_len == HT20_CSI_LEN_SHORT_DOUBLE:
-        csi_data = csi_data[:HT20_CSI_LEN_SHORT]
-        raw_len = HT20_CSI_LEN_SHORT
-        short_double_collapsed = True
-
-    if raw_len == HT20_CSI_LEN_SHORT:
-        if remap_buffer is None or len(remap_buffer) != expected_len:
-            remap_buffer = bytearray(expected_len)
-
-        # Clear left/right guard bins and copy payload in the middle.
-        remap_buffer[:HT20_CSI_SHORT_LEFT_PAD] = HT20_CSI_SHORT_LEFT_ZEROS
-        remap_buffer[HT20_CSI_SHORT_COPY_END:] = HT20_CSI_SHORT_RIGHT_ZEROS
-        remap_buffer[HT20_CSI_SHORT_LEFT_PAD:HT20_CSI_SHORT_COPY_END] = csi_data
-        if short_double_collapsed:
-            return remap_buffer, input_len, 'double_ht57_and_remap'
-        return remap_buffer, input_len, 'ht57_to_64'
-
-    return None, input_len, None
-
-
-def to_signed_int8(value):
-    """
-    Convert unsigned byte to signed int8.
-    
-    Used for CSI I/Q values and AGC/FFT gain data, which are
-    stored as unsigned bytes but represent signed values.
-    
-    Args:
-        value: Unsigned byte value (0-255)
-    
-    Returns:
-        int: Signed value (-128 to 127)
-    """
-    return value if value < 128 else value - 256
+try:
+    from src.device_utils import (
+        calculate_variance,
+        csi_read_frame as csi_read_frame,
+        insertion_sort as insertion_sort,
+        normalize_ht20_csi_payload as normalize_ht20_csi_payload,
+        to_signed_int8,
+    )
+except ImportError:
+    from device_utils import (
+        calculate_variance,
+        csi_read_frame as csi_read_frame,
+        insertion_sort as insertion_sort,
+        normalize_ht20_csi_payload as normalize_ht20_csi_payload,
+        to_signed_int8,
+    )
 
 
 def calculate_median(values):
@@ -140,27 +47,6 @@ def calculate_median(values):
     if n % 2 == 0:
         return (values[n // 2 - 1] + values[n // 2]) // 2
     return values[n // 2]
-
-
-def insertion_sort(arr, n):
-    """
-    In-place insertion sort for small arrays.
-    
-    Faster than Python's Timsort for N < 10-15 elements
-    due to lower overhead (no function calls, cache-friendly).
-    Also used for N=50 on ESP32 where it's acceptable.
-    
-    Args:
-        arr: Array to sort (modified in place)
-        n: Number of elements to sort
-    """
-    for i in range(1, n):
-        key = arr[i]
-        j = i - 1
-        while j >= 0 and arr[j] > key:
-            arr[j + 1] = arr[j]
-            j -= 1
-        arr[j + 1] = key
 
 
 def calculate_percentile(values, percentile):
@@ -190,28 +76,6 @@ def calculate_percentile(values, percentile):
     # Linear interpolation
     frac = (n - 1) * p - k
     return sorted_values[k] * (1 - frac) + sorted_values[k + 1] * frac
-
-
-def calculate_variance(values):
-    """
-    Calculate variance using two-pass algorithm (numerically stable).
-    
-    Two-pass algorithm: variance = sum((x - mean)^2) / n
-    More stable than single-pass E[X²] - E[X]² for float arithmetic.
-    
-    Args:
-        values: List of numeric values
-    
-    Returns:
-        float: Variance (0.0 if empty)
-    """
-    if not values:
-        return 0.0
-    
-    n = len(values)
-    mean = sum(values) / n
-    variance = sum((x - mean) ** 2 for x in values) / n
-    return variance
 
 
 def calculate_std(values):
@@ -316,10 +180,10 @@ def extract_amplitude(csi_data, sc_idx):
         return 0.0
     
     # Convert to signed int8
-    I = to_signed_int8(csi_data[i_idx])
-    Q = to_signed_int8(csi_data[q_idx])
+    real = to_signed_int8(csi_data[i_idx])
+    imag = to_signed_int8(csi_data[q_idx])
     
-    return math.sqrt(float(I * I + Q * Q))
+    return math.sqrt(float(real * real + imag * imag))
 
 
 def extract_amplitudes(csi_data, subcarriers=None):
@@ -391,10 +255,10 @@ def extract_phase(csi_data, sc_idx):
     if q_idx + 1 >= len(csi_data):
         return 0.0
     
-    I = to_signed_int8(csi_data[i_idx])
-    Q = to_signed_int8(csi_data[q_idx])
+    real = to_signed_int8(csi_data[i_idx])
+    imag = to_signed_int8(csi_data[q_idx])
     
-    return math.atan2(float(Q), float(I))
+    return math.atan2(float(imag), float(real))
 
 
 def extract_phases(csi_data, subcarriers=None):
@@ -451,10 +315,10 @@ def extract_amplitudes_and_phases(csi_data, subcarriers=None):
         if q_idx + 1 >= len(csi_data):
             continue
         
-        I = float(to_signed_int8(csi_data[i_idx]))
-        Q = float(to_signed_int8(csi_data[q_idx]))
+        real = float(to_signed_int8(csi_data[i_idx]))
+        imag = float(to_signed_int8(csi_data[q_idx]))
         
-        amplitudes.append(math.sqrt(I * I + Q * Q))
-        phases.append(math.atan2(Q, I))
+        amplitudes.append(math.sqrt(real * real + imag * imag))
+        phases.append(math.atan2(imag, real))
     
     return amplitudes, phases

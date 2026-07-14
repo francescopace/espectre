@@ -66,7 +66,7 @@ def calc_iqr(turbulence_buffer, buffer_count, sorted_values=None):
         return 0.0
 
     if sorted_values is None:
-        sorted_vals = list(turbulence_buffer[:buffer_count])
+        sorted_vals = turbulence_buffer[:buffer_count]
         sorted_vals.sort()
     else:
         sorted_vals = sorted_values
@@ -114,7 +114,7 @@ def calc_mad(turbulence_buffer, buffer_count, sorted_values=None):
         return 0.0
 
     if sorted_values is None:
-        sorted_vals = list(turbulence_buffer[:buffer_count])
+        sorted_vals = turbulence_buffer[:buffer_count]
         sorted_vals.sort()
     else:
         sorted_vals = sorted_values
@@ -125,12 +125,13 @@ def calc_mad(turbulence_buffer, buffer_count, sorted_values=None):
     else:
         median = sorted_vals[mid]
 
-    abs_devs = [abs(turbulence_buffer[i] - median) for i in range(buffer_count)]
-    abs_devs.sort()
+    for i in range(buffer_count):
+        sorted_vals[i] = abs(sorted_vals[i] - median)
+    sorted_vals.sort()
 
     if buffer_count % 2 == 0:
-        return (abs_devs[mid - 1] + abs_devs[mid]) / 2.0
-    return abs_devs[mid]
+        return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0
+    return sorted_vals[mid]
 
 
 def calc_waveform_length(turbulence_buffer, buffer_count):
@@ -264,7 +265,8 @@ def calc_l1_delta(amplitude_history, buffer_count, lag=L1_DELTA_LAG):
 class L1DeltaTracker:
     """Allocation-free L1-delta metric tracker without detector surface."""
 
-    def __init__(self, window_size=100, threshold=1.0, lag=L1_DELTA_LAG):
+    def __init__(self, window_size=100, threshold=1.0, lag=L1_DELTA_LAG,
+                 allocate_amplitude_buffer=True):
         self.window_size = max(2, int(window_size))
         self.threshold = threshold
         self.lag = max(1, int(lag))
@@ -272,8 +274,12 @@ class L1DeltaTracker:
         profile_width = SegmentationContext.AMPLITUDE_BUFFER_SIZE
         self._profile_ring = [[0.0] * profile_width for _ in range(self.lag)]
         self._profile_len = [0] * self.lag
+        self._profile_index = 0
         self._current_profile = [0.0] * profile_width
-        self._amplitude_buffer = [0.0] * profile_width
+        self._amplitude_buffer = (
+            [0.0] * profile_width if allocate_amplitude_buffer else None
+        )
+        self._amplitude_count = 0
         self._delta_ring = [0.0] * self.window_size
         self._delta_index = 0
         self._delta_count = 0
@@ -291,19 +297,27 @@ class L1DeltaTracker:
             self._delta_sum -= self._delta_ring[self._delta_index]
         self._delta_ring[self._delta_index] = delta
         self._delta_sum += delta
-        self._delta_index = (self._delta_index + 1) % self.window_size
+        self._delta_index += 1
+        if self._delta_index >= self.window_size:
+            self._delta_index = 0
 
     def process_packet(self, csi_data, selected_subcarriers=None):
-        self._packet_count += 1
-        amplitude_count = SegmentationContext._fill_amplitude_buffer(
+        if self._amplitude_buffer is None:
+            raise RuntimeError("amplitude buffer is disabled")
+        self._amplitude_count = SegmentationContext._fill_amplitude_buffer(
             csi_data, selected_subcarriers, self._amplitude_buffer
         )
+        self.process_amplitudes(self._amplitude_buffer, self._amplitude_count)
+
+    def process_amplitudes(self, amplitudes, amplitude_count):
+        """Update the L1 stream from an already extracted amplitude profile."""
+        self._packet_count += 1
         profile = self._current_profile
         profile_len = normalize_amplitude_profile_into(
-            self._amplitude_buffer, amplitude_count, profile
+            amplitudes, amplitude_count, profile
         )
 
-        ring_slot = (self._packet_count - 1) % self.lag
+        ring_slot = self._profile_index
         reference = self._profile_ring[ring_slot]
         reference_len = self._profile_len[ring_slot]
 
@@ -318,6 +332,26 @@ class L1DeltaTracker:
         self._profile_ring[ring_slot] = profile
         self._profile_len[ring_slot] = profile_len
         self._current_profile = reference
+        self._profile_index += 1
+        if self._profile_index >= self.lag:
+            self._profile_index = 0
+
+    def copy_deltas_into(self, out):
+        """Copy the current delta window into ``out`` in chronological order."""
+        count = min(self._delta_count, len(out))
+        if count == 0:
+            return 0
+        if self._delta_count < self.window_size:
+            start = 0
+        else:
+            start = self._delta_index
+        source_index = start
+        for i in range(count):
+            out[i] = self._delta_ring[source_index]
+            source_index += 1
+            if source_index >= self.window_size:
+                source_index = 0
+        return count
 
     def update_metric(self):
         if self._delta_count >= self.window_size:
@@ -355,10 +389,11 @@ class L1DeltaTracker:
     def reset(self):
         for i in range(self.lag):
             self._profile_len[i] = 0
-        self._delta_ring = [0.0] * self.window_size
         self._delta_index = 0
         self._delta_count = 0
         self._delta_sum = 0.0
+        self._amplitude_count = 0
+        self._profile_index = 0
         self._packet_count = 0
         self._state = MotionState.IDLE
         self._current_metric = 0.0
@@ -380,13 +415,23 @@ def extract_features_by_name(
     buffer_count,
     feature_names=None,
     amplitude_history=None,
+    l1_series=None,
+    l1_series_count=None,
+    out=None,
+    reuse_turbulence_buffer=False,
 ):
     """Extract configured feature vector from turbulence buffer."""
     if feature_names is None:
         feature_names = DEFAULT_FEATURES
 
+    if out is not None and len(out) < len(feature_names):
+        raise ValueError("Output feature buffer is too small")
+
     if buffer_count < 2:
-        return [0.0] * len(feature_names)
+        features = out if out is not None else [0.0] * len(feature_names)
+        for i in range(len(feature_names)):
+            features[i] = 0.0
+        return features
 
     if isinstance(turbulence_buffer, list):
         turb_list = turbulence_buffer if len(turbulence_buffer) == buffer_count else turbulence_buffer[:buffer_count]
@@ -395,7 +440,10 @@ def extract_features_by_name(
 
     n = len(turb_list)
     if n < 2:
-        return [0.0] * len(feature_names)
+        features = out if out is not None else [0.0] * len(feature_names)
+        for i in range(len(feature_names)):
+            features[i] = 0.0
+        return features
 
     turb_mean = sum(turb_list) / n
 
@@ -409,54 +457,75 @@ def extract_features_by_name(
     mean_denom = abs_mean if abs_mean > 1e-6 else 1e-6
 
     turb_mad = None
-    l1_waveform_length = None
-    # L1-delta state is computed lazily so turbulence-only requests do not pay
-    # the profile-history cost.
+    turb_skewness = None
+    turb_autocorr = None
+    l1_waveform_length = 0.0
     _l1_series = None
-    _l1_ready = False
     _l1_n = 0
     _l1_mean = 0.0
     _l1_std = 0.0
-    def _ensure_l1_series():
-        nonlocal _l1_series, _l1_ready, _l1_n, _l1_mean, _l1_std
-        if _l1_ready:
-            return
-        _l1_ready = True
-        _l1_series = l1_delta_series(amplitude_history, n)
-        _l1_n = len(_l1_series)
-        if _l1_n == 0:
-            return
-        _l1_mean = sum(_l1_series) / _l1_n
-        vs = 0.0
-        for value in _l1_series:
-            d = value - _l1_mean
-            vs += d * d
-        variance = vs / _l1_n
-        _l1_std = math.sqrt(variance) if variance > 0 else 0.0
-
-    features = []
+    needs_l1 = False
+    needs_mad = False
     for name in feature_names:
+        if str(name).startswith("l1_"):
+            needs_l1 = True
+        elif name == "turb_mad_over_mean":
+            needs_mad = True
+        elif name == "turb_skewness":
+            turb_skewness = calc_skewness(turb_list, n, turb_mean, turb_std)
+        elif name == "turb_autocorr":
+            turb_autocorr = calc_autocorrelation(
+                turb_list, n, mean=turb_mean, variance=turb_var
+            )
+    if needs_l1:
+        if l1_series is None:
+            _l1_series = l1_delta_series(amplitude_history, n)
+            _l1_n = len(_l1_series)
+        else:
+            _l1_series = l1_series
+            _l1_n = len(l1_series) if l1_series_count is None else min(
+                int(l1_series_count), len(l1_series)
+            )
+        if _l1_n:
+            total = 0.0
+            for i in range(_l1_n):
+                total += _l1_series[i]
+            _l1_mean = total / _l1_n
+            vs = 0.0
+            for i in range(_l1_n):
+                value = _l1_series[i]
+                d = value - _l1_mean
+                vs += d * d
+            variance = vs / _l1_n
+            _l1_std = math.sqrt(variance) if variance > 0 else 0.0
+            l1_waveform_length = calc_waveform_length(_l1_series, _l1_n)
+
+    if needs_mad and reuse_turbulence_buffer:
+        turb_list.sort()
+        turb_mad = calc_mad(turb_list, n, sorted_values=turb_list)
+
+    features = out if out is not None else []
+    for feature_index, name in enumerate(feature_names):
         if name == 'turb_mad_over_mean':
             if turb_mad is None:
                 turb_mad = calc_mad(turb_list, n)
-            features.append(turb_mad / mean_denom)
+            value = turb_mad / mean_denom
         elif name == 'turb_skewness':
-            features.append(calc_skewness(turb_list, n, turb_mean, turb_std))
+            value = turb_skewness
         elif name == 'turb_autocorr':
-            features.append(calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var))
+            value = turb_autocorr
         elif name == 'l1_delta':
-            _ensure_l1_series()
-            features.append(_l1_mean)
+            value = _l1_mean
         elif name == 'l1_delta_std':
-            _ensure_l1_series()
-            features.append(_l1_std)
+            value = _l1_std
         elif name == 'l1_delta_waveform_length':
-            _ensure_l1_series()
-            if l1_waveform_length is None and _l1_n:
-                l1_waveform_length = calc_waveform_length(_l1_series, _l1_n)
-            features.append(l1_waveform_length if _l1_n else 0.0)
+            value = l1_waveform_length if _l1_n else 0.0
         else:
             raise ValueError(f"Unknown feature: {name}")
+        if out is None:
+            features.append(value)
+        else:
+            features[feature_index] = value
     return features
 
 
