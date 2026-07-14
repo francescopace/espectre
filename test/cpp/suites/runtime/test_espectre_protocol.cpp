@@ -81,6 +81,18 @@ void test_parse_mqtt_batch_config_command_updates_all_fields(void) {
   TEST_ASSERT_EQUAL_STRING("mqtt port must be 1..65535", error.c_str());
 }
 
+void test_parse_mqtt_batch_config_command_accepts_host_with_scheme(void) {
+  EspectreDeviceConfig config;
+  std::string error;
+
+  TEST_ASSERT_TRUE(parse_espectre_mqtt_config_command(
+      "SET_MQTT_CONFIG:host=mqtts%3A%2F%2Fbroker.example.com&port=8883",
+      &config,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("mqtts://broker.example.com", config.mqtt_host.c_str());
+  TEST_ASSERT_EQUAL(8883, config.mqtt_port);
+}
+
 void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   EspectreDeviceConfig config;
   config.device_id = 0x0000000000000007ULL;

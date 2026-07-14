@@ -17,7 +17,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Iterator, Sequence
+from typing import Callable, Iterator, Sequence
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -30,10 +30,13 @@ from src.python.espectre_cli.targets import ESPHOME_CONFIGS, IDF_FRONTENDS
 
 
 MONITOR_DURATION_SECONDS = 180
+STREAMER_COLLECT_DURATION_SECONDS = 120
+STREAMER_IP_WAIT_SECONDS = 45
 EXPECTED_PPS_MIN = 90
 EXPECTED_PPS_MAX = 110
 MIN_STATUS_SAMPLES = 120
 MIN_TELEMETRY_SAMPLES = 12
+MIN_STREAMER_COLLECT_SAMPLES = 60
 MOTION_WARMUP_SAMPLES = 3
 
 SUPPORTED_CHIPS = tuple(sorted(set(ESPHOME_CONFIGS) & set(IDF_FRONTENDS["native"]["targets"])))
@@ -55,12 +58,35 @@ FATAL_PATTERNS = (
     "panic'ed",
     "Stack smashing protect failure",
 )
+MATTER_BOOT_MARKER = "ESPectre Matter firmware started on endpoint"
+MATTER_STARTUP_STATE_RE = re.compile(r"ESPectre Matter CSI services:\s*(?P<state>[^\r\n]+)")
+MATTER_VALID_STARTUP_STATES = {"armed", "waiting for commissioning"}
+STREAMER_IP_RE = re.compile(r"Wi-Fi connected: ip=(?P<ip>\d+\.\d+\.\d+\.\d+)")
+STREAMER_STATE_RE = re.compile(r"\[STATE\]\s+\S+\s+->\s+(?P<state>\S+)\s+\(")
+STREAMER_TELEMETRY_RE = re.compile(
+    r"csi_ap=(?P<csi_ap>\d+(?:\.\d+)?)"
+    r"(?:\s+csi_filt=(?P<csi_filt>\d+(?:\.\d+)?))?"
+    r"(?:\s+valid=(?P<valid>\d+))?"
+    r"(?:\s+bad_sc=(?P<bad_sc>\d+))?"
+    r"\s+udp_rx=(?P<udp_rx>\d+(?:\.\d+)?)"
+    r"\s+udp_tx=(?P<udp_tx>\d+(?:\.\d+)?)"
+    r"\s+fresh=(?P<fresh>\d+(?:\.\d+)?)"
+    r"(?:\s+tx_err=(?P<tx_err_rate>\d+(?:\.\d+)?)/(?P<tx_err_total>\d+))?"
+    r"(?:\s+tx_bp=(?P<tx_bp_rate>\d+(?:\.\d+)?)/(?P<tx_bp_total>\d+))?"
+    r"\s+age_ms=(?P<age_ms>\d+)"
+)
+COLLECT_DETAIL_RE = re.compile(
+    r"ip=(?P<ip>\S+)\s+chip=(?P<chip>\S+)\s+ch=(?P<channel>\S+)\s+rssi=(?P<rssi>\S+)"
+    r"(?:\s+\[(?P<detector>[^\]]+)\])?\s+\|.*?\|\s+mvmt:(?P<motion_metric>-?[0-9.]+)"
+    r"\s+thr:(?P<threshold>-?[0-9.]+)\s+\|\s+(?P<state>MOTION|IDLE)\s+\|\s+(?P<pps>\d+)\s+pkt/s"
+)
 
 
 @dataclass(frozen=True)
 class BenchmarkCase:
     frontend: str
     detector: str
+    benchmark_mode: str = "runtime"
 
     @property
     def label(self) -> str:
@@ -91,6 +117,9 @@ class BuildMetrics:
 class RuntimeMetrics:
     status_samples: int = 0
     telemetry_samples: int = 0
+    startup_state: str | None = None
+    boot_marker_seen: bool = False
+    device_ip: str | None = None
     pps_mean: float | None = None
     pps_min: int | None = None
     pps_max: int | None = None
@@ -98,6 +127,9 @@ class RuntimeMetrics:
     dominant_motion_state: str | None = None
     motion_transitions: int = 0
     dominant_state_share_percent: float | None = None
+    secondary_status_samples: int = 0
+    secondary_dominant_motion_state: str | None = None
+    secondary_dominant_state_share_percent: float | None = None
     heap_free_last: int | None = None
     heap_min: int | None = None
     heap_largest_last: int | None = None
@@ -108,6 +140,14 @@ class RuntimeMetrics:
     detection_avg_us_mean: float | None = None
     detection_min_us: int | None = None
     detection_max_us: int | None = None
+    stream_telemetry_samples: int = 0
+    stream_csi_ap_mean: float | None = None
+    stream_udp_rx_mean: float | None = None
+    stream_udp_tx_mean: float | None = None
+    stream_fresh_mean: float | None = None
+    stream_tx_backpressure_total: int | None = None
+    collect_devices_observed: int = 0
+    collect_packets_seen: int = 0
 
 
 @dataclass
@@ -118,14 +158,17 @@ class BenchmarkResult:
     build: CommandResult | None = None
     flash: CommandResult | None = None
     monitor: CommandResult | None = None
+    collect: CommandResult | None = None
     build_metrics: BuildMetrics = field(default_factory=BuildMetrics)
     runtime_metrics: RuntimeMetrics = field(default_factory=RuntimeMetrics)
 
 
 CASES = tuple(
-    BenchmarkCase(frontend, detector)
-    for frontend in ("esphome", "native")
-    for detector in ("classic", "ml")
+    [
+        *(BenchmarkCase(frontend, detector) for frontend in ("esphome", "native") for detector in ("classic", "ml")),
+        BenchmarkCase("matter", "classic", benchmark_mode="smoke"),
+        BenchmarkCase("streamer", "collect", benchmark_mode="stream"),
+    ]
 )
 
 
@@ -294,7 +337,107 @@ def _parse_telemetry_samples(text: str) -> list[dict[str, float]]:
     return samples
 
 
-def analyze_monitor_output(output: str) -> tuple[RuntimeMetrics, list[str]]:
+def _append_common_monitor_reasons(
+    metrics: RuntimeMetrics,
+    telemetry: Sequence[dict[str, float]],
+    reasons: list[str],
+    *,
+    require_detection_timing: bool,
+) -> None:
+    if len(telemetry) < MIN_TELEMETRY_SAMPLES:
+        reasons.append(f"only {len(telemetry)} shared debug telemetry samples were logged")
+    if metrics.heap_free_last is not None and telemetry:
+        heap_free_first = telemetry[0].get("heap_free")
+        if heap_free_first is not None and metrics.heap_free_last < heap_free_first * 0.95:
+            reasons.append("free heap declined by more than 5% during monitoring")
+    if require_detection_timing and metrics.detection_samples == 0:
+        reasons.append("detector timing was not logged")
+
+
+def _collect_values(samples: Sequence[dict[str, float]], key: str) -> list[float]:
+    return [sample[key] for sample in samples if key in sample]
+
+
+def _apply_state_series(
+    metrics: RuntimeMetrics,
+    states: Sequence[str],
+    *,
+    secondary: bool = False,
+) -> None:
+    if not states:
+        return
+    dominant_state = max(set(states), key=states.count)
+    dominant_share_percent = states.count(dominant_state) / len(states) * 100.0
+    if secondary:
+        metrics.secondary_status_samples = len(states)
+        metrics.secondary_dominant_motion_state = dominant_state
+        metrics.secondary_dominant_state_share_percent = dominant_share_percent
+        return
+    metrics.status_samples = len(states)
+    metrics.dominant_motion_state = dominant_state
+    metrics.dominant_state_share_percent = dominant_share_percent
+
+
+def _parse_streamer_telemetry_samples(text: str) -> list[dict[str, float]]:
+    samples: list[dict[str, float]] = []
+    for match in STREAMER_TELEMETRY_RE.finditer(strip_ansi(text)):
+        sample: dict[str, float] = {}
+        for key, value in match.groupdict().items():
+            if value is None:
+                continue
+            sample[key] = float(value)
+        if sample:
+            samples.append(sample)
+    return samples
+
+
+def _parse_collect_output(text: str) -> RuntimeMetrics:
+    metrics = RuntimeMetrics()
+    detector_states: dict[str, list[str]] = {}
+    pps_values: list[int] = []
+    observed_ips: set[str] = set()
+    packet_counts: list[int] = []
+    for line in strip_ansi(text).splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("STATUS: COLLECTING"):
+            packet_match = re.search(r"packets\s+(?P<packets>\d+)", line)
+            observed_match = re.search(r"COLLECTING\s+(?P<observed>\d+)/(?P<required>\d+)", line)
+            if packet_match:
+                packet_counts.append(int(packet_match.group("packets")))
+            if observed_match:
+                metrics.collect_devices_observed = max(
+                    metrics.collect_devices_observed,
+                    int(observed_match.group("observed")),
+                )
+            continue
+
+        match = COLLECT_DETAIL_RE.search(line)
+        if match is None:
+            continue
+        detector = (match.group("detector") or "classic").strip().lower()
+        state = match.group("state")
+        pps = int(match.group("pps"))
+        detector_states.setdefault(detector, []).append(state)
+        pps_values.append(pps)
+        observed_ips.add(match.group("ip"))
+
+    metrics.collect_devices_observed = max(metrics.collect_devices_observed, len(observed_ips))
+    metrics.collect_packets_seen = max(packet_counts) if packet_counts else 0
+    if pps_values:
+        metrics.pps_mean = statistics.fmean(pps_values)
+        metrics.pps_min = min(pps_values)
+        metrics.pps_max = max(pps_values)
+        metrics.pps_stddev = statistics.pstdev(pps_values)
+    primary_states = detector_states.get("classic") or detector_states.get("ml") or []
+    secondary_states = detector_states.get("ml") if primary_states is detector_states.get("classic") else []
+    _apply_state_series(metrics, primary_states)
+    _apply_state_series(metrics, secondary_states, secondary=True)
+    return metrics
+
+
+def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tuple[RuntimeMetrics, list[str]]:
     text = strip_ansi(output)
     status_matches = list(STATUS_RE.finditer(text))
     pps_values = [int(match.group("pps")) for match in status_matches if int(match.group("pps")) > 0]
@@ -322,15 +465,12 @@ def analyze_monitor_output(output: str) -> tuple[RuntimeMetrics, list[str]]:
             observed_states.count(metrics.dominant_motion_state) / len(observed_states) * 100.0
         )
 
-    def values(key: str) -> list[float]:
-        return [sample[key] for sample in telemetry if key in sample]
-
-    heap_free = values("heap_free")
-    heap_min = values("heap_min")
-    heap_largest = values("heap_largest")
-    runtime_load = values("runtime_load")
-    loop_avg = values("loop_avg_us")
-    loop_max = values("loop_max_us")
+    heap_free = _collect_values(telemetry, "heap_free")
+    heap_min = _collect_values(telemetry, "heap_min")
+    heap_largest = _collect_values(telemetry, "heap_largest")
+    runtime_load = _collect_values(telemetry, "runtime_load")
+    loop_avg = _collect_values(telemetry, "loop_avg_us")
+    loop_max = _collect_values(telemetry, "loop_max_us")
     detection_windows = [sample for sample in telemetry if sample.get("detection_samples", 0) > 0]
     detection_samples = int(sum(sample["detection_samples"] for sample in detection_windows))
     detection_sum_us = sum(
@@ -353,20 +493,53 @@ def analyze_monitor_output(output: str) -> tuple[RuntimeMetrics, list[str]]:
         int(max(sample["detection_max_us"] for sample in detection_windows)) if detection_windows else None
     )
 
-    if len(pps_values) < MIN_STATUS_SAMPLES:
-        reasons.append(f"only {len(pps_values)} motion/packet-rate samples were logged")
-    elif metrics.pps_mean is None or not EXPECTED_PPS_MIN <= metrics.pps_mean <= EXPECTED_PPS_MAX:
-        reasons.append(
-            f"mean packet rate {metrics.pps_mean:.2f} pps is outside "
-            f"{EXPECTED_PPS_MIN}-{EXPECTED_PPS_MAX} pps"
-        )
+    if benchmark_mode == "runtime":
+        if len(pps_values) < MIN_STATUS_SAMPLES:
+            reasons.append(f"only {len(pps_values)} motion/packet-rate samples were logged")
+        elif metrics.pps_mean is None or not EXPECTED_PPS_MIN <= metrics.pps_mean <= EXPECTED_PPS_MAX:
+            reasons.append(
+                f"mean packet rate {metrics.pps_mean:.2f} pps is outside "
+                f"{EXPECTED_PPS_MIN}-{EXPECTED_PPS_MAX} pps"
+            )
+        _append_common_monitor_reasons(metrics, telemetry, reasons, require_detection_timing=True)
+    elif benchmark_mode == "smoke":
+        startup_state_match = MATTER_STARTUP_STATE_RE.search(text)
+        metrics.startup_state = startup_state_match.group("state").strip() if startup_state_match else None
+        metrics.boot_marker_seen = MATTER_BOOT_MARKER in text
+        if not metrics.boot_marker_seen:
+            reasons.append("Matter firmware boot marker was not logged")
+        if metrics.startup_state is None:
+            reasons.append("Matter startup state was not logged")
+        elif metrics.startup_state.lower() not in MATTER_VALID_STARTUP_STATES:
+            reasons.append(f"unexpected Matter startup state: {metrics.startup_state}")
+        _append_common_monitor_reasons(metrics, telemetry, reasons, require_detection_timing=False)
+    elif benchmark_mode == "stream":
+        state_matches = list(STREAMER_STATE_RE.finditer(text))
+        ip_match = STREAMER_IP_RE.search(text)
+        stream_samples = _parse_streamer_telemetry_samples(text)
+        metrics.startup_state = state_matches[-1].group("state") if state_matches else None
+        metrics.device_ip = ip_match.group("ip") if ip_match else None
+        metrics.stream_telemetry_samples = len(stream_samples)
+        stream_csi_ap = _collect_values(stream_samples, "csi_ap")
+        stream_udp_rx = _collect_values(stream_samples, "udp_rx")
+        stream_udp_tx = _collect_values(stream_samples, "udp_tx")
+        stream_fresh = _collect_values(stream_samples, "fresh")
+        stream_tx_bp_totals = _collect_values(stream_samples, "tx_bp_total")
+        metrics.stream_csi_ap_mean = statistics.fmean(stream_csi_ap) if stream_csi_ap else None
+        metrics.stream_udp_rx_mean = statistics.fmean(stream_udp_rx) if stream_udp_rx else None
+        metrics.stream_udp_tx_mean = statistics.fmean(stream_udp_tx) if stream_udp_tx else None
+        metrics.stream_fresh_mean = statistics.fmean(stream_fresh) if stream_fresh else None
+        metrics.stream_tx_backpressure_total = int(max(stream_tx_bp_totals)) if stream_tx_bp_totals else 0
+        if metrics.device_ip is None:
+            reasons.append("streamer Wi-Fi IP was not logged")
+        if metrics.startup_state is None:
+            reasons.append("streamer workflow state was not logged")
+        elif metrics.startup_state != "STREAMING":
+            reasons.append(f"streamer did not reach STREAMING state (last state: {metrics.startup_state})")
+        _append_common_monitor_reasons(metrics, telemetry, reasons, require_detection_timing=False)
+    else:
+        raise ValueError(f"unsupported benchmark mode: {benchmark_mode}")
 
-    if len(telemetry) < MIN_TELEMETRY_SAMPLES:
-        reasons.append(f"only {len(telemetry)} shared telemetry samples were logged")
-    if heap_free and heap_free[-1] < heap_free[0] * 0.95:
-        reasons.append("free heap declined by more than 5% during monitoring")
-    if detection_samples == 0:
-        reasons.append("detector timing was not logged")
     for pattern in FATAL_PATTERNS:
         if pattern in text:
             reasons.append(f"fatal firmware log detected: {pattern}")
@@ -378,11 +551,19 @@ def _latest_firmware_artifact(frontend: str) -> Path | None:
     if frontend == "esphome":
         candidates = list((REPO_ROOT / "examples" / ".esphome").glob("build/*/.pioenvs/*/firmware.bin"))
     else:
-        app_dir = Path(IDF_FRONTENDS["native"]["app_dir"])
+        app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
         build_dir = os.environ.get("ESPECTRE_IDF_BUILD_DIR", "build")
-        candidates = [app_dir / build_dir / "espectre-native.bin"]
+        preferred = app_dir / build_dir / f"espectre-{frontend}.bin"
+        if preferred.is_file():
+            candidates = [preferred]
+        else:
+            candidates = [
+                path
+                for path in (app_dir / build_dir).glob("*.bin")
+                if path.name not in {"bootloader.bin", "partition-table.bin", "ota_data_initial.bin"}
+            ]
     existing = [path for path in candidates if path.is_file()]
-    return max(existing, key=lambda path: path.stat().st_mtime) if existing else None
+    return max(existing, key=lambda path: (path.stat().st_size, path.stat().st_mtime)) if existing else None
 
 
 @contextmanager
@@ -410,40 +591,49 @@ def esphome_case_config(chip: str, detector: str) -> Iterator[Path]:
 
 
 @contextmanager
-def native_case_environment(chip: str, detector: str) -> Iterator[dict[str, str]]:
-    app_dir = Path(IDF_FRONTENDS["native"]["app_dir"])
-    idf_target = IDF_FRONTENDS["native"]["targets"][chip]
+def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[dict[str, str]]:
+    app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
+    idf_target = IDF_FRONTENDS[frontend]["targets"][chip]
     defaults = [app_dir / "sdkconfig.defaults"]
     target_defaults = app_dir / f"sdkconfig.defaults.{idf_target}"
     if target_defaults.is_file():
         defaults.append(target_defaults)
 
-    native_wifi = app_dir / "sdkconfig.wifi"
-    streamer_wifi = REPO_ROOT / "src" / "cpp" / "frontend" / "streamer" / "app" / "sdkconfig.wifi"
-    wifi_defaults = native_wifi if native_wifi.is_file() else streamer_wifi
-    if not wifi_defaults.is_file():
-        raise RuntimeError("native Wi-Fi defaults are missing (expected native or streamer sdkconfig.wifi)")
-    defaults.append(wifi_defaults)
+    if frontend == "native":
+        native_wifi = app_dir / "sdkconfig.wifi"
+        streamer_wifi = REPO_ROOT / "src" / "cpp" / "frontend" / "streamer" / "app" / "sdkconfig.wifi"
+        wifi_defaults = native_wifi if native_wifi.is_file() else streamer_wifi
+        if not wifi_defaults.is_file():
+            raise RuntimeError("native Wi-Fi defaults are missing (expected native or streamer sdkconfig.wifi)")
+        defaults.append(wifi_defaults)
+    elif frontend == "streamer":
+        streamer_wifi = app_dir / "sdkconfig.wifi"
+        if streamer_wifi.is_file():
+            defaults.append(streamer_wifi)
 
     classic_enabled = detector == "classic"
-    override = "\n".join(
-        [
-            "# Generated temporary firmware benchmark overrides.",
-            "CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y",
-            "CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y",
-            (
-                "CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC=y"
-                if classic_enabled
-                else "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC is not set"
-            ),
-            (
-                "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML is not set"
-                if classic_enabled
-                else "CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML=y"
-            ),
-            "",
-        ]
-    )
+    override_lines = [
+        "# Generated temporary firmware benchmark overrides.",
+        "CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y",
+        "CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y",
+    ]
+    if frontend in {"native", "matter"}:
+        override_lines.extend(
+            [
+                (
+                    "CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC=y"
+                    if classic_enabled
+                    else "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC is not set"
+                ),
+                (
+                    "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML is not set"
+                    if classic_enabled
+                    else "CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML=y"
+                ),
+            ]
+        )
+    override_lines.append("")
+    override = "\n".join(override_lines)
     temporary_path = app_dir / f".espectre-benchmark-{chip}-{detector}.defaults"
     if temporary_path.exists():
         raise RuntimeError(f"temporary benchmark defaults already exist: {temporary_path}")
@@ -514,12 +704,12 @@ def _commands_for_case(
             [launcher, "esphome", "flash", "--config", config_value, "--device", port],
             [launcher, "esphome", "monitor", "--config", config_value, "--device", port],
         )
-    build_command = [launcher, "native", "build", "--chip", chip]
+    build_command = [launcher, case.frontend, "build", "--chip", chip]
     if clean:
         build_command.append("--clean")
     return (
         build_command,
-        [launcher, "native", "flash", "--port", port],
+        [launcher, case.frontend, "flash", "--port", port],
         [launcher, "monitor", "--port", port],
     )
 
@@ -535,8 +725,8 @@ def case_context(
         with esphome_case_config(chip, case.detector) as config:
             yield None, config
     else:
-        with native_case_environment(chip, case.detector) as env:
-            if not clean:
+        with idf_case_environment(case.frontend, chip, case.detector) as env:
+            if case.frontend == "native" and not clean:
                 update_native_sdkconfig_detector(case.detector)
             yield env, None
 
@@ -568,6 +758,204 @@ def build_case(
                 result.status = "FAIL"
                 result.reasons.append(f"build exited with status {result.build.returncode}")
     except (OSError, RuntimeError) as exc:
+        result.status = "FAIL"
+        result.reasons.append(str(exc))
+    return result
+
+
+def _run_background_command(
+    command: Sequence[str],
+    *,
+    env: dict[str, str] | None = None,
+    output_prefix: str = "",
+    line_callback: Callable[[str], None] | None = None,
+) -> tuple[subprocess.Popen[str], list[str], threading.Thread, float]:
+    display_command = " ".join(str(part) for part in command)
+    print(f"\n{output_prefix}$ {display_command}", flush=True)
+    process = subprocess.Popen(
+        [str(part) for part in command],
+        cwd=REPO_ROOT,
+        env=child_environment(env),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        start_new_session=(os.name == "posix"),
+    )
+    output_lines: list[str] = []
+    started = time.monotonic()
+
+    def _relay_output() -> None:
+        assert process.stdout is not None
+        for line in process.stdout:
+            output_lines.append(line)
+            print(f"{output_prefix}{line}", end="", flush=True)
+            if line_callback is not None:
+                line_callback(line)
+
+    relay_thread = threading.Thread(target=_relay_output, daemon=True)
+    relay_thread.start()
+    return process, output_lines, relay_thread, started
+
+
+def _finalize_background_command(
+    process: subprocess.Popen[str],
+    output_lines: list[str],
+    relay_thread: threading.Thread,
+    started: float,
+    command: Sequence[str],
+) -> CommandResult:
+    relay_thread.join(timeout=5)
+    if process.stdout is not None:
+        process.stdout.close()
+    returncode = process.returncode if process.returncode is not None else 0
+    if returncode in {-signal.SIGINT, 130, 143}:
+        returncode = 0
+    return CommandResult(
+        command=[str(part) for part in command],
+        returncode=returncode,
+        duration_seconds=time.monotonic() - started,
+        output="".join(output_lines),
+        reached_timeout=False,
+    )
+
+
+def run_streamer_case(
+    case: BenchmarkCase,
+    chip: str,
+    port: str,
+    *,
+    clean: bool,
+) -> BenchmarkResult:
+    print(f"\n{'=' * 72}\n{case.label}\n{'=' * 72}", flush=True)
+    result = build_case(case, chip, port, clean=clean)
+    if result.build is None or result.build.returncode != 0:
+        return result
+
+    launcher = str(REPO_ROOT / "espectre")
+    try:
+        with case_context(case, chip, clean=clean) as (env, config):
+            _build_command, flash_command, monitor_command = _commands_for_case(
+                case,
+                chip,
+                port,
+                config,
+                clean=clean,
+            )
+            result.flash = run_command(flash_command, env=env)
+            if result.flash.returncode != 0:
+                result.status = "FAIL"
+                result.reasons.append(f"flash exited with status {result.flash.returncode}")
+                return result
+
+            device_ip_event = threading.Event()
+            device_ip_holder = {"value": None}
+
+            def _capture_device_ip(line: str) -> None:
+                match = STREAMER_IP_RE.search(strip_ansi(line))
+                if match is not None:
+                    device_ip_holder["value"] = match.group("ip")
+                    device_ip_event.set()
+
+            monitor_process, monitor_output, relay_thread, monitor_started = _run_background_command(
+                monitor_command,
+                env=env,
+                output_prefix="[stream] ",
+                line_callback=_capture_device_ip,
+            )
+            try:
+                if not device_ip_event.wait(timeout=STREAMER_IP_WAIT_SECONDS):
+                    _terminate_process(monitor_process)
+                    monitor_process.wait(timeout=5)
+                    result.monitor = _finalize_background_command(
+                        monitor_process,
+                        monitor_output,
+                        relay_thread,
+                        monitor_started,
+                        monitor_command,
+                    )
+                    result.runtime_metrics, analysis_reasons = analyze_monitor_output(
+                        result.monitor.output,
+                        benchmark_mode=case.benchmark_mode,
+                    )
+                    result.reasons.extend(analysis_reasons)
+                    result.reasons.append("timed out waiting for streamer Wi-Fi IP")
+                    result.status = "FAIL"
+                    return result
+
+                device_ip = device_ip_holder["value"]
+                collect_command = [
+                    launcher,
+                    "collect",
+                    "--no-save",
+                    "--duration",
+                    str(STREAMER_COLLECT_DURATION_SECONDS),
+                    "--target",
+                    str(device_ip),
+                    "--detector",
+                    "classic,ml",
+                ]
+                result.collect = run_command(collect_command)
+            finally:
+                if monitor_process.poll() is None:
+                    _terminate_process(monitor_process)
+                    monitor_process.wait(timeout=5)
+                result.monitor = _finalize_background_command(
+                    monitor_process,
+                    monitor_output,
+                    relay_thread,
+                    monitor_started,
+                    monitor_command,
+                )
+
+            if result.collect is None or result.collect.returncode != 0:
+                result.status = "FAIL"
+                result.reasons.append(
+                    f"collect exited with status {result.collect.returncode if result.collect else 'N/A'}"
+                )
+                return result
+
+            result.runtime_metrics, analysis_reasons = analyze_monitor_output(
+                result.monitor.output,
+                benchmark_mode=case.benchmark_mode,
+            )
+            collect_metrics = _parse_collect_output(result.collect.output)
+            if result.runtime_metrics.device_ip is None:
+                result.runtime_metrics.device_ip = device_ip
+            result.runtime_metrics.collect_devices_observed = collect_metrics.collect_devices_observed
+            result.runtime_metrics.collect_packets_seen = collect_metrics.collect_packets_seen
+            result.runtime_metrics.pps_mean = collect_metrics.pps_mean
+            result.runtime_metrics.pps_min = collect_metrics.pps_min
+            result.runtime_metrics.pps_max = collect_metrics.pps_max
+            result.runtime_metrics.pps_stddev = collect_metrics.pps_stddev
+            result.runtime_metrics.status_samples = collect_metrics.status_samples
+            result.runtime_metrics.dominant_motion_state = collect_metrics.dominant_motion_state
+            result.runtime_metrics.dominant_state_share_percent = collect_metrics.dominant_state_share_percent
+            result.runtime_metrics.secondary_status_samples = collect_metrics.secondary_status_samples
+            result.runtime_metrics.secondary_dominant_motion_state = collect_metrics.secondary_dominant_motion_state
+            result.runtime_metrics.secondary_dominant_state_share_percent = (
+                collect_metrics.secondary_dominant_state_share_percent
+            )
+            result.reasons.extend(analysis_reasons)
+            if result.runtime_metrics.collect_devices_observed < 1:
+                result.reasons.append("host collect did not observe any streamer device")
+            if result.runtime_metrics.status_samples < MIN_STREAMER_COLLECT_SAMPLES:
+                result.reasons.append(
+                    f"only {result.runtime_metrics.status_samples} classic host collect samples were logged"
+                )
+            if result.runtime_metrics.secondary_status_samples < MIN_STREAMER_COLLECT_SAMPLES:
+                result.reasons.append(
+                    f"only {result.runtime_metrics.secondary_status_samples} ml host collect samples were logged"
+                )
+            if result.runtime_metrics.pps_mean is None or not EXPECTED_PPS_MIN <= result.runtime_metrics.pps_mean <= EXPECTED_PPS_MAX:
+                result.reasons.append(
+                    f"host collect mean packet rate {result.runtime_metrics.pps_mean:.2f} pps is outside "
+                    f"{EXPECTED_PPS_MIN}-{EXPECTED_PPS_MAX} pps"
+                    if result.runtime_metrics.pps_mean is not None
+                    else "host collect packet rate was not logged"
+                )
+            result.status = "PASS" if not result.reasons else "FAIL"
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
         result.status = "FAIL"
         result.reasons.append(str(exc))
     return result
@@ -634,7 +1022,10 @@ def run_case(
                 result.status = "FAIL"
                 result.reasons.append(f"monitor exited with status {result.monitor.returncode}")
                 return result, overlapped_result
-            result.runtime_metrics, analysis_reasons = analyze_monitor_output(result.monitor.output)
+            result.runtime_metrics, analysis_reasons = analyze_monitor_output(
+                result.monitor.output,
+                benchmark_mode=case.benchmark_mode,
+            )
             result.reasons.extend(analysis_reasons)
             result.status = "PASS" if not result.reasons else "FAIL"
     except (OSError, RuntimeError) as exc:
@@ -665,13 +1056,12 @@ def render_report(chip: str, port: str, started_at: datetime, results: Sequence[
         f"Generated by: `tools/benchmark_firmware.py --chip {chip}`",
         f"Git revision: `{_git_revision()}`",
         f"Run started: `{started_at.astimezone().isoformat(timespec='seconds')}`",
-        f"Serial port: `{port}`",
         f"Monitor duration per firmware: `{MONITOR_DURATION_SECONDS} seconds`",
         f"Overall result: **{overall}**",
         "",
         "## Summary",
         "",
-        "| Firmware | Result | Binary size | Partition free | Mean PPS | Motion samples | Detection average |",
+        "| Firmware | Result | Binary size | Partition free | Mean PPS | Telemetry samples | Detection average |",
         "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for result in results:
@@ -689,7 +1079,7 @@ def render_report(chip: str, port: str, started_at: datetime, results: Sequence[
                     format_bytes(build.firmware_size_bytes),
                     partition_free,
                     format_number(runtime.pps_mean, " pps"),
-                    format_number(runtime.status_samples),
+                    format_number(runtime.telemetry_samples),
                     format_number(runtime.detection_avg_us_mean, " us"),
                 ]
             )
@@ -708,13 +1098,16 @@ def render_report(chip: str, port: str, started_at: datetime, results: Sequence[
                 "",
                 "| Metric | Value |",
                 "|---|---:|",
+                f"| Benchmark mode | {result.case.benchmark_mode} |",
                 f"| Build duration | {format_duration(result.build.duration_seconds) if result.build else 'N/A'} |",
                 f"| Flash duration | {format_duration(result.flash.duration_seconds) if result.flash else 'N/A'} |",
                 f"| Monitor duration | {format_duration(result.monitor.duration_seconds) if result.monitor else 'N/A'} |",
+                f"| Collect duration | {format_duration(result.collect.duration_seconds) if result.collect else 'N/A'} |",
                 f"| Firmware binary | {format_bytes(build.firmware_size_bytes)} |",
                 f"| Application partition used | {format_bytes(build.partition_used_bytes)} |",
                 f"| Application partition free | {format_bytes(build.partition_free_bytes)} |",
                 f"| Build RAM used | {format_bytes(build.ram_used_bytes)} |",
+                f"| Startup state | {runtime.startup_state or 'N/A'} |",
                 f"| Packet-rate samples | {runtime.status_samples} |",
                 (
                     f"| Packet rate | {format_number(runtime.pps_mean, ' pps')} mean, "
@@ -724,7 +1117,18 @@ def render_report(chip: str, port: str, started_at: datetime, results: Sequence[
                 f"| Dominant motion state | {runtime.dominant_motion_state or 'N/A'} |",
                 f"| Motion transitions | {runtime.motion_transitions} |",
                 f"| Dominant state share | {format_number(runtime.dominant_state_share_percent, '%')} |",
+                f"| Secondary samples | {runtime.secondary_status_samples} |",
+                f"| Secondary dominant state | {runtime.secondary_dominant_motion_state or 'N/A'} |",
+                f"| Secondary state share | {format_number(runtime.secondary_dominant_state_share_percent, '%')} |",
                 f"| Telemetry samples | {runtime.telemetry_samples} |",
+                f"| Stream telemetry samples | {runtime.stream_telemetry_samples} |",
+                f"| Stream CSI accepted | {format_number(runtime.stream_csi_ap_mean, ' pps')} |",
+                f"| Stream UDP RX | {format_number(runtime.stream_udp_rx_mean, ' pps')} |",
+                f"| Stream UDP TX | {format_number(runtime.stream_udp_tx_mean, ' pps')} |",
+                f"| Stream fresh records | {format_number(runtime.stream_fresh_mean, ' pps')} |",
+                f"| Stream TX backpressure total | {format_number(runtime.stream_tx_backpressure_total)} |",
+                f"| Host collect devices | {runtime.collect_devices_observed} |",
+                f"| Host collect packets | {runtime.collect_packets_seen} |",
                 f"| Last free heap | {format_bytes(runtime.heap_free_last)} |",
                 f"| Minimum free heap | {format_bytes(runtime.heap_min)} |",
                 f"| Last largest heap block | {format_bytes(runtime.heap_largest_last)} |",
@@ -748,12 +1152,17 @@ def render_report(chip: str, port: str, started_at: datetime, results: Sequence[
             "## Pass Criteria",
             "",
             "- all builds and flashes complete successfully",
-            f"- at least {MIN_STATUS_SAMPLES} valid motion states with non-zero packet rates are logged",
-            f"- mean packet rate remains between {EXPECTED_PPS_MIN} and {EXPECTED_PPS_MAX} pps",
-            "- motion transitions are informational and do not affect the result",
             f"- at least {MIN_TELEMETRY_SAMPLES} shared debug telemetry samples are logged",
             "- free heap does not decline by more than 5% during monitoring",
-            "- detector timing is present, and no fatal firmware log is observed",
+            "- ESPHome and Native runtime benchmarks log at least "
+            f"{MIN_STATUS_SAMPLES} valid motion states with non-zero packet rates",
+            f"- ESPHome and Native mean packet rate remains between {EXPECTED_PPS_MIN} and {EXPECTED_PPS_MAX} pps",
+            "- ESPHome and Native motion transitions are informational and do not affect the result",
+            "- ESPHome and Native detector timing is present",
+            "- Matter smoke benchmarks log a boot marker and the commissioning startup state",
+            "- Streamer benchmarks log the device IP, reach STREAMING, and sustain host collect around the target packet rate",
+            f"- Streamer host collect logs at least {MIN_STREAMER_COLLECT_SAMPLES} classic and ML samples",
+            "- no fatal firmware log is observed",
             "",
         ]
     )
@@ -773,7 +1182,7 @@ def write_report(chip: str, port: str, started_at: datetime, results: Sequence[B
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build, flash, and benchmark every ESPHome and Native detector variant for one chip.",
+        description="Build, flash, and benchmark ESPHome/Native runtime variants, Matter smoke, and Streamer host collect for one chip.",
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
     args = parser.parse_args()
@@ -827,6 +1236,24 @@ def main() -> int:
                 )
             results.append(ml_result)
             write_report(args.chip, port, started_at, results)
+
+        matter_result, _unused = run_case(
+            BenchmarkCase("matter", "classic", benchmark_mode="smoke"),
+            args.chip,
+            port,
+            clean=True,
+        )
+        results.append(matter_result)
+        write_report(args.chip, port, started_at, results)
+
+        streamer_result = run_streamer_case(
+            BenchmarkCase("streamer", "collect", benchmark_mode="stream"),
+            args.chip,
+            port,
+            clean=True,
+        )
+        results.append(streamer_result)
+        write_report(args.chip, port, started_at, results)
     except KeyboardInterrupt:
         print("\nBenchmark interrupted; writing the partial report.", file=sys.stderr)
         write_report(args.chip, port, started_at, results)

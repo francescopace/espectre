@@ -39,7 +39,7 @@ The v3 platform is in a release-candidate state for the modular platform goal.
 The shared architecture, protocol services, frontend paths, and host-side
 validation workflows are present and covered by automated tests.
 Remaining work is release polish, hardware smoke coverage, and clearly
-documenting known sensing caveats.
+documenting current sensing characteristics.
 
 | Area | State | Notes |
 |------|-------|-------|
@@ -47,7 +47,7 @@ documenting known sensing caveats.
 | **Frontend coverage** | Ready | ESPHome remains the production Home Assistant path; native, Matter, and streamer firmware paths are present on the shared platform |
 | **Firmware smoke coverage** | Ready with caveats | ESPHome dev config passes for C3/C5/C6/S3; ESPHome C3 build, native C3 Docker build, and Matter C3 Docker build pass; hardware flash/monitor smoke remains open |
 | **Protocol baseline** | Ready | BLE+MQTT payloads, provisioning, telemetry, status, info, commands, and monitor tooling are documented in `ESPECTRE_PROTOCOL.md` |
-| **Detection validation** | Ready with caveats | Current C++ and Python real-data suites pass across supported chips; long-recording tests still show elevated false positives on C5/C6 |
+| **Detection validation** | Ready | Current C++ and Python real-data and long-recording suites pass across supported chips; C5/C6 long-quiet false-positive rates remain below the 5% target |
 | **Documentation** | Ready | Setup, architecture, protocol, tuning, performance, and frontend-specific READMEs describe the v3 surface |
 | **Product polish** | Remaining | Hardware flash smoke, release notes, final binary artifact checks, and user-facing wording should be completed before tagging |
 
@@ -59,7 +59,7 @@ ESPectre v3 success criteria:
 - [x] Document multi-frontend setup, architecture, and protocol boundaries
 - [x] Run local firmware smoke tests for ESPHome, native, and Matter C3 release paths
 - [ ] Run hardware flash/monitor smoke tests for the release targets and published firmware variants
-- [ ] Reduce long-recording false-positive caveats on C5/C6
+- [x] Reduce long-recording false-positive caveats on C5/C6
 - [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
 
 ### Deferred Follow-Ups
@@ -146,7 +146,7 @@ When a microcontroller or embedded Wi-Fi platform exposes practical 802.11bf-sty
 
 ## Roadmap Updates
 
-Last update: **July 11, 2026**
+Last update: **July 14, 2026**
 
 For discussion and proposed changes:
 

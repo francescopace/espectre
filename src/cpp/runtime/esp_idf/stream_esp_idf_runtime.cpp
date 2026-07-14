@@ -268,6 +268,7 @@ void StreamEspIdfRuntime::on_wifi_connected_() {
   stream_transport_.reset_session();
 
   snapshot_.ready_to_publish = false;
+  ESP_LOGI(TAG, "Wi-Fi connected: ip=%s channel=%u", wifi_info.ip_address, static_cast<unsigned>(wifi_info.channel));
   wifi_ap_record_t ap_info{};
   if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
     std::copy(std::begin(ap_info.bssid), std::end(ap_info.bssid), ap_bssid_.begin());

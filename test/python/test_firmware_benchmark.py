@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import math
 import threading
 
 from tools import benchmark_firmware as benchmark
@@ -23,6 +24,69 @@ def _passing_monitor_output() -> str:
         for index in range(benchmark.MIN_TELEMETRY_SAMPLES)
     ]
     return "\n".join(status_lines + telemetry_lines)
+
+
+def _matter_smoke_output(startup_state: str = "waiting for commissioning") -> str:
+    telemetry_lines = [
+        (
+            "[telemetry] "
+            f"heap_free={220000 - index * 100} heap_min=200000 heap_largest=120000 "
+            "cpu_mhz=160 runtime_load=0.80% loop_avg_us=90 loop_max_us=250 "
+            "detection_samples=0 detection_sum_us=0 detection_avg_us=0 "
+            "detection_min_us=0 detection_max_us=0"
+        )
+        for index in range(benchmark.MIN_TELEMETRY_SAMPLES)
+    ]
+    return "\n".join(
+        [
+            "ESPectre Matter smoke marker: endpoint 1 configured, starting Matter stack",
+            f"ESPectre Matter CSI services: {startup_state}",
+            benchmark.MATTER_BOOT_MARKER,
+            *telemetry_lines,
+        ]
+    )
+
+
+def _streamer_monitor_output() -> str:
+    telemetry_lines = [
+        (
+            "[telemetry] "
+            f"heap_free={210000 - index * 100} heap_min=190000 heap_largest=115000 "
+            "cpu_mhz=160 runtime_load=0.70% loop_avg_us=80 loop_max_us=200 "
+            "detection_samples=0 detection_sum_us=0 detection_avg_us=0 "
+            "detection_min_us=0 detection_max_us=0"
+        )
+        for index in range(benchmark.MIN_TELEMETRY_SAMPLES)
+    ]
+    stream_lines = [
+        "Wi-Fi connected: ip=192.168.1.50 channel=6",
+        "[STATE] WAIT_WIFI -> WIFI_READY (wifi connected)",
+        "[STATE] WIFI_READY -> CSI_READY (csi enabled)",
+        "[STATE] CSI_READY -> STREAMING (pipeline ready)",
+        "csi_ap=98 udp_rx=100.0 udp_tx=98 fresh=98 age_ms=5",
+        "csi_ap=99 csi_filt=1 valid=500 bad_sc=0 udp_rx=100.0 udp_tx=99 fresh=99 tx_err=0/0 tx_bp=0/0 age_ms=7 heap=210.0 min=190.0",
+    ]
+    return "\n".join(stream_lines + telemetry_lines)
+
+
+def _collect_output() -> str:
+    lines = [
+        "  STATUS: COLLECTING 1/1 | elapsed 12.0/120.0s | packets 1234",
+    ]
+    lines.extend(
+        [
+            f"    ip=192.168.1.50 chip=C3 ch=06 rssi=-45 [classic] | [███████████████|░░░░]  80% | mvmt:0.100000 thr:0.400000 | IDLE | {99 + (index % 3)} pkt/s"
+            for index in range(benchmark.MIN_STREAMER_COLLECT_SAMPLES)
+        ]
+    )
+    lines.extend(
+        [
+            f"    ip=192.168.1.50 chip=C3 ch=06 rssi=-45 [ml     ] | [███████████████|░░░░]  80% | mvmt:0.020000 thr:0.500000 | IDLE | {99 + (index % 3)} pkt/s"
+            for index in range(benchmark.MIN_STREAMER_COLLECT_SAMPLES)
+        ]
+    )
+    lines.append("Done.")
+    return "\n".join(lines)
 
 
 def test_parse_build_metrics_supports_esphome_summary(tmp_path) -> None:
@@ -108,7 +172,7 @@ def test_analyze_monitor_output_allows_motion_transitions() -> None:
 
     assert any("motion/packet-rate samples" in reason for reason in reasons)
     assert not any("motion state" in reason for reason in reasons)
-    assert any("shared telemetry samples" in reason for reason in reasons)
+    assert any("shared debug telemetry samples" in reason for reason in reasons)
     assert any("detector timing was not logged" in reason for reason in reasons)
 
 
@@ -145,6 +209,51 @@ def test_analyze_monitor_output_passes_with_continuous_motion_transitions() -> N
 
     assert reasons == []
     assert metrics.motion_transitions == benchmark.MIN_STATUS_SAMPLES - benchmark.MOTION_WARMUP_SAMPLES - 1
+
+
+def test_analyze_monitor_output_accepts_matter_smoke() -> None:
+    metrics, reasons = benchmark.analyze_monitor_output(_matter_smoke_output(), benchmark_mode="smoke")
+
+    assert reasons == []
+    assert metrics.telemetry_samples == benchmark.MIN_TELEMETRY_SAMPLES
+    assert metrics.startup_state == "waiting for commissioning"
+    assert metrics.boot_marker_seen is True
+    assert math.isclose(metrics.runtime_load_mean or 0.0, 0.8)
+    assert metrics.loop_avg_us_mean == 90.0
+    assert metrics.detection_samples == 0
+    assert metrics.detection_avg_us_mean is None
+
+
+def test_analyze_monitor_output_requires_matter_boot_marker() -> None:
+    output = _matter_smoke_output().replace(benchmark.MATTER_BOOT_MARKER, "Matter boot missing")
+
+    _metrics, reasons = benchmark.analyze_monitor_output(output, benchmark_mode="smoke")
+
+    assert any("boot marker" in reason for reason in reasons)
+
+
+def test_analyze_monitor_output_accepts_streamer_monitor() -> None:
+    metrics, reasons = benchmark.analyze_monitor_output(_streamer_monitor_output(), benchmark_mode="stream")
+
+    assert reasons == []
+    assert metrics.device_ip == "192.168.1.50"
+    assert metrics.startup_state == "STREAMING"
+    assert metrics.stream_telemetry_samples == 2
+    assert math.isclose(metrics.stream_udp_rx_mean or 0.0, 100.0)
+    assert math.isclose(metrics.stream_udp_tx_mean or 0.0, 98.5)
+    assert math.isclose(metrics.stream_fresh_mean or 0.0, 98.5)
+
+
+def test_parse_collect_output_tracks_both_detectors() -> None:
+    metrics = benchmark._parse_collect_output(_collect_output())
+
+    assert metrics.collect_devices_observed == 1
+    assert metrics.collect_packets_seen == 1234
+    assert metrics.status_samples == benchmark.MIN_STREAMER_COLLECT_SAMPLES
+    assert metrics.secondary_status_samples == benchmark.MIN_STREAMER_COLLECT_SAMPLES
+    assert metrics.dominant_motion_state == "IDLE"
+    assert metrics.secondary_dominant_motion_state == "IDLE"
+    assert metrics.pps_mean == 100.0
 
 
 def test_esphome_case_config_changes_only_detector(tmp_path, monkeypatch) -> None:
@@ -218,6 +327,7 @@ def test_run_case_builds_ml_during_classic_monitor(monkeypatch) -> None:
 def test_main_reuses_ml_build_started_during_classic_monitor(monkeypatch) -> None:
     successful_build = benchmark.CommandResult(["build"], 0, 1.0, "build ok")
     calls: list[tuple[benchmark.BenchmarkCase, bool, bool, benchmark.BenchmarkCase | None]] = []
+    streamer_calls: list[tuple[benchmark.BenchmarkCase, bool]] = []
 
     def fake_run_case(
         case,
@@ -233,9 +343,10 @@ def test_main_reuses_ml_build_started_during_classic_monitor(monkeypatch) -> Non
             result = benchmark.BenchmarkResult(case=case, status="PASS", build=successful_build)
             ml_build = benchmark.BenchmarkResult(case=overlap_build, build=successful_build)
             return result, ml_build
-        assert prebuilt is not None
-        prebuilt.status = "PASS"
-        return prebuilt, None
+        if prebuilt is not None:
+            prebuilt.status = "PASS"
+            return prebuilt, None
+        return benchmark.BenchmarkResult(case=case, status="PASS", build=successful_build), None
 
     monkeypatch.setattr(benchmark.sys, "argv", ["benchmark_firmware.py", "--chip", "c3"])
     monkeypatch.setattr(benchmark, "get_serial_port", lambda _port: "/dev/test")
@@ -243,16 +354,24 @@ def test_main_reuses_ml_build_started_during_classic_monitor(monkeypatch) -> Non
     monkeypatch.setattr(benchmark, "run_case", fake_run_case)
     monkeypatch.setattr(
         benchmark,
+        "run_streamer_case",
+        lambda case, _chip, _port, *, clean: streamer_calls.append((case, clean))
+        or benchmark.BenchmarkResult(case=case, status="PASS", build=successful_build),
+    )
+    monkeypatch.setattr(
+        benchmark,
         "write_report",
         lambda *_args, **_kwargs: benchmark.report_path_for_chip("c3"),
     )
 
     assert benchmark.main() == 0
-    assert [call[0] for call in calls] == list(benchmark.CASES)
+    assert [call[0] for call in calls] == list(benchmark.CASES[:-1])
     assert calls[0][1:] == (True, False, benchmark.BenchmarkCase("esphome", "ml"))
     assert calls[1][1:] == (False, True, None)
     assert calls[2][1:] == (True, False, benchmark.BenchmarkCase("native", "ml"))
     assert calls[3][1:] == (False, True, None)
+    assert calls[4][1:] == (True, False, None)
+    assert streamer_calls == [(benchmark.BenchmarkCase("streamer", "collect", benchmark_mode="stream"), True)]
 
 
 def test_commands_clean_only_the_initial_frontend_build(tmp_path) -> None:
@@ -324,5 +443,9 @@ def test_render_report_contains_generated_summary(monkeypatch) -> None:
     assert markdown.startswith("<!-- Generated file. Do not edit manually. -->")
     assert "# ESP32-C3 Firmware Performance" in markdown
     assert "| Esphome Classic | **PASS** |" in markdown
+    assert "| Firmware | Result | Binary size | Partition free | Mean PPS |" in markdown
+    assert "| Benchmark mode | runtime |" in markdown
     assert "Git revision: `abc123`" in markdown
+    assert "Serial port:" not in markdown
+    assert "| Device IP |" not in markdown
     assert "Overall result: **FAIL**" in markdown
