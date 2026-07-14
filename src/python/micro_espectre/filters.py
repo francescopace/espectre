@@ -129,7 +129,8 @@ class HampelFilter:
     This implementation uses:
     - Pre-allocated buffers (no dynamic list creation per call)
     - Circular buffer for main storage
-    - Insertion sort (faster than Timsort for small N)
+    - Native in-place sorting once the window is full
+    - Partial insertion sorting during startup
     
     This is ideal for filtering turbulence values before the shared
     moving-variance path, as it removes outliers that cause false
@@ -188,7 +189,12 @@ class HampelFilter:
         for i in range(n):
             self.sorted_buffer[i] = self.buffer[i]
         
-        insertion_sort(self.sorted_buffer, n)
+        if n == self.window_size:
+            # The full buffer has no unused tail, so the runtime's native
+            # in-place sort is substantially cheaper than a Python loop.
+            self.sorted_buffer.sort()
+        else:
+            insertion_sort(self.sorted_buffer, n)
         if n % 2 == 0:
             median = (self.sorted_buffer[mid - 1] + self.sorted_buffer[mid]) / 2.0
         else:
@@ -200,7 +206,10 @@ class HampelFilter:
             diff = self.buffer[i] - median
             self.sorted_buffer[i] = diff if diff >= 0 else -diff  # inline abs
         
-        insertion_sort(self.sorted_buffer, n)
+        if n == self.window_size:
+            self.sorted_buffer.sort()
+        else:
+            insertion_sort(self.sorted_buffer, n)
         if n % 2 == 0:
             mad = (self.sorted_buffer[mid - 1] + self.sorted_buffer[mid]) / 2.0
         else:

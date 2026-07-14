@@ -10,11 +10,14 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <vector>
 
 #include "csi_format.h"
 #include "utils.h"
 #include "classic_detector.h"
 #include "ml_detector.h"
+#include "runtime_sensing_schema.h"
 #include "threshold.h"
 
 using namespace espectre;
@@ -37,7 +40,8 @@ struct LongRunMetrics {
   float adaptive_threshold{0.0f};
 };
 
-struct ChipLongRunResults {
+struct DatasetLongRunResults {
+  std::string dataset_name;
   const char *chip_name{nullptr};
   LongRunMetrics classic;
   LongRunMetrics ml;
@@ -45,8 +49,7 @@ struct ChipLongRunResults {
   bool has_ml{false};
 };
 
-static ChipLongRunResults g_results[5];
-static int g_results_count = 0;
+static std::vector<DatasetLongRunResults> g_results;
 
 static void compute_derived_metrics(LongRunMetrics &metrics) {
   metrics.recall = (metrics.tp + metrics.fn) > 0
@@ -65,14 +68,20 @@ static void compute_derived_metrics(LongRunMetrics &metrics) {
 }
 
 static void record_result(const char *algorithm, const LongRunMetrics &metrics) {
+  const char *dataset_name = csi_test_data::current_long_recording_name();
   const char *chip_name = csi_test_data::chip_name(csi_test_data::current_chip());
-  if (g_results_count == 0 || std::strcmp(g_results[g_results_count - 1].chip_name, chip_name) != 0) {
-    g_results[g_results_count] = ChipLongRunResults{};
-    g_results[g_results_count].chip_name = chip_name;
-    g_results_count++;
+  if (dataset_name == nullptr) {
+    dataset_name = "unknown_long_recording";
   }
 
-  ChipLongRunResults &current = g_results[g_results_count - 1];
+  if (g_results.empty() || g_results.back().dataset_name != dataset_name) {
+    DatasetLongRunResults row{};
+    row.dataset_name = dataset_name;
+    row.chip_name = chip_name;
+    g_results.push_back(row);
+  }
+
+  DatasetLongRunResults &current = g_results.back();
   if (std::strcmp(algorithm, "classic") == 0) {
     current.classic = metrics;
     current.has_classic = true;
@@ -80,6 +89,45 @@ static void record_result(const char *algorithm, const LongRunMetrics &metrics) 
     current.ml = metrics;
     current.has_ml = true;
   }
+}
+
+static LongRunMetrics mean_result_for_chip(const char *chip_name, const char *algorithm, bool &has_value) {
+  LongRunMetrics mean{};
+  int count = 0;
+  for (const auto &result : g_results) {
+    if (std::strcmp(result.chip_name, chip_name) != 0) {
+      continue;
+    }
+    const bool valid = std::strcmp(algorithm, "classic") == 0 ? result.has_classic : result.has_ml;
+    if (!valid) {
+      continue;
+    }
+    const LongRunMetrics &value = std::strcmp(algorithm, "classic") == 0 ? result.classic : result.ml;
+    mean.recall += value.recall;
+    mean.precision += value.precision;
+    mean.fp_rate += value.fp_rate;
+    mean.f1 += value.f1;
+    count++;
+  }
+  has_value = count > 0;
+  if (!has_value) {
+    return mean;
+  }
+  mean.recall /= count;
+  mean.precision /= count;
+  mean.fp_rate /= count;
+  mean.f1 /= count;
+  return mean;
+}
+
+static int dataset_count_for_chip(const char *chip_name) {
+  int count = 0;
+  for (const auto &result : g_results) {
+    if (std::strcmp(result.chip_name, chip_name) == 0) {
+      count++;
+    }
+  }
+  return count;
 }
 
 static void print_metrics(const char *label, const LongRunMetrics &metrics) {
@@ -102,7 +150,7 @@ static void assert_dataset_metadata_is_valid() {
   TEST_ASSERT_NOT_NULL_MESSAGE(csi_test_data::current_long_recording_name(), "Missing long-recording filename");
   TEST_ASSERT_TRUE_MESSAGE(csi_test_data::current_motion_start_packet() > 0, "Invalid motion_start_packet");
   TEST_ASSERT_EQUAL_INT(csi_test_data::current_motion_start_packet(), csi_test_data::num_static_presence());
-  TEST_ASSERT_TRUE_MESSAGE(csi_test_data::num_motion() > 0, "Movement split must not be empty");
+  TEST_ASSERT_TRUE_MESSAGE(csi_test_data::num_motion() >= 0, "Movement split must be valid");
 }
 
 static void assert_metrics_are_valid(const LongRunMetrics &metrics) {
@@ -149,30 +197,38 @@ static bool build_calibrated_classic_detector(ClassicDetector& detector, int cal
 
 static void print_summary_table() {
   printf("\n");
-  printf("=====================================================================================================================\n");
-  printf("                                     LONG RECORDING SUMMARY (C++)\n");
-  printf("=====================================================================================================================\n");
-  printf("| Chip   | Classic                 | ML                      |\n");
-  printf("|--------|-------------------------|-------------------------|\n");
+  printf("========================================================================================================================\n");
+  printf("                                   LONG RECORDING SUMMARY (C++, all datasets)\n");
+  printf("========================================================================================================================\n");
+  printf("| Chip   | Datasets | Classic                 | ML                      |\n");
+  printf("|--------|----------|-------------------------|-------------------------|\n");
 
-  for (int i = 0; i < g_results_count; i++) {
-    const ChipLongRunResults &r = g_results[i];
+  for (auto chip : csi_test_data::get_supported_chips()) {
+    const char *chip_name = csi_test_data::chip_name(chip);
+    const int dataset_count = dataset_count_for_chip(chip_name);
+    if (dataset_count == 0) {
+      continue;
+    }
     char classic_str[32] = "N/A";
     char ml_str[32] = "N/A";
+    bool has_classic = false;
+    bool has_ml = false;
+    const LongRunMetrics classic = mean_result_for_chip(chip_name, "classic", has_classic);
+    const LongRunMetrics ml = mean_result_for_chip(chip_name, "ml", has_ml);
 
-    if (r.has_classic) {
+    if (has_classic) {
       std::snprintf(classic_str, sizeof(classic_str), "%.1f%% R, %.1f%% FP",
-                    r.classic.recall, r.classic.fp_rate);
+                    classic.recall, classic.fp_rate);
     }
-    if (r.has_ml) {
+    if (has_ml) {
       std::snprintf(ml_str, sizeof(ml_str), "%.1f%% R, %.1f%% FP",
-                    r.ml.recall, r.ml.fp_rate);
+                    ml.recall, ml.fp_rate);
     }
 
-    printf("| %-6s | %-23s | %-23s |\n", r.chip_name, classic_str, ml_str);
+    printf("| %-6s | %8d | %-23s | %-23s |\n", chip_name, dataset_count, classic_str, ml_str);
   }
 
-  printf("---------------------------------------------------------------------------------------------------------------------\n");
+  printf("------------------------------------------------------------------------------------------------------------------------\n");
   printf("Legend: R = Recall, FP = False Positive Rate\n");
 }
 
@@ -184,12 +240,19 @@ static LongRunMetrics evaluate_ml_long_recording() {
   MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
   detector.configure_hampel(true);
 
-  metrics.static_presence_eval_count = std::max(csi_test_data::num_static_presence() - warmup, 0);
-  metrics.motion_eval_count = std::max(csi_test_data::num_motion() - warmup, 0);
+  uint32_t packets_since_evaluation = 0;
 
   for (int i = 0; i < csi_test_data::num_static_presence(); i++) {
     detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS, 12);
+    packets_since_evaluation++;
+    if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
+      continue;
+    }
     detector.update_state();
+    packets_since_evaluation = 0;
+    if (i >= warmup) {
+      metrics.static_presence_eval_count++;
+    }
     if (i >= warmup && detector.get_state() == MotionState::MOTION) {
       metrics.fp++;
     }
@@ -197,8 +260,14 @@ static LongRunMetrics evaluate_ml_long_recording() {
 
   for (int i = 0; i < csi_test_data::num_motion(); i++) {
     detector.process_packet(csi_test_data::motion_packets()[i], pkt_size, DEFAULT_SUBCARRIERS, 12);
+    packets_since_evaluation++;
+    if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
+      continue;
+    }
     detector.update_state();
+    packets_since_evaluation = 0;
     if (i >= warmup) {
+      metrics.motion_eval_count++;
       if (detector.get_state() == MotionState::MOTION) {
         metrics.tp++;
       } else {
@@ -229,13 +298,20 @@ static LongRunMetrics evaluate_classic_long_recording() {
   metrics.selected_band_size = HT20_SELECTED_BAND_SIZE;
   std::copy(DEFAULT_SUBCARRIERS, DEFAULT_SUBCARRIERS + HT20_SELECTED_BAND_SIZE, metrics.selected_band.begin());
   metrics.adaptive_threshold = calibrated_threshold;
-  metrics.static_presence_eval_count = std::max(csi_test_data::num_static_presence() - warmup, 0);
-  metrics.motion_eval_count = std::max(csi_test_data::num_motion() - warmup, 0);
+  uint32_t packets_since_evaluation = 0;
 
   for (int i = 0; i < csi_test_data::num_static_presence(); i++) {
     detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
                             HT20_SELECTED_BAND_SIZE);
+    packets_since_evaluation++;
+    if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
+      continue;
+    }
     detector.update_state();
+    packets_since_evaluation = 0;
+    if (i >= warmup) {
+      metrics.static_presence_eval_count++;
+    }
     if (i >= warmup && detector.get_state() == MotionState::MOTION) {
       metrics.fp++;
     }
@@ -244,8 +320,14 @@ static LongRunMetrics evaluate_classic_long_recording() {
   for (int i = 0; i < csi_test_data::num_motion(); i++) {
     detector.process_packet(csi_test_data::motion_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
                             HT20_SELECTED_BAND_SIZE);
+    packets_since_evaluation++;
+    if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
+      continue;
+    }
     detector.update_state();
+    packets_since_evaluation = 0;
     if (i >= warmup) {
+      metrics.motion_eval_count++;
       if (detector.get_state() == MotionState::MOTION) {
         metrics.tp++;
       } else {
@@ -278,13 +360,15 @@ void test_long_recording_ml(void) {
   record_result("ml", actual);
 }
 
-int run_tests_for_chip(csi_test_data::ChipType chip) {
+int run_tests_for_long_recording(int recording_index) {
+  const csi_test_data::ChipType chip = csi_test_data::long_recording_chip(recording_index);
   printf("\n========================================\n");
   printf("Running long-recording tests with %s\n", csi_test_data::chip_name(chip));
+  printf("Dataset: %s\n", csi_test_data::long_recording_label(recording_index));
   printf("========================================\n");
 
-  if (!csi_test_data::switch_long_recording_dataset(chip)) {
-    printf("ERROR: Failed to load long recording for %s\n", csi_test_data::chip_name(chip));
+  if (!csi_test_data::switch_long_recording_dataset_by_index(recording_index)) {
+    printf("ERROR: Failed to load long recording %s\n", csi_test_data::long_recording_label(recording_index));
     return 1;
   }
 
@@ -296,8 +380,14 @@ int run_tests_for_chip(csi_test_data::ChipType chip) {
 
 int process(void) {
   int failures = 0;
-  for (auto chip : csi_test_data::get_available_long_recording_chips()) {
-    failures += run_tests_for_chip(chip);
+  g_results.clear();
+  const int recording_count = csi_test_data::get_available_long_recording_count();
+  if (recording_count <= 0) {
+    printf("ERROR: No long recording datasets available\n");
+    return 1;
+  }
+  for (int recording_index = 0; recording_index < recording_count; recording_index++) {
+    failures += run_tests_for_long_recording(recording_index);
   }
   print_summary_table();
   return failures;

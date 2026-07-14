@@ -1,9 +1,9 @@
 """
 Micro-ESPectre - Long recording validation tests.
 
-These tests evaluate the ML detector on the 60-second recordings stored in
-data/test/ and print a stable summary table used by the training seed-search
-gate.
+These tests evaluate the detectors on the 60-second recordings stored in
+data/test/ at the production evaluation cadence and print stable summary
+tables used by the training seed-search gate.
 """
 
 import importlib.util
@@ -23,6 +23,7 @@ from conftest import (
     build_long_test_params,
     extract_motion_start_from_description,
     get_available_long_test_datasets,
+    load_long_test_dataset,
 )
 
 
@@ -76,6 +77,7 @@ class TestLongRecordings:
         if long_dataset is None:
             pytest.skip("No long test recordings available in data/test")
 
+        long_dataset = load_long_test_dataset(long_dataset)
         _, baseline_packets, movement_packets, motion_start_packet, chip, entry = long_dataset
         metrics = _evaluate_ml_long_recording(baseline_packets, movement_packets)
         self.__class__._rows.append(
@@ -138,6 +140,7 @@ class TestLongRecordingsClassic:
         if long_dataset is None:
             pytest.skip("No long test recordings available in data/test")
 
+        long_dataset = load_long_test_dataset(long_dataset)
         _, baseline_packets, movement_packets, motion_start_packet, chip, entry = long_dataset
         metrics = _evaluate_classic_long_recording(baseline_packets, movement_packets)
         assert metrics is not None, "Classic startup calibration failed"
@@ -192,6 +195,7 @@ class TestLongRecordingHelpers:
         if long_dataset is None:
             pytest.skip("No long test recordings available in data/test")
 
+        long_dataset = load_long_test_dataset(long_dataset)
         test_path, baseline_packets, movement_packets, motion_start_packet, chip, entry = long_dataset
 
         assert test_path.parent == DATA_DIR / "test"

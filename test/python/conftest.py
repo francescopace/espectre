@@ -37,7 +37,9 @@ _prepend_sys_path(PYTHON_ROOT_PATH)
 
 from tools.lib.performance_report import (
     extract_motion_start_from_description as _shared_extract_motion_start_from_description,
+    get_available_long_test_dataset_specs as _shared_get_available_long_test_dataset_specs,
     get_available_long_test_datasets as _shared_get_available_long_test_datasets,
+    load_long_test_dataset as _shared_load_long_test_dataset,
 )
 from tools.lib.repo_paths import data_dir, python_src_dir
 
@@ -119,17 +121,22 @@ def get_available_long_test_datasets(chips=None):
     return _shared_get_available_long_test_datasets(chips=chips)
 
 
+def load_long_test_dataset(spec):
+    """Load one long test recording from a lightweight parameter spec."""
+    return _shared_load_long_test_dataset(spec)
+
+
 def build_long_test_params(chips=None):
     """Build stable pytest params for available long test recordings."""
     params = []
-    for dataset in get_available_long_test_datasets(chips=chips):
-        _, static_presence_packets, motion_packets, motion_start_packet, chip, _ = dataset
+    for spec in _shared_get_available_long_test_dataset_specs(chips=chips):
+        _, motion_start_packet, num_packets, chip, _ = spec
         params.append(
             pytest.param(
-                dataset,
+                spec,
                 id=(
                     f"{chip.lower()}_long_"
-                    f"{len(static_presence_packets)}b_{len(motion_packets)}m_"
+                    f"{motion_start_packet}b_{num_packets - motion_start_packet}m_"
                     f"start{motion_start_packet}"
                 ),
             )
@@ -151,7 +158,7 @@ def build_long_test_params(chips=None):
 @pytest.fixture(params=build_long_test_params())
 def long_test_config(request):
     """Validated long test recording split from data/test/."""
-    return request.param
+    return load_long_test_dataset(request.param)
 
 @pytest.fixture
 def default_subcarriers(request):

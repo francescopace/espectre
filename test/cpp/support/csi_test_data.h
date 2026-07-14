@@ -191,6 +191,10 @@ inline int get_available_pair_count();
 inline ChipType pair_chip(int pair_index);
 inline const char* pair_label(int pair_index);
 inline bool switch_dataset_pair(int pair_index);
+inline int get_available_long_recording_count();
+inline ChipType long_recording_chip(int recording_index);
+inline const char* long_recording_label(int recording_index);
+inline bool switch_long_recording_dataset_by_index(int recording_index);
 inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm);
 inline bool parse_iso8601_epoch_seconds(const std::string& text, double& out_epoch_seconds);
 
@@ -239,6 +243,7 @@ static std::vector<ChipDatasetSelection> g_pair_selections;
 static int g_current_pair_index = -1;
 
 struct LongRecordingSelection {
+    ChipType chip = ChipType::C6;
     std::string filename;
     std::string path;
     std::string collected_at;
@@ -247,6 +252,8 @@ struct LongRecordingSelection {
     bool valid = false;
 };
 static std::array<LongRecordingSelection, CHIP_COUNT> g_long_selected_by_chip;
+static std::vector<LongRecordingSelection> g_long_recording_selections;
+static int g_current_long_recording_index = -1;
 
 inline bool extract_motion_start_from_description(const std::string& description, int& out_motion_start) {
     static const std::regex kMotionStartPattern(
@@ -442,6 +449,7 @@ inline bool load_long_recording_cache() {
     for (auto& selected : g_long_selected_by_chip) {
         selected = LongRecordingSelection{};
     }
+    g_long_recording_selections.clear();
 
     JsonArray test_entries = doc["files"]["test"].as<JsonArray>();
     for (JsonObject entry : test_entries) {
@@ -466,26 +474,37 @@ inline bool load_long_recording_cache() {
 
         int motion_start_packet = 0;
         if (description == nullptr || !extract_motion_start_from_description(description, motion_start_packet)) {
-            motion_start_packet = num_packets / 2;
+            motion_start_packet = num_packets;
         }
 
-        if (num_packets <= 1 || motion_start_packet <= 0 || motion_start_packet >= num_packets) {
+        if (num_packets <= 1 || motion_start_packet <= 0 || motion_start_packet > num_packets) {
             continue;
         }
 
         LongRecordingSelection candidate{};
+        candidate.chip = chip;
         candidate.filename = filename;
         candidate.path = std::string("../../data/test/") + filename;
         candidate.collected_at = collected_at;
         candidate.motion_start_packet = motion_start_packet;
         candidate.num_packets = num_packets;
         candidate.valid = true;
+        g_long_recording_selections.push_back(candidate);
 
         LongRecordingSelection& selected = g_long_selected_by_chip[idx];
         if (!selected.valid || candidate.collected_at > selected.collected_at) {
             selected = candidate;
         }
     }
+
+    std::stable_sort(
+        g_long_recording_selections.begin(),
+        g_long_recording_selections.end(),
+        [](const LongRecordingSelection& a, const LongRecordingSelection& b) {
+            const int a_idx = chip_index(a.chip);
+            const int b_idx = chip_index(b.chip);
+            return a_idx < b_idx;
+        });
 
     for (ChipType chip : get_supported_chips()) {
         const int idx = chip_index(chip);
@@ -554,6 +573,16 @@ inline const char* long_recording_name_for_chip(ChipType chip) {
         return nullptr;
     }
     return g_long_selected_by_chip[idx].filename.c_str();
+}
+
+inline const LongRecordingSelection* long_recording_selection(int recording_index) {
+    if (!load_long_recording_cache()) {
+        return nullptr;
+    }
+    if (recording_index < 0 || recording_index >= static_cast<int>(g_long_recording_selections.size())) {
+        return nullptr;
+    }
+    return &g_long_recording_selections[recording_index];
 }
 
 /**
@@ -676,6 +705,49 @@ inline bool load_long_recording(ChipType chip = ChipType::C6) {
         g_current_chip = chip;
         g_dataset_mode = DatasetMode::LongRecording;
         g_current_pair_index = -1;
+        g_current_long_recording_index = -1;
+        return true;
+
+    } catch (const std::exception& e) {
+        printf("[CSI Test Data] ERROR: Failed to load long NPZ file: %s\n", e.what());
+        return false;
+    }
+}
+
+inline bool load_long_recording_by_index(int recording_index) {
+    const LongRecordingSelection* selected = long_recording_selection(recording_index);
+    if (selected == nullptr || !selected->valid) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Invalid long recording index %d\n", recording_index);
+        return false;
+    }
+
+    const ChipType chip = selected->chip;
+
+    try {
+        printf("\n[CSI Test Data] Loading %s long recording #%d...\n", chip_name(chip), recording_index);
+        printf("[CSI Test Data] Test: %s\n", selected->path.c_str());
+        CsiData full_data = load_npz(selected->path);
+        if (selected->motion_start_packet > full_data.num_packets) {
+            std::fprintf(stderr,
+                         "[CSI Test Data] ERROR: Invalid motion_start_packet=%d for %s (%d packets)\n",
+                         selected->motion_start_packet, selected->path.c_str(), full_data.num_packets);
+            return false;
+        }
+
+        g_static_presence_data = slice_packets(full_data, 0, selected->motion_start_packet);
+        g_motion_data = slice_packets(full_data, selected->motion_start_packet, full_data.num_packets);
+        g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
+        g_motion_ptrs = get_packet_pointers(g_motion_data);
+
+        printf("[CSI Test Data] Split at packet %d -> static_presence=%d, motion=%d (%d bytes each)\n",
+               selected->motion_start_packet, g_static_presence_data.num_packets, g_motion_data.num_packets,
+               g_static_presence_data.packet_size);
+
+        g_loaded = true;
+        g_current_chip = chip;
+        g_dataset_mode = DatasetMode::LongRecording;
+        g_current_pair_index = -1;
+        g_current_long_recording_index = recording_index;
         return true;
 
     } catch (const std::exception& e) {
@@ -703,6 +775,11 @@ inline bool switch_long_recording_dataset(ChipType chip) {
     return load_long_recording(chip);
 }
 
+inline bool switch_long_recording_dataset_by_index(int recording_index) {
+    g_loaded = false;
+    return load_long_recording_by_index(recording_index);
+}
+
 inline std::vector<ChipType> get_available_long_recording_chips() {
     std::vector<ChipType> chips;
     if (!load_long_recording_cache()) {
@@ -715,6 +792,29 @@ inline std::vector<ChipType> get_available_long_recording_chips() {
         }
     }
     return chips;
+}
+
+inline int get_available_long_recording_count() {
+    if (!load_long_recording_cache()) {
+        return 0;
+    }
+    return static_cast<int>(g_long_recording_selections.size());
+}
+
+inline ChipType long_recording_chip(int recording_index) {
+    const LongRecordingSelection* selected = long_recording_selection(recording_index);
+    if (selected == nullptr) {
+        return ChipType::C6;
+    }
+    return selected->chip;
+}
+
+inline const char* long_recording_label(int recording_index) {
+    const LongRecordingSelection* selected = long_recording_selection(recording_index);
+    if (selected == nullptr) {
+        return "unknown_long_recording";
+    }
+    return selected->filename.c_str();
 }
 
 /**
@@ -793,10 +893,23 @@ inline int packet_size() { return g_static_presence_data.packet_size; }
 inline ChipType current_chip() { return g_current_chip; }
 inline bool is_long_recording_mode() { return g_dataset_mode == DatasetMode::LongRecording; }
 inline const char* current_long_recording_name() {
-    return is_long_recording_mode() ? long_recording_name_for_chip(g_current_chip) : nullptr;
+    if (!is_long_recording_mode()) {
+        return nullptr;
+    }
+    if (g_current_long_recording_index >= 0) {
+        return long_recording_label(g_current_long_recording_index);
+    }
+    return long_recording_name_for_chip(g_current_chip);
 }
 inline int current_motion_start_packet() {
-    return is_long_recording_mode() ? long_recording_motion_start_for_chip(g_current_chip) : 0;
+    if (!is_long_recording_mode()) {
+        return 0;
+    }
+    if (g_current_long_recording_index >= 0) {
+        const LongRecordingSelection* selected = long_recording_selection(g_current_long_recording_index);
+        return selected != nullptr ? selected->motion_start_packet : 0;
+    }
+    return long_recording_motion_start_for_chip(g_current_chip);
 }
 
 inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm) {

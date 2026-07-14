@@ -135,14 +135,29 @@ class ClassicDetector(IDetector):
             self._l1.update_state()
         l1v = self._l1.get_motion_metric()
         moving_variance = 0.0
-        if self._recovery_vote_configured and self._variance_ctx is not None:
-            self._variance_ctx.update_state()
-            if hasattr(self._variance_ctx, "current_moving_variance"):
-                moving_variance = self._variance_ctx.current_moving_variance
-            else:
-                moving_variance = self._variance_ctx.get_motion_metric()
-        self._last_moving_variance = moving_variance
         thr = self._l1.threshold if hasattr(self._l1, "threshold") else self._l1.get_threshold()
+        recovery_band = l1v > self.BAND_ALPHA * thr and l1v <= thr
+        variance_ctx = self._variance_ctx
+        variance_ready = (
+            variance_ctx is not None
+            and (
+                not hasattr(variance_ctx, "buffer_count")
+                or not hasattr(variance_ctx, "window_size")
+                or variance_ctx.buffer_count >= variance_ctx.window_size
+            )
+        )
+        variance_needed = (
+            self._recovery_vote_configured
+            and variance_ready
+            and (not self._floor_frozen or recovery_band)
+        )
+        if variance_needed:
+            variance_ctx.update_state()
+            if hasattr(variance_ctx, "current_moving_variance"):
+                moving_variance = variance_ctx.current_moving_variance
+            else:
+                moving_variance = variance_ctx.get_motion_metric()
+        self._last_moving_variance = moving_variance
 
         ready = self._l1.is_ready()
         band_low = self.BAND_ALPHA * thr

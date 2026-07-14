@@ -1515,6 +1515,19 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     return packets
 
 
+def load_npz_csi_data(filepath: Path) -> np.ndarray:
+    """Load only the signed CSI matrix from a ``.npz`` recording.
+
+    Long-recording replays do not consume per-packet transport metadata.  Keep
+    that hot path on the compact NumPy matrix instead of expanding every row
+    into a metadata dictionary.
+    """
+    with np.load(filepath, allow_pickle=False) as data:
+        if "csi_data" not in data.files:
+            raise ValueError(f"No CSI data found in {filepath}")
+        return np.asarray(data["csi_data"], dtype=np.int8)
+
+
 def get_dataset_stats() -> Dict[str, Any]:
     """Proxy dataset statistics through the dataset metadata layer."""
     return dataset_metadata.get_dataset_stats()

@@ -29,7 +29,7 @@ from config import (
 from detector_interface import MotionState
 from features import FEATURE_NAMES as RUNTIME_FEATURE_NAMES
 from runtime_policy import RuntimeMotionPolicy
-from tools.lib.csi_io import load_npz_as_packets
+from tools.lib.csi_io import load_npz_as_packets, load_npz_csi_data
 
 
 DATA_DIR = data_dir()
@@ -45,11 +45,18 @@ KEY_RUNTIME_FEATURE_GATES = {
 
 def evaluate_idle_runtime_policy(raw_motion_states: Sequence[bool]) -> Dict[str, int]:
     """Evaluate runtime cadence and consecutive-hit filtering on IDLE data."""
+    return _evaluate_idle_runtime_policy_evaluations(
+        raw_motion_states[EVALUATION_INTERVAL - 1::EVALUATION_INTERVAL]
+    )
+
+
+def _evaluate_idle_runtime_policy_evaluations(raw_motion_states: Sequence[bool]) -> Dict[str, int]:
+    """Apply production hit filtering to states sampled at evaluation ticks."""
     policy = RuntimeMotionPolicy(EVALUATION_INTERVAL, MOTION_ON_HITS, MOTION_OFF_HITS)
     effective_alarms = 0
     false_motion_evaluations = 0
 
-    for raw_motion in raw_motion_states[EVALUATION_INTERVAL - 1::EVALUATION_INTERVAL]:
+    for raw_motion in raw_motion_states:
         raw_state = MotionState.MOTION if raw_motion else MotionState.IDLE
         effective_state, changed = policy.apply_state(raw_state)
         if changed and effective_state == MotionState.MOTION:
@@ -73,6 +80,44 @@ PAIRED_CHIP_LABELS = {
 
 ProgressCallback = Callable[[str], None]
 ExecutionInfo = Dict[str, Any]
+
+
+class _CsiRowView(Sequence[Any]):
+    """Zero-copy unsigned-byte rows over one contiguous CSI matrix."""
+
+    def __init__(self, matrix: np.ndarray, start: int = 0, stop: Optional[int] = None):
+        if matrix.ndim != 2 or matrix.dtype != np.int8 or not matrix.flags.c_contiguous:
+            raise ValueError("CSI matrix must be a contiguous two-dimensional int8 array")
+        matrix_stop = len(matrix) if stop is None else int(stop)
+        if start < 0 or matrix_stop < start or matrix_stop > len(matrix):
+            raise ValueError("Invalid CSI row view bounds")
+        self._matrix = matrix
+        self._bytes = memoryview(matrix).cast("B")
+        self._row_size = matrix.shape[1]
+        self._start = int(start)
+        self._stop = matrix_stop
+
+    def __len__(self) -> int:
+        return self._stop - self._start
+
+    def __getitem__(self, index: int | slice) -> Any:
+        if isinstance(index, slice):
+            start, stop, step = index.indices(len(self))
+            if step != 1:
+                return [self[i] for i in range(start, stop, step)]
+            return _CsiRowView(
+                self._matrix,
+                self._start + start,
+                self._start + stop,
+            )
+
+        row_index = int(index)
+        if row_index < 0:
+            row_index += len(self)
+        if row_index < 0 or row_index >= len(self):
+            raise IndexError("CSI row index out of range")
+        byte_start = (self._start + row_index) * self._row_size
+        return self._bytes[byte_start:byte_start + self._row_size]
 
 
 def _emit_progress(progress: Optional[ProgressCallback], message: str) -> None:
@@ -412,8 +457,10 @@ def _normalize_long_test_chip_filter(chips: Optional[Iterable[str]]) -> Optional
 
 
 @lru_cache(maxsize=None)
-def _get_available_long_test_datasets_cached(chips_key: Optional[tuple[str, ...]]) -> tuple[tuple[Any, ...], ...]:
-    """Return available long test recordings with validated split metadata."""
+def _get_available_long_test_dataset_specs_cached(
+    chips_key: Optional[tuple[str, ...]],
+) -> tuple[tuple[Any, ...], ...]:
+    """Return long-recording metadata without loading packet payloads."""
     dataset_info = _load_dataset_info()
     test_entries = dataset_info.get("files", {}).get("test", [])
     if not test_entries:
@@ -435,44 +482,85 @@ def _get_available_long_test_datasets_cached(chips_key: Optional[tuple[str, ...]
         if not test_path.exists():
             continue
 
-        packets = load_npz_as_packets(test_path)
-        if len(packets) < 2:
+        num_packets = int(entry.get("num_packets", 0) or 0)
+        if num_packets < 2:
             continue
 
         motion_start_packet = extract_motion_start_from_description(entry.get("description"))
         if motion_start_packet is None:
-            motion_start_packet = len(packets)
+            motion_start_packet = num_packets
 
-        if motion_start_packet <= 0 or motion_start_packet > len(packets):
+        if motion_start_packet <= 0 or motion_start_packet > num_packets:
             continue
 
-        static_presence_packets = packets[:motion_start_packet]
-        motion_packets = packets[motion_start_packet:]
         datasets.append(
             (
                 test_path,
-                static_presence_packets,
-                motion_packets,
                 motion_start_packet,
+                num_packets,
                 chip,
                 entry,
             )
         )
 
-    datasets.sort(key=lambda item: item[4])
+    datasets.sort(key=lambda item: item[3])
     return tuple(datasets)
 
 
+def get_available_long_test_dataset_specs(
+    chips: Optional[Iterable[str]] = None,
+) -> list[tuple[Any, ...]]:
+    """Return lightweight long-recording specs suitable for parametrization."""
+    return list(
+        _get_available_long_test_dataset_specs_cached(
+            _normalize_long_test_chip_filter(chips)
+        )
+    )
+
+
+@lru_cache(maxsize=None)
+def _load_long_test_csi_cached(path_value: str) -> np.ndarray:
+    """Load one compact CSI matrix per worker process."""
+    return load_npz_csi_data(Path(path_value))
+
+
+def load_long_test_dataset(spec: tuple[Any, ...]) -> tuple[Any, ...]:
+    """Materialize one long-recording spec as baseline and movement views."""
+    test_path, motion_start_packet, num_packets, chip, entry = spec
+    matrix = _load_long_test_csi_cached(str(test_path))
+    if len(matrix) != num_packets:
+        raise ValueError(
+            f"Packet count mismatch for {test_path}: metadata={num_packets}, npz={len(matrix)}"
+        )
+    packets = _CsiRowView(matrix)
+    return (
+        test_path,
+        packets[:motion_start_packet],
+        packets[motion_start_packet:],
+        motion_start_packet,
+        chip,
+        entry,
+    )
+
+
 def get_available_long_test_datasets(chips: Optional[Iterable[str]] = None) -> list[tuple[Any, ...]]:
-    """Return cached long test recordings with validated split metadata."""
-    return list(_get_available_long_test_datasets_cached(_normalize_long_test_chip_filter(chips)))
+    """Load long test recordings with validated split metadata."""
+    return [
+        load_long_test_dataset(spec)
+        for spec in get_available_long_test_dataset_specs(chips=chips)
+    ]
+
+
+def _packet_csi_data(packet: Any) -> Any:
+    """Return CSI bytes from a packet dictionary or a compact CSI row."""
+    return packet["csi_data"] if isinstance(packet, dict) else packet
 
 
 def evaluate_ml_long_recording(
-    baseline_packets: Sequence[dict[str, Any]],
-    movement_packets: Sequence[dict[str, Any]],
+    baseline_packets: Sequence[Any],
+    movement_packets: Sequence[Any],
 ) -> Dict[str, float]:
-    """Run MLDetector across a long recording split and return packet metrics."""
+    """Run MLDetector at the production evaluation cadence."""
     from ml_detector import MLDetector
 
     detector = MLDetector(
@@ -481,25 +569,37 @@ def evaluate_ml_long_recording(
     )
     warmup = DETECTOR_DEFAULT_WINDOW_SIZE
 
-    baseline_eval_count = max(len(baseline_packets) - warmup, 0)
-    movement_eval_count = max(len(movement_packets) - warmup, 0)
+    baseline_eval_count = 0
+    movement_eval_count = 0
     baseline_motion_packets = 0
     baseline_motion_states = []
     movement_with_motion = 0
     movement_without_motion = 0
 
+    packets_since_evaluation = 0
     for i, pkt in enumerate(baseline_packets):
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
+        packets_since_evaluation += 1
+        if packets_since_evaluation < EVALUATION_INTERVAL:
+            continue
         detector.update_state()
+        packets_since_evaluation = 0
+        if i >= warmup:
+            baseline_eval_count += 1
         if i >= warmup and detector.get_state() == MotionState.MOTION:
             baseline_motion_packets += 1
         if i >= warmup:
             baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
 
     for i, pkt in enumerate(movement_packets):
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
+        packets_since_evaluation += 1
+        if packets_since_evaluation < EVALUATION_INTERVAL:
+            continue
         detector.update_state()
+        packets_since_evaluation = 0
         if i >= warmup:
+            movement_eval_count += 1
             if detector.get_state() == MotionState.MOTION:
                 movement_with_motion += 1
             else:
@@ -518,7 +618,7 @@ def evaluate_ml_long_recording(
         else 0.0
     )
 
-    policy_metrics = evaluate_idle_runtime_policy(baseline_motion_states)
+    policy_metrics = _evaluate_idle_runtime_policy_evaluations(baseline_motion_states)
     return {
         "baseline_eval_count": baseline_eval_count,
         "movement_eval_count": movement_eval_count,
@@ -535,10 +635,10 @@ def evaluate_ml_long_recording(
 
 
 def evaluate_classic_long_recording(
-    baseline_packets: Sequence[dict[str, Any]],
-    movement_packets: Sequence[dict[str, Any]],
+    baseline_packets: Sequence[Any],
+    movement_packets: Sequence[Any],
 ) -> Optional[Dict[str, float]]:
-    """Run startup-calibrated ClassicDetector across a long recording split."""
+    """Run startup-calibrated ClassicDetector at the production cadence."""
     calibrated = build_calibrated_classic_detector(
         baseline_packets,
         selected_subcarriers=DEFAULT_SUBCARRIERS,
@@ -547,26 +647,38 @@ def evaluate_classic_long_recording(
         return None
     detector, adaptive_threshold = calibrated
     warmup = DETECTOR_DEFAULT_WINDOW_SIZE
-    baseline_eval_count = max(len(baseline_packets) - warmup, 0)
-    movement_eval_count = max(len(movement_packets) - warmup, 0)
+    baseline_eval_count = 0
+    movement_eval_count = 0
     baseline_motion_packets = 0
     movement_with_motion = 0
     movement_without_motion = 0
 
     baseline_motion_states = []
 
+    packets_since_evaluation = 0
     for i, pkt in enumerate(baseline_packets):
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
+        packets_since_evaluation += 1
+        if packets_since_evaluation < EVALUATION_INTERVAL:
+            continue
         detector.update_state()
+        packets_since_evaluation = 0
+        if i >= warmup:
+            baseline_eval_count += 1
         if i >= warmup and detector.get_state() == MotionState.MOTION:
             baseline_motion_packets += 1
         if i >= warmup:
             baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
 
     for i, pkt in enumerate(movement_packets):
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
+        packets_since_evaluation += 1
+        if packets_since_evaluation < EVALUATION_INTERVAL:
+            continue
         detector.update_state()
+        packets_since_evaluation = 0
         if i >= warmup:
+            movement_eval_count += 1
             if detector.get_state() == MotionState.MOTION:
                 movement_with_motion += 1
             else:
@@ -584,7 +696,7 @@ def evaluate_classic_long_recording(
         if (precision + recall) > 0
         else 0.0
     )
-    policy_metrics = evaluate_idle_runtime_policy(baseline_motion_states)
+    policy_metrics = _evaluate_idle_runtime_policy_evaluations(baseline_motion_states)
     return {
         "adaptive_threshold": adaptive_threshold,
         "warmup": warmup,
@@ -832,8 +944,9 @@ def render_performance_report_markdown(
         "",
         "## Long Quiet Real-Data Validation",
         "",
-        "Effective Alarms and False Motion Evals apply the deploy runtime policy to "
-        f"the raw per-packet states: one evaluation every {EVALUATION_INTERVAL} packets, "
+        "Long-recording detector states are sampled at the deploy runtime cadence: "
+        f"one evaluation every {EVALUATION_INTERVAL} packets. Effective Alarms and "
+        "False Motion Evals then apply "
         f"{MOTION_ON_HITS} consecutive hits to enter MOTION, and {MOTION_OFF_HITS} to leave it. "
         "They count triggered alarms and evaluations spent in a false MOTION state across "
         "all quiet recordings per chip.",

@@ -158,24 +158,33 @@ class SegmentationContext:
         """
         n = 0
         max_slots = len(out_buffer)
+        csi_len = len(csi_data)
 
         if selected_subcarriers is None:
-            max_values = min(128, len(csi_data))
+            max_values = min(128, csi_len)
             for sc_idx in range(0, max_values // 2):
                 if n >= max_slots:
                     break
-                amp = SegmentationContext._amplitude_at_subcarrier(csi_data, sc_idx)
-                if amp is not None:
-                    out_buffer[n] = amp
-                    n += 1
+                i = sc_idx * 2
+                imag = csi_data[i]
+                real = csi_data[i + 1]
+                imag = float(imag if imag < 128 else imag - 256)
+                real = float(real if real < 128 else real - 256)
+                out_buffer[n] = math.sqrt(real * real + imag * imag)
+                n += 1
         else:
             for sc_idx in selected_subcarriers:
                 if n >= max_slots:
                     break
-                amp = SegmentationContext._amplitude_at_subcarrier(csi_data, sc_idx)
-                if amp is not None:
-                    out_buffer[n] = amp
-                    n += 1
+                i = sc_idx * 2
+                if i + 1 >= csi_len:
+                    continue
+                imag = csi_data[i]
+                real = csi_data[i + 1]
+                imag = float(imag if imag < 128 else imag - 256)
+                real = float(real if real < 128 else real - 256)
+                out_buffer[n] = math.sqrt(real * real + imag * imag)
+                n += 1
         return n
 
     @staticmethod
