@@ -160,12 +160,13 @@ TEMPLATE = '''<!DOCTYPE html>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
 
-    <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Font Awesome (loaded async: icons are decorative accents) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"></noscript>
 
     <!-- Highlight.js for syntax highlighting -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
     <!-- Styles -->
     <link rel="stylesheet" href="/styles.css">
@@ -209,11 +210,32 @@ TEMPLATE = '''<!DOCTYPE html>
     <script>loadHeader(); loadFooter();</script>
     <script src="/cosmic-bg.js"></script>
     <script src="/analytics.js"></script>
-    <script>hljs.highlightAll();</script>
+    <script>document.addEventListener('DOMContentLoaded', function() {{ hljs.highlightAll(); }});</script>
     <script src="/_pagefind/pagefind-component-ui.js" type="module"></script>
-    
-    <!-- Buy Me a Coffee Widget -->
-    <script data-name="BMC-Widget" data-cfasync="false" src="https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js" data-id="espectre" data-description="Support me on Buy me a coffee!" data-color="#40DCA5" data-position="Right" data-x_margin="18" data-y_margin="18"></script>
+
+    <!-- Buy Me a Coffee Widget (skipped on mobile, where it is hidden anyway) -->
+    <script>
+        if (window.matchMedia('(min-width: 901px)').matches) {{
+            var bmc = document.createElement('script');
+            bmc.src = 'https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js';
+            bmc.setAttribute('data-name', 'BMC-Widget');
+            bmc.setAttribute('data-cfasync', 'false');
+            bmc.setAttribute('data-id', 'espectre');
+            bmc.setAttribute('data-description', 'Support me on Buy me a coffee!');
+            bmc.setAttribute('data-color', '#40DCA5');
+            bmc.setAttribute('data-position', 'Right');
+            bmc.setAttribute('data-x_margin', '18');
+            bmc.setAttribute('data-y_margin', '18');
+            bmc.onload = function () {{
+                // The widget builds its UI on DOMContentLoaded; re-fire it when
+                // the script loads after the document is already parsed
+                if (document.readyState !== 'loading') {{
+                    window.dispatchEvent(new Event('DOMContentLoaded'));
+                }}
+            }};
+            document.body.appendChild(bmc);
+        }}
+    </script>
 </body>
 </html>
 '''

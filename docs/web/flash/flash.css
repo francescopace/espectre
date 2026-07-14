@@ -51,6 +51,10 @@
     gap: 0.4rem;
 }
 
+.flash-field[hidden] {
+    display: none;
+}
+
 .flash-field span {
     font-weight: 600;
 }
@@ -112,6 +116,15 @@
 
 .flash-list li + li {
     margin-top: 0.6rem;
+}
+
+.flash-list a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.flash-list a:hover {
+    text-decoration: underline;
 }
 
 @media (max-width: 920px) {

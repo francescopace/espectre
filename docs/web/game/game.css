@@ -21,6 +21,7 @@ body.game-page {
     display: flex;
     flex-direction: column;
     min-height: 100vh;
+    min-height: 100dvh;
 }
 
 /* Game Container fills available space */
@@ -352,6 +353,7 @@ kbd {
 #screen-game {
     max-width: 100%;
     height: calc(100vh - 8rem);
+    height: calc(100dvh - 8rem);
     padding: 0;
     position: relative;
     z-index: 50;
@@ -951,6 +953,7 @@ body.game-page:has(#screen-game.active) footer {
 
     body.game-page:has(#screen-game.active) .game-container {
         height: 100vh;
+        height: 100dvh;
         padding-top: 4rem;
         padding-bottom: 0;
         overflow: hidden;
@@ -958,6 +961,7 @@ body.game-page:has(#screen-game.active) footer {
 
     body.game-page:has(#screen-game.active) #screen-game {
         height: calc(100vh - 4rem);
+        height: calc(100dvh - 4rem);
     }
 
     .game-container {
@@ -1019,6 +1023,17 @@ body.game-page:has(#screen-game.active) footer {
     /* Hide Buy Me a Coffee widget on mobile */
     #bmc-wbtn {
         display: none !important;
+    }
+}
+
+/* Narrow windows: the left bar and its threshold label overlap the content */
+@media (max-width: 640px) {
+    .movement-bar-vertical {
+        display: none;
+    }
+
+    .how-to-play .threshold-hint {
+        display: none;
     }
 }
 

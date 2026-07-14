@@ -298,27 +298,33 @@ class ESPectreGame {
         // Update marker position based on current threshold
         this.updateThresholdMarkerPosition();
         
+        // Document-level handlers attached only while dragging, so the page
+        // keeps passive scrolling when the threshold is not being adjusted
+        this.thresholdDragMove = (e) => this.handleThresholdDrag(e);
+        this.thresholdDragEnd = () => this.stopThresholdDrag();
+
         // Mouse events on marker
         marker.addEventListener('mousedown', (e) => this.startThresholdDrag(e));
-        document.addEventListener('mousemove', (e) => this.handleThresholdDrag(e));
-        document.addEventListener('mouseup', () => this.stopThresholdDrag());
-        
+
         // Touch events on marker
         marker.addEventListener('touchstart', (e) => this.startThresholdDrag(e), { passive: false });
-        document.addEventListener('touchmove', (e) => this.handleThresholdDrag(e), { passive: false });
-        document.addEventListener('touchend', () => this.stopThresholdDrag());
-        
+
         // Also allow dragging from the value label
         if (valueEl) {
             valueEl.addEventListener('mousedown', (e) => this.startThresholdDrag(e));
             valueEl.addEventListener('touchstart', (e) => this.startThresholdDrag(e), { passive: false });
         }
     }
-    
+
     startThresholdDrag(e) {
         if (e.cancelable) e.preventDefault();
         this.isDraggingThreshold = true;
         this.elements.thresholdMarker.classList.add('dragging');
+        document.addEventListener('mousemove', this.thresholdDragMove);
+        document.addEventListener('mouseup', this.thresholdDragEnd);
+        document.addEventListener('touchmove', this.thresholdDragMove, { passive: false });
+        document.addEventListener('touchend', this.thresholdDragEnd);
+        document.addEventListener('touchcancel', this.thresholdDragEnd);
     }
     
     handleThresholdDrag(e) {
@@ -348,6 +354,11 @@ class ESPectreGame {
         if (!this.isDraggingThreshold) return;
         this.isDraggingThreshold = false;
         this.elements.thresholdMarker.classList.remove('dragging');
+        document.removeEventListener('mousemove', this.thresholdDragMove);
+        document.removeEventListener('mouseup', this.thresholdDragEnd);
+        document.removeEventListener('touchmove', this.thresholdDragMove);
+        document.removeEventListener('touchend', this.thresholdDragEnd);
+        document.removeEventListener('touchcancel', this.thresholdDragEnd);
         this.sendThresholdToDevice();
     }
     

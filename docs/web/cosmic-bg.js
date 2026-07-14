@@ -122,16 +122,26 @@
         const shader = gl.createShader(type);
         gl.shaderSource(shader, source);
         gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.warn('cosmic-bg shader compile failed:', gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+        }
         return shader;
     }
-    
+
     const vs = createShader(gl.VERTEX_SHADER, vsSource);
     const fs = createShader(gl.FRAGMENT_SHADER, fsSource);
-    
+    if (!vs || !fs) return;
+
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
     gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.warn('cosmic-bg program link failed:', gl.getProgramInfoLog(program));
+        return;
+    }
     gl.useProgram(program);
     
     // Fullscreen quad
@@ -165,16 +175,34 @@
         gl.viewport(0, 0, canvas.width, canvas.height);
     }
     
-    function render(time) {
+    function drawFrame(time) {
         gl.uniform2f(iResolution, canvas.width, canvas.height);
         gl.uniform1f(iTime, time * 0.001);
         gl.uniform2f(iMouse, mouseX, mouseY);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    // Halve the frame rate on touch devices to save battery
+    const frameInterval = isMobile ? 1000 / 30 : 0;
+    let lastFrameTime = 0;
+
+    function render(time) {
+        if (time - lastFrameTime >= frameInterval) {
+            lastFrameTime = time;
+            drawFrame(time);
+        }
         requestAnimationFrame(render);
     }
-    
+
     window.addEventListener('resize', resize);
     resize();
+
+    // Respect reduced-motion preference: draw a single static frame
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        drawFrame(0);
+        return;
+    }
+
     requestAnimationFrame(render);
 })();
 

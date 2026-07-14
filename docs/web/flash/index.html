@@ -16,7 +16,8 @@
     <link
         href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"></noscript>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/flash/flash.css">
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
@@ -51,7 +52,7 @@
         <section class="flash-layout">
             <div class="flash-card">
                 <h2>Select Firmware</h2>
-                <p class="flash-copy">The page loads firmware manifests and binaries from `espectre.dev`. `stable` tracks the latest official release, while `main` tracks the rolling snapshot release.</p>
+                <p class="flash-copy">The page loads firmware manifests and binaries from <code>espectre.dev</code>. <code>Stable</code> tracks the latest official release, while <code>Main</code> tracks the rolling snapshot release.</p>
 
                 <div class="flash-grid">
                     <label class="flash-field">
@@ -99,7 +100,7 @@
                     <ul class="flash-list">
                         <li>Chrome, Edge, or another Chromium-based browser with Web Serial support.</li>
                         <li>A USB data cable and direct serial access to the board.</li>
-                        <li>`ESPHome` for Home Assistant users, or `Matter` for controller-based commissioning.</li>
+                        <li><code>ESPHome</code> for Home Assistant users, or <code>Matter</code> for controller-based commissioning.</li>
                     </ul>
                 </div>
 
@@ -107,7 +108,7 @@
                     <h2>Frontend Notes</h2>
                     <ul class="flash-list">
                         <li><strong>ESPHome:</strong> after flashing, provision Wi-Fi via BLE, USB, or captive portal and then wait for Home Assistant discovery.</li>
-                        <li><strong>Native:</strong> this is the standalone native frontend. `The Game` is one example of a web integration that uses it over BLE/Web Bluetooth.</li>
+                        <li><strong>Native:</strong> this is the standalone native frontend. <a href="/game/">The Game</a> is one example of a web integration that uses it over BLE/Web Bluetooth.</li>
                         <li><strong>Matter:</strong> after flashing, commission the device with a Matter controller.</li>
                         <li><strong>ESP32-S2:</strong> not available for the current Matter frontend because the implementation relies on BLE commissioning.</li>
                     </ul>

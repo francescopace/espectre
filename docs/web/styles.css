@@ -296,7 +296,8 @@ nav a:hover {
     transition: transform 0.2s;
 }
 
-.nav-dropdown:hover .fa-chevron-down {
+.nav-dropdown:hover .fa-chevron-down,
+.nav-dropdown:focus-within .fa-chevron-down {
     transform: rotate(180deg);
 }
 
@@ -318,7 +319,8 @@ nav a:hover {
     white-space: nowrap;
 }
 
-.nav-dropdown:hover .nav-dropdown-menu {
+.nav-dropdown:hover .nav-dropdown-menu,
+.nav-dropdown:focus-within .nav-dropdown-menu {
     opacity: 1;
     visibility: visible;
     transform: translateX(-50%) translateY(0);
@@ -357,13 +359,15 @@ nav a:hover {
     transform: translateY(8px);
 }
 
-.nav-dropdown-right:hover .nav-dropdown-menu {
+.nav-dropdown-right:hover .nav-dropdown-menu,
+.nav-dropdown-right:focus-within .nav-dropdown-menu {
     transform: translateY(0);
 }
 
 /* Hero */
 .hero {
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -880,15 +884,19 @@ footer {
     
     nav.open {
         display: flex;
+        max-height: calc(100vh - 6rem);
+        max-height: calc(100dvh - 6rem);
+        overflow-y: auto;
     }
-    
+
     nav > a,
     nav > .nav-dropdown > .nav-dropdown-toggle {
         padding: 1rem 1.5rem;
         border-bottom: 1px solid var(--border);
     }
-    
-    nav > a:last-child {
+
+    nav > a:last-child,
+    nav > :last-child > .nav-dropdown-toggle {
         border-bottom: none;
     }
     
@@ -911,13 +919,15 @@ footer {
         border-radius: 0;
         background: var(--bg-card);
         box-shadow: none;
+        padding: 0;
         max-height: 0;
         overflow: hidden;
         transition: max-height 0.3s;
     }
-    
+
     .nav-dropdown.open .nav-dropdown-menu {
-        max-height: 500px;
+        padding: 0.5rem 0;
+        max-height: 40rem;
     }
     
     .nav-dropdown.open .fa-chevron-down {
@@ -926,6 +936,11 @@ footer {
     
     .hero {
         padding: 5rem 1.5rem 3rem;
+    }
+
+    /* Let the subtitle wrap naturally on narrow screens */
+    .hero-subtitle br {
+        display: none;
     }
     
     .features, .code-section {

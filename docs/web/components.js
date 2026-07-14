@@ -34,7 +34,7 @@ function loadHeader(options = {}) {
                 <button id="btn-mute" class="header-control btn-mute" title="Enable sound"><i class="fas fa-volume-mute"></i></button>
             </div>
         </div>
-        <button class="menu-toggle" aria-label="Toggle menu">
+        <button class="menu-toggle" aria-label="Toggle menu" aria-expanded="false">
             <i class="fas fa-bars"></i>
         </button>
         <nav>
@@ -69,22 +69,28 @@ function loadHeader(options = {}) {
         </nav>
     `;
 
+    // Must match the hamburger breakpoint in styles.css
+    const mobileNavQuery = window.matchMedia('(max-width: 900px)');
+
     // Setup mobile menu toggle
     const menuToggle = headerEl.querySelector('.menu-toggle');
     const nav = headerEl.querySelector('nav');
     if (menuToggle && nav) {
         menuToggle.addEventListener('click', () => {
-            nav.classList.toggle('open');
+            const open = nav.classList.toggle('open');
+            menuToggle.setAttribute('aria-expanded', String(open));
         });
     }
 
     // Setup dropdown toggles for mobile
     const dropdownToggles = headerEl.querySelectorAll('.nav-dropdown-toggle');
     dropdownToggles.forEach(toggle => {
+        toggle.setAttribute('aria-expanded', 'false');
         toggle.addEventListener('click', (e) => {
-            if (window.innerWidth <= 768) {
+            if (mobileNavQuery.matches) {
                 e.preventDefault();
-                toggle.parentElement.classList.toggle('open');
+                const open = toggle.parentElement.classList.toggle('open');
+                toggle.setAttribute('aria-expanded', String(open));
             }
         });
     });
@@ -94,6 +100,7 @@ function loadHeader(options = {}) {
     navLinks.forEach(link => {
         link.addEventListener('click', () => {
             if (nav) nav.classList.remove('open');
+            if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
         });
     });
     
