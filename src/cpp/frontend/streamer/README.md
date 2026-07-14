@@ -46,6 +46,10 @@ The streamer reads Wi-Fi credentials only from the active `sdkconfig` surface,
 typically `app/sdkconfig.wifi`. It does not expose a separate BLE, MQTT, or OTA
 control plane.
 
+Because those credentials are supplied at build time, releases, snapshots, and
+the web flasher do not publish Streamer binaries. Build and flash this frontend
+locally with the repository CLI.
+
 ## Directory Layout
 
 - [`streamer_frontend.cpp`](espectre/streamer_frontend.cpp),

@@ -19,8 +19,6 @@ jobs:
         include:
           - chip: ESP32
             config: examples/espectre-esp32.yaml
-          - chip: ESP32-S2
-            config: examples/espectre-s2.yaml
           - chip: ESP32-S3
             config: examples/espectre-s3.yaml
           - chip: ESP32-C3
@@ -177,6 +175,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
       - name: Download all firmware artifacts
         uses: actions/download-artifact@v8
         with:
@@ -191,7 +194,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME}"
           expected_count=0
-          for chip in esp32 esp32s2 esp32s3 esp32c3 esp32c5 esp32c6; do
+          for chip in esp32 esp32s3 esp32c3 esp32c5 esp32c6; do
             test -s "firmware/espectre-${VERSION}-${chip}.bin"
             expected_count=$((expected_count + 1))
           done
@@ -203,6 +206,15 @@ jobs:
           done
           actual_count=$(find firmware -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')
           test "${actual_count}" -eq "${expected_count}"
+
+      - name: Build release firmware manifest
+        run: |
+          python .github/scripts/build_firmware_manifest.py \
+            --firmware-dir firmware \
+            --output "firmware/firmware-manifest-${GITHUB_REF_NAME}.json" \
+            --channel stable \
+            --version "${GITHUB_REF_NAME}" \
+            --release-tag "${GITHUB_REF_NAME}"
 
       - name: Extract release notes from CHANGELOG
         id: changelog
@@ -261,6 +273,7 @@ jobs:
           body_path: release_notes.md
           files: |
             firmware/*.bin
+            firmware/*.json
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           discussion_category_name: "Announcements"

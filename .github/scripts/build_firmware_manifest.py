@@ -3,7 +3,7 @@
 ESPectre - Firmware Manifest Builder
 
 Builds a JSON manifest for published firmware assets so the static web flasher
-can resolve the correct binary per frontend, channel, chip, and algorithm.
+can resolve the single published image per frontend, channel, and chip.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from pathlib import Path
 
 CHIP_METADATA = {
     "esp32": {"label": "ESP32", "family": "ESP32"},
-    "esp32s2": {"label": "ESP32-S2", "family": "ESP32-S2"},
     "esp32s3": {"label": "ESP32-S3", "family": "ESP32-S3"},
     "esp32c3": {"label": "ESP32-C3", "family": "ESP32-C3"},
     "esp32c5": {"label": "ESP32-C5", "family": "ESP32-C5"},
@@ -40,26 +39,14 @@ def parse_esphome_asset(filename: str, version_prefix: str) -> dict | None:
     if not filename.startswith(version_prefix) or not filename.endswith(".bin"):
         return None
     suffix = filename.removeprefix(version_prefix).removesuffix(".bin")
-    parts = suffix.split("-")
-    if not parts:
+    if not suffix or "-" in suffix:
         return None
-
-    chip = parts[0]
-    algorithm = "classic"
-    build_type = "factory"
-
-    if len(parts) >= 2 and parts[1] == "ml":
-        algorithm = "ml"
-        if len(parts) >= 3 and parts[2] == "ota":
-            build_type = "ota"
-    elif len(parts) >= 2 and parts[1] == "ota":
-        build_type = "ota"
 
     return {
         "frontend": "esphome",
-        "chip": chip,
-        "algorithm": algorithm,
-        "build_type": build_type,
+        "chip": suffix,
+        "algorithm": "classic",
+        "build_type": "factory",
     }
 
 
@@ -67,16 +54,13 @@ def parse_matter_asset(filename: str, version_prefix: str) -> dict | None:
     if not filename.startswith(version_prefix) or not filename.endswith(".bin"):
         return None
     suffix = filename.removeprefix(version_prefix).removesuffix(".bin")
-    build_type = "factory"
-    chip = suffix
-    if suffix.endswith("-ota"):
-        chip = suffix.removesuffix("-ota")
-        build_type = "ota"
+    if not suffix or "-" in suffix:
+        return None
     return {
         "frontend": "matter",
-        "chip": chip,
+        "chip": suffix,
         "algorithm": None,
-        "build_type": build_type,
+        "build_type": "factory",
     }
 
 
@@ -84,16 +68,13 @@ def parse_native_asset(filename: str, version_prefix: str) -> dict | None:
     if not filename.startswith(version_prefix) or not filename.endswith(".bin"):
         return None
     suffix = filename.removeprefix(version_prefix).removesuffix(".bin")
-    build_type = "factory"
-    chip = suffix
-    if suffix.endswith("-ota"):
-        chip = suffix.removesuffix("-ota")
-        build_type = "ota"
+    if not suffix or "-" in suffix:
+        return None
     return {
         "frontend": "native",
-        "chip": chip,
+        "chip": suffix,
         "algorithm": None,
-        "build_type": build_type,
+        "build_type": "factory",
     }
 
 
@@ -132,14 +113,11 @@ def build_manifest(args: argparse.Namespace) -> dict:
             "matter": {
                 "label": "Matter",
                 "post_flash": "Commission the device with a Matter controller after reboot.",
-                "notes": [
-                    "ESP32-S2 is not supported by the current Matter frontend because the implementation relies on BLE commissioning."
-                ],
                 "artifacts": [],
             },
             "native": {
                 "label": "Native",
-                "post_flash": "This firmware is a standalone native frontend. Configure Wi-Fi credentials in sdkconfig before building or use a preconfigured binary, then connect from your custom BLE client or web integration.",
+                "post_flash": "Provision Wi-Fi and MQTT over BLE, then connect through the native BLE or MQTT control surface.",
                 "notes": [
                     "The native frontend preserves the current custom GATT protocol, but it is not limited to any single client implementation."
                 ],
@@ -160,6 +138,8 @@ def build_manifest(args: argparse.Namespace) -> dict:
 
         chip_meta = CHIP_METADATA.get(parsed["chip"])
         if chip_meta is None:
+            if parsed["chip"] == "esp32s2":
+                continue
             raise ValueError(f"Unknown chip in firmware filename: {filename}")
 
         artifact = {

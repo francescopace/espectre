@@ -194,7 +194,7 @@ Request OTA manifest check:
   "protocol_version": "1.0",
   "command_id": "cmd-ota-check",
   "command": "ota_check",
-  "manifest_url": "https://example.invalid/espectre-native-ota.json"
+  "manifest_url": "https://example.invalid/native-application.json"
 }
 ```
 
@@ -205,7 +205,7 @@ Start OTA directly from an image URL:
   "protocol_version": "1.0",
   "command_id": "cmd-ota-start",
   "command": "ota_start",
-  "image_url": "https://example.invalid/espectre-native-ota.bin",
+  "image_url": "https://example.invalid/native-application.bin",
   "version": "1.2.3"
 }
 ```
@@ -226,8 +226,8 @@ espectre/v1/devices/{device_id}/ota/state
   "update_available": true,
   "current_version": "1.2.2",
   "target_version": "1.2.3",
-  "manifest_url": "https://example.invalid/espectre-native-ota.json",
-  "image_url": "https://example.invalid/espectre-native-ota.bin",
+  "manifest_url": "https://example.invalid/native-application.json",
+  "image_url": "https://example.invalid/native-application.bin",
   "message": "update available"
 }
 ```

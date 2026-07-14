@@ -192,10 +192,14 @@ Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 - the firmware channel
 - your target chip
 
-For the `ESPHome` frontend, the web flasher also exposes detector variants:
+Release and snapshot publishing provide one base image for each supported chip
+on the `ESPHome`, `Native`, and `Matter` frontends. The published `ESPHome`
+image uses the default `Classic` detector.
 
-- `Classic` for the default non-ML detector
-- `ML` for the neural-network detector assets
+The `ML` detector remains available through a local ESPHome build with
+`detection_algorithm: ml`; it is not published as a separate precompiled image.
+`Streamer` is also source-built because its Wi-Fi credentials are supplied at
+build time.
 
 To flash:
 

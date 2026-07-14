@@ -17,7 +17,7 @@ namespace espectre {
 enum class StreamChipType : uint8_t {
   UNKNOWN = 0,
   ESP32 = 1,
-  S2 = 2,
+  RESERVED_LEGACY_S2 = 2,
   S3 = 3,
   C3 = 4,
   C5 = 5,

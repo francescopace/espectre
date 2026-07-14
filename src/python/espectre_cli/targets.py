@@ -23,10 +23,6 @@ ESPHOME_CONFIGS = {
         "dev": REPO_ROOT / "examples" / "espectre-c6-dev.yaml",
         "release": REPO_ROOT / "examples" / "espectre-c6.yaml",
     },
-    "s2": {
-        "dev": REPO_ROOT / "examples" / "espectre-s2-dev.yaml",
-        "release": REPO_ROOT / "examples" / "espectre-s2.yaml",
-    },
     "s3": {
         "dev": REPO_ROOT / "examples" / "espectre-s3-dev.yaml",
         "release": REPO_ROOT / "examples" / "espectre-s3.yaml",

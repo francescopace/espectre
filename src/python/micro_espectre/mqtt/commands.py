@@ -37,8 +37,6 @@ def _normalize_chip_label(chip):
         return "C5"
     if normalized == "ESP32C6":
         return "C6"
-    if normalized == "ESP32S2":
-        return "S2"
     if normalized == "ESP32S3":
         return "S3"
     if normalized == "ESP32":

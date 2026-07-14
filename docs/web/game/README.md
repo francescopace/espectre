@@ -63,7 +63,6 @@ Works with ESP32 variants that support BLE:
 | Chip | Supported |
 |------|-----------|
 | ESP32 (classic) | ✅ |
-| ESP32-S2 | ❌ |
 | ESP32-S3 | ✅ |
 | ESP32-C3 | ✅ |
 | ESP32-C5 | ✅ |

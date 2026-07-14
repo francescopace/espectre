@@ -44,8 +44,8 @@
             </div>
             <h1>Web Flash</h1>
             <p class="flash-subtitle">
-                Select the frontend, release channel, and chip, then flash the
-                matching factory firmware directly from a Chromium-based browser.
+                Select the frontend, release channel, and chip, then flash its
+                published base firmware directly from a Chromium-based browser.
             </p>
         </section>
 
@@ -77,10 +77,6 @@
                         <select id="chip-select"></select>
                     </label>
 
-                    <label id="algorithm-field" class="flash-field">
-                        <span>Detector</span>
-                        <select id="algorithm-select"></select>
-                    </label>
                 </div>
 
                 <div id="flash-summary" class="flash-summary"></div>
@@ -100,17 +96,17 @@
                     <ul class="flash-list">
                         <li>Chrome, Edge, or another Chromium-based browser with Web Serial support.</li>
                         <li>A USB data cable and direct serial access to the board.</li>
-                        <li><code>ESPHome</code> for Home Assistant users, or <code>Matter</code> for controller-based commissioning.</li>
+                        <li><code>ESPHome</code> for Home Assistant, <code>Native</code> for BLE/MQTT, or <code>Matter</code> for controller-based commissioning.</li>
                     </ul>
                 </div>
 
                 <div class="flash-card">
                     <h2>Frontend Notes</h2>
                     <ul class="flash-list">
-                        <li><strong>ESPHome:</strong> after flashing, provision Wi-Fi via BLE, USB, or captive portal and then wait for Home Assistant discovery.</li>
-                        <li><strong>Native:</strong> this is the standalone native frontend. <a href="/game/">The Game</a> is one example of a web integration that uses it over BLE/Web Bluetooth.</li>
+                        <li><strong>ESPHome:</strong> published images use the default Classic detector. After flashing, provision Wi-Fi via BLE, USB, or captive portal and then wait for Home Assistant discovery.</li>
+                        <li><strong>Native:</strong> provision Wi-Fi and MQTT over BLE. <a href="/game/">The Game</a> is one example of a web integration that uses the native BLE surface.</li>
                         <li><strong>Matter:</strong> after flashing, commission the device with a Matter controller.</li>
-                        <li><strong>ESP32-S2:</strong> not available for the current Matter frontend because the implementation relies on BLE commissioning.</li>
+                        <li><strong>Streamer and ESPHome ML:</strong> build locally from source; they are not published as separate binaries.</li>
                     </ul>
                 </div>
 

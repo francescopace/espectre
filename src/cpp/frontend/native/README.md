@@ -60,6 +60,10 @@ flashing, use a BLE client that understands this protocol, such as:
 - [`README.md`](../../../../docs/web/game/README.md):
   example interactive client built on the same BLE surface
 
+Each release and snapshot publishes one full-flash native image per supported
+chip. It includes the BLE, MQTT, and HTTPS OTA runtime capabilities; no separate
+precompiled `-ota.bin` payload is published.
+
 ### Local ESP-IDF Workflow
 
 Before building locally, complete the shared
@@ -225,16 +229,6 @@ Operational model:
 - `ota_check` checks a remote HTTPS manifest
 - `ota_start` downloads an HTTPS application image into the inactive OTA slot
 - successful OTA schedules an immediate reboot into the new slot
-
-Artifact model:
-
-- `factory` images remain the published full-flash binaries used by the browser
-  flasher and manual recovery flows
-- native OTA uses the published `espectre-native-...-ota.bin` payload together
-  with its matching JSON manifest
-
-BLE remains useful for local provisioning and recovery, but native OTA is not a
-BLE-only workflow.
 
 ## Firmware Limits and Expectations
 

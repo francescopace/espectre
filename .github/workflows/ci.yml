@@ -281,9 +281,6 @@ jobs:
           - chip: ESP32
             config: examples/espectre-esp32.yaml
             config_dev: examples/espectre-esp32-dev.yaml
-          - chip: ESP32-S2
-            config: examples/espectre-s2.yaml
-            config_dev: examples/espectre-s2-dev.yaml
           - chip: ESP32-S3
             config: examples/espectre-s3.yaml
             config_dev: examples/espectre-s3-dev.yaml

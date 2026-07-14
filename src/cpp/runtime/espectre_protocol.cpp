@@ -70,7 +70,6 @@ std::string normalize_ble_chip_label(const char *chip) {
   if (normalized == "ESP32C3") return "C3";
   if (normalized == "ESP32C5") return "C5";
   if (normalized == "ESP32C6") return "C6";
-  if (normalized == "ESP32S2") return "S2";
   if (normalized == "ESP32S3") return "S3";
   if (normalized == "ESP32") return "ESP32";
   return normalized.empty() ? "UNK" : normalized;

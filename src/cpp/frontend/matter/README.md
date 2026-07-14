@@ -42,15 +42,15 @@ after flashing or when building locally.
 Start from [`SETUP.md`](../../../../docs/SETUP.md) for the
 shared browser-flash entry point and supported image flow.
 
+Each release and snapshot publishes one full-flash Matter image per supported
+chip. The current Matter frontend does not publish a separate OTA image.
+
 After flashing a Matter image:
 
 1. power-cycle if needed and wait for the device to boot
 2. use a Matter controller that supports BLE commissioning
 3. commission the device into your target fabric
 4. use the standard Matter occupancy surface exposed by the firmware
-
-The current implementation relies on BLE commissioning, so `ESP32-S2` is not
-part of the supported target set.
 
 ### Local ESP-IDF Workflow
 
@@ -208,10 +208,9 @@ Requestor-plus-Provider design rather than a direct firmware download path.
 
 Check these first:
 
-1. the target is not `ESP32-S2`
-2. the controller supports BLE commissioning
-3. the device is uncommissioned or the previous fabric was removed
-4. serial logs show the Matter firmware started successfully
+1. the controller supports BLE commissioning
+2. the device is uncommissioned or the previous fabric was removed
+3. serial logs show the Matter firmware started successfully
 
 ### Commissioning fails and times out
 

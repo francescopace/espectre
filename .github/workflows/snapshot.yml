@@ -48,8 +48,6 @@ jobs:
         include:
           - chip: ESP32
             config: examples/espectre-esp32.yaml
-          - chip: ESP32-S2
-            config: examples/espectre-s2.yaml
           - chip: ESP32-S3
             config: examples/espectre-s3.yaml
           - chip: ESP32-C3
@@ -216,6 +214,11 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
       - name: Download all firmware artifacts
         uses: actions/download-artifact@v8
         with:
@@ -229,7 +232,7 @@ jobs:
       - name: Verify published firmware matrix
         run: |
           expected_count=0
-          for chip in esp32 esp32s2 esp32s3 esp32c3 esp32c5 esp32c6; do
+          for chip in esp32 esp32s3 esp32c3 esp32c5 esp32c6; do
             test -s "firmware/espectre-snapshot-${chip}.bin"
             expected_count=$((expected_count + 1))
           done
@@ -241,6 +244,16 @@ jobs:
           done
           actual_count=$(find firmware -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')
           test "${actual_count}" -eq "${expected_count}"
+
+      - name: Build snapshot firmware manifest
+        run: |
+          python .github/scripts/build_firmware_manifest.py \
+            --firmware-dir firmware \
+            --output firmware/firmware-manifest-snapshot.json \
+            --channel main \
+            --version main \
+            --release-tag snapshot \
+            --commit "${{ github.event.workflow_run.head_sha }}"
 
       - name: Delete existing snapshot release
         run: gh release delete snapshot --yes --cleanup-tag || true
@@ -262,6 +275,7 @@ jobs:
             **Date:** ${{ github.event.workflow_run.created_at }}
           files: |
             firmware/*.bin
+            firmware/*.json
           draft: false
           prerelease: true
           make_latest: false

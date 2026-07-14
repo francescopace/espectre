@@ -388,7 +388,7 @@ def get_chip_type():
     """Extract short chip type from os.uname().machine."""
     machine = os.uname().machine.upper()
     # Check for specific variants first
-    for variant in ['S3', 'S2', 'C3', 'C5', 'C6']:
+    for variant in ['S3', 'C3', 'C5', 'C6']:
         if variant in machine:
             return variant
     # Fallback to ESP32 base

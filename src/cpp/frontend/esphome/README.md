@@ -47,6 +47,10 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 Once Wi-Fi is configured, the device is discovered automatically by Home
 Assistant through ESPHome.
 
+Release and snapshot channels publish one ESPHome base image per supported
+chip, using the default `classic` detector. To use `ml`, build locally with
+`detection_algorithm: ml`; there is no separate precompiled ML image.
+
 ## Integration Surface
 
 The frontend maps runtime state into ESPHome and Home Assistant entities.

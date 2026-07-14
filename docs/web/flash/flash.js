@@ -8,11 +8,6 @@ const CHANNEL_LABELS = {
     main: "Main",
 };
 
-const ALGORITHM_LABELS = {
-    classic: "Classic (default)",
-    ml: "ML",
-};
-
 const state = {
     manifests: {},
     installManifestUrl: null,
@@ -21,8 +16,6 @@ const state = {
 const frontendSelect = document.getElementById("frontend-select");
 const channelSelect = document.getElementById("channel-select");
 const chipSelect = document.getElementById("chip-select");
-const algorithmField = document.getElementById("algorithm-field");
-const algorithmSelect = document.getElementById("algorithm-select");
 const summaryEl = document.getElementById("flash-summary");
 const statusEl = document.getElementById("flash-status");
 const installButton = document.getElementById("install-button");
@@ -76,22 +69,6 @@ function populateChipOptions(artifacts) {
     chips.forEach(([chip, label]) => chipSelect.appendChild(createOption(chip, label)));
 }
 
-function populateAlgorithmOptions(artifacts) {
-    const algorithms = [...new Set(artifacts.map((artifact) => artifact.algorithm).filter(Boolean))];
-    const needsAlgorithm = algorithms.length > 1;
-
-    algorithmField.hidden = !needsAlgorithm;
-    algorithmSelect.innerHTML = "";
-
-    if (!needsAlgorithm) {
-        return;
-    }
-
-    algorithms.forEach((algorithm) => {
-        algorithmSelect.appendChild(createOption(algorithm, ALGORITHM_LABELS[algorithm] || algorithm.toUpperCase()));
-    });
-}
-
 function buildInstallManifest(artifact, manifest) {
     return {
         name: `ESPectre ${artifact.frontend_label || frontendSelect.value.toUpperCase()} ${artifact.chip_label}`,
@@ -113,18 +90,8 @@ function buildInstallManifest(artifact, manifest) {
 function selectArtifact(manifest) {
     const frontend = frontendSelect.value;
     const chip = chipSelect.value;
-    const algorithm = algorithmField.hidden ? null : algorithmSelect.value;
     const artifacts = getArtifacts(manifest, frontend).filter((artifact) => artifact.build_type === "factory");
-
-    return artifacts.find((artifact) => {
-        if (artifact.chip !== chip) {
-            return false;
-        }
-        if (!algorithm) {
-            return artifact.algorithm === null || artifact.algorithm === "classic";
-        }
-        return artifact.algorithm === algorithm;
-    });
+    return artifacts.find((artifact) => artifact.chip === chip);
 }
 
 function renderArtifact(manifest, artifact) {
@@ -144,10 +111,9 @@ function renderArtifact(manifest, artifact) {
     );
     installButton.setAttribute("manifest", state.installManifestUrl);
 
-    const algorithmLabel = artifact.algorithm ? `, ${ALGORITHM_LABELS[artifact.algorithm] || artifact.algorithm}` : "";
     summaryEl.innerHTML = `
         <strong>${artifact.chip_label}</strong><br>
-        ${manifest.frontends[frontendSelect.value].label} · ${CHANNEL_LABELS[manifest.channel]}${algorithmLabel}<br>
+        ${manifest.frontends[frontendSelect.value].label} · ${CHANNEL_LABELS[manifest.channel]}<br>
         Release tag: <code>${manifest.release_tag}</code>
     `;
 
@@ -172,7 +138,6 @@ async function refreshSelections() {
 
         if (frontendArtifacts.length === 0) {
             chipSelect.innerHTML = "";
-            algorithmField.hidden = true;
             renderArtifact(manifest, null);
             return;
         }
@@ -180,13 +145,6 @@ async function refreshSelections() {
         populateChipOptions(frontendArtifacts);
         if ([...chipSelect.options].some((option) => option.value === chipSelect.dataset.selectedValue)) {
             chipSelect.value = chipSelect.dataset.selectedValue;
-        }
-
-        const chipArtifacts = frontendArtifacts.filter((artifact) => artifact.chip === chipSelect.value);
-        populateAlgorithmOptions(chipArtifacts);
-
-        if (!algorithmField.hidden && [...algorithmSelect.options].some((option) => option.value === algorithmSelect.dataset.selectedValue)) {
-            algorithmSelect.value = algorithmSelect.dataset.selectedValue;
         }
 
         renderArtifact(manifest, selectArtifact(manifest));
@@ -201,24 +159,16 @@ async function refreshSelections() {
 
 frontendSelect.addEventListener("change", () => {
     chipSelect.dataset.selectedValue = "";
-    algorithmSelect.dataset.selectedValue = "";
     refreshSelections();
 });
 
 channelSelect.addEventListener("change", () => {
     chipSelect.dataset.selectedValue = "";
-    algorithmSelect.dataset.selectedValue = "";
     refreshSelections();
 });
 
 chipSelect.addEventListener("change", () => {
     chipSelect.dataset.selectedValue = chipSelect.value;
-    algorithmSelect.dataset.selectedValue = "";
-    refreshSelections();
-});
-
-algorithmSelect.addEventListener("change", () => {
-    algorithmSelect.dataset.selectedValue = algorithmSelect.value;
     refreshSelections();
 });
 

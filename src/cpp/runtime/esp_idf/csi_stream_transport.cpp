@@ -87,8 +87,6 @@ StreamChipType detect_chip_code() {
   return StreamChipType::C3;
 #elif CONFIG_IDF_TARGET_ESP32S3
   return StreamChipType::S3;
-#elif CONFIG_IDF_TARGET_ESP32S2
-  return StreamChipType::S2;
 #elif CONFIG_IDF_TARGET_ESP32
   return StreamChipType::ESP32;
 #else
@@ -558,7 +556,7 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
   header->wifi_rx_start_ts_ns = 0U;
   header->channel = sample.rx_ctrl.channel;
   header->rssi_dbm = sample.rx_ctrl.rssi;
-#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || \
+#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || \
     CONFIG_IDF_TARGET_ESP32C2
   header->noise_floor_dbm = sample.rx_ctrl.noise_floor;
 #else

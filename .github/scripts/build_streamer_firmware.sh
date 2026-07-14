@@ -11,13 +11,8 @@ BUILD_DIR="build-${STREAMER_TARGET}"
 DOCKER_IMAGE="${STREAMER_DOCKER_IMAGE:-espressif/idf:release-v5.5}"
 OUTPUT_DIR="$(dirname "${STREAMER_OUTPUT}")"
 STREAMER_OUTPUT_IN_WORK="/work/${STREAMER_OUTPUT#"${REPO_ROOT}"/}"
-STREAMER_OTA_OUTPUT_IN_WORK=""
 STREAMER_SDKCONFIG_DEFAULTS="${STREAMER_SDKCONFIG_DEFAULTS:-}"
 STREAMER_HOME="${REPO_ROOT}/.github/.cache/streamer-home"
-
-if [ -n "${STREAMER_OTA_OUTPUT:-}" ]; then
-  STREAMER_OTA_OUTPUT_IN_WORK="/work/${STREAMER_OTA_OUTPUT#"${REPO_ROOT}"/}"
-fi
 
 mkdir -p "${STREAMER_HOME}" "${OUTPUT_DIR}"
 
@@ -26,7 +21,6 @@ docker run --rm \
   -e HOME="/work/.github/.cache/streamer-home" \
   -e SDKCONFIG_DEFAULTS="${STREAMER_SDKCONFIG_DEFAULTS}" \
   -e STREAMER_OUTPUT="${STREAMER_OUTPUT_IN_WORK}" \
-  -e STREAMER_OTA_OUTPUT="${STREAMER_OTA_OUTPUT_IN_WORK}" \
   -v "${REPO_ROOT}:/work" \
   -w "/work/src/cpp/frontend/streamer/app" \
   "${DOCKER_IMAGE}" \
@@ -54,8 +48,5 @@ docker run --rm \
       python -m esptool --chip ${STREAMER_TARGET} merge-bin --pad-to-size 4MB -o \"\${STREAMER_OUTPUT}\" @flash_args
     else
       python -m esptool --chip ${STREAMER_TARGET} merge_bin --fill-flash-size 4MB -o \"\${STREAMER_OUTPUT}\" @flash_args
-    fi
-    if [ -n \"\${STREAMER_OTA_OUTPUT:-}\" ]; then
-      cp espectre-streamer.bin \"\${STREAMER_OTA_OUTPUT}\"
     fi
   "

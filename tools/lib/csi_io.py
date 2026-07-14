@@ -1566,4 +1566,3 @@ def load_static_presence_and_motion(
             "Collect data using: ./espectre collect --label motion --duration 10"
         )
     return load_npz_as_packets(static_presence_path), load_npz_as_packets(motion_path)
-

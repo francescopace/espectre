@@ -45,9 +45,12 @@ Lights, switches, HVAC devices, appliances, and custom ESP32 products can add mo
 If you want the fastest path, use the browser flasher:
 
 1. Open [espectre.dev/flash](https://espectre.dev/flash/) with a Chromium-based browser
-2. Pick your firmware and ESP32 target
+2. Pick the ESPHome, Native, or Matter base firmware and ESP32 target
 3. Flash the board
 4. Configure Wi-Fi and the remaining parameters by following the on-screen instructions
+
+Published ESPHome images use the default Classic detector. ML firmware and the
+credential-bound Streamer frontend are built locally from source.
 
 Supported hardware:
 
