@@ -386,18 +386,16 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
   TEST_ASSERT_TRUE(frontend.setup());
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_command("{\"command_id\":\"cmd-ota-check\",\"command\":\"ota_check\",\"manifest_url\":\"https://fw.example/manifest.json\"}");
+  mqtt.emit_command("{\"command_id\":\"cmd-ota-check\",\"command\":\"ota_check\"}");
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
-  TEST_ASSERT_EQUAL_STRING("https://fw.example/manifest.json", ota_service_mock::state.last_manifest_url.c_str());
   TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted",
                            mqtt_transport_mock::state.publishes.back().topic.c_str());
 
   mqtt_transport_mock::state.publishes.clear();
-  mqtt.emit_command("{\"command_id\":\"cmd-ota-start\",\"command\":\"ota_start\",\"image_url\":\"https://fw.example/native.bin\",\"version\":\"1.1.0\"}");
+  mqtt.emit_command("{\"command_id\":\"cmd-ota-start\",\"command\":\"ota_start\"}");
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_update_calls);
-  TEST_ASSERT_EQUAL_STRING("https://fw.example/native.bin", ota_service_mock::state.last_image_url.c_str());
-  TEST_ASSERT_EQUAL_STRING("1.1.0", ota_service_mock::state.last_target_version.c_str());
+  TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
 
   mqtt_transport_mock::state.publishes.clear();
   EspectreOtaStatus ota_status;

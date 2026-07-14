@@ -94,6 +94,7 @@ jobs:
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
           find examples/.esphome/build -name "firmware*.bin" -exec cp {} output/ \;
           mv "output/firmware.factory.bin" "output/espectre-snapshot-${CHIP}.bin"
+          mv "output/firmware.ota.bin" "output/espectre-snapshot-${CHIP}-ota.bin"
       
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v7
@@ -194,6 +195,8 @@ jobs:
         env:
           NATIVE_TARGET: ${{ matrix.target }}
           NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-snapshot-${{ matrix.target }}.bin
+          NATIVE_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-native-snapshot-${{ matrix.target }}-ota.bin
+          NATIVE_OTA_SNAPSHOT: 1
 
       - name: Upload native firmware artifact
         uses: actions/upload-artifact@v7
@@ -229,23 +232,7 @@ jobs:
       - name: List firmware files
         run: ls -la firmware/
 
-      - name: Verify published firmware matrix
-        run: |
-          expected_count=0
-          for chip in esp32 esp32s3 esp32c3 esp32c5 esp32c6; do
-            test -s "firmware/espectre-snapshot-${chip}.bin"
-            expected_count=$((expected_count + 1))
-          done
-          for frontend in matter native; do
-            for chip in esp32 esp32c3 esp32c5 esp32c6 esp32s3; do
-              test -s "firmware/espectre-${frontend}-snapshot-${chip}.bin"
-              expected_count=$((expected_count + 1))
-            done
-          done
-          actual_count=$(find firmware -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')
-          test "${actual_count}" -eq "${expected_count}"
-
-      - name: Build snapshot firmware manifest
+      - name: Verify firmware matrix and build snapshot manifests
         run: |
           python .github/scripts/build_firmware_manifest.py \
             --firmware-dir firmware \
@@ -253,7 +240,9 @@ jobs:
             --channel main \
             --version main \
             --release-tag snapshot \
-            --commit "${{ github.event.workflow_run.head_sha }}"
+            --commit "${{ github.event.workflow_run.head_sha }}" \
+            --native-ota-manifest-dir firmware \
+            --require-complete-matrix
 
       - name: Delete existing snapshot release
         run: gh release delete snapshot --yes --cleanup-tag || true
@@ -366,6 +355,7 @@ jobs:
           test -d docs/web/documentation
           test -d docs/web/_pagefind
           test -f docs/web/flash/firmware/main/firmware-manifest-main.json
+          test "$(find docs/web/flash/firmware/main -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
           echo "Web flash Pages build verified!"
 
       - name: Setup Pages

@@ -197,7 +197,9 @@ Use:
 for interactive MQTT inspection and runtime commands. For repository CLI
 behavior, including MQTT shell discovery and selection flow, use
 [CLI.md](../../../docs/CLI.md). Runtime changes made over MQTT are session-only
-unless the device code explicitly persists them.
+unless the device code explicitly persists them. Micro-ESPectre advertises
+`supports_ota: false`; the shared shell may display OTA commands, but this
+frontend rejects them because MicroPython deployment uses its own upload flow.
 
 ## Relevant Paths
 

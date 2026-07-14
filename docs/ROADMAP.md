@@ -58,7 +58,7 @@ ESPectre v3 success criteria:
 - [x] Keep Python long-recording validation green
 - [x] Document multi-frontend setup, architecture, and protocol boundaries
 - [x] Run local firmware smoke tests for ESPHome, native, and Matter C3 release paths
-- [ ] Run hardware flash/monitor smoke tests for the release targets and published base firmware images
+- [ ] Run hardware flash/monitor smoke tests for the release targets and published factory and OTA images
 - [x] Reduce long-recording false-positive caveats on C5/C6
 - [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
 

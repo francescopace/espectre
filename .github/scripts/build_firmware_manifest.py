@@ -2,8 +2,9 @@
 """
 ESPectre - Firmware Manifest Builder
 
-Builds a JSON manifest for published firmware assets so the static web flasher
-can resolve the single published image per frontend, channel, and chip.
+Builds JSON manifests for published firmware assets. The unified manifest
+describes factory and OTA images, while per-chip native OTA manifests provide
+the compact schema consumed directly by the firmware.
 """
 
 from __future__ import annotations
@@ -32,56 +33,107 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--release-tag", required=True, help="GitHub release tag used to download the assets")
     parser.add_argument("--commit", help="Optional source commit SHA for snapshot builds")
     parser.add_argument("--url-prefix", help="Optional URL prefix used instead of GitHub Releases for web firmware assets")
+    parser.add_argument(
+        "--native-ota-manifest-dir",
+        help="Optional directory where per-chip native OTA manifests are written",
+    )
+    parser.add_argument(
+        "--require-complete-matrix",
+        action="store_true",
+        help="Fail unless all 15 factory and 10 OTA images are present",
+    )
     return parser.parse_args()
 
 
-def parse_esphome_asset(filename: str, version_prefix: str) -> dict | None:
+def parse_published_asset(
+    filename: str,
+    version_prefix: str,
+    *,
+    frontend: str,
+    algorithm: str | None,
+    supports_ota: bool,
+) -> dict | None:
     if not filename.startswith(version_prefix) or not filename.endswith(".bin"):
         return None
     suffix = filename.removeprefix(version_prefix).removesuffix(".bin")
-    if not suffix or "-" in suffix:
+    if not suffix:
+        return None
+
+    parts = suffix.split("-")
+    if len(parts) == 1:
+        chip = parts[0]
+        build_type = "factory"
+    elif supports_ota and len(parts) == 2 and parts[1] == "ota":
+        chip = parts[0]
+        build_type = "ota"
+    else:
         return None
 
     return {
-        "frontend": "esphome",
-        "chip": suffix,
-        "algorithm": "classic",
-        "build_type": "factory",
+        "frontend": frontend,
+        "chip": chip,
+        "algorithm": algorithm,
+        "build_type": build_type,
     }
+
+
+def parse_esphome_asset(filename: str, version_prefix: str) -> dict | None:
+    return parse_published_asset(
+        filename,
+        version_prefix,
+        frontend="esphome",
+        algorithm="classic",
+        supports_ota=True,
+    )
 
 
 def parse_matter_asset(filename: str, version_prefix: str) -> dict | None:
-    if not filename.startswith(version_prefix) or not filename.endswith(".bin"):
-        return None
-    suffix = filename.removeprefix(version_prefix).removesuffix(".bin")
-    if not suffix or "-" in suffix:
-        return None
-    return {
-        "frontend": "matter",
-        "chip": suffix,
-        "algorithm": None,
-        "build_type": "factory",
-    }
+    return parse_published_asset(
+        filename,
+        version_prefix,
+        frontend="matter",
+        algorithm=None,
+        supports_ota=False,
+    )
 
 
 def parse_native_asset(filename: str, version_prefix: str) -> dict | None:
-    if not filename.startswith(version_prefix) or not filename.endswith(".bin"):
-        return None
-    suffix = filename.removeprefix(version_prefix).removesuffix(".bin")
-    if not suffix or "-" in suffix:
-        return None
-    return {
-        "frontend": "native",
-        "chip": suffix,
-        "algorithm": None,
-        "build_type": "factory",
-    }
+    return parse_published_asset(
+        filename,
+        version_prefix,
+        frontend="native",
+        algorithm=None,
+        supports_ota=True,
+    )
 
 
 def build_artifact_url(filename: str, release_tag: str, url_prefix: str | None) -> str:
     if url_prefix:
         return f"{url_prefix.rstrip('/')}/{filename}"
     return f"https://github.com/francescopace/espectre/releases/download/{release_tag}/{filename}"
+
+
+def validate_complete_matrix(manifest: dict) -> None:
+    expected = set()
+    for chip in CHIP_METADATA:
+        expected.add(("matter", chip, "factory"))
+        for frontend in ("esphome", "native"):
+            expected.add((frontend, chip, "factory"))
+            expected.add((frontend, chip, "ota"))
+
+    entries = [
+        (frontend, artifact["chip"], artifact["build_type"])
+        for frontend, metadata in manifest["frontends"].items()
+        for artifact in metadata["artifacts"]
+    ]
+    actual = set(entries)
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    if missing or unexpected or len(entries) != len(actual):
+        raise ValueError(
+            f"Invalid firmware matrix: missing={missing}, unexpected={unexpected}, "
+            f"duplicates={len(entries) - len(actual)}"
+        )
 
 
 def build_manifest(args: argparse.Namespace) -> dict:
@@ -153,14 +205,39 @@ def build_manifest(args: argparse.Namespace) -> dict:
         }
         manifest["frontends"][parsed["frontend"]]["artifacts"].append(artifact)
 
+    if getattr(args, "require_complete_matrix", False):
+        validate_complete_matrix(manifest)
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 
 
+def build_native_ota_manifests(manifest: dict, output_dir: Path) -> list[Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for artifact in manifest["frontends"]["native"]["artifacts"]:
+        if artifact["build_type"] != "ota":
+            continue
+        payload = {
+            "schema_version": 1,
+            "frontend": "native",
+            "chip": artifact["chip"],
+            "version": manifest["version"],
+            "release_tag": manifest["release_tag"],
+            "image_url": artifact["url"],
+        }
+        path = output_dir / f"espectre-native-ota-{artifact['chip']}.json"
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        paths.append(path)
+    return paths
+
+
 def main() -> int:
     args = parse_args()
-    build_manifest(args)
+    manifest = build_manifest(args)
+    if args.native_ota_manifest_dir:
+        build_native_ota_manifests(manifest, Path(args.native_ota_manifest_dir))
     return 0
 
 

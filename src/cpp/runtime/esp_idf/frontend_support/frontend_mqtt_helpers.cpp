@@ -150,16 +150,12 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     }
 
     if (result.command.command == "ota_check") {
-      result.accepted = result.command.has_manifest_url &&
-                        ota_service->start_check(result.command.manifest_url, normalized_current_version);
+      result.accepted = ota_service->start_check(normalized_current_version);
       result.message = result.accepted ? "ota check started" : "ota check rejected";
       return result;
     }
 
-    result.accepted = ota_service->start_update(result.command.has_manifest_url ? result.command.manifest_url : "",
-                                                result.command.has_image_url ? result.command.image_url : "",
-                                                result.command.has_version ? result.command.version : "",
-                                                normalized_current_version);
+    result.accepted = ota_service->start_update(normalized_current_version);
     result.message = result.accepted ? "ota update started" : "ota update rejected";
     return result;
   }

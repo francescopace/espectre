@@ -23,3 +23,10 @@ idf_component_register(
         mbedtls
         nvs_flash
 )
+
+if("$ENV{NATIVE_OTA_SNAPSHOT}" STREQUAL "1")
+    target_compile_definitions(
+        ${COMPONENT_LIB}
+        PRIVATE ESPECTRE_OTA_SNAPSHOT_BUILD=1
+    )
+endif()

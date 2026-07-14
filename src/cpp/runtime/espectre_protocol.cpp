@@ -380,25 +380,11 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
       return false;
     }
     parsed.has_threshold = true;
-  } else if (parsed.command == "ota_check") {
-    parsed.manifest_url = extract_json_string(payload, "manifest_url");
-    parsed.has_manifest_url = !parsed.manifest_url.empty();
-    if (!parsed.has_manifest_url) {
+  } else if (parsed.command == "ota_check" || parsed.command == "ota_start") {
+    if (has_json_key(payload, "manifest_url") || has_json_key(payload, "image_url") ||
+        has_json_key(payload, "version")) {
       if (error != nullptr) {
-        *error = "missing manifest_url";
-      }
-      return false;
-    }
-  } else if (parsed.command == "ota_start") {
-    parsed.manifest_url = extract_json_string(payload, "manifest_url");
-    parsed.has_manifest_url = !parsed.manifest_url.empty();
-    parsed.image_url = extract_json_string(payload, "image_url");
-    parsed.has_image_url = !parsed.image_url.empty();
-    parsed.version = extract_json_string(payload, "version");
-    parsed.has_version = !parsed.version.empty();
-    if (!parsed.has_manifest_url && !parsed.has_image_url) {
-      if (error != nullptr) {
-        *error = "missing manifest_url or image_url";
+        *error = "ota overrides are not supported";
       }
       return false;
     }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "freertos/FreeRTOS.h"
@@ -9,18 +10,20 @@
 
 namespace espectre {
 
+enum class OtaReleaseChannel : uint8_t {
+  STABLE = 0,
+  SNAPSHOT,
+};
+
 class HttpsOtaService : public IOtaService {
  public:
-  HttpsOtaService() = default;
+  HttpsOtaService(const char *frontend, const char *chip, OtaReleaseChannel channel);
   ~HttpsOtaService() override;
 
   void loop() override {}
   void shutdown() override;
-  bool start_check(const std::string &manifest_url, const std::string &current_version) override;
-  bool start_update(const std::string &manifest_url,
-                    const std::string &image_url,
-                    const std::string &target_version,
-                    const std::string &current_version) override;
+  bool start_check(const std::string &current_version) override;
+  bool start_update(const std::string &current_version) override;
   EspectreOtaStatus status() const override;
   void set_status_callback(StatusCallback callback) override;
   void set_prepare_for_update_callback(PrepareForUpdateCallback callback) override;
@@ -33,9 +36,6 @@ class HttpsOtaService : public IOtaService {
 
   struct WorkerRequest {
     WorkerAction action{WorkerAction::CHECK};
-    std::string manifest_url;
-    std::string image_url;
-    std::string target_version;
     std::string current_version;
   };
 
@@ -67,6 +67,7 @@ class HttpsOtaService : public IOtaService {
   StatusCallback status_callback_{};
   PrepareForUpdateCallback prepare_for_update_callback_{};
   EspectreOtaStatus status_{};
+  std::string manifest_url_{};
 };
 
 }  // namespace espectre

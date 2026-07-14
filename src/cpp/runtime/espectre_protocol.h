@@ -50,12 +50,6 @@ struct EspectreCommand {
   std::string command;
   float threshold{0.0f};
   bool has_threshold{false};
-  std::string manifest_url;
-  bool has_manifest_url{false};
-  std::string image_url;
-  bool has_image_url{false};
-  std::string version;
-  bool has_version{false};
 };
 
 enum class EspectreOtaState : uint8_t {

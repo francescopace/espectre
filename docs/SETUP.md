@@ -192,14 +192,24 @@ Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 - the firmware channel
 - your target chip
 
-Release and snapshot publishing provide one base image for each supported chip
-on the `ESPHome`, `Native`, and `Matter` frontends. The published `ESPHome`
-image uses the default `Classic` detector.
+Release and snapshot publishing provide one full-flash image for each supported
+chip on the `ESPHome`, `Native`, and `Matter` frontends. GitHub Releases also
+provide application-only OTA payloads for ESPHome and Native. GitHub Pages
+stages only the full-flash images used by the browser flasher. The published
+`ESPHome` image uses the default `Classic` detector.
 
 The `ML` detector remains available through a local ESPHome build with
 `detection_algorithm: ml`; it is not published as a separate precompiled image.
 `Streamer` is also source-built because its Wi-Fi credentials are supplied at
 build time.
+
+| Publication surface | Full-flash images | OTA payloads | Manifests |
+|---------------------|------------------:|-------------:|-----------|
+| GitHub Release or snapshot | 15 | 10 | unified manifest plus 5 Native per-chip OTA manifests |
+| GitHub Pages | 15 | 0 | factory-only web-flash manifest |
+
+The OTA payloads are five ESPHome and five Native application binaries. Matter
+does not use this OTA flow, and Streamer firmware is not published.
 
 To flash:
 

@@ -697,20 +697,6 @@
                         </div>
                     </div>
                 </div>
-                <div class="ota-grid" id="otaSectionBody" style="display: none;">
-                    <div class="input-group">
-                        <label for="otaManifestUrl">Manifest URL</label>
-                        <input type="text" id="otaManifestUrl" placeholder="https://example.invalid/native-application.json">
-                    </div>
-                    <div class="input-group">
-                        <label for="otaImageUrl">Image URL (optional)</label>
-                        <input type="text" id="otaImageUrl" placeholder="https://example.invalid/native-application.bin">
-                    </div>
-                    <div class="input-group">
-                        <label for="otaTargetVersion">Target Version (optional)</label>
-                        <input type="text" id="otaTargetVersion" placeholder="3.0.0">
-                    </div>
-                </div>
                 <div
                     id="firmwareUpgradeActions"
                     style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; padding-top: 10px; border-top: 2px solid #e0e0e0; margin-top: 15px;">
@@ -1241,10 +1227,6 @@
 
         function setOtaControlsVisibility(supported) {
             const enabled = supported === true;
-            const otaSectionBody = document.getElementById('otaSectionBody');
-            if (otaSectionBody) {
-                otaSectionBody.style.display = enabled ? 'grid' : 'none';
-            }
             document.querySelectorAll('.ota-action').forEach((button) => {
                 button.style.display = enabled ? 'inline-block' : 'none';
             });
@@ -1361,29 +1343,11 @@
         }
 
         function requestOtaCheck() {
-            const manifestUrl = document.getElementById('otaManifestUrl').value.trim();
-            if (!manifestUrl) {
-                showNotification('Manifest URL is required for OTA check', 'error');
-                return;
-            }
-            sendCommand('ota_check', { manifest_url: manifestUrl });
+            sendCommand('ota_check');
         }
 
         function requestOtaStart() {
-            const manifestUrl = document.getElementById('otaManifestUrl').value.trim();
-            const imageUrl = document.getElementById('otaImageUrl').value.trim();
-            const version = document.getElementById('otaTargetVersion').value.trim();
-
-            if (!manifestUrl && !imageUrl) {
-                showNotification('Manifest URL or image URL is required for OTA start', 'error');
-                return;
-            }
-
-            const params = {};
-            if (manifestUrl) params.manifest_url = manifestUrl;
-            if (imageUrl) params.image_url = imageUrl;
-            if (version) params.version = version;
-            sendCommand('ota_start', params);
+            sendCommand('ota_start');
         }
 
         // Section Toggle Function
@@ -1760,16 +1724,6 @@
                 data.update_available === undefined ? '-' : (data.update_available ? 'Yes' : 'No')
             );
             setOtaValue('otaMessageValue', data.message);
-
-            if (data.manifest_url) {
-                document.getElementById('otaManifestUrl').value = data.manifest_url;
-            }
-            if (data.image_url) {
-                document.getElementById('otaImageUrl').value = data.image_url;
-            }
-            if (data.target_version) {
-                document.getElementById('otaTargetVersion').value = data.target_version;
-            }
 
             if (state && state !== '-' && state !== lastOtaState) {
                 lastOtaState = state;

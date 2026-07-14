@@ -64,6 +64,7 @@ jobs:
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
           find examples/.esphome/build -name "firmware*.bin" -exec cp {} output/ \;
           mv "output/firmware.factory.bin" "output/espectre-${VERSION}-${CHIP}.bin"
+          mv "output/firmware.ota.bin" "output/espectre-${VERSION}-${CHIP}-ota.bin"
       
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v7
@@ -156,6 +157,7 @@ jobs:
         env:
           NATIVE_TARGET: ${{ matrix.target }}
           NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-${{ github.ref_name }}-${{ matrix.target }}.bin
+          NATIVE_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-native-${{ github.ref_name }}-${{ matrix.target }}-ota.bin
 
       - name: Upload native firmware artifact
         uses: actions/upload-artifact@v7
@@ -190,31 +192,16 @@ jobs:
       - name: List firmware files
         run: ls -la firmware/
 
-      - name: Verify published firmware matrix
-        run: |
-          VERSION="${GITHUB_REF_NAME}"
-          expected_count=0
-          for chip in esp32 esp32s3 esp32c3 esp32c5 esp32c6; do
-            test -s "firmware/espectre-${VERSION}-${chip}.bin"
-            expected_count=$((expected_count + 1))
-          done
-          for frontend in matter native; do
-            for chip in esp32 esp32c3 esp32c5 esp32c6 esp32s3; do
-              test -s "firmware/espectre-${frontend}-${VERSION}-${chip}.bin"
-              expected_count=$((expected_count + 1))
-            done
-          done
-          actual_count=$(find firmware -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')
-          test "${actual_count}" -eq "${expected_count}"
-
-      - name: Build release firmware manifest
+      - name: Verify firmware matrix and build release manifests
         run: |
           python .github/scripts/build_firmware_manifest.py \
             --firmware-dir firmware \
             --output "firmware/firmware-manifest-${GITHUB_REF_NAME}.json" \
             --channel stable \
             --version "${GITHUB_REF_NAME}" \
-            --release-tag "${GITHUB_REF_NAME}"
+            --release-tag "${GITHUB_REF_NAME}" \
+            --native-ota-manifest-dir firmware \
+            --require-complete-matrix
 
       - name: Extract release notes from CHANGELOG
         id: changelog
@@ -366,6 +353,7 @@ jobs:
           test -d docs/web/documentation
           test -d docs/web/_pagefind
           test -f docs/web/flash/firmware/stable/firmware-manifest-stable.json
+          test "$(find docs/web/flash/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
           echo "Web flash Pages build verified!"
 
       - name: Setup Pages

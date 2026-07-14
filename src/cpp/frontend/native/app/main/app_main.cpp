@@ -33,6 +33,12 @@ static const char *TAG = "espectre.native.app";
 
 namespace {
 
+#ifdef ESPECTRE_OTA_SNAPSHOT_BUILD
+constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseChannel::SNAPSHOT;
+#else
+constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseChannel::STABLE;
+#endif
+
 constexpr int kWifiConnectMaxRetry = 8;
 
 espectre::NativeFrontend *g_frontend = nullptr;
@@ -158,7 +164,7 @@ extern "C" void app_main() {
   static espectre::NoopBleBindings bindings;
 #endif
   static espectre::EspIdfMqttTransport mqtt_transport;
-  static espectre::HttpsOtaService ota_service;
+  static espectre::HttpsOtaService ota_service("native", CONFIG_IDF_TARGET, kOtaReleaseChannel);
   static espectre::NativeFrontend frontend(&bindings, &mqtt_transport, &ota_service);
   frontend.set_runtime_config(make_runtime_config());
   frontend.set_device_config(make_device_config());

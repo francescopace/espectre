@@ -71,6 +71,9 @@ class EspectreMQTTShell:
             "set_threshold": None,
             "info": None,
             "stats": None,
+            "ota_status": None,
+            "ota_check": None,
+            "ota_start": None,
             "clear": None,
             "help": None,
             "exit": None,
@@ -318,6 +321,12 @@ class EspectreMQTTShell:
                 self.send_command({"command": "info"})
             elif cmd in ["stats", "s"]:
                 self.send_command({"command": "stats"})
+            elif cmd in ["ota_status", "os"]:
+                self.send_command({"command": "ota_status"})
+            elif cmd in ["ota_check", "oc"]:
+                self.cmd_ota_check(args)
+            elif cmd in ["ota_start", "ou"]:
+                self.cmd_ota_start(args)
             else:
                 print(f"{Fore.RED}Unknown command: {cmd}{Style.RESET_ALL}")
         except Exception as e:
@@ -328,6 +337,18 @@ class EspectreMQTTShell:
             print(f"{Fore.RED}Usage: set_threshold <threshold>{Style.RESET_ALL}")
             return
         self.send_command({"command": "set_threshold", "threshold": float(args[0])})
+
+    def cmd_ota_check(self, args):
+        if args:
+            print(f"{Fore.RED}Usage: ota_check{Style.RESET_ALL}")
+            return
+        self.send_command({"command": "ota_check"})
+
+    def cmd_ota_start(self, args):
+        if args:
+            print(f"{Fore.RED}Usage: ota_start{Style.RESET_ALL}")
+            return
+        self.send_command({"command": "ota_start"})
 
     def show_help(self):
         help_text = HTML(
@@ -340,6 +361,9 @@ class EspectreMQTTShell:
 <ansiyellow><b>System Commands:</b></ansiyellow>
   <ansigreen>info|i</ansigreen>                              Show current configuration
   <ansigreen>stats|s</ansigreen>                             Show runtime statistics (memory, loop time)
+  <ansigreen>ota_status|os</ansigreen>                       Show OTA state
+  <ansigreen>ota_check|oc</ansigreen>                        Check GitHub Releases for an update
+  <ansigreen>ota_start|ou</ansigreen>                        Install the update from GitHub Releases
 
 <ansiyellow><b>Utility Commands:</b></ansiyellow>
   <ansigreen>webui|web</ansigreen>                           Open the MQTT web UI

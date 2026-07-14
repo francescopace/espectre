@@ -49,6 +49,15 @@ void append_json_pair(std::string *out, const char *key, const char *value, bool
   append_json_string(out, value);
 }
 
+bool has_json_key(const std::string &payload, const char *key) {
+  if (key == nullptr || key[0] == '\0') {
+    return false;
+  }
+  const std::string needle = std::string("\"") + key + "\"";
+  const size_t key_pos = payload.find(needle);
+  return key_pos != std::string::npos && payload.find(':', key_pos + needle.size()) != std::string::npos;
+}
+
 std::string extract_json_string(const std::string &payload, const char *key) {
   if (key == nullptr || key[0] == '\0') {
     return {};

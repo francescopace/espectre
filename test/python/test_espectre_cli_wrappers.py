@@ -982,6 +982,11 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     shell.process_input("info")
     shell.process_input("stats")
     shell.process_input("set_threshold 3.25")
+    shell.process_input("ota_status")
+    shell.process_input("ota_check")
+    shell.process_input("ota_start")
+    shell.process_input("ota_check unexpected")
+    shell.process_input("ota_start unexpected")
     shell.process_input("webui")
     shell.process_input("clear")
     shell.process_input("help")
@@ -994,6 +999,9 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     assert client.published[1] == (shell.topic_cmd, '{"command": "info"}')
     assert client.published[2] == (shell.topic_cmd, '{"command": "stats"}')
     assert client.published[3] == (shell.topic_cmd, '{"command": "set_threshold", "threshold": 3.25}')
+    assert client.published[4] == (shell.topic_cmd, '{"command": "ota_status"}')
+    assert client.published[5] == (shell.topic_cmd, '{"command": "ota_check"}')
+    assert client.published[6] == (shell.topic_cmd, '{"command": "ota_start"}')
     assert opened == ["web"]
     assert cleared == ["clear"]
     assert rendered
@@ -1001,6 +1009,8 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     assert "Error parsing message" in captured
     assert "Error sending command" in captured
     assert "Unknown command: unknown" in captured
+    assert "Usage: ota_check" in captured
+    assert "Usage: ota_start" in captured
     assert shell.running is False
 
 

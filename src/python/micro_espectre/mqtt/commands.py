@@ -164,6 +164,8 @@ class MQTTCommands:
             "frontend": "micro",
             "firmware_version": "micropython",
             "chip": chip,
+            "supports_runtime_threshold": True,
+            "supports_ota": False,
             "network": {
                 "ip_address": ip_address,
                 "mac_address": mac_address,

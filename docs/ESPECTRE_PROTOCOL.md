@@ -129,6 +129,7 @@ espectre/v1/devices/{device_id}/info
   "frontend": "native",
   "firmware_version": "1.2.3",
   "chip": "esp32c6",
+  "supports_ota": true,
   "network": {
     "ip_address": "192.168.1.28",
     "mac_address": "7C:2C:67:42:BB:AC",
@@ -187,28 +188,32 @@ Set threshold:
 }
 ```
 
-Request OTA manifest check:
+Request an OTA manifest check using the firmware's built-in release URL:
 
 ```json
 {
   "protocol_version": "1.0",
   "command_id": "cmd-ota-check",
-  "command": "ota_check",
-  "manifest_url": "https://example.invalid/native-application.json"
+  "command": "ota_check"
 }
 ```
 
-Start OTA directly from an image URL:
+Start OTA using the built-in manifest:
 
 ```json
 {
   "protocol_version": "1.0",
   "command_id": "cmd-ota-start",
-  "command": "ota_start",
-  "image_url": "https://example.invalid/native-application.bin",
-  "version": "1.2.3"
+  "command": "ota_start"
 }
 ```
+
+Native firmware embeds a per-chip GitHub Releases manifest URL. OTA commands do
+not accept server, manifest, image, or version parameters; payloads containing
+those overrides are rejected. Stable firmware is pinned to the latest release
+channel, and snapshot firmware is pinned to the rolling snapshot release.
+Frontends advertise support through `supports_ota`; Micro-ESPectre does not
+implement OTA commands.
 
 Publish OTA state on:
 
@@ -226,8 +231,8 @@ espectre/v1/devices/{device_id}/ota/state
   "update_available": true,
   "current_version": "1.2.2",
   "target_version": "1.2.3",
-  "manifest_url": "https://example.invalid/native-application.json",
-  "image_url": "https://example.invalid/native-application.bin",
+  "manifest_url": "https://github.com/francescopace/espectre/releases/latest/download/espectre-native-ota-esp32c6.json",
+  "image_url": "https://github.com/francescopace/espectre/releases/download/1.2.3/espectre-native-1.2.3-esp32c6-ota.bin",
   "message": "update available"
 }
 ```

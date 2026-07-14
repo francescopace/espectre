@@ -198,6 +198,20 @@ Examples:
 ./espectre mqtt --broker 192.168.1.20 --device-id native-lab
 ```
 
+The interactive shell also exposes the Native OTA commands:
+
+```text
+ota_status
+ota_check
+ota_start
+```
+
+Stable Native firmware always uses its built-in latest-release GitHub manifest,
+while snapshot firmware always uses the rolling snapshot manifest. The command
+surface does not accept server, manifest, image, or version overrides. Frontends
+that report `supports_ota: false`, including Micro-ESPectre, reject these
+commands.
+
 ### `ui`
 
 `ui` opens local browser tools bundled with the repository.

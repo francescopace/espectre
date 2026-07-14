@@ -202,21 +202,11 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_TRUE(command.has_threshold);
   TEST_ASSERT_EQUAL_FLOAT(2.5f, command.threshold);
 
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x3\",\"command\":\"ota_check\",\"manifest_url\":\"https://fw.example/manifest.json\"}",
-                                          &command,
-                                          &error));
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x3\",\"command\":\"ota_check\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota_check", command.command.c_str());
-  TEST_ASSERT_TRUE(command.has_manifest_url);
-  TEST_ASSERT_EQUAL_STRING("https://fw.example/manifest.json", command.manifest_url.c_str());
 
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x4\",\"command\":\"ota_start\",\"image_url\":\"https://fw.example/native.bin\",\"version\":\"2026.7.3\"}",
-                                          &command,
-                                          &error));
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x4\",\"command\":\"ota_start\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota_start", command.command.c_str());
-  TEST_ASSERT_TRUE(command.has_image_url);
-  TEST_ASSERT_TRUE(command.has_version);
-  TEST_ASSERT_EQUAL_STRING("https://fw.example/native.bin", command.image_url.c_str());
-  TEST_ASSERT_EQUAL_STRING("2026.7.3", command.version.c_str());
 }
 
 void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(void) {
@@ -233,11 +223,17 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":1e999}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid threshold", error.c_str());
 
-  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"ota_check\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("missing manifest_url", error.c_str());
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"command\":\"ota_check\"}", &command, &error));
 
-  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"ota_start\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("missing manifest_url or image_url", error.c_str());
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"command\":\"ota_start\"}", &command, &error));
+
+  TEST_ASSERT_FALSE(parse_espectre_command(
+      "{\"command\":\"ota_start\",\"image_url\":\"https://fw.example/native.bin\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("ota overrides are not supported", error.c_str());
+
+  TEST_ASSERT_FALSE(
+      parse_espectre_command("{\"command\":\"ota_check\",\"manifest_url\":\"\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("ota overrides are not supported", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"info\"}", nullptr, &error));
 }

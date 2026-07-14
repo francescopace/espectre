@@ -603,6 +603,8 @@ class TestMQTTCommands:
         assert 'detection' in payload
         assert payload['device_name'] == 'ESPectre C6 device'
         assert payload['device_label'] == ''
+        assert payload['supports_runtime_threshold'] is True
+        assert payload['supports_ota'] is False
         assert 'device' not in payload
         assert 'mqtt' not in payload
         assert 'subcarriers' not in payload

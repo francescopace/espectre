@@ -60,9 +60,11 @@ flashing, use a BLE client that understands this protocol, such as:
 - [`README.md`](../../../../docs/web/game/README.md):
   example interactive client built on the same BLE surface
 
-Each release and snapshot publishes one full-flash native image per supported
-chip. It includes the BLE, MQTT, and HTTPS OTA runtime capabilities; no separate
-precompiled `-ota.bin` payload is published.
+Each release and snapshot publishes one full-flash native image and one
+application-only OTA payload per supported chip. Both contain the same
+application features; the smaller `-ota.bin` file omits the bootloader,
+partition table, and other full-flash regions required only for USB recovery.
+GitHub Pages stages only the full-flash image for the browser flasher.
 
 ### Local ESP-IDF Workflow
 
@@ -226,9 +228,16 @@ ESP-IDF HTTPS OTA implementation.
 Operational model:
 
 - MQTT remains the command plane
-- `ota_check` checks a remote HTTPS manifest
-- `ota_start` downloads an HTTPS application image into the inactive OTA slot
+- `ota_check` checks the per-chip manifest embedded as a GitHub Releases URL
+- `ota_start` resolves that manifest and downloads the application image into
+  the inactive OTA slot
+- MQTT clients cannot override the server, manifest, image, or target version
 - successful OTA schedules an immediate reboot into the new slot
+
+Stable builds use the latest GitHub release manifest by default. Snapshot
+builds use the rolling `snapshot` release. The manifest filename is
+`espectre-native-ota-<chip>.json`, and its `image_url` points to the matching
+versioned `-ota.bin` release asset.
 
 ## Firmware Limits and Expectations
 

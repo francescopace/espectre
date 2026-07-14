@@ -143,6 +143,7 @@ jobs:
           test -d docs/web/_pagefind
           if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
             test -f docs/web/flash/firmware/stable/firmware-manifest-stable.json
+            test "$(find docs/web/flash/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
           fi
           echo "Documentation build verified!"
       

@@ -9,6 +9,7 @@ directory and writes a manifest whose URLs resolve under the same origin.
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 from pathlib import Path
 
@@ -38,7 +39,8 @@ def referenced_filenames(manifest: dict) -> set[str]:
     filenames: set[str] = set()
     for frontend in manifest["frontends"].values():
         for artifact in frontend["artifacts"]:
-            filenames.add(artifact["filename"])
+            if artifact["build_type"] == "factory":
+                filenames.add(artifact["filename"])
     return filenames
 
 
@@ -60,6 +62,12 @@ def stage_web_firmware(args: argparse.Namespace) -> Path:
             url_prefix=args.url_prefix,
         )
     )
+
+    for frontend in manifest["frontends"].values():
+        frontend["artifacts"] = [
+            artifact for artifact in frontend["artifacts"] if artifact["build_type"] == "factory"
+        ]
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     for filename in sorted(referenced_filenames(manifest)):
         shutil.copy2(firmware_dir / filename, output_dir / filename)
