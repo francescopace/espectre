@@ -345,7 +345,7 @@ The table below summarizes a standalone streamer transport benchmark snapshot on
 `ESP32-C3`, recorded on `2026-07-03` near commit `7d96792`. It was measured
 with collector-driven UDP target traffic and host-side receive stats over `4 s`
 windows. Broader project performance metrics live in
-[`PERFORMANCE.md`](../../../../docs/PERFORMANCE.md).
+[`docs/performance`](../../../../docs/performance/README.md).
 
 Benchmark firmware profile:
 

@@ -22,9 +22,10 @@ Two detectors run on-device:
 - `classic`, the default signal-processing detector with adaptive startup calibration
 - `ml`, a project-trained neural model with open weights, open data, and an open-source training pipeline
 
-For the signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md).  
-For benchmarks and current caveats, see [PERFORMANCE.md](docs/PERFORMANCE.md).  
-For the ML workflow, training process, and model export path, see [ML_TRAINING.md](docs/ML_TRAINING.md).
+For the signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md). For
+the ML workflow, training process, and model export path, see
+[ML_TRAINING.md](docs/ML_TRAINING.md). For benchmarks and current caveats, see
+[docs/performance](docs/performance/README.md).
 
 ## Why It Matters
 
@@ -159,7 +160,7 @@ Use ESPectre only in spaces where you have the right to deploy it, inform affect
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Internal architecture, SDK-oriented reuse, and web orchestration direction |
 | [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) | Shared BLE/MQTT protocol, payloads, commands, and privacy boundary |
 | [ALGORITHMS.md](docs/ALGORITHMS.md) | CSI theory, detectors, filters, and feature extraction |
-| [PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks, validation targets, resource usage, and caveats |
+| [README.md](docs/performance/README.md) | Benchmarks, validation targets, resource usage, and caveats |
 | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md) | Dataset collection workflow for contributors |
 | [ML_TRAINING.md](docs/ML_TRAINING.md) | Training, validation, and model export workflow |
 | [ROADMAP.md](docs/ROADMAP.md) | Release direction from v3 platform work to v4 web orchestration |

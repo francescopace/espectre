@@ -43,7 +43,7 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 - **Recall**: >95% for all chips (detect motion in motion datasets)
 - **FP Rate**: <5% for all chips (avoid false alarms)
 
-See [PERFORMANCE.md](../../docs/PERFORMANCE.md) for detailed targets per chip and algorithm.
+See [docs/performance](../../docs/performance/README.md) for detailed targets per chip and algorithm.
 
 ---
 

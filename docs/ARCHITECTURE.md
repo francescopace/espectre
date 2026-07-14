@@ -219,8 +219,8 @@ Implemented today:
 For performance and detector behavior, continue in:
 
 - [`ALGORITHMS.md`](ALGORITHMS.md)
-- [`PERFORMANCE.md`](PERFORMANCE.md)
 - [`TUNING.md`](TUNING.md)
+- [`docs/performance`](performance/README.md)
 
 ## Recommended Reading Order
 

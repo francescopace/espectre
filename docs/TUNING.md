@@ -309,6 +309,14 @@ Use a `DEBUG` build when comparing firmware variants. Record the binary size
 and free application-partition space from the build summary, then monitor the
 device for several minutes after startup has settled.
 
+For the repository hardware benchmark, connect one supported board and run
+`python tools/benchmark_firmware.py --chip <chip>`. It tests the ESPHome Dev and
+Native Debug frontends with both `classic` and `ml`, then writes the generated
+chip report under `docs/performance/`. The Classic build starts clean for each
+frontend, and the following ML build reuses its build directory. The ML build
+runs concurrently with Classic monitoring; firmware flashes and monitoring
+windows remain ordered and do not overlap.
+
 The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10
 seconds at `DEBUG` level. Check that:
 
@@ -338,6 +346,6 @@ traffic rate, and log level.
 - [`README.md`](../README.md)
 - [`SETUP.md`](SETUP.md)
 - [`ALGORITHMS.md`](ALGORITHMS.md)
-- [`PERFORMANCE.md`](PERFORMANCE.md)
 - [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`docs/performance`](performance/README.md)
 - the README of your selected frontend

@@ -5,10 +5,11 @@ Shared performance-report helpers for tests and tooling.
 from __future__ import annotations
 
 import json
+import time
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, Optional, Sequence
 
 import numpy as np
 
@@ -32,7 +33,7 @@ from tools.lib.csi_io import load_npz_as_packets
 
 
 DATA_DIR = data_dir()
-PERFORMANCE_DOC_PATH = repo_root() / "docs" / "PERFORMANCE.md"
+PERFORMANCE_DOC_PATH = repo_root() / "docs" / "performance" / "README.md"
 KEY_RUNTIME_FEATURE_GATES = {
     "turb_mad_over_mean": 0.5,
     "turb_autocorr": 0.5,
@@ -69,6 +70,24 @@ PAIRED_CHIP_LABELS = {
     "C6": "ESP32-C6",
     "S3": "ESP32-S3",
 }
+
+ProgressCallback = Callable[[str], None]
+ExecutionInfo = Dict[str, Any]
+
+
+def _emit_progress(progress: Optional[ProgressCallback], message: str) -> None:
+    if progress is not None:
+        progress(message)
+
+
+def _format_progress_duration(seconds: float) -> str:
+    if seconds < 60.0:
+        return f"{seconds:.2f}s"
+    minutes, remaining_seconds = divmod(seconds, 60.0)
+    if minutes < 60.0:
+        return f"{int(minutes)}m {remaining_seconds:.2f}s"
+    hours, remaining_minutes = divmod(minutes, 60.0)
+    return f"{int(hours)}h {int(remaining_minutes)}m {remaining_seconds:.2f}s"
 
 
 def _load_dataset_info() -> Dict[str, Any]:
@@ -595,12 +614,18 @@ def _average_detector_metrics(entries: Sequence[Dict[str, float]]) -> Optional[D
     }
 
 
-def compute_performance_report_data() -> Dict[str, Dict[str, Dict[str, Dict[str, float]]]]:
-    """Compute all metrics published in docs/PERFORMANCE.md."""
+def compute_performance_report_data(
+    progress: Optional[ProgressCallback] = None,
+) -> Dict[str, Dict[str, Dict[str, Dict[str, float]]]]:
+    """Compute all metrics published in docs/performance/README.md."""
     paired_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
     long_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
 
-    for static_path, motion_path, _num_sc, chip, _dataset_id in get_available_paired_datasets():
+    paired_datasets = get_available_paired_datasets()
+    _emit_progress(progress, f"discovered {len(paired_datasets)} paired validation datasets")
+    paired_phase_started = time.perf_counter()
+    for index, (static_path, motion_path, _num_sc, chip, dataset_id) in enumerate(paired_datasets, start=1):
+        dataset_started = time.perf_counter()
         classic_result = compute_classic_dataset_result(
             static_path,
             motion_path,
@@ -619,15 +644,53 @@ def compute_performance_report_data() -> Dict[str, Dict[str, Dict[str, Dict[str,
             0.5,
         )
         paired_results["ml"][chip].append(ml_metrics)
+        _emit_progress(
+            progress,
+            (
+                f"paired dataset {index}/{len(paired_datasets)} complete: "
+                f"{chip} ({dataset_id}) in {_format_progress_duration(time.perf_counter() - dataset_started)}"
+            ),
+        )
 
-    for _test_path, baseline_packets, movement_packets, _motion_start, chip, _entry in get_available_long_test_datasets():
+    _emit_progress(
+        progress,
+        (
+            f"paired validation complete: {len(paired_datasets)} datasets in "
+            f"{_format_progress_duration(time.perf_counter() - paired_phase_started)}"
+        ),
+    )
+
+    long_test_datasets = get_available_long_test_datasets()
+    _emit_progress(progress, f"discovered {len(long_test_datasets)} long quiet validation datasets")
+    long_phase_started = time.perf_counter()
+    for index, (test_path, baseline_packets, movement_packets, _motion_start, chip, _entry) in enumerate(
+        long_test_datasets,
+        start=1,
+    ):
+        dataset_started = time.perf_counter()
         classic_metrics = evaluate_classic_long_recording(baseline_packets, movement_packets)
         if classic_metrics is not None:
             long_results["classic"][chip].append(classic_metrics)
 
         ml_metrics = evaluate_ml_long_recording(baseline_packets, movement_packets)
         long_results["ml"][chip].append(ml_metrics)
+        _emit_progress(
+            progress,
+            (
+                f"long quiet dataset {index}/{len(long_test_datasets)} complete: "
+                f"{chip} ({test_path.stem}) in {_format_progress_duration(time.perf_counter() - dataset_started)}"
+            ),
+        )
 
+    _emit_progress(
+        progress,
+        (
+            f"long quiet validation complete: {len(long_test_datasets)} datasets in "
+            f"{_format_progress_duration(time.perf_counter() - long_phase_started)}"
+        ),
+    )
+
+    summary_started = time.perf_counter()
     paired_summary: Dict[str, Dict[str, Dict[str, float]]] = {"classic": {}, "ml": {}}
     for algorithm, by_chip in paired_results.items():
         for chip, entries in by_chip.items():
@@ -650,6 +713,11 @@ def compute_performance_report_data() -> Dict[str, Dict[str, Dict[str, Dict[str,
                 ),
             }
 
+    _emit_progress(
+        progress,
+        f"summary aggregation complete in {_format_progress_duration(time.perf_counter() - summary_started)}",
+    )
+    _emit_progress(progress, "render data ready")
     return {
         "paired": paired_summary,
         "long_quiet": long_summary,
@@ -658,19 +726,43 @@ def compute_performance_report_data() -> Dict[str, Dict[str, Dict[str, Dict[str,
 
 def render_performance_report_markdown(
     report_data: Dict[str, Dict[str, Dict[str, Dict[str, float]]]],
+    execution_info: Optional[ExecutionInfo] = None,
 ) -> str:
     """Render the published performance markdown from computed metrics."""
     lines = [
+        "<!-- Generated file. Do not edit manually. -->",
+        "",
         "# Performance Metrics",
         "",
+    ]
+
+    if execution_info is not None:
+        lines.extend([
+            f"Last update: {execution_info['last_update']}",
+            f"Source: `{execution_info['source']}`",
+            f"Generated by: `{execution_info['generated_by']}`",
+            f"Run started: `{execution_info['run_started']}`",
+            f"Run duration: `{execution_info['run_duration']}`",
+            (
+                "Inputs: "
+                f"`{execution_info['paired_dataset_count']}` paired datasets, "
+                f"`{execution_info['long_quiet_dataset_count']}` long quiet datasets"
+            ),
+            "",
+        ])
+
+    lines.extend([
         "This document provides detailed performance metrics for ESPectre's motion detection algorithms.",
         "",
-        "Generated by: `tools/generate_performance_report.py`",
+        (
+            "Per-chip live firmware reports in this directory are generated by "
+            "`tools/benchmark_firmware.py`."
+        ),
         "",
         "- **Classic Detector**: Uses L1-Delta as the primary metric, with a gated moving-variance recovery vote.",
         "- **ML Detector**: Uses a pretrained neural network model based on turbulence and spectral features.",
         "",
-        "See [ALGORITHMS.md](ALGORITHMS.md) for the full detector design.",
+        "See [ALGORITHMS.md](../ALGORITHMS.md) for the full detector design.",
         "",
         "---",
         "",
@@ -696,7 +788,7 @@ def render_performance_report_markdown(
         "",
         "### Classic Detector",
         "",
-    ]
+    ])
 
     paired = report_data["paired"]
     paired_header = "| Metric | " + " | ".join(PAIRED_CHIP_LABELS[chip] for chip in CHIP_ORDER) + " |"
@@ -781,12 +873,30 @@ def render_performance_report_markdown(
     return "\n".join(lines) + "\n"
 
 
-def write_performance_report(output_path: Optional[Path] = None) -> Path:
-    """Compute and write docs/PERFORMANCE.md."""
+def write_performance_report(
+    output_path: Optional[Path] = None,
+    report_data: Optional[Dict[str, Dict[str, Dict[str, Dict[str, float]]]]] = None,
+    progress: Optional[ProgressCallback] = None,
+    execution_info: Optional[ExecutionInfo] = None,
+) -> Path:
+    """Compute and write docs/performance/README.md."""
     destination = PERFORMANCE_DOC_PATH if output_path is None else Path(output_path)
+    _emit_progress(progress, f"ensuring output directory exists: {destination.parent}")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    _emit_progress(progress, f"writing markdown to {destination}")
+    computed_report_data = report_data
+    if computed_report_data is None:
+        computed_report_data = (
+            compute_performance_report_data()
+            if progress is None
+            else compute_performance_report_data(progress=progress)
+        )
     destination.write_text(
-        render_performance_report_markdown(compute_performance_report_data()),
+        render_performance_report_markdown(
+            computed_report_data,
+            execution_info=execution_info,
+        ),
         encoding="utf-8",
     )
+    _emit_progress(progress, f"report written to {destination}")
     return destination

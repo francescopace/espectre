@@ -202,7 +202,7 @@ python tools/generate_performance_report.py
 python tools/compare_detection_methods.py
 ```
 
-`tools/generate_performance_report.py` rebuilds `docs/PERFORMANCE.md` from the
+`tools/generate_performance_report.py` rebuilds `docs/performance/README.md` from the
 same shared replay helpers used by the Python real-data validation suites, so
 the published performance tables stay aligned with the checked runtime behavior.
 

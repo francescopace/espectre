@@ -1,6 +1,6 @@
-# Analysis Tools
+# Analysis And Benchmark Tools
 
-**Python scripts for CSI data analysis, algorithm optimization, and validation**
+**Python scripts for CSI data analysis, algorithm optimization, firmware benchmarking, and validation**
 
 This directory contains analysis tools for developing and validating ESPectre's motion detection algorithms. These scripts are essential for parameter tuning, algorithm validation, and scientific analysis.
 
@@ -16,7 +16,7 @@ Use `--chip <name>` to specify the chip (e.g., `--chip c3`, `--chip s3`). Most t
 
 For algorithm documentation (Classic, historical baselines, fixed subcarriers, Hampel filter), see [ALGORITHMS.md](../docs/ALGORITHMS.md).
 
-For production performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
+For production performance metrics, see [docs/performance](../docs/performance/README.md).
 
 For data collection and ML datasets, see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md).
 
@@ -268,7 +268,7 @@ python validate_dataset_quality.py --strict         # Fail on warnings too
 
 ### 11. Performance Report Generation (`generate_performance_report.py`)
 
-**Purpose**: Regenerate `docs/PERFORMANCE.md` from the current validation
+**Purpose**: Regenerate `docs/performance/README.md` from the current validation
 datasets
 
 - Reuses the shared performance replay helpers that also back the Python
@@ -283,6 +283,40 @@ python generate_performance_report.py
 python generate_performance_report.py --stdout
 python generate_performance_report.py --output /tmp/PERFORMANCE.md
 ```
+
+---
+
+### 12. Firmware Benchmark (`benchmark_firmware.py`)
+
+**Purpose**: Run the live ESPHome and Native firmware benchmark for one
+connected chip and write its generated report under `docs/performance/`
+
+The benchmark auto-detects the serial port and flashes and monitors these
+variants in order:
+
+1. ESPHome Dev Classic
+2. ESPHome Dev ML
+3. Native Debug Classic
+4. Native Debug ML
+
+Each frontend starts with a clean Classic build. Its ML variant reuses the same
+build directory for an incremental build. To reduce total runtime, the ML build
+runs while the already-flashed Classic firmware is being monitored. No two
+builds run at the same time. Each variant is monitored for three minutes, and
+the tool evaluates firmware size, application-partition space, packet rate,
+motion-state logging, heap, runtime load, loop timing, and detector timing.
+Motion transitions are recorded for context but do not affect the result
+because the environment may be occupied.
+Keep local ESPHome and Native Wi-Fi credentials configured. Native falls back
+to the local Streamer `sdkconfig.wifi` when it has no frontend-local Wi-Fi
+defaults.
+
+```bash
+python benchmark_firmware.py --chip c3
+```
+
+The command exits successfully only when all four variants pass. It still
+writes a partial report if a build, flash, monitor, or runtime check fails.
 
 ---
 
@@ -346,7 +380,7 @@ Tested on 60-second noisy static-presence capture with C6 chip:
 
 ESPectre now uses one shared fixed 12-subcarrier set across `classic` and `ml`. The startup-calibrated runtime paths tune detector-specific thresholds from baseline data, and user-facing tooling now treats `classic` as the only non-ML runtime detector name.
 
-For detailed performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
+For detailed performance metrics, see [README.md](../docs/performance/README.md).
 
 ---
 

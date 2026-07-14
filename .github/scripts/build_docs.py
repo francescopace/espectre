@@ -37,7 +37,7 @@ DOCS = {
         'Tuning Guide',
         'Parameter tuning guide for optimal motion detection'
     ),
-    'docs/PERFORMANCE.md': (
+    'docs/performance/README.md': (
         'docs/web/documentation/performance/index.html',
         'Performance',
         'Performance metrics and benchmarks'
@@ -89,7 +89,7 @@ LINK_MAP = {
     'README.md': '/documentation/',
     'docs/SETUP.md': '/documentation/setup/',
     'docs/TUNING.md': '/documentation/tuning/',
-    'docs/PERFORMANCE.md': '/documentation/performance/',
+    'docs/performance/README.md': '/documentation/performance/',
     'docs/CHANGELOG.md': '/documentation/changelog/',
     'docs/ARCHITECTURE.md': '/documentation/architecture/',
     'docs/ESPECTRE_PROTOCOL.md': '/documentation/protocol/',
@@ -466,7 +466,7 @@ def generate_sitemap():
         'README.md': ('https://espectre.dev/documentation/', 'daily', '0.9'),
         'docs/SETUP.md': ('https://espectre.dev/documentation/setup/', 'daily', '0.8'),
         'docs/TUNING.md': ('https://espectre.dev/documentation/tuning/', 'daily', '0.8'),
-        'docs/PERFORMANCE.md': ('https://espectre.dev/documentation/performance/', 'daily', '0.7'),
+        'docs/performance/README.md': ('https://espectre.dev/documentation/performance/', 'daily', '0.7'),
         'docs/ARCHITECTURE.md': ('https://espectre.dev/documentation/architecture/', 'daily', '0.7'),
         'docs/ESPECTRE_PROTOCOL.md': ('https://espectre.dev/documentation/protocol/', 'daily', '0.7'),
         'docs/ALGORITHMS.md': ('https://espectre.dev/documentation/algorithms/', 'daily', '0.8'),

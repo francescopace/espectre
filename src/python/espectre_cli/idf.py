@@ -69,6 +69,18 @@ def build_idf_base_command(build_dir_name: str | None) -> list[str]:
     return command
 
 
+def sdkconfig_matches_target(app_path: Path, idf_target: str) -> bool:
+    """Return whether the generated sdkconfig already selects the requested target."""
+    sdkconfig = app_path / "sdkconfig"
+    if not sdkconfig.is_file():
+        return False
+    try:
+        content = sdkconfig.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return f'CONFIG_IDF_TARGET="{idf_target}"' in content
+
+
 def is_windows_host() -> bool:
     """Return True when the current host is Windows."""
     return os.name == "nt"
@@ -308,10 +320,10 @@ def run_idf_command(frontend: str, args) -> None:
     commands = []
     if args.idf_command == "build":
         base_command = build_idf_base_command(build_dir_name)
-        commands = [
-            [*base_command, defaults_arg, "set-target", idf_target],
-            [*base_command, defaults_arg, "build"],
-        ]
+        commands = []
+        if getattr(args, "clean", False) or not sdkconfig_matches_target(app_path, idf_target):
+            commands.append([*base_command, defaults_arg, "set-target", idf_target])
+        commands.append([*base_command, defaults_arg, "build"])
     elif args.idf_command == "flash":
         port = get_serial_port(args.port)
         base_command = build_idf_base_command(build_dir_name)

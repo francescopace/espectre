@@ -294,6 +294,30 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
     ]
 
 
+def test_run_idf_command_build_reuses_matching_target(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
+    calls: list[tuple[list[str], Path]] = []
+    env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py")
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
+
+    idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
+
+    assert calls == [
+        (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults", "build"], app_dir),
+    ]
+
+
+def test_sdkconfig_matches_target_rejects_a_different_target(tmp_path: Path) -> None:
+    (tmp_path / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32s3"\n', encoding="utf-8")
+
+    assert not idf.sdkconfig_matches_target(tmp_path, "esp32c3")
+
+
 def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkeypatch, tmp_path: Path) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
