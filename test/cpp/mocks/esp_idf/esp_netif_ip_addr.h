@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock esp_netif_ip_addr.h
+ *
+ * Host-side mock of esp_netif_ip_addr.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef ESP_NETIF_IP_ADDR_H
 #define ESP_NETIF_IP_ADDR_H
 

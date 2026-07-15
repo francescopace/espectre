@@ -1,3 +1,11 @@
+/*
+ * ESPectre - CSI Stream Transport
+ *
+ * Packages accepted CSI samples into UDP stream datagrams for collectors.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <array>

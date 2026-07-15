@@ -1,3 +1,12 @@
+/*
+ * ESPectre - MQTT Transport Mock
+ *
+ * Test double for the MQTT transport boundary used by native frontend
+ * tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "mqtt_transport_mock.h"
 
 namespace espectre {

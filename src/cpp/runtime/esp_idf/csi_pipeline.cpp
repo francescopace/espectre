@@ -1,10 +1,12 @@
 /*
- * ESPectre - CSI Pipeline Implementation
- * 
+ * ESPectre - CSI Pipeline
+ *
+ * Runs CSI capture, detector evaluation, and motion-state publishing for
+ * sensing runtimes.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "csi_pipeline.h"
 #include <algorithm>
 #include "espectre_log.h"

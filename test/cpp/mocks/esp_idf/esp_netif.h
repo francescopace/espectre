@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock esp_netif.h
+ *
+ * Host-side mock of esp_netif.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef ESP_NETIF_H
 #define ESP_NETIF_H
 

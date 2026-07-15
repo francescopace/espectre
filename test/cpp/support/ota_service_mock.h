@@ -1,3 +1,11 @@
+/*
+ * ESPectre - OTA Service Mock
+ *
+ * Test double for the OTA service boundary used by native frontend tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <string>

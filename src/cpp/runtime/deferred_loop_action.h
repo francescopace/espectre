@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Deferred Loop Action
+ *
+ * Defers a one-shot action until the next runtime loop tick.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <atomic>

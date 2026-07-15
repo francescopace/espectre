@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock inet.h
+ *
+ * Host-side mock of inet.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef LWIP_INET_H
 #define LWIP_INET_H
 

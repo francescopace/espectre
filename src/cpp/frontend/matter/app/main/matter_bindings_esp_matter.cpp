@@ -1,10 +1,12 @@
 /*
  * ESPectre - esp-matter Bindings
  *
+ * ESP-Matter-backed bindings that publish ESPectre state to Matter
+ * endpoints.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "matter_bindings_esp_matter.h"
 
 #include <app-common/zap-generated/cluster-objects.h>

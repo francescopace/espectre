@@ -1,3 +1,12 @@
+/*
+ * ESPectre - Frontend MQTT Helpers
+ *
+ * Sets up frontend MQTT transport and handles shared command and status
+ * payloads.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstdint>

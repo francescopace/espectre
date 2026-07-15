@@ -1,12 +1,11 @@
 /*
  * ESPectre - Matter Frontend Adapter
  *
- * Thin frontend that maps IEspectreRuntime events to Matter bindings.
+ * Bridges runtime events to the standard Matter occupancy surface.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <memory>

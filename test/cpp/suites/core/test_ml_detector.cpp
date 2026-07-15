@@ -8,7 +8,6 @@
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "test_harness.h"
 #include <cstdint>
 #include <cstring>

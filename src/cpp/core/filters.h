@@ -1,12 +1,12 @@
 /*
  * ESPectre - Signal Filters
- * 
- * Low-pass and Hampel filter types and function declarations.
- * 
+ *
+ * Low-pass and Hampel filters used by the shared signal-processing
+ * pipeline.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <cstdint>

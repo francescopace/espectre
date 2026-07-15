@@ -1,3 +1,12 @@
+/*
+ * ESPectre - CSI Frame Identity
+ *
+ * Matches CSI frames against the local device identity when filtering
+ * traffic.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstddef>

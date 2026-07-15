@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Periodic Sensing Status Logger
+ *
+ * Periodically logs sensing status snapshots.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "periodic_sensing_status_logger.h"
 
 #if __has_include("esp_wifi.h")

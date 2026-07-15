@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Debug Telemetry
+ *
+ * Aggregates loop and detection timing metrics for periodic debug logs.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstdint>

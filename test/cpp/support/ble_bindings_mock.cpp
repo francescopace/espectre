@@ -1,3 +1,11 @@
+/*
+ * ESPectre - BLE Bindings Mock
+ *
+ * Test double for the BLE bindings boundary used by native frontend tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "ble_bindings_mock.h"
 
 #include <iterator>

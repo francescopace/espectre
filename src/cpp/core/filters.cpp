@@ -1,12 +1,11 @@
 /*
  * ESPectre - Signal Filters Implementation
- * 
+ *
  * Low-pass and Hampel filter implementations for signal processing.
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "filters.h"
 #include "utils.h"
 #include <cmath>

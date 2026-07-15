@@ -19,7 +19,6 @@
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <algorithm>

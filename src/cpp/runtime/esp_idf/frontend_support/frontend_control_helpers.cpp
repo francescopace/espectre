@@ -1,3 +1,12 @@
+/*
+ * ESPectre - Frontend Control Helpers
+ *
+ * Parses frontend control commands that update stored device
+ * configuration.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "frontend_control_helpers.h"
 
 namespace espectre {

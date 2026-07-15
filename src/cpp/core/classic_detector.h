@@ -11,7 +11,6 @@
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include "base_detector.h"

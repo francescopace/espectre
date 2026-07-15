@@ -1,10 +1,12 @@
 /*
- * Mock esp_attr.h for native testing
- * 
+ * ESPectre - Mock esp_attr.h
+ *
  * Provides empty definitions for ESP-IDF attributes that are
  * not meaningful on native platforms.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #pragma once
 
 // IRAM_ATTR: On ESP32, places function in IRAM for ISR safety

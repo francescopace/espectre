@@ -1,17 +1,16 @@
 /*
  * ESPectre - Motion Detection Integration Tests
- * 
+ *
  * Integration tests for Classic and ML motion detection algorithms.
  * Tests motion detection performance with real CSI data.
- * 
+ *
  * Test Categories:
  *   1. test_classic_fixed_subcarriers - Classic with fixed production subcarriers
  *   2. test_ml_detection - ML neural network detection
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "test_harness.h"
 #include <string.h>
 #include <stdlib.h>

@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Firmware Version
+ *
+ * Firmware version string helpers.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "firmware_version.h"
 
 #if __has_include("esp_app_desc.h")

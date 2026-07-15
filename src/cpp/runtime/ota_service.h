@@ -1,3 +1,11 @@
+/*
+ * ESPectre - OTA Service
+ *
+ * OTA service boundary used by sensing frontends.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <functional>

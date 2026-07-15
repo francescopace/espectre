@@ -1,3 +1,12 @@
+/*
+ * ESPectre - Standalone Wi-Fi Service
+ *
+ * Starts and monitors the standalone station connection used by sensing
+ * frontends.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstdint>

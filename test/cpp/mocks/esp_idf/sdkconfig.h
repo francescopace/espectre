@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock sdkconfig.h
+ *
+ * Host-side mock of sdkconfig.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef SDKCONFIG_H
 #define SDKCONFIG_H
 

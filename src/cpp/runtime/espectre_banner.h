@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Banner
+ *
+ * ASCII banner helper printed by sensing frontends at startup.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 namespace espectre {

@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Pending Event Unit Tests
+ *
+ * Unit tests for Pending Event.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "test_harness.h"
 
 #include "base_detector.h"

@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Sensing Schema
+ *
+ * Shared sensing schema enums and defaults for runtime config.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstdint>

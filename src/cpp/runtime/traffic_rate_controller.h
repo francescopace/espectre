@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Traffic Rate Controller
+ *
+ * Adapts CSI traffic-generator rate from observed sensing load.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstdint>

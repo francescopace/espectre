@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock log.h
+ *
+ * Host-side mock of log.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 // Mock ESPHome logging for PlatformIO tests

@@ -1,10 +1,12 @@
 /*
- * ESPectre - Threshold Number Component Implementation
- * 
+ * ESPectre - Threshold Number Component
+ *
+ * ESPHome number component for viewing and updating the runtime detection
+ * threshold.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "threshold_number.h"
 #include "espectre.h"
 #include "esphome/core/log.h"

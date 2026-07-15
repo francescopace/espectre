@@ -1,10 +1,11 @@
 /*
- * ESPectre - ESP-IDF Wi-Fi Provisioning Service
+ * ESPectre - Wi-Fi Provisioning Service
+ *
+ * Stores Wi-Fi credentials and applies live station provisioning changes.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <cstdint>

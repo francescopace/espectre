@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Stream ESP-IDF Runtime
+ *
+ * ESP-IDF runtime variant for raw CSI collection and UDP streaming.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "stream_esp_idf_runtime.h"
 
 #include <algorithm>

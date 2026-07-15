@@ -1,10 +1,11 @@
 /*
  * ESPectre - BLE Protocol Constants
  *
+ * UUIDs and device-name constants for the ESPectre BLE control surface.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 namespace espectre {

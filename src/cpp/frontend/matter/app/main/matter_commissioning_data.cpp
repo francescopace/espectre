@@ -1,10 +1,11 @@
 /*
- * ESPectre - Per-device Matter commissioning data.
+ * ESPectre - Matter Commissioning Data Provider
+ *
+ * Loads, validates, and generates per-device Matter commissioning data.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "matter_commissioning_data.h"
 
 #include <bootloader_random.h>

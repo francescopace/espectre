@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock preferences.h
+ *
+ * Host-side mock of preferences.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 // Mock ESPHome Preferences for PlatformIO tests

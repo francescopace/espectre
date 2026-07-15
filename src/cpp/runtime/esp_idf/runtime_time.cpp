@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Time
+ *
+ * Monotonic time helpers used by shared runtime components.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "runtime_time.h"
 
 #if __has_include("esp_timer.h")

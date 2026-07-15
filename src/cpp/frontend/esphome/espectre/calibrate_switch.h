@@ -1,13 +1,12 @@
 /*
  * ESPectre - Calibrate Switch Component
- * 
- * ESPHome switch component for triggering band recalibration from Home Assistant.
- * Switch is ON during calibration, OFF when idle.
- * 
+ *
+ * ESPHome switch component that reflects calibration state and triggers
+ * recalibration.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include "esphome/core/component.h"

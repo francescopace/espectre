@@ -6,7 +6,6 @@
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "classic_detector.h"
 #include "threshold.h"
 

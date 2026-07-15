@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Protocol JSON
+ *
+ * JSON helpers for shared ESPectre protocol payloads.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "protocol_json.h"
 
 #include <cctype>

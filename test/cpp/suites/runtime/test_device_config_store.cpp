@@ -3,8 +3,10 @@
  *
  * Covers NVS-backed runtime config persistence and HT20 CSI payload
  * normalization helpers.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #include "test_harness.h"
 
 #include <cstring>

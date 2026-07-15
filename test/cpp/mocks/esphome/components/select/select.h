@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock select.h
+ *
+ * Host-side mock of select.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <string>

@@ -1,10 +1,12 @@
 /*
  * ESPectre - CSI Payload Normalizer
  *
+ * Normalizes ESP-IDF CSI payloads into the internal HT20 layout used by
+ * ESPectre.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "csi_payload_normalizer.h"
 
 #include <cstring>

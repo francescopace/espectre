@@ -1,10 +1,11 @@
 /*
  * ESPectre - CSI Platform Configuration Helpers
  *
+ * Builds ESP-IDF CSI capture settings for the HT20 sensing pipeline.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "csi_platform_config.h"
 
 namespace espectre {

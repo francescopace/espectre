@@ -1,3 +1,12 @@
+/*
+ * ESPectre - Runtime Listener Utils
+ *
+ * Shared helpers for keeping frontend calibration and snapshot state in
+ * sync.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <utility>

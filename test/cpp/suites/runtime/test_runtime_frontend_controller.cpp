@@ -3,8 +3,10 @@
  *
  * Covers the lightweight controller that wraps EspIdfRuntime for the host-side
  * frontend tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #include "test_harness.h"
 
 #include "frontend_runtime_shim.h"

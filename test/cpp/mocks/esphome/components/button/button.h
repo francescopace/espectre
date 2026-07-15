@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock button.h
+ *
+ * Host-side mock of button.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 // Mock ESPHome Button for PlatformIO tests

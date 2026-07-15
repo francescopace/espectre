@@ -1,13 +1,12 @@
 /*
  * ESPectre - Base Detector
- * 
+ *
  * Abstract base class for motion detection algorithms.
  * Provides shared turbulence buffer management and filtering.
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <cstdint>

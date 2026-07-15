@@ -1,12 +1,12 @@
 /*
  * ESPectre - Threshold Number Component
- * 
- * ESPHome number component for adjusting motion detection threshold from Home Assistant.
- * 
+ *
+ * ESPHome number component for viewing and updating the runtime detection
+ * threshold.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include "esphome/core/component.h"

@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Frontend Sysinfo Helpers
+ *
+ * Builds shared sysinfo lines for BLE and MQTT frontend surfaces.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "frontend_sysinfo_helpers.h"
 
 #include <cstdio>

@@ -1,10 +1,11 @@
 /*
  * ESPectre - Matter Frontend Adapter
  *
+ * Bridges runtime events to the standard Matter occupancy surface.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "matter_frontend.h"
 
 #include "espectre_log.h"

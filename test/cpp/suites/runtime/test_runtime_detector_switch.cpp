@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Detector Switch Unit Tests
+ *
+ * Unit tests for Runtime Detector Switch.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "test_harness.h"
 
 #include <memory>

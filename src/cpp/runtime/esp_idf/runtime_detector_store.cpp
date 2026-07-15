@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Detector Store
+ *
+ * Persists the selected runtime detector algorithm across reboots.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "runtime_detector_store.h"
 
 #include <cstring>

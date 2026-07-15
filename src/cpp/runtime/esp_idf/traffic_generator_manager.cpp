@@ -7,7 +7,6 @@
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "traffic_generator_manager.h"
 
 #include <algorithm>

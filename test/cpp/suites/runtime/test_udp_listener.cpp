@@ -1,10 +1,11 @@
 /*
  * ESPectre - UDP Listener Unit Tests
  *
+ * Exercises payload filtering and sender tracking in the UDP listener.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "test_harness.h"
 
 #include <array>

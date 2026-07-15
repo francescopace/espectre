@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock nvs.h
+ *
+ * Host-side mock of nvs.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef NVS_H
 #define NVS_H
 

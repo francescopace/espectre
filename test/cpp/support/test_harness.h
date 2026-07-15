@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Test Harness
+ *
+ * Minimal host-side test harness helpers for native C++ suites.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cmath>

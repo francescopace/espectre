@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Device Config Store
+ *
+ * Persists Wi-Fi and device configuration in ESP-IDF non-volatile storage.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstdint>

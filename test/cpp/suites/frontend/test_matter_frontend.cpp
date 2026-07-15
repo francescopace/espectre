@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Matter Frontend Unit Tests
+ *
+ * Unit tests for Matter Frontend.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "test_harness.h"
 
 #define private public

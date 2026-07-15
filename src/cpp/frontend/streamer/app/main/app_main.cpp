@@ -1,10 +1,11 @@
 /*
- * ESPectre streamer firmware entrypoint.
+ * ESPectre - Streamer Firmware Entrypoint
+ *
+ * Streamer firmware application entrypoint.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "streamer_frontend.h"
 
 #include <esp_log.h>

@@ -1,8 +1,8 @@
 /*
  * ESPectre - ML Detector
- * 
+ *
  * Neural network-based motion detection algorithm.
- * 
+ *
  * Algorithm:
  * 1. Calculate spatial turbulence per packet using CV normalization
  *    (`std/mean`)
@@ -11,11 +11,10 @@
  * 4. Extract statistical features from turbulence buffer
  * 5. Run MLP inference using exported architecture metadata
  * 6. Compare probability to threshold for motion detection
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include "base_detector.h"

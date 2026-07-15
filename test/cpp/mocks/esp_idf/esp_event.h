@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock esp_event.h
+ *
+ * Host-side mock of esp_event.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef ESP_EVENT_H
 #define ESP_EVENT_H
 

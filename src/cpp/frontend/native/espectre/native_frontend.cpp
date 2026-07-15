@@ -1,10 +1,11 @@
 /*
  * ESPectre - Native Frontend Adapter
  *
+ * Bridges runtime events and control flows to BLE, MQTT, and OTA services.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "native_frontend.h"
 
 #include <cctype>

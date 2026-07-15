@@ -1,3 +1,11 @@
+/*
+ * ESPectre - CSI Frame Identity Unit Tests
+ *
+ * Unit tests for CSI Frame Identity.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "test_harness.h"
 
 #include <array>

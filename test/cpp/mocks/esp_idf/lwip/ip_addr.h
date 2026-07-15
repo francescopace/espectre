@@ -1,9 +1,11 @@
 /*
- * Mock for lwip/ip_addr.h
- * 
+ * ESPectre - Mock ip_addr.h
+ *
  * Provides IP address types and macros for native testing
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #ifndef LWIP_IP_ADDR_H
 #define LWIP_IP_ADDR_H
 

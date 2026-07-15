@@ -1,10 +1,12 @@
 /*
  * ESPectre - ESPectre Protocol
  *
+ * Shared device, command, and OTA protocol types used by frontend
+ * transports.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <cstddef>

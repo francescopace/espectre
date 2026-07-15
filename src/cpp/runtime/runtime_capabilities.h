@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Capabilities
+ *
+ * Capability flags advertised by a runtime implementation.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 namespace espectre {

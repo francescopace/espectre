@@ -1,13 +1,12 @@
 /*
  * ESPectre - Sensor Publisher
- * 
- * Centralizes ESPHome sensor publishing logic.
- * Reduces code duplication and improves maintainability.
- * 
+ *
+ * Publishes motion, movement, and periodic status updates through ESPHome
+ * sensors.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include "esphome/components/sensor/sensor.h"

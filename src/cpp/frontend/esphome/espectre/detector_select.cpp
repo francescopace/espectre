@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Detector Select
+ *
+ * ESPHome select entity for runtime detector algorithm choice.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "detector_select.h"
 
 #include "espectre.h"

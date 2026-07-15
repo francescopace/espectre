@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock nvs_flash.h
+ *
+ * Host-side mock of nvs_flash.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef NVS_FLASH_H
 #define NVS_FLASH_H
 

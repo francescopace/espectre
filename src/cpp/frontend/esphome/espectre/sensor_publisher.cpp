@@ -1,10 +1,12 @@
 /*
- * ESPectre - Sensor Publisher Implementation
- * 
+ * ESPectre - Sensor Publisher
+ *
+ * Publishes motion, movement, and periodic status updates through ESPHome
+ * sensors.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "sensor_publisher.h"
 
 namespace esphome {

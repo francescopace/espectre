@@ -1,13 +1,12 @@
 /*
  * ESPectre - WiFi CSI Interface
- * 
+ *
  * Abstract interface for WiFi CSI operations.
  * Allows dependency injection for testing without real WiFi hardware.
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include "esp_err.h"

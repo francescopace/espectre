@@ -1,3 +1,11 @@
+/*
+ * ESPectre - WiFi Lifecycle Unit Tests
+ *
+ * Unit tests for WiFi Lifecycle.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "test_harness.h"
 
 #include "esp_event.h"

@@ -1,10 +1,11 @@
 /*
  * ESPectre - NimBLE Bindings
  *
+ * NimBLE-backed BLE bindings for telemetry, sysinfo, and runtime control.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <string>

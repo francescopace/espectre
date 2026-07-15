@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Config Utils
+ *
+ * Helpers for normalizing and applying runtime configuration.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include "runtime_interface.h"

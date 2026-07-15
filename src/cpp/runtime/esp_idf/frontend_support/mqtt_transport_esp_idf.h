@@ -1,10 +1,11 @@
 /*
- * ESPectre - ESP-IDF MQTT transport for the native frontend.
+ * ESPectre - ESP-IDF MQTT Transport
+ *
+ * ESP-IDF MQTT transport implementation for the native sensing frontend.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <string>

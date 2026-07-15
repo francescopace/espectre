@@ -1,13 +1,11 @@
 /*
- * ESPectre - WiFi Lifecycle Manager
- * 
- * Manages WiFi connection lifecycle and coordinates service startup/shutdown.
- * Handles CSI, Traffic Generator, and Band Calibration orchestration.
- * 
+ * ESPectre - Wi-Fi Lifecycle Manager
+ *
+ * Controls STA lifecycle and HT20 CSI compatibility for sensing runtimes.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <atomic>

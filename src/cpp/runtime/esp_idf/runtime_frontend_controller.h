@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Frontend Controller
+ *
+ * Owns runtime lifecycle and exposes a frontend-friendly control surface.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <memory>

@@ -1,3 +1,11 @@
+/*
+ * ESPectre - WiFi Provisioning Service Unit Tests
+ *
+ * Unit tests for WiFi Provisioning Service.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "test_harness.h"
 
 #include "device_config_store.h"

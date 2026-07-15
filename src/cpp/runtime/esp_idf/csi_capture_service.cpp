@@ -1,3 +1,12 @@
+/*
+ * ESPectre - CSI Capture Service
+ *
+ * Enables ESP-IDF CSI capture, normalizes payloads, and forwards valid
+ * packets.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "csi_capture_service.h"
 
 #include <cinttypes>

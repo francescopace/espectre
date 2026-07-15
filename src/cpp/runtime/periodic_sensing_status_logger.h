@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Periodic Sensing Status Logger
+ *
+ * Periodically logs sensing status snapshots.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstdint>

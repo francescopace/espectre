@@ -1,12 +1,11 @@
 /*
  * ESPectre - Base Detector Implementation
- * 
+ *
  * Abstract base class for motion detection algorithms.
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "base_detector.h"
 #include "csi_format.h"
 #include "utils.h"

@@ -1,10 +1,11 @@
 /*
- * ESPectre native firmware entrypoint.
+ * ESPectre - Native Firmware Entrypoint
+ *
+ * Native firmware application entrypoint.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include <cstdio>
 #include <string>
 

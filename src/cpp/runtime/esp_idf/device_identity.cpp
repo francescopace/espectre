@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Device Identity
+ *
+ * Derives stable runtime device identifiers from platform identity data.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "device_identity.h"
 
 #include "espectre_protocol.h"

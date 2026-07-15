@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock esp_wifi.h
+ *
+ * Host-side mock of esp_wifi.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef ESP_WIFI_H
 #define ESP_WIFI_H
 

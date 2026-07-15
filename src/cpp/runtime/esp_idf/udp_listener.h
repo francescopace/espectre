@@ -1,14 +1,12 @@
 /*
  * ESPectre - UDP Listener
- * 
- * Listens for UDP packets to trigger CSI generation from external traffic or collector pacing.
- * When traffic_generator_rate is 0, this listener allows external sources
- * to generate WiFi traffic that triggers CSI callbacks.
- * 
+ *
+ * Non-blocking UDP listener used for pacing traffic and collector
+ * discovery.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <array>

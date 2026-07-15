@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Diagnostics
+ *
+ * Runtime diagnostics snapshot helpers.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <functional>

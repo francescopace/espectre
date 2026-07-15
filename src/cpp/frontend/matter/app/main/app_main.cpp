@@ -1,10 +1,11 @@
 /*
- * ESPectre Matter firmware entrypoint.
+ * ESPectre - Matter Firmware Entrypoint
+ *
+ * Matter firmware application entrypoint.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include <esp_err.h>
 #include <esp_event.h>
 #include <esp_log.h>

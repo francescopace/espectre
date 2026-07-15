@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock sensor.h
+ *
+ * Host-side mock of sensor.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 // Mock ESPHome Sensor for PlatformIO tests

@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Log Helpers
+ *
+ * Portable logging macros shared across ESPHome, ESP-IDF, and host tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstdarg>

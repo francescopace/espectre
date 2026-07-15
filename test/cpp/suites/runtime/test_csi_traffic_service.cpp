@@ -1,7 +1,12 @@
 /*
  * ESPectre - CSI Traffic Service Unit Tests
+ *
+ * Exercises pacing-mode packet filtering and sender tracking for CSI
+ * traffic service.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #include "test_harness.h"
 
 #include <array>

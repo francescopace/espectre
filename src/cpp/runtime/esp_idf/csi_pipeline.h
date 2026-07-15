@@ -1,14 +1,12 @@
 /*
  * ESPectre - CSI Pipeline
  *
- * Orchestrates the sensing CSI pipeline: hardware configuration, packet
- * processing, motion detection, and calibration callbacks.
- * Handles platform-specific differences (ESP32-C6 vs ESP32-S3).
- * 
+ * Runs CSI capture, detector evaluation, and motion-state publishing for
+ * sensing runtimes.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <algorithm>

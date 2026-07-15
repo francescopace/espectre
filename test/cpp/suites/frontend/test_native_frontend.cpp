@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Native Frontend Unit Tests
+ *
+ * Unit tests for Native Frontend.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "test_harness.h"
 
 #include <algorithm>

@@ -1,12 +1,11 @@
 /*
  * ESPectre - Native Frontend Adapter
  *
- * Thin frontend that maps IEspectreRuntime events to the custom BLE protocol.
+ * Bridges runtime events and control flows to BLE, MQTT, and OTA services.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <cstddef>

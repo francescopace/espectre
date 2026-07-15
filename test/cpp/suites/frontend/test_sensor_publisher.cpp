@@ -2,8 +2,10 @@
  * ESPectre - SensorPublisher Unit Tests
  *
  * Tests split publishing of the motion binary sensor and movement metric.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #include "test_harness.h"
 #include "sensor_publisher.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"

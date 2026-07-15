@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock sockets.h
+ *
+ * Host-side mock of sockets.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef LWIP_SOCKETS_H
 #define LWIP_SOCKETS_H
 

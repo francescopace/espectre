@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Detector Limits
+ *
+ * Shared detector window size and calibration buffer limits.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstdint>

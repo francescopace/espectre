@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock esp_timer.h
+ *
+ * Host-side mock of esp_timer.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef ESP_TIMER_H
 #define ESP_TIMER_H
 

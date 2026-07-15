@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Firmware Version
+ *
+ * Firmware version string helpers.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 namespace espectre {

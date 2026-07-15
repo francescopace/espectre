@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock FreeRTOS.h
+ *
+ * Host-side mock of FreeRTOS.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef FREERTOS_H
 #define FREERTOS_H
 

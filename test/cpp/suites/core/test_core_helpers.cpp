@@ -2,8 +2,10 @@
  * ESPectre - Core Helper Unit Tests
  *
  * Targets uncovered helper paths in the reusable core layer.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #include "test_harness.h"
 
 #include <cmath>

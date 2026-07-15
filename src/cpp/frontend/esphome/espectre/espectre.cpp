@@ -1,13 +1,12 @@
 /*
  * ESPectre - Main Component Implementation
- * 
+ *
  * Main ESPHome component that orchestrates all ESPectre subsystems.
  * Integrates CSI processing, calibration, and Home Assistant publishing.
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "espectre.h"
 #include "threshold_number.h"
 #include "calibrate_switch.h"

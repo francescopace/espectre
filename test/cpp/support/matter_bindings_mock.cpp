@@ -1,3 +1,12 @@
+/*
+ * ESPectre - Matter Bindings Mock
+ *
+ * Test double for the Matter bindings boundary used by Matter frontend
+ * tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "matter_bindings_mock.h"
 
 namespace espectre {

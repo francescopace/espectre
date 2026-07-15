@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Streamer Frontend
+ *
+ * Streamer frontend adapter over the shared ESP-IDF runtime.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "streamer_frontend.h"
 
 #include <cstddef>

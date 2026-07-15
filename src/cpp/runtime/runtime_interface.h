@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Interface
+ *
+ * Platform-agnostic runtime interface and configuration contract.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstdint>

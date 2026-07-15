@@ -1,13 +1,12 @@
 /*
  * ESPectre - Main Component
- * 
+ *
  * Main ESPHome component that orchestrates all ESPectre subsystems.
  * Integrates CSI processing, calibration, and Home Assistant publishing.
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include "esphome/core/component.h"

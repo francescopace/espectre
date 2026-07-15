@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock switch.h
+ *
+ * Host-side mock of switch.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 // Mock ESPHome Switch for PlatformIO tests

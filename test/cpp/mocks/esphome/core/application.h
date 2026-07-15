@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock application.h
+ *
+ * Host-side mock of application.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 // Mock ESPHome Application for PlatformIO tests

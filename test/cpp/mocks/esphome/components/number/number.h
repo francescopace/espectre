@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock number.h
+ *
+ * Host-side mock of number.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 // Mock ESPHome Number for PlatformIO tests

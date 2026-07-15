@@ -1,10 +1,12 @@
 /*
  * ESPectre - esp-matter Bindings
  *
+ * ESP-Matter-backed bindings that publish ESPectre state to Matter
+ * endpoints.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <cstdint>

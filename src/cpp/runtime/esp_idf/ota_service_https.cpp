@@ -1,3 +1,11 @@
+/*
+ * ESPectre - HTTPS OTA Service
+ *
+ * Checks OTA manifests and applies HTTPS firmware updates.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "ota_service_https.h"
 
 #include <algorithm>

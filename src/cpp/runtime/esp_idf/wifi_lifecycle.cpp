@@ -1,10 +1,11 @@
 /*
- * ESPectre - WiFi Lifecycle Manager Implementation
- * 
+ * ESPectre - Wi-Fi Lifecycle Manager
+ *
+ * Controls STA lifecycle and HT20 CSI compatibility for sensing runtimes.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "wifi_lifecycle.h"
 #include "espectre_log.h"
 #include "esp_wifi.h"

@@ -1,10 +1,12 @@
 /*
- * ESPectre - UDP Listener Implementation
- * 
+ * ESPectre - UDP Listener
+ *
+ * Non-blocking UDP listener used for pacing traffic and collector
+ * discovery.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "udp_listener.h"
 #include "espectre_log.h"
 #include "lwip/inet.h"

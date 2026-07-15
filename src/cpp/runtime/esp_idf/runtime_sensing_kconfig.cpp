@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Sensing Kconfig
+ *
+ * Builds the default sensing runtime configuration from Kconfig values.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "runtime_sensing_kconfig.h"
 
 #include <cerrno>

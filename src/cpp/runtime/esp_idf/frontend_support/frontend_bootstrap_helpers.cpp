@@ -1,3 +1,12 @@
+/*
+ * ESPectre - Frontend Bootstrap Helpers
+ *
+ * Loads persisted frontend config and initializes shared Wi-Fi station
+ * setup.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "frontend_bootstrap_helpers.h"
 
 #include "device_config_store.h"

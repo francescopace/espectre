@@ -1,12 +1,11 @@
 /*
  * ESPectre - ML Detector Implementation
- * 
+ *
  * Neural network-based motion detection algorithm.
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "ml_detector.h"
 #include "ml_weights.h"
 #include "threshold.h"

@@ -2,8 +2,10 @@
  * ESPectre - Runtime Helper Unit Tests
  *
  * Covers lightweight runtime helpers that are easy to exercise host-side.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #include "test_harness.h"
 
 #include "runtime_config_utils.h"

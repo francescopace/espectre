@@ -1,3 +1,11 @@
+/*
+ * ESPectre - CSI Traffic Service
+ *
+ * Owns CSI pacing traffic generation and external UDP pacing listeners.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "csi_traffic_service.h"
 
 #include "espectre_log.h"

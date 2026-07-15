@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock component.h
+ *
+ * Host-side mock of component.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 // Mock ESPHome Component for PlatformIO tests

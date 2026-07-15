@@ -3,8 +3,10 @@
  *
  * Exercises JSON payload formatting and command parsing helpers used by the
  * runtime protocol surfaces.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #include "test_harness.h"
 
 #include "espectre_protocol.h"

@@ -1,10 +1,11 @@
 /*
  * ESPectre - MQTT Transport Boundary
  *
+ * Abstract MQTT transport used by native frontends and shared helpers.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include <functional>

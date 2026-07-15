@@ -3,8 +3,10 @@
  *
  * Runs the same long recordings used by Python validation and prints
  * native Classic and ML metrics for manual comparison.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #include "test_harness.h"
 #include <algorithm>
 #include <array>

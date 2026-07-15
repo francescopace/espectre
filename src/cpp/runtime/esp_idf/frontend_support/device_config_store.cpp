@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Device Config Store
+ *
+ * Persists Wi-Fi and device configuration in ESP-IDF non-volatile storage.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #include "device_config_store.h"
 
 #include "nvs.h"

@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock esp_err.h
+ *
+ * Host-side mock of esp_err.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef ESP_ERR_H
 #define ESP_ERR_H
 

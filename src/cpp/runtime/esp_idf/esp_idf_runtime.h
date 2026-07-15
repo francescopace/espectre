@@ -1,3 +1,12 @@
+/*
+ * ESPectre - ESP-IDF Runtime
+ *
+ * ESP-IDF runtime that wires Wi-Fi, CSI capture, calibration, and
+ * detection together.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <atomic>

@@ -1,25 +1,24 @@
 /*
  * ESPectre - CSI Test Data Loader
- * 
+ *
  * Loads real CSI data from NPZ files for C++ tests using cnpy library.
  * Provides the same interface as the old static arrays for backward compatibility.
- * 
+ *
  * Usage:
  *   #include "csi_test_data.h"
- *   
+ *
  *   // In test setup:
  *   csi_test_data::load();
- *   
+ *
  *   // Access data (same interface as before):
  *   const int8_t** static_presence_packets = csi_test_data::static_presence_packets();
  *   const int8_t** motion_packets = csi_test_data::motion_packets();
  *   int num_static_presence = csi_test_data::num_static_presence();
  *   int num_motion = csi_test_data::num_motion();
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #ifndef CSI_TEST_DATA_H
 #define CSI_TEST_DATA_H
 

@@ -1,10 +1,12 @@
 /*
- * ESPectre - Calibrate Switch Component Implementation
- * 
+ * ESPectre - Calibrate Switch Component
+ *
+ * ESPHome switch component that reflects calibration state and triggers
+ * recalibration.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #include "calibrate_switch.h"
 #include "espectre.h"
 #include "esphome/core/log.h"

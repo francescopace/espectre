@@ -3,8 +3,10 @@
  *
  * Validates the classic fusion-specific state transitions that do not exist in
  * the standalone legacy detectors.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
  */
-
 #include "test_harness.h"
 
 #define private public

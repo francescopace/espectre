@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Frontend Runtime Shim
+ *
+ * Host-side shim that exposes a configurable runtime to frontend tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include "runtime_capabilities.h"

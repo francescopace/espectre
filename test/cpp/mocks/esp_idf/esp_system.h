@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock esp_system.h
+ *
+ * Host-side mock of esp_system.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef ESP_SYSTEM_H
 #define ESP_SYSTEM_H
 

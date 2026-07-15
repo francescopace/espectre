@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Mock task.h
+ *
+ * Host-side mock of task.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #ifndef FREERTOS_TASK_H
 #define FREERTOS_TASK_H
 

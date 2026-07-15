@@ -1,3 +1,11 @@
+/*
+ * ESPectre - MQTT Payload Assembler
+ *
+ * Assembles MQTT payloads for shared protocol publications.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include <cstddef>

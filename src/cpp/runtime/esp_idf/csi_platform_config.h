@@ -1,13 +1,11 @@
 /*
  * ESPectre - CSI Platform Configuration Helpers
  *
- * Shared helpers for configuring ESP-IDF CSI capture consistently across
- * frontends and runtime implementations.
+ * Builds ESP-IDF CSI capture settings for the HT20 sensing pipeline.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
 #pragma once
 
 #include "esp_err.h"

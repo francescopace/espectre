@@ -1,3 +1,11 @@
+/*
+ * ESPectre - Runtime Snapshot
+ *
+ * Runtime snapshot types shared by sensing status and diagnostics.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
 #pragma once
 
 #include "base_detector.h"
