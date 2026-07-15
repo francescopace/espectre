@@ -418,6 +418,7 @@ def test_run_idf_command_flash_resolves_port(monkeypatch, tmp_path: Path) -> Non
         lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
     )
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
+    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: True)
 
     idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
 
@@ -439,10 +440,25 @@ def test_run_idf_command_flash_uses_custom_build_dir_when_present(monkeypatch, t
         lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
     )
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
+    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: True)
 
     idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
 
     assert calls == [["idf.py", "-B", "build-esp32c3", "-p", "/dev/cu.auto", "flash"]]
+
+
+def test_run_matter_qr_reads_without_idf_environment(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    ports: list[str] = []
+
+    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
+    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: ports.append(port) or True)
+
+    idf.run_idf_command("matter", argparse.Namespace(idf_command="qr", port=None))
+
+    assert ports == ["/dev/cu.auto"]
 
 
 def test_run_serial_monitor_reads_with_pyserial(monkeypatch) -> None:

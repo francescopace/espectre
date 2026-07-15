@@ -168,6 +168,17 @@ Windows PowerShell:
 Use the repository CLI from the repository root for local build, flash, monitor,
 and host-tool tasks.
 
+Matter generates a unique onboarding identity on first boot and stores it in a
+dedicated factory partition. Retrieve the same QR payload after either a web or
+CLI flash with:
+
+```bash
+./espectre matter qr --port /dev/cu.usbmodemXXXX
+```
+
+Normal flashes preserve the QR. Erasing the complete flash generates a new
+identity on the next boot.
+
 The same browser applications published on `espectre.dev` can be served from
 localhost when a local MQTT broker exposes an insecure `ws://` listener:
 

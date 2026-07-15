@@ -74,6 +74,7 @@ instead of repeating its historical rationale.
 
 - [`2025-11-01-adopt-standalone-esp-idf-mqtt-firmware-as-the-initial-product-shape.md`](2025-11-01-adopt-standalone-esp-idf-mqtt-firmware-as-the-initial-product-shape.md)
 - [`2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md`](2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md)
+- [`2026-07-15-persist-per-device-matter-onboarding-data.md`](2026-07-15-persist-per-device-matter-onboarding-data.md)
 
 ### Data Collection And Dataset Contract
 

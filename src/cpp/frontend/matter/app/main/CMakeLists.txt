@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "app_main.cpp"
         "matter_bindings_esp_matter.cpp"
+        "matter_commissioning_data.cpp"
     INCLUDE_DIRS
         "."
         "../../espectre"
@@ -10,7 +11,9 @@ idf_component_register(
         "../../../../runtime/esp_idf"
     REQUIRES
         espectre
+        bootloader_support
         esp_matter
+        esp_partition
         nvs_flash
 )
 

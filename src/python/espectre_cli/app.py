@@ -192,6 +192,7 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
     for command_name, help_text in {
         "build": "Configure target and build firmware",
         "flash": "Flash firmware with the auto-detected ESP-IDF setup",
+        **({"qr": "Read the device-specific Matter onboarding QR"} if frontend == "matter" else {}),
     }.items():
         command_parser = idf_subparsers.add_parser(command_name, help=help_text)
         if command_name == "build":
@@ -201,7 +202,7 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
                 action="store_true",
                 help="Remove generated ESP-IDF artifacts before building",
             )
-        if command_name == "flash":
+        if command_name in {"flash", "qr"}:
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
         command_parser.set_defaults(handler=lambda args, current_frontend=frontend: run_idf_command(current_frontend, args))
 

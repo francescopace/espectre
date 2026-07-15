@@ -21,7 +21,7 @@ Run the CLI from the repository root.
 |-----------|---------|
 | `esphome` | Build, flash, validate, or monitor the ESPHome frontend |
 | `native` | Build or flash the native ESP-IDF frontend |
-| `matter` | Build or flash the Matter ESP-IDF frontend |
+| `matter` | Build, flash, or read onboarding data from the Matter ESP-IDF frontend |
 | `streamer` | Build or flash the streamer ESP-IDF frontend |
 | `micro` | Flash, deploy, run, and verify the MicroPython workflow |
 | `monitor` | Attach to serial logs with auto-reconnect support |
@@ -59,18 +59,26 @@ Common flags include `--chip`, `--dev`, `--config`, and `--device`.
 
 ### `native`, `matter`, and `streamer`
 
-The `native`, `matter`, and `streamer` namespaces expose the same two commands:
+The three ESP-IDF namespaces expose `build` and `flash`:
 
 | Command | Purpose |
 |---------|---------|
 | `build` | Configure the chip target and build the firmware |
 | `flash` | Flash the frontend with the detected ESP-IDF environment |
 
+Matter additionally exposes:
+
+| Command | Purpose |
+|---------|---------|
+| `qr` | Reset the connected device and print its persisted QR payload and manual pairing code |
+
 Examples:
 
 ```bash
 ./espectre native build --chip c3
 ./espectre matter build --chip c6
+./espectre matter flash --port /dev/cu.usbmodemXXXX
+./espectre matter qr --port /dev/cu.usbmodemXXXX
 ./espectre streamer flash --port /dev/cu.usbmodemXXXX
 ```
 

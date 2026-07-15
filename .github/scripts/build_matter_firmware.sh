@@ -44,8 +44,8 @@ docker run --rm \
     python /work/espectre matter build --chip \"\${MATTER_CHIP}\" --clean
     cd ${BUILD_DIR}
     if python -m esptool merge-bin -h >/dev/null 2>&1; then
-      python -m esptool --chip ${MATTER_TARGET} merge-bin --pad-to-size 4MB -o \"\${MATTER_OUTPUT}\" @flash_args
+      python -m esptool --chip ${MATTER_TARGET} merge-bin -o \"\${MATTER_OUTPUT}\" @flash_args
     else
-      python -m esptool --chip ${MATTER_TARGET} merge_bin --fill-flash-size 4MB -o \"\${MATTER_OUTPUT}\" @flash_args
+      python -m esptool --chip ${MATTER_TARGET} merge_bin -o \"\${MATTER_OUTPUT}\" @flash_args
     fi
   "

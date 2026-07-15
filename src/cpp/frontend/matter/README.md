@@ -2,6 +2,10 @@
 
 This directory contains the ESPectre Matter frontend.
 
+Matter is a smart-home interoperability standard that lets devices work across
+major ecosystems such as Apple Home, Google Home, Amazon Alexa, and other
+Matter-compatible controllers.
+
 It maps the shared ESPectre runtime to a Matter surface built on top of
 `esp_matter`, without pulling Matter-specific concepts into `core` or the
 shared runtime contract.
@@ -48,9 +52,17 @@ chip. The current Matter frontend does not publish a separate OTA image.
 After flashing a Matter image:
 
 1. power-cycle if needed and wait for the device to boot
-2. use a Matter controller that supports BLE commissioning
-3. commission the device into your target fabric
-4. use the standard Matter occupancy surface exposed by the firmware
+2. use **Read Matter QR** on the web flasher, or run
+   `./espectre matter qr --port <port>`, to retrieve the device-specific code
+3. use a Matter controller that supports BLE commissioning
+4. commission the device into your target fabric
+5. use the standard Matter occupancy surface exposed by the firmware
+
+The first boot generates a random setup passcode, discriminator, and SPAKE2+
+salt in the dedicated `matter_factory` partition. Normal browser and CLI
+flashes preserve that partition, so every surface shows the same QR for the
+physical device. A full flash erase intentionally creates a new QR on the next
+boot.
 
 ### Local ESP-IDF Workflow
 
@@ -66,6 +78,7 @@ Repository CLI:
 ```bash
 ./espectre matter build --chip c3 --clean
 ./espectre matter flash --port /dev/cu.usbmodemXXXX
+./espectre matter qr --port /dev/cu.usbmodemXXXX
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
 
@@ -118,6 +131,12 @@ The firmware opens a basic commissioning window for uncommissioned devices and
 re-opens it when the last fabric is removed.
 
 Current behavior from the firmware app:
+
+- commissioning data is generated locally with the ESP32 hardware RNG
+- onboarding data persists in the `matter_factory` partition at the end of
+  flash and is independent from the application image
+- every boot emits `MATTER_QR` and `MATTER_MANUAL_CODE` markers on serial
+- the browser and CLI read those markers rather than generating competing codes
 
 - an uncommissioned device opens a `300` second commissioning window
 - the commissioning window advertises all supported discovery transports,
@@ -188,6 +207,11 @@ Validation notes:
 - development VID/PID: `0xFFF1` / `0x8000`
 - partition layout: [`partitions.csv`](app/partitions.csv)
 - defaults: [`sdkconfig.defaults`](app/sdkconfig.defaults)
+
+The per-device onboarding flow removes the shared Matter test passcode, but the
+published firmware still uses development VID/PID and example device
+attestation credentials. Production certification requires a manufacturing
+pipeline for unique DAC credentials in addition to this onboarding partition.
 
 No manual `esp_matter` clone is required.
 

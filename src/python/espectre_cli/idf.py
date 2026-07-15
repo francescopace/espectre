@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import re
 import shlex
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from .common import Fore, Style, cli_command, get_serial_port
 from .targets import IDF_FRONTENDS, resolve_idf_target
+
+
+MATTER_QR_PATTERN = re.compile(r"MATTER_QR=(MT:[A-Z0-9.\-]+)")
+MATTER_MANUAL_CODE_PATTERN = re.compile(r"MATTER_MANUAL_CODE=([0-9]+)")
 
 
 @dataclass(frozen=True)
@@ -294,6 +300,45 @@ def run_idf_doctor(_args) -> int:
     return 0
 
 
+def read_matter_onboarding(port: str, timeout_seconds: float = 20.0) -> bool:
+    """Reset a Matter device and print its persisted onboarding codes."""
+    try:
+        import serial
+    except ImportError:
+        print(f"{Fore.RED}❌ pyserial is required to read the Matter QR code.{Style.RESET_ALL}")
+        return False
+
+    print(f"{Fore.CYAN}Matter QR: waiting for {port}; press RESET if needed...{Style.RESET_ALL}")
+    try:
+        with serial.Serial(port, baudrate=115200, timeout=1.0) as connection:
+            connection.dtr = False
+            connection.rts = True
+            time.sleep(0.1)
+            connection.rts = False
+
+            deadline = time.monotonic() + timeout_seconds
+            qr_payload = None
+            manual_code = None
+            while time.monotonic() < deadline:
+                line = connection.readline().decode("utf-8", errors="replace")
+                if qr_match := MATTER_QR_PATTERN.search(line):
+                    qr_payload = qr_match.group(1)
+                if manual_match := MATTER_MANUAL_CODE_PATTERN.search(line):
+                    manual_code = manual_match.group(1)
+                if qr_payload and manual_code:
+                    print(f"{Fore.GREEN}✅ Matter onboarding data{Style.RESET_ALL}")
+                    print(f"  QR payload:  {qr_payload}")
+                    print(f"  Manual code: {manual_code}")
+                    return True
+    except (OSError, serial.SerialException) as exc:
+        print(f"{Fore.RED}❌ Cannot read Matter onboarding data: {exc}{Style.RESET_ALL}")
+        return False
+
+    print(f"{Fore.YELLOW}Matter onboarding data was not received. Reset the board and retry with "
+          f"{cli_command('matter', 'qr', '--port', port)}.{Style.RESET_ALL}")
+    return False
+
+
 def run_idf_command(frontend: str, args) -> None:
     """Run an IDF workflow for the given frontend."""
     chip = getattr(args, "chip", None)
@@ -312,12 +357,18 @@ def run_idf_command(frontend: str, args) -> None:
 
     app_path = Path(app_dir)
     build_dir_name = os.environ.get("ESPECTRE_IDF_BUILD_DIR")
+    if args.idf_command == "qr":
+        port = get_serial_port(args.port)
+        if not read_matter_onboarding(port):
+            raise SystemExit(1)
+        return
     if args.idf_command == "build" and getattr(args, "clean", False):
         clean_idf_build_artifacts(app_path, build_dir_name)
 
     defaults_arg = f"-DSDKCONFIG_DEFAULTS={resolve_sdkconfig_defaults(app_path, idf_target)}"
 
     commands = []
+    flash_port = None
     if args.idf_command == "build":
         base_command = build_idf_base_command(build_dir_name)
         commands = []
@@ -326,6 +377,7 @@ def run_idf_command(frontend: str, args) -> None:
         commands.append([*base_command, defaults_arg, "build"])
     elif args.idf_command == "flash":
         port = get_serial_port(args.port)
+        flash_port = port
         base_command = build_idf_base_command(build_dir_name)
         commands = [[*base_command, "-p", port, "flash"]]
 
@@ -354,6 +406,8 @@ def run_idf_command(frontend: str, args) -> None:
                     print(f"{Fore.CYAN}Export:  {export_script}{Style.RESET_ALL}")
                     fallback_notice_printed = True
                 subprocess.run(subprocess_command, cwd=app_dir, check=True)
+        if frontend == "matter" and args.idf_command == "flash" and flash_port is not None:
+            read_matter_onboarding(flash_port)
     except FileNotFoundError:
         print(f"{Fore.RED}❌ The resolved ESP-IDF launcher could not be started.{Style.RESET_ALL}")
         print_idf_recovery_instructions()

@@ -20,11 +20,13 @@
 #include <esp_matter_attribute.h>
 #include <esp_matter_core.h>
 #include <esp_matter_endpoint.h>
+#include <esp_matter_providers.h>
 #include <platform/CHIPDeviceLayer.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
 #include "espectre_banner.h"
 #include "matter_bindings_esp_matter.h"
+#include "matter_commissioning_data.h"
 #include "matter_frontend.h"
 #include "runtime_sensing_kconfig.h"
 
@@ -38,6 +40,7 @@ using namespace chip::app::Clusters;
 namespace {
 
 espectre::MatterEspBindings g_bindings;
+espectre::MatterCommissioningDataProvider g_commissioning_data;
 espectre::MatterFrontend *g_frontend = nullptr;
 uint16_t g_motion_endpoint_id = 0;
 
@@ -81,6 +84,28 @@ void open_commissioning_window_if_necessary() {
   }
 }
 
+void log_onboarding_codes() {
+  constexpr auto rendezvous =
+      chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE);
+  char qr_code[128] = {};
+  char manual_code[32] = {};
+  chip::MutableCharSpan qr_span(qr_code, sizeof(qr_code));
+  chip::MutableCharSpan manual_span(manual_code, sizeof(manual_code));
+
+  CHIP_ERROR qr_error = GetQRCode(qr_span, rendezvous);
+  CHIP_ERROR manual_error = GetManualPairingCode(manual_span, rendezvous);
+  if (qr_error != CHIP_NO_ERROR || manual_error != CHIP_NO_ERROR) {
+    ESP_LOGE(TAG, "Failed to generate Matter onboarding codes");
+    return;
+  }
+
+  ESP_LOGI(TAG, "MATTER_QR=%.*s", static_cast<int>(qr_span.size()), qr_span.data());
+  ESP_LOGI(TAG, "MATTER_MANUAL_CODE=%.*s", static_cast<int>(manual_span.size()),
+           manual_span.data());
+  ESP_LOGI(TAG, "MATTER_DISCRIMINATOR=%u",
+           static_cast<unsigned>(g_commissioning_data.setup_discriminator()));
+}
+
 void sync_post_start_state_on_chip_thread(intptr_t arg) {
   (void) arg;
 
@@ -88,6 +113,7 @@ void sync_post_start_state_on_chip_thread(intptr_t arg) {
   {
     lock::ScopedChipStackLock chip_stack_lock(portMAX_DELAY);
     commissioned = has_commissioned_fabric();
+    log_onboarding_codes();
     PrintOnboardingCodes(chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));
   }
 
@@ -159,6 +185,15 @@ extern "C" void app_main() {
   ESP_ERROR_CHECK(err);
   configure_log_levels();
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
+
+  CHIP_ERROR commissioning_error = g_commissioning_data.initialize();
+  if (commissioning_error != CHIP_NO_ERROR) {
+    ESP_LOGE(TAG, "Failed to initialize per-device Matter commissioning data");
+    return;
+  }
+  esp_matter::set_custom_commissionable_data_provider(&g_commissioning_data);
+  ESP_LOGI(TAG, "Matter factory data: %s",
+           g_commissioning_data.generated_on_boot() ? "generated" : "loaded");
 
   node::config_t node_config;
   std::snprintf(node_config.root_node.basic_information.node_label,

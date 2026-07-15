@@ -58,3 +58,13 @@ def test_matter_frontend_defaults_do_not_enable_ota_requestor():
     ).read_text(encoding="utf-8")
 
     assert "CONFIG_ENABLE_OTA_REQUESTOR=y" not in defaults
+
+
+def test_matter_frontend_uses_persistent_per_device_commissioning_data():
+    app_dir = REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app"
+    defaults = (app_dir / "sdkconfig.defaults").read_text(encoding="utf-8")
+    partitions = (app_dir / "partitions.csv").read_text(encoding="utf-8")
+
+    assert "CONFIG_CUSTOM_COMMISSIONABLE_DATA_PROVIDER=y" in defaults
+    assert "# CONFIG_ENABLE_TEST_SETUP_PARAMS is not set" in defaults
+    assert "matter_factory,data,0x40,0x3F0000, 0x1000," in partitions
