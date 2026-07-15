@@ -58,6 +58,11 @@ add_espectre_test(test_runtime_frontend_controller
     LIBRARIES espectre_frontend_esphome_testlib
 )
 
+add_espectre_test(test_runtime_detector_switch
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_runtime_detector_switch.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
 add_espectre_test(test_wifi_lifecycle
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_wifi_lifecycle.cpp"
     LIBRARIES espectre_runtime_testlib

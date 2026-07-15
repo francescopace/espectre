@@ -188,6 +188,22 @@ Set threshold:
 }
 ```
 
+Select and persist the active detector on frontends that advertise runtime
+detector control:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-002",
+  "command": "set_detector",
+  "detector": "ml"
+}
+```
+
+Accepted detector values are `classic` and `ml`. Switching to `classic`
+starts calibration automatically; switching to `ml` cancels any active
+calibration and starts detection immediately.
+
 Request an OTA manifest check using the firmware's built-in release URL:
 
 ```json
@@ -257,6 +273,7 @@ The current BLE firmware still carries setup commands as ASCII control writes:
 ```text
 REQ_SYSINFO
 SET_THRESHOLD:4.5
+SET_DETECTOR:ml
 SET_DEVICE_CONFIG:device_label=Living Room
 SET_MQTT_CONFIG:host=192.168.1.20&port=1883&username=mqtt&password=secret-password&topic_prefix=espectre%2Fv1%2Fdevices
 CLEAR_MQTT_CONFIG
@@ -356,6 +373,7 @@ Capability-oriented `sysinfo` keys may include:
 | `supports_mqtt_config` | Whether BLE clients can edit MQTT broker settings |
 | `supports_device_config` | Whether BLE clients can edit device identity settings |
 | `supports_runtime_threshold` | Whether BLE clients can change the live motion threshold |
+| `supports_runtime_detector` | Whether BLE clients can select and persist `classic` or `ml` |
 | `supports_live_telemetry` | Whether BLE telemetry notifications are exposed |
 | `supports_extended_diagnostics` | Whether implementation-specific runtime diagnostics are exposed |
 

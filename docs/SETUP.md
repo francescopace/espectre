@@ -281,7 +281,7 @@ Support in this phase:
 
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
-| `detection_algorithm` | `classic` or `ml` | `classic` | Shared detector family |
+| `detection_algorithm` | `classic` or `ml` | `classic`; Matter: `ml` | Shared detector family |
 | `threshold_mode` | `auto`, `min`, or `manual` | `auto` | Shared threshold mode |
 | `segmentation_threshold` | float | `1.0` | `classic`: `0.0-10.0`, `ml`: `0.0-1.0`; used when `threshold_mode=manual` |
 | `segmentation_window_size` | int | `100` | `10-200` packets |
@@ -310,6 +310,12 @@ Use the frontend README for the exact syntax and local workflow:
 ESPectre supports two runtime detector families, `classic` and `ml`. At boot,
 the sensing path starts with AGC active: `classic` performs startup threshold
 calibration, while `ml` starts as soon as CSI capture is ready.
+
+ESPHome and Native can switch detectors at runtime and persist the selection.
+The switch resets the threshold to the selected detector's default;
+`ml -> classic` starts calibration automatically. Matter remains read-only,
+does not consume that persisted selection, and uses its firmware default of
+`ml`. Streamer has no detector.
 
 See:
 

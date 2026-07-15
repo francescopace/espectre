@@ -1,6 +1,7 @@
 #include "frontend_runtime_shim.h"
 
 #include "esp_idf_runtime.h"
+#include "runtime_config_utils.h"
 
 namespace espectre {
 namespace frontend_runtime_shim {
@@ -18,6 +19,7 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
       listener_(nullptr),
       detector_(nullptr) {
   frontend_runtime_shim::state.last_instance = this;
+  capabilities_.supports_runtime_detector_selection = config.runtime_detector_selection_enabled;
   if (frontend_runtime_shim::state.snapshot.threshold == SEGMENTATION_DEFAULT_THRESHOLD) {
     snapshot_.threshold = config.segmentation_threshold;
   }
@@ -41,6 +43,15 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   frontend_runtime_shim::state.last_threshold = threshold;
   snapshot_.threshold = threshold;
   frontend_runtime_shim::state.snapshot.threshold = threshold;
+  return true;
+}
+
+bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
+  frontend_runtime_shim::state.set_detector_calls++;
+  frontend_runtime_shim::state.last_detector = algorithm;
+  snapshot_.detector_name = detection_algorithm_name(algorithm);
+  snapshot_.threshold = runtime_default_threshold(algorithm);
+  frontend_runtime_shim::state.snapshot = snapshot_;
   return true;
 }
 

@@ -84,7 +84,9 @@ Rules of thumb:
 - too many false positives: raise the threshold
 - missed movement: lower the threshold
 
-Runtime changes are temporary unless your frontend persists them.
+Runtime threshold changes are session-only and are recalculated at boot.
+ESPHome and Native persist runtime detector selections; Matter uses its fixed
+frontend default, and Streamer does not run a detector.
 
 ### Detection Algorithm
 

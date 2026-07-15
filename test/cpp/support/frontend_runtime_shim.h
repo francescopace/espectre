@@ -19,6 +19,8 @@ struct State {
   int loop_calls{0};
   int set_threshold_calls{0};
   float last_threshold{0.0f};
+  int set_detector_calls{0};
+  DetectionAlgorithm last_detector{DetectionAlgorithm::CLASSIC};
   int trigger_recalibration_calls{0};
   bool calibrating{false};
   bool services_armed{true};

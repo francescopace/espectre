@@ -9,6 +9,11 @@
 #include "espectre_log.h"
 #include "esp_wifi.h"
 
+#if defined(CONFIG_ESP_COEX_SW_COEXIST_ENABLE) && __has_include("esp_coexist.h")
+#include "esp_coexist.h"
+#define ESPECTRE_HAVE_ESP_COEXIST 1
+#endif
+
 namespace espectre {
 
 static const char *WIFI_LIFECYCLE_TAG = "WiFiLifecycle";
@@ -47,6 +52,13 @@ const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
 }
 
 esp_err_t set_wifi_protocol_for_csi_() {
+  uint8_t current_protocol = 0U;
+  if (esp_wifi_get_protocol(WIFI_IF_STA, &current_protocol) == ESP_OK &&
+      (current_protocol == WIFI_PROTOCOL_CSI_2G_PREFERRED ||
+       current_protocol == WIFI_PROTOCOL_CSI_2G_FALLBACK)) {
+    return ESP_OK;
+  }
+
   esp_err_t ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G_PREFERRED);
   if (ret == ESP_OK) {
     return ESP_OK;
@@ -73,6 +85,11 @@ esp_err_t get_wifi_protocol_for_log_(uint16_t *protocol) {
 }
 
 esp_err_t set_wifi_bandwidth_for_csi_() {
+  wifi_bandwidth_t current_bandwidth = WIFI_BW_HT20;
+  if (esp_wifi_get_bandwidth(WIFI_IF_STA, &current_bandwidth) == ESP_OK &&
+      current_bandwidth == WIFI_BANDWIDTH_CSI) {
+    return ESP_OK;
+  }
   return esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BANDWIDTH_CSI);
 }
 
@@ -116,31 +133,66 @@ esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy() {
   return ESP_OK;
 }
 
-// Configure WiFi for optimal CSI capture
-esp_err_t WiFiLifecycleManager::init() {
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Initializing WiFi CSI lifecycle");
-  esp_err_t ret = apply_csi_wifi_policy();
-  if (ret != ESP_OK) {
-    return ret;
+esp_err_t WiFiLifecycleManager::apply_started_csi_policy() {
+  const esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
+  if (ps_err != ESP_OK) {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to apply Wi-Fi power save profile for CSI: %s",
+             esp_err_to_name(ps_err));
   }
 
-  // Keep the radio awake for CSI sensing. ESPHome can still leave STA power
-  // save enabled at runtime even when PM-related sdkconfig options are off.
-  ret = esp_wifi_set_ps(WIFI_PS_NONE);
-  if (ret != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to disable WiFi power save: %s", esp_err_to_name(ret));
-    return ret;
+#ifdef ESPECTRE_HAVE_ESP_COEXIST
+  const esp_err_t coex_err = esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+  if (coex_err != ESP_OK) {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to bias Wi-Fi/BT coexistence toward Wi-Fi: %s",
+             esp_err_to_name(coex_err));
+  }
+#endif
+
+  const esp_err_t policy_err = apply_csi_wifi_policy();
+  if (policy_err != ESP_OK) {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to apply started Wi-Fi CSI policy: %s",
+             esp_err_to_name(policy_err));
+    return policy_err;
+  }
+  log_csi_runtime_state(WIFI_LIFECYCLE_TAG);
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Started Wi-Fi CSI policy applied");
+  return ps_err;
+}
+
+// Configure WiFi for optimal CSI capture
+esp_err_t WiFiLifecycleManager::init() {
+  if (ready_) {
+    return ESP_OK;
+  }
+
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Initializing WiFi CSI lifecycle");
+  const esp_err_t policy_err = started_policy_err_.load(std::memory_order_relaxed);
+  if (policy_err != ESP_OK) {
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI policy was not applied at STA start: %s",
+             esp_err_to_name(policy_err));
+    return policy_err;
+  }
+
+  // ESPHome may restore its configured power-save mode after STA_START.
+  // Reasserting WIFI_PS_NONE after GOT_IP is safe and does not renegotiate
+  // protocol or bandwidth, unlike applying the complete radio policy here.
+  const esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
+  if (ps_err != ESP_OK) {
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to disable Wi-Fi power save: %s",
+             esp_err_to_name(ps_err));
+    return ps_err;
   }
 
   // IMPORTANT: Promiscuous mode MUST be called BEFORE configuring CSI
   // This initializes internal WiFi structures required for CSI, even when set to false
-  ret = esp_wifi_set_promiscuous(false);
+  const esp_err_t ret = esp_wifi_set_promiscuous(false);
   if (ret != ESP_OK) {
     ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set promiscuous mode: 0x%x", ret);
     return ret;
   }
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi CSI lifecycle ready: promiscuous=disabled");
   log_csi_runtime_state(WIFI_LIFECYCLE_TAG);
+  ready_ = true;
 
   return ESP_OK;
 }
@@ -150,8 +202,21 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   connected_callback_ = connected_cb;
   disconnected_callback_ = disconnected_cb;
   
-  // Register WiFi connected event (IP_EVENT_STA_GOT_IP)
+  started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
   esp_err_t err = esp_event_handler_instance_register(
+      WIFI_EVENT,
+      WIFI_EVENT_STA_START,
+      &WiFiLifecycleManager::wifi_event_handler_,
+      this,
+      &started_instance_
+  );
+  if (err != ESP_OK) {
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to register started handler: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  // Register WiFi connected event (IP_EVENT_STA_GOT_IP)
+  err = esp_event_handler_instance_register(
       IP_EVENT,
       IP_EVENT_STA_GOT_IP,
       &WiFiLifecycleManager::ip_event_handler_,
@@ -161,6 +226,8 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   
   if (err != ESP_OK) {
     ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to register connected handler: %s", esp_err_to_name(err));
+    esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_STA_START, started_instance_);
+    started_instance_ = nullptr;
     return err;
   }
   
@@ -180,6 +247,10 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
       esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, connected_instance_);
       connected_instance_ = nullptr;
     }
+    if (started_instance_) {
+      esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_STA_START, started_instance_);
+      started_instance_ = nullptr;
+    }
     return err;
   }
   
@@ -188,6 +259,10 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
 }
 
 void WiFiLifecycleManager::unregister_handlers() {
+  if (started_instance_) {
+    esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_STA_START, started_instance_);
+    started_instance_ = nullptr;
+  }
   if (connected_instance_) {
     esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, connected_instance_);
     connected_instance_ = nullptr;
@@ -200,23 +275,32 @@ void WiFiLifecycleManager::unregister_handlers() {
 
   connected_event_.clear();
   disconnected_event_.clear();
+  started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
+  ready_ = false;
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi event handlers unregistered");
 }
 
-void WiFiLifecycleManager::process_pending_events() {
+esp_err_t WiFiLifecycleManager::process_pending_events() {
   if (disconnected_event_.take()) {
+    ready_ = false;
     ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi disconnected");
     if (disconnected_callback_) {
       disconnected_callback_();
     }
   }
 
-  if (connected_event_.take()) {
+  esp_netif_ip_info_t ip_info{};
+  if (connected_event_.take(ip_info)) {
     ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi connected");
+    const esp_err_t err = init();
+    if (err != ESP_OK) {
+      return err;
+    }
     if (connected_callback_) {
-      connected_callback_();
+      connected_callback_(ip_info);
     }
   }
+  return ESP_OK;
 }
 
 void WiFiLifecycleManager::log_csi_runtime_state(const char *tag) {
@@ -265,26 +349,33 @@ void WiFiLifecycleManager::log_csi_runtime_state(const char *tag) {
 }
 
 // The event handlers run on the default event loop task (sys_evt), so they
-// must remain short and non-blocking. They only record the event;
-// process_pending_events() does the work from the runtime loop.
+// must remain short and non-blocking. STA start applies the radio policy before
+// association; IP and disconnect events are drained from the runtime loop.
 void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_base,
                                              int32_t event_id, void* event_data) {
   (void)event_base;
-  (void)event_data;
-
   WiFiLifecycleManager* manager = static_cast<WiFiLifecycleManager*>(arg);
 
-  if (event_id == IP_EVENT_STA_GOT_IP) {
-    manager->connected_event_.post();
+  if (manager != nullptr && event_id == IP_EVENT_STA_GOT_IP && event_data != nullptr) {
+    const auto *event = static_cast<const ip_event_got_ip_t *>(event_data);
+    manager->connected_event_.post(event->ip_info);
   }
 }
 
 void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event_base,
                                                int32_t event_id, void* event_data) {
 
+  (void)event_base;
+  (void)event_data;
+
   WiFiLifecycleManager* manager = static_cast<WiFiLifecycleManager*>(arg);
 
-  if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
+  if (manager == nullptr) {
+    return;
+  }
+  if (event_id == WIFI_EVENT_STA_START) {
+    manager->started_policy_err_.store(apply_started_csi_policy(), std::memory_order_relaxed);
+  } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
     manager->disconnected_event_.post();
   }
 }

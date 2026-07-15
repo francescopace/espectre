@@ -11,9 +11,23 @@
 namespace esphome {
 namespace number {
 
+class NumberTraits {
+public:
+    void set_min_value(float min) { min_ = min; }
+    void set_max_value(float max) { max_ = max; }
+    void set_step(float step) { step_ = step; }
+    float get_max_value() const { return max_; }
+    float get_step() const { return step_; }
+private:
+    float min_{0.0f};
+    float max_{100.0f};
+    float step_{1.0f};
+};
+
 // Mock Number class
 class Number {
 public:
+    NumberTraits traits;
     void publish_state(float state) {
         state_ = state;
         has_state_ = true;
@@ -52,14 +66,5 @@ protected:
     unsigned int publish_count_{0};
 };
 
-// Mock NumberTraits
-class NumberTraits {
-public:
-    void set_min_value(float min) {}
-    void set_max_value(float max) {}
-    void set_step(float step) {}
-};
-
 } // namespace number
 } // namespace esphome
-

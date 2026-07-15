@@ -122,22 +122,6 @@ const char *traffic_mode_name(TrafficGeneratorMode mode) {
 
 esp_netif_t *get_sta_netif() { return esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"); }
 
-bool get_gateway_ip(uint32_t *gateway_addr) {
-  esp_netif_t *netif = get_sta_netif();
-  if (netif == nullptr || gateway_addr == nullptr) {
-    ESP_LOGE(TAG, "Failed to get network interface");
-    return false;
-  }
-
-  esp_netif_ip_info_t ip_info{};
-  if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK || ip_info.gw.addr == 0U) {
-    ESP_LOGE(TAG, "Gateway IP not available");
-    return false;
-  }
-  *gateway_addr = ip_info.gw.addr;
-  return true;
-}
-
 bool bind_socket_to_sta_interface(int sock) {
   esp_netif_t *netif = get_sta_netif();
   if (netif == nullptr) {
@@ -205,13 +189,15 @@ void TrafficGeneratorManager::init(uint32_t target_pps,
            adaptive_enabled ? "on" : "off");
 }
 
-bool TrafficGeneratorManager::start() {
+bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
   if (running_.load(std::memory_order_relaxed)) {
     return true;
   }
-  if (rate_controller_.target_pps() == 0U || !get_gateway_ip(&gateway_addr_)) {
+  if (rate_controller_.target_pps() == 0U || gateway_addr == 0U) {
+    ESP_LOGE(TAG, "Gateway IP is unavailable in the connection event");
     return false;
   }
+  gateway_addr_ = gateway_addr;
 
   DnsTrafficProtocol dns_protocol;
   IcmpTrafficProtocol icmp_protocol(static_cast<uint16_t>(reinterpret_cast<uintptr_t>(this)));

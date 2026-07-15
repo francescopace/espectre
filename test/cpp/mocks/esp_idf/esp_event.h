@@ -62,11 +62,11 @@ typedef struct {
 } esp_event_mock_slot_t;
 
 typedef struct {
-  esp_err_t register_results[4];
+  esp_err_t register_results[8];
   int register_result_count;
   int register_call_count;
   int unregister_call_count;
-  esp_event_mock_slot_t slots[4];
+  esp_event_mock_slot_t slots[8];
 } esp_event_mock_state_t;
 
 extern esp_event_mock_state_t g_esp_event_mock;
@@ -115,7 +115,7 @@ static inline esp_err_t esp_event_handler_instance_register(
     return result;
   }
 
-  if (call_index < 4) {
+  if (call_index < 8) {
     g_esp_event_mock.slots[call_index].event_base = event_base;
     g_esp_event_mock.slots[call_index].event_id = event_id;
     g_esp_event_mock.slots[call_index].handler = event_handler;

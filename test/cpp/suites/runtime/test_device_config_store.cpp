@@ -11,6 +11,7 @@
 
 #include "csi_payload_normalizer.h"
 #include "device_config_store.h"
+#include "runtime_detector_store.h"
 #include "nvs.h"
 #include "csi_format.h"
 
@@ -19,6 +20,23 @@ using namespace espectre;
 void setUp(void) { nvs_mock_reset(); }
 
 void tearDown(void) {}
+
+void test_runtime_detector_store_round_trips_and_validates_values(void) {
+  DetectionAlgorithm algorithm = DetectionAlgorithm::CLASSIC;
+  bool has_saved_value = true;
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_detection_algorithm(&algorithm, &has_saved_value));
+  TEST_ASSERT_FALSE(has_saved_value);
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_runtime_detection_algorithm(nullptr, &has_saved_value));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_detection_algorithm(static_cast<DetectionAlgorithm>(99)));
+
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::ML));
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_detection_algorithm(&algorithm, &has_saved_value));
+  TEST_ASSERT_TRUE(has_saved_value);
+  TEST_ASSERT_TRUE(algorithm == DetectionAlgorithm::ML);
+
+  nvs_mock_put_str("detector", "pca");
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_runtime_detection_algorithm(&algorithm, &has_saved_value));
+}
 
 void test_wifi_config_store_handles_missing_namespace_and_invalid_args(void) {
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_stored_wifi_config(nullptr));
@@ -224,6 +242,7 @@ int process(void) {
   RUN_TEST(test_device_config_store_applies_defaults_without_legacy_fields);
   RUN_TEST(test_device_config_store_reports_absence_when_no_fields_are_saved);
   RUN_TEST(test_device_config_store_clear_removes_all_current_keys);
+  RUN_TEST(test_runtime_detector_store_round_trips_and_validates_values);
   RUN_TEST(test_normalize_ht20_csi_payload_handles_supported_lengths);
   RUN_TEST(test_normalize_ht20_csi_payload_rejects_invalid_inputs_and_renders_tags);
   return UNITY_END();

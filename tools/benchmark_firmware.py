@@ -172,6 +172,16 @@ CASES = tuple(
 )
 
 
+def select_cases(frontend: str | None = None, detector: str | None = None) -> tuple[BenchmarkCase, ...]:
+    """Return the benchmark cases matching the optional CLI filters."""
+    return tuple(
+        case
+        for case in CASES
+        if (frontend is None or case.frontend == frontend)
+        and (detector is None or case.detector == detector)
+    )
+
+
 def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE_RE.sub("", text)
 
@@ -1045,9 +1055,19 @@ def _git_revision() -> str:
     return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
-def render_report(chip: str, port: str, started_at: datetime, results: Sequence[BenchmarkResult]) -> str:
+def render_report(
+    chip: str,
+    port: str,
+    started_at: datetime,
+    results: Sequence[BenchmarkResult],
+    expected_cases: Sequence[BenchmarkCase] = CASES,
+) -> str:
     chip_label = CHIP_LABELS[chip]
-    overall = "PASS" if len(results) == len(CASES) and all(result.status == "PASS" for result in results) else "FAIL"
+    overall = (
+        "PASS"
+        if len(results) == len(expected_cases) and all(result.status == "PASS" for result in results)
+        else "FAIL"
+    )
 
     def format_summary_bytes(value: int | None) -> str:
         if value is None:
@@ -1218,10 +1238,19 @@ def report_path_for_chip(chip: str) -> Path:
     return REPO_ROOT / "docs" / "performance" / f"{CHIP_LABELS[chip]}.md"
 
 
-def write_report(chip: str, port: str, started_at: datetime, results: Sequence[BenchmarkResult]) -> Path:
+def write_report(
+    chip: str,
+    port: str,
+    started_at: datetime,
+    results: Sequence[BenchmarkResult],
+    expected_cases: Sequence[BenchmarkCase] = CASES,
+) -> Path:
     destination = report_path_for_chip(chip)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(render_report(chip, port, started_at, results), encoding="utf-8")
+    destination.write_text(
+        render_report(chip, port, started_at, results, expected_cases),
+        encoding="utf-8",
+    )
     return destination
 
 
@@ -1230,7 +1259,21 @@ def main() -> int:
         description="Build, flash, and benchmark ESPHome/Native runtime variants, Matter smoke, and Streamer host collect for one chip.",
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
+    parser.add_argument(
+        "--frontend",
+        choices=("esphome", "native", "matter", "streamer"),
+        help="Run only cases for one frontend",
+    )
+    parser.add_argument(
+        "--detector",
+        choices=("classic", "ml", "collect"),
+        help="Run only cases for one detector or the streamer collect workflow",
+    )
     args = parser.parse_args()
+
+    selected_cases = select_cases(args.frontend, args.detector)
+    if not selected_cases:
+        parser.error("the selected frontend and detector do not define a benchmark case")
 
     port = get_serial_port(None)
     detected_chip = detect_chip_type(port)
@@ -1245,21 +1288,34 @@ def main() -> int:
     print(f"Chip:     {CHIP_LABELS[args.chip]}")
     print(f"Port:     {port}")
     print(f"Report:   {report_path.relative_to(REPO_ROOT)}")
-    print(f"Matrix:   {', '.join(case.label for case in CASES)}")
+    print(f"Matrix:   {', '.join(case.label for case in selected_cases)}")
 
     try:
         for frontend in ("esphome", "native"):
+            frontend_cases = tuple(case for case in selected_cases if case.frontend == frontend)
+            if not frontend_cases:
+                continue
             classic_case = BenchmarkCase(frontend, "classic")
             ml_case = BenchmarkCase(frontend, "ml")
+            if classic_case not in frontend_cases:
+                ml_result, _unused = run_case(ml_case, args.chip, port, clean=True)
+                results.append(ml_result)
+                write_report(args.chip, port, started_at, results, selected_cases)
+                continue
+
+            overlap_ml = ml_case if ml_case in frontend_cases else None
             classic_result, ml_build = run_case(
                 classic_case,
                 args.chip,
                 port,
                 clean=True,
-                overlap_build=ml_case,
+                overlap_build=overlap_ml,
             )
             results.append(classic_result)
-            write_report(args.chip, port, started_at, results)
+            write_report(args.chip, port, started_at, results, selected_cases)
+
+            if ml_case not in frontend_cases:
+                continue
 
             if ml_build is None:
                 classic_build_succeeded = (
@@ -1280,32 +1336,36 @@ def main() -> int:
                     prebuilt=ml_build,
                 )
             results.append(ml_result)
-            write_report(args.chip, port, started_at, results)
+            write_report(args.chip, port, started_at, results, selected_cases)
 
-        matter_result, _unused = run_case(
-            BenchmarkCase("matter", "classic", benchmark_mode="smoke"),
-            args.chip,
-            port,
-            clean=True,
-        )
-        results.append(matter_result)
-        write_report(args.chip, port, started_at, results)
+        matter_case = BenchmarkCase("matter", "classic", benchmark_mode="smoke")
+        if matter_case in selected_cases:
+            matter_result, _unused = run_case(
+                matter_case,
+                args.chip,
+                port,
+                clean=True,
+            )
+            results.append(matter_result)
+            write_report(args.chip, port, started_at, results, selected_cases)
 
-        streamer_result = run_streamer_case(
-            BenchmarkCase("streamer", "collect", benchmark_mode="stream"),
-            args.chip,
-            port,
-            clean=True,
-        )
-        results.append(streamer_result)
-        write_report(args.chip, port, started_at, results)
+        streamer_case = BenchmarkCase("streamer", "collect", benchmark_mode="stream")
+        if streamer_case in selected_cases:
+            streamer_result = run_streamer_case(
+                streamer_case,
+                args.chip,
+                port,
+                clean=True,
+            )
+            results.append(streamer_result)
+            write_report(args.chip, port, started_at, results, selected_cases)
     except KeyboardInterrupt:
         print("\nBenchmark interrupted; writing the partial report.", file=sys.stderr)
-        write_report(args.chip, port, started_at, results)
+        write_report(args.chip, port, started_at, results, selected_cases)
         return 130
 
-    destination = write_report(args.chip, port, started_at, results)
-    passed = all(result.status == "PASS" for result in results) and len(results) == len(CASES)
+    destination = write_report(args.chip, port, started_at, results, selected_cases)
+    passed = all(result.status == "PASS" for result in results) and len(results) == len(selected_cases)
     print(f"\nWrote {destination}")
     print(f"Overall result: {'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1

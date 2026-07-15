@@ -48,6 +48,7 @@ instead of repeating its historical rationale.
 - [`2025-12-06-adopt-esphome-as-the-production-integration-surface.md`](2025-12-06-adopt-esphome-as-the-production-integration-surface.md)
 - [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
 - [`2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md`](2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md)
+- [`2026-07-15-adopt-persisted-runtime-detector-selection.md`](2026-07-15-adopt-persisted-runtime-detector-selection.md)
 
 ### Detection
 

@@ -55,7 +55,11 @@ NativeFrontend::NativeFrontend(IBleBindings *bindings) : bindings_(bindings) {}
 NativeFrontend::NativeFrontend(IBleBindings *bindings, IMqttTransport *mqtt_transport, IOtaService *ota_service)
     : bindings_(bindings), mqtt_transport_(mqtt_transport), ota_service_(ota_service) {}
 
-void NativeFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.set_config(config); }
+void NativeFrontend::set_runtime_config(const RuntimeConfig &config) {
+  RuntimeConfig native_config = config;
+  native_config.runtime_detector_selection_enabled = true;
+  runtime_.set_config(native_config);
+}
 
 void NativeFrontend::set_device_config(const EspectreDeviceConfig &config) {
   device_config_ = config;
@@ -177,6 +181,14 @@ void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   publish_mqtt_telemetry_(snapshot, now_ms_());
 }
 
+void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
+  runtime_.record_snapshot(snapshot);
+  runtime_.config().detection_algorithm = parse_detection_algorithm(snapshot.detector_name);
+  system_info_refresh_.request();
+  publish_mqtt_info_();
+  publish_mqtt_telemetry_(snapshot, now_ms_());
+}
+
 void NativeFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
   runtime_.record_snapshot(snapshot);
   system_info_refresh_.request();
@@ -280,6 +292,15 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
     }
     return handle_threshold_write_(threshold);
   }
+  if (command.rfind("SET_DETECTOR:", 0) == 0) {
+    const std::string detector = command.substr(13U);
+    if (detector != RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME &&
+        detector != RUNTIME_DETECTION_ALGORITHM_ML_NAME) {
+      ESP_LOGW(TAG, "Invalid BLE detector command: %s", command.c_str());
+      return false;
+    }
+    return handle_detector_write_(parse_detection_algorithm(detector.c_str()));
+  }
 
   ESP_LOGW(TAG, "Unknown BLE control command: %s", command.c_str());
   return false;
@@ -294,6 +315,7 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
           true,
           true,
           runtime_.capabilities().supports_runtime_threshold_updates,
+          runtime_.capabilities().supports_runtime_detector_selection,
           ota_service_ != nullptr,
       },
       [this]() { this->publish_mqtt_info_(); },
@@ -302,6 +324,13 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
         const bool accepted = this->handle_threshold_write_(threshold);
         if (message != nullptr && message->empty()) {
           *message = accepted ? "threshold updated" : "threshold rejected";
+        }
+        return accepted;
+      },
+      [this](DetectionAlgorithm algorithm, std::string *message) {
+        const bool accepted = this->handle_detector_write_(algorithm);
+        if (message != nullptr) {
+          *message = accepted ? "detector updated" : "detector rejected";
         }
         return accepted;
       },
@@ -318,6 +347,18 @@ bool NativeFrontend::handle_threshold_write_(float threshold) {
   }
 
   if (!runtime_.set_threshold_runtime(threshold)) {
+    return false;
+  }
+  system_info_refresh_.request();
+  return true;
+}
+
+bool NativeFrontend::handle_detector_write_(DetectionAlgorithm algorithm) {
+  if (!runtime_.capabilities().supports_runtime_detector_selection) {
+    ESP_LOGW(TAG, "Runtime detector selection is not supported");
+    return false;
+  }
+  if (!runtime_.set_detection_algorithm_runtime(algorithm)) {
     return false;
   }
   system_info_refresh_.request();
@@ -407,6 +448,7 @@ void NativeFrontend::send_system_info_() {
                           true,
                           true,
                           runtime_.capabilities().supports_runtime_threshold_updates,
+                          runtime_.capabilities().supports_runtime_detector_selection,
                           runtime_.capabilities().supports_ble_telemetry,
                           runtime_.capabilities().supports_extended_diagnostics,
                           ota_service_ != nullptr},

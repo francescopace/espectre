@@ -41,6 +41,12 @@ bool CsiPipeline::set_threshold(float threshold) {
   return true;
 }
 
+void CsiPipeline::set_detector(BaseDetector *detector) {
+  detector_ = detector;
+  clear_detector_buffer_deferred_();
+  ESP_LOGD(TAG, "Detector updated to %s", detector_ != nullptr ? detector_->get_name() : "NULL");
+}
+
 void CsiPipeline::clear_detector_buffer() {
   clear_detector_buffer_deferred_();
   loop();

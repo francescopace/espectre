@@ -686,6 +686,13 @@
           <div class="metric-label">Threshold</div>
           <input class="metric-value metric-value-input" id="thresholdValue" type="number" min="0" max="10" step="0.000001" value="" placeholder="-">
         </div>
+        <div class="metric-card" id="detectorCard">
+          <div class="metric-label">Detector</div>
+          <select class="metric-value metric-value-input" id="detectorValue">
+            <option value="classic">classic</option>
+            <option value="ml">ml</option>
+          </select>
+        </div>
         <button class="metric-card metric-toggle-button enabled" id="liveTelemetryBtn" type="button">
           <div class="metric-label">Live Telemetry</div>
           <div class="metric-toggle-state" id="liveTelemetryState">Enabled</div>
@@ -740,6 +747,7 @@
         supportsMqttConfig: true,
         supportsDeviceConfig: true,
         supportsRuntimeThreshold: true,
+        supportsRuntimeDetector: true,
         supportsLiveTelemetry: true,
         supportsExtendedDiagnostics: true
       };
@@ -752,6 +760,7 @@
           supportsMqttConfig: false,
           supportsDeviceConfig: true,
           supportsRuntimeThreshold: false,
+          supportsRuntimeDetector: false,
           supportsLiveTelemetry: false,
           supportsExtendedDiagnostics: false
         };
@@ -864,6 +873,14 @@
       return threshold;
     }
 
+    function updateDetectorValue(value) {
+      if (value !== 'classic' && value !== 'ml') {
+        return;
+      }
+      el('detectorValue').value = value;
+      el('thresholdValue').max = value === 'ml' ? '1' : '10';
+    }
+
     function updateMotionLevel(movement, threshold) {
       const movementValue = Number(movement);
       const thresholdValue = Number(threshold);
@@ -942,6 +959,8 @@
       el('deviceApplyBtn').disabled = !isConnected || !capabilityState.supportsDeviceConfig;
       el('deviceClearBtn').disabled = !isConnected || !capabilityState.supportsDeviceConfig;
       el('thresholdValue').disabled = !isConnected || !capabilityState.supportsRuntimeThreshold;
+      setCardVisible('detectorCard', isConnected && capabilityState.supportsRuntimeDetector);
+      el('detectorValue').disabled = !isConnected || !capabilityState.supportsRuntimeDetector;
       el('liveTelemetryBtn').disabled = !capabilityState.supportsLiveTelemetry;
       updateLiveTelemetryButton();
     }
@@ -986,6 +1005,9 @@
       } else if (key === 'supports_runtime_threshold') {
         setCapability('supportsRuntimeThreshold', value === 'true' || value === '1');
         applyCapabilityState(device && device.gatt && device.gatt.connected);
+      } else if (key === 'supports_runtime_detector') {
+        setCapability('supportsRuntimeDetector', value === 'true' || value === '1');
+        applyCapabilityState(device && device.gatt && device.gatt.connected);
       } else if (key === 'supports_live_telemetry') {
         setCapability('supportsLiveTelemetry', value === 'true' || value === '1');
         applyCapabilityState(device && device.gatt && device.gatt.connected);
@@ -1027,6 +1049,7 @@
         el('diagProtocol').textContent = key === 'espectre_protocol_version' ? value : value;
       } else if (key === 'detector') {
         el('diagDetector').textContent = value;
+        updateDetectorValue(value);
       } else if (key === 'window') {
         el('diagWindow').textContent = value;
       } else if (key === 'lowpass') {
@@ -1244,6 +1267,16 @@
         await writeControl(`SET_THRESHOLD:${threshold.toFixed(6)}`);
       } catch (error) {
         setThresholdPending(null);
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('detectorValue').addEventListener('change', async () => {
+      try {
+        const detector = el('detectorValue').value;
+        await writeControl(`SET_DETECTOR:${detector}`);
+        await writeControl('REQ_SYSINFO');
+      } catch (error) {
         log(`error: ${error.message}`);
       }
     });

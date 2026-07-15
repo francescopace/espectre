@@ -38,6 +38,10 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
 
   snapshot_ = runtime_->get_snapshot();
   capabilities_ = runtime_->get_capabilities();
+  if (config_.runtime_profile == RuntimeProfile::SENSING && config_.runtime_detector_selection_enabled) {
+    config_.detection_algorithm = parse_detection_algorithm(snapshot_.detector_name);
+    config_.segmentation_threshold = snapshot_.threshold;
+  }
   setup_complete_ = true;
   return true;
 }
@@ -88,6 +92,29 @@ bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
   }
   set_manual_threshold(config_, threshold);
   snapshot_.threshold = threshold;
+  return true;
+}
+
+bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
+  if (!runtime_detection_algorithm_valid(algorithm)) {
+    return false;
+  }
+  if (runtime_) {
+    if (!capabilities_.supports_runtime_detector_selection ||
+        !runtime_->set_detection_algorithm_runtime(algorithm)) {
+      return false;
+    }
+    snapshot_ = runtime_->get_snapshot();
+  } else {
+    config_.detection_algorithm = algorithm;
+    config_.segmentation_threshold = runtime_default_threshold(algorithm);
+    config_.threshold_mode = ThresholdMode::AUTO;
+    snapshot_.threshold = config_.segmentation_threshold;
+    snapshot_.detector_name = detection_algorithm_name(algorithm);
+  }
+  config_.detection_algorithm = algorithm;
+  config_.segmentation_threshold = snapshot_.threshold;
+  config_.threshold_mode = ThresholdMode::AUTO;
   return true;
 }
 

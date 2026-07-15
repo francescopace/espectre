@@ -48,7 +48,7 @@ class TrafficGeneratorManager {
             TrafficGeneratorMode mode = TrafficGeneratorMode::PING,
             bool adaptive_enabled = true);
 
-  bool start();
+  bool start(uint32_t gateway_addr);
   void loop();
   void stop();
 

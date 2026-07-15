@@ -11,6 +11,7 @@
 
 #include "esphome/core/component.h"
 #include "esphome/components/number/number.h"
+#include "runtime_sensing_schema.h"
 
 namespace esphome {
 namespace espectre_component {
@@ -28,6 +29,7 @@ class ESpectreThresholdNumber : public number::Number, public Component {
   // Re-publish current threshold value to Home Assistant
   // Called when API connection is ready to ensure HA receives the saved value
   void republish_state();
+  void update_detector_range(::espectre::DetectionAlgorithm algorithm);
   
  protected:
   void control(float value) override;
@@ -37,4 +39,3 @@ class ESpectreThresholdNumber : public number::Number, public Component {
 
 }  // namespace espectre_component
 }  // namespace esphome
-

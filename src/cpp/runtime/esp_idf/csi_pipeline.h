@@ -106,6 +106,7 @@ class CsiPipeline {
    * @param threshold New threshold value
    */
   bool set_threshold(float threshold);
+  void set_detector(BaseDetector *detector);
   void set_evaluation_interval(uint32_t interval) { evaluation_interval_ = interval > 0 ? interval : 1; }
   void set_motion_on_hits(uint8_t hits) { motion_on_hits_ = hits > 0 ? hits : 1; }
   void set_motion_off_hits(uint8_t hits) { motion_off_hits_ = hits > 0 ? hits : 1; }

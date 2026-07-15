@@ -25,6 +25,7 @@ class StreamEspIdfRuntime : public IEspectreRuntime {
   void set_live_telemetry_enabled(bool enabled) override;
 
   bool set_threshold_runtime(float threshold) override;
+  bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm) override;
   bool trigger_recalibration() override;
   bool is_calibrating() const override;
 

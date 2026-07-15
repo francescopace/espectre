@@ -8,7 +8,7 @@ void esp_event_mock_reset(void) {
 
 void esp_event_mock_emit(esp_event_base_t event_base, int32_t event_id,
                          void *event_data) {
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 8; i++) {
     esp_event_mock_slot_t *slot = &g_esp_event_mock.slots[i];
     if (!slot->active || slot->handler == nullptr) {
       continue;

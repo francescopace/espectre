@@ -13,6 +13,7 @@
 #include "csi_format.h"
 #include "ml_detector.h"
 #include "runtime_config_utils.h"
+#include "runtime_detector_store.h"
 
 namespace espectre {
 
@@ -56,6 +57,7 @@ void EspIdfRuntime::update_live_telemetry_callback_() {
 EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config) : config_(config) {
   snapshot_.threshold = config_.segmentation_threshold;
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
+  capabilities_.supports_runtime_detector_selection = config_.runtime_detector_selection_enabled;
 }
 
 bool EspIdfRuntime::setup() {
@@ -64,6 +66,20 @@ bool EspIdfRuntime::setup() {
   }
 
   ESP_LOGI(RUNTIME_TAG, "Initializing ESPectre runtime...");
+
+  if (config_.runtime_detector_selection_enabled) {
+    DetectionAlgorithm saved_algorithm = config_.detection_algorithm;
+    bool has_saved_value = false;
+    const esp_err_t err = load_runtime_detection_algorithm(&saved_algorithm, &has_saved_value);
+    if (err != ESP_OK) {
+      ESP_LOGW(RUNTIME_TAG, "Failed to load persisted detector: %s", esp_err_to_name(err));
+    } else if (has_saved_value) {
+      config_.detection_algorithm = saved_algorithm;
+      config_.threshold_mode = ThresholdMode::AUTO;
+      config_.segmentation_threshold = runtime_default_threshold(saved_algorithm);
+      snapshot_.threshold = config_.segmentation_threshold;
+    }
+  }
 
   if (!configure_detector_()) {
     return false;
@@ -77,21 +93,17 @@ bool EspIdfRuntime::setup() {
   csi_pipeline_.set_motion_off_hits(config_.motion_off_hits);
   update_live_telemetry_callback_();
 
-  if (wifi_lifecycle_.register_handlers([this]() { on_wifi_connected_(); },
+  if (wifi_lifecycle_.register_handlers([this](const esp_netif_ip_info_t &ip_info) {
+                                          on_wifi_connected_(ip_info);
+                                        },
                                         [this]() { on_wifi_disconnected_(); }) != ESP_OK) {
     notify_fault_("Failed to register WiFi handlers");
     return false;
   }
 
-  wifi_ready_ = has_wifi_ip_();
+  wifi_ready_ = false;
+  wifi_ip_info_ = {};
   setup_complete_ = true;
-  if (wifi_ready_) {
-    if (services_armed_) {
-      on_wifi_connected_();
-    } else {
-      ESP_LOGI(RUNTIME_TAG, "WiFi is ready, deferring CSI services until commissioning completes");
-    }
-  }
   debug_telemetry_.reset();
   return true;
 }
@@ -108,7 +120,9 @@ void EspIdfRuntime::shutdown() {
 
 void EspIdfRuntime::loop() {
   RuntimeDebugLoopScope debug_scope(debug_telemetry_, RUNTIME_TAG);
-  wifi_lifecycle_.process_pending_events();
+  if (wifi_lifecycle_.process_pending_events() != ESP_OK) {
+    notify_fault_("WiFi lifecycle init failed");
+  }
   uint8_t calibration_percent = 0U;
   uint32_t calibration_packets = 0U;
   uint16_t calibration_target_packets = 0U;
@@ -159,10 +173,9 @@ void EspIdfRuntime::set_services_armed(bool armed) {
     return;
   }
 
-  wifi_ready_ = has_wifi_ip_();
-  if (wifi_ready_) {
+  if (wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
     ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, starting CSI services");
-    on_wifi_connected_();
+    on_wifi_connected_(wifi_ip_info_);
   } else {
     ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, waiting for WiFi IP");
   }
@@ -194,6 +207,52 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   return true;
 }
 
+bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
+  if (!capabilities_.supports_runtime_detector_selection ||
+      !runtime_detection_algorithm_valid(algorithm)) {
+    ESP_LOGW(RUNTIME_TAG, "Runtime detector selection is unavailable or invalid");
+    return false;
+  }
+  if (algorithm == config_.detection_algorithm) {
+    return true;
+  }
+
+  const float threshold = runtime_default_threshold(algorithm);
+  std::unique_ptr<BaseDetector> next_detector = make_detector_(algorithm, threshold);
+  if (next_detector == nullptr) {
+    notify_fault_("Failed to configure runtime detector");
+    return false;
+  }
+  const esp_err_t persist_err = save_runtime_detection_algorithm(algorithm);
+  if (persist_err != ESP_OK) {
+    ESP_LOGW(RUNTIME_TAG, "Failed to persist detector: %s", esp_err_to_name(persist_err));
+    return false;
+  }
+
+  cancel_calibration_(true);
+  detector_ = std::move(next_detector);
+  csi_pipeline_.set_detector(detector_.get());
+  config_.detection_algorithm = algorithm;
+  config_.threshold_mode = ThresholdMode::AUTO;
+  config_.segmentation_threshold = threshold;
+  snapshot_.detector_name = detection_algorithm_name(algorithm);
+  snapshot_.threshold = threshold;
+  snapshot_.startup_threshold = 0.0f;
+  snapshot_.movement_metric = 0.0f;
+  snapshot_.motion_state = MotionState::IDLE;
+
+  if (listener_ != nullptr) {
+    listener_->on_detector_changed(snapshot_);
+    listener_->on_threshold_changed(snapshot_);
+  }
+  ESP_LOGI(RUNTIME_TAG, "Detector changed to %s", detection_algorithm_name(algorithm));
+
+  if (algorithm == DetectionAlgorithm::CLASSIC && csi_pipeline_.is_enabled()) {
+    return start_calibration_();
+  }
+  return true;
+}
+
 bool EspIdfRuntime::trigger_recalibration() {
   if (snapshot_.calibrating) {
     ESP_LOGW(RUNTIME_TAG, "Calibration already in progress");
@@ -219,51 +278,62 @@ bool EspIdfRuntime::configure_detector_() {
     return false;
   }
 
-  if (config_.detection_algorithm == DetectionAlgorithm::ML) {
-    const float ml_threshold = (config_.threshold_mode == ThresholdMode::MANUAL) ? config_.segmentation_threshold
-                                                                                 : ML_DEFAULT_THRESHOLD;
-    config_.segmentation_threshold = ml_threshold;
-    snapshot_.threshold = ml_threshold;
-    detector_ = std::make_unique<MLDetector>(config_.segmentation_window_size, ml_threshold);
-  } else {
-    detector_ = std::make_unique<ClassicDetector>(config_.segmentation_window_size,
-                                                  config_.segmentation_threshold,
-                                                  config_.classic_recovery_vote_enabled);
-  }
+  const float threshold = (config_.threshold_mode == ThresholdMode::MANUAL)
+                              ? config_.segmentation_threshold
+                              : runtime_default_threshold(config_.detection_algorithm);
+  config_.segmentation_threshold = threshold;
+  snapshot_.threshold = threshold;
+  detector_ = make_detector_(config_.detection_algorithm, threshold);
 
   if (detector_ == nullptr) {
     notify_fault_("Failed to configure detector");
     return false;
   }
 
-  detector_->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
-  detector_->configure_hampel(config_.hampel_enabled, config_.hampel_window, config_.hampel_threshold);
-
-  snapshot_.detector_name = detector_->get_name();
+  snapshot_.detector_name = detection_algorithm_name(config_.detection_algorithm);
   return true;
 }
 
-void EspIdfRuntime::on_wifi_connected_() {
-  // Connect events are processed from the loop task; the connection may have
-  // dropped again in the meantime. The next IP_EVENT_STA_GOT_IP retriggers.
-  if (!has_wifi_ip_()) {
+std::unique_ptr<BaseDetector> EspIdfRuntime::make_detector_(DetectionAlgorithm algorithm, float threshold) {
+  std::unique_ptr<BaseDetector> detector;
+  if (algorithm == DetectionAlgorithm::ML) {
+    detector = std::make_unique<MLDetector>(config_.segmentation_window_size, threshold);
+  } else if (algorithm == DetectionAlgorithm::CLASSIC) {
+    detector = std::make_unique<ClassicDetector>(config_.segmentation_window_size,
+                                                 threshold,
+                                                 config_.classic_recovery_vote_enabled);
+  }
+  if (detector != nullptr) {
+    detector->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
+    detector->configure_hampel(config_.hampel_enabled, config_.hampel_window, config_.hampel_threshold);
+  }
+  return detector;
+}
+
+void EspIdfRuntime::cancel_calibration_(bool notify_listener) {
+  const bool was_calibrating = snapshot_.calibrating;
+  threshold_calibration_active_.store(false, std::memory_order_relaxed);
+  next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
+  calibration_progress_event_.clear();
+  calibration_finished_event_.clear();
+  csi_pipeline_.set_packet_interceptor(nullptr, nullptr);
+  threshold_calibrator_.reset();
+  snapshot_.calibrating = false;
+  if (was_calibrating && notify_listener && listener_ != nullptr) {
+    listener_->on_calibration_finished(snapshot_, false);
+  }
+}
+
+void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
+  if (ip_info.ip.addr == 0U) {
     return;
   }
 
   wifi_ready_ = true;
+  wifi_ip_info_ = ip_info;
   if (!services_armed_) {
     ESP_LOGI(RUNTIME_TAG, "WiFi connected, waiting for Matter commissioning before starting CSI services");
     return;
-  }
-
-  if (!csi_wifi_lifecycle_ready_) {
-    const esp_err_t err = wifi_lifecycle_.init();
-    if (err != ESP_OK) {
-      notify_fault_("WiFi lifecycle init failed");
-      return;
-    }
-    csi_wifi_lifecycle_ready_ = true;
-    ESP_LOGI(RUNTIME_TAG, "WiFi CSI lifecycle initialized after connect");
   }
 
   snapshot_.motion_state = MotionState::IDLE;
@@ -275,7 +345,7 @@ void EspIdfRuntime::on_wifi_connected_() {
       listener_->on_motion_state_changed(snapshot_);
     }
   });
-  refresh_csi_local_identity_();
+  refresh_csi_local_identity_(ip_info.ip.addr);
 
   if (!csi_pipeline_.is_enabled()) {
     const esp_err_t err = csi_pipeline_.enable([this](MotionState state, uint32_t packets_received) {
@@ -293,7 +363,7 @@ void EspIdfRuntime::on_wifi_connected_() {
     }
   }
 
-  if (!csi_traffic_service_.is_running() && !csi_traffic_service_.start()) {
+  if (!csi_traffic_service_.is_running() && !csi_traffic_service_.start(ip_info.gw.addr)) {
     notify_fault_("Failed to start CSI traffic service");
     return;
   }
@@ -304,12 +374,8 @@ void EspIdfRuntime::on_wifi_connected_() {
 
 void EspIdfRuntime::on_wifi_disconnected_() {
   wifi_ready_ = false;
-  csi_wifi_lifecycle_ready_ = false;
-  threshold_calibration_active_.store(false, std::memory_order_relaxed);
-  next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
-  calibration_progress_event_.clear();
-  calibration_finished_event_.clear();
-  csi_pipeline_.set_packet_interceptor(nullptr, nullptr);
+  wifi_ip_info_ = {};
+  cancel_calibration_(false);
   csi_pipeline_.set_local_identity(0U, nullptr);
   csi_pipeline_.disable();
   csi_traffic_service_.stop();
@@ -453,40 +519,13 @@ void EspIdfRuntime::notify_fault_(const char *message) {
   }
 }
 
-bool EspIdfRuntime::has_wifi_ip_() const {
-  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  if (netif == nullptr) {
-    return false;
-  }
-
-  esp_netif_ip_info_t ip_info{};
-  if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
-    return false;
-  }
-
-  return ip_info.ip.addr != 0;
-}
-
-uint32_t EspIdfRuntime::local_wifi_ip_addr_() const {
-  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  if (netif == nullptr) {
-    return 0U;
-  }
-
-  esp_netif_ip_info_t ip_info{};
-  if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
-    return 0U;
-  }
-  return ip_info.ip.addr;
-}
-
-void EspIdfRuntime::refresh_csi_local_identity_() {
+void EspIdfRuntime::refresh_csi_local_identity_(uint32_t local_ip_addr) {
   uint8_t mac[6] = {0U, 0U, 0U, 0U, 0U, 0U};
   if (esp_wifi_get_mac(WIFI_IF_STA, mac) != ESP_OK) {
-    csi_pipeline_.set_local_identity(local_wifi_ip_addr_(), nullptr);
+    csi_pipeline_.set_local_identity(local_ip_addr, nullptr);
     return;
   }
-  csi_pipeline_.set_local_identity(local_wifi_ip_addr_(), mac);
+  csi_pipeline_.set_local_identity(local_ip_addr, mac);
 }
 
 }  // namespace espectre

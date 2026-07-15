@@ -66,6 +66,7 @@ StreamEspIdfRuntime::StreamEspIdfRuntime(const RuntimeConfig &config) : config_(
   snapshot_.threshold = 0.0f;
   snapshot_.detector_name = "stream";
   capabilities_.supports_runtime_threshold_updates = false;
+  capabilities_.supports_runtime_detector_selection = false;
   capabilities_.supports_manual_recalibration = false;
   capabilities_.supports_ble_telemetry = false;
   capabilities_.supports_extended_diagnostics = true;
@@ -196,6 +197,11 @@ void StreamEspIdfRuntime::set_live_telemetry_enabled(bool enabled) { live_teleme
 
 bool StreamEspIdfRuntime::set_threshold_runtime(float threshold) {
   (void)threshold;
+  return false;
+}
+
+bool StreamEspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
+  (void)algorithm;
   return false;
 }
 

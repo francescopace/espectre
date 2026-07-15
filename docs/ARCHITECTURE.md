@@ -80,6 +80,21 @@ Shared runtime services also live here, including:
 - ESPectre Protocol model and shared BLE/MQTT transport support
 - NVS-backed provisioning helpers reused by ESP-IDF frontends
 
+### Shared Wi-Fi and CSI Lifecycle
+
+`WiFiLifecycleManager` owns the CSI-specific ESP-IDF radio policy for every
+frontend. It applies the protocol and HT20 bandwidth policy synchronously on
+`WIFI_EVENT_STA_START`, before the first association, then completes the CSI
+prerequisites when `IP_EVENT_STA_GOT_IP` is drained from the runtime loop.
+ESPHome, Native, Matter, and Streamer must not apply these radio settings in
+their frontend code.
+
+The `GOT_IP` payload is also the source of truth for the local address,
+netmask, and gateway used during service startup. The runtime passes that
+gateway directly to the internal traffic generator instead of querying the
+network interface again. Disconnect processing clears the shared ready state,
+so the same sequence is repeated after a genuine reconnect.
+
 ### `src/cpp/frontend/`
 
 `frontend` maps the runtime into a concrete ecosystem or firmware surface.
@@ -151,6 +166,7 @@ Frontend-facing operations include:
 - `shutdown()`
 - `loop()`
 - `set_threshold_runtime()`
+- `set_detection_algorithm_runtime()`
 - `trigger_recalibration()`
 - `get_snapshot()`
 - `get_capabilities()`
@@ -159,12 +175,18 @@ Normalized runtime events include:
 
 - motion-state changes
 - threshold changes
+- detector changes
 - calibration start and finish
 - periodic status updates
 - runtime faults
 
 Frontends should use this surface instead of reaching directly into low-level
 Wi-Fi or CSI pipeline services.
+
+Runtime detector selection is capability-gated. ESPHome and Native enable the
+shared ESP-IDF detector store, which persists `classic` or `ml` in NVS and
+restores it at boot. Matter keeps a frontend-owned `ml` default without a
+writable detector surface, while Streamer remains detector-free.
 
 ### Shared Runtime Debug Telemetry
 

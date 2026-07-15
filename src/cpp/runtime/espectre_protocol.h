@@ -50,6 +50,8 @@ struct EspectreCommand {
   std::string command;
   float threshold{0.0f};
   bool has_threshold{false};
+  std::string detector;
+  bool has_detector{false};
 };
 
 enum class EspectreOtaState : uint8_t {

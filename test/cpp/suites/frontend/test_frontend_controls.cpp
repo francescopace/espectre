@@ -4,6 +4,7 @@
 #define private public
 #define protected public
 #include "calibrate_switch.h"
+#include "detector_select.h"
 #include "espectre.h"
 #include "threshold_number.h"
 #undef protected
@@ -24,6 +25,7 @@ class ESpectreComponentProbe : public ESpectreComponent {
   using ESpectreComponent::on_periodic_update;
   using ESpectreComponent::on_runtime_fault;
   using ESpectreComponent::on_threshold_changed;
+  using ESpectreComponent::on_detector_changed;
 };
 
 class ThresholdNumberProbe : public ESpectreThresholdNumber {
@@ -34,6 +36,11 @@ class ThresholdNumberProbe : public ESpectreThresholdNumber {
 class CalibrateSwitchProbe : public ESpectreCalibrateSwitch {
  public:
   using ESpectreCalibrateSwitch::write_state;
+};
+
+class DetectorSelectProbe : public ESpectreDetectorSelect {
+ public:
+  using ESpectreDetectorSelect::control;
 };
 
 }  // namespace
@@ -187,6 +194,30 @@ void test_calibrate_switch_behaviors_cover_all_user_paths(void) {
   TEST_ASSERT_FALSE(calibrate_switch.state);
 }
 
+void test_detector_select_switches_and_republishes_runtime_state(void) {
+  ESpectreComponentProbe component;
+  component.set_detection_algorithm("classic");
+  component.setup();
+  DetectorSelectProbe detector_select;
+  ThresholdNumberProbe threshold_number;
+  detector_select.set_parent(&component);
+  component.set_detector_select(&detector_select);
+  component.set_threshold_number(&threshold_number);
+
+  detector_select.control("ml");
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::ML);
+  detector_select.republish_state();
+  TEST_ASSERT_EQUAL_STRING("ml", detector_select.get_state().c_str());
+
+  RuntimeSnapshot snapshot = component.runtime_.snapshot();
+  snapshot.detector_name = "classic";
+  snapshot.threshold = SEGMENTATION_DEFAULT_THRESHOLD;
+  component.on_detector_changed(snapshot);
+  TEST_ASSERT_EQUAL_STRING("classic", detector_select.get_state().c_str());
+  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_THRESHOLD_MAX, threshold_number.traits.get_max_value());
+}
+
 void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void) {
   ESpectreComponentProbe component;
   esphome::sensor::Sensor movement_sensor;
@@ -297,6 +328,7 @@ int process(void) {
   RUN_TEST(test_espectre_component_configuration_setters_update_runtime_config);
   RUN_TEST(test_threshold_number_behaviors_cover_parent_and_no_parent_paths);
   RUN_TEST(test_calibrate_switch_behaviors_cover_all_user_paths);
+  RUN_TEST(test_detector_select_switches_and_republishes_runtime_state);
   RUN_TEST(test_motion_threshold_and_calibration_callbacks_publish_expected_state);
   RUN_TEST(test_runtime_fault_callback_handles_null_and_message_paths);
   RUN_TEST(test_dump_config_covers_configuration_branches);

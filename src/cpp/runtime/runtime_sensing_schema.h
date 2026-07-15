@@ -91,6 +91,14 @@ constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
   return algorithm == DetectionAlgorithm::ML ? RUNTIME_ML_THRESHOLD_MAX : RUNTIME_THRESHOLD_MAX;
 }
 
+constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
+  return algorithm == DetectionAlgorithm::CLASSIC || algorithm == DetectionAlgorithm::ML;
+}
+
+constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {
+  return algorithm == DetectionAlgorithm::ML ? ML_DEFAULT_THRESHOLD : SEGMENTATION_DEFAULT_THRESHOLD;
+}
+
 static_assert(RUNTIME_THRESHOLD_MIN == 0.0f, "Runtime threshold min must stay at zero");
 static_assert(RUNTIME_THRESHOLD_MAX == SEGMENTATION_MAX_THRESHOLD, "Runtime threshold max drifted from threshold.h");
 static_assert(RUNTIME_ML_THRESHOLD_MAX == ML_MAX_THRESHOLD, "Runtime ML threshold max drifted from ml_detector.h");

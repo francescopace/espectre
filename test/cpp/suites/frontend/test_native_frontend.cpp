@@ -337,6 +337,33 @@ void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
   TEST_ASSERT_TRUE(publish.payload.find("\"accepted\":true") != std::string::npos);
 }
 
+void test_native_frontend_ble_and_mqtt_detector_commands_update_runtime(void) {
+  MockBleBindings bindings;
+  MockMqttTransport mqtt;
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_host = "localhost";
+
+  NativeFrontend frontend(&bindings, &mqtt);
+  frontend.set_device_config(config);
+  RuntimeConfig runtime_config;
+  frontend.set_runtime_config(runtime_config);
+  TEST_ASSERT_TRUE(frontend.setup());
+
+  TEST_ASSERT_TRUE(frontend.handle_control_command_("SET_DETECTOR:ml"));
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::ML);
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_DETECTOR:pca"));
+
+  mqtt_transport_mock::state.publishes.clear();
+  mqtt.emit_command("{\"command_id\":\"det-1\",\"command\":\"set_detector\",\"detector\":\"classic\"}");
+  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_detector_calls);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::CLASSIC);
+  TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.back().payload.find("\"accepted\":true") !=
+                   std::string::npos);
+}
+
 void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
@@ -617,6 +644,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_set_mqtt_config_batch_command_updates_runtime_config);
   RUN_TEST(test_native_frontend_periodic_update_publishes_mqtt_telemetry);
   RUN_TEST(test_native_frontend_mqtt_set_threshold_command_publishes_result);
+  RUN_TEST(test_native_frontend_ble_and_mqtt_detector_commands_update_runtime);
   RUN_TEST(test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads);
   RUN_TEST(test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state);
   RUN_TEST(test_espectre_protocol_parses_config_and_rejects_bad_commands);

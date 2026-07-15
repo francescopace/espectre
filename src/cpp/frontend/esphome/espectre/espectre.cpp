@@ -11,6 +11,7 @@
 #include "espectre.h"
 #include "threshold_number.h"
 #include "calibrate_switch.h"
+#include "detector_select.h"
 
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
@@ -32,6 +33,10 @@ void ESpectreComponent::setup() {
     this->mark_failed();
     return;
   }
+  if (this->threshold_number_ != nullptr) {
+    static_cast<ESpectreThresholdNumber *>(this->threshold_number_)
+        ->update_detector_range(this->runtime_.config().detection_algorithm);
+  }
 
   ESP_LOGI(TAG, "ESPectre initialized successfully");
 }
@@ -48,6 +53,10 @@ void ESpectreComponent::set_threshold_runtime(float threshold) {
   this->runtime_.set_threshold_runtime(threshold);
 }
 
+void ESpectreComponent::set_detection_algorithm_runtime(const std::string &algorithm) {
+  this->runtime_.set_detection_algorithm_runtime(parse_detection_algorithm(algorithm.c_str()));
+}
+
 void ESpectreComponent::trigger_recalibration() {
   this->runtime_.trigger_recalibration();
 }
@@ -55,6 +64,7 @@ void ESpectreComponent::trigger_recalibration() {
 void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
   if (!snapshot.ready_to_publish) {
     this->threshold_republished_ = false;
+    this->detector_republished_ = false;
   }
   this->runtime_.record_snapshot(snapshot);
   if (snapshot.ready_to_publish) {
@@ -76,6 +86,10 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
     threshold_num->republish_state();
     this->threshold_republished_ = true;
   }
+  if (!this->detector_republished_ && this->detector_select_ != nullptr) {
+    static_cast<ESpectreDetectorSelect *>(this->detector_select_)->republish_state();
+    this->detector_republished_ = true;
+  }
 
   this->sensor_publisher_.log_status(TAG, snapshot, packets_received);
   this->sensor_publisher_.publish_movement_metric(snapshot.movement_metric);
@@ -86,6 +100,18 @@ void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   this->runtime_.config().segmentation_threshold = snapshot.threshold;
   if (this->threshold_number_ != nullptr) {
     this->threshold_number_->publish_state(snapshot.threshold);
+  }
+}
+
+void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
+  this->runtime_.record_snapshot(snapshot);
+  this->runtime_.config().detection_algorithm = parse_detection_algorithm(snapshot.detector_name);
+  if (this->detector_select_ != nullptr) {
+    this->detector_select_->publish_state(detection_algorithm_name(this->runtime_.config().detection_algorithm));
+  }
+  if (this->threshold_number_ != nullptr) {
+    static_cast<ESpectreThresholdNumber *>(this->threshold_number_)
+        ->update_detector_range(this->runtime_.config().detection_algorithm);
   }
 }
 

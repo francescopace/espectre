@@ -202,6 +202,13 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_TRUE(command.has_threshold);
   TEST_ASSERT_EQUAL_FLOAT(2.5f, command.threshold);
 
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"command_id\":\"x-detector\",\"command\":\"set_detector\",\"detector\":\"ml\"}",
+      &command,
+      &error));
+  TEST_ASSERT_TRUE(command.has_detector);
+  TEST_ASSERT_EQUAL_STRING("ml", command.detector.c_str());
+
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x3\",\"command\":\"ota_check\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota_check", command.command.c_str());
 
@@ -222,6 +229,10 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
 
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":1e999}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid threshold", error.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_command(
+      "{\"command\":\"set_detector\",\"detector\":\"pca\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid detector", error.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command\":\"ota_check\"}", &command, &error));
 

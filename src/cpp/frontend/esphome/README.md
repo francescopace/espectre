@@ -27,6 +27,8 @@ The ESPHome frontend is responsible for:
   movement and motion publishing
 - [`threshold_number.cpp`](espectre/threshold_number.cpp):
   runtime threshold control
+- [`detector_select.cpp`](espectre/detector_select.cpp):
+  persisted runtime detector selection
 - [`calibrate_switch.cpp`](espectre/calibrate_switch.cpp):
   runtime recalibration trigger
 
@@ -62,6 +64,7 @@ The frontend maps runtime state into ESPHome and Home Assistant entities.
 | movement metric | `movement_sensor` |
 | motion state | `motion_sensor` |
 | runtime threshold write | `threshold_number` |
+| runtime detector selection | `detector_select` |
 | runtime recalibration trigger | `calibrate_switch` |
 
 The default entities are created automatically when the `espectre:` component
@@ -89,6 +92,7 @@ control is exposed separately through the entities below:
 | Movement score | `movement_sensor` | Read-only Home Assistant sensor |
 | Motion state | `motion_sensor` | Read-only Home Assistant binary sensor |
 | Threshold | `threshold_number` | Writable runtime threshold control |
+| Detector | `detector_select` | Writable, persisted `classic` / `ml` selection |
 | Recalibration | `calibrate_switch` | Writable runtime recalibration trigger |
 
 ### Detection Algorithm Selection
@@ -103,6 +107,11 @@ Threshold behavior:
 - range: `classic` `0.0-10.0`, `ml` `0.0-1.0`
 - `classic` default: `auto` (shared adaptive startup calibration; motion-first with internal quiet-first fallback)
 - `ml` default: `0.5`
+
+The YAML value is the initial detector when no persisted selection exists.
+The Home Assistant `detector_select` changes it live and persists the choice
+across reboot. `ml -> classic` starts calibration automatically, and the
+`calibrate_switch` reflects automatic and manual calibration state.
 
 See [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for how the two
 detectors differ and [`TUNING.md`](../../../../docs/TUNING.md) for choosing

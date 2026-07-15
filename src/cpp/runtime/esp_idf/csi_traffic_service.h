@@ -22,7 +22,7 @@ struct CsiTrafficServiceConfig {
 class CsiTrafficService {
  public:
   void init(const CsiTrafficServiceConfig &config);
-  bool start();
+  bool start(uint32_t gateway_addr = 0U);
   void stop();
   void loop();
 

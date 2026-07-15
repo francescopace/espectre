@@ -13,6 +13,7 @@ class IRuntimeListener {
   virtual void on_motion_state_changed(const RuntimeSnapshot &snapshot) {}
   virtual void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {}
   virtual void on_threshold_changed(const RuntimeSnapshot &snapshot) {}
+  virtual void on_detector_changed(const RuntimeSnapshot &snapshot) {}
   virtual void on_calibration_started(const RuntimeSnapshot &snapshot) {}
   virtual void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {}
   virtual void on_live_telemetry(float movement, float threshold) {}

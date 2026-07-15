@@ -105,6 +105,8 @@ Current capabilities:
 - enable or disable the live telemetry subscription without disconnecting
 - request a fresh sysinfo block with `REQ_SYSINFO`
 - adjust the runtime threshold with `SET_THRESHOLD:X.XX`
+- select and persist the runtime detector with `SET_DETECTOR:classic` or `SET_DETECTOR:ml`
+- select the same detector over MQTT with `{"command":"set_detector","detector":"ml"}`
 - show a firmware-generated read-only `device_id`
 - inspect the immutable firmware-derived `device_name`
 - edit the human-facing `device_label`
@@ -140,7 +142,7 @@ Usage notes:
 4. use `Save Wi-Fi` to send one atomic `SET_WIFI_CONFIG` update
 5. use `Save Device` to persist the human-facing `device_label`
 6. use `Clear Device` when you want to reset the persisted device-facing config while keeping the generated `device_id`
-7. edit the `Threshold` box in the BLE client to send `SET_THRESHOLD` immediately with the current numeric value
+7. edit the `Threshold` box or `Detector` selector to update the live sensing configuration
 8. use `Save MQTT` to send one atomic `SET_MQTT_CONFIG` update and enable MQTT transport
 
 When telemetry notifications are disabled by the client, the standalone native
@@ -264,7 +266,8 @@ Check these first:
 
 1. the client writes exact ASCII commands
 2. the value passed to `SET_THRESHOLD` is finite and inside the detector range (`classic`: `0.0-10.0`, `ml`: `0.0-1.0`)
-3. the client does not depend on sysinfo ordering
+3. the value passed to `SET_DETECTOR` is exactly `classic` or `ml`; accepted selections persist across reboot
+4. the client does not depend on sysinfo ordering
 
 ### The firmware starts but never joins Wi-Fi
 

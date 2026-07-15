@@ -13,7 +13,7 @@ import re
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import sensor, binary_sensor, number, switch
+from esphome.components import sensor, binary_sensor, number, select, switch
 from esphome.components.esp32 import add_idf_sdkconfig_option
 from esphome.const import (
     CONF_ID,
@@ -25,7 +25,7 @@ from esphome.const import (
 )
 
 DEPENDENCIES = ["wifi"]
-AUTO_LOAD = ["sensor", "binary_sensor", "number", "switch"]
+AUTO_LOAD = ["sensor", "binary_sensor", "number", "select", "switch"]
 
 # Configuration parameters
 CONF_SEGMENTATION_THRESHOLD = "segmentation_threshold"
@@ -60,6 +60,7 @@ CONF_MOTION_SENSOR = "motion_sensor"
 
 # Number controls
 CONF_THRESHOLD_NUMBER = "threshold_number"
+CONF_DETECTOR_SELECT = "detector_select"
 
 # Switch controls
 CONF_CALIBRATE_SWITCH = "calibrate_switch"
@@ -67,6 +68,7 @@ CONF_CALIBRATE_SWITCH = "calibrate_switch"
 espectre_ns = cg.esphome_ns.namespace("espectre_component")
 ESpectreComponent = espectre_ns.class_("ESpectreComponent", cg.Component)
 ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.Number, cg.Component)
+ESpectreDetectorSelect = espectre_ns.class_("ESpectreDetectorSelect", select.Select, cg.Component)
 ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
 
 _LIBRARY_ROOT = Path(__file__).resolve().parents[3]
@@ -236,6 +238,11 @@ CONFIG_SCHEMA = cv.Schema({
         entity_category=ENTITY_CATEGORY_CONFIG,
         icon=ICON_PULSE,
     ),
+
+    cv.Optional(CONF_DETECTOR_SELECT, default={"name": "Detector"}): select.select_schema(
+        ESpectreDetectorSelect,
+        entity_category=ENTITY_CATEGORY_CONFIG,
+    ),
     
     # Switch control for manual recalibration from HA
     # ON = calibrating, OFF = idle. Switch auto-turns off when calibration completes.
@@ -341,6 +348,13 @@ async def to_code(config):
     )
     cg.add(num.set_parent(var))
     cg.add(var.set_threshold_number(num))
+
+    detector = await select.new_select(
+        config[CONF_DETECTOR_SELECT],
+        options=["classic", "ml"],
+    )
+    cg.add(detector.set_parent(var))
+    cg.add(var.set_detector_select(detector))
     
     # Register calibrate switch control
     # Note: switch.new_switch() handles component registration internally

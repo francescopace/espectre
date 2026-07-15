@@ -324,6 +324,68 @@ def test_run_case_builds_ml_during_classic_monitor(monkeypatch) -> None:
     assert build_calls[0][2].startswith("firmware-build")
 
 
+def test_select_cases_filters_frontend_and_detector() -> None:
+    assert benchmark.select_cases(frontend="esphome") == (
+        benchmark.BenchmarkCase("esphome", "classic"),
+        benchmark.BenchmarkCase("esphome", "ml"),
+    )
+    assert benchmark.select_cases(detector="ml") == (
+        benchmark.BenchmarkCase("esphome", "ml"),
+        benchmark.BenchmarkCase("native", "ml"),
+    )
+    assert benchmark.select_cases(frontend="native", detector="classic") == (
+        benchmark.BenchmarkCase("native", "classic"),
+    )
+    assert benchmark.select_cases(frontend="streamer", detector="ml") == ()
+
+
+def test_main_runs_only_selected_esphome_detector(monkeypatch) -> None:
+    successful_build = benchmark.CommandResult(["build"], 0, 1.0, "build ok")
+    calls: list[tuple[benchmark.BenchmarkCase, bool, benchmark.BenchmarkCase | None]] = []
+
+    def fake_run_case(
+        case,
+        _chip,
+        _port,
+        *,
+        clean,
+        prebuilt=None,
+        overlap_build=None,
+    ):
+        calls.append((case, clean, overlap_build))
+        return benchmark.BenchmarkResult(case=case, status="PASS", build=successful_build), None
+
+    monkeypatch.setattr(
+        benchmark.sys,
+        "argv",
+        [
+            "benchmark_firmware.py",
+            "--chip",
+            "c3",
+            "--frontend",
+            "esphome",
+            "--detector",
+            "ml",
+        ],
+    )
+    monkeypatch.setattr(benchmark, "get_serial_port", lambda _port: "/dev/test")
+    monkeypatch.setattr(benchmark, "detect_chip_type", lambda _port: "c3")
+    monkeypatch.setattr(benchmark, "run_case", fake_run_case)
+    monkeypatch.setattr(
+        benchmark,
+        "run_streamer_case",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("streamer must not run")),
+    )
+    monkeypatch.setattr(
+        benchmark,
+        "write_report",
+        lambda *_args, **_kwargs: benchmark.report_path_for_chip("c3"),
+    )
+
+    assert benchmark.main() == 0
+    assert calls == [(benchmark.BenchmarkCase("esphome", "ml"), True, None)]
+
+
 def test_main_reuses_ml_build_started_during_classic_monitor(monkeypatch) -> None:
     successful_build = benchmark.CommandResult(["build"], 0, 1.0, "build ok")
     calls: list[tuple[benchmark.BenchmarkCase, bool, bool, benchmark.BenchmarkCase | None]] = []

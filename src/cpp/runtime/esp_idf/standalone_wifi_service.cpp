@@ -9,12 +9,6 @@
 #include "esp_netif_ip_addr.h"
 #include "esp_wifi.h"
 
-#if defined(CONFIG_ESP_COEX_SW_COEXIST_ENABLE) && __has_include("esp_coexist.h")
-#include "esp_coexist.h"
-#define ESPECTRE_HAVE_ESP_COEXIST 1
-#endif
-
-
 namespace espectre {
 
 namespace {
@@ -120,17 +114,10 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
     return err;
   }
 
-  // Disable Wi-Fi power save for CSI: modem sleep windows drop received frames
-  // and introduce capture gaps. Always-powered CSI sensing gains nothing from
-  // power save, so keep the radio awake for consistent per-frame CSI.
-  err = esp_wifi_set_ps(WIFI_PS_NONE);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_wifi_set_ps failed: %s", esp_err_to_name(err));
-    return err;
-  }
-
   if (config_.manage_csi_lifecycle) {
-    err = wifi_lifecycle_.register_handlers([this]() { handle_lifecycle_connected_(); },
+    err = wifi_lifecycle_.register_handlers([this](const esp_netif_ip_info_t &) {
+                                              handle_lifecycle_connected_();
+                                            },
                                             [this]() { handle_lifecycle_disconnected_(); });
     if (err != ESP_OK) {
       ESP_LOGE(TAG, "WiFi lifecycle handler registration failed: %s", esp_err_to_name(err));
@@ -212,12 +199,8 @@ bool StandaloneWifiService::get_info(StandaloneWifiInfo *info) const {
     info->channel = ap_info.primary;
   }
 
-  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  esp_netif_ip_info_t ip_info{};
-  if (netif != nullptr && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
-    format_ip_address(ip_info.ip, info->ip_address, sizeof(info->ip_address));
-  } else if (cached_ip_address_[0] != '\0') {
-    std::snprintf(info->ip_address, sizeof(info->ip_address), "%s", cached_ip_address_);
+  if (cached_ip_info_.ip.addr != 0U) {
+    format_ip_address(cached_ip_info_.ip, info->ip_address, sizeof(info->ip_address));
   }
 
   return info->connected || info->ip_address[0] != '\0' || info->mac_address[0] != '\0';
@@ -269,10 +252,8 @@ esp_err_t StandaloneWifiService::configure_station_() {
 }
 
 esp_err_t StandaloneWifiService::start() {
-  clear_cached_ip_address_();
-  wifi_start_policy_applied_ = false;
+  clear_cached_ip_info_();
   wifi_connect_requested_ = false;
-  csi_wifi_lifecycle_ready_ = false;
   wifi_retry_count_ = 0;
   const esp_err_t err = esp_wifi_start();
   wifi_started_ = err == ESP_OK;
@@ -281,7 +262,7 @@ esp_err_t StandaloneWifiService::start() {
 
 void StandaloneWifiService::loop() {
   if (config_.manage_csi_lifecycle) {
-    wifi_lifecycle_.process_pending_events();
+    (void)wifi_lifecycle_.process_pending_events();
   }
 }
 
@@ -292,10 +273,9 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
   }
 
   config_ = config;
-  clear_cached_ip_address_();
+  clear_cached_ip_info_();
   wifi_retry_count_ = 0;
   wifi_connect_requested_ = false;
-  csi_wifi_lifecycle_ready_ = false;
 
   if (wifi_started_) {
     const esp_err_t disconnect_err = esp_wifi_disconnect();
@@ -316,11 +296,6 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
   if (!has_text(config_.ssid)) {
     ESP_LOGW(TAG, "Wi-Fi SSID is empty; station config updated without reconnecting");
     return ESP_OK;
-  }
-
-  if (!wifi_start_policy_applied_) {
-    wifi_start_policy_applied_ = true;
-    (void)apply_started_csi_policy();
   }
 
   wifi_connect_requested_ = true;
@@ -354,50 +329,14 @@ void StandaloneWifiService::shutdown() {
     wifi_lifecycle_.unregister_handlers();
   }
   setup_complete_ = false;
-  csi_wifi_lifecycle_ready_ = false;
   wifi_connect_requested_ = false;
-  wifi_start_policy_applied_ = false;
-  clear_cached_ip_address_();
-}
-
-esp_err_t StandaloneWifiService::apply_started_csi_policy() {
-  // Re-apply no-power-save once the station is started.
-  esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
-  if (ps_err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to apply Wi-Fi power save profile for CSI: %s", esp_err_to_name(ps_err));
-  }
-
-#ifdef ESPECTRE_HAVE_ESP_COEXIST
-  // On coexist-capable targets, bias the shared radio toward Wi-Fi so CSI
-  // throughput is favored over non-Wi-Fi airtime; sane default for a Wi-Fi-
-  // centric sensing device (it does not lift the ESP32 high-rate ceiling; see
-  // README).
-  const esp_err_t coex_err = esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
-  if (coex_err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to bias Wi-Fi/BT coexistence toward Wi-Fi: %s", esp_err_to_name(coex_err));
-  }
-#endif
-
-  const esp_err_t policy_err = WiFiLifecycleManager::apply_csi_wifi_policy();
-  if (policy_err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to apply started Wi-Fi CSI policy: %s", esp_err_to_name(policy_err));
-    return policy_err;
-  }
-  WiFiLifecycleManager::log_csi_runtime_state(TAG);
-  ESP_LOGI(TAG, "Started Wi-Fi CSI policy applied");
-
-  return ps_err == ESP_OK ? ESP_OK : ps_err;
+  clear_cached_ip_info_();
 }
 
 void StandaloneWifiService::handle_wifi_started_() {
   if (!has_text(config_.ssid)) {
     ESP_LOGW(TAG, "Wi-Fi SSID is empty; configure credentials in sdkconfig.wifi or at build time");
     return;
-  }
-
-  if (!wifi_start_policy_applied_) {
-    wifi_start_policy_applied_ = true;
-    (void)apply_started_csi_policy();
   }
 
   if (!wifi_connect_requested_) {
@@ -413,7 +352,7 @@ void StandaloneWifiService::handle_wifi_disconnected_(void *event_data) {
            "Wi-Fi disconnected: reason=%u (%s)",
            static_cast<unsigned>(reason),
            wifi_disconnect_reason_to_str(reason));
-  clear_cached_ip_address_();
+  clear_cached_ip_info_();
   wifi_connect_requested_ = false;
   if (has_text(config_.ssid) && wifi_retry_count_ < config_.max_retry) {
     wifi_retry_count_++;
@@ -422,26 +361,7 @@ void StandaloneWifiService::handle_wifi_disconnected_(void *event_data) {
   }
 }
 
-bool StandaloneWifiService::ensure_csi_lifecycle_ready_() {
-  if (!config_.manage_csi_lifecycle || csi_wifi_lifecycle_ready_) {
-    return true;
-  }
-
-  const esp_err_t err = wifi_lifecycle_.init();
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Wi-Fi CSI lifecycle init failed after connect: %s", esp_err_to_name(err));
-    return false;
-  }
-
-  csi_wifi_lifecycle_ready_ = true;
-  ESP_LOGI(TAG, "Wi-Fi CSI lifecycle initialized after connect");
-  return true;
-}
-
 void StandaloneWifiService::handle_lifecycle_connected_() {
-  if (!ensure_csi_lifecycle_ready_()) {
-    return;
-  }
   wifi_retry_count_ = 0;
   if (connected_cb_) {
     connected_cb_();
@@ -449,13 +369,12 @@ void StandaloneWifiService::handle_lifecycle_connected_() {
 }
 
 void StandaloneWifiService::handle_lifecycle_disconnected_() {
-  csi_wifi_lifecycle_ready_ = false;
   if (disconnected_cb_) {
     disconnected_cb_();
   }
 }
 
-void StandaloneWifiService::clear_cached_ip_address_() { cached_ip_address_[0] = '\0'; }
+void StandaloneWifiService::clear_cached_ip_info_() { cached_ip_info_ = {}; }
 
 void StandaloneWifiService::wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id,
                                                 void *event_data) {
@@ -479,7 +398,7 @@ void StandaloneWifiService::wifi_event_handler_(void *arg, esp_event_base_t even
   if (std::strcmp(event_base, IP_EVENT) == 0 && event_id == IP_EVENT_STA_GOT_IP) {
     const auto *event = static_cast<const ip_event_got_ip_t *>(event_data);
     if (event != nullptr) {
-      format_ip_address(event->ip_info.ip, manager->cached_ip_address_, sizeof(manager->cached_ip_address_));
+      manager->cached_ip_info_ = event->ip_info;
     }
     manager->wifi_retry_count_ = 0;
     if (!manager->config_.manage_csi_lifecycle && manager->connected_cb_) {

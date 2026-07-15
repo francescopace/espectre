@@ -38,8 +38,6 @@ class StandaloneWifiService {
   bool get_info(StandaloneWifiInfo *info) const;
   void shutdown();
 
-  static esp_err_t apply_started_csi_policy();
-
  private:
   static void wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
@@ -48,8 +46,7 @@ class StandaloneWifiService {
   void handle_wifi_disconnected_(void *event_data);
   void handle_lifecycle_connected_();
   void handle_lifecycle_disconnected_();
-  bool ensure_csi_lifecycle_ready_();
-  void clear_cached_ip_address_();
+  void clear_cached_ip_info_();
 
   StandaloneWifiConfig config_{};
   WiFiLifecycleManager wifi_lifecycle_;
@@ -58,12 +55,10 @@ class StandaloneWifiService {
   esp_event_handler_instance_t wifi_event_instance_{nullptr};
   esp_event_handler_instance_t ip_event_instance_{nullptr};
   bool setup_complete_{false};
-  bool wifi_start_policy_applied_{false};
   bool wifi_connect_requested_{false};
   bool wifi_started_{false};
-  bool csi_wifi_lifecycle_ready_{false};
   int wifi_retry_count_{0};
-  char cached_ip_address_[16]{};
+  esp_netif_ip_info_t cached_ip_info_{};
 };
 
 }  // namespace espectre

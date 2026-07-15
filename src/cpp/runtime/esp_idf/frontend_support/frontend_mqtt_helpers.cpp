@@ -79,6 +79,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        FrontendMqttInfoCallback info_callback,
                                                        FrontendMqttStatsCallback stats_callback,
                                                        FrontendMqttThresholdCallback threshold_callback,
+                                                       FrontendMqttDetectorCallback detector_callback,
                                                        FrontendMqttOtaStatusCallback ota_status_callback) {
   FrontendMqttCommandResult result;
   result.handled = true;
@@ -126,6 +127,24 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     result.accepted = threshold_callback(result.command.threshold, &result.message);
     if (result.message.empty()) {
       result.message = result.accepted ? "threshold updated" : "threshold rejected";
+    }
+    return result;
+  }
+
+  if (result.command.command == "set_detector") {
+    if (!capabilities.supports_detector || !detector_callback) {
+      result.accepted = false;
+      result.message = "unsupported command";
+      return result;
+    }
+    if (!result.command.has_detector) {
+      result.accepted = false;
+      result.message = "invalid detector";
+      return result;
+    }
+    result.accepted = detector_callback(parse_detection_algorithm(result.command.detector.c_str()), &result.message);
+    if (result.message.empty()) {
+      result.message = result.accepted ? "detector updated" : "detector rejected";
     }
     return result;
   }

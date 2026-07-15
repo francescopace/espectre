@@ -62,6 +62,7 @@ class NativeFrontend : public IRuntimeListener {
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
   void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) override;
   void on_threshold_changed(const RuntimeSnapshot &snapshot) override;
+  void on_detector_changed(const RuntimeSnapshot &snapshot) override;
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;
   void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) override;
   void on_live_telemetry(float movement, float threshold) override;
@@ -71,6 +72,7 @@ class NativeFrontend : public IRuntimeListener {
   bool handle_control_command_(const std::string &command);
   void handle_mqtt_command_(const std::string &payload);
   bool handle_threshold_write_(float threshold);
+  bool handle_detector_write_(DetectionAlgorithm algorithm);
   void handle_connection_state_(bool connected);
   void handle_live_telemetry_subscription_(bool subscribed);
   void setup_mqtt_();

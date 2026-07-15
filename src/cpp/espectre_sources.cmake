@@ -38,6 +38,7 @@ set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/esp_idf_runtime.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_detector_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_debug_telemetry.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_sensing_kconfig.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_esp_idf_runtime.cpp"
@@ -78,6 +79,7 @@ set(ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES
 
 set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/calibrate_switch.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/detector_select.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/espectre.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/sensor_publisher.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/threshold_number.cpp"

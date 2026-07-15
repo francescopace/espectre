@@ -17,6 +17,7 @@
 
 #include "base_detector.h"
 #include "protocol_json.h"
+#include "runtime_sensing_schema.h"
 
 namespace espectre {
 
@@ -380,6 +381,16 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
       return false;
     }
     parsed.has_threshold = true;
+  } else if (parsed.command == "set_detector") {
+    parsed.detector = extract_json_string(payload, "detector");
+    if (parsed.detector != RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME &&
+        parsed.detector != RUNTIME_DETECTION_ALGORITHM_ML_NAME) {
+      if (error != nullptr) {
+        *error = "invalid detector";
+      }
+      return false;
+    }
+    parsed.has_detector = true;
   } else if (parsed.command == "ota_check" || parsed.command == "ota_start") {
     if (has_json_key(payload, "manifest_url") || has_json_key(payload, "image_url") ||
         has_json_key(payload, "version")) {

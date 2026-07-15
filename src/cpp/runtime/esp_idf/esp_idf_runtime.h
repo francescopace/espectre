@@ -26,6 +26,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   void set_live_telemetry_enabled(bool enabled) override;
 
   bool set_threshold_runtime(float threshold) override;
+  bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm) override;
   bool trigger_recalibration() override;
   bool is_calibrating() const override;
 
@@ -37,8 +38,10 @@ class EspIdfRuntime : public IEspectreRuntime {
  private:
   void update_live_telemetry_callback_();
   bool configure_detector_();
+  std::unique_ptr<BaseDetector> make_detector_(DetectionAlgorithm algorithm, float threshold);
+  void cancel_calibration_(bool notify_listener);
   void log_calibration_progress_(uint8_t percent, uint32_t packets, uint16_t target_packets);
-  void on_wifi_connected_();
+  void on_wifi_connected_(const esp_netif_ip_info_t &ip_info);
   void on_wifi_disconnected_();
   bool start_calibration_();
   bool handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len);
@@ -47,9 +50,7 @@ class EspIdfRuntime : public IEspectreRuntime {
                                                      size_t csi_len);
   void finish_threshold_calibration_(bool success);
   void notify_fault_(const char *message);
-  bool has_wifi_ip_() const;
-  uint32_t local_wifi_ip_addr_() const;
-  void refresh_csi_local_identity_();
+  void refresh_csi_local_identity_(uint32_t local_ip_addr);
 
   RuntimeConfig config_;
   RuntimeSnapshot snapshot_;
@@ -73,7 +74,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   bool services_armed_{true};
   bool live_telemetry_enabled_{true};
   bool wifi_ready_{false};
-  bool csi_wifi_lifecycle_ready_{false};
+  esp_netif_ip_info_t wifi_ip_info_{};
   bool setup_complete_{false};
   std::string last_fault_;
 };

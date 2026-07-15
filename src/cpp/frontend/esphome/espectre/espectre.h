@@ -16,6 +16,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/number/number.h"
+#include "esphome/components/select/select.h"
 #include "esphome/components/switch/switch.h"
 
 #include <algorithm>
@@ -35,12 +36,15 @@ using namespace ::espectre;
 static const char *const TAG = "espectre";
 
 class ESpectreComponent : public Component, public IRuntimeListener {
+  friend class ESpectreDetectorSelect;
  public:
   void setup() override;
   void loop() override;
   ~ESpectreComponent();
   void dump_config() override;
-  float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
+  // Register STA_START after ESPHome creates the event loop, but before its
+  // Wi-Fi component starts scanning and associating.
+  float get_setup_priority() const override { return 275.0f; }
 
   // Setters for YAML configuration
   void set_segmentation_threshold(float threshold) { 
@@ -59,6 +63,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   }
   void set_detection_algorithm(const std::string &algo) {
     this->runtime_.config().detection_algorithm = parse_detection_algorithm(algo.c_str());
+    this->runtime_.config().runtime_detector_selection_enabled = true;
   }
   void set_classic_recovery_vote_enabled(bool enabled) {
     this->runtime_.config().classic_recovery_vote_enabled = enabled;
@@ -82,6 +87,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   
   // Runtime threshold adjustment (called from HA via number component)
   void set_threshold_runtime(float threshold);
+  void set_detection_algorithm_runtime(const std::string &algorithm);
   float get_threshold() const { return this->runtime_.snapshot().threshold; }
   
   // Runtime calibration trigger (called from HA via switch component)
@@ -92,11 +98,13 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   
   // Setter for calibrate switch control
   void set_calibrate_switch(switch_::Switch *sw) { this->calibrate_switch_ = sw; }
+  void set_detector_select(select::Select *value) { this->detector_select_ = value; }
   
  protected:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
   void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) override;
   void on_threshold_changed(const RuntimeSnapshot &snapshot) override;
+  void on_detector_changed(const RuntimeSnapshot &snapshot) override;
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;
   void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) override;
   void on_runtime_fault(const char *message) override;
@@ -110,8 +118,10 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   
   // Switch controls
   switch_::Switch *calibrate_switch_{nullptr};
+  select::Select *detector_select_{nullptr};
 
   bool threshold_republished_{false};
+  bool detector_republished_{false};
 };
 
 }  // namespace espectre_component

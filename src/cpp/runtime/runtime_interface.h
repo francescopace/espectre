@@ -20,6 +20,7 @@ struct RuntimeConfig {
   float segmentation_threshold{RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT};
   uint16_t segmentation_window_size{RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT};
   bool classic_recovery_vote_enabled{RUNTIME_CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT};
+  bool runtime_detector_selection_enabled{false};
   uint32_t traffic_generator_rate{RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT};
   bool traffic_generator_adaptive{RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT};
   RuntimeTrafficMode traffic_generator_mode{RuntimeTrafficMode::PING};
@@ -53,6 +54,7 @@ class IEspectreRuntime {
   virtual void set_live_telemetry_enabled(bool enabled) = 0;
 
   virtual bool set_threshold_runtime(float threshold) = 0;
+  virtual bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm) = 0;
   virtual bool trigger_recalibration() = 0;
   virtual bool is_calibrating() const = 0;
 

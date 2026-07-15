@@ -43,6 +43,10 @@ void ESpectreThresholdNumber::republish_state() {
   }
 }
 
+void ESpectreThresholdNumber::update_detector_range(::espectre::DetectionAlgorithm algorithm) {
+  this->traits.set_max_value(::espectre::runtime_threshold_max(algorithm));
+  this->traits.set_step(algorithm == ::espectre::DetectionAlgorithm::ML ? 0.01f : 0.1f);
+}
+
 }  // namespace espectre_component
 }  // namespace esphome
-

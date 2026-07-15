@@ -27,10 +27,10 @@ void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
   }
 }
 
-bool CsiTrafficService::start() {
+bool CsiTrafficService::start(uint32_t gateway_addr) {
   switch (mode_) {
     case CsiTrafficMode::INTERNAL:
-      return traffic_generator_.is_running() ? true : traffic_generator_.start();
+      return traffic_generator_.is_running() ? true : traffic_generator_.start(gateway_addr);
     case CsiTrafficMode::EXTERNAL:
     case CsiTrafficMode::PACING:
       return udp_listener_.is_running() ? true : udp_listener_.start();

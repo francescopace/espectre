@@ -19,6 +19,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Targeted firmware benchmark runs** can select one frontend and one detector, reducing iteration time while debugging a specific firmware path.
+- **Persisted runtime detector selection** for ESPHome and Native, including Home Assistant, BLE, and MQTT controls, automatic Classic calibration, and an ML-only Matter default without a writable Matter surface.
 - **New source layout under `src/cpp/`** with shared `core`, `runtime`, and `frontend` layers.
 - **Shared runtime/frontend infrastructure** with explicit runtime contracts, common frontend orchestration, and reusable ESP-IDF protocol services.
 - **Shared ESP-IDF runtime debug telemetry** for periodic heap, configured CPU frequency, runtime-loop load, loop timing, and detector evaluation timing across frontends.
@@ -44,6 +46,7 @@ Historical decision context for the Classic and ML promotions now lives in:
 ### Changed
 
 - **Internal CSI traffic generation is adaptive by default** across ESPHome, native, and Matter: one shared pacing task now regulates DNS or raw ICMP traffic from valid local CSI feedback, replacing the fixed-rate `esp_ping` session and keeping protocol-specific code limited to packet encoding and socket setup.
+- **CSI Wi-Fi startup is now shared and association-safe** across frontends: the runtime applies protocol and HT20 policy at `WIFI_EVENT_STA_START`, initializes CSI after `IP_EVENT_STA_GOT_IP`, and passes the event gateway directly to the traffic generator. This avoids the ESPHome first-connect drop and removes duplicate frontend policy and netif lookups.
 - **ESPHome, native, and Matter now share the same runtime foundations**: frontend setup, diagnostics, status reporting, and standalone Wi-Fi policy were consolidated to reduce duplication and keep behavior aligned.
 - **The C++ source tree was normalized around explicit naming and layer placement**: `runtime/esp_idf/protocol/` became `frontend_support/`, `csi_manager` and `standalone_wifi_manager` became `csi_pipeline` and `standalone_wifi_service`, the streamer adapter is now `streamer_frontend`, HTTPS OTA follows the `ota_service_https` variant pattern, CSI layout constants moved from `utils.h` into `csi_format.h`, threshold validation moved into `threshold.h`, and shared `core/` and `runtime/` headers no longer include ESP-IDF-only headers.
 - **ESPectre Protocol was extracted from the native frontend into shared runtime code** so multiple ESP-IDF frontends can reuse the same telemetry, command, BLE, and provisioning helpers.
