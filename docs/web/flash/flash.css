@@ -4,17 +4,6 @@
     padding: 8rem 1.5rem 4rem;
 }
 
-.flash-hero {
-    text-align: center;
-    margin-bottom: 2rem;
-}
-
-.flash-hero h1 {
-    font-size: clamp(2.5rem, 6vw, 4rem);
-    margin-bottom: 0.75rem;
-}
-
-.flash-subtitle,
 .flash-copy {
     color: var(--text-secondary);
 }
@@ -88,8 +77,8 @@
 }
 
 .flash-status.is-error {
-    color: #ff9a9a;
-    border-color: rgba(255, 80, 80, 0.4);
+    color: var(--danger-text);
+    border-color: var(--danger);
 }
 
 .flash-status.is-ready {
@@ -126,7 +115,7 @@
 }
 
 .matter-qr-status.is-error {
-    color: #ff9a9a;
+    color: var(--danger-text);
 }
 
 .matter-qr-result {

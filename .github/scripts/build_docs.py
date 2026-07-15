@@ -120,13 +120,14 @@ TEMPLATE = '''<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{title} | ESPectre</title>
+    <title>ESPectre | {title}</title>
     <meta name="description" content="{description}">
     <meta name="keywords" content="ESPectre, WiFi sensing, CSI, motion detection, Home Assistant, ESPHome, {title}">
     <meta name="author" content="Francesco Pace">
 
     <!-- Canonical URL -->
     <link rel="canonical" href="https://espectre.dev{canonical_path}">
+    <link rel="icon" href="/favicon.png" type="image/png">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:url" content="https://espectre.dev{canonical_path}">
@@ -142,10 +143,6 @@ TEMPLATE = '''<!DOCTYPE html>
     <meta name="twitter:title" content="{title} | ESPectre">
     <meta name="twitter:description" content="{description}">
     <meta name="twitter:image" content="https://espectre.dev/espectre.png">
-
-    <!-- Favicon -->
-    <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
 
     <!-- Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-S0NQNG0V11"></script>
@@ -213,30 +210,6 @@ TEMPLATE = '''<!DOCTYPE html>
     <script src="/analytics.js"></script>
     <script>document.addEventListener('DOMContentLoaded', function() {{ hljs.highlightAll(); }});</script>
     <script src="/_pagefind/pagefind-component-ui.js" type="module"></script>
-
-    <!-- Buy Me a Coffee Widget (skipped on mobile, where it is hidden anyway) -->
-    <script>
-        if (window.matchMedia('(min-width: 901px)').matches) {{
-            var bmc = document.createElement('script');
-            bmc.src = 'https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js';
-            bmc.setAttribute('data-name', 'BMC-Widget');
-            bmc.setAttribute('data-cfasync', 'false');
-            bmc.setAttribute('data-id', 'espectre');
-            bmc.setAttribute('data-description', 'Support me on Buy me a coffee!');
-            bmc.setAttribute('data-color', '#40DCA5');
-            bmc.setAttribute('data-position', 'Right');
-            bmc.setAttribute('data-x_margin', '18');
-            bmc.setAttribute('data-y_margin', '18');
-            bmc.onload = function () {{
-                // The widget builds its UI on DOMContentLoaded; re-fire it when
-                // the script loads after the document is already parsed
-                if (document.readyState !== 'loading') {{
-                    window.dispatchEvent(new Event('DOMContentLoaded'));
-                }}
-            }};
-            document.body.appendChild(bmc);
-        }}
-    </script>
 </body>
 </html>
 '''

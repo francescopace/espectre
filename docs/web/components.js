@@ -10,6 +10,46 @@
 function loadHeader(options = {}) {
     const isGamePage = options.isGamePage || options.page === 'game';
     const page = options.page || (isGamePage ? 'game' : 'home');
+    const pageTitles = {
+        configure: 'Configure',
+        docs: 'Documentation',
+        flash: 'Flash Firmware',
+        game: 'The Game',
+        monitor: 'MQTT Monitor',
+        theremin: 'Theremin'
+    };
+    const pageTitle = pageTitles[page];
+    const pageTitleTag = page === 'docs' || page === 'game' ? 'span' : 'h1';
+    const headerControls = {
+        configure: `
+            <button id="header-connect-action" class="header-control btn-connect" type="button"
+                    data-action-target="connectBtn" title="Connect ESPectre via Bluetooth"
+                    aria-label="Connect ESPectre via Bluetooth">
+                <i class="fab fa-bluetooth-b"></i>
+            </button>`,
+        flash: `
+            <button class="header-control btn-connect" type="button"
+                    data-action-target="install-button" title="Connect ESPectre via serial cable"
+                    aria-label="Connect ESPectre via serial cable">
+                <i class="fas fa-plug"></i>
+            </button>`,
+        game: `
+            <button id="btn-usb" class="header-control btn-connect" type="button"
+                    title="Connect ESPectre device via Bluetooth" aria-label="Connect ESPectre device via Bluetooth">
+                <i class="fab fa-bluetooth-b"></i>
+            </button>
+            <button id="btn-mute" class="header-control btn-mute" type="button"
+                    title="Enable sound" aria-label="Enable sound">
+                <i class="fas fa-volume-mute"></i>
+            </button>`,
+        monitor: `
+            <button id="header-connect-action" class="header-control btn-connect" type="button"
+                    data-action-target="connectBtn" title="Connect to MQTT"
+                    aria-label="Connect to MQTT">
+                <i class="fas fa-tower-broadcast"></i>
+            </button>`
+    };
+    const pageHeaderControls = headerControls[page] || '';
     const headerEl = document.getElementById('site-header');
     if (!headerEl) return;
 
@@ -25,14 +65,18 @@ function loadHeader(options = {}) {
         <div class="header-left">
             <a href="${homeLink}" class="logo">
                 <span class="logo-icon"><i class="fas fa-wifi"></i></span>
-                <span>ESPectre</span>
+                <span class="logo-word">ESPectre</span>
                 <span id="life-ghost" class="logo-icon life-ghost"><i class="fas fa-ghost"></i></span>
             </a>
-            <div class="header-controls-group${isGamePage ? '' : ' hidden'}">
+            ${pageTitle ? `
+            <div class="header-context">
+                <span class="header-context-separator" aria-hidden="true">|</span>
+                <${pageTitleTag} class="header-context-title">${pageTitle}</${pageTitleTag}>
+            </div>` : ''}
+            ${pageHeaderControls ? `<div class="header-controls-group">
                 <span class="header-separator">|</span>
-                <button id="btn-usb" class="header-control btn-usb" title="Connect ESPectre device via Bluetooth"><i class="fab fa-bluetooth-b"></i></button>
-                <button id="btn-mute" class="header-control btn-mute" title="Enable sound"><i class="fas fa-volume-mute"></i></button>
-            </div>
+                ${pageHeaderControls}
+            </div>` : ''}
         </div>
         <button class="menu-toggle" aria-label="Toggle menu" aria-expanded="false">
             <i class="fas fa-bars"></i>
@@ -111,6 +155,16 @@ function loadHeader(options = {}) {
         link.addEventListener('click', () => {
             if (nav) nav.classList.remove('open');
             if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
+        });
+    });
+
+    headerEl.querySelectorAll('[data-action-target]').forEach(control => {
+        control.addEventListener('click', () => {
+            const target = document.getElementById(control.dataset.actionTarget);
+            if (!target) return;
+
+            const shadowButton = target.shadowRoot && target.shadowRoot.querySelector('button');
+            (shadowButton || target).click();
         });
     });
     

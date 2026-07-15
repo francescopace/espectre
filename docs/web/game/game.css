@@ -1020,10 +1020,6 @@ body.game-page:has(#screen-game.active) footer {
         display: none;
     }
     
-    /* Hide Buy Me a Coffee widget on mobile */
-    #bmc-wbtn {
-        display: none !important;
-    }
 }
 
 /* Narrow windows: the left bar and its threshold label overlap the content */
@@ -1109,4 +1105,3 @@ body.game-page:has(#screen-game.active) footer {
     60% { transform: translateX(-3px); }
     80% { transform: translateX(3px); }
 }
-

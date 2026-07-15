@@ -14,6 +14,11 @@
     --accent: #00d4aa;
     --accent-dim: #00a88a;
     --accent-glow: rgba(0, 212, 170, 0.15);
+    --danger: #ff6b6b;
+    --danger-text: #ffb0b0;
+    --danger-glow: rgba(255, 107, 107, 0.12);
+    --warning: #f5c26b;
+    --warning-glow: rgba(245, 194, 107, 0.1);
     --text-primary: #e8e8ed;
     --text-secondary: #8888a0;
     --text-dim: #55556a;
@@ -74,9 +79,16 @@ header.scrolled {
     box-shadow: 0 4px 30px rgba(0, 212, 170, 0.1);
 }
 
-.logo {
+.logo,
+.header-context-title {
+    font-family: 'Outfit', -apple-system, sans-serif;
     font-size: 1.5rem;
     font-weight: 700;
+    line-height: 1.6;
+    letter-spacing: normal;
+}
+
+.logo {
     color: var(--text-primary);
     text-decoration: none;
     display: flex;
@@ -150,6 +162,35 @@ header.scrolled {
 .header-left {
     display: flex;
     align-items: center;
+    min-width: 0;
+}
+
+.header-context {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    margin-left: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.header-context-separator {
+    margin: 0 0.65rem;
+    color: var(--text-dim);
+    font-size: 1.5rem;
+    font-weight: 200;
+}
+
+.header-context-title {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    background: none;
+    color: var(--text-primary);
+    -webkit-background-clip: initial;
+    background-clip: initial;
+    -webkit-text-fill-color: currentColor;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Header Controls Group */
@@ -173,8 +214,8 @@ header.scrolled {
     transition: all 0.2s ease;
 }
 
-/* USB Button */
-.header-control.btn-usb {
+/* Header connection actions */
+.header-control.btn-connect {
     background: transparent;
     border: none;
     display: inline-flex;
@@ -187,22 +228,22 @@ header.scrolled {
     padding: 0;
     vertical-align: middle;
     transition: all 0.2s ease;
-    animation: usbPulse 2s ease-in-out infinite 2s;
+    animation: connectionPulse 2s ease-in-out infinite 2s;
 }
 
-.header-control.btn-usb:hover {
+.header-control.btn-connect:hover {
     color: var(--accent);
     opacity: 1;
 }
 
-.header-control.btn-usb.connected {
+.header-control.btn-connect.connected {
     color: var(--accent);
     opacity: 1;
     filter: drop-shadow(0 0 8px var(--accent));
     animation: none;
 }
 
-@keyframes usbPulse {
+@keyframes connectionPulse {
     0%, 100% { 
         color: var(--text-dim);
         filter: none;
@@ -251,11 +292,6 @@ header.scrolled {
         color: var(--accent);
         filter: drop-shadow(0 0 8px var(--accent));
     }
-}
-
-/* Hide header controls group on non-game pages */
-body:not(.game-page) .header-controls-group {
-    display: none !important;
 }
 
 nav {
@@ -873,6 +909,11 @@ footer {
     
     .menu-toggle {
         display: block;
+        flex: 0 0 auto;
+    }
+
+    .header-left {
+        flex: 1 1 auto;
     }
     
     nav {
@@ -961,9 +1002,25 @@ footer {
         border-radius: 12px;
     }
     
-    /* Hide Buy Me a Coffee widget on mobile */
-    #bmc-wbtn {
-        display: none !important;
+}
+
+@media (max-width: 520px) {
+    .logo > .logo-icon:first-child {
+        display: none;
+    }
+
+    .header-context {
+        margin-left: 0.35rem;
+    }
+
+    .header-context-separator {
+        margin: 0 0.4rem;
+    }
+}
+
+@media (max-width: 460px) {
+    .logo-word {
+        display: none;
     }
 }
 

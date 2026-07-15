@@ -1,0 +1,217 @@
+.chart-container {
+      position: relative;
+      height: 600px;
+      margin-bottom: 10px;
+  }
+
+  .threshold-drag-hint {
+      position: absolute;
+      top: 50%;
+      right: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 8px 10px;
+      transform: translateY(-50%);
+      border-radius: 12px;
+      background: var(--accent-dim);
+      color: var(--bg-primary);
+      font-size: 18px;
+      font-weight: 700;
+      box-shadow: 0 6px 16px var(--accent-glow);
+      pointer-events: auto;
+      user-select: none;
+      z-index: 2;
+      transition: opacity 0.2s ease, transform 0.2s ease, background 0.2s ease;
+      cursor: ns-resize;
+      touch-action: none;
+  }
+
+  .threshold-drag-hint[hidden] {
+      display: none;
+  }
+
+  .threshold-drag-hint.active {
+      background: var(--accent);
+      transform: translateY(-50%) scale(1.06);
+  }
+
+  .threshold-drag-hint-icon {
+      font-size: 18px;
+      line-height: 1;
+  }
+
+  .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+  }
+
+  .chart-title {
+      font-size: 1.3em;
+      margin: 0;
+  }
+
+  .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(10, 10, 15, 0.82);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      animation: fadeIn 0.3s ease-out;
+  }
+
+  .modal-content {
+      background: var(--bg-card);
+      border-radius: 15px;
+      padding: 25px;
+      width: 400px;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      animation: scaleIn 0.3s ease-out;
+  }
+
+  .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid var(--border);
+  }
+
+  .modal-header h3 {
+      margin: 0;
+      color: var(--accent);
+      font-size: 1.5em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+  }
+
+  .modal-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+  }
+
+  .modal-reload {
+      background: none;
+      border: none;
+      font-size: 1.3em;
+      cursor: pointer;
+      color: var(--accent);
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: all 0.3s;
+  }
+
+  .modal-reload:hover {
+      background: var(--accent-glow);
+      transform: scale(1.1);
+  }
+
+  .modal-reload.spinning {
+      animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+      from {
+          transform: rotate(0deg);
+      }
+
+      to {
+          transform: rotate(360deg);
+      }
+  }
+
+  .modal-body {
+      font-family: monospace;
+      font-size: 0.95em;
+      line-height: 1.6;
+      color: var(--text-primary);
+  }
+
+  .stat-list {
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+  }
+
+  .stat-list:last-child {
+      margin-bottom: 0;
+      border-bottom: none;
+  }
+
+  .stat-line {
+      padding: 6px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+  }
+
+  .stat-line:last-child {
+      border-bottom: none;
+  }
+
+  .stat-label {
+      font-weight: 500;
+      color: var(--text-secondary);
+      font-size: 1em;
+      flex-shrink: 0;
+  }
+
+  .stat-value {
+      color: var(--text-primary);
+      font-weight: 600;
+      font-size: 1em;
+      text-align: right;
+      word-break: break-word;
+  }
+
+  .stat-value.highlight {
+      color: var(--accent);
+  }
+
+  .stat-value.success {
+      color: var(--accent);
+  }
+
+  .stat-value.warning {
+      color: var(--warning);
+  }
+
+  @keyframes fadeIn {
+      from {
+          opacity: 0;
+      }
+
+      to {
+          opacity: 1;
+      }
+  }
+
+  @keyframes scaleIn {
+      from {
+          transform: scale(0.9);
+          opacity: 0;
+      }
+
+      to {
+          transform: scale(1);
+          opacity: 1;
+      }
+  }

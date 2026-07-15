@@ -4,13 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESPectre - The Game | WiFi Motion Reaction Game</title>
+    <title>ESPectre | The Game</title>
     <meta name="description" content="A reaction game powered by ESPectre WiFi motion detection. Stay still. Move fast. No controller needed - just your body and WiFi.">
     <meta name="keywords" content="ESPectre, WiFi sensing, CSI, motion detection, game, reaction game, ESP32">
     <meta name="author" content="Francesco Pace">
 
     <!-- Canonical URL -->
     <link rel="canonical" href="https://espectre.dev/game/">
+    <link rel="icon" href="/favicon.png" type="image/png">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:url" content="https://espectre.dev/game/">
@@ -26,10 +27,6 @@
     <meta name="twitter:title" content="ESPectre - The Game | WiFi Motion Reaction Game">
     <meta name="twitter:description" content="A reaction game powered by WiFi motion detection. No controller needed - just your body and WiFi.">
     <meta name="twitter:image" content="https://espectre.dev/espectre.png">
-
-    <!-- Favicon -->
-    <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
 
     <!-- Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-S0NQNG0V11"></script>
@@ -275,30 +272,6 @@
     <script src="../cosmic-bg.js"></script>
     <script src="../analytics.js"></script>
     <script src="game.js"></script>
-    
-    <!-- Buy Me a Coffee Widget (skipped on mobile, where it is hidden anyway) -->
-    <script>
-        if (window.matchMedia('(min-width: 901px)').matches) {
-            var bmc = document.createElement('script');
-            bmc.src = 'https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js';
-            bmc.setAttribute('data-name', 'BMC-Widget');
-            bmc.setAttribute('data-cfasync', 'false');
-            bmc.setAttribute('data-id', 'espectre');
-            bmc.setAttribute('data-description', 'Support me on Buy me a coffee!');
-            bmc.setAttribute('data-color', '#40DCA5');
-            bmc.setAttribute('data-position', 'Right');
-            bmc.setAttribute('data-x_margin', '18');
-            bmc.setAttribute('data-y_margin', '18');
-            bmc.onload = function () {
-                // The widget builds its UI on DOMContentLoaded; re-fire it when
-                // the script loads after the document is already parsed
-                if (document.readyState !== 'loading') {
-                    window.dispatchEvent(new Event('DOMContentLoaded'));
-                }
-            };
-            document.body.appendChild(bmc);
-        }
-    </script>
 </body>
 
 </html>

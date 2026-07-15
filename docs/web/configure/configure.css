@@ -1,0 +1,148 @@
+.ble-toolbar-grid {
+grid-template-columns: repeat(auto-fit, minmax(280px, 320px));
+}
+
+.button-row,
+.section-actions {
+display: flex;
+flex-wrap: wrap;
+gap: 10px;
+}
+
+.metric-toggle-button {
+border: none;
+width: 100%;
+cursor: pointer;
+text-align: center;
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+gap: 8px;
+}
+
+.metric-toggle-button:hover {
+box-shadow: 0 5px 15px var(--accent-glow);
+}
+
+.metric-toggle-button.enabled {
+background: var(--accent);
+}
+
+.metric-toggle-button.disabled {
+background: var(--bg-card);
+}
+
+.metric-toggle-state {
+font-size: 1.2em;
+font-weight: 700;
+}
+
+.logs-actions {
+justify-content: center;
+margin-top: 15px;
+padding-top: 10px;
+border-top: 2px solid var(--border);
+}
+
+.metric-value-input {
+width: 100%;
+border: none;
+background: transparent;
+color: inherit;
+text-align: center;
+padding: 0;
+appearance: textfield;
+-moz-appearance: textfield;
+}
+
+.metric-value-input::-webkit-outer-spin-button,
+.metric-value-input::-webkit-inner-spin-button {
+-webkit-appearance: none;
+margin: 0;
+}
+
+.metric-value-input:focus {
+outline: none;
+}
+
+.metric-value-input:disabled {
+opacity: 0.7;
+cursor: not-allowed;
+}
+
+.subsection-card {
+background: var(--bg-primary);
+border-radius: 10px;
+padding: 15px;
+margin-bottom: 15px;
+border: 2px solid var(--border);
+}
+
+.subsection-card:last-child {
+margin-bottom: 0;
+}
+
+.subsection-card h3 {
+margin-bottom: 15px;
+color: var(--accent);
+font-size: 1.1em;
+display: flex;
+align-items: center;
+gap: 8px;
+}
+
+.diag-grid {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+gap: 12px;
+}
+
+.diag-item {
+min-height: 74px;
+min-width: 0;
+padding: 12px 14px;
+border-radius: 10px;
+background: var(--bg-primary);
+border: 1px solid var(--border);
+}
+
+.diag-item .metric-label {
+color: var(--text-secondary);
+opacity: 1;
+margin-bottom: 6px;
+}
+
+.diag-item .metric-value {
+color: var(--text-primary);
+font-size: 16px;
+font-weight: 600;
+}
+
+.log-grid {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+gap: 15px;
+}
+
+.log-panel h3 {
+margin-bottom: 10px;
+color: var(--text-primary);
+font-size: 1em;
+}
+
+pre {
+margin: 0;
+min-height: 180px;
+max-height: 320px;
+overflow: auto;
+padding: 14px;
+border-radius: 10px;
+border: 1px solid var(--border);
+background: var(--bg-primary);
+color: var(--text-primary);
+white-space: pre-wrap;
+font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+font-size: 13px;
+line-height: 1.45;
+}

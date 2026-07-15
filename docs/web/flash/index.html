@@ -4,13 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESPectre | Web Flash</title>
+    <title>ESPectre | Flash Firmware</title>
     <meta name="description" content="Flash ESPectre firmware from the browser. Choose ESPHome, Native, or Matter, then pick stable or main builds.">
     <meta name="keywords" content="ESPectre, firmware, flash, ESP32, ESPHome, Native, Matter, Web Serial">
     <meta name="author" content="Francesco Pace">
     <link rel="canonical" href="https://espectre.dev/flash/">
-    <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+    <link rel="icon" href="/favicon.png" type="image/png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -20,40 +19,21 @@
     <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"></noscript>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/flash/flash.css">
+    <link rel="stylesheet" href="/tool-page.css">
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
     <script src="/qrcode.js"></script>
 </head>
 
-<body class="flash-page">
-    <canvas id="cosmic-bg"></canvas>
+<body class="tool-page flash-page" data-tool="flash">
+    <canvas id="cosmic-bg" aria-hidden="true"></canvas>
 
-    <header id="site-header">
-        <noscript>
-            <a href="/" class="logo">ESPectre</a>
-            <nav>
-                <a href="/">Home</a>
-                <a href="https://github.com/francescopace/espectre">GitHub</a>
-            </nav>
-        </noscript>
-    </header>
+    <header id="site-header"></header>
 
-    <main class="flash-main">
-        <section class="flash-hero">
-            <div class="hero-badge">
-                <span class="dot"></span>
-                <span>Browser flashing for ESPectre firmware</span>
-            </div>
-            <h1>Web Flash</h1>
-            <p class="flash-subtitle">
-                Select the frontend, release channel, and chip, then flash its
-                published base firmware directly from a Chromium-based browser.
-            </p>
-        </section>
-
+    <main class="container flash-main">
         <section class="flash-layout">
             <div class="flash-card">
                 <h2>Select Firmware</h2>
-                <p class="flash-copy">The page loads firmware manifests and binaries from <code>espectre.dev</code>. <code>Stable</code> tracks the latest official release, while <code>Main</code> tracks the rolling snapshot release.</p>
+                <p class="flash-copy"><code>Stable</code> tracks the latest official release, while <code>Main</code> tracks the rolling snapshot release.</p>
 
                 <div class="flash-grid">
                     <label class="flash-field">
@@ -113,18 +93,15 @@
                     <ul class="flash-list">
                         <li>Chrome, Edge, or another Chromium-based browser with Web Serial support.</li>
                         <li>A USB data cable and direct serial access to the board.</li>
-                        <li><code>ESPHome</code> for Home Assistant, <code>Native</code> for BLE/MQTT, or <code>Matter</code> for controller-based commissioning.</li>
                     </ul>
                 </div>
 
                 <div class="flash-card">
                     <h2>Frontend Notes</h2>
                     <ul class="flash-list">
-                        <li><strong>ESPHome:</strong> published images use the default Classic detector. After flashing, provision Wi-Fi via BLE, USB, or captive portal and then wait for Home Assistant discovery.</li>
-                        <li><strong>Native:</strong> provision Wi-Fi and MQTT over BLE. <a href="/game/">The Game</a> is one example of a web integration that uses the native BLE surface.</li>
-                        <li><strong>Matter:</strong> after flashing, use <em>Read Matter QR</em>, then commission the device with a Matter controller. A full flash erase creates a new QR; normal updates preserve it.</li>
-                        <li><strong>Streamer and ESPHome ML:</strong> build locally from source; they are not published as separate binaries.</li>
-                        <li><strong>Updates:</strong> ESPHome Device Builder compiles updates after adoption; Native OTA images are published on GitHub Releases.</li>
+                        <li><strong>ESPHome:</strong> for Home Assistant integration.</li>
+                        <li><strong>Native:</strong> for MQTT and BLE native firmware. Use this to play <a href="/game/">The Game</a>.</li>
+                        <li><strong>Matter:</strong> For Google Home, Apple Home, and Matter compatible devices.</li>
                     </ul>
                 </div>
 
@@ -138,8 +115,8 @@
 
     <footer id="site-footer"></footer>
 
+    <script src="/tool-page.js"></script>
     <script src="/components.js"></script>
-    <script>loadHeader({ page: 'flash' }); loadFooter();</script>
     <script src="/cosmic-bg.js"></script>
     <script src="/analytics.js"></script>
     <script type="module" src="/flash/flash.js"></script>

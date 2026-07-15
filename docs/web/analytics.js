@@ -67,15 +67,4 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('a[href*="linkedin.com"]').forEach(link => {
         link.addEventListener('click', () => trackOutboundClick('click_linkedin', link.href));
     });
-    
-    // Buy Me a Coffee widget click detection
-    const observer = new MutationObserver(function(mutations) {
-        const bmcWidget = document.querySelector('#bmc-wbtn');
-        if (bmcWidget && !bmcWidget.dataset.tracked) {
-            bmcWidget.dataset.tracked = 'true';
-            bmcWidget.addEventListener('click', () => trackEvent('click_bmc'));
-        }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
 });
-
