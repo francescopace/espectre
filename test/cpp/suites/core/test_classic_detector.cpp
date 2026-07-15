@@ -90,11 +90,49 @@ void test_classic_detector_can_disable_recovery_vote(void) {
     TEST_ASSERT_TRUE(detector.get_state() == MotionState::IDLE);
 }
 
+void test_classic_detector_collects_recovery_samples_only_in_ambiguous_band(void) {
+    ClassicDetector detector(10, 1.0f);
+    detector.floor_frozen_ = true;
+    detector.recovery_vote_enabled_ = true;
+    detector.floor_count_ = CLASSIC_VARIANCE_FLOOR_MIN;
+
+    detector.current_l1_metric_ = 0.5f;
+    TEST_ASSERT_FALSE(detector.should_collect_recovery_sample_());
+
+    detector.current_l1_metric_ = 0.8f;
+    TEST_ASSERT_TRUE(detector.should_collect_recovery_sample_());
+
+    detector.current_l1_metric_ = 1.1f;
+    TEST_ASSERT_FALSE(detector.should_collect_recovery_sample_());
+
+    detector.floor_frozen_ = false;
+    TEST_ASSERT_TRUE(detector.should_collect_recovery_sample_());
+}
+
+void test_classic_detector_skips_turbulence_path_outside_recovery_band(void) {
+    ClassicDetector detector(10, 1.0f);
+    const int8_t csi[128] = {};
+    const uint8_t subcarrier = 1;
+    detector.floor_frozen_ = true;
+    detector.recovery_vote_enabled_ = true;
+    detector.floor_count_ = CLASSIC_VARIANCE_FLOOR_MIN;
+
+    detector.current_l1_metric_ = 0.5f;
+    detector.process_packet(csi, sizeof(csi), &subcarrier, 1);
+    TEST_ASSERT_EQUAL(0, detector.buffer_count_);
+
+    detector.current_l1_metric_ = 0.8f;
+    detector.process_packet(csi, sizeof(csi), &subcarrier, 1);
+    TEST_ASSERT_EQUAL(1, detector.buffer_count_);
+}
+
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_classic_detector_clear_buffer_preserves_frozen_floor);
     RUN_TEST(test_classic_detector_uses_recovery_vote_in_ambiguous_band);
     RUN_TEST(test_classic_detector_can_disable_recovery_vote);
+    RUN_TEST(test_classic_detector_collects_recovery_samples_only_in_ambiguous_band);
+    RUN_TEST(test_classic_detector_skips_turbulence_path_outside_recovery_band);
     return UNITY_END();
 }
 

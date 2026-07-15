@@ -50,7 +50,7 @@ void ClassicDetector::process_packet(const int8_t* csi_data, size_t csi_len,
         csi_data, csi_len, selected_subcarriers, num_subcarriers,
         amplitudes, HT20_SELECTED_BAND_SIZE);
 
-    if (recovery_vote_configured_) {
+    if (should_collect_recovery_sample_()) {
         process_amplitudes(amplitudes, amplitude_count);
     } else {
         packet_index_++;
@@ -158,6 +158,21 @@ void ClassicDetector::clear_l1_state_() {
 
 float ClassicDetector::calculate_moving_variance_() const {
     return calculate_variance_two_pass(turbulence_buffer_, window_size_);
+}
+
+bool ClassicDetector::should_collect_recovery_sample_() const {
+    if (!recovery_vote_configured_) {
+        return false;
+    }
+    if (!floor_frozen_) {
+        // Startup calibration owns the variance floor and needs every sample.
+        return true;
+    }
+    if (!recovery_vote_enabled_ || floor_count_ < CLASSIC_VARIANCE_FLOOR_MIN) {
+        return false;
+    }
+    return current_l1_metric_ > (CLASSIC_BAND_ALPHA * threshold_) &&
+           current_l1_metric_ <= threshold_;
 }
 
 }  // namespace espectre

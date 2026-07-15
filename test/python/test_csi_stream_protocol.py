@@ -596,11 +596,11 @@ def test_check_sequence_by_device_ignores_large_backward_jump():
 def test_summarize_ready_devices_waits_for_all_expected_devices():
     now = 100.0
     warmup_target = 10
-    threshold = CSICollector.READY_MV_THRESHOLD
+    threshold = 1.0
 
     summary = CSICollector._summarize_ready_devices(
         {
-            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_mv': 0.2},
+            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_metric': 0.2},
         },
         expected_device_count=2,
         warmup_target=warmup_target,
@@ -612,8 +612,8 @@ def test_summarize_ready_devices_waits_for_all_expected_devices():
 
     summary = CSICollector._summarize_ready_devices(
         {
-            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_mv': 0.2},
-            0x2: {'processed_packets': warmup_target, 'stable_since': now - 1.0, 'current_mv': 0.3},
+            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_metric': 0.2},
+            0x2: {'processed_packets': warmup_target, 'stable_since': now - 1.0, 'current_metric': 0.3},
         },
         expected_device_count=2,
         warmup_target=warmup_target,
@@ -626,8 +626,8 @@ def test_summarize_ready_devices_waits_for_all_expected_devices():
 
     summary = CSICollector._summarize_ready_devices(
         {
-            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_mv': 0.2},
-            0x2: {'processed_packets': warmup_target, 'stable_since': now - 3.5, 'current_mv': 0.3},
+            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_metric': 0.2},
+            0x2: {'processed_packets': warmup_target, 'stable_since': now - 3.5, 'current_metric': 0.3},
         },
         expected_device_count=2,
         warmup_target=warmup_target,
@@ -645,7 +645,7 @@ def test_format_ready_device_lines_includes_waiting_ip_and_device_details():
             0x1: {
                 'processed_packets': 12,
                 'stable_since': now - 3.5,
-                'current_mv': 0.2,
+                'current_metric': 0.2,
                 'current_pps': 121,
                 'source_ip': '192.168.1.17',
                 'chip': 'c6',
@@ -655,7 +655,7 @@ def test_format_ready_device_lines_includes_waiting_ip_and_device_details():
             0x2: {
                 'processed_packets': 8,
                 'stable_since': None,
-                'current_mv': 0.0,
+                'current_metric': 0.0,
                 'current_pps': 87,
                 'source_ip': '192.168.1.24',
                 'chip': 'c3',
@@ -665,7 +665,7 @@ def test_format_ready_device_lines_includes_waiting_ip_and_device_details():
         },
         expected_source_hosts=['192.168.1.17', '192.168.1.24', '192.168.1.29'],
         warmup_target=10,
-        threshold=CSICollector.READY_MV_THRESHOLD,
+        threshold=1.0,
         now=now,
     )
 
@@ -704,15 +704,15 @@ def test_format_ready_device_lines_includes_waiting_ip_and_device_details():
     )
 
 
-def test_summarize_ready_devices_does_not_expose_global_mv_metrics():
+def test_summarize_ready_devices_does_not_expose_global_detector_metrics():
     now = 100.0
     warmup_target = 10
-    threshold = CSICollector.READY_MV_THRESHOLD
+    threshold = 1.0
 
     summary = CSICollector._summarize_ready_devices(
         {
-            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_mv': 0.2},
-            0x2: {'processed_packets': warmup_target, 'stable_since': None, 'current_mv': 2.5},
+            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_metric': 0.2},
+            0x2: {'processed_packets': warmup_target, 'stable_since': None, 'current_metric': 2.5},
         },
         expected_device_count=2,
         warmup_target=warmup_target,
@@ -721,7 +721,7 @@ def test_summarize_ready_devices_does_not_expose_global_mv_metrics():
     )
 
     assert summary['status'] == 'UNSTABLE 1/2'
-    assert 'max_mv' not in summary
+    assert 'max_metric' not in summary
     assert 'ready_ratio' not in summary
 
 

@@ -20,7 +20,6 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 import numpy as np
 
 from .bootstrap import setup_paths
-from .csi_analysis import VarianceDetectorAdapter
 from . import dataset_metadata
 
 setup_paths()
@@ -29,6 +28,31 @@ try:
     import config
 except ImportError:
     import src.config as config
+
+try:
+    from detector_interface import (
+        detector_needs_startup_calibration,
+        load_detector_class,
+        normalize_detector_algorithm,
+    )
+    from ml_detector import ML_DEFAULT_THRESHOLD
+    from threshold import (
+        StartupThresholdCalibrator,
+        get_detector_auto_factor,
+        get_detector_startup_gate,
+    )
+except ImportError:
+    from src.detector_interface import (
+        detector_needs_startup_calibration,
+        load_detector_class,
+        normalize_detector_algorithm,
+    )
+    from src.ml_detector import ML_DEFAULT_THRESHOLD
+    from src.threshold import (
+        StartupThresholdCalibrator,
+        get_detector_auto_factor,
+        get_detector_startup_gate,
+    )
 
 MAGIC_STREAM = 0x4353
 STREAM_VERSION = 6
@@ -692,12 +716,90 @@ def get_git_username() -> Optional[str]:
     return None
 
 
+class CollectionDetectorGate:
+    """Production detector and startup calibration used by timed collection."""
+
+    @staticmethod
+    def default_window_size() -> int:
+        return max(10, min(200, int(getattr(config, "SEG_WINDOW_SIZE", 100))))
+
+    @staticmethod
+    def initial_threshold(algorithm: str) -> float:
+        return 1.0 if detector_needs_startup_calibration(algorithm) else ML_DEFAULT_THRESHOLD
+
+    def __init__(self, algorithm: str):
+        self.algorithm = normalize_detector_algorithm(algorithm)
+        self.window_size = self.default_window_size()
+        self.evaluation_interval = max(1, int(getattr(config, "EVALUATION_INTERVAL", 25)))
+        self.needs_calibration = detector_needs_startup_calibration(self.algorithm)
+        initial_threshold = self.initial_threshold(self.algorithm)
+        detector_class = load_detector_class(self.algorithm)
+        self.detector = detector_class(
+            window_size=self.window_size,
+            threshold=initial_threshold,
+            enable_lowpass=config.ENABLE_LOWPASS_FILTER,
+            lowpass_cutoff=config.LOWPASS_CUTOFF,
+            enable_hampel=config.ENABLE_HAMPEL_FILTER,
+            hampel_window=config.HAMPEL_WINDOW,
+            hampel_threshold=config.HAMPEL_THRESHOLD,
+            enable_recovery_vote=getattr(config, "CLASSIC_RECOVERY_VOTE_ENABLED", True),
+        )
+        self.calibrator = (
+            StartupThresholdCalibrator(
+                config.CALIBRATION_BUFFER_SIZE,
+                auto_factor=get_detector_auto_factor(self.detector),
+                gate_enabled=get_detector_startup_gate(self.detector),
+            )
+            if self.needs_calibration
+            else None
+        )
+        self._packets_since_evaluation = 0
+        self.calibrated = not self.needs_calibration
+        self.current_metric = 0.0
+        self.current_threshold = float(self.detector.get_threshold())
+
+    def process_packet(self, csi_data) -> None:
+        self.detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
+        self._packets_since_evaluation += 1
+        if self._packets_since_evaluation < self.evaluation_interval:
+            return
+
+        metrics = self.detector.update_state()
+        self._packets_since_evaluation = 0
+        self.current_metric = float(metrics.get("motion_metric", self.detector.get_motion_metric()))
+        self.current_threshold = float(metrics.get("threshold", self.detector.get_threshold()))
+
+        if self.calibrator is None or self.calibrated:
+            return
+        self.calibrator.observe_detector(self.detector, packet_weight=self.evaluation_interval)
+        if not self.calibrator.is_complete():
+            return
+        self.calibrated = self.calibrator.is_successful()
+        if not self.calibrated:
+            return
+        threshold_setting = getattr(config, "SEG_THRESHOLD", "auto")
+        threshold, _ = self.calibrator.calculate_threshold(
+            threshold_setting if isinstance(threshold_setting, str) else "auto"
+        )
+        if hasattr(self.calibrator, "get_floor_snapshot") and hasattr(self.detector, "apply_startup_floor"):
+            floor, vote_enabled, sample_count = self.calibrator.get_floor_snapshot()
+            self.detector.apply_startup_floor(floor, vote_enabled, sample_count)
+        self.detector.set_adaptive_threshold(threshold)
+        if not isinstance(threshold_setting, str):
+            self.detector.set_threshold(float(threshold_setting))
+        self.detector.reset()
+        self.current_metric = 0.0
+        self.current_threshold = float(self.detector.get_threshold())
+
+    def is_ready(self) -> bool:
+        return self.calibrated and self.detector.is_ready()
+
+
 class CSICollector:
     """Collects labeled CSI data for training datasets."""
 
     FORMAT_VERSION = dataset_metadata.DATASET_FORMAT_VERSION
     READY_STABLE_SECONDS = 3.0
-    READY_MV_THRESHOLD = 1.0
     STATUS_REFRESH_SECONDS = 0.2
 
     def __init__(
@@ -709,6 +811,7 @@ class CSICollector:
         bind_host: Optional[str] = None,
         expected_device_count: Optional[int] = None,
         expected_source_hosts: Optional[List[str]] = None,
+        detector_algorithm: str = "classic",
     ):
         self.label = label
         self.port = port
@@ -720,7 +823,9 @@ class CSICollector:
         self.expected_device_count = max(1, int(expected_device_count)) if expected_device_count is not None else 1
         self.receiver = CSIReceiver(port=port, buffer_size=2000, bind_host=bind_host, derive_complex=False)
         self._sample_count = 0
-        self._ready_detector = self._build_ready_detector()
+        self.detector_algorithm = normalize_detector_algorithm(detector_algorithm)
+        self._ready_window_size = CollectionDetectorGate.default_window_size()
+        self._ready_initial_threshold = CollectionDetectorGate.initial_threshold(self.detector_algorithm)
         self._live_status_line_count = 0
 
     def _get_label_dir(self) -> Path:
@@ -873,13 +978,65 @@ class CSICollector:
             self.receiver.sock.settimeout(previous_timeout)
         return drained
 
-    def _build_ready_detector(self) -> VarianceDetectorAdapter:
-        window_size = int(getattr(config, "SEG_WINDOW_SIZE", 100))
-        if window_size < 10:
-            window_size = 10
-        elif window_size > 200:
-            window_size = 200
-        return VarianceDetectorAdapter(window_size=window_size, threshold=self.READY_MV_THRESHOLD, track_data=False)
+    def _build_ready_detector(self) -> CollectionDetectorGate:
+        return CollectionDetectorGate(self.detector_algorithm)
+
+    def _update_device_detector_state(
+        self,
+        device_states: Dict[int, Dict[str, Any]],
+        packet: CSIPacket,
+        source_ip: str,
+    ) -> Dict[str, Any]:
+        """Update the per-device detector state and return it."""
+        device_id = int(packet.device_id)
+        state = device_states.get(device_id)
+        if state is None:
+            detector = self._build_ready_detector()
+            state = {
+                "detector": detector,
+                "processed_packets": 0,
+                "stable_since": None,
+                "current_metric": 0.0,
+                "current_threshold": detector.current_threshold,
+                "current_pps": 0,
+                "last_pps_count": 0,
+                "source_ip": source_ip,
+                "chip": packet.chip or "unknown",
+                "channel": packet.channel,
+                "rssi_dbm": packet.rssi_dbm,
+                "last_seq": packet.seq_num,
+                "tx_backpressure_total": None,
+                "tx_backpressure_window_delta": 0,
+                "tx_backpressure_last_delta": 0,
+                "stream_fresh_total": None,
+                "stream_fresh_window_delta": 0,
+                "stream_fresh_last_delta": 0,
+                "pacing_rx_total": None,
+                "pacing_rx_window_delta": 0,
+                "pacing_rx_last_delta": 0,
+            }
+            device_states[device_id] = state
+        else:
+            state["source_ip"] = source_ip
+            if packet.chip and packet.chip != "unknown":
+                state["chip"] = packet.chip
+            if packet.channel is not None:
+                state["channel"] = packet.channel
+            if packet.rssi_dbm is not None:
+                state["rssi_dbm"] = packet.rssi_dbm
+            state["last_seq"] = packet.seq_num
+
+        detector = state["detector"]
+        detector.process_packet(packet.iq_raw)
+        state["processed_packets"] += 1
+        state["current_metric"] = detector.current_metric
+        state["current_threshold"] = detector.current_threshold
+        if detector.is_ready() and state["current_metric"] <= state["current_threshold"]:
+            if state["stable_since"] is None:
+                state["stable_since"] = time.monotonic()
+        else:
+            state["stable_since"] = None
+        return state
 
     def _reset_live_status_block(self) -> None:
         self._live_status_line_count = 0
@@ -975,19 +1132,34 @@ class CSICollector:
                 "observed_count": observed_count,
                 "required_count": required_count,
             }
-        warm_states = [state for state in relevant_states if state["processed_packets"] >= warmup_target]
+        warm_states = [
+            state
+            for state in relevant_states
+            if state["processed_packets"] >= warmup_target
+            and (
+                not hasattr(state.get("detector"), "is_ready")
+                or state["detector"].is_ready()
+            )
+        ]
         total_relevant = max(observed_count, required_count)
         if len(warm_states) < observed_count:
             return {
                 "ready": False,
-                "status": f"WARMUP {len(warm_states)}/{total_relevant}",
+                "status": f"CALIBRATING {len(warm_states)}/{total_relevant}",
                 "stable_elapsed": 0.0,
                 "ready_count": 0,
                 "observed_count": observed_count,
                 "required_count": required_count,
             }
-        if any(state["current_mv"] > threshold for state in relevant_states):
-            ready_count = sum(1 for state in relevant_states if state["current_mv"] <= threshold)
+        if any(
+            state["current_metric"] > state.get("current_threshold", threshold)
+            for state in relevant_states
+        ):
+            ready_count = sum(
+                1
+                for state in relevant_states
+                if state["current_metric"] <= state.get("current_threshold", threshold)
+            )
             return {
                 "ready": False,
                 "status": f"UNSTABLE {ready_count}/{total_relevant}",
@@ -1026,26 +1198,35 @@ class CSICollector:
                 lines.append(
                     f"    ip={expected_ip} chip=? ch=-- rssi=--- "
                     f"{CSICollector._build_status_bar(0.0)} "
-                    f"mv=--/{threshold:.3f} pps=-- | WAITING | bp:--"
+                    f"metric=--/{threshold:.3f} pps=-- | WAITING | bp:--"
                 )
         for device_id in sorted(device_states):
             state = device_states[device_id]
             processed_packets = int(state.get("processed_packets", 0))
-            current_mv = float(state.get("current_mv", 0.0))
+            current_metric = float(state.get("current_metric", 0.0))
+            current_threshold = float(state.get("current_threshold", threshold))
             stable_since = state.get("stable_since")
+            detector = state.get("detector")
+            detector_ready = (
+                not hasattr(detector, "is_ready")
+                or detector.is_ready()
+            )
             if processed_packets < warmup_target:
                 status = f"WARMUP {processed_packets}/{warmup_target}"
-                mv_ratio = 0.0
+                metric_ratio = 0.0
+            elif not detector_ready:
+                status = "CALIBRATING"
+                metric_ratio = 0.0
             else:
                 stable_value = max(0.0, now - stable_since) if stable_since is not None else 0.0
-                mv_ratio = min(current_mv / threshold, 1.0) if threshold > 0 else 0.0
-                if current_mv > threshold:
+                metric_ratio = min(current_metric / current_threshold, 1.0) if current_threshold > 0 else 0.0
+                if current_metric > current_threshold:
                     status = "UNSTABLE"
                 elif stable_value >= CSICollector.READY_STABLE_SECONDS:
                     status = "READY"
                 else:
                     status = "STABLE"
-            mv_text = "--" if processed_packets < warmup_target else f"{current_mv:.3f}"
+            metric_text = "--" if processed_packets < warmup_target or not detector_ready else f"{current_metric:.3f}"
             channel = state.get("channel")
             rssi_dbm = state.get("rssi_dbm")
             current_pps = state.get("current_pps")
@@ -1053,8 +1234,8 @@ class CSICollector:
                 f"    ip={state.get('source_ip', '?')} chip={str(state.get('chip', '?')).upper()} "
                 f"ch={'--' if channel is None else f'{int(channel):02d}'} "
                 f"rssi={'---' if rssi_dbm is None else str(int(rssi_dbm))} "
-                f"{CSICollector._build_status_bar(mv_ratio)} "
-                f"mv={mv_text}/{threshold:.3f} pps={'--' if current_pps is None else str(int(current_pps))} "
+                f"{CSICollector._build_status_bar(metric_ratio)} "
+                f"metric={metric_text}/{current_threshold:.3f} pps={'--' if current_pps is None else str(int(current_pps))} "
                 f"| {status}{CSICollector._format_backpressure_text(state)}"
             )
         return lines
@@ -1073,7 +1254,7 @@ class CSICollector:
         if self.receiver.sock is None:
             raise RuntimeError("Receiver socket is not initialized")
         self.receiver.reset_stats()
-        warmup_target = self._ready_detector.window_size
+        warmup_target = self._ready_window_size
         device_states: Dict[int, Dict[str, Any]] = {}
         last_seq_by_device: Dict[int, int] = {}
         processed_packets = 0
@@ -1095,41 +1276,7 @@ class CSICollector:
                     self.receiver.dropped_count += self._check_sequence_by_device(packet, last_seq_by_device)
                     if packet.device_id is None:
                         continue
-                    device_id = int(packet.device_id)
-                    state = device_states.get(device_id)
-                    if state is None:
-                        state = {
-                            "detector": self._build_ready_detector(),
-                            "processed_packets": 0,
-                            "stable_since": None,
-                            "current_mv": 0.0,
-                            "current_pps": 0,
-                            "last_pps_count": 0,
-                            "source_ip": addr[0],
-                            "chip": packet.chip or "unknown",
-                            "channel": packet.channel,
-                            "rssi_dbm": packet.rssi_dbm,
-                            "last_seq": packet.seq_num,
-                            "tx_backpressure_total": None,
-                            "tx_backpressure_window_delta": 0,
-                            "tx_backpressure_last_delta": 0,
-                            "stream_fresh_total": None,
-                            "stream_fresh_window_delta": 0,
-                            "stream_fresh_last_delta": 0,
-                            "pacing_rx_total": None,
-                            "pacing_rx_window_delta": 0,
-                            "pacing_rx_last_delta": 0,
-                        }
-                        device_states[device_id] = state
-                    else:
-                        state["source_ip"] = addr[0]
-                        if packet.chip and packet.chip != "unknown":
-                            state["chip"] = packet.chip
-                        if packet.channel is not None:
-                            state["channel"] = packet.channel
-                        if packet.rssi_dbm is not None:
-                            state["rssi_dbm"] = packet.rssi_dbm
-                        state["last_seq"] = packet.seq_num
+                    state = self._update_device_detector_state(device_states, packet, addr[0])
                     if pacing_controller is not None:
                         pacing_controller.observe_device(
                             state,
@@ -1137,17 +1284,6 @@ class CSICollector:
                             getattr(packet, "stream_fresh_total", None),
                             getattr(packet, "pacing_rx_total", None),
                         )
-                    state["detector"].process_packet({"csi_data": packet.iq_raw})
-                    state["processed_packets"] += 1
-                    if state["processed_packets"] >= warmup_target:
-                        state["current_mv"] = state["detector"]._context.current_moving_variance
-                        now = time.monotonic()
-                        if state["current_mv"] <= self.READY_MV_THRESHOLD:
-                            if state["stable_since"] is None:
-                                state["stable_since"] = now
-                        else:
-                            state["stable_since"] = None
-
                 now = time.monotonic()
                 if pacing_controller is not None:
                     pacing_controller.maybe_adjust(device_states, now=now, pacing_sender=pacing_sender)
@@ -1155,7 +1291,7 @@ class CSICollector:
                     device_states,
                     expected_device_count=self.expected_device_count,
                     warmup_target=warmup_target,
-                    threshold=self.READY_MV_THRESHOLD,
+                    threshold=self._ready_initial_threshold,
                     now=now,
                 )
                 current_state = summary["status"]
@@ -1170,7 +1306,7 @@ class CSICollector:
                                 device_states,
                                 expected_source_hosts=self.expected_source_hosts,
                                 warmup_target=warmup_target,
-                                threshold=self.READY_MV_THRESHOLD,
+                                threshold=self._ready_initial_threshold,
                                 now=now,
                             ),
                             inline=use_inline_status,
@@ -1193,7 +1329,7 @@ class CSICollector:
                             device_states,
                             expected_source_hosts=self.expected_source_hosts,
                             warmup_target=warmup_target,
-                            threshold=self.READY_MV_THRESHOLD,
+                            threshold=self._ready_initial_threshold,
                             now=now,
                         ),
                         inline=use_inline_status,
@@ -1208,7 +1344,7 @@ class CSICollector:
                             device_states,
                             expected_source_hosts=self.expected_source_hosts,
                             warmup_target=warmup_target,
-                            threshold=self.READY_MV_THRESHOLD,
+                            threshold=self._ready_initial_threshold,
                             now=now,
                         ),
                         inline=use_inline_status,
@@ -1230,7 +1366,7 @@ class CSICollector:
         self.receiver.reset_stats()
         packets: List[CSIPacket] = []
         deadline = time.monotonic() + duration
-        warmup_target = self._ready_detector.window_size
+        warmup_target = self._ready_window_size
         device_states: Dict[int, Dict[str, Any]] = dict(initial_device_states or {})
         last_seq_by_device: Dict[int, int] = {
             device_id: int(state["last_seq"])
@@ -1256,41 +1392,7 @@ class CSICollector:
                     self.receiver.dropped_count += self._check_sequence_by_device(packet, last_seq_by_device)
                     if packet.device_id is None:
                         continue
-                    device_id = int(packet.device_id)
-                    state = device_states.get(device_id)
-                    if state is None:
-                        state = {
-                            "detector": self._build_ready_detector(),
-                            "processed_packets": 0,
-                            "stable_since": None,
-                            "current_mv": 0.0,
-                            "current_pps": 0,
-                            "last_pps_count": 0,
-                            "source_ip": addr[0],
-                            "chip": packet.chip or "unknown",
-                            "channel": packet.channel,
-                            "rssi_dbm": packet.rssi_dbm,
-                            "last_seq": packet.seq_num,
-                            "tx_backpressure_total": None,
-                            "tx_backpressure_window_delta": 0,
-                            "tx_backpressure_last_delta": 0,
-                            "stream_fresh_total": None,
-                            "stream_fresh_window_delta": 0,
-                            "stream_fresh_last_delta": 0,
-                            "pacing_rx_total": None,
-                            "pacing_rx_window_delta": 0,
-                            "pacing_rx_last_delta": 0,
-                        }
-                        device_states[device_id] = state
-                    else:
-                        state["source_ip"] = addr[0]
-                        if packet.chip and packet.chip != "unknown":
-                            state["chip"] = packet.chip
-                        if packet.channel is not None:
-                            state["channel"] = packet.channel
-                        if packet.rssi_dbm is not None:
-                            state["rssi_dbm"] = packet.rssi_dbm
-                        state["last_seq"] = packet.seq_num
+                    state = self._update_device_detector_state(device_states, packet, addr[0])
                     if pacing_controller is not None:
                         pacing_controller.observe_device(
                             state,
@@ -1298,16 +1400,6 @@ class CSICollector:
                             getattr(packet, "stream_fresh_total", None),
                             getattr(packet, "pacing_rx_total", None),
                         )
-                    state["detector"].process_packet({"csi_data": packet.iq_raw})
-                    state["processed_packets"] += 1
-                    if state["processed_packets"] >= warmup_target:
-                        state["current_mv"] = state["detector"]._context.current_moving_variance
-                        now = time.monotonic()
-                        if state["current_mv"] <= self.READY_MV_THRESHOLD:
-                            if state["stable_since"] is None:
-                                state["stable_since"] = now
-                        else:
-                            state["stable_since"] = None
                 now = time.monotonic()
                 if pacing_controller is not None:
                     pacing_controller.maybe_adjust(device_states, now=now, pacing_sender=pacing_sender)
@@ -1329,7 +1421,7 @@ class CSICollector:
                             device_states,
                             expected_source_hosts=self.expected_source_hosts,
                             warmup_target=warmup_target,
-                            threshold=self.READY_MV_THRESHOLD,
+                            threshold=self._ready_initial_threshold,
                             now=now,
                         ),
                         inline=use_inline_status,
@@ -1345,7 +1437,7 @@ class CSICollector:
                             device_states,
                             expected_source_hosts=self.expected_source_hosts,
                             warmup_target=warmup_target,
-                            threshold=self.READY_MV_THRESHOLD,
+                            threshold=self._ready_initial_threshold,
                             now=now,
                         ),
                         inline=use_inline_status,

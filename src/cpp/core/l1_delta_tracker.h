@@ -33,25 +33,42 @@ class L1DeltaTracker {
       return;
     }
 
-    float profile[HT20_SELECTED_BAND_SIZE];
-    const uint8_t profile_len = normalize_amplitude_profile(amplitudes, amplitude_count, profile);
+    float profile[HT20_SELECTED_BAND_SIZE]{};
     const float *reference = profile_ring_[profile_index_];
     const uint8_t reference_len = profile_len_[profile_index_];
+    uint8_t profile_len = 0U;
 
-    if (profile_len > 0U && reference_len == profile_len) {
-      float total = 0.0f;
-      for (uint8_t i = 0U; i < profile_len; i++) {
-        total += std::fabs(profile[i] - reference[i]);
+    if (amplitudes != nullptr && amplitude_count >= 2U &&
+        amplitude_count <= HT20_SELECTED_BAND_SIZE) {
+      float amplitude_sum = 0.0f;
+      for (uint8_t i = 0U; i < amplitude_count; i++) {
+        amplitude_sum += amplitudes[i];
       }
-      const float delta = total / profile_len;
-      if (delta_count_ >= capacity_) {
-        delta_sum_ -= delta_ring_[delta_index_];
-      }
-      delta_ring_[delta_index_] = delta;
-      delta_sum_ += delta;
-      delta_index_ = (delta_index_ + 1U) % capacity_;
-      if (delta_count_ < capacity_) {
-        delta_count_++;
+      if (amplitude_sum > 0.0f) {
+        const float mean = amplitude_sum / amplitude_count;
+        profile_len = amplitude_count;
+        if (reference_len == profile_len) {
+          float delta_sum = 0.0f;
+          for (uint8_t i = 0U; i < profile_len; i++) {
+            const float value = amplitudes[i] / mean;
+            profile[i] = value;
+            delta_sum += std::fabs(value - reference[i]);
+          }
+          const float delta = delta_sum / profile_len;
+          if (delta_count_ >= capacity_) {
+            delta_sum_ -= delta_ring_[delta_index_];
+          }
+          delta_ring_[delta_index_] = delta;
+          delta_sum_ += delta;
+          delta_index_ = (delta_index_ + 1U) % capacity_;
+          if (delta_count_ < capacity_) {
+            delta_count_++;
+          }
+        } else {
+          for (uint8_t i = 0U; i < profile_len; i++) {
+            profile[i] = amplitudes[i] / mean;
+          }
+        }
       }
     }
 

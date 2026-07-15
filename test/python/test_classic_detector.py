@@ -76,6 +76,28 @@ class _FakeSub:
         pass
 
 
+class _FakeL1Process(_FakeSub):
+    """L1 stand-in with a reusable amplitude profile for hot-path tests."""
+
+    _amplitude_buffer = [1.0, 2.0]
+    _amplitude_count = 2
+
+
+class _RecoveryPathSpy:
+    """Records all work delegated to the turbulence/Hampel path."""
+
+    def __init__(self):
+        self.turbulence_calls = 0
+        self.add_calls = 0
+
+    def calculate_turbulence_from_amplitudes(self, amplitudes, count):
+        self.turbulence_calls += 1
+        return 0.1
+
+    def add_turbulence(self, turbulence):
+        self.add_calls += 1
+
+
 def _decide(l1_metric, moving_variance, threshold=0.1, floor=1.0, vote=True,
             recovery_vote_configured=True):
     """Drive one fused decision with controlled sub-detector metrics."""
@@ -164,6 +186,51 @@ def test_disabled_vote_can_update_state_without_variance_context():
 def test_no_vote_below_band():
     # deep-quiet l1 (below BAND_ALPHA*thr) never triggers the vote -> IDLE
     assert _decide(l1_metric=0.03, moving_variance=5.0) == MotionState.IDLE
+
+
+def test_recovery_samples_are_lazy_after_calibration():
+    det = ClassicDetector(window_size=10, threshold=1.0)
+    det._floor_frozen = True
+    det._variance_floor = 1.0
+    det._recovery_vote_enabled = True
+
+    det._l1 = _FakeSub(metric=0.5, threshold=1.0)
+    assert not det._should_collect_recovery_sample()
+
+    det._l1 = _FakeSub(metric=0.8, threshold=1.0)
+    assert det._should_collect_recovery_sample()
+
+    det._l1 = _FakeSub(metric=1.1, threshold=1.0)
+    assert not det._should_collect_recovery_sample()
+
+
+def test_recovery_samples_are_collected_during_calibration():
+    det = ClassicDetector(window_size=10, threshold=1.0)
+    det._floor_frozen = False
+    det._l1 = _FakeSub(metric=0.0, threshold=1.0)
+
+    assert det._should_collect_recovery_sample()
+
+
+def test_recovery_path_skips_turbulence_and_hampel_outside_vote_band():
+    det = ClassicDetector(window_size=10, threshold=1.0)
+    det._floor_frozen = True
+    det._variance_floor = 1.0
+    det._recovery_vote_enabled = True
+    det._l1 = _FakeL1Process(metric=0.5, threshold=1.0)
+    recovery_path = _RecoveryPathSpy()
+    det._variance_ctx = recovery_path
+
+    det.process_packet([0] * 128, BAND)
+
+    assert recovery_path.turbulence_calls == 0
+    assert recovery_path.add_calls == 0
+
+    det._l1 = _FakeL1Process(metric=0.8, threshold=1.0)
+    det.process_packet([0] * 128, BAND)
+
+    assert recovery_path.turbulence_calls == 1
+    assert recovery_path.add_calls == 1
 
 
 # --- integration on crafted CSI --------------------------------------------

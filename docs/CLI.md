@@ -129,7 +129,7 @@ Common flags:
 | `--samples` | Timed dataset mode: sample count |
 | `--pps` | UDP packet rate sent from the collector to the target device |
 | `--adaptive` | Hold the requested receive rate by trimming send pace from RX feedback and backpressure |
-| `--detector` | Live detector selection, comma-separated for parallel comparison |
+| `--detector` | Detector used by the ready gate: `classic` or `ml`; a comma-separated list is available only for live comparison |
 | `--no-save` | Run live inspection without writing dataset files |
 
 In live streamer mode, `collect` sends ordinary UDP traffic to the
@@ -138,6 +138,12 @@ those packets and sends one CSI stream packet back for each received CSI callbac
 By default, `--pps` stays fixed. Add `--adaptive` when you want the collector
 to keep the observed receive rate near the requested `--pps`, while still
 backing off immediately on firmware-reported TX backpressure.
+
+`--detector` always selects the production detector used for collection
+readiness. `classic` performs its normal startup calibration before it can
+become ready. `ml` does not use startup calibration, but still needs its feature
+window to fill. Live inspection can compare `classic,ml` in parallel; timed
+dataset collection accepts exactly one detector.
 
 Examples:
 

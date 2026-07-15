@@ -536,6 +536,7 @@ def main():
     publish_counter = 0
     processed_packet_count = 0
     mqtt_poll_counter = 0
+    mqtt_poll_interval = max(1, int(getattr(config, 'EVALUATION_INTERVAL', 25)))
     filtered_count = 0  # Packets with wrong SC count
     last_publish_time = time.ticks_ms()
     collapse_logged = False
@@ -594,11 +595,12 @@ def main():
                 detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
                 processed_packet_count += 1
 
-                # Poll MQTT commands every 10 packets to reduce hot-loop overhead
-                # without making command responsiveness noticeable to users.
+                # Poll MQTT on the same cadence as detector evaluation. This keeps
+                # command latency below 250 ms at 100 pps without adding socket
+                # work between evaluations.
                 if mqtt_handler is not None:
                     mqtt_poll_counter += 1
-                    if mqtt_poll_counter >= 10:
+                    if mqtt_poll_counter >= mqtt_poll_interval:
                         mqtt_handler.check_messages()
                         mqtt_poll_counter = 0
                 

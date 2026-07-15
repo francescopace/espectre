@@ -78,6 +78,7 @@ public:
 private:
     void clear_l1_state_();
     float calculate_moving_variance_() const;
+    bool should_collect_recovery_sample_() const;
 
     float threshold_;
     float current_l1_metric_;

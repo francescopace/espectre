@@ -313,21 +313,29 @@ class L1DeltaTracker:
         """Update the L1 stream from an already extracted amplitude profile."""
         self._packet_count += 1
         profile = self._current_profile
-        profile_len = normalize_amplitude_profile_into(
-            amplitudes, amplitude_count, profile
-        )
-
         ring_slot = self._profile_index
         reference = self._profile_ring[ring_slot]
         reference_len = self._profile_len[ring_slot]
-
-        if profile_len > 0 and reference_len == profile_len:
+        profile_len = 0
+        if amplitudes is not None and 2 <= amplitude_count <= len(profile):
             total = 0.0
-            for i in range(profile_len):
-                diff = profile[i] - reference[i]
-                total += diff if diff >= 0 else -diff
-            self.last_delta = total / profile_len
-            self._push_delta(self.last_delta)
+            for i in range(amplitude_count):
+                total += amplitudes[i]
+            if total > 0.0:
+                mean = total / amplitude_count
+                profile_len = amplitude_count
+                if reference_len == profile_len:
+                    delta_total = 0.0
+                    for i in range(profile_len):
+                        value = amplitudes[i] / mean
+                        profile[i] = value
+                        diff = value - reference[i]
+                        delta_total += diff if diff >= 0 else -diff
+                    self.last_delta = delta_total / profile_len
+                    self._push_delta(self.last_delta)
+                else:
+                    for i in range(profile_len):
+                        profile[i] = amplitudes[i] / mean
 
         self._profile_ring[ring_slot] = profile
         self._profile_len[ring_slot] = profile_len

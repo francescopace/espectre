@@ -94,10 +94,14 @@ part of the supported workflow.
 
 ### Save Semantics
 
-When saving live captures:
+When saving captures:
 
 - collection starts only after the ready gate is satisfied
 - for `classic`, that happens after startup calibration
+- `ml` uses its production feature window and does not run startup calibration
+- `--detector` chooses the production detector for the ready gate in both live
+  and timed collection; timed collection accepts one detector, while live
+  inspection can compare `classic,ml`
 - `Ctrl+C` before a requested `--duration` finishes aborts the partial live
   capture
 - without `--duration`, `Ctrl+C` saves the packets already accepted

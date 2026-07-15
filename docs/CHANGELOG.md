@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - **Motion-first startup calibration for Classic thresholds** with internal quiet-only fallback.
 - **Cross-language report parity gating** for `tools/generate_performance_report.py`: the published performance report now rebuilds and runs the host-side C++ integration suites, exports structured paired and long-recording metrics, and aborts if the Python and C++ aggregates drift.
 - **Parallel multi-detector live collect** through `./espectre collect --detector classic,ml`.
+- **Timed dataset collection now uses the selected production Classic or ML detector for its ready gate**, replacing the retired host-only moving-variance adapter.
 - **BLE-assisted Wi-Fi provisioning for the streamer firmware** via `tools/web/espectre-ble.html`
 - **Uplink CSI record batching in the streamer transport**: up to 8 records per UDP datagram via `ESPECTRE_STREAM_TX_BATCH_RECORDS` (default 4), cutting uplink packet rate and airtime pressure.
 - **ESP32-specific streamer `sdkconfig` profile** with shallower Wi-Fi TX/RX buffer caps and lwIP IPv6 disabled to fit the original ESP32 resource budget.

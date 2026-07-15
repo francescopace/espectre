@@ -111,11 +111,24 @@ class ClassicDetector(IDetector):
 
     # -- hot path -----------------------------------------------------------
 
+    def _should_collect_recovery_sample(self):
+        """Return whether the variance recovery path can affect the decision."""
+        if not self._recovery_vote_configured or self._variance_ctx is None:
+            return False
+        if not self._floor_frozen:
+            # Startup calibration owns the variance floor and needs every sample.
+            return True
+        if not self._recovery_vote_enabled or self._variance_floor is None:
+            return False
+        threshold = self.get_threshold()
+        l1_metric = self._l1.get_motion_metric()
+        return self.BAND_ALPHA * threshold < l1_metric <= threshold
+
     def process_packet(self, csi_data, selected_subcarriers=None):
         """Feed the packet to both the primary and the support detector."""
         self._packet_count += 1
         self._l1.process_packet(csi_data, selected_subcarriers)
-        if self._recovery_vote_configured and self._variance_ctx is not None:
+        if self._should_collect_recovery_sample():
             turbulence = self._variance_ctx.calculate_turbulence_from_amplitudes(
                 self._l1._amplitude_buffer,
                 self._l1._amplitude_count,

@@ -612,7 +612,15 @@ def test_collect_applies_start_delay_before_starting_pacing(monkeypatch) -> None
 
     class FakeCollector:
         def __init__(self, **kwargs):
-            events.append(("collector_init", kwargs["label"], kwargs["bind_host"], kwargs["expected_device_count"]))
+            events.append(
+                (
+                    "collector_init",
+                    kwargs["label"],
+                    kwargs["bind_host"],
+                    kwargs["expected_device_count"],
+                    kwargs["detector_algorithm"],
+                )
+            )
 
         def collect_timed(self, duration: float, num_samples: int, **kwargs):
             events.append(("collect_timed", duration, num_samples, kwargs))
@@ -656,7 +664,7 @@ def test_collect_applies_start_delay_before_starting_pacing(monkeypatch) -> None
     assert collect_event[3]["adaptive"] is False
     assert collect_event[3]["pacing_sender"] is FakePacingSender.last_instance
     assert FakePacingSender.last_instance.rate_updates == []
-    assert ("collector_init", "static_presence", "127.0.0.1", 3) in events
+    assert ("collector_init", "static_presence", "127.0.0.1", 3, "classic") in events
     assert events.index(("delay", 5.0)) < events.index("start")
     assert events[-1] == "stop"
 
@@ -670,10 +678,14 @@ def test_collect_timed_adaptive_adjusts_legacy_pacing(monkeypatch) -> None:
     class FakeReadyDetector:
         def __init__(self):
             self.window_size = 1
-            self._context = type("Ctx", (), {"current_moving_variance": 0.0})()
+            self.current_metric = 0.0
+            self.current_threshold = 1.0
 
         def process_packet(self, packet):
-            self._context.current_moving_variance = 0.0
+            self.current_metric = 0.0
+
+        def is_ready(self):
+            return True
 
     class FakePacket:
         def __init__(self, seq_num: int, tx_backpressure_total: int):

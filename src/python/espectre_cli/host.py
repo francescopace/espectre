@@ -150,6 +150,15 @@ def _collect_dataset_csi_data(args) -> None:
         print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]>{Style.RESET_ALL}")
         raise SystemExit(1)
 
+    detector_kinds = [
+        kind.strip().lower()
+        for kind in str(getattr(args, "detector", "classic")).split(",")
+        if kind.strip()
+    ]
+    if len(detector_kinds) != 1 or detector_kinds[0] not in {"classic", "ml"}:
+        print(f"{Fore.RED}❌ Timed collection accepts one detector: classic or ml{Style.RESET_ALL}")
+        raise SystemExit(1)
+
     if args.start_delay < 0:
         print(f"{Fore.RED}❌ Start delay must be >= 0 seconds{Style.RESET_ALL}")
         raise SystemExit(1)
@@ -206,6 +215,7 @@ def _collect_dataset_csi_data(args) -> None:
         bind_host=resolved_bind_ip,
         expected_device_count=len(targets),
         expected_source_hosts=targets,
+        detector_algorithm=detector_kinds[0],
     )
     try:
         _wait_before_collection(args.start_delay)

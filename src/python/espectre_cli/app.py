@@ -90,7 +90,10 @@ def _add_collect_parser(
     collect_parser.add_argument(
         "--detector",
         default="classic",
-        help="Live detector(s), comma-separated for parallel status comparison: classic, ml (default: classic)",
+        help=(
+            "Detector for live status and timed collection: classic or ml. "
+            "A comma-separated list is supported for parallel live status only (default: classic)"
+        ),
     )
     collect_parser.add_argument("--no-save", action="store_true", help="Run live status inspection without saving dataset files")
     collect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor")
