@@ -4,7 +4,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ESPectre BLE Provisioning Client</title>
+  <title>Configure | ESPectre</title>
+  <meta name="description" content="Configure ESPectre native firmware over Web Bluetooth, including Wi-Fi, MQTT, detector, and device settings.">
+  <link rel="canonical" href="https://espectre.dev/configure/">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="/styles.css">
   <style>
     * {
       margin: 0;
@@ -500,9 +508,11 @@
       }
     }
   </style>
+  <link rel="stylesheet" href="/tool-page.css">
 </head>
 
-<body>
+<body class="tool-page">
+  <header id="site-header"></header>
   <div class="container">
     <div class="header">
       <h1>🛜 ESPectre 👻</h1>
@@ -1104,7 +1114,8 @@
       } else {
         await controlChar.writeValue(payload);
       }
-      log(`control -> ${command}`);
+      const sensitive = command.startsWith('SET_WIFI_CONFIG:') || command.startsWith('SET_MQTT_CONFIG:');
+      log(`control -> ${sensitive ? command.split(':', 1)[0] + ':[redacted]' : command}`);
     }
 
     function parseDecimalInput(value) {
@@ -1313,6 +1324,7 @@
           bssid,
           channel
         }));
+        el('wifiPasswordInput').value = '';
         log('Wi-Fi credentials saved; station reconnecting');
       } catch (error) {
         log(`error: ${error.message}`);
@@ -1371,6 +1383,7 @@
           password: mqttPassword,
           topic_prefix: topicPrefix
         }));
+        el('mqttPasswordInput').value = '';
         log('MQTT settings saved');
       } catch (error) {
         log(`error: ${error.message}`);
@@ -1401,6 +1414,9 @@
     applyCapabilityState(false);
     updateLiveTelemetryButton();
   </script>
+  <footer id="site-footer"></footer>
+  <script src="/components.js"></script>
+  <script>loadHeader({ page: 'configure' }); loadFooter();</script>
 </body>
 
 </html>

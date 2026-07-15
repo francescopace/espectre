@@ -4,10 +4,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESPectre Wi-Fi Theremin</title>
+    <title>Theremin | ESPectre</title>
+    <meta name="description" content="Turn live ESPectre MQTT telemetry into an interactive browser theremin.">
+    <link rel="canonical" href="https://espectre.dev/theremin/">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="/styles.css">
 
     <!-- MQTT.js -->
-    <script src="https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js"></script>
+    <script src="https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js"
+        integrity="sha384-NH0fF47RMEIDzf1RMf9bUy5vjtPPeqjVNOlPwkJTbnb0B6+9N1x2hk7HnfJzm9C8"
+        crossorigin="anonymous"></script>
 
     <style>
         * {
@@ -338,9 +348,11 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/tool-page.css">
 </head>
 
-<body>
+<body class="tool-page">
+    <header id="site-header"></header>
     <div class="container">
         <div class="header">
             <h1>🛜 ESPectre 👻</h1>
@@ -360,6 +372,13 @@
             <div class="collapsible-content" id="configContent">
                 <div class="config-section">
                     <div class="input-group">
+                        <label for="protocol">WebSocket Security</label>
+                        <select id="protocol" onchange="updateTransportWarning()">
+                            <option value="ws" selected>ws:// (local or experimental)</option>
+                            <option value="wss">wss:// (TLS)</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
                         <label for="broker">Broker Address</label>
                         <input type="text" id="broker" placeholder="homeassistant.local" value="homeassistant.local">
                     </div>
@@ -368,17 +387,24 @@
                         <input type="number" id="port" placeholder="9001" value="9001">
                     </div>
                     <div class="input-group">
+                        <label for="wsPath">WebSocket Path</label>
+                        <input type="text" id="wsPath" placeholder="/mqtt" value="/mqtt">
+                    </div>
+                    <div class="input-group">
                         <label for="topic">Topic</label>
                         <input type="text" id="topic" placeholder="espectre/v1/devices/+/telemetry" value="espectre/v1/devices/+/telemetry">
                     </div>
                     <div class="input-group">
                         <label for="username">Username (optional)</label>
-                        <input type="text" id="username" placeholder="user" value="mqtt">
+                        <input type="text" id="username" autocomplete="username" placeholder="mqtt">
                     </div>
                     <div class="input-group">
                         <label for="password">Password (optional)</label>
-                        <input type="password" id="password" placeholder="password" value="mqtt">
+                        <input type="password" id="password" autocomplete="current-password" placeholder="Password">
                     </div>
+                </div>
+                <div class="site-warning" id="insecureWsWarning" role="status">
+                    This HTTPS page will attempt the selected insecure WebSocket connection, but the browser may block it as mixed content. If that happens, open the same Theremin locally with <code>./espectre ui theremin</code>, or use a <code>wss://</code> endpoint.
                 </div>
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                     <button class="btn btn-primary" id="connectBtn" onclick="toggleConnection()">Connect</button>
@@ -1247,9 +1273,29 @@
             }
         }
 
+        function updateTransportWarning() {
+            const protocol = document.getElementById('protocol').value;
+            const warning = document.getElementById('insecureWsWarning');
+            warning.classList.toggle('visible', window.location.protocol === 'https:' && protocol === 'ws');
+        }
+
+        function websocketConnectionError(err) {
+            const protocol = document.getElementById('protocol').value;
+            if (window.location.protocol === 'https:' && protocol === 'ws') {
+                return 'The browser may have blocked ws:// as mixed content. Try ./espectre ui theremin locally, or configure a wss:// listener.';
+            }
+            return err && err.message ? err.message : 'Unable to reach the MQTT WebSocket endpoint.';
+        }
+
         function connect() {
+            if (typeof mqtt === 'undefined') {
+                alert('MQTT.js failed to load. Check the browser network policy and reload the page.');
+                return;
+            }
+            const protocol = document.getElementById('protocol').value;
             const broker = document.getElementById('broker').value;
             const port = document.getElementById('port').value;
+            const wsPath = document.getElementById('wsPath').value.trim() || '/mqtt';
             const topic = document.getElementById('topic').value;
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
@@ -1259,7 +1305,8 @@
                 return;
             }
 
-            const connectUrl = `ws://${broker}:${port}/mqtt`;
+            const normalizedPath = wsPath.startsWith('/') ? wsPath : `/${wsPath}`;
+            const connectUrl = `${protocol}://${broker}:${port}${normalizedPath}`;
 
             const options = {
                 clean: true,
@@ -1303,7 +1350,7 @@
 
                 client.on('error', (err) => {
                     console.error('Connection error:', err);
-                    alert('Connection error: ' + err.message);
+                    alert('Connection error: ' + websocketConnectionError(err));
                     updateStatus(false);
                 });
 
@@ -1314,7 +1361,7 @@
 
             } catch (err) {
                 console.error('Connection error:', err);
-                alert('Connection error: ' + err.message);
+                alert('Connection error: ' + websocketConnectionError(err));
             }
         }
 
@@ -1498,6 +1545,7 @@
 
         // Initialize on load
         window.addEventListener('load', () => {
+            updateTransportWarning();
             // Sync sliders
             syncSlider('baseFreq', 'baseFreqValue');
             syncSlider('freqRange', 'freqRangeValue');
@@ -1536,6 +1584,9 @@
             updateConfig();
         });
     </script>
+    <footer id="site-footer"></footer>
+    <script src="/components.js"></script>
+    <script>loadHeader({ page: 'theremin' }); loadFooter();</script>
 </body>
 
 </html>

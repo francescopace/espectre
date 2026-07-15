@@ -174,17 +174,36 @@
             </div>
         </section>
 
-        <section class="game-promo">
+        <section class="features">
             <div class="section-title">
-                <h2>Try The Game</h2>
-                <p>Experience WiFi motion detection in action</p>
+                <h2>One Site, Every Workflow</h2>
+                <p>Install, configure, inspect, and explore ESPectre from the browser.</p>
             </div>
-            <div class="game-card">
-                <div class="game-icon"><i class="fas fa-gamepad"></i></div>
-                <h3>ESPectre - The Game</h3>
-                <p>A browser-based reaction game powered by ESPectre. Connect your ESP32 via Bluetooth and use your body movements to defeat WiFi spectres. No controller needed.</p>
-                <a href="/game/" class="btn btn-primary">
-                    <i class="fas fa-play"></i> Play Now
+            <div class="features-grid">
+                <a class="feature-card" href="/flash/">
+                    <div class="feature-icon"><i class="fas fa-microchip"></i></div>
+                    <h3>Flash</h3>
+                    <p>Install published ESPHome, Native, or Matter firmware over USB.</p>
+                </a>
+                <a class="feature-card" href="/configure/">
+                    <div class="feature-icon"><i class="fab fa-bluetooth-b"></i></div>
+                    <h3>Configure</h3>
+                    <p>Provision Wi-Fi and MQTT, then inspect and tune Native over BLE.</p>
+                </a>
+                <a class="feature-card" href="/monitor/">
+                    <div class="feature-icon"><i class="fas fa-chart-line"></i></div>
+                    <h3>MQTT Monitor</h3>
+                    <p>View live telemetry, change settings, inspect statistics, and manage OTA.</p>
+                </a>
+                <a class="feature-card" href="/game/">
+                    <div class="feature-icon"><i class="fas fa-gamepad"></i></div>
+                    <h3>The Game</h3>
+                    <p>Use real Wi-Fi motion sensing as the controller for a reaction game.</p>
+                </a>
+                <a class="feature-card" href="/theremin/">
+                    <div class="feature-icon"><i class="fas fa-music"></i></div>
+                    <h3>Theremin</h3>
+                    <p>Turn live movement and CSI features into an interactive instrument.</p>
                 </a>
             </div>
         </section>
@@ -193,7 +212,7 @@
     <footer id="site-footer"></footer>
 
     <script src="components.js"></script>
-    <script>loadHeader(); loadFooter();</script>
+    <script>loadHeader({ page: 'home' }); loadFooter();</script>
     <script src="cosmic-bg.js"></script>
     <script src="analytics.js"></script>
     

@@ -49,6 +49,12 @@ If you want the fastest path, use the browser flasher:
 3. Flash the board
 4. Configure Wi-Fi and the remaining parameters by following the on-screen instructions
 
+The browser tools share one site:
+
+- [Configure](https://espectre.dev/configure/) provisions and tunes Native over BLE
+- [MQTT Monitor](https://espectre.dev/monitor/) displays telemetry and device controls
+- [The Game](https://espectre.dev/game/) and [Theremin](https://espectre.dev/theremin/) provide interactive sensing demos
+
 Published ESPHome images use the default Classic detector. ML firmware and the
 credential-bound Streamer frontend are built locally from source.
 GitHub Releases also provide Native OTA payloads; ESPHome updates are compiled

@@ -8,7 +8,8 @@
  */
 
 function loadHeader(options = {}) {
-    const isGamePage = options.isGamePage || false;
+    const isGamePage = options.isGamePage || options.page === 'game';
+    const page = options.page || (isGamePage ? 'game' : 'home');
     const headerEl = document.getElementById('site-header');
     if (!headerEl) return;
 
@@ -16,10 +17,9 @@ function loadHeader(options = {}) {
     const homeLink = '/';
     const utmMedium = isGamePage ? 'game.html' : 'index.html';
     
-    // First nav item changes based on page
-    const firstNavItem = isGamePage 
-        ? `<a href="/"><i class="fas fa-home"></i> Home</a>`
-        : `<a href="/game/"><i class="fas fa-gamepad"></i> The Game</a>`;
+    const homeNavItem = page === 'home'
+        ? ''
+        : `<a href="/"><i class="fas fa-home"></i> Home</a>`;
 
     headerEl.innerHTML = `
         <div class="header-left">
@@ -28,7 +28,7 @@ function loadHeader(options = {}) {
                 <span>ESPectre</span>
                 <span id="life-ghost" class="logo-icon life-ghost"><i class="fas fa-ghost"></i></span>
             </a>
-            <div class="header-controls-group">
+            <div class="header-controls-group${isGamePage ? '' : ' hidden'}">
                 <span class="header-separator">|</span>
                 <button id="btn-usb" class="header-control btn-usb" title="Connect ESPectre device via Bluetooth"><i class="fab fa-bluetooth-b"></i></button>
                 <button id="btn-mute" class="header-control btn-mute" title="Enable sound"><i class="fas fa-volume-mute"></i></button>
@@ -38,8 +38,18 @@ function loadHeader(options = {}) {
             <i class="fas fa-bars"></i>
         </button>
         <nav>
-            ${firstNavItem}
-            <a href="/flash/"><i class="fas fa-microchip"></i> Flash</a>
+            ${homeNavItem}
+            <div class="nav-dropdown">
+                <a href="#" class="nav-dropdown-toggle"><i class="fas fa-screwdriver-wrench"></i> Tools <i class="fas fa-chevron-down"></i></a>
+                <div class="nav-dropdown-menu">
+                    <a href="/flash/"><i class="fas fa-microchip"></i> Flash Firmware</a>
+                    <a href="/configure/"><i class="fab fa-bluetooth-b"></i> Configure</a>
+                    <a href="/monitor/"><i class="fas fa-chart-line"></i> MQTT Monitor</a>
+                    <div class="nav-dropdown-divider"></div>
+                    <a href="/game/"><i class="fas fa-gamepad"></i> The Game</a>
+                    <a href="/theremin/"><i class="fas fa-music"></i> Theremin</a>
+                </div>
+            </div>
             <a href="https://github.com/francescopace/espectre/issues"><i class="fas fa-bug"></i> Issues</a>
             <a href="https://github.com/francescopace/espectre/discussions"><i class="fas fa-comments"></i> Discussions</a>
             <div class="nav-dropdown nav-dropdown-right">

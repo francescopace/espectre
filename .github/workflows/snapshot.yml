@@ -351,6 +351,9 @@ jobs:
       - name: Verify Build
         run: |
           test -f docs/web/sitemap.xml
+          test -f docs/web/configure/index.html
+          test -f docs/web/monitor/index.html
+          test -f docs/web/theremin/index.html
           test -d docs/web/documentation
           test -d docs/web/_pagefind
           test -f docs/web/flash/firmware/main/firmware-manifest-main.json

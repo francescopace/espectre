@@ -420,8 +420,10 @@ until it is reprovisioned or rebooted.
 
 ESPectre Protocol can be carried by multiple deployment profiles. The currently
 implemented profile is the local lab path: BLE provisioning and diagnostics via
-`tools/web/espectre-ble.html`, plus MQTT telemetry inspection via
-`tools/web/espectre-mqtt.html`.
+[Configure](https://espectre.dev/configure/), plus telemetry inspection through
+the [MQTT Monitor](https://espectre.dev/monitor/). The same pages are served
+from localhost by `./espectre ui` when an insecure local `ws://` listener cannot
+be reached reliably from the public HTTPS site.
 
 Web orchestration profiles add identity, tenancy, device claim, state mirrors,
 history, alerts, and OTA around the same protocol. Those system-level concerns

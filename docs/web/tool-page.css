@@ -1,0 +1,57 @@
+/* Shared shell for the interactive tools hosted under docs/web. */
+
+.tool-page {
+    background:
+        radial-gradient(circle at 20% 10%, rgba(0, 212, 170, 0.12), transparent 32rem),
+        radial-gradient(circle at 80% 30%, rgba(102, 126, 234, 0.14), transparent 36rem),
+        var(--bg-primary);
+    color: #1f2937;
+    padding: 0;
+}
+
+.tool-page > .container {
+    min-height: calc(100vh - 9rem);
+    padding: 7.5rem 1rem 2.5rem;
+}
+
+.tool-page > .container > .header {
+    color: var(--text-primary);
+}
+
+.tool-page > .container > .header p {
+    color: var(--text-secondary);
+}
+
+.tool-page .site-warning {
+    display: none;
+    margin: 0 0 15px;
+    padding: 12px 14px;
+    border: 1px solid #f59e0b;
+    border-radius: 10px;
+    background: #fffbeb;
+    color: #92400e;
+    line-height: 1.45;
+}
+
+.tool-page .site-warning.visible {
+    display: block;
+}
+
+.tool-page .input-group select {
+    padding: 8px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    background: #fff;
+    color: #1f2937;
+    font-size: 14px;
+}
+
+.tool-page #site-footer {
+    color: var(--text-primary);
+}
+
+@media (max-width: 900px) {
+    .tool-page > .container {
+        padding-top: 6.5rem;
+    }
+}

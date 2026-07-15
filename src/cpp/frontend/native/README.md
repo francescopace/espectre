@@ -55,8 +55,8 @@ this README is the next step for the standalone native firmware path.
 The web flasher can install published `Native` images for supported chips. After
 flashing, use a BLE client that understands this protocol, such as:
 
-- [`espectre-ble.html`](../../../../tools/web/espectre-ble.html):
-  local Web Bluetooth provisioning and protocol test client
+- [Configure](https://espectre.dev/configure/):
+  Web Bluetooth provisioning and protocol test client
 - [`README.md`](../../../../docs/web/game/README.md):
   example interactive client built on the same BLE surface
 
@@ -92,11 +92,11 @@ On Windows, use `.\espectre.cmd native ...` and `.\espectre.cmd monitor --port C
 If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor`
 or `./espectre doctor` to inspect the detected environment.
 
-### Local Web Bluetooth Test Client
+### Web Bluetooth Configuration Client
 
-[`espectre-ble.html`](../../../../tools/web/espectre-ble.html)
-is the reference browser client for local BLE validation, provisioning, and
-live diagnostics.
+[Configure](https://espectre.dev/configure/) is the reference browser client
+for BLE validation, provisioning, and live diagnostics. Run
+`./espectre ui ble` to serve the same application from localhost.
 
 Current capabilities:
 
@@ -125,13 +125,7 @@ Requirements:
 Recommended local workflow from the repository root:
 
 ```bash
-python3 -m http.server 8080 -d tools/web
-```
-
-Then open:
-
-```text
-http://localhost:8080/espectre-ble.html
+./espectre ui ble
 ```
 
 Usage notes:
@@ -275,7 +269,7 @@ Check the active Wi-Fi values first:
 
 1. request fresh sysinfo and inspect `wifi_ssid`, `wifi_bssid`,
    `wifi_channel`, and `wifi_connected`
-2. if using `tools/web/espectre-ble.html`, press `Save Wi-Fi` and wait for the
+2. in the Configure page, press `Save Wi-Fi` and wait for the
    station reconnect after the atomic `SET_WIFI_CONFIG` update
 3. if no provisioning has been stored yet, verify the Kconfig defaults used at
    build time:
@@ -300,7 +294,7 @@ not for Home Assistant-style provisioning or the Matter commissioning flow.
   command parsing, sysinfo emission, telemetry serialization
 - `../../runtime/esp_idf/frontend_support/ble_bindings_nimble.cpp`:
   NimBLE transport implementation
-- `../../../../tools/web/espectre-ble.html`:
-  local Web Bluetooth provisioning and protocol test client
+- `../../../../docs/web/configure/index.html`:
+  unified Web Bluetooth provisioning and protocol test client
 - `../../../../docs/web/game/README.md`:
   example client built on this protocol

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import ipaddress
 import inspect
 import signal
@@ -9,14 +11,38 @@ import sys
 import time
 import webbrowser
 
-from .common import REPO_ROOT, WEB_UI_FILE, Fore, Style, cli_command, print_box_banner
+from .common import REPO_ROOT, Fore, Style, cli_command, print_box_banner
 
 
 _WEB_UI_FILES = {
-    "mqtt": WEB_UI_FILE,
-    "ble": REPO_ROOT / "tools" / "web" / "espectre-ble.html",
-    "theremin": REPO_ROOT / "tools" / "web" / "espectre-theremin.html",
+    "mqtt": REPO_ROOT / "docs" / "web" / "monitor" / "index.html",
+    "ble": REPO_ROOT / "docs" / "web" / "configure" / "index.html",
+    "theremin": REPO_ROOT / "docs" / "web" / "theremin" / "index.html",
 }
+
+_WEB_UI_ROUTES = {
+    "mqtt": "monitor/",
+    "ble": "configure/",
+    "theremin": "theremin/",
+}
+
+
+def _serve_web_ui(route: str) -> None:
+    """Serve the unified website locally so ws:// LAN endpoints remain usable."""
+    web_root = REPO_ROOT / "docs" / "web"
+    handler = partial(SimpleHTTPRequestHandler, directory=str(web_root))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    host, port = server.server_address
+    url = f"http://{host}:{port}/{route}"
+    print(f"{Fore.BLUE}🌐 Opening web UI: {url}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}Press Ctrl+C to stop the local web server.{Style.RESET_ALL}")
+    try:
+        webbrowser.open(url)
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print(f"\n{Fore.GREEN}✅ Local web server stopped{Style.RESET_ALL}")
+    finally:
+        server.server_close()
 
 
 def _parse_targets(targets: str) -> tuple[list[str], str]:
@@ -69,11 +95,8 @@ def open_web_ui(interface: str = "mqtt") -> None:
         print(f"{Fore.YELLOW}Make sure you're running the command from the repo root{Style.RESET_ALL}")
         return
 
-    file_url = html_file.absolute().as_uri()
-    print(f"{Fore.BLUE}🌐 Opening web UI: {html_file.name}...{Style.RESET_ALL}")
     try:
-        webbrowser.open(file_url)
-        print(f"{Fore.GREEN}✅ Web UI opened in browser{Style.RESET_ALL}")
+        _serve_web_ui(_WEB_UI_ROUTES[interface.lower()])
     except Exception as e:
         print(f"{Fore.RED}❌ Error opening browser: {e}{Style.RESET_ALL}")
 

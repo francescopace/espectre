@@ -103,8 +103,9 @@ LINK_MAP = {
     'docs/ML_DATA_COLLECTION.md': '/documentation/ml-data-collection/',
     'docs/ML_TRAINING.md': '/documentation/ml-training/',
     'tools/README.md': 'https://github.com/francescopace/espectre/blob/main/tools/README.md',
-    'tools/web/espectre-ble.html': 'https://github.com/francescopace/espectre/blob/main/tools/web/espectre-ble.html',
-    'tools/web/espectre-mqtt.html': 'https://github.com/francescopace/espectre/blob/main/tools/web/espectre-mqtt.html',
+    'tools/web/espectre-ble.html': '/configure/',
+    'tools/web/espectre-mqtt.html': '/monitor/',
+    'tools/web/espectre-theremin.html': '/theremin/',
     'test/cpp/README.md': 'https://github.com/francescopace/espectre/blob/main/test/cpp/README.md',
     'docs/web/game/README.md': 'https://github.com/francescopace/espectre/blob/main/docs/web/game/README.md',
     'src/cpp/frontend/esphome/README.md': 'https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md',
@@ -207,7 +208,7 @@ TEMPLATE = '''<!DOCTYPE html>
     <footer id="site-footer"></footer>
 
     <script src="/components.js"></script>
-    <script>loadHeader(); loadFooter();</script>
+    <script>loadHeader({{ page: 'docs' }}); loadFooter();</script>
     <script src="/cosmic-bg.js"></script>
     <script src="/analytics.js"></script>
     <script>document.addEventListener('DOMContentLoaded', function() {{ hljs.highlightAll(); }});</script>
@@ -458,7 +459,11 @@ def generate_sitemap():
     # Static pages with their source files for lastmod
     static_pages = [
         ('https://espectre.dev/', 'docs/web/index.html', 'daily', '1.0'),
+        ('https://espectre.dev/flash/', 'docs/web/flash/index.html', 'weekly', '0.9'),
+        ('https://espectre.dev/configure/', 'docs/web/configure/index.html', 'weekly', '0.9'),
+        ('https://espectre.dev/monitor/', 'docs/web/monitor/index.html', 'weekly', '0.8'),
         ('https://espectre.dev/game/', 'docs/web/game/index.html', 'daily', '0.8'),
+        ('https://espectre.dev/theremin/', 'docs/web/theremin/index.html', 'weekly', '0.7'),
     ]
     
     # Documentation pages with priorities

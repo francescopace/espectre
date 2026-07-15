@@ -220,7 +220,11 @@ commands.
 
 ### `ui`
 
-`ui` opens local browser tools bundled with the repository.
+`ui` serves the unified website from an ephemeral localhost port and opens the
+selected browser application. Keep the command running while using the page,
+and press `Ctrl+C` to stop the local server. This mode supports local MQTT
+WebSocket endpoints that use `ws://`; hosted HTTPS pages should normally use
+`wss://`.
 
 Supported interfaces:
 

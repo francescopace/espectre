@@ -511,6 +511,11 @@ h1 {
     transition: all 0.3s;
 }
 
+a.feature-card {
+    color: inherit;
+    text-decoration: none;
+}
+
 .feature-card:hover {
     border-color: var(--accent);
     transform: translateY(-4px);

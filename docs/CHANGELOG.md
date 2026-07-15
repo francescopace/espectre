@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Unified browser tools under `espectre.dev`** for firmware flashing, BLE configuration, MQTT monitoring, the motion-controlled game, and the Wi-Fi Theremin, with the same MQTT, BLE, and Theremin pages available locally through `./espectre ui`.
 - **Targeted firmware benchmark runs** can select one frontend and one detector, reducing iteration time while debugging a specific firmware path.
 - **Persisted runtime detector selection** for ESPHome and Native, including Home Assistant, BLE, and MQTT controls, automatic Classic calibration, and an ML-only Matter default without a writable Matter surface.
 - **New source layout under `src/cpp/`** with shared `core`, `runtime`, and `frontend` layers.
@@ -32,7 +33,7 @@ All notable changes to this project will be documented in this file.
 - **Cross-language report parity gating** for `tools/generate_performance_report.py`: the published performance report now rebuilds and runs the host-side C++ integration suites, exports structured paired and long-recording metrics, and aborts if the Python and C++ aggregates drift.
 - **Parallel multi-detector live collect** through `./espectre collect --detector classic,ml`.
 - **Timed dataset collection now uses the selected production Classic or ML detector for its ready gate**, replacing the retired host-only moving-variance adapter.
-- **BLE-assisted Wi-Fi provisioning for the streamer firmware** via `tools/web/espectre-ble.html`
+- **BLE-assisted Wi-Fi provisioning for the streamer firmware** via the unified Configure page
 - **Uplink CSI record batching in the streamer transport**: up to 8 records per UDP datagram via `ESPECTRE_STREAM_TX_BATCH_RECORDS` (default 4), cutting uplink packet rate and airtime pressure.
 - **ESP32-specific streamer `sdkconfig` profile** with shallower Wi-Fi TX/RX buffer caps and lwIP IPv6 disabled to fit the original ESP32 resource budget.
 - **Updated architecture documentation** in `docs/ARCHITECTURE.md`

@@ -168,6 +168,21 @@ Windows PowerShell:
 Use the repository CLI from the repository root for local build, flash, monitor,
 and host-tool tasks.
 
+The same browser applications published on `espectre.dev` can be served from
+localhost when a local MQTT broker exposes an insecure `ws://` listener:
+
+```bash
+./espectre ui mqtt
+./espectre ui ble
+./espectre ui theremin
+```
+
+The local server preserves the unified site while allowing a browser to connect
+to endpoints such as `ws://homeassistant.local:9001/mqtt`. The public HTTPS
+pages also allow selecting `ws://` for compatibility testing, but browsers may
+block that connection as mixed content. Use `wss://` for a supported hosted
+deployment.
+
 See the repository [CLI.md](CLI.md) for:
 
 - launcher syntax on each host

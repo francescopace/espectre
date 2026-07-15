@@ -24,7 +24,6 @@ MICRO_ESPECTRE_SRC_DIR = PYTHON_ROOT_DIR / "micro_espectre"
 # Backward-compatible alias used by existing host-side helpers/tests.
 PYTHON_SRC_DIR = MICRO_ESPECTRE_SRC_DIR
 TOOLS_DIR = REPO_ROOT / "tools"
-WEB_UI_FILE = TOOLS_DIR / "web" / "espectre-mqtt.html"
 FIRMWARE_CACHE_DIR = REPO_ROOT / ".firmware"
 
 for path in (str(REPO_ROOT), str(PYTHON_ROOT_DIR), str(PYTHON_SRC_DIR), str(TOOLS_DIR)):

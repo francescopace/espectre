@@ -436,7 +436,7 @@ def test_ui_parser_accepts_theremin_interface() -> None:
 def test_open_web_ui_opens_ble_file(monkeypatch, tmp_path) -> None:
     ble_file = tmp_path / "espectre-ble.html"
     ble_file.write_text("<html></html>", encoding="utf-8")
-    opened_urls: list[str] = []
+    served_routes: list[str] = []
 
     monkeypatch.setattr(
         host,
@@ -447,17 +447,17 @@ def test_open_web_ui_opens_ble_file(monkeypatch, tmp_path) -> None:
             "theremin": tmp_path / "espectre-theremin.html",
         },
     )
-    monkeypatch.setattr(host.webbrowser, "open", lambda url: opened_urls.append(url))
+    monkeypatch.setattr(host, "_serve_web_ui", lambda route: served_routes.append(route))
 
     host.open_web_ui("ble")
 
-    assert opened_urls == [ble_file.absolute().as_uri()]
+    assert served_routes == ["configure/"]
 
 
 def test_open_web_ui_opens_theremin_file(monkeypatch, tmp_path) -> None:
     theremin_file = tmp_path / "espectre-theremin.html"
     theremin_file.write_text("<html></html>", encoding="utf-8")
-    opened_urls: list[str] = []
+    served_routes: list[str] = []
 
     monkeypatch.setattr(
         host,
@@ -468,11 +468,11 @@ def test_open_web_ui_opens_theremin_file(monkeypatch, tmp_path) -> None:
             "theremin": theremin_file,
         },
     )
-    monkeypatch.setattr(host.webbrowser, "open", lambda url: opened_urls.append(url))
+    monkeypatch.setattr(host, "_serve_web_ui", lambda route: served_routes.append(route))
 
     host.open_web_ui("theremin")
 
-    assert opened_urls == [theremin_file.absolute().as_uri()]
+    assert served_routes == ["theremin/"]
 
 
 def test_open_web_ui_reports_unknown_missing_and_browser_error(monkeypatch, tmp_path, capsys) -> None:
@@ -493,16 +493,43 @@ def test_open_web_ui_reports_unknown_missing_and_browser_error(monkeypatch, tmp_
     host.open_web_ui("unknown")
     host.open_web_ui("ble")
 
-    def raise_browser(_url: str) -> None:
+    def raise_browser(_route: str) -> None:
         raise RuntimeError("browser blocked")
 
-    monkeypatch.setattr(host.webbrowser, "open", raise_browser)
+    monkeypatch.setattr(host, "_serve_web_ui", raise_browser)
     host.open_web_ui("mqtt")
 
     output = capsys.readouterr().out
     assert "unknown web UI" in output
     assert "not found" in output
     assert "Error opening browser" in output
+
+
+def test_serve_web_ui_opens_local_route_and_closes_server(monkeypatch) -> None:
+    opened_urls: list[str] = []
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 43210)
+
+        def __init__(self) -> None:
+            self.served = False
+            self.closed = False
+
+        def serve_forever(self) -> None:
+            self.served = True
+
+        def server_close(self) -> None:
+            self.closed = True
+
+    fake_server = FakeServer()
+    monkeypatch.setattr(host, "ThreadingHTTPServer", lambda address, handler: fake_server)
+    monkeypatch.setattr(host.webbrowser, "open", lambda url: opened_urls.append(url))
+
+    host._serve_web_ui("monitor/")
+
+    assert opened_urls == ["http://127.0.0.1:43210/monitor/"]
+    assert fake_server.served is True
+    assert fake_server.closed is True
 
 
 def test_wait_before_collection_counts_down(monkeypatch, capsys) -> None:
