@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
+ESPectre - Performance Report
+
 Generate docs/performance/README.md from the current validation datasets.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

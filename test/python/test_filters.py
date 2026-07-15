@@ -1,7 +1,7 @@
 """
-Micro-ESPectre - Signal Filter Unit Tests
+ESPectre - Signal Filter Tests
 
-Tests for HampelFilter and LowPassFilter classes in src/filters.py.
+Unit tests for CSI signal filters.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

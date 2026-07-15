@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-ESPectre - Paired variance filter parameter optimization.
+ESPectre - Filter Parameter Optimization
 
 This is a secondary tuning helper that reuses the production-aligned paired
 sweep core instead of ad hoc latest-file selection or fixed thresholds.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

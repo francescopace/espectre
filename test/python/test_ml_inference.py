@@ -1,8 +1,7 @@
 """
-Micro-ESPectre - ML Inference Validation Tests
+ESPectre - ML Inference Tests
 
-Tests that the Python ML inference implementation produces correct results
-when compared against the reference model outputs stored in ml_test_data.npz.
+Validation tests for ML inference behavior.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

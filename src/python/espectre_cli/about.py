@@ -1,4 +1,11 @@
-"""About and version helpers for the ESPectre repository CLI."""
+"""
+ESPectre - CLI About
+
+About and version helpers for the ESPectre repository CLI.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

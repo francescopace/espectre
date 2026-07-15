@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Classic Detector Parameter Grid Search
+ESPectre - System Tuning
 Tests threshold and window-size combinations using the shared production
 subcarrier set. This tool tunes parameters on the fixed production band; it
 does not search subcarrier combinations.

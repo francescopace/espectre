@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Detection Methods Comparison
+ESPectre - Detection Methods Comparison
 Compares RSSI, Classic, and ML algorithms
 
 Usage:

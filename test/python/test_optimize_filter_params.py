@@ -1,4 +1,11 @@
-"""Tests for the variance filter optimization tool."""
+"""
+ESPectre - Filter Optimization Tests
+
+Tests for the variance filter optimization tool.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

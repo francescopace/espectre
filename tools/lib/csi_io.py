@@ -1,5 +1,10 @@
 """
+ESPectre - CSI I/O
+
 CSI stream I/O, collection, and dataset loading helpers for tooling.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

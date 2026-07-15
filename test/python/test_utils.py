@@ -1,7 +1,7 @@
 """
-Micro-ESPectre - Utility Functions Tests
+ESPectre - Utility Function Tests
 
-Tests for utility functions in src/utils.py.
+Unit tests for shared utility functions.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

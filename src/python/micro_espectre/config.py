@@ -1,5 +1,5 @@
 """
-Micro-ESPectre Configuration
+Micro-ESPectre - Configuration
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

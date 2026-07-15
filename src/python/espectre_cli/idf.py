@@ -1,4 +1,11 @@
-"""Thin wrappers around idf.py for ESPectre frontends."""
+"""
+ESPectre - CLI IDF
+
+Thin wrappers around idf.py for ESPectre frontends.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

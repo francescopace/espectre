@@ -211,7 +211,7 @@ git push --force-with-lease
 - Use `config.py` for constants
 - All code and comments in English
 
-**File Header:**
+**File Header** (`src/python/micro_espectre/`):
 ```python
 """
 Micro-ESPectre - [Module Name]
@@ -222,6 +222,25 @@ Author: [your name] <[your email]>
 License: GPLv3
 """
 ```
+
+#### Python (host-side CLI, tools, and tests)
+
+- CPython host tooling under `src/python/espectre_cli/`, `tools/`, and `test/python/`
+- All code and comments in English
+
+**File Header:**
+```python
+"""
+ESPectre - [Module Name]
+
+[Brief description]
+
+Author: [your name] <[your email]>
+License: GPLv3
+"""
+```
+
+Executable tool scripts may keep a `#!/usr/bin/env python3` shebang above the header.
 
 ### Pull Request Guidelines
 

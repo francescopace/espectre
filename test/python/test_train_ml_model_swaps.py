@@ -1,5 +1,10 @@
 """
-Tests for the minimal Core-6 training helpers in `tools/train_ml_model.py`.
+ESPectre - ML Training Helper Tests
+
+Tests for the minimal Core-6 training helpers in tools/train_ml_model.py.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

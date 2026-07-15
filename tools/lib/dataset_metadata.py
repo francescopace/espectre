@@ -1,5 +1,10 @@
 """
+ESPectre - Dataset Metadata
+
 Dataset metadata helpers for tool-side workflows.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

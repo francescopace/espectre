@@ -1,5 +1,10 @@
 """
+ESPectre - Performance Report Tests
+
 Tests for the shared performance-report helpers.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 import sys

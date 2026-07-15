@@ -1,7 +1,7 @@
 """
-Micro-ESPectre - Segmentation Unit Tests
+ESPectre - Segmentation Tests
 
-Tests for the SegmentationContext class in src/segmentation.py.
+Unit tests for moving-variance segmentation helpers.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

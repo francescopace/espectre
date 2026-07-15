@@ -1,5 +1,10 @@
 """
+ESPectre - C++ Parity
+
 Helpers for validating Python/C++ detector parity before publishing reports.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

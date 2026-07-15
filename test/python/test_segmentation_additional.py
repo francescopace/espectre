@@ -1,7 +1,7 @@
 """
-Micro-ESPectre - Additional Segmentation Tests
+ESPectre - Additional Segmentation Tests
 
-Additional tests to improve coverage for edge cases in src/segmentation.py.
+Additional unit tests for segmentation helpers.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

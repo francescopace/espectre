@@ -1,4 +1,11 @@
-"""Tests for ESPectre host-side collect and UI CLI options."""
+"""
+ESPectre - CLI Collect Tests
+
+Tests for ESPectre host-side collect and UI CLI options.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

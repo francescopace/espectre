@@ -1,4 +1,11 @@
-"""Tests for dataset metadata refresh helpers in the validator."""
+"""
+ESPectre - Dataset Metadata Refresh Tests
+
+Tests for dataset metadata refresh helpers in the validator.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Plot I/Q Constellation Diagrams for CSI Subcarriers
+ESPectre - Constellation Plot
 
 Visualizes the constellation diagrams (I/Q plots) for the fixed production
 subcarriers, comparing static presence (stable) vs motion (dispersed) patterns.
@@ -10,6 +10,7 @@ Usage:
     python tools/plot_constellation.py              # Use C6 dataset
     python tools/plot_constellation.py --chip S3    # Use S3 dataset
     python tools/plot_constellation.py --chip S3 --packets 500 --offset 100
+
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """

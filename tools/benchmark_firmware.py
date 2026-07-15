@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Build, flash, and benchmark ESPectre firmware on connected hardware."""
+"""
+ESPectre - Firmware Benchmark
+
+Build, flash, and benchmark ESPectre firmware on connected hardware.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

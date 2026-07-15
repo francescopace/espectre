@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-ESPectre - Production-aligned variance sweep and prototype comparison.
+ESPectre - Filter Turbulence Analysis
 
 Default mode compares the current production moving-variance path against Python-only drift
 mitigations over all explicit static_presence/motion pairs from dataset_info.json.
 
 Optional filter-comparison mode keeps the older filter-analysis workflow, but
 now runs it over the same explicit pair sweep instead of a single ad hoc pair.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

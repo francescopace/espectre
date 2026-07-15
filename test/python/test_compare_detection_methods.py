@@ -1,4 +1,11 @@
-"""Tests for the detection comparison tool."""
+"""
+ESPectre - Detection Comparison Tests
+
+Tests for the detection comparison tool.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

@@ -1,8 +1,10 @@
 """
-Micro-ESPectre - Runtime policy tests
+ESPectre - Runtime Policy Tests
 
-Tests the runtime evaluation cadence and motion hit filtering shared by the
-main Micro-ESPectre loop.
+Tests for runtime evaluation policy helpers.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from detector_interface import MotionState

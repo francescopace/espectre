@@ -1,4 +1,11 @@
-"""Tests for the hardware firmware benchmark report helpers."""
+"""
+ESPectre - Firmware Benchmark Tests
+
+Tests for the hardware firmware benchmark report helpers.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from contextlib import contextmanager
 from datetime import datetime, timezone

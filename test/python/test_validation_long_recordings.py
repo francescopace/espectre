@@ -1,9 +1,10 @@
 """
-Micro-ESPectre - Long recording validation tests.
+ESPectre - Long Recording Validation Tests
 
-These tests evaluate the detectors on the 60-second recordings stored in
-data/test/ at the production evaluation cadence and print stable summary
-tables used by the training seed-search gate.
+Validation tests for long CSI recordings.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 import importlib.util

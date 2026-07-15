@@ -1,8 +1,7 @@
 """
-Micro-ESPectre - Validation Tests with Real CSI Data
+ESPectre - Real Data Validation Tests
 
-Tests that validate algorithm performance using real CSI data from data/.
-These tests verify that algorithms produce expected results on actual captured data.
+Validation tests using real CSI datasets.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

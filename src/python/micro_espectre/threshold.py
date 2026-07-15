@@ -1,4 +1,6 @@
 """
+Micro-ESPectre - Threshold
+
 Startup threshold helpers for startup-calibrated detectors.
 
 The default Classic startup path is motion-first with an internal quiet-first

@@ -1,5 +1,10 @@
 """
+ESPectre - CSI Stream Protocol Tests
+
 Unit tests for the unified CSI stream protocol parser and dataset writer.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 import io

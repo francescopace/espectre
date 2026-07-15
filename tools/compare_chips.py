@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ESP32 CSI Data Comparison Tool
+ESPectre - Chip Comparison
 
 Analyzes raw CSI data from multiple ESP32 chips to identify:
 - I/Q value ranges and scaling differences

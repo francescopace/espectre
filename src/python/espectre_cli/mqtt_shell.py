@@ -1,4 +1,11 @@
-"""Interactive MQTT shell for ESPectre."""
+"""
+ESPectre - CLI MQTT Shell
+
+Interactive MQTT shell for ESPectre.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

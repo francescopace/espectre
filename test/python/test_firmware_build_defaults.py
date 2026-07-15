@@ -1,3 +1,12 @@
+"""
+ESPectre - Firmware Build Defaults Tests
+
+Tests for firmware build default configuration.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
+
 from pathlib import Path
 
 import pytest

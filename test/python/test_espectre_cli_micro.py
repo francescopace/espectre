@@ -1,4 +1,11 @@
-"""Tests for `espectre_cli.micro` host-side helpers."""
+"""
+ESPectre - CLI Micro Tests
+
+Tests for espectre_cli.micro host-side helpers.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

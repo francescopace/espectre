@@ -1,4 +1,11 @@
-"""Frontend-agnostic serial monitor command."""
+"""
+ESPectre - CLI Serial Monitor
+
+Frontend-agnostic serial monitor command.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

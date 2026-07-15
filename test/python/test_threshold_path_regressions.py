@@ -1,4 +1,11 @@
-"""Regression tests for shared threshold calibration paths."""
+"""
+ESPectre - Threshold Path Regression Tests
+
+Regression tests for shared threshold calibration paths.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

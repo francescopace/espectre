@@ -1,5 +1,10 @@
 """
+ESPectre - Tools Bootstrap
+
 Runtime bootstrap helpers for tool-side imports.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

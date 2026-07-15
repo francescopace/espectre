@@ -1,8 +1,7 @@
 """
-Micro-ESPectre - Optimization Equivalence Tests
+ESPectre - Optimization Equivalence Tests
 
-Converted from tools/16_test_optimization_equivalence.py.
-Tests that optimizations produce identical results to original implementations.
+Tests for optimization equivalence across implementations.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

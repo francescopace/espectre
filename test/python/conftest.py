@@ -1,7 +1,7 @@
 """
-Micro-ESPectre - Test Fixtures
+ESPectre - Python Test Fixtures
 
-Pytest fixtures for CSI data, configuration, and test utilities.
+Shared pytest fixtures for ESPectre Python tests.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

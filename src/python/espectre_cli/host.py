@@ -1,4 +1,11 @@
-"""Host-side ESPectre tools."""
+"""
+ESPectre - CLI Host
+
+Host-side ESPectre tools.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

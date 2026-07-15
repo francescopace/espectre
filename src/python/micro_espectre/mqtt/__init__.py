@@ -1,5 +1,5 @@
 """
-MQTT module for Micro-ESPectre
+Micro-ESPectre - MQTT Module
 
 Provides MQTT communication and command handling.
 Enables remote monitoring and configuration of the ESPectre system.

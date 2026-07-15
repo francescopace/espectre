@@ -2,9 +2,10 @@
 """
 ESPectre - Firmware Manifest Builder
 
-Builds JSON manifests for published firmware assets. The unified manifest
-describes factory and OTA images, while per-chip native OTA manifests provide
-the compact schema consumed directly by the firmware.
+Build the published firmware manifest for web flashing.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

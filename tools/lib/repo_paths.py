@@ -1,9 +1,10 @@
 """
+ESPectre - Repo Paths
+
 Repository path helpers for ESPectre host-side tooling.
 
-Provides a single place to resolve repository-root-relative paths so
-tests, CLI utilities, and analysis scripts do not depend on fragile
-Path(__file__).parent chains.
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from pathlib import Path

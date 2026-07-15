@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-ESPectre - Stage same-origin firmware assets for the web flasher.
+ESPectre - Stage Web Firmware
 
-Copies the firmware binaries referenced by the web manifest into a target
-directory and writes a manifest whose URLs resolve under the same origin.
+Stage same-origin firmware assets for the web flasher.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

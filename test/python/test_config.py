@@ -1,7 +1,7 @@
 """
-Micro-ESPectre - Configuration Module Tests
+ESPectre - Configuration Tests
 
-Tests for src/config.py to verify configuration constants are properly defined.
+Unit tests for Micro-ESPectre configuration helpers.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

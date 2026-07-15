@@ -1,9 +1,7 @@
 """
-Micro-ESPectre - Classic Detector Tests
+ESPectre - Classic Detector Tests
 
-Unit tests for the L1-Delta + variance fusion detector: contract/registry, threshold
-delegation to the L1-Delta primary, the fused decision (band x vote x
-dispersion gate), and the frozen dispersion gate.
+Unit tests for the classic motion detector.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

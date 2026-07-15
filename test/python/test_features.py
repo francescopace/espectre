@@ -1,7 +1,7 @@
 """
-Micro-ESPectre - Feature Extraction Unit Tests
+ESPectre - Feature Extraction Tests
 
-Tests for feature functions and classes in src/features.py.
+Unit tests for shared feature extraction helpers.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

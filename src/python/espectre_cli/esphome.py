@@ -1,4 +1,11 @@
-"""ESPHome frontend wrappers."""
+"""
+ESPectre - CLI ESPHome
+
+ESPHome frontend wrappers.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

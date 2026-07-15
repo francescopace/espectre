@@ -1,5 +1,10 @@
 """
+ESPectre - Detector Interface Tests
+
 Tests for shared detector interface helpers.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from detector_interface import get_detector_algorithm, normalize_detector_algorithm

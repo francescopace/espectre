@@ -1,7 +1,7 @@
 """
-Micro-ESPectre - Analysis Tools
+ESPectre - Analysis Tools
 
-Collection of analysis and optimization scripts for CSI data processing.
+Host-side analysis and tooling package.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

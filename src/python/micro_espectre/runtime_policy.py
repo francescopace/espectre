@@ -1,8 +1,11 @@
 """
-Micro-ESPectre runtime evaluation policy.
+Micro-ESPectre - Runtime Policy
 
 Keeps detector evaluation cadence and motion hit filtering aligned with the
 ESPHome/C++ runtime behavior.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 try:

@@ -1,5 +1,10 @@
 """
+ESPectre - Tools UI
+
 Shared UI helpers for tool scripts.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 

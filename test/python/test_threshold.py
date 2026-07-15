@@ -1,5 +1,10 @@
 """
-Tests for `src/python/micro_espectre/threshold.py`.
+ESPectre - Threshold Tests
+
+Tests for startup threshold calibration helpers.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 import pytest

@@ -1,4 +1,11 @@
-"""Tests for host-side ESPectre CLI wrapper modules."""
+"""
+ESPectre - CLI Wrapper Tests
+
+Tests for host-side ESPectre CLI wrapper modules.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

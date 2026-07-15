@@ -1,8 +1,7 @@
 """
-Micro-ESPectre - Running Variance Tests
+ESPectre - Running Variance Tests
 
-Converted from tools/13_test_running_variance.py.
-Compares two-pass variance with Welford's running variance algorithm.
+Unit tests for running variance helpers.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

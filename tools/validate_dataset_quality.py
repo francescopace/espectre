@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ESPectre - Automated Dataset Quality Validation
+ESPectre - Dataset Quality Validation
 
 Validates CSI datasets for integrity, quality, and readiness for ML training.
 Generates a structured report with per-file and per-pair analysis.
@@ -34,8 +34,10 @@ Usage:
     python validate_dataset_quality.py --strict     # Fail on warnings too
 
 Author: Hadi (hadikurniawanar@gmail.com)
+Revised by: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
+
 import sys
 import json
 import argparse

@@ -1,5 +1,10 @@
 """
+ESPectre - Performance Report Helpers
+
 Shared performance-report helpers for tests and tooling.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

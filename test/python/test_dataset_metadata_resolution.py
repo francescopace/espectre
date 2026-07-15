@@ -1,3 +1,12 @@
+"""
+ESPectre - Dataset Metadata Resolution Tests
+
+Tests for dataset metadata resolution helpers.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
+
 import json
 from pathlib import Path
 

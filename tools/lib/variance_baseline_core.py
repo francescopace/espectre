@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
+ESPectre - Variance Baseline
+
 Shared helpers for the historical moving-variance baseline over paired datasets.
 
-This is the single public module for host-side variance-baseline tooling. It
-mirrors the paired Python/C++ validation path:
-- explicit static_presence -> motion pairs from dataset_info.json
-- startup calibration from packet 0 using CALIBRATION_BUFFER_SIZE
-- continuous baseline -> motion evaluation on a single warm context
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 from __future__ import annotations

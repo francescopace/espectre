@@ -1,4 +1,11 @@
-"""Tests for the published firmware manifest builder."""
+"""
+ESPectre - Firmware Manifest Tests
+
+Tests for the published firmware manifest builder.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

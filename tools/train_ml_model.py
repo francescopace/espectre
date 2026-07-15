@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ML Motion Detection - Training Script
+ESPectre - ML Training
 
 Trains neural network models for motion detection using all available CSI data.
 Generates exported weights for both C++ and MicroPython runtimes.

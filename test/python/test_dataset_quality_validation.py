@@ -1,5 +1,10 @@
 """
-Tests for `tools/validate_dataset_quality.py`.
+ESPectre - Dataset Quality Validation Tests
+
+Tests for tools/validate_dataset_quality.py.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
 
 import importlib.util

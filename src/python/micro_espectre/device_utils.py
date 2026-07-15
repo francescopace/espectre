@@ -1,4 +1,11 @@
-"""Minimal allocation-conscious helpers used by the MicroPython runtime."""
+"""
+Micro-ESPectre - Device Utils
+
+Minimal allocation-conscious helpers used by the MicroPython runtime.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 HT20_CSI_LEN = 128
 HT20_CSI_LEN_SHORT = 114

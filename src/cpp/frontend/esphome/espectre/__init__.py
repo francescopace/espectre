@@ -1,5 +1,5 @@
 """
-ESPectre Component
+ESPectre - ESPHome Component
 
 ESPHome component for ESPectre WiFi CSI-based motion detection.
 Sensors are defined directly in the component (not as separate platforms).

@@ -1,4 +1,11 @@
-"""Shared ESPectre ASCII branding helpers."""
+"""
+Micro-ESPectre - Branding
+
+Shared ESPectre ASCII branding helpers.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 ASCII_BANNER = (
     "  _____ ____  ____           __            \n"

@@ -1,8 +1,7 @@
 """
-Micro-ESPectre - MQTT Module Unit Tests
+ESPectre - MQTT Tests
 
-Tests for MQTTHandler and MQTTCommands classes.
-Uses mocks to simulate MicroPython umqtt module.
+Unit tests for MQTT communication helpers.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

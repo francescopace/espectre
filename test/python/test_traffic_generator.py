@@ -1,8 +1,7 @@
 """
-Micro-ESPectre - Traffic Generator Unit Tests
+ESPectre - Traffic Generator Tests
 
-Tests for TrafficGenerator class in src/traffic_generator.py.
-Uses mocks for MicroPython-specific modules.
+Unit tests for the Wi-Fi traffic generator.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

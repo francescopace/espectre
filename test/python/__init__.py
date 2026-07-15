@@ -1,7 +1,7 @@
 """
-Micro-ESPectre - Test Suite
+ESPectre - Python Test Suite
 
-Unit tests and integration tests for the Micro-ESPectre Python implementation.
+Host-side Python test package.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

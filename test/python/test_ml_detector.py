@@ -1,12 +1,12 @@
 """
-Tests for ML Detector module.
+ESPectre - ML Detector Tests
 
-Tests the neural network-based motion detector including:
-- Activation functions (relu, sigmoid)
-- Feature normalization
-- Inference functions (predict, is_motion)
-- MLDetector class
+Tests for the ML motion detector module.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
 """
+
 import pytest
 import math
 import numpy as np

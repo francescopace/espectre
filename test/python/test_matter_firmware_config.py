@@ -1,3 +1,12 @@
+"""
+ESPectre - Matter Firmware Config Tests
+
+Tests for Matter frontend firmware configuration.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
+
 from pathlib import Path
 
 

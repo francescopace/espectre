@@ -1,4 +1,11 @@
-"""MicroPython device workflow commands."""
+"""
+ESPectre - CLI Micro
+
+MicroPython device workflow commands.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
 
 from __future__ import annotations
 

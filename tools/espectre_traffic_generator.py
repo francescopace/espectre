@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ESPectre Traffic Generator
+ESPectre - Traffic Generator
 
 Generates UDP traffic to trigger CSI extraction on ESPectre devices.
 Works on all platforms: Linux, macOS, Windows, Home Assistant.
@@ -17,11 +17,12 @@ Configuration:
 Home Assistant integration:
   See SETUP.md for command_line switch configuration.
 
-Author: Francesco Pace <francesco.pace@gmail.com>
 Thanks to: https://github.com/phoenixtechnam
 
+Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
+
 import socket
 import time
 import signal

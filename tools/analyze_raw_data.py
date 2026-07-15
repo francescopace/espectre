@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Data Quality Analysis Tool
+ESPectre - Data Quality Analysis
 Verifies data integrity, analyzes SNR statistics, and checks turbulence variance
 
 Usage:
