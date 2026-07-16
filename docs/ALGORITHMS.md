@@ -239,6 +239,37 @@ The current production feature set contains six features:
 Three features come from the turbulence series, and three come from the
 L1-delta series derived from mean-normalized amplitude profiles.
 
+### Feature Diagnostics Snapshot
+
+The current Core-6 feature diagnostics were refreshed on 2026-07-16 from
+`460,958` extracted training windows. Correlation is the marginal Pearson
+correlation with the binary motion label. SHAP importance comes from `500`
+balanced, blocked, held-out windows across three cross-validation folds grouped
+by session, using the promoted seed `1386543369`.
+
+| Rank | Feature | Label correlation | Mean absolute SHAP | SHAP contribution |
+|------|---------|------------------:|-------------------:|------------------:|
+| 1 | `l1_delta` | 0.7358 | 0.297198 | 51.3% |
+| 2 | `turb_mad_over_mean` | 0.5752 | 0.123743 | 21.4% |
+| 3 | `turb_autocorr` | 0.7834 | 0.101985 | 17.6% |
+| 4 | `l1_delta_std` | 0.6909 | 0.028875 | 5.0% |
+| 5 | `l1_delta_waveform_length` | 0.5859 | 0.016178 | 2.8% |
+| 6 | `turb_skewness` | 0.2904 | 0.010868 | 1.9% |
+
+Correlation measures each feature independently and does not account for the
+strong overlap among the L1-delta descriptors. Grouped out-of-fold SHAP
+measures contribution to unseen-session predictions, but correlated features
+can still divide importance between them. Feature removal decisions therefore
+require grouped, multi-seed ablation plus the paired and long-recording gates;
+low SHAP importance alone is not a removal criterion.
+
+Reproduce this snapshot without exporting new runtime artifacts:
+
+```bash
+python tools/train_ml_model.py --correlation
+python tools/train_ml_model.py --shap 500 --seed 1386543369 --no-export
+```
+
 ### Inference Flow
 
 ```text

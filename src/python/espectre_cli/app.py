@@ -50,7 +50,11 @@ def _add_collect_parser(
 ):
     parser_kwargs = {"help": help_text} if help_text is not None else {}
     collect_parser = subparsers.add_parser(name, **parser_kwargs)
-    collect_parser.add_argument("--label", "-l", help="Dataset label used when saving collected CSI")
+    collect_parser.add_argument(
+        "--label",
+        "-l",
+        help="Dataset label used when saving collected CSI; omit for live inspection without saving",
+    )
     collect_parser.add_argument(
         "--samples",
         "--count",
@@ -87,12 +91,20 @@ def _add_collect_parser(
         "--pps",
         type=int,
         default=100,
-        help="UDP pacing rate in packets per second (fixed by default, default: 100)",
+        help="UDP pacing rate in packets per second (adaptive target by default, default: 100)",
     )
-    collect_parser.add_argument(
+    pacing_mode = collect_parser.add_mutually_exclusive_group()
+    pacing_mode.add_argument(
         "--adaptive",
+        dest="adaptive",
         action="store_true",
-        help="Enable adaptive pacing from firmware backpressure feedback",
+        help="Enable adaptive pacing from firmware backpressure feedback (default)",
+    )
+    pacing_mode.add_argument(
+        "--fixed",
+        dest="adaptive",
+        action="store_false",
+        help="Use a fixed UDP pacing rate without adaptive backpressure feedback",
     )
     collect_parser.add_argument(
         "--detector",
@@ -102,10 +114,9 @@ def _add_collect_parser(
             "A comma-separated list is supported for parallel live status only (default: classic)"
         ),
     )
-    collect_parser.add_argument("--no-save", action="store_true", help="Run live status inspection without saving dataset files")
     collect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor")
     collect_parser.add_argument("--description", help="Description for the collected samples")
-    collect_parser.set_defaults(handler=collect_csi_data)
+    collect_parser.set_defaults(adaptive=True, handler=collect_csi_data)
     return collect_parser
 
 
@@ -227,7 +238,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('micro', 'deploy')}",
             f"  {cli_command('mqtt')}",
             f"  {cli_command('ui', 'theremin')}",
-            f"  {cli_command('collect', '--target', '192.168.1.50', '--no-save')}",
+            f"  {cli_command('collect', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}",
             f"  {cli_command('about')}",

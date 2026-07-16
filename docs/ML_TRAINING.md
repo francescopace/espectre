@@ -27,6 +27,14 @@ Run the default trainer:
 python tools/train_ml_model.py
 ```
 
+This evaluates grouped CV, trains the final candidate in memory, and runs the
+paired and long-recording gates. It does not replace runtime artifacts. Export
+the same configuration only with an explicit promotion:
+
+```bash
+python tools/train_ml_model.py --promote
+```
+
 Useful variants:
 
 ```bash
@@ -47,12 +55,41 @@ python tools/train_ml_model.py --experiment --experiment-promote
 python tools/train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"
 ```
 
-For SHAP diagnostics:
+For a gated FP-weight campaign:
 
 ```bash
-python tools/train_ml_model.py --shap
-python tools/train_ml_model.py --shap 500
+python tools/train_ml_model.py --experiment-fp-weights "1,1.5,2,2.5,3"
+python tools/train_ml_model.py --experiment-fp-weights "1.5,2,2.5,3" --experiment-promote
 ```
+
+Both campaigns use the exported seed for single-seed screening, retain the
+baseline among the finalists, and then apply three- and five-seed robustness
+comparisons. Without `--experiment-promote`, they only write their JSON report.
+
+For feature diagnostics:
+
+```bash
+python tools/train_ml_model.py --correlation
+python tools/train_ml_model.py --shap 500 --seed 1386543369 --no-export
+python tools/train_ml_model.py --ablation-feature turb_skewness --seed 1386543369
+```
+
+Correlation is a fast marginal screen over the full training matrix. SHAP runs
+inside grouped cross-validation: each fold uses a class-, chip-, and
+session-balanced background from its training partition and explains only
+balanced, blocked windows from the held-out partition. Supplying `--seed` makes
+training, sampling, and permutation SHAP reproducible. Use `--no-export` for
+diagnostic runs so the current runtime artifacts remain unchanged.
+`--ablation-feature` compares Core-6 against one feature removal using the same
+seed, grouped CV, paired validation, and all curated long recordings. It also
+leaves the exported runtime artifacts unchanged.
+The broader `--ablation` command remains a CV-only screening tool; do not use
+its ranking for feature promotion until the finalist passes
+`--ablation-feature`.
+
+The latest diagnostic snapshot and interpretation live in
+[ALGORITHMS.md](ALGORITHMS.md). Recompute the values after changing the dataset,
+feature set, preprocessing, model architecture, or training policy.
 
 ## Default Behavior
 
@@ -90,9 +127,13 @@ The training pipeline:
    default is the Core-6 set.
 5. Runs grouped cross-validation by paired capture/session, with blocked
    scoring to reduce overlap optimism.
-6. Reports worst-group metrics for session, chip, environment, and source file.
-7. Trains the selected MLP architecture with PyTorch, early stopping, and dropout.
-8. Exports artifacts for both Python and C++ runtimes plus a regression dataset.
+6. Optionally computes balanced SHAP explanations on the held-out blocked
+   windows from each fold.
+7. Reports worst-group metrics for session, chip, environment, and source file.
+8. Trains the selected MLP architecture with PyTorch, early stopping, and dropout.
+9. Evaluates the in-memory candidate on paired captures and curated long recordings.
+10. Exports Python and C++ runtime artifacts plus a regression dataset only
+    when promotion is explicitly requested.
 
 Support-detector-guided weighting is analysis-only until the clean AGC-active
 dataset is recollected and re-evaluated. The guided modes now score windows with
@@ -101,7 +142,7 @@ AGC and RF-interference changes.
 
 ## Exported Artifacts
 
-Default exports:
+Promoted exports:
 
 - `src/python/micro_espectre/ml_weights.py`
 - `src/cpp/core/ml_weights.h`
@@ -111,29 +152,34 @@ Use `--seed <number>` for reproducible training. The seed is saved in the
 generated weight files.
 
 `ml_test_data.npz` is an inference-regression artifact, not the main
-model-selection metric. Architecture and scaler choices should follow the
-grouped blocked-CV report emitted by `train_ml_model.py`.
+model-selection metric. Architecture, weighting, and scaler choices should
+treat grouped blocked CV as a diagnostic. Paired validation is a
+non-regression constraint, and deploy-like long recordings drive final model
+selection.
 
 ## Promotion Guidance
 
 For production artifact promotion, prefer one of these gated flows instead of a
 plain export:
 
+- `python tools/train_ml_model.py --promote`
 - `python tools/train_ml_model.py --seed-search-until-improvement <N>`
 - `python tools/train_ml_model.py --experiment --experiment-promote`
+- `python tools/train_ml_model.py --experiment-fp-weights "..." --experiment-promote`
 
-A plain training run always exports the current seed, while the gated flows
-replace artifacts only after a stricter grouped-CV improvement plus the
-real-data gates on exported artifacts: the paired regression suite and the
-long-recording gate on the curated `data/test/` captures. Candidates are
-scored with a fast in-process long gate (feature streams are replayed once
-per search and cached); the winner is then confirmed with the full pytest
-verification before the promotion is kept.
+A plain training run leaves artifacts unchanged. `--promote` is required for a
+normal export. It evaluates both the candidate and current exported arrays,
+then writes artifacts only when paired metrics do not regress and at least one
+long-recording cost improves without worsening the others.
+Experiment campaigns leave artifacts unchanged unless `--experiment-promote`
+is supplied. Seed search and experiment promotions confirm the selected
+artifacts with the full pytest verification before keeping them.
 
 The long gate also replays the production evaluation cadence and consecutive-hit
 policy. Candidate ranking is false-positive-first: effective IDLE-to-MOTION
-alarms, time spent in false MOTION measured in policy evaluations, raw false
-positives, and worst-recording FP rate precede recall and F1. Raw metrics remain
+alarms, time spent in false MOTION measured in policy evaluations,
+worst-recording FP rate, and raw false positives precede recall, F1, and CV.
+Paired recall and FP are enforced as non-regression constraints. Raw metrics remain
 useful diagnostics, while policy metrics represent user-visible false alarms
 more directly. Event recall and detection latency require long recordings with
 an annotated motion start and are not inferred from quiet-only captures.

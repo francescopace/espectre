@@ -228,7 +228,7 @@ def _collect_dataset_csi_data(args) -> None:
     print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)} ({target_mode})")
     print(
         f"  {Fore.CYAN}Pps:{Style.RESET_ALL}     {pacing_pps:g}pps "
-        f"({'adaptive' if getattr(args, 'adaptive', False) else 'fixed'}) UDP traffic on {args.target_port}"
+        f"({'adaptive' if getattr(args, 'adaptive', True) else 'fixed'}) UDP traffic on {args.target_port}"
     )
     if args.description:
         print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
@@ -254,7 +254,7 @@ def _collect_dataset_csi_data(args) -> None:
             duration=sample_duration,
             num_samples=args.samples,
             pacing_sender=pacing_sender,
-            adaptive=bool(getattr(args, "adaptive", False)),
+            adaptive=bool(getattr(args, "adaptive", True)),
         )
         if saved:
             print(f"{Fore.GREEN}✅ Collected {len(saved)} device file(s) for label '{args.label}'{Style.RESET_ALL}")
@@ -502,8 +502,7 @@ def _run_live_collect(args) -> None:
 
     label = getattr(args, "label", None)
     live_duration = getattr(args, "duration", None)
-    no_save = bool(getattr(args, "no_save", False))
-    save_enabled = bool(label) and not no_save
+    save_enabled = bool(label)
     ready_stable_seconds = 3.0
 
     if live_duration is not None and live_duration <= 0:
@@ -512,12 +511,9 @@ def _run_live_collect(args) -> None:
     if not getattr(args, "target", None):
         print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]>{Style.RESET_ALL}")
         raise SystemExit(1)
-    if not save_enabled and not no_save and label is None:
-        print(f"{Fore.RED}❌ Label required unless you use --no-save{Style.RESET_ALL}")
-        raise SystemExit(1)
 
     initial_pacing_pps = float(args.pps)
-    adaptive_enabled = bool(getattr(args, "adaptive", False))
+    adaptive_enabled = bool(getattr(args, "adaptive", True))
     base_window_packets = max(1, int(getattr(config, "SEG_WINDOW_SIZE", 100)))
     effective_window_packets = max(1, int(round(initial_pacing_pps)))
     effective_evaluation_interval = max(1, effective_window_packets // 4)

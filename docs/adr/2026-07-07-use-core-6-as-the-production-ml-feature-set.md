@@ -71,6 +71,23 @@ Trade-offs:
 - future ML experiments should compare against Core-6 explicitly, not against
   older relative-8 numbers alone
 
+## Follow-Up Validation
+
+On 2026-07-16, deterministic grouped out-of-fold SHAP for the promoted seed
+`1386543369` assigned `turb_skewness` the lowest mean absolute contribution at
+`1.9%`. A targeted same-seed ablation therefore compared Core-6 against Core-5
+without `turb_skewness`, using grouped blocked CV, paired validation, and all
+curated long recordings.
+
+Removing `turb_skewness` improved blocked OOF F1 from `92.4%` to `93.5%`, and
+both candidates passed the paired gate with a `0.0%` maximum paired FP rate.
+The long-recording gate nevertheless regressed: total false positives increased
+from `601` to `979`, and the maximum FP rate increased from `0.9%` to `1.3%`.
+
+Keep `turb_skewness` in Core-6. This follow-up confirms that low aggregate SHAP
+importance does not imply safe removal when the feature protects quiet-run
+robustness.
+
 ## Related
 
 - `docs/adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`

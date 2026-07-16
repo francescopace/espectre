@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import itertools
 import importlib.util
+import json
 from pathlib import Path
+import sys
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -91,6 +95,163 @@ def test_extract_features_uses_runtime_filter_defaults(monkeypatch):
     assert created["hampel_threshold"] == pytest.approx(module.HAMPEL_THRESHOLD)
 
 
+def test_select_balanced_shap_indices_is_deterministic_and_class_balanced():
+    module = _load_train_module()
+    y = np.asarray([0] * 18 + [1] * 6)
+    context = {
+        "chip": np.asarray(["C3"] * 12 + ["C5"] * 12),
+        "session_group": np.asarray([f"session-{idx // 4}" for idx in range(24)]),
+    }
+
+    first = module.select_balanced_shap_indices(y, context, max_samples=10, seed=123)
+    second = module.select_balanced_shap_indices(y, context, max_samples=10, seed=123)
+
+    assert first.tolist() == second.tolist()
+    assert np.sum(y[first] == 0) == 5
+    assert np.sum(y[first] == 1) == 5
+    assert len(set(context["session_group"][first])) >= 4
+
+
+def test_cross_validate_shap_uses_disjoint_training_background_and_held_out_samples(monkeypatch):
+    module = _load_train_module()
+    rows = []
+    labels = []
+    sessions = []
+    for group_idx in range(6):
+        for label in (0, 1):
+            for repeat in range(2):
+                rows.append([float(len(rows)), float(label + repeat)])
+                labels.append(label)
+                sessions.append(f"session-{group_idx}")
+    X = np.asarray(rows, dtype=np.float32)
+    y = np.asarray(labels, dtype=np.int32)
+    groups = np.asarray(sessions)
+    context = {
+        "chip": np.asarray(["C3" if idx < 12 else "C5" for idx in range(len(X))]),
+        "session_group": groups,
+        "source_file": np.asarray([f"source-{idx}" for idx in range(len(X))]),
+    }
+
+    class IdentityScaler:
+        def fit_transform(self, values):
+            return np.asarray(values)
+
+        def transform(self, values):
+            return np.asarray(values)
+
+    observed = []
+
+    class FakeExplainer:
+        def __init__(self, _predict, background, algorithm, seed):
+            assert algorithm == "permutation"
+            assert seed is not None
+            self.background = np.asarray(background)
+
+        def __call__(self, explained):
+            explained = np.asarray(explained)
+            observed.append((self.background[:, 0].copy(), explained[:, 0].copy()))
+            values = np.ones((len(explained), explained.shape[1], 1), dtype=np.float32)
+            return SimpleNamespace(values=values)
+
+    monkeypatch.setitem(sys.modules, "shap", SimpleNamespace(Explainer=FakeExplainer))
+    monkeypatch.setattr(module, "build_preprocessor", lambda _mode: IdentityScaler())
+    monkeypatch.setattr(module, "train_model", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        module,
+        "predict_probabilities",
+        lambda _model, values: np.full(len(values), 0.5, dtype=np.float32),
+    )
+
+    result = module.cross_validate(
+        X,
+        y,
+        n_folds=3,
+        groups=groups,
+        sample_context=context,
+        block_stride=1,
+        report_group_keys=(),
+        seed=10,
+        shap_samples=6,
+        shap_feature_names=["row_id", "signal"],
+        shap_seed=20,
+    )
+
+    assert len(observed) == 3
+    assert result["shap_samples"] == 6
+    assert result["shap_importance"] == {"row_id": 1.0, "signal": 1.0}
+    for background_ids, explained_ids in observed:
+        assert set(background_ids).isdisjoint(explained_ids)
+
+
+def test_build_feature_ablation_dataset_removes_only_requested_column():
+    module = _load_train_module()
+    context = {"session_group": np.asarray(["a", "b"])}
+    dataset = {
+        "X": np.asarray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32),
+        "y": np.asarray([0, 1]),
+        "feature_names": ["first", "weak", "last"],
+        "sample_context": context,
+    }
+
+    candidate = module.build_feature_ablation_dataset(dataset, "weak")
+
+    assert candidate["feature_names"] == ["first", "last"]
+    assert candidate["X"].tolist() == [[1.0, 3.0], [4.0, 6.0]]
+    assert candidate["sample_context"] is context
+    assert dataset["feature_names"] == ["first", "weak", "last"]
+
+    with pytest.raises(ValueError, match="Unknown ablation feature"):
+        module.build_feature_ablation_dataset(dataset, "missing")
+
+
+def test_packet_csi_data_accepts_packet_dicts_and_compact_rows():
+    module = _load_train_module()
+    row = np.asarray([1, 2, 3], dtype=np.int8)
+
+    assert module.packet_csi_data({"csi_data": row}) is row
+    assert module.packet_csi_data(row) is row
+
+
+def test_feature_ablation_comparison_prints_metric_rows(capsys):
+    module = _load_train_module()
+
+    def result(oof_f1, total_fp, alarms):
+        return {
+            "cv": {
+                "oof_f1": oof_f1,
+                "f1_mean": 90.0,
+                "recall_mean": 91.0,
+                "fp_rate_mean": 2.0,
+                "worst_session_recall": 80.0,
+                "worst_session_fp_rate": 10.0,
+            },
+            "paired": {
+                "mean_f1": 98.0,
+                "worst_chip_f1": 97.0,
+                "max_fp_rate": 1.0,
+            },
+            "long": {
+                "mean_f1": 0.0,
+                "worst_chip_f1": 0.0,
+                "max_fp_rate": 1.0,
+                "total_fp": total_fp,
+                "total_effective_alarms": alarms,
+                "total_false_motion_evaluations": alarms * 3,
+            },
+        }
+
+    module._print_feature_ablation_comparison(
+        result(92.4, 601, 1),
+        result(93.5, 979, 2),
+    )
+    output = capsys.readouterr().out
+
+    assert "Blocked OOF F1" in output
+    assert "Long total FP" in output
+    assert "601" in output
+    assert "979" in output
+
+
 def _cv_metrics(*, session_recall: float, chip_recall: float, session_fp: float, oof_f1: float, f1_mean: float):
     return {
         "oof_f1": oof_f1,
@@ -151,6 +312,37 @@ def test_search_candidate_key_prefers_passing_gate():
     assert module._search_candidate_key(cv, passing_gate) > module._search_candidate_key(cv, failing_gate)
 
 
+def test_seed_promotion_rejects_paired_regression_even_when_long_improves():
+    module = _load_train_module()
+    cv = _cv_metrics(
+        session_recall=90.0,
+        chip_recall=88.0,
+        session_fp=8.0,
+        oof_f1=85.0,
+        f1_mean=84.0,
+    )
+    baseline_long = _long_metrics(
+        mean_f1=0.0,
+        worst_f1=0.0,
+        total_fp=600,
+        mean_recall=0.0,
+        pass_count=0,
+        max_fp_rate=1.0,
+    )
+    candidate_long = dict(baseline_long, total_fp=500, max_fp_rate=0.8)
+    baseline_paired = {
+        "pass_count": 4,
+        "max_fp_rate": 0.0,
+        "worst_chip_recall": 98.0,
+        "worst_chip_f1": 99.0,
+    }
+    candidate_paired = dict(baseline_paired, worst_chip_recall=97.0)
+    baseline_gate = module.ExportedMLGateResult(0, "", baseline_long, "", baseline_paired)
+    candidate_gate = module.ExportedMLGateResult(0, "", candidate_long, "", candidate_paired)
+
+    assert not module._candidate_beats_baseline(cv, candidate_gate, cv, baseline_gate)
+
+
 def test_idle_runtime_policy_rejects_isolated_hits_and_counts_alarm_duration():
     module = _load_train_module()
     stride = module.EVALUATION_INTERVAL
@@ -195,6 +387,225 @@ def test_real_gate_ranking_prefers_fewer_effective_alarms_over_f1():
     noisier["total_false_motion_evaluations"] = 1
 
     assert module._real_ml_gate_key(quieter) > module._real_ml_gate_key(noisier)
+
+
+def test_architecture_ranking_prefers_runtime_alarms_before_raw_fp():
+    module = _load_train_module()
+
+    def result(alarms, false_motion, max_fp, total_fp, oof_f1):
+        return {
+            "params": 100,
+            "cv": {"oof_f1": oof_f1, "f1_mean": oof_f1},
+            "paired": {
+                "pass_count": 4,
+                "max_fp_rate": 0.0,
+                "worst_chip_recall": 98.0,
+                "worst_chip_f1": 99.0,
+            },
+            "long": {
+                "total_effective_alarms": alarms,
+                "total_false_motion_evaluations": false_motion,
+                "max_fp_rate": max_fp,
+                "total_fp": total_fp,
+            },
+        }
+
+    quieter = result(0, 0, 2.0, 200, 90.0)
+    noisier = result(1, 3, 0.5, 50, 95.0)
+
+    assert module.architecture_campaign_rank_key(quieter) < module.architecture_campaign_rank_key(noisier)
+
+
+def test_parse_fp_weight_sweep_validates_and_deduplicates():
+    module = _load_train_module()
+
+    assert module.parse_fp_weight_sweep("1,1.5,2,1.5") == [1.0, 1.5, 2.0]
+    with pytest.raises(module.argparse.ArgumentTypeError, match="positive"):
+        module.parse_fp_weight_sweep("1,0")
+
+
+def test_deployment_candidate_requires_paired_non_regression():
+    module = _load_train_module()
+
+    def result(worst_recall, alarms, total_fp):
+        return {
+            "cv": {
+                "oof_f1": 93.0,
+                "f1_mean": 93.0,
+                "worst_session_recall": 90.0,
+                "worst_chip_recall": 95.0,
+                "worst_session_fp_rate": 5.0,
+            },
+            "paired": {
+                "pass_count": 4,
+                "max_fp_rate": 0.0,
+                "worst_chip_recall": worst_recall,
+                "worst_chip_f1": 99.0,
+            },
+            "long": {
+                "total_effective_alarms": alarms,
+                "total_false_motion_evaluations": alarms * 3,
+                "max_fp_rate": 0.5,
+                "total_fp": total_fp,
+                "mean_recall": 0.0,
+                "pass_count": 0,
+                "worst_chip_f1": 0.0,
+                "mean_f1": 0.0,
+            },
+        }
+
+    baseline = result(98.0, 1, 600)
+    lower_recall = result(97.0, 0, 100)
+    quieter = result(98.0, 0, 100)
+    raw_fp_regression = result(98.0, 0, 700)
+
+    assert not module.deployment_candidate_beats_baseline(lower_recall, baseline)
+    assert module.deployment_candidate_beats_baseline(quieter, baseline)
+    assert not module.deployment_candidate_beats_baseline(raw_fp_regression, baseline)
+
+
+def test_fp_weight_campaign_is_multi_seed_and_non_promoting_by_default(monkeypatch, tmp_path):
+    module = _load_train_module()
+    context = {module.DEFAULT_PRIMARY_GROUP_KEY: np.asarray(["a", "b"])}
+    matrix = {
+        "X": np.asarray([[0.0], [1.0]], dtype=np.float32),
+        "y": np.asarray([0, 1], dtype=np.int8),
+        "feature_names": ["feature"],
+        "sample_context": context,
+        "sample_weights": np.ones(2, dtype=np.float32),
+        "stats": {"chips": ["C3"]},
+    }
+    observed = []
+
+    def fake_candidate(name, layers, seed, dataset, scaler, batch_size, fp_weight):
+        observed.append((fp_weight, seed))
+        alarms = 0 if fp_weight == 3.0 else 1
+        total_fp = 100 if fp_weight == 3.0 else 200
+        return {
+            "name": name,
+            "seed": seed,
+            "fp_weight": fp_weight,
+            "layers": list(layers),
+            "architecture": "1 -> 2 -> 1",
+            "params": 10,
+            "weight_kb": 0.1,
+            "flops": 5,
+            "inference_us": 1.0,
+            "cv": {"oof_f1": 92.0, "f1_mean": 92.0},
+            "paired": {
+                "pass_count": 4,
+                "max_fp_rate": 0.0,
+                "worst_chip_recall": 98.0,
+                "worst_chip_f1": 99.0,
+            },
+            "long": {
+                "total_effective_alarms": alarms,
+                "total_false_motion_evaluations": alarms * 3,
+                "max_fp_rate": float(alarms),
+                "total_fp": total_fp,
+                "pass_count": 0,
+                "worst_chip_f1": 0.0,
+            },
+        }
+
+    monkeypatch.setattr(module, "ensure_torch_available", lambda: None)
+    monkeypatch.setattr(module, "describe_torch_device", lambda: "cpu")
+    monkeypatch.setattr(module, "read_exported_seed", lambda: 123)
+    monkeypatch.setattr(module, "load_training_matrix", lambda **kwargs: (matrix, None))
+    monkeypatch.setattr(
+        module,
+        "apply_positive_chip_boost",
+        lambda weights, context, labels, boost: (weights, {}),
+    )
+    monkeypatch.setattr(module, "evaluate_architecture_candidate", fake_candidate)
+    monkeypatch.setattr(
+        module,
+        "train_all",
+        lambda **kwargs: pytest.fail("non-promoting campaign must not export"),
+    )
+    output_path = tmp_path / "fp_weights.json"
+
+    result = module.experiment_fp_weights(
+        fp_weights=[2.0, 3.0],
+        hidden_layers=[2],
+        output_path=output_path,
+        promote_winner=False,
+    )
+
+    payload = json.loads(output_path.read_text())
+    assert result == 0
+    assert payload["promotion"]["winner"] == "fp_weight=3"
+    assert payload["promotion"]["clear_winner"] is True
+    assert {seed for _, seed in observed} >= set(module.DEFAULT_EXPERIMENT_FINAL_SEEDS)
+
+
+def test_normal_training_evaluates_deployment_without_exporting(monkeypatch):
+    module = _load_train_module()
+    context = {
+        module.DEFAULT_PRIMARY_GROUP_KEY: np.asarray(["a", "b"]),
+        module.DEFAULT_BLOCK_GROUP_KEY: np.asarray(["one", "two"]),
+    }
+    matrix = {
+        "X": np.asarray([[0.0], [1.0]], dtype=np.float32),
+        "y": np.asarray([0, 1], dtype=np.int8),
+        "feature_names": ["feature"],
+        "sample_context": context,
+        "sample_weights": np.ones(2, dtype=np.float32),
+        "stats": {
+            "chips": ["C3"],
+            "labels": {"idle": 1, "motion": 1},
+            "total": 2,
+            "session_groups": ["a", "b"],
+            "environment_groups": [],
+        },
+    }
+
+    class IdentityScaler:
+        def fit_transform(self, values):
+            return values
+
+    paired = {
+        "by_chip": {"C3": {}},
+        "pass_count": 1,
+        "max_fp_rate": 0.0,
+        "worst_chip_recall": 99.0,
+    }
+    long_gate = {
+        "total_effective_alarms": 0,
+        "total_false_motion_evaluations": 0,
+        "max_fp_rate": 0.0,
+        "total_fp": 0,
+    }
+    cv = {"oof_f1": 90.0, "f1_mean": 90.0, "f1_std": 0.0}
+
+    monkeypatch.setattr(module, "ensure_torch_available", lambda: None)
+    monkeypatch.setattr(module, "describe_torch_device", lambda: "cpu")
+    monkeypatch.setattr(module, "set_global_determinism", lambda *args, **kwargs: None)
+    monkeypatch.setattr(module, "load_training_matrix", lambda **kwargs: (matrix, None))
+    monkeypatch.setattr(module, "apply_positive_chip_boost", lambda *args: (matrix["sample_weights"], {}))
+    monkeypatch.setattr(module, "cross_validate", lambda *args, **kwargs: dict(cv))
+    monkeypatch.setattr(module, "print_cv_summary", lambda results: None)
+    monkeypatch.setattr(module, "build_preprocessor", lambda mode: IdentityScaler())
+    monkeypatch.setattr(module, "train_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(module, "evaluate_paired_gate", lambda *args, **kwargs: paired)
+    monkeypatch.setattr(module, "evaluate_long_gate", lambda *args, **kwargs: long_gate)
+    monkeypatch.setattr(
+        module,
+        "export_micropython",
+        lambda *args, **kwargs: pytest.fail("artifacts must remain unchanged"),
+    )
+
+    result, seed, summary = module.train_all(
+        seed=123,
+        feature_names=["feature"],
+        export_artifacts=False,
+        evaluate_deployment=True,
+    )
+
+    assert result == 0
+    assert seed == 123
+    assert summary["paired"] is paired
+    assert summary["long"] is long_gate
 
 
 def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkeypatch):

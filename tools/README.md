@@ -191,21 +191,23 @@ The main repository workflow and this training stack target Python `3.14`.
 - Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, grouped session-level CV, and no support-detector sample weighting (`--sample-weight-mode none`; l1_delta-guided modes are available for ablations)
 - Caches derived features and base sample weights for repeated local runs; use `--no-cache` to rebuild
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
-- Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms
-- Supports FP-first architecture campaigns, gain-shift diagnostics, and feature-importance analysis
+- Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms only after explicit promotion
+- Supports FP-first architecture and FP-weight campaigns, gain-shift diagnostics, and feature-importance analysis
 - Ranks long-recording candidates by deploy-time effective alarms, false-MOTION
-  policy evaluations, raw false positives, and worst-recording FP rate before
-  recall and F1
+  policy evaluations, worst-recording FP rate, and raw false positives before
+  recall, F1, and grouped CV; paired validation is a non-regression constraint
 - Exports weights for both platforms:
   - `src/python/micro_espectre/ml_weights.py`
   - `src/cpp/core/ml_weights.h`
 
 ```bash
-python train_ml_model.py                # Train with default settings
+python train_ml_model.py                # Evaluate defaults; leave artifacts unchanged
+python train_ml_model.py --promote      # Explicitly export the evaluated candidate
 python train_ml_model.py --info         # Show dataset and split info
 python train_ml_model.py --experiment   # Run the FP-first MLP topology campaign
 python train_ml_model.py --experiment --experiment-promote  # Promote the winner if it beats the baseline
 python train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"  # Custom shortlist
+python train_ml_model.py --experiment-fp-weights "1,1.5,2,2.5,3"  # Gated multi-seed FP-weight campaign
 python train_ml_model.py --fp-weight 2.0  # Penalize false positives 2x
 python train_ml_model.py --scaler clipped_standard  # Robust clipping + z-score
 python train_ml_model.py --batch-size 32  # Smaller-batch comparison
@@ -216,8 +218,9 @@ python train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python train_ml_model.py --seed-search-until-improvement 20  # Stop at first better seed
 python train_ml_model.py --gain-stress-gate  # Stress exported model with artificial feature gain shifts
 python train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25  # Custom stress multipliers
-python train_ml_model.py --shap         # SHAP importance (200 samples)
-python train_ml_model.py --shap 500     # SHAP importance (500 samples)
+python train_ml_model.py --shap         # Grouped OOF SHAP (200 samples)
+python train_ml_model.py --shap 500     # Grouped OOF SHAP (500 samples)
+python train_ml_model.py --ablation-feature turb_skewness --seed 1386543369  # Targeted CV and real-data ablation
 ```
 
 For the complete ML training workflow, promotion guidance, gain-stress
@@ -342,7 +345,7 @@ cd tools
 #   Terminal 2: ./espectre collect --label static_presence --duration 60
 #               ./espectre collect --label motion --duration 30
 # Optional live-inspection terminal:
-#               ./espectre collect --target 192.168.1.50 --no-save
+#               ./espectre collect --target 192.168.1.50
 # see ../docs/ML_DATA_COLLECTION.md for details
 
 # 1. Analyze raw data

@@ -52,6 +52,10 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Changed
 
+- **ML model selection now treats grouped CV as diagnostic evidence instead of the promotion gate**: normal training leaves artifacts unchanged unless `--promote` is explicit, paired validation blocks regressions, deploy-like long-recording alarms lead candidate ranking, seed search no longer discards candidates before real-data evaluation, and a gated multi-seed FP-weight campaign is available.
+- **ML feature diagnostics now use deterministic grouped out-of-fold SHAP** with class-, chip-, and session-balanced training backgrounds and blocked held-out explanations, replacing in-sample random attribution.
+- **Host `collect` pacing is adaptive by default**: `./espectre collect` now trims send pace from RX feedback and firmware backpressure unless `--fixed` is set; `--adaptive` remains available as an explicit opt-in.
+- **Host `collect` inspects without saving unless `--label` is set**: live mode no longer needs `--no-save`; omitting `--label` runs inspection-only, and `--no-save` was removed.
 - **Serial monitor reset is now opt-in**: `espectre monitor` attaches without resetting by default, while benchmark workflows pass `--reset` explicitly when they need boot-time markers or a clean restart.
 - **Browser tools share a vertical movement bar**: The Game and Configure reuse `docs/web/movement-bar.js` and `movement-bar.css` for live movement and draggable threshold. Configure removes the old state/motion/threshold metric cards and uses a flatter settings layout with a slim detector/telemetry toolbar.
 - **The website guide surface is now fully static**: direct HTML pages, a versioned sitemap, and focused CI checks replace Markdown-to-HTML generation and Pagefind indexing.

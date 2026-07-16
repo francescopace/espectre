@@ -874,6 +874,8 @@ class CSICollector:
                 f"cannot save capture window without device_id metadata "
                 f"({missing_device_packets} packets missing device_id)"
             )
+        # Fail fast on corrupt dataset_info.json before writing any NPZ files.
+        dataset_metadata.load_dataset_info()
         saved_files: List[Path] = []
         for device_id in sorted(packets_by_device):
             filepath = self.save_sample(packets_by_device[device_id])

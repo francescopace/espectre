@@ -32,7 +32,7 @@ def _make_collect_args(**overrides) -> argparse.Namespace:
         "target": "192.168.1.15",
         "target_port": 9999,
         "pps": 100,
-        "adaptive": False,
+        "adaptive": True,
         "contributor": None,
         "description": None,
     }
@@ -52,9 +52,8 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
         "target": "192.168.1.15",
         "target_port": 9999,
         "pps": 100,
-        "adaptive": False,
+        "adaptive": True,
         "detector": "classic",
-        "no_save": False,
         "contributor": None,
         "description": None,
     }
@@ -341,7 +340,15 @@ def test_collect_parser_accepts_pps() -> None:
     args = parser.parse_args(["collect", "--target", "192.168.1.15", "--pps", "42"])
 
     assert args.pps == 42
-    assert args.adaptive is False
+    assert args.adaptive is True
+
+
+def test_collect_parser_defaults_to_adaptive() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["collect", "--target", "192.168.1.15"])
+
+    assert args.adaptive is True
 
 
 def test_collect_parser_accepts_adaptive() -> None:
@@ -352,7 +359,22 @@ def test_collect_parser_accepts_adaptive() -> None:
     assert args.adaptive is True
 
 
-def test_collect_parser_accepts_detector_choice_and_no_save() -> None:
+def test_collect_parser_accepts_fixed() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["collect", "--target", "192.168.1.15", "--fixed"])
+
+    assert args.adaptive is False
+
+
+def test_collect_parser_rejects_adaptive_and_fixed_together() -> None:
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["collect", "--target", "192.168.1.15", "--adaptive", "--fixed"])
+
+
+def test_collect_parser_accepts_detector_choice() -> None:
     parser = build_parser()
 
     args = parser.parse_args(
@@ -362,14 +384,20 @@ def test_collect_parser_accepts_detector_choice_and_no_save() -> None:
             "192.168.1.15",
             "--detector",
             "classic",
-            "--no-save",
         ]
     )
 
     assert args.namespace == "collect"
     assert args.detector == "classic"
-    assert args.no_save is True
+    assert args.label is None
     assert args.duration is None
+
+
+def test_collect_parser_rejects_removed_no_save() -> None:
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["collect", "--target", "192.168.1.15", "--no-save"])
 
 
 def test_collect_parser_accepts_comma_separated_detectors() -> None:
@@ -382,7 +410,6 @@ def test_collect_parser_accepts_comma_separated_detectors() -> None:
             "192.168.1.15",
             "--detector",
             "classic,ml",
-            "--no-save",
         ]
     )
 
@@ -402,7 +429,7 @@ def test_collect_live_rejects_unknown_detector(monkeypatch, capsys) -> None:
     _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
 
     with pytest.raises(SystemExit):
-        host.collect_csi_data(_make_live_collect_args(detector="classic,bogus", no_save=True))
+        host.collect_csi_data(_make_live_collect_args(detector="classic,bogus", label=None))
 
     output = capsys.readouterr().out
     assert "Unsupported detector(s): bogus" in output
@@ -695,7 +722,7 @@ def test_collect_applies_start_delay_before_starting_pacing(monkeypatch) -> None
     collect_event = next(event for event in events if isinstance(event, tuple) and event[0] == "collect_timed")
     assert collect_event[1] == 10.0
     assert collect_event[2] == 2
-    assert collect_event[3]["adaptive"] is False
+    assert collect_event[3]["adaptive"] is True
     assert collect_event[3]["pacing_sender"] is FakePacingSender.last_instance
     assert FakePacingSender.last_instance.rate_updates == []
     assert ("collector_init", "static_presence", "127.0.0.1", 3, "classic") in events
@@ -1124,10 +1151,7 @@ def test_collect_live_validates_save_arguments(monkeypatch) -> None:
     with pytest.raises(SystemExit):
         host.collect_csi_data(_make_live_collect_args(duration=0))
 
-    with pytest.raises(SystemExit):
-        host.collect_csi_data(_make_live_collect_args(label=None))
-
-    host.collect_csi_data(_make_live_collect_args(label=None, no_save=True, duration=5))
+    host.collect_csi_data(_make_live_collect_args(label=None, duration=5))
 
 
 def test_collect_live_handles_import_failure(monkeypatch) -> None:
@@ -1290,7 +1314,7 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
     assert "No live capture packets received; nothing saved" in output
 
 
-def test_collect_live_keeps_fixed_pacing_without_adaptive(monkeypatch, capsys) -> None:
+def test_collect_live_keeps_fixed_pacing_with_fixed_flag(monkeypatch, capsys) -> None:
     clock = {"now": 0.0}
 
     class FakePacket:
@@ -1353,7 +1377,9 @@ def test_collect_live_keeps_fixed_pacing_without_adaptive(monkeypatch, capsys) -
     )
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
-    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="ml", no_save=True))
+    host.collect_csi_data(
+        _make_live_collect_args(target="192.168.1.29", detector="ml", label=None, adaptive=False)
+    )
 
     output = capsys.readouterr().out
     assert FakePacingSender.last_instance is not None
@@ -1427,7 +1453,7 @@ def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, caps
     )
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
-    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="ml", no_save=True, adaptive=True))
+    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="ml", label=None))
 
     output = capsys.readouterr().out
     assert FakePacingSender.last_instance is not None
@@ -1503,7 +1529,9 @@ def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None
     classic_module.ClassicDetector = CapturingClassicDetector
     runtime_policy_module.RuntimeMotionPolicy = CapturingRuntimeMotionPolicy
 
-    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="classic", no_save=True, pps=42))
+    host.collect_csi_data(
+        _make_live_collect_args(target="192.168.1.29", detector="classic", label=None, pps=42)
+    )
 
     capsys.readouterr()
     assert CapturingClassicDetector.windows == [42, 42]
@@ -1634,7 +1662,9 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
 
-    host.collect_csi_data(_make_live_collect_args(target="192.168.1.17,192.168.1.24", no_save=True, detector="ml"))
+    host.collect_csi_data(
+        _make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="ml", label=None)
+    )
 
     output = capsys.readouterr().out
     assert len(FakeMLDetector.instances) == 2
@@ -1867,7 +1897,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     monkeypatch.setitem(sys.modules, "threshold", fake_threshold)
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="classic", no_save=True, pps=4)
+        _make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="classic", label=None, pps=4)
     )
 
     output = capsys.readouterr().out
@@ -1926,7 +1956,7 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
     )
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.24", detector="classic,ml", no_save=True, pps=4)
+        _make_live_collect_args(target="192.168.1.24", detector="classic,ml", label=None, pps=4)
     )
 
     output = capsys.readouterr().out
@@ -1984,7 +2014,9 @@ def test_collect_live_shows_drop_rate_during_calibration(monkeypatch, capsys) ->
         config_overrides={"CALIBRATION_BUFFER_SIZE": 4, "EVALUATION_INTERVAL": 1},
     )
 
-    host.collect_csi_data(_make_live_collect_args(target="192.168.1.24", detector="classic", no_save=True))
+    host.collect_csi_data(
+        _make_live_collect_args(target="192.168.1.24", detector="classic", label=None)
+    )
 
     output = capsys.readouterr().out
     assert "STATUS: CALIBRATING 1/1" in output
@@ -2019,7 +2051,7 @@ def test_collect_live_surfaces_runtime_error(monkeypatch) -> None:
     _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
 
     with pytest.raises(SystemExit):
-        host.collect_csi_data(_make_live_collect_args(no_save=True))
+        host.collect_csi_data(_make_live_collect_args(label=None))
 
 
 def test_collect_live_displays_device_drop_rate(monkeypatch, capsys) -> None:
@@ -2063,7 +2095,9 @@ def test_collect_live_displays_device_drop_rate(monkeypatch, capsys) -> None:
 
     _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
 
-    host.collect_csi_data(_make_live_collect_args(target="192.168.1.34", detector="ml", no_save=True))
+    host.collect_csi_data(
+        _make_live_collect_args(target="192.168.1.34", detector="ml", label=None)
+    )
 
     output = capsys.readouterr().out
     assert "ip=192.168.1.34 chip=S3 ch=08 rssi=-46" in output

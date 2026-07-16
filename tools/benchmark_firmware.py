@@ -907,7 +907,6 @@ def run_streamer_case(
                 collect_command = [
                     launcher,
                     "collect",
-                    "--no-save",
                     "--duration",
                     str(STREAMER_COLLECT_DURATION_SECONDS),
                     "--target",

@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-03-08
 - Recorded: 2026-07-09 (retrospective)
+- Updated: 2026-07-16
 
 ## Context
 
@@ -33,6 +34,13 @@ Concretely:
   promotion blocker
 - use paired and long-quiet evaluation gates to decide whether a detector or ML
   candidate becomes the new baseline
+- treat grouped CV as diagnostic evidence and a final tie-breaker, not as an
+  early rejection rule for ML candidates
+- rank deploy-like long results by effective alarms, false-motion evaluations,
+  worst-recording FP rate, and total raw FP, in that order
+- keep paired recall and FP as non-regression constraints
+- require explicit artifact promotion after evaluation; experiment campaigns
+  remain non-destructive by default and compare finalists across multiple seeds
 
 ## Alternatives Considered
 

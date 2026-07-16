@@ -68,7 +68,7 @@ On Windows PowerShell, activate `.venv\\Scripts\\Activate.ps1` and replace
 Inspect the live stream first:
 
 ```bash
-./espectre collect --target 192.168.1.50 --no-save
+./espectre collect --target 192.168.1.50
 ```
 
 Then record labeled data:
