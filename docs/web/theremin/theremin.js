@@ -79,6 +79,18 @@
   let interpolationActive = false;
   const INTERPOLATION_RATE = 60; // Hz (60 updates per second)
 
+  // Visual waveform (amplitude ← movement, oscillation ← pitch)
+  const waveVisual = {
+      canvas: null,
+      ctx: null,
+      rafId: 0,
+      phase: 0,
+      lastFrameMs: 0,
+      frequencyHz: 200,
+      amplitude: 0,
+      reduceMotion: false
+  };
+
   // Musical Scales
   const PENTATONIC_RATIOS = [1.0, 9/8, 5/4, 3/2, 5/3, 2.0];
   const MAJOR_RATIOS = [1.0, 9/8, 5/4, 4/3, 3/2, 5/3, 15/8, 2.0];
@@ -128,6 +140,146 @@
   function midiToOctave(midiNote) {
       if (midiNote === null || midiNote < 0 || midiNote > 127) return '-';
       return Math.floor(Math.round(midiNote) / 12) - 1;
+  }
+
+  function initWaveVisual() {
+      waveVisual.canvas = document.getElementById('thereminWave');
+      if (!waveVisual.canvas) return;
+      waveVisual.ctx = waveVisual.canvas.getContext('2d');
+      waveVisual.reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      resizeWaveVisual();
+      window.addEventListener('resize', resizeWaveVisual);
+  }
+
+  function resizeWaveVisual() {
+      const canvas = waveVisual.canvas;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const width = Math.max(1, Math.round(rect.width * dpr));
+      const height = Math.max(1, Math.round(rect.height * dpr));
+      if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+      }
+  }
+
+  function setWaveVisual(movement, frequencyHz) {
+      const maxMovement = Math.max(thereminConfig.maxMovement, 0.001);
+      const normalized = Math.min(Math.max(movement / maxMovement, 0), 1);
+      // Keep a faint idle ripple so the stage never looks dead.
+      waveVisual.amplitude = 0.06 + normalized * 0.94;
+      if (Number.isFinite(frequencyHz) && frequencyHz > 0) {
+          waveVisual.frequencyHz = frequencyHz;
+      }
+  }
+
+  function startWaveVisual() {
+      if (!waveVisual.canvas || waveVisual.rafId) return;
+      // Workspace may have been hidden at init; measure after it becomes visible.
+      resizeWaveVisual();
+      waveVisual.lastFrameMs = 0;
+      setWaveVisual(0, thereminConfig.baseFrequency);
+      const tick = (nowMs) => {
+          drawWaveVisual(nowMs);
+          waveVisual.rafId = requestAnimationFrame(tick);
+      };
+      waveVisual.rafId = requestAnimationFrame(tick);
+  }
+
+  function stopWaveVisual() {
+      if (waveVisual.rafId) {
+          cancelAnimationFrame(waveVisual.rafId);
+          waveVisual.rafId = 0;
+      }
+      waveVisual.amplitude = 0;
+      waveVisual.phase = 0;
+      waveVisual.lastFrameMs = 0;
+      drawWaveVisual(performance.now(), true);
+  }
+
+  function drawWaveVisual(nowMs, forceFlat = false) {
+      const canvas = waveVisual.canvas;
+      const ctx = waveVisual.ctx;
+      if (!canvas || !ctx) return;
+
+      const width = canvas.width;
+      const height = canvas.height;
+      if (width < 2 || height < 2) return;
+
+      const dt = waveVisual.lastFrameMs ? Math.min(0.05, (nowMs - waveVisual.lastFrameMs) / 1000) : 0;
+      waveVisual.lastFrameMs = nowMs;
+
+      const amp = forceFlat ? 0.04 : waveVisual.amplitude;
+      const freq = waveVisual.frequencyHz;
+      // Map audible pitch into a readable number of cycles across the canvas.
+      const cycles = 1.2 + Math.log2(Math.max(freq, 40) / 40) * 1.15;
+      const phaseSpeed = (Math.PI * 2) * (0.35 + Math.min(freq, 2000) / 900);
+      if (!waveVisual.reduceMotion && !forceFlat) {
+          waveVisual.phase = (waveVisual.phase + phaseSpeed * dt) % (Math.PI * 2);
+      }
+
+      ctx.clearRect(0, 0, width, height);
+
+      const midY = height * 0.5;
+      const maxAmpPx = height * 0.38 * amp;
+      const styles = getComputedStyle(document.documentElement);
+      const accent = styles.getPropertyValue('--accent').trim() || '#7aa2e3';
+      const accentSecondary = styles.getPropertyValue('--accent-secondary').trim() || '#9b8afb';
+      const glow = styles.getPropertyValue('--accent-glow').trim() || 'rgba(122, 162, 227, 0.18)';
+
+      // Soft center glow
+      const glowGrad = ctx.createRadialGradient(width * 0.5, midY, 0, width * 0.5, midY, height * 0.7);
+      glowGrad.addColorStop(0, glow);
+      glowGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = glowGrad;
+      ctx.fillRect(0, 0, width, height);
+
+      const buildPath = (amplitudeScale) => {
+          ctx.beginPath();
+          for (let x = 0; x <= width; x += 2) {
+              const t = x / width;
+              const angle = (t * cycles * Math.PI * 2) + waveVisual.phase;
+              // Slight harmonic for a less clinical sine.
+              const y = midY
+                  - Math.sin(angle) * maxAmpPx * amplitudeScale
+                  - Math.sin(angle * 2) * maxAmpPx * 0.12 * amplitudeScale;
+              if (x === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+          }
+      };
+
+      // Filled body under the wave
+      buildPath(1);
+      ctx.lineTo(width, midY + maxAmpPx * 0.2);
+      ctx.lineTo(0, midY + maxAmpPx * 0.2);
+      ctx.closePath();
+      const fillGrad = ctx.createLinearGradient(0, midY - maxAmpPx, 0, midY + maxAmpPx);
+      fillGrad.addColorStop(0, 'rgba(122, 162, 227, 0.22)');
+      fillGrad.addColorStop(0.55, 'rgba(155, 138, 251, 0.08)');
+      fillGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = fillGrad;
+      ctx.fill();
+
+      // Main stroke
+      buildPath(1);
+      const strokeGrad = ctx.createLinearGradient(0, 0, width, 0);
+      strokeGrad.addColorStop(0, accent);
+      strokeGrad.addColorStop(0.5, accentSecondary);
+      strokeGrad.addColorStop(1, accent);
+      ctx.strokeStyle = strokeGrad;
+      ctx.lineWidth = Math.max(2, width * 0.0025);
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = 12;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Dim mirrored echo
+      buildPath(0.35);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.lineWidth = Math.max(1, width * 0.0015);
+      ctx.stroke();
   }
 
   // Map movement to frequency (logarithmic or linear)
@@ -547,11 +699,13 @@
 
               // Update UI
               document.getElementById('movementValue').textContent = smoothedMovement.toFixed(3);
+              setWaveVisual(smoothedMovement, finalFreq);
           } else {
               // No telemetry data yet, but still update tremolo if enabled.
               if (featureModConfig.tremoloEnabled) {
                   updateTremolo();
               }
+              setWaveVisual(0, thereminConfig.baseFrequency);
           }
 
           setTimeout(interpolate, updateInterval);
@@ -572,6 +726,9 @@
       document.getElementById('connectionReady').hidden = !connected;
       document.getElementById('thereminWorkspace').hidden = !connected;
       ToolPage.setHeaderConnectionStatus(connected);
+      if (connected) {
+          requestAnimationFrame(() => resizeWaveVisual());
+      }
   }
 
   function toggleConnection() {
@@ -604,6 +761,7 @@
           updateConnectionUi(true);
           await resumeAudio();
           startInterpolationLoop();
+          startWaveVisual();
           await ble.writeControl('REQ_SYSINFO');
           trackEvent('tool_connection', {
               tool_name: 'theremin',
@@ -633,6 +791,7 @@
       if (isDisconnecting) return;
       isDisconnecting = true;
       interpolationActive = false;
+      stopWaveVisual();
 
       try {
           await ble.disconnect();
@@ -760,6 +919,7 @@
       smoothedMovement = 0;
       lastUpdateTime = 0;
       currentFeatures = null;
+      setWaveVisual(0, thereminConfig.baseFrequency);
 
       // Reset audio if initialized
       if (oscillator && isAudioInitialized) {
@@ -819,4 +979,5 @@
 
       // Initialize config
       updateConfig();
+      initWaveVisual();
   });

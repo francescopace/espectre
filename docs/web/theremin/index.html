@@ -12,9 +12,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="/styles.css?v=palette-v1">
+    <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/theremin/theremin.css">
-  <link rel="stylesheet" href="/tool-page.css?v=compact-v3">
+  <link rel="stylesheet" href="/tool-page.css">
 </head>
 
 <body class="tool-page theremin-page" data-tool="theremin">
@@ -50,6 +50,12 @@
         </div>
 
       <div id="thereminWorkspace" hidden>
+        <div class="card wave-card">
+            <div class="wave-stage" aria-hidden="true">
+                <canvas id="thereminWave" class="theremin-wave"></canvas>
+            </div>
+        </div>
+
         <div class="card compact">
             <div class="metrics-grid">
                 <div class="metric-card">
@@ -74,7 +80,7 @@
 
         <div class="card">
             <div class="collapsible-header" onclick="toggleSection('theremin')">
-                <h2>🎹 Theremin Controls</h2>
+                <h2><i class="fas fa-music" aria-hidden="true"></i> Theremin Controls</h2>
                 <span class="arrow rotate" id="thereminArrow">▼</span>
             </div>
             <div class="collapsible-content" id="thereminContent">
@@ -83,7 +89,7 @@
                 <div class="subsection-card">
                     <div class="collapsible-header" onclick="toggleSubSection('audio')">
                         <h3>
-                            <span>🔊</span> Audio
+                            <i class="fas fa-volume-high" aria-hidden="true"></i> Audio
                         </h3>
                         <span class="arrow" id="audioArrow">▼</span>
                     </div>
@@ -121,7 +127,7 @@
                 <div class="subsection-card">
                     <div class="collapsible-header" onclick="toggleSubSection('frequency')">
                         <h3>
-                            <span>📊</span> Frequency
+                            <i class="fas fa-wave-square" aria-hidden="true"></i> Frequency
                         </h3>
                         <span class="arrow" id="frequencyArrow">▼</span>
                     </div>
@@ -159,7 +165,7 @@
                 <div class="subsection-card">
                     <div class="collapsible-header" onclick="toggleSubSection('modeScale')">
                         <h3>
-                            <span>🎵</span> Mode and Musical Scale
+                            <i class="fas fa-icons" aria-hidden="true"></i> Mode and Musical Scale
                         </h3>
                         <span class="arrow" id="modeScaleArrow">▼</span>
                     </div>
@@ -192,7 +198,7 @@
                 <div id="featureModulationSection" class="subsection-card" hidden>
                     <div class="collapsible-header" onclick="toggleSubSection('featureMod')">
                         <h3>
-                            <span>🎛️</span> Feature Modulation
+                            <i class="fas fa-sliders" aria-hidden="true"></i> Feature Modulation
                         </h3>
                         <span class="arrow" id="featureModArrow">▼</span>
                     </div>
@@ -327,7 +333,7 @@
   <script src="/theremin/theremin.js"></script>
     <footer id="site-footer"></footer>
   <script src="/components.js"></script>
-  <script src="/cosmic-bg.js?v=palette-v1"></script>
+  <script src="/cosmic-bg.js"></script>
   <script src="/analytics.js"></script>
 </body>
 

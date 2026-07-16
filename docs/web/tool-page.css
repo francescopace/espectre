@@ -45,7 +45,8 @@
     color: var(--accent);
 }
 
-.tool-page .card h2 > i {
+.tool-page .card h2 > i,
+.tool-page .card h3 > i {
     color: var(--accent);
 }
 

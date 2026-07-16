@@ -124,8 +124,9 @@ body {
     z-index: -1;
 }
 
-/* Header */
-header {
+/* Site top bar only — do not style bare <header>, or in-page section
+   headers (e.g. Configure Diagnostics) become a second fixed overlay. */
+#site-header {
     position: fixed;
     top: 0;
     width: 100%;
@@ -142,7 +143,7 @@ header {
     transition: padding 0.3s ease, background 0.3s ease, border-color 0.3s ease;
 }
 
-header.scrolled {
+#site-header.scrolled {
     padding: 0.8rem 2rem;
     background: var(--bg-primary-95);
     border-bottom: 1px solid var(--accent-dim);
@@ -936,7 +937,7 @@ footer {
 
 /* Responsive */
 @media (max-width: 900px) {
-    header {
+    #site-header {
         padding: 1rem;
         flex-wrap: wrap;
     }

@@ -246,22 +246,21 @@
   display: none;
 }
 
-.configure-section-header {
-  margin-bottom: 0.75rem;
-}
-
-.configure-section-header h2 {
+.configure-section .collapsible-header h2 {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0;
   color: var(--text-primary);
   font-size: 1rem;
 }
 
-.configure-section-header h2 > i {
+.configure-section .collapsible-header h2 > i {
   color: var(--accent);
   font-size: 0.9rem;
+}
+
+.configure-section .collapsible-content {
+  margin-top: 0.75rem;
 }
 
 .section-actions {

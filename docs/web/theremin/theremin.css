@@ -119,6 +119,25 @@
       color: var(--accent);
   }
 
+  .theremin-page .wave-card {
+      padding: 0;
+      overflow: hidden;
+      margin-bottom: 1rem;
+      background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-primary-72) 100%);
+  }
+
+  .theremin-page .wave-stage {
+      position: relative;
+      width: 100%;
+      height: clamp(140px, 22vh, 220px);
+  }
+
+  .theremin-page .theremin-wave {
+      display: block;
+      width: 100%;
+      height: 100%;
+  }
+
   .slider-group {
       display: flex;
       gap: 8px;

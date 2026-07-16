@@ -198,16 +198,15 @@ class ESPectreGame {
             scaleMax: MOVEMENT_SCALE_MAX,
             thresholdMin: THRESHOLD_MIN,
             thresholdMax: THRESHOLD_MAX,
-            digits: 1,
             onThresholdChange: (threshold) => {
                 this.threshold = threshold;
                 if (this.elements.infoThreshold) {
-                    this.elements.infoThreshold.textContent = threshold.toFixed(2);
+                    this.elements.infoThreshold.textContent = threshold.toFixed(4);
                 }
             },
             onThresholdCommit: async (threshold) => {
                 this.threshold = threshold;
-                await this.sendBleControlCommand(`SET_THRESHOLD:${threshold.toFixed(2)}`);
+                await this.sendBleControlCommand(`SET_THRESHOLD:${threshold.toFixed(6)}`);
             }
         });
         this.threshold = this.movementBar.getThreshold();

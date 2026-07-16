@@ -498,10 +498,16 @@ body.game-page:has(#screen-game.active) footer {
 }
 
 .enemy-body {
-    font-size: 8rem;
-    filter: drop-shadow(0 0 20px var(--game-enemy));
     position: relative;
     z-index: 1;
+    color: var(--game-enemy-light);
+    font-size: 8rem;
+    line-height: 1;
+    filter: drop-shadow(0 0 20px var(--game-enemy));
+}
+
+.enemy-body i {
+    display: block;
 }
 
 .enemy-name {

@@ -36,7 +36,6 @@ const movementBar = new ESPectreMovementBar({
   scaleMax: 10,
   thresholdMin: 0,
   thresholdMax: 10,
-  digits: 2,
   onThresholdCommit: async (threshold) => {
     await writeControl(`SET_THRESHOLD:${threshold.toFixed(6)}`);
   }
@@ -66,6 +65,8 @@ el('eventLog').scrollTop = el('eventLog').scrollHeight;
 function revealLogs() {
 el('logsContent').classList.remove('collapsed');
 el('logsArrow').classList.remove('rotate');
+const trigger = el('logsArrow') && el('logsArrow').closest('.collapsible-header');
+if (trigger) trigger.setAttribute('aria-expanded', 'true');
 }
 
 function showValidationError(message) {

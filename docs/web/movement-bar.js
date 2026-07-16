@@ -1,6 +1,10 @@
 /*
  * Shared vertical movement bar + draggable threshold marker.
  * Used by The Game and Configure.
+ *
+ * With autoScale (default), the display range follows the threshold so the
+ * marker stays near mid-height when idle. Drag freezes the scale; release
+ * re-anchors it. This keeps small thresholds (e.g. 0.01) usable.
  */
 
 (function () {
@@ -10,7 +14,11 @@
         scaleMax: 10,
         thresholdMin: 0,
         thresholdMax: 10,
-        digits: 1
+        digits: 1,
+        autoScale: true,
+        // Idle marker position as a fraction of bar height (0 = bottom, 1 = top).
+        thresholdAnchor: 0.5,
+        scaleFloor: 1e-4
     });
 
     class ESPectreMovementBar {
@@ -27,15 +35,24 @@
             this.valueEl = this.root.querySelector('[data-role="value"], .threshold-value, #threshold-value');
             this.track = this.marker ? this.marker.parentElement : this.root.querySelector('.movement-bar-track');
 
-            this.scaleMax = Number(options.scaleMax) || DEFAULTS.scaleMax;
             this.thresholdMin = Number.isFinite(options.thresholdMin) ? options.thresholdMin : DEFAULTS.thresholdMin;
             this.thresholdMax = Number.isFinite(options.thresholdMax) ? options.thresholdMax : DEFAULTS.thresholdMax;
+            this.autoScale = options.autoScale !== false;
+            this.thresholdAnchor = Number.isFinite(options.thresholdAnchor)
+                ? options.thresholdAnchor
+                : DEFAULTS.thresholdAnchor;
+            this.scaleFloor = Number.isFinite(options.scaleFloor) && options.scaleFloor > 0
+                ? options.scaleFloor
+                : DEFAULTS.scaleFloor;
+            // With autoScale, digits follow the zoomed range unless autoDigits is forced off.
+            this.autoDigits = this.autoScale && options.autoDigits !== false;
             this.digits = Number.isFinite(options.digits) ? options.digits : DEFAULTS.digits;
             this.onThresholdCommit = options.onThresholdCommit || null;
             this.onThresholdChange = options.onThresholdChange || null;
 
             this.movement = 0;
             this.threshold = 1;
+            this.scaleMax = Number(options.scaleMax) || DEFAULTS.scaleMax;
             this.dragging = false;
             this.interactive = options.interactive !== false;
             this._boundMove = (event) => this._handleDrag(event);
@@ -45,6 +62,12 @@
             this.setInteractive(this.interactive);
             this.setThreshold(this.threshold, { silent: true });
             this.setMovement(0);
+        }
+
+        _renderMovement() {
+            if (!this.fill || !(this.scaleMax > 0)) return;
+            const display = Math.max(0, Math.min(this.scaleMax, this.movement));
+            this.fill.style.height = `${(display / this.scaleMax) * 100}%`;
         }
 
         get isDragging() {
@@ -75,23 +98,25 @@
             }
         }
 
+        /**
+         * Sets the hard threshold ceiling (and fixed scale when autoScale is off).
+         * Configure uses this when switching classic (10) vs ML (1).
+         */
         setScaleMax(scaleMax) {
             const parsed = Number(scaleMax);
             if (!Number.isFinite(parsed) || parsed <= 0) return;
-            this.scaleMax = parsed;
             this.thresholdMax = parsed;
+            if (!this.autoScale) {
+                this.scaleMax = parsed;
+            }
             this.setThreshold(this.threshold, { silent: true });
-            this.setMovement(this.movement);
         }
 
         setMovement(value) {
             const parsed = Number(value);
-            this.movement = Number.isFinite(parsed)
-                ? Math.max(0, Math.min(this.scaleMax, parsed))
-                : 0;
-            if (this.fill) {
-                this.fill.style.height = `${(this.movement / this.scaleMax) * 100}%`;
-            }
+            // Keep the raw reading so zoom changes do not permanently clip it.
+            this.movement = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+            this._renderMovement();
         }
 
         setThreshold(value, options = {}) {
@@ -102,17 +127,51 @@
                 this.thresholdMin,
                 Math.min(this.thresholdMax, parsed)
             );
+            this._syncDisplayScale();
             this._renderThreshold();
+            this._renderMovement();
             if (!options.silent && typeof this.onThresholdChange === 'function') {
                 this.onThresholdChange(this.threshold);
             }
             return this.threshold;
         }
 
+        _syncDisplayScale() {
+            if (!this.autoScale || this.dragging) return;
+
+            const anchor = Math.min(0.9, Math.max(0.1, this.thresholdAnchor));
+            let desired;
+            if (this.threshold <= 0) {
+                desired = this.thresholdMax;
+            } else {
+                desired = this.threshold / anchor;
+            }
+
+            // Zoom in for small thresholds; never exceed the hard ceiling.
+            this.scaleMax = Math.min(
+                this.thresholdMax,
+                Math.max(this.scaleFloor, desired, this.threshold)
+            );
+            this._updateDigitsFromScale();
+        }
+
+        _updateDigitsFromScale() {
+            if (!this.autoDigits) return;
+            // Aim for ~100 discrete steps across the visible scale.
+            const stepTarget = this.scaleMax / 100;
+            if (!(stepTarget > 0) || stepTarget >= 1) {
+                this.digits = stepTarget >= 1 ? 0 : DEFAULTS.digits;
+                return;
+            }
+            this.digits = Math.min(6, Math.max(1, Math.ceil(-Math.log10(stepTarget))));
+        }
+
         _renderThreshold() {
             if (this.marker) {
-                const percentage = (this.threshold / this.scaleMax) * 100;
-                this.marker.style.bottom = `${percentage}%`;
+                const percentage = this.scaleMax > 0
+                    ? (this.threshold / this.scaleMax) * 100
+                    : 0;
+                this.marker.style.bottom = `${Math.max(0, Math.min(100, percentage))}%`;
             }
             if (this.valueEl) {
                 this.valueEl.textContent = this.threshold.toFixed(this.digits);
@@ -172,6 +231,11 @@
             document.removeEventListener('touchmove', this._boundMove);
             document.removeEventListener('touchend', this._boundEnd);
             document.removeEventListener('touchcancel', this._boundEnd);
+
+            // Re-anchor scale so the new threshold returns near mid-height.
+            this._syncDisplayScale();
+            this._renderThreshold();
+            this._renderMovement();
 
             if (typeof this.onThresholdCommit === 'function') {
                 try {

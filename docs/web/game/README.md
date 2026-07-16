@@ -62,12 +62,12 @@ Works with ESP32 variants that support BLE:
 
 | Chip | Supported |
 |------|-----------|
-| ESP32 (classic) | ✅ |
-| ESP32-S3 | ✅ |
-| ESP32-C3 | ✅ |
-| ESP32-C5 | ✅ |
-| ESP32-C6 | ✅ |
-| ESP32-H2 | ❌ |
+| ESP32 (classic) | Yes |
+| ESP32-S3 | Yes |
+| ESP32-C3 | Yes |
+| ESP32-C5 | Yes |
+| ESP32-C6 | Yes |
+| ESP32-H2 | No |
 
 The game is designed for desktop browsers with Web Bluetooth support.
 
@@ -96,11 +96,11 @@ For testing without hardware or in unsupported browsers.
 
 | Browser | Web Bluetooth | Mouse Mode |
 |---------|---------------|------------|
-| Chrome 89+ | ✅ | ✅ |
-| Edge 89+ | ✅ | ✅ |
-| Opera 76+ | ✅ | ✅ |
-| Firefox | ❌ | ✅ |
-| Safari | ❌ | ✅ |
+| Chrome 89+ | Yes | Yes |
+| Edge 89+ | Yes | Yes |
+| Opera 76+ | Yes | Yes |
+| Firefox | No | Yes |
+| Safari | No | Yes |
 
 ---
 
@@ -158,7 +158,7 @@ This allows gameplay mechanics like:
 PHASE 1: WAIT
 ┌─────────────────────────────────────────┐
 │                                         │
-│        👻 Enemy Spectre appears         │
+│        Enemy Spectre appears            │
 │           (materializing...)            │
 │                                         │
 │         "Stay still..."                 │
@@ -175,7 +175,7 @@ PHASE 2: TRIGGER
 │                                         │
 │                 "MOVE!"                 │
 │                                         │
-│        👻💥 Enemy attacks!              │
+│        Enemy attacks!                   │
 │                                         │
 │       MOVE NOW to counter!              │
 │       Timer: ███░░░░░ 450ms             │

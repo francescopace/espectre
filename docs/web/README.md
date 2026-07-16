@@ -38,14 +38,6 @@ To update the website theme:
 1. Change the custom properties in `styles.css`.
 2. Check the homepage, guides, browser tools, and game states for
    contrast and readability.
-3. Update the `palette-vN` query parameter used for `styles.css` and
-   `cosmic-bg.js` so browsers do not reuse stale assets.
-4. Update the same asset versions in every static HTML page that loads those
-   assets.
-
-The product guides under `guides/` are authored directly as static HTML. Keep
-them concise and task-oriented, and link to the repository for detailed
-developer reference material.
 
 For a local visual check, run:
 
