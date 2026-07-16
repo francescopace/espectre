@@ -20,12 +20,12 @@
 .tool-page .card,
 .tool-page .flash-card {
     margin-bottom: 1rem;
-    padding: 1.35rem;
+    padding: 1.15rem;
     overflow: hidden;
     border: 1px solid var(--border);
-    border-radius: 18px;
-    background: rgba(26, 26, 36, 0.9);
-    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.24);
+    border-radius: 14px;
+    background: var(--bg-card-90);
+    box-shadow: 0 10px 28px var(--shadow-24);
     color: var(--text-primary);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -69,12 +69,8 @@
     margin: 0;
 }
 
-.tool-page .collapsible-header .status-item {
-    margin-left: auto;
-}
-
 .tool-page .collapsible-content {
-    margin-top: 1rem;
+    margin-top: 0.85rem;
 }
 
 .tool-page .collapsible-content.collapsed,
@@ -98,7 +94,46 @@
 .tool-page .log-grid,
 .tool-page .control-grid,
 .tool-page .info-grid {
-    gap: 0.9rem;
+    gap: 0.75rem;
+}
+
+.tool-page .config-section {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+    align-items: start;
+}
+
+.tool-page .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+}
+
+.tool-page .metric-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.15rem;
+    min-height: 0;
+    padding: 0.55rem 0.7rem;
+    border-radius: 10px;
+    text-align: left;
+}
+
+.tool-page .metric-label {
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.tool-page .metric-value {
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.2;
 }
 
 .tool-page .control-grid,
@@ -109,9 +144,9 @@
 
 .tool-page .subsection-card,
 .tool-page .info-panel {
-    margin-bottom: 1rem;
-    padding: 1rem;
-    border-radius: 12px;
+    margin-bottom: 0.75rem;
+    padding: 0.85rem;
+    border-radius: 10px;
 }
 
 .tool-page .info-field {
@@ -130,8 +165,9 @@
 }
 
 .tool-page .input-group label {
-    margin-bottom: 0.4rem;
+    margin-bottom: 0.3rem;
     color: var(--text-primary);
+    font-size: 0.9rem;
     font-weight: 600;
 }
 
@@ -140,16 +176,23 @@
     color: var(--text-secondary) !important;
 }
 
+.tool-page .input-group small {
+    display: block;
+    margin-top: 0.3rem;
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
 .tool-page input:not([type="checkbox"]):not([type="range"]),
 .tool-page select,
 .tool-page textarea {
     width: 100%;
-    min-height: 44px;
-    padding: 0.7rem 0.8rem;
+    min-height: 42px;
+    padding: 0.55rem 0.7rem;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 8px;
     outline: none;
-    background: rgba(10, 10, 15, 0.88);
+    background: var(--bg-primary-88);
     color: var(--text-primary);
     font: inherit;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -187,7 +230,7 @@
 .tool-page .flash-summary,
 .tool-page .flash-status {
     border-color: var(--border);
-    background: rgba(10, 10, 15, 0.72);
+    background: var(--bg-primary-72);
     color: var(--text-primary);
 }
 
@@ -196,17 +239,9 @@
 .tool-page .subsection-card,
 .tool-page .info-panel {
     border: 1px solid var(--border);
-    background: rgba(10, 10, 15, 0.56);
+    background: var(--bg-primary-56);
     color: var(--text-primary);
     box-shadow: none;
-}
-
-.tool-page .metric-label {
-    color: var(--text-secondary);
-}
-
-.tool-page .metric-value {
-    color: var(--text-primary);
 }
 
 .tool-page .toggle-text {
@@ -222,43 +257,19 @@
 }
 
 .tool-page .metric-card.motion {
-    border-color: rgba(0, 212, 170, 0.55);
-    background: rgba(0, 212, 170, 0.12);
+    border-color: var(--accent-border);
+    background: var(--accent-soft);
 }
 
 .tool-page .metric-card.idle,
 .tool-page .metric-card.neutral {
     border-color: var(--border);
-    background: rgba(10, 10, 15, 0.56);
-}
-
-.tool-page .status-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--text-secondary);
-}
-
-.tool-page .status-indicator {
-    width: 0.65rem;
-    height: 0.65rem;
-    flex: 0 0 auto;
-    border-radius: 50%;
-    animation: tool-status-pulse 2s ease-in-out infinite;
-}
-
-.tool-page .status-indicator.connected {
-    background: var(--accent);
-}
-
-.tool-page .status-indicator.disconnected {
-    background: var(--danger);
-    animation: none;
+    background: var(--bg-primary-56);
 }
 
 .tool-page .btn {
-    min-height: 44px;
-    padding: 0.7rem 1rem;
+    min-height: 42px;
+    padding: 0.6rem 0.9rem;
     border: 1px solid transparent;
     border-radius: 10px;
     font-family: inherit;
@@ -294,7 +305,7 @@
 .tool-page .btn-info,
 .tool-page .btn-warning {
     border-color: var(--border);
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--white-06);
     color: var(--text-primary);
 }
 
@@ -315,7 +326,11 @@
 .tool-page .flash-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.7rem;
+    gap: 0.55rem;
+}
+
+.tool-page .section-actions {
+    margin-top: 0.75rem;
 }
 
 .tool-page .site-warning {
@@ -344,12 +359,12 @@
     border-radius: 10px;
     background: var(--bg-card);
     color: var(--text-primary);
-    box-shadow: 0 12px 35px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 12px 35px var(--shadow-35);
     animation: tool-notification-in 0.25s ease-out;
 }
 
 .tool-page .notification.success {
-    border-color: rgba(0, 212, 170, 0.5);
+    border-color: var(--accent-border);
 }
 
 .tool-page .notification.error {
@@ -376,17 +391,6 @@
 
 .tool-page .stat-label {
     color: var(--text-secondary);
-}
-
-@keyframes tool-status-pulse {
-    0%,
-    100% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: 0.45;
-    }
 }
 
 @keyframes tool-notification-in {
@@ -425,14 +429,15 @@
         border-radius: 14px;
     }
 
-    .tool-page .collapsible-header {
-        flex-wrap: wrap;
+    .tool-page input:not([type="checkbox"]):not([type="range"]),
+    .tool-page select,
+    .tool-page textarea,
+    .tool-page .btn {
+        min-height: 44px;
     }
 
-    .tool-page .collapsible-header .status-item {
-        order: 3;
-        width: 100%;
-        margin-left: 0;
+    .tool-page .collapsible-header {
+        flex-wrap: wrap;
     }
 
     .tool-page .button-row,
@@ -449,13 +454,16 @@
     }
 
     .tool-page .config-section,
-    .tool-page .metrics-grid,
     .tool-page .diag-grid,
     .tool-page .log-grid,
     .tool-page .control-grid,
     .tool-page .info-grid,
     .tool-page .flash-grid {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tool-page .metrics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .tool-page .slider-group {

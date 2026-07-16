@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://espectre.dev/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://espectre.dev/flash/</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://espectre.dev/configure/</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://espectre.dev/monitor/</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://espectre.dev/game/</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://espectre.dev/theremin/</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://espectre.dev/guides/setup/</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://espectre.dev/guides/detection/</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://espectre.dev/guides/custom-firmware/</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://espectre.dev/guides/hardware/</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+</urlset>

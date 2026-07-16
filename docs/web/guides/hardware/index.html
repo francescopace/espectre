@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Embedded Products | ESPectre</title>
+    <meta name="description" content="Add privacy-first motion sensing to products that already include a compatible ESP32 Wi-Fi platform.">
+    <link rel="canonical" href="https://espectre.dev/guides/hardware/">
+    <link rel="icon" href="/favicon.png" type="image/png">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://espectre.dev/guides/hardware/">
+    <meta property="og:title" content="Embedded Products | ESPectre">
+    <meta property="og:description" content="Turn the Wi-Fi already inside a product into a privacy-first motion sensor.">
+    <meta property="og:image" content="https://espectre.dev/espectre.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Embedded Products | ESPectre">
+    <meta name="twitter:description" content="Turn the Wi-Fi already inside a product into a privacy-first motion sensor.">
+    <meta name="twitter:image" content="https://espectre.dev/espectre.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&amp;family=Outfit:wght@300;400;600;700&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="/styles.css?v=palette-v1">
+    <link rel="stylesheet" href="/guides/guides.css">
+</head>
+<body class="guide-page">
+    <canvas id="cosmic-bg"></canvas>
+    <header id="site-header"></header>
+    <main class="guide-shell">
+        <div class="guide-content">
+            <div class="guide-header">
+                <h1>Embed motion sensing in a connected product</h1>
+                <p>A product with a compatible ESP32 can reuse its Wi-Fi radio to detect nearby movement without adding a camera, microphone, or dedicated motion sensor.</p>
+            </div>
+
+            <section class="guide-section">
+                <h2>When integration is possible</h2>
+                <p>ESPectre can be embedded when the product firmware can access CSI from a supported ESP32 and provide enough Wi-Fi traffic for continuous sensing.</p>
+                <div class="guide-grid">
+                    <article class="guide-card"><i class="fas fa-microchip"></i><h3>Compatible ESP32</h3><p>The device uses an ESP32 family supported by the ESPectre CSI capture and runtime layers.</p></article>
+                    <article class="guide-card"><i class="fas fa-wifi"></i><h3>Usable packet flow</h3><p>The radio receives a sufficiently regular stream of 2.4 GHz packets in the monitored environment.</p></article>
+                    <article class="guide-card"><i class="fas fa-code"></i><h3>Firmware integration</h3><p>The application can allocate resources for capture and detection, then consume motion events or movement scores.</p></article>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Products that can react to movement</h2>
+                <div class="guide-grid">
+                    <article class="guide-card"><i class="fas fa-temperature-three-quarters"></i><h3>HVAC and thermostats</h3><p>Use recent activity as one signal for comfort modes, airflow control, or energy-saving transitions.</p></article>
+                    <article class="guide-card"><i class="fas fa-lightbulb"></i><h3>Lighting</h3><p>Let connected bulbs, luminaires, and lighting controllers react locally when movement begins or a room becomes quiet.</p></article>
+                    <article class="guide-card"><i class="fas fa-robot"></i><h3>Robot vacuums</h3><p>Schedule, pause, or adapt cleaning behavior when people are moving through the surrounding space.</p></article>
+                    <article class="guide-card"><i class="fas fa-fan"></i><h3>Air treatment</h3><p>Give air purifiers, fans, and ventilation equipment another input for activity-aware operating modes.</p></article>
+                    <article class="guide-card"><i class="fas fa-tv"></i><h3>Displays and appliances</h3><p>Wake an interface, change standby behavior, or trigger a contextual action when nearby movement is detected.</p></article>
+                    <article class="guide-card"><i class="fas fa-building"></i><h3>Building equipment</h3><p>Add privacy-conscious activity signals to connected controllers, room devices, and distributed automation nodes.</p></article>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>What the product receives</h2>
+                <p>ESPectre turns CSI processing into a small set of signals that can fit naturally into existing product logic.</p>
+                <div class="guide-grid">
+                    <article class="guide-card"><h3>Motion state</h3><p>A simple active or inactive state for rules and event triggers.</p></article>
+                    <article class="guide-card"><h3>Movement score</h3><p>A continuous indication of how strongly the radio environment is changing.</p></article>
+                    <article class="guide-card"><h3>Runtime status</h3><p>Calibration and diagnostic information for setup, support, and product telemetry.</p></article>
+                </div>
+                <div class="guide-note">Wi-Fi sensing is an environmental activity signal. Product behavior should account for placement, room geometry, interference, and the consequences of missed or unexpected detections.</div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Is the platform a fit?</h2>
+                <ul class="guide-checklist">
+                    <li>The device uses a compatible ESP32 family with CSI support.</li>
+                    <li>It operates on 2.4 GHz Wi-Fi and receives enough packet traffic for sensing.</li>
+                    <li>The firmware can allocate resources for CSI capture and on-device detection.</li>
+                    <li>The intended event does not require identity recognition or safety-certified presence detection.</li>
+                </ul>
+            </section>
+
+            <section class="guide-section">
+                <h2>Firmware integration</h2>
+                <p>Start from a complete frontend, or embed the reusable sensing layers into an existing ESP-IDF application using the <a href="/guides/custom-firmware/">custom firmware guide</a>.</p>
+            </section>
+        </div>
+    </main>
+    <footer id="site-footer"></footer>
+    <script src="/components.js"></script>
+    <script>loadHeader({ page: 'guides' }); loadFooter();</script>
+    <script src="/cosmic-bg.js?v=palette-v1"></script>
+    <script src="/analytics.js"></script>
+</body>
+</html>

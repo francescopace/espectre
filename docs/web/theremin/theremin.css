@@ -1,3 +1,124 @@
+  .theremin-connection-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      text-align: center;
+  }
+
+  .theremin-title h1 {
+      margin-bottom: 0.25rem;
+      background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 58%, var(--accent-secondary) 100%);
+      background-clip: text;
+      color: transparent;
+      font-size: clamp(3rem, 12vw, 5rem);
+      font-weight: 700;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+  }
+
+  .theremin-subtitle {
+      margin-left: 0.5em;
+      color: var(--text-secondary);
+      font-size: clamp(1.2rem, 4vw, 1.8rem);
+      font-weight: 300;
+      letter-spacing: 0.5em;
+  }
+
+  .theremin-tagline {
+      margin: 1.5rem 0 2.5rem;
+      color: var(--text-dim);
+      font-size: 1.1rem;
+      font-style: italic;
+  }
+
+  .theremin-page .connection-box {
+      width: 100%;
+      max-width: 400px;
+      padding: 2rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+  }
+
+  .theremin-page .connection-pre,
+  .theremin-page .connection-ready {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+  }
+
+  .theremin-page .connection-pre[hidden],
+  .theremin-page .connection-ready[hidden],
+  .theremin-page #thereminWorkspace[hidden] {
+      display: none;
+  }
+
+  .theremin-page .connection-hint {
+      margin-top: 1rem;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+  }
+
+  .theremin-page .connection-status {
+      font-size: 0.9rem;
+  }
+
+  .theremin-page .connection-status:not(:empty) {
+      margin-top: 1rem;
+  }
+
+  .theremin-page .connection-status.connecting {
+      color: var(--warning);
+  }
+
+  .theremin-page .connection-status.error {
+      color: var(--danger);
+  }
+
+  .theremin-page .device-ready-status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      color: var(--accent);
+      font-size: 1.1rem;
+  }
+
+  .theremin-page .device-ready-status i {
+      font-size: 1.3rem;
+  }
+
+  .theremin-page .connection-ready,
+  .theremin-page .connection-ready .btn {
+      width: 100%;
+  }
+
+  .theremin-page .btn-large {
+      padding: 1.25rem 2.5rem;
+      font-size: 1.1rem;
+  }
+
+  .theremin-page .btn-small {
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
+  }
+
+  .theremin-page .compatibility-note {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 1rem;
+      color: var(--text-dim);
+      font-size: 0.8rem;
+  }
+
+  .theremin-page .compatibility-note i {
+      color: var(--accent);
+  }
+
   .slider-group {
       display: flex;
       gap: 8px;

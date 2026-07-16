@@ -43,8 +43,6 @@ Innovation flow: prototype in Python, validate, then port to the relevant shared
 
 For current CLI syntax, use `docs/SETUP.md`, `src/python/micro_espectre/README.md`, the relevant frontend README, and `./espectre --help`. Avoid duplicating command examples in agent rules because the wrapper evolves often.
 
-Do not edit generated HTML under `docs/web/documentation/` directly. Update the source Markdown or `.github/scripts/build_docs.py` instead.
-
 ## Environment And Commands
 
 - Use the repository virtual environment for direct Python commands when available.

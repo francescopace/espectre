@@ -12,14 +12,14 @@ function loadHeader(options = {}) {
     const page = options.page || (isGamePage ? 'game' : 'home');
     const pageTitles = {
         configure: 'Configure',
-        docs: 'Documentation',
+        guides: 'Guides',
         flash: 'Flash Firmware',
         game: 'The Game',
         monitor: 'MQTT Monitor',
         theremin: 'Theremin'
     };
     const pageTitle = pageTitles[page];
-    const pageTitleTag = page === 'docs' || page === 'game' ? 'span' : 'h1';
+    const pageTitleTag = page === 'guides' || page === 'game' ? 'span' : 'h1';
     const headerControls = {
         configure: `
             <button id="header-connect-action" class="header-control btn-connect" type="button"
@@ -47,6 +47,12 @@ function loadHeader(options = {}) {
                     data-action-target="connectBtn" title="Connect to MQTT"
                     aria-label="Connect to MQTT">
                 <i class="fas fa-tower-broadcast"></i>
+            </button>`,
+        theremin: `
+            <button id="header-connect-action" class="header-control btn-connect" type="button"
+                    data-action-target="connectBtn" title="Connect ESPectre via Bluetooth"
+                    aria-label="Connect ESPectre via Bluetooth">
+                <i class="fab fa-bluetooth-b"></i>
             </button>`
     };
     const pageHeaderControls = headerControls[page] || '';
@@ -104,20 +110,14 @@ function loadHeader(options = {}) {
                 </div>
             </div>
             <div class="nav-dropdown nav-dropdown-right">
-                <a href="#" class="nav-dropdown-toggle"><i class="fas fa-book"></i> Docs <i class="fas fa-chevron-down"></i></a>
+                <a href="#" class="nav-dropdown-toggle"><i class="fas fa-compass"></i> Guides <i class="fas fa-chevron-down"></i></a>
                 <div class="nav-dropdown-menu">
-                    <a href="/documentation/"><i class="fas fa-home"></i> Main</a>
-                    <a href="/documentation/setup/"><i class="fas fa-wrench"></i> Setup Guide</a>
-                    <a href="/documentation/tuning/"><i class="fas fa-sliders"></i> Tuning Guide</a>
-                    <a href="/documentation/architecture/"><i class="fas fa-diagram-project"></i> Architecture</a>
-                    <a href="/documentation/protocol/"><i class="fas fa-network-wired"></i> Protocol</a>
-                    <a href="/documentation/performance/"><i class="fas fa-gauge-high"></i> Performance</a>
+                    <a href="/guides/setup/"><i class="fas fa-plug-circle-check"></i> Flash &amp; Wi-Fi Setup</a>
+                    <a href="/guides/detection/"><i class="fas fa-wave-square"></i> How Detection Works</a>
+                    <a href="/guides/custom-firmware/"><i class="fas fa-code"></i> Build Custom Firmware</a>
+                    <a href="/guides/hardware/"><i class="fas fa-cube"></i> Embedded Products</a>
                     <div class="nav-dropdown-divider"></div>
-                    <a href="/documentation/roadmap/"><i class="fas fa-map"></i> Roadmap</a>
-                    <a href="/documentation/changelog/"><i class="fas fa-list"></i> Changelog</a>
-                    <a href="/documentation/algorithms/"><i class="fas fa-square-root-variable"></i> Algorithms</a>
-                    <a href="/documentation/ml-data-collection/"><i class="fas fa-database"></i> ML Data</a>
-                    <a href="/documentation/ml-training/"><i class="fas fa-brain"></i> ML Training</a>
+                    <a href="https://github.com/francescopace/espectre#documentation"><i class="fab fa-github"></i> Developer Reference</a>
                 </div>
             </div>
         </nav>
@@ -163,6 +163,12 @@ function loadHeader(options = {}) {
             const target = document.getElementById(control.dataset.actionTarget);
             if (!target) return;
 
+            const directAction = window.toolPageActions && window.toolPageActions[control.dataset.actionTarget];
+            if (typeof directAction === 'function') {
+                directAction();
+                return;
+            }
+
             const shadowButton = target.shadowRoot && target.shadowRoot.querySelector('button');
             (shadowButton || target).click();
         });
@@ -188,6 +194,6 @@ function loadFooter() {
             <a href="mailto:security@espectre.dev"><i class="fas fa-shield-halved"></i> Security</a>
             <a href="https://linkedin.com/in/francescopace"><i class="fas fa-user"></i> Francesco Pace</a>
         </p>
-        <p class="footer-copyright">© 2025 ESPectre · GPLv3 License</p>
+        <p class="footer-copyright">© 2026 ESPectre · GPLv3 License</p>
     `;
 }

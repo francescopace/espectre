@@ -5,9 +5,11 @@ let client = null;
   let pendingData = [];
   let currentDeviceId = null;
   let lastOtaState = null;
+  let lastTrackedDeviceProfile = null;
   let capabilityState = {
-      frontend: null,
-      supportsRuntimeThreshold: null,
+      supportsInfo: false,
+      supportsRuntimeThreshold: false,
+      supportsRuntimeDetector: false,
       supportsOta: false,
       supportsStats: false
   };
@@ -24,10 +26,103 @@ let client = null;
       threshold: []
   };
 
+  function showConnectionStatus(message, type = '') {
+      const status = document.getElementById('connectionStatus');
+      if (!status) return;
+      status.textContent = message;
+      status.className = `connection-status ${type}`.trim();
+  }
+
+  function setChartHint(message) {
+      const hint = document.getElementById('chartHint');
+      if (hint) hint.textContent = message;
+  }
+
+  function setPauseButtonState(paused) {
+      const pauseBtn = document.getElementById('pauseBtn');
+      if (!pauseBtn) return;
+      pauseBtn.innerHTML = paused
+          ? '<i class="fas fa-play" aria-hidden="true"></i> Resume'
+          : '<i class="fas fa-pause" aria-hidden="true"></i> Pause';
+      pauseBtn.classList.toggle('btn-secondary', !paused);
+      pauseBtn.classList.toggle('btn-success', paused);
+  }
+
+  function setChartTitleState(paused, unavailable = false) {
+      const chartTitle = document.getElementById('chartTitle');
+      if (!chartTitle) return;
+      if (unavailable) {
+          chartTitle.innerHTML = '<i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Chart unavailable';
+          return;
+      }
+      chartTitle.innerHTML = paused
+          ? '<i class="fas fa-chart-line" aria-hidden="true"></i> Real-Time Chart <span class="chart-paused-badge">Paused</span>'
+          : '<i class="fas fa-chart-line" aria-hidden="true"></i> Real-Time Chart';
+  }
+
+  function openConnectModal() {
+      const modal = document.getElementById('mqttConnectModal');
+      if (!modal) return;
+      modal.hidden = false;
+      document.body.classList.add('monitor-modal-open');
+      updateTransportWarning();
+      const broker = document.getElementById('broker');
+      if (broker && !broker.disabled) {
+          window.setTimeout(() => broker.focus(), 50);
+      }
+  }
+
+  function closeConnectModal() {
+      const modal = document.getElementById('mqttConnectModal');
+      if (!modal) return;
+      modal.hidden = true;
+      document.body.classList.remove('monitor-modal-open');
+  }
+
+  function updateConnectionUi(connected) {
+      const connectionPre = document.getElementById('connectionPre');
+      const connectionReady = document.getElementById('connectionReady');
+      const workspace = document.getElementById('monitorWorkspace');
+      if (connectionPre) connectionPre.hidden = connected;
+      if (connectionReady) connectionReady.hidden = !connected;
+      if (workspace) workspace.hidden = !connected;
+      document.body.classList.toggle('monitor-connected', connected);
+      ToolPage.setHeaderConnectionStatus(connected);
+
+      if (connected) {
+          const broker = document.getElementById('broker');
+          const label = document.getElementById('connectedBrokerLabel');
+          const brokerLabel = broker && broker.value ? broker.value : 'MQTT broker';
+          if (label) label.textContent = `${brokerLabel} Connected`;
+          closeConnectModal();
+          setChartHint('Streaming live movement. Drag the threshold handle when supported.');
+          if (chart) {
+              window.requestAnimationFrame(() => {
+                  chart.resize();
+                  updateThresholdDragHintPosition();
+              });
+          }
+      } else {
+          showConnectionStatus('', '');
+          setChartHint('Waiting for live telemetry…');
+      }
+  }
+
+  function setConnectBusy(busy) {
+      const submit = document.getElementById('mqttConnectSubmitBtn');
+      const connectBtn = document.getElementById('connectBtn');
+      if (submit) {
+          submit.disabled = busy;
+          submit.textContent = busy ? 'Connecting…' : 'Connect';
+      }
+      if (connectBtn) connectBtn.disabled = busy;
+  }
+
   // Initialize Chart
   function initChart() {
       if (typeof Chart === 'undefined') {
-          document.getElementById('chartTitle').textContent = '📈 Chart unavailable';
+          setChartTitleState(false, true);
+          setChartHint('Chart.js failed to load. Check the browser network policy and reload the page.');
           showNotification('Chart.js failed to load. Check the browser network policy and reload the page.', 'error');
           return;
       }
@@ -35,7 +130,9 @@ let client = null;
       const palette = getComputedStyle(document.documentElement);
       const accentColor = palette.getPropertyValue('--accent').trim();
       const accentGlow = palette.getPropertyValue('--accent-glow').trim();
-      const thresholdColor = palette.getPropertyValue('--text-secondary').trim();
+      const thresholdColor = palette.getPropertyValue('--text-dim').trim() || palette.getPropertyValue('--text-secondary').trim();
+      const gridColor = palette.getPropertyValue('--border').trim();
+      const tickColor = palette.getPropertyValue('--text-dim').trim() || '#b8b8c7';
       chart = new Chart(ctx, {
           type: 'line',
           data: {
@@ -46,8 +143,10 @@ let client = null;
                       data: chartData.movement,
                       borderColor: accentColor,
                       backgroundColor: accentGlow,
-                      borderWidth: 2,
-                      tension: 0.4,
+                      borderWidth: 2.5,
+                      pointRadius: 0,
+                      pointHoverRadius: 4,
+                      tension: 0.35,
                       fill: true,
                       yAxisID: 'y'
                   },
@@ -57,7 +156,8 @@ let client = null;
                       borderColor: thresholdColor,
                       backgroundColor: 'transparent',
                       borderWidth: 2,
-                      borderDash: [5, 5],
+                      borderDash: [6, 5],
+                      pointRadius: 0,
                       tension: 0,
                       fill: false,
                       yAxisID: 'y'
@@ -67,8 +167,12 @@ let client = null;
           options: {
               responsive: true,
               maintainAspectRatio: false,
+              interaction: {
+                  mode: 'index',
+                  intersect: false
+              },
               animation: {
-                  duration: 300
+                  duration: 220
               },
               scales: {
                   y: {
@@ -76,26 +180,61 @@ let client = null;
                       display: true,
                       position: 'left',
                       beginAtZero: true,
+                      border: {
+                          display: false
+                      },
+                      grid: {
+                          color: gridColor
+                      },
+                      ticks: {
+                          color: tickColor,
+                          maxTicksLimit: 6
+                      },
                       title: {
                           display: true,
-                          text: 'Movement / Threshold'
+                          text: 'Movement / Threshold',
+                          color: tickColor
                       }
                   },
                   x: {
+                      border: {
+                          display: false
+                      },
+                      grid: {
+                          display: false
+                      },
+                      ticks: {
+                          color: tickColor,
+                          maxTicksLimit: 8,
+                          maxRotation: 0
+                      },
                       title: {
-                          display: true,
-                          text: 'Time'
+                          display: false
                       }
                   }
               },
               plugins: {
                   legend: {
                       display: true,
-                      position: 'top'
+                      position: 'top',
+                      align: 'end',
+                      labels: {
+                          color: tickColor,
+                          boxWidth: 12,
+                          usePointStyle: true,
+                          pointStyle: 'line',
+                          padding: 16
+                      }
                   },
                   tooltip: {
                       mode: 'index',
-                      intersect: false
+                      intersect: false,
+                      backgroundColor: palette.getPropertyValue('--bg-card').trim() || '#1a1a24',
+                      titleColor: tickColor,
+                      bodyColor: palette.getPropertyValue('--text-primary').trim() || '#ffffff',
+                      borderColor: gridColor,
+                      borderWidth: 1,
+                      padding: 10
                   }
               }
           }
@@ -105,25 +244,15 @@ let client = null;
 
   function togglePause() {
       isPaused = !isPaused;
-      const pauseBtn = document.getElementById('pauseBtn');
-      const chartTitle = document.getElementById('chartTitle');
+      setPauseButtonState(isPaused);
+      setChartTitleState(isPaused);
+      setChartHint(isPaused
+          ? 'Chart paused. Incoming samples are queued until you resume.'
+          : 'Drag the threshold handle on the right when the device supports runtime threshold updates.');
 
-      if (isPaused) {
-          pauseBtn.textContent = '▶️ Resume';
-          pauseBtn.classList.remove('btn-warning');
-          pauseBtn.classList.add('btn-success');
-          chartTitle.textContent = '📈 Real-Time Chart (PAUSED)';
-      } else {
-          pauseBtn.textContent = '⏸️ Pause';
-          pauseBtn.classList.remove('btn-success');
-          pauseBtn.classList.add('btn-warning');
-          chartTitle.textContent = '📈 Real-Time Chart';
-
-          // Add all pending data when resuming
-          if (pendingData.length > 0) {
-              pendingData.forEach(data => addDataToChart(data));
-              pendingData = [];
-          }
+      if (!isPaused && pendingData.length > 0) {
+          pendingData.forEach(data => addDataToChart(data));
+          pendingData = [];
       }
   }
 
@@ -131,7 +260,7 @@ let client = null;
       if (client && client.connected) {
           disconnect();
       } else {
-          connect();
+          openConnectModal();
       }
   }
 
@@ -143,6 +272,9 @@ let client = null;
           return;
       }
 
+      setConnectBusy(true);
+      showConnectionStatus('Connecting to MQTT broker…', 'connecting');
+      setChartHint('Connecting to the MQTT broker…');
       client = ToolPage.connectMqtt({
           clientPrefix: 'monitor',
           subscription: protocolTopics.all,
@@ -150,13 +282,20 @@ let client = null;
           onMessage: (topic, message) => handleMessage(message.toString(), topic),
           onSubscribed: () => {
               setCurrentDeviceId(protocolTopics.deviceId);
+              setChartHint('Subscribed. Waiting for live telemetry…');
               window.setTimeout(requestInfo, 500);
           }
       });
+      if (!client) {
+          setConnectBusy(false);
+          showConnectionStatus('Unable to start MQTT connection.', 'error');
+          setChartHint('Waiting for live telemetry…');
+      }
   }
 
 
   function disconnect() {
+      closeConnectModal();
       client = ToolPage.disconnectMqtt(client, updateStatus);
   }
 
@@ -173,7 +312,18 @@ let client = null;
 
   function updateStatus(connected) {
       setMqttConfigLocked(connected);
-      ToolPage.setConnectionStatus(connected);
+      setConnectBusy(false);
+      updateConnectionUi(connected);
+      if (!connected) {
+          capabilityState = {
+              supportsInfo: false,
+              supportsRuntimeThreshold: false,
+              supportsRuntimeDetector: false,
+              supportsOta: false,
+              supportsStats: false
+          };
+          applyCapabilityState();
+      }
   }
 
 
@@ -224,10 +374,6 @@ let client = null;
           setInfoField('detectorAlgorithm', String(data.detector).toUpperCase());
       }
       if (data.threshold !== undefined) {
-          if (capabilityState.supportsRuntimeThreshold !== true) {
-              capabilityState.supportsRuntimeThreshold = true;
-              setThresholdControlAvailability(true);
-          }
           setThresholdControls(data.threshold);
       }
   }
@@ -403,8 +549,12 @@ let client = null;
 
   function setOtaControlsVisibility(supported) {
       const enabled = supported === true;
+      const card = document.getElementById('firmwareUpgradeCard');
+      if (card) {
+          card.hidden = !enabled;
+      }
       document.querySelectorAll('.ota-action').forEach((button) => {
-          button.style.display = enabled ? 'inline-block' : 'none';
+          button.hidden = !enabled;
       });
   }
 
@@ -417,8 +567,18 @@ let client = null;
       const enabled = supported === true;
       const statsBtn = document.getElementById('statsBtn');
       if (statsBtn) {
-          statsBtn.style.display = enabled ? 'inline-block' : 'none';
+          statsBtn.hidden = !enabled;
       }
+  }
+
+  function applyCapabilityState() {
+      const configurationCard = document.getElementById('deviceConfigurationCard');
+      if (configurationCard) {
+          configurationCard.hidden = capabilityState.supportsInfo !== true;
+      }
+      setThresholdControlAvailability(capabilityState.supportsRuntimeThreshold);
+      setOtaControlsVisibility(capabilityState.supportsOta);
+      setStatsControlsVisibility(capabilityState.supportsStats);
   }
 
   function trimTopic(topic) {
@@ -495,6 +655,10 @@ let client = null;
           if (err) {
               showNotification(`Failed to send command: ${err.message}`, 'error');
           }
+          trackEvent('monitor_command', {
+              command: cmd,
+              result: err ? 'failure' : 'success'
+          });
           // Removed "Command sent" notification for cleaner real-time updates
           // Only device responses will show notifications now
       });
@@ -610,7 +774,7 @@ let client = null;
           // Regular data message (has movement, threshold, state)
           if (data.movement !== undefined || data.threshold !== undefined || data.state) {
               const now = new Date();
-              document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('it-IT', { hour12: false });
+              document.getElementById('lastUpdate').textContent = now.toLocaleTimeString(undefined, { hour12: false });
 
               updateMetrics(data);
 
@@ -720,9 +884,11 @@ let client = null;
       const header = document.createElement('div');
       header.className = 'modal-header';
       header.innerHTML = `
-          <h3>Statistics</h3>
+          <h3><i class="fas fa-chart-simple" aria-hidden="true"></i> Statistics</h3>
           <div class="modal-header-actions">
-              <button class="modal-reload" id="statsReloadBtn" onclick="refreshStats()" title="Refresh statistics">🔄</button>
+              <button class="modal-reload" id="statsReloadBtn" onclick="refreshStats()" title="Refresh statistics" type="button" aria-label="Refresh statistics">
+                  <i class="fas fa-rotate-right" aria-hidden="true"></i>
+              </button>
           </div>
       `;
 
@@ -734,18 +900,18 @@ let client = null;
 
       html += `<div class="stat-list">`;
       html += `<div class="stat-line">`;
-      html += `<span class="stat-label">⏱️ Uptime</span>`;
+      html += `<span class="stat-label"><i class="fas fa-clock" aria-hidden="true"></i> Uptime</span>`;
       html += `<span class="stat-value">${formatUptime(stats.uptime)}</span>`;
       html += `</div>`;
       if (stats.free_memory_kb !== undefined) {
           html += `<div class="stat-line">`;
-          html += `<span class="stat-label">🧠 Free Memory</span>`;
+          html += `<span class="stat-label"><i class="fas fa-memory" aria-hidden="true"></i> Free Memory</span>`;
           html += `<span class="stat-value highlight">${formatMetric(stats.free_memory_kb, 1, ' KB')}</span>`;
           html += `</div>`;
       }
       if (stats.loop_time_ms !== undefined) {
           html += `<div class="stat-line">`;
-          html += `<span class="stat-label">⚡ Loop Time</span>`;
+          html += `<span class="stat-label"><i class="fas fa-bolt" aria-hidden="true"></i> Loop Time</span>`;
           html += `<span class="stat-value highlight">${formatMetric(stats.loop_time_ms, 2, ' ms')}</span>`;
           html += `</div>`;
       }
@@ -775,6 +941,20 @@ let client = null;
   function populateUIFromConfig(config, options = {}) {
       console.log('Populating UI from config:', config);
 
+      if (config.chip && config.frontend) {
+          const frontend = String(config.frontend).toLowerCase();
+          const chip = String(config.chip).toLowerCase();
+          const profile = `${frontend}:${chip}`;
+          if (profile !== lastTrackedDeviceProfile) {
+              trackEvent('device_profile', {
+                  tool_name: 'monitor',
+                  frontend,
+                  chip
+              });
+              lastTrackedDeviceProfile = profile;
+          }
+      }
+
       [
           'deviceType',
           'deviceIP',
@@ -794,8 +974,6 @@ let client = null;
       setCurrentDeviceId(config.device_id);
       setInfoField('protocolDeviceName', config.device_name);
       setInfoField('protocolDeviceLabel', config.device_label);
-      setOtaControlsVisibility(config.supports_ota === true);
-
       if (config.network) {
           setInfoField('deviceIP', config.network.ip_address);
           setInfoField('deviceMAC', config.network.mac_address);
@@ -815,16 +993,13 @@ let client = null;
       }
 
       capabilityState = {
-          frontend: config.frontend || capabilityState.frontend,
-          supportsRuntimeThreshold: config.supports_runtime_threshold === true
-              ? true
-              : (config.supports_runtime_threshold === false ? false : null),
+          supportsInfo: config.supports_info === true,
+          supportsRuntimeThreshold: config.supports_runtime_threshold === true,
+          supportsRuntimeDetector: config.supports_runtime_detector === true,
           supportsOta: config.supports_ota === true,
-          supportsStats: config.frontend === 'native' || config.frontend === 'streamer'
+          supportsStats: config.supports_stats === true
       };
-      setThresholdControlAvailability(capabilityState.supportsRuntimeThreshold);
-      setOtaControlsVisibility(capabilityState.supportsOta);
-      setStatsControlsVisibility(capabilityState.supportsStats);
+      applyCapabilityState();
 
       if (config.firmware_version) {
           setInfoField('firmwareVersion', config.firmware_version);
@@ -862,7 +1037,6 @@ let client = null;
   }
 
   function updateOtaStatus(data) {
-      setOtaControlsVisibility(true);
       const state = data.state || '-';
       setOtaValue('otaStateValue', state);
       if (data.current_version) {
@@ -898,12 +1072,32 @@ let client = null;
 
   // Initialize on load
   window.addEventListener('load', () => {
+      const connectButton = document.getElementById('connectBtn');
+      const disconnectButton = document.getElementById('disconnectBtn');
+      const submitButton = document.getElementById('mqttConnectSubmitBtn');
+      const modal = document.getElementById('mqttConnectModal');
+
+      if (connectButton) connectButton.addEventListener('click', toggleConnection);
+      if (disconnectButton) disconnectButton.addEventListener('click', disconnect);
+      if (submitButton) submitButton.addEventListener('click', connect);
+
+      if (modal) {
+          modal.querySelectorAll('[data-close-mqtt-modal]').forEach((el) => {
+              el.addEventListener('click', closeConnectModal);
+          });
+      }
+
+      document.addEventListener('keydown', (event) => {
+          if (event.key !== 'Escape') return;
+          const openModal = document.getElementById('mqttConnectModal');
+          if (openModal && !openModal.hidden) closeConnectModal();
+      });
+
       initChart();
       updateTransportWarning();
-      setThresholdControlAvailability(null);
-      setOtaControlsVisibility(false);
-      setStatsControlsVisibility(false);
+      applyCapabilityState();
       updateOtaSummaryVisibility();
+      updateConnectionUi(false);
   });
 
   window.addEventListener('resize', () => {

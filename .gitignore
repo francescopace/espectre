@@ -70,11 +70,6 @@ src/cpp/frontend/*/app/dependencies.lock
 # Documentation
 .papers/
 
-# Generated documentation (built by CI)
-docs/web/documentation/
-docs/web/_pagefind/
-docs/web/sitemap.xml
-
 # Local web flasher staging
 tmp/
 docs/web/flash/firmware/*/firmware-manifest-*.json

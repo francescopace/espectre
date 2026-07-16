@@ -1,0 +1,119 @@
+/*
+ * Shared vertical movement bar + threshold marker.
+ */
+
+.movement-bar-vertical {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 14px;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.movement-bar-vertical[hidden],
+.movement-bar-vertical.is-hidden {
+    display: none;
+}
+
+.movement-bar-track {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+}
+
+.movement-bar-fill {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 0%;
+    background: linear-gradient(to top, var(--accent) 0%, var(--accent-secondary) 55%, var(--white) 100%);
+    box-shadow: 0 0 15px var(--accent), 0 0 30px var(--accent-glow);
+}
+
+.threshold-marker {
+    position: absolute;
+    left: -4px;
+    right: -4px;
+    bottom: 50%;
+    z-index: 10;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--text-primary);
+    box-shadow: 0 0 8px var(--white-30);
+    cursor: ns-resize;
+    pointer-events: auto;
+    transition: bottom 0.1s ease-out;
+}
+
+.threshold-marker.dragging {
+    transition: none;
+}
+
+.threshold-marker::after {
+    content: '⋮⋮';
+    position: absolute;
+    left: calc(100% + 6px);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    letter-spacing: -3px;
+    opacity: 0.7;
+}
+
+.threshold-value {
+    position: absolute;
+    left: calc(100% + 22px);
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    cursor: ns-resize;
+    pointer-events: auto;
+    animation: movement-bar-threshold-pulse 2.5s ease-in-out infinite;
+}
+
+.threshold-value::before {
+    content: 'threshold: ';
+    opacity: 0.7;
+}
+
+.movement-bar-vertical.is-readonly .threshold-value {
+    animation: none;
+}
+
+@keyframes movement-bar-threshold-pulse {
+    0%,
+    100% {
+        border-color: var(--border);
+        box-shadow: none;
+    }
+
+    50% {
+        border-color: var(--text-secondary);
+        box-shadow: 0 0 12px var(--white-15);
+    }
+}
+
+@media (max-width: 640px) {
+    .movement-bar-vertical {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .threshold-value {
+        animation: none;
+    }
+}

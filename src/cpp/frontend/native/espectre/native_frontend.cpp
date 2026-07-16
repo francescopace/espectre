@@ -395,8 +395,12 @@ void NativeFrontend::setup_mqtt_() {
 }
 
 void NativeFrontend::publish_mqtt_info_() {
-  const EspectreDeviceInfo info =
+  EspectreDeviceInfo info =
       normalize_protocol_device_info(device_info_, &runtime_.snapshot(), ota_service_ != nullptr, "native", CONFIG_IDF_TARGET);
+  info.supports_info = true;
+  info.supports_stats = true;
+  info.supports_runtime_threshold = runtime_.capabilities().supports_runtime_threshold_updates;
+  info.supports_runtime_detector = runtime_.capabilities().supports_runtime_detector_selection;
   (void) publish_frontend_mqtt_message(
       mqtt_transport_, device_config_, "info", espectre_info_payload(device_config_, info), false);
 }

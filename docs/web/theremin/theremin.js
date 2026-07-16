@@ -1,8 +1,23 @@
-// MQTT Client
-  let client = null;
+  let isDisconnecting = false;
   let messageCount = 0;
 
-  // Current features from MQTT
+  const ble = new ESPectreBleClient({
+      onTelemetry: (telemetry) => handleMessage(telemetry),
+      onSysinfoSnapshot: (_snapshot, entries) => {
+          const chipEntry = entries.find(([key]) => key === 'chip');
+          if (chipEntry) {
+              document.getElementById('deviceName').textContent = `${chipEntry[1].toUpperCase()} Connected`;
+          }
+      },
+      onDisconnected: () => {
+          if (isDisconnecting) return;
+          disconnect(false).then(() => {
+              showConnectionStatus('Bluetooth connection lost.', 'error');
+          });
+      }
+  });
+
+  // Optional feature data is not part of the current BLE telemetry payload.
   let currentFeatures = null;
 
   // Web Audio API
@@ -63,7 +78,6 @@
   let lastUpdateTime = 0;
   let interpolationActive = false;
   const INTERPOLATION_RATE = 60; // Hz (60 updates per second)
-  const MQTT_RATE = 1; // Hz (1 message per second)
 
   // Musical Scales
   const PENTATONIC_RATIOS = [1.0, 9/8, 5/4, 3/2, 5/3, 2.0];
@@ -512,18 +526,10 @@
       function interpolate() {
           if (!interpolationActive) return;
 
-          const now = Date.now();
-          const timeSinceLastMQTT = (now - lastUpdateTime) / 1000; // seconds
-
-          // If we have a target and it's been less than 2 seconds since last MQTT message
-          if (timeSinceLastMQTT < 2.0 && lastUpdateTime > 0) {
-              // Linear interpolation between last and target
-              const interpolationProgress = Math.min(timeSinceLastMQTT * MQTT_RATE, 1.0);
-              const currentMovement = lastMovement + (targetMovement - lastMovement) * interpolationProgress;
-
+          if (lastUpdateTime > 0) {
               // Apply exponential smoothing
               const alpha = thereminConfig.smoothingFactor;
-              smoothedMovement = alpha * currentMovement + (1 - alpha) * smoothedMovement;
+              smoothedMovement = alpha * targetMovement + (1 - alpha) * smoothedMovement;
 
               // Map to frequency
               const targetFreq = mapMovementToFrequency(smoothedMovement);
@@ -541,22 +547,8 @@
 
               // Update UI
               document.getElementById('movementValue').textContent = smoothedMovement.toFixed(3);
-          } else if (lastUpdateTime > 0) {
-              // Use last known value if MQTT is stale, but still apply smoothing
-              const alpha = thereminConfig.smoothingFactor;
-              smoothedMovement = alpha * targetMovement + (1 - alpha) * smoothedMovement;
-              const targetFreq = mapMovementToFrequency(smoothedMovement);
-              const finalFreq = processFrequency(targetFreq, 0);
-              if (thereminConfig.enabled) {
-                  updateFrequency(finalFreq);
-              }
-              // Always update tremolo if enabled (even if theremin is disabled, to keep it synced)
-              if (featureModConfig.tremoloEnabled) {
-                  updateTremolo();
-              }
-              document.getElementById('movementValue').textContent = smoothedMovement.toFixed(3);
           } else {
-              // No MQTT data yet, but still update tremolo if enabled
+              // No telemetry data yet, but still update tremolo if enabled.
               if (featureModConfig.tremoloEnabled) {
                   updateTremolo();
               }
@@ -568,44 +560,91 @@
       interpolate();
   }
 
-  // MQTT Functions
+  // Bluetooth Functions
+  function showConnectionStatus(message, type = '') {
+      const status = document.getElementById('connectionStatus');
+      status.textContent = message;
+      status.className = `connection-status ${type}`.trim();
+  }
+
+  function updateConnectionUi(connected) {
+      document.getElementById('connectionPre').hidden = connected;
+      document.getElementById('connectionReady').hidden = !connected;
+      document.getElementById('thereminWorkspace').hidden = !connected;
+      ToolPage.setHeaderConnectionStatus(connected);
+  }
+
   function toggleConnection() {
-      if (client && client.connected) {
+      if (ble.connected) {
           disconnect();
       } else {
           connect();
       }
   }
 
-  function connect() {
-      const topic = document.getElementById('topic').value;
-      client = ToolPage.connectMqtt({
-          clientPrefix: 'theremin',
-          subscription: topic,
-          onStatus: updateStatus,
-          onMessage: (_topic, message) => {
-              try {
-                  handleMessage(JSON.parse(message.toString()));
-              } catch (error) {
-                  console.error('Error parsing message:', error);
-              }
-          },
-          onSubscribed: () => {
-              resumeAudio();
-              startInterpolationLoop();
-          }
+  async function connect() {
+      if (!ESPectreBleClient.supported) {
+          showConnectionStatus('Web Bluetooth is not supported. Use Chrome or Edge.', 'error');
+          return;
+      }
+
+      const connectButton = document.getElementById('connectBtn');
+      connectButton.disabled = true;
+      showConnectionStatus('Requesting Bluetooth device...', 'connecting');
+      trackEvent('tool_connection', {
+          tool_name: 'theremin',
+          transport: 'bluetooth',
+          result: 'attempt'
       });
+
+      try {
+          await ble.connect();
+          document.getElementById('deviceName').textContent = `${ble.name || 'ESP32'} Connected`;
+          showConnectionStatus('', '');
+          updateConnectionUi(true);
+          await resumeAudio();
+          startInterpolationLoop();
+          await ble.writeControl('REQ_SYSINFO');
+          trackEvent('tool_connection', {
+              tool_name: 'theremin',
+              transport: 'bluetooth',
+              result: 'success'
+          });
+      } catch (error) {
+          console.error('Bluetooth connection failed:', error);
+          const cancelled = error.name === 'NotFoundError';
+          showConnectionStatus(
+              cancelled ? 'No ESPectre device selected.' : `Connection failed: ${error.message}`,
+              'error'
+          );
+          trackEvent('tool_connection', {
+              tool_name: 'theremin',
+              transport: 'bluetooth',
+              result: 'failure',
+              error_type: error.name || 'connection_error'
+          });
+          await disconnect(false);
+      } finally {
+          connectButton.disabled = false;
+      }
   }
 
+  async function disconnect(clearStatus = true) {
+      if (isDisconnecting) return;
+      isDisconnecting = true;
+      interpolationActive = false;
 
-  function disconnect() {
-      client = ToolPage.disconnectMqtt(client, updateStatus);
-  }
-
-
-  function updateStatus(connected) {
-      ToolPage.setConnectionStatus(connected);
-      document.getElementById('clearBtn').hidden = !connected;
+      try {
+          await ble.disconnect();
+      } finally {
+          if (gainNode && audioContext) {
+              gainNode.gain.setTargetAtTime(0, audioContext.currentTime, 0.01);
+          }
+          clearData();
+          updateConnectionUi(false);
+          if (clearStatus) showConnectionStatus('');
+          isDisconnecting = false;
+      }
   }
 
 
@@ -730,7 +769,14 @@
 
   // Initialize on load
   window.addEventListener('load', () => {
-      updateTransportWarning();
+      const connectButton = document.getElementById('connectBtn');
+      connectButton.addEventListener('click', toggleConnection);
+      document.getElementById('disconnectBtn').addEventListener('click', () => disconnect());
+      if (!ESPectreBleClient.supported) {
+          connectButton.disabled = true;
+          showConnectionStatus('Web Bluetooth is not supported. Use Chrome or Edge.', 'error');
+      }
+
       // Sync sliders
       syncSlider('baseFreq', 'baseFreqValue');
       syncSlider('freqRange', 'freqRangeValue');
@@ -747,6 +793,12 @@
       // Setup event listeners
       document.getElementById('thereminMode').addEventListener('change', updateConfig);
       document.getElementById('thereminScale').addEventListener('change', updateConfig);
+      document.getElementById('thereminMode').addEventListener('change', (event) => {
+          trackEvent('theremin_configuration', { control: 'mode', setting_value: event.target.value });
+      });
+      document.getElementById('thereminScale').addEventListener('change', (event) => {
+          trackEvent('theremin_configuration', { control: 'scale', setting_value: event.target.value });
+      });
       document.getElementById('logarithmicMapping').addEventListener('change', updateConfig);
 
       // Feature modulation event listeners

@@ -7,15 +7,6 @@
  * License: GPLv3
  */
 
-/* Game-specific variables */
-:root {
-    --enemy-purple: #9B30FF;
-    --enemy-glow: rgba(155, 48, 255, 0.3);
-    --danger: #ff4757;
-    --success: #2ed573;
-    --warning: #ffa502;
-}
-
 /* Page layout: footer at bottom of viewport */
 body.game-page {
     display: flex;
@@ -64,7 +55,7 @@ body.game-page footer {
 .game-title h1 {
     font-size: clamp(3rem, 12vw, 5rem);
     font-weight: 700;
-    background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 100%);
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 58%, var(--accent-secondary) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -113,7 +104,7 @@ body.game-page footer {
 }
 
 .connection-status.connecting {
-    color: var(--warning);
+    color: var(--game-warning);
 }
 
 .connection-status.connected {
@@ -121,7 +112,7 @@ body.game-page footer {
 }
 
 .connection-status.error {
-    color: var(--danger);
+    color: var(--game-danger);
 }
 
 /* Divider */
@@ -167,7 +158,7 @@ body.game-page footer {
     font-size: 0.85rem;
     margin-top: 1.5rem;
     padding: 1rem 1.5rem;
-    background: rgba(0, 212, 170, 0.05);
+    background: var(--accent-soft);
     border: 1px solid var(--border);
     border-radius: 8px;
     max-width: 400px;
@@ -267,7 +258,7 @@ body.game-page footer {
     width: 100%;
     margin: 1rem 0;
     padding: 0.75rem 1rem;
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--shadow-30);
     border: 1px solid var(--border);
     border-radius: 8px;
     font-family: 'JetBrains Mono', monospace;
@@ -496,7 +487,7 @@ body.game-page:has(#screen-game.active) footer {
     transform: translate(-50%, -50%);
     width: 200px;
     height: 200px;
-    background: radial-gradient(circle, var(--enemy-glow) 0%, transparent 70%);
+    background: radial-gradient(circle, var(--game-enemy-glow) 0%, transparent 70%);
     border-radius: 50%;
     animation: pulse 2s ease-in-out infinite;
 }
@@ -508,7 +499,7 @@ body.game-page:has(#screen-game.active) footer {
 
 .enemy-body {
     font-size: 8rem;
-    filter: drop-shadow(0 0 20px var(--enemy-purple));
+    filter: drop-shadow(0 0 20px var(--game-enemy));
     position: relative;
     z-index: 1;
 }
@@ -516,7 +507,7 @@ body.game-page:has(#screen-game.active) footer {
 .enemy-name {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.9rem;
-    color: var(--enemy-purple);
+    color: var(--game-enemy);
     letter-spacing: 0.2em;
     margin-top: 1rem;
 }
@@ -525,8 +516,8 @@ body.game-page:has(#screen-game.active) footer {
 .enemy-hp-bar {
     width: 120px;
     height: 8px;
-    background: rgba(0, 0, 0, 0.5);
-    border: 1px solid var(--enemy-purple);
+    background: var(--shadow-50);
+    border: 1px solid var(--game-enemy);
     border-radius: 4px;
     margin-top: 0.75rem;
     position: relative;
@@ -540,17 +531,17 @@ body.game-page:has(#screen-game.active) footer {
 .enemy-hp-fill {
     height: 100%;
     width: 100%;
-    background: linear-gradient(90deg, var(--enemy-purple) 0%, #d463ff 100%);
+    background: linear-gradient(90deg, var(--game-enemy) 0%, var(--game-enemy-light) 100%);
     border-radius: 3px;
     transition: width 0.3s ease;
 }
 
 .enemy-hp-fill.low {
-    background: linear-gradient(90deg, var(--warning) 0%, #ff7f00 100%);
+    background: linear-gradient(90deg, var(--game-warning) 0%, var(--game-warning-strong) 100%);
 }
 
 .enemy-hp-fill.critical {
-    background: linear-gradient(90deg, var(--danger) 0%, #ff0000 100%);
+    background: linear-gradient(90deg, var(--game-danger) 0%, var(--game-danger-strong) 100%);
     animation: hpPulse 0.5s ease infinite;
 }
 
@@ -566,8 +557,8 @@ body.game-page:has(#screen-game.active) footer {
     transform: translate(-50%, -50%);
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.6rem;
-    color: #fff;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    color: var(--white);
+    text-shadow: 0 1px 2px var(--shadow-80);
 }
 
 /* Hit Strength Indicator */
@@ -598,13 +589,13 @@ body.game-page:has(#screen-game.active) footer {
 }
 
 .hit-strength.strong {
-    color: #ffd700;
+    color: var(--game-critical);
     font-size: 1.8rem;
     animation: hitStrengthPop 0.3s ease, strongGlow 0.5s ease infinite;
 }
 
 .hit-strength.critical {
-    color: #ff4757;
+    color: var(--game-danger);
     font-size: 2.2rem;
     animation: hitStrengthPop 0.3s ease, criticalGlow 0.3s ease infinite;
 }
@@ -616,13 +607,13 @@ body.game-page:has(#screen-game.active) footer {
 }
 
 @keyframes strongGlow {
-    0%, 100% { text-shadow: 0 0 20px #ffd700, 0 0 40px rgba(255, 215, 0, 0.5); }
-    50% { text-shadow: 0 0 30px #ffd700, 0 0 60px rgba(255, 215, 0, 0.7); }
+    0%, 100% { text-shadow: 0 0 20px var(--game-critical), 0 0 40px var(--game-critical-50); }
+    50% { text-shadow: 0 0 30px var(--game-critical), 0 0 60px var(--game-critical-70); }
 }
 
 @keyframes criticalGlow {
-    0%, 100% { text-shadow: 0 0 20px #ff4757, 0 0 40px rgba(255, 71, 87, 0.5), 0 0 60px rgba(255, 71, 87, 0.3); }
-    50% { text-shadow: 0 0 40px #ff4757, 0 0 80px rgba(255, 71, 87, 0.7), 0 0 100px rgba(255, 71, 87, 0.5); }
+    0%, 100% { text-shadow: 0 0 20px var(--game-danger), 0 0 40px var(--game-danger-50), 0 0 60px var(--game-danger-30); }
+    50% { text-shadow: 0 0 40px var(--game-danger), 0 0 80px var(--game-danger-70), 0 0 100px var(--game-danger-50); }
 }
 
 /* Game Message */
@@ -638,7 +629,7 @@ body.game-page:has(#screen-game.active) footer {
     font-size: clamp(2rem, 8vw, 4rem);
     font-weight: 700;
     color: var(--text-primary);
-    text-shadow: 0 0 30px rgba(0, 212, 170, 0.5);
+    text-shadow: 0 0 30px var(--accent-glow);
 }
 
 .game-message.move .message-text {
@@ -647,7 +638,7 @@ body.game-page:has(#screen-game.active) footer {
 }
 
 .game-message.cheater .message-text {
-    color: var(--danger);
+    color: var(--game-danger);
 }
 
 .game-message.win .message-text {
@@ -655,22 +646,22 @@ body.game-page:has(#screen-game.active) footer {
 }
 
 .game-message.lose .message-text {
-    color: var(--danger);
+    color: var(--game-danger);
 }
 
 .game-message.partial-hit .message-text {
-    color: var(--warning);
+    color: var(--game-warning);
 }
 
 .game-message.win.strong .message-text {
-    color: #ffd700;
-    text-shadow: 0 0 30px rgba(255, 215, 0, 0.7);
+    color: var(--game-critical);
+    text-shadow: 0 0 30px var(--game-critical-70);
 }
 
 .game-message.win.critical .message-text {
-    color: #ff4757;
+    color: var(--game-danger);
     font-size: clamp(2.5rem, 10vw, 5rem);
-    text-shadow: 0 0 40px rgba(255, 71, 87, 0.8);
+    text-shadow: 0 0 40px var(--game-danger-80);
     animation: criticalMessage 0.3s ease infinite;
 }
 
@@ -707,100 +698,7 @@ body.game-page:has(#screen-game.active) footer {
     margin-left: 0.25rem;
 }
 
-/* Vertical Movement Bar (always visible, left side) */
-/* Movement Bar (left edge) */
-.movement-bar-vertical {
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 14px;
-    z-index: 1000;
-    pointer-events: none;
-}
-
-.movement-bar-track {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 100%;
-}
-
-.movement-bar-fill {
-    position: absolute;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    height: 0%;
-    background: linear-gradient(to top, var(--accent) 0%, #00ff88 50%, #fff 100%);
-    box-shadow: 0 0 15px var(--accent), 0 0 30px rgba(0, 212, 170, 0.5);
-    /* No transition - instant updates for accurate visual feedback */
-}
-
-/* Threshold Marker (draggable) */
-.threshold-marker {
-    position: absolute;
-    left: -4px;
-    right: -4px;
-    bottom: 50%; /* Default position, updated by JS */
-    height: 3px;
-    background: var(--text-primary);
-    box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
-    cursor: ns-resize;
-    pointer-events: auto;
-    z-index: 10;
-    transition: bottom 0.1s ease-out;
-    border-radius: 2px;
-}
-
-/* Handle/grip indicator */
-.threshold-marker::after {
-    content: '⋮⋮';
-    position: absolute;
-    left: calc(100% + 6px);
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 0.9rem;
-    color: var(--text-primary);
-    letter-spacing: -3px;
-    opacity: 0.7;
-}
-
-/* Threshold container with label */
-.threshold-value {
-    position: absolute;
-    left: calc(100% + 22px);
-    top: 50%;
-    transform: translateY(-50%);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
-    color: var(--text-primary);
-    white-space: nowrap;
-    pointer-events: auto;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    padding: 0.3rem 0.5rem;
-    border-radius: 6px;
-    cursor: ns-resize;
-    animation: thresholdPulse 2.5s ease-in-out infinite;
-}
-
-@keyframes thresholdPulse {
-    0%, 100% { 
-        border-color: var(--border);
-        box-shadow: none;
-    }
-    50% { 
-        border-color: var(--text-secondary);
-        box-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
-    }
-}
-
-.threshold-value::before {
-    content: 'threshold: ';
-    opacity: 0.7;
-}
+/* Vertical Movement Bar styles live in /movement-bar.css */
 
 /* Global Controls (always visible, bottom left) */
 /* Mute Button */
@@ -875,11 +773,11 @@ body.game-page:has(#screen-game.active) footer {
 
 .stat-item.highlight {
     border-color: var(--accent);
-    background: rgba(0, 212, 170, 0.05);
+    background: var(--accent-soft);
 }
 
 .stat-item.highlight .stat-value {
-    color: #ffd700;
+    color: var(--game-critical);
 }
 
 /* Score Highlight */
@@ -1047,32 +945,32 @@ body.game-page:has(#screen-game.active) footer {
 }
 
 .screen-flash.move {
-    background: rgba(0, 212, 170, 0.3);
+    background: var(--accent-flash);
 }
 
 .screen-flash.win {
-    background: rgba(46, 213, 115, 0.3);
+    background: var(--game-success-30);
 }
 
 .screen-flash.lose {
-    background: rgba(255, 71, 87, 0.3);
+    background: var(--game-danger-30);
 }
 
 .screen-flash.weak {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--white-10);
 }
 
 .screen-flash.normal {
-    background: rgba(0, 212, 170, 0.3);
+    background: var(--accent-flash);
 }
 
 .screen-flash.strong {
-    background: rgba(255, 215, 0, 0.4);
+    background: var(--game-critical-40);
     animation: flashStrong 0.3s ease;
 }
 
 .screen-flash.critical {
-    background: rgba(255, 71, 87, 0.5);
+    background: var(--game-danger-50);
     animation: flashCritical 0.4s ease;
 }
 
@@ -1083,8 +981,8 @@ body.game-page:has(#screen-game.active) footer {
 }
 
 @keyframes flashCritical {
-    0% { opacity: 1; background: rgba(255, 255, 255, 0.8); }
-    30% { background: rgba(255, 71, 87, 0.6); }
+    0% { opacity: 1; background: var(--white-80); }
+    30% { background: var(--game-danger-60); }
     100% { opacity: 0; }
 }
 

@@ -235,6 +235,14 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   append_json_pair(&out, "frontend", info.frontend.empty() ? "native" : info.frontend.c_str());
   append_json_pair(&out, "firmware_version", info.firmware_version.empty() ? "unknown" : info.firmware_version.c_str());
   append_json_pair(&out, "chip", info.chip.empty() ? "unknown" : info.chip.c_str());
+  out += ",\"supports_info\":";
+  out += info.supports_info ? "true" : "false";
+  out += ",\"supports_stats\":";
+  out += info.supports_stats ? "true" : "false";
+  out += ",\"supports_runtime_threshold\":";
+  out += info.supports_runtime_threshold ? "true" : "false";
+  out += ",\"supports_runtime_detector\":";
+  out += info.supports_runtime_detector ? "true" : "false";
   out += ",\"supports_ota\":";
   out += info.supports_ota ? "true" : "false";
 

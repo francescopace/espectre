@@ -129,6 +129,10 @@ espectre/v1/devices/{device_id}/info
   "frontend": "native",
   "firmware_version": "1.2.3",
   "chip": "esp32c6",
+  "supports_info": true,
+  "supports_stats": true,
+  "supports_runtime_threshold": true,
+  "supports_runtime_detector": true,
   "supports_ota": true,
   "network": {
     "ip_address": "192.168.1.28",
@@ -143,9 +147,11 @@ espectre/v1/devices/{device_id}/info
 }
 ```
 
-`network` and `detection` are optional. Local tools may display local IP and MAC
-values. Managed services should not collect local IP addresses, SSIDs, BSSIDs,
-access point MACs, or router identifiers by default.
+The `supports_*` fields are authoritative capability declarations for clients.
+Clients should not infer command support from `frontend`, telemetry fields, or
+other payload content. `network` and `detection` are optional. Local tools may
+display local IP and MAC values. Managed services should not collect local IP
+addresses, SSIDs, BSSIDs, access point MACs, or router identifiers by default.
 
 ### Stats
 
@@ -376,6 +382,7 @@ Capability-oriented `sysinfo` keys may include:
 | `supports_runtime_detector` | Whether BLE clients can select and persist `classic` or `ml` |
 | `supports_live_telemetry` | Whether BLE telemetry notifications are exposed |
 | `supports_extended_diagnostics` | Whether implementation-specific runtime diagnostics are exposed |
+| `supports_ota` | Whether BLE clients can expose OTA-related controls |
 
 Current BLE `sysinfo` diagnostic keys may include:
 

@@ -52,11 +52,6 @@ const HitStrength = {
     CRITICAL: { name: 'critical', minPower: 3.0, damage: 3 }
 };
 
-const BLE_ESPECTRE_SERVICE_UUID = 'd33ff46b-2203-4775-bc6f-b3a2c36af8f0';
-const BLE_ESPECTRE_TELEMETRY_UUID = '119d5cac-48da-4bd9-bfc3-169805868258';
-const BLE_ESPECTRE_SYSINFO_UUID = 'c8c89ffa-c401-461f-9ffc-942fa04adfe3';
-const BLE_ESPECTRE_CONTROL_UUID = '33ed9214-a8d7-40e8-82d1-c82747dcdc71';
-
 // ==================== GAME CLASS ====================
 
 class ESPectreGame {
@@ -67,12 +62,11 @@ class ESPectreGame {
         this.isTouching = false;  // Touch state for mobile
         
         // Web Bluetooth connection
-        this.bleDevice = null;
-        this.bleGattServer = null;
-        this.bleService = null;
-        this.bleTelemetryChar = null;
-        this.bleSysinfoChar = null;
-        this.bleControlChar = null;
+        this.ble = new ESPectreBleClient({
+            onTelemetry: (telemetry) => this.handleTelemetry(telemetry),
+            onSysinfoSnapshot: (_snapshot, entries) => this.applySystemInfoSnapshot(entries),
+            onDisconnected: () => this.handleBluetoothDisconnect()
+        });
         this.isDisconnecting = false;
         
         // Stats
@@ -97,7 +91,7 @@ class ESPectreGame {
         
         // System info from ESP32
         this.systemInfo = {};
-        this.sysinfoSnapshotBuffer = [];
+        this.lastTrackedDeviceProfile = null;
         
         // Game timers (for cleanup on disconnect/home)
         this.gameTimers = [];
@@ -198,8 +192,25 @@ class ESPectreGame {
             this.elements.btnUsb.addEventListener('click', () => this.toggleUsb());
         }
         
-        // Threshold marker drag
-        this.initThresholdMarker();
+        // Shared movement bar + threshold drag
+        this.movementBar = new ESPectreMovementBar({
+            root: document.getElementById('movement-bar-vertical'),
+            scaleMax: MOVEMENT_SCALE_MAX,
+            thresholdMin: THRESHOLD_MIN,
+            thresholdMax: THRESHOLD_MAX,
+            digits: 1,
+            onThresholdChange: (threshold) => {
+                this.threshold = threshold;
+                if (this.elements.infoThreshold) {
+                    this.elements.infoThreshold.textContent = threshold.toFixed(2);
+                }
+            },
+            onThresholdCommit: async (threshold) => {
+                this.threshold = threshold;
+                await this.sendBleControlCommand(`SET_THRESHOLD:${threshold.toFixed(2)}`);
+            }
+        });
+        this.threshold = this.movementBar.getThreshold();
         
         // Mouse input (for keyboard/mouse fallback mode)
         this.lastMouseX = 0;
@@ -242,7 +253,7 @@ class ESPectreGame {
         // Show touch button on mobile, mouse button on desktop
         // Also check touchDetected flag for runtime detection (e.g., Chrome DevTools device mode)
         const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0 || this.touchDetected;
-        const hasBluetooth = 'bluetooth' in navigator;
+        const hasBluetooth = ESPectreBleClient.supported;
         
         // Update header controls (hide button if not supported or on mobile)
         this.updateHeaderControls(hasBluetooth, isMobile);
@@ -284,111 +295,6 @@ class ESPectreGame {
         }
     }
     
-    // ==================== THRESHOLD MARKER ====================
-    
-    initThresholdMarker() {
-        const marker = this.elements.thresholdMarker;
-        const valueEl = this.elements.thresholdValue;
-        if (!marker) return;
-        
-        this.isDraggingThreshold = false;
-        this.thresholdMin = THRESHOLD_MIN;
-        this.thresholdMax = THRESHOLD_MAX;
-        
-        // Update marker position based on current threshold
-        this.updateThresholdMarkerPosition();
-        
-        // Document-level handlers attached only while dragging, so the page
-        // keeps passive scrolling when the threshold is not being adjusted
-        this.thresholdDragMove = (e) => this.handleThresholdDrag(e);
-        this.thresholdDragEnd = () => this.stopThresholdDrag();
-
-        // Mouse events on marker
-        marker.addEventListener('mousedown', (e) => this.startThresholdDrag(e));
-
-        // Touch events on marker
-        marker.addEventListener('touchstart', (e) => this.startThresholdDrag(e), { passive: false });
-
-        // Also allow dragging from the value label
-        if (valueEl) {
-            valueEl.addEventListener('mousedown', (e) => this.startThresholdDrag(e));
-            valueEl.addEventListener('touchstart', (e) => this.startThresholdDrag(e), { passive: false });
-        }
-    }
-
-    startThresholdDrag(e) {
-        if (e.cancelable) e.preventDefault();
-        this.isDraggingThreshold = true;
-        this.elements.thresholdMarker.classList.add('dragging');
-        document.addEventListener('mousemove', this.thresholdDragMove);
-        document.addEventListener('mouseup', this.thresholdDragEnd);
-        document.addEventListener('touchmove', this.thresholdDragMove, { passive: false });
-        document.addEventListener('touchend', this.thresholdDragEnd);
-        document.addEventListener('touchcancel', this.thresholdDragEnd);
-    }
-    
-    handleThresholdDrag(e) {
-        if (!this.isDraggingThreshold) return;
-        if (e.cancelable) e.preventDefault();
-        
-        const track = this.elements.thresholdMarker.parentElement;
-        const rect = track.getBoundingClientRect();
-        
-        // Get Y position (touch or mouse)
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        
-        // Calculate position as percentage from bottom (0% = bottom, 100% = top)
-        const relativeY = rect.bottom - clientY;
-        const percentage = Math.max(0, Math.min(100, (relativeY / rect.height) * 100));
-        
-        // Map percentage to threshold value (0-100% → 0-10, same scale as movement bar)
-        // Clamp to valid range (thresholdMin to thresholdMax)
-        const newThreshold = (percentage / 100) * this.thresholdMax;
-        this.threshold = Math.max(this.thresholdMin, Math.min(this.thresholdMax, Math.round(newThreshold * 10) / 10));
-        
-        // Update UI while dragging
-        this.updateThresholdMarkerPosition();
-    }
-    
-    stopThresholdDrag() {
-        if (!this.isDraggingThreshold) return;
-        this.isDraggingThreshold = false;
-        this.elements.thresholdMarker.classList.remove('dragging');
-        document.removeEventListener('mousemove', this.thresholdDragMove);
-        document.removeEventListener('mouseup', this.thresholdDragEnd);
-        document.removeEventListener('touchmove', this.thresholdDragMove);
-        document.removeEventListener('touchend', this.thresholdDragEnd);
-        document.removeEventListener('touchcancel', this.thresholdDragEnd);
-        this.sendThresholdToDevice();
-    }
-    
-    updateThresholdMarkerPosition() {
-        const marker = this.elements.thresholdMarker;
-        const valueEl = this.elements.thresholdValue;
-        if (!marker) return;
-        
-        // Map threshold to percentage (0-100) using same scale as movement bar (0-10).
-        const percentage = (this.threshold / this.thresholdMax) * 100;
-        marker.style.bottom = `${percentage}%`;
-        
-        if (valueEl) {
-            valueEl.textContent = this.threshold.toFixed(1);
-        }
-        
-        // Also update system info threshold display
-        if (this.elements.infoThreshold) {
-            this.elements.infoThreshold.textContent = this.threshold.toFixed(2);
-        }
-    }
-
-    async sendThresholdToDevice() {
-        try {
-            await this.sendBleControlCommand(`SET_THRESHOLD:${this.threshold.toFixed(2)}`);
-        } catch (e) {
-            console.warn('Failed to send threshold command:', e);
-        }
-    }
-
     // ==================== SCREENS ====================
     
     showScreen(screenName) {
@@ -401,6 +307,11 @@ class ESPectreGame {
     // ==================== BLUETOOTH CONNECTION ====================
     
     async connect() {
+        trackEvent('tool_connection', {
+            tool_name: 'game',
+            transport: 'bluetooth',
+            result: 'attempt'
+        });
         try {
             await this.connectBluetooth();
         } catch (e) {
@@ -414,40 +325,31 @@ class ESPectreGame {
                 errorType = 'no_device_selected';
             } else {
                 this.showConnectionStatus('Connection failed: ' + e.message, 'error');
-                errorType = e.message.substring(0, 50);
+                errorType = e.name || 'connection_error';
             }
-            trackEvent('ble_connect_fail', { error: errorType });
+            trackEvent('tool_connection', {
+                tool_name: 'game',
+                transport: 'bluetooth',
+                result: 'failure',
+                error_type: errorType
+            });
         }
     }
     
     async connectBluetooth() {
         this.showConnectionStatus('Requesting Bluetooth device...', 'connecting');
 
-        this.bleDevice = await navigator.bluetooth.requestDevice({
-            filters: [{ services: [BLE_ESPECTRE_SERVICE_UUID] }]
-        });
-        this.bleDevice.addEventListener('gattserverdisconnected', () => this.handleBluetoothDisconnect());
-
-        this.bleGattServer = await this.bleDevice.gatt.connect();
-        this.bleService = await this.bleGattServer.getPrimaryService(BLE_ESPECTRE_SERVICE_UUID);
-        this.bleTelemetryChar = await this.bleService.getCharacteristic(BLE_ESPECTRE_TELEMETRY_UUID);
-        this.bleSysinfoChar = await this.bleService.getCharacteristic(BLE_ESPECTRE_SYSINFO_UUID);
-        this.bleControlChar = await this.bleService.getCharacteristic(BLE_ESPECTRE_CONTROL_UUID);
-
-        await this.bleTelemetryChar.startNotifications();
-        this.bleTelemetryChar.addEventListener('characteristicvaluechanged', (event) =>
-            this.handleTelemetryNotification(event)
-        );
-        await this.bleSysinfoChar.startNotifications();
-        this.bleSysinfoChar.addEventListener('characteristicvaluechanged', (event) =>
-            this.handleSysinfoNotification(event)
-        );
+        await this.ble.connect();
 
         this.inputMode = 'bluetooth';
         this.showConnectionStatus('Connected via Bluetooth!', 'connected');
-        trackEvent('ble_connect');
+        trackEvent('tool_connection', {
+            tool_name: 'game',
+            transport: 'bluetooth',
+            result: 'success'
+        });
         await this.sendBleControlCommand('REQ_SYSINFO');
-        this.showUsbReady('ESP32 (Bluetooth)');
+        this.showUsbReady(this.ble.name || 'ESP32 (Bluetooth)');
     }
     
     showUsbReady(deviceName) {
@@ -476,62 +378,27 @@ class ESPectreGame {
         }
     }
     
-    handleTelemetryNotification(event) {
-        const dv = event.target.value;
-        if (!dv || dv.byteLength < 8) return;
-        const movement = dv.getFloat32(0, true);
-        const threshold = dv.getFloat32(4, true);
-        if (!Number.isFinite(movement) || !Number.isFinite(threshold)) return;
-        if (!this.isDraggingThreshold) {
-            this.threshold = threshold;
-            this.updateThresholdMarkerPosition();
+    handleTelemetry({ movement, threshold }) {
+        if (!this.movementBar.isDragging) {
+            this.threshold = this.movementBar.setThreshold(threshold);
+            if (this.elements.infoThreshold) {
+                this.elements.infoThreshold.textContent = this.threshold.toFixed(2);
+            }
         }
         this.updateInput(movement);
     }
-    
-    handleSysinfoNotification(event) {
-        const value = event.target.value;
-        if (!value) return;
-        const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-        const line = new TextDecoder().decode(bytes);
-        if (!line) return;
-        const trimmed = line.trim();
-        if (trimmed === 'END') {
-            this.applySystemInfoSnapshot();
-            return;
-        }
-        const equalIdx = trimmed.indexOf('=');
-        if (equalIdx <= 0) return;
-        const key = trimmed.slice(0, equalIdx).trim();
-        const data = trimmed.slice(equalIdx + 1).trim();
-        this.sysinfoSnapshotBuffer.push([key, data]);
-    }
 
     async sendBleControlCommand(command) {
-        if (!this.bleControlChar) return;
-        const payload = new TextEncoder().encode(command);
-        if (typeof this.bleControlChar.writeValueWithResponse === 'function') {
-            await this.bleControlChar.writeValueWithResponse(payload);
-            return;
-        }
-        if (typeof this.bleControlChar.writeValueWithoutResponse === 'function') {
-            await this.bleControlChar.writeValueWithoutResponse(payload);
-            return;
-        }
-        // Legacy fallback for older browser implementations.
-        await this.bleControlChar.writeValue(payload);
+        if (!this.ble.connected) return;
+        await this.ble.writeControl(command);
     }
 
     async handleBluetoothDisconnect() {
-        if (this.bleDevice && this.bleDevice.gatt && this.bleDevice.gatt.connected) {
-            return;
-        }
+        if (this.isDisconnecting) return;
         await this.disconnect();
     }
     
-    applySystemInfoSnapshot() {
-        const snapshotEntries = this.sysinfoSnapshotBuffer;
-        this.sysinfoSnapshotBuffer = [];
+    applySystemInfoSnapshot(snapshotEntries) {
         const nextSystemInfo = {};
         snapshotEntries.forEach(([key, value]) => {
             if (key === 'chip' || key === 'threshold') {
@@ -554,17 +421,21 @@ class ESPectreGame {
                     this.elements.usbDeviceName.textContent = value.toUpperCase() + ' Connected';
                 }
                 // Track device type
-                trackEvent('ble_device_info', { chip: value.toUpperCase() });
+                if (value.toLowerCase() !== this.lastTrackedDeviceProfile) {
+                    trackEvent('device_profile', {
+                        tool_name: 'game',
+                        chip: value.toLowerCase()
+                    });
+                    this.lastTrackedDeviceProfile = value.toLowerCase();
+                }
                 break;
             case 'threshold':
                 if (this.elements.infoThreshold) {
                     this.elements.infoThreshold.textContent = value;
                 }
-                // Update local threshold and marker position
                 const thresholdValue = parseFloat(value);
                 if (!isNaN(thresholdValue)) {
-                    this.threshold = thresholdValue;
-                    this.updateThresholdMarkerPosition();
+                    this.threshold = this.movementBar.setThreshold(thresholdValue);
                 }
                 break;
         }
@@ -599,9 +470,8 @@ class ESPectreGame {
     
     enableTouchGestures() {
         // Reset any stuck drag state that could block scrolling
-        this.isDraggingThreshold = false;
-        if (this.elements.thresholdMarker) {
-            this.elements.thresholdMarker.classList.remove('dragging');
+        if (this.movementBar && this.movementBar.isDragging) {
+            this.movementBar._stopDrag();
         }
     }
     
@@ -683,12 +553,7 @@ class ESPectreGame {
      */
     updateInput(value) {
         this.movement = Math.max(0, Math.min(MOVEMENT_SCALE_MAX, value));
-        
-        // Update vertical movement bar (height-based)
-        const percent = (this.movement / MOVEMENT_SCALE_MAX) * 100;
-        if (this.elements.movementFill) {
-            this.elements.movementFill.style.height = percent + '%';
-        }
+        this.movementBar.setMovement(this.movement);
         
         // Update audio
         this.updateAudioMovement(this.movement);
@@ -1276,7 +1141,7 @@ class ESPectreGame {
         this.showScreen('connect');
         
         // If still connected via Bluetooth, show the ready state
-        if (this.bleGattServer && this.bleGattServer.connected && this.inputMode === 'bluetooth') {
+        if (this.ble.connected && this.inputMode === 'bluetooth') {
             // Keep connection-ready visible, movement bar stays visible
             return;
         }
@@ -1318,28 +1183,9 @@ class ESPectreGame {
         // Reset all game visual elements
         this.resetGameVisuals();
         
-        if (this.bleTelemetryChar) {
-            try {
-                await this.bleTelemetryChar.stopNotifications();
-            } catch (e) {}
-            this.bleTelemetryChar = null;
-        }
-        if (this.bleSysinfoChar) {
-            try {
-                await this.bleSysinfoChar.stopNotifications();
-            } catch (e) {}
-            this.bleSysinfoChar = null;
-        }
-        this.bleControlChar = null;
-        this.bleService = null;
-
-        if (this.bleGattServer && this.bleGattServer.connected) {
-            try {
-                this.bleGattServer.disconnect();
-            } catch (e) {}
-        }
-        this.bleGattServer = null;
-        this.bleDevice = null;
+        try {
+            await this.ble.disconnect();
+        } catch (e) {}
         
         this.state = GameState.IDLE;
         this.inputMode = 'mouse';
@@ -1361,7 +1207,6 @@ class ESPectreGame {
             this.elements.systemInfo.classList.add('hidden');
         }
         this.systemInfo = {};
-        this.sysinfoSnapshotBuffer = [];
         
         // Show mouse mode section again
         if (this.elements.dividerMouse) {
@@ -1569,7 +1414,7 @@ class ESPectreGame {
     
     toggleUsb() {
         // If connected, disconnect; otherwise connect
-        if (this.bleGattServer && this.bleGattServer.connected) {
+        if (this.ble.connected) {
             this.disconnect();
         } else {
             this.connect();
@@ -1578,7 +1423,7 @@ class ESPectreGame {
     
     updateUsbButton() {
         if (this.elements.btnUsb) {
-            const isConnected = !!(this.bleGattServer && this.bleGattServer.connected);
+            const isConnected = this.ble.connected;
             this.elements.btnUsb.classList.toggle('connected', isConnected);
             this.elements.btnUsb.title = isConnected ? 'Disconnect Bluetooth' : 'Connect Bluetooth';
         }

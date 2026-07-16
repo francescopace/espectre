@@ -1,217 +1,705 @@
-.chart-container {
-      position: relative;
-      height: 600px;
-      margin-bottom: 10px;
-  }
+/*
+ * MQTT Monitor — page-specific presentation.
+ * Shared tool chrome lives in tool-page.css.
+ */
 
-  .threshold-drag-hint {
-      position: absolute;
-      top: 50%;
-      right: 14px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
-      padding: 8px 10px;
-      transform: translateY(-50%);
-      border-radius: 12px;
-      background: var(--accent-dim);
-      color: var(--bg-primary);
-      font-size: 18px;
-      font-weight: 700;
-      box-shadow: 0 6px 16px var(--accent-glow);
-      pointer-events: auto;
-      user-select: none;
-      z-index: 2;
-      transition: opacity 0.2s ease, transform 0.2s ease, background 0.2s ease;
-      cursor: ns-resize;
-      touch-action: none;
-  }
+.monitor-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 1.75rem;
+    text-align: center;
+}
 
-  .threshold-drag-hint[hidden] {
-      display: none;
-  }
+.monitor-title h1 {
+    margin: 0 0 0.25rem;
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 58%, var(--accent-secondary) 100%);
+    background-clip: text;
+    color: transparent;
+    font-size: clamp(2.6rem, 10vw, 4.5rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
 
-  .threshold-drag-hint.active {
-      background: var(--accent);
-      transform: translateY(-50%) scale(1.06);
-  }
+.monitor-subtitle {
+    display: inline-block;
+    color: var(--text-dim);
+    font-size: clamp(1rem, 3.2vw, 1.45rem);
+    font-weight: 300;
+    letter-spacing: 0.55em;
+    text-indent: 0.55em;
+}
 
-  .threshold-drag-hint-icon {
-      font-size: 18px;
-      line-height: 1;
-  }
+.monitor-tagline {
+    margin: 1.15rem 0 2rem;
+    max-width: 28rem;
+    color: var(--text-dim);
+    font-size: 1.05rem;
+    font-style: italic;
+    line-height: 1.45;
+}
 
-  .chart-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-  }
+.monitor-page .connection-box {
+    width: 100%;
+    max-width: 400px;
+    padding: 2rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-card-90);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
 
-  .chart-title {
-      font-size: 1.3em;
-      margin: 0;
-  }
+.monitor-page .connection-pre,
+.monitor-page .connection-ready {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
 
-  .modal-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(10, 10, 15, 0.82);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 2000;
-      animation: fadeIn 0.3s ease-out;
-  }
+.monitor-page .connection-pre[hidden],
+.monitor-page .connection-ready[hidden],
+.monitor-page #monitorWorkspace[hidden] {
+    display: none;
+}
 
-  .modal-content {
-      background: var(--bg-card);
-      border-radius: 15px;
-      padding: 25px;
-      width: 400px;
-      overflow-y: auto;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-      animation: scaleIn 0.3s ease-out;
-  }
+.monitor-page .connection-hint {
+    margin-top: 1rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+}
 
-  .modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-      padding-bottom: 15px;
-      border-bottom: 2px solid var(--border);
-  }
+.monitor-page .connection-status {
+    font-size: 0.9rem;
+}
 
-  .modal-header h3 {
-      margin: 0;
-      color: var(--accent);
-      font-size: 1.5em;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-  }
+.monitor-page .connection-status:not(:empty) {
+    margin-top: 1rem;
+}
 
-  .modal-header-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-  }
+.monitor-page .connection-status.connecting {
+    color: var(--warning);
+}
 
-  .modal-reload {
-      background: none;
-      border: none;
-      font-size: 1.3em;
-      cursor: pointer;
-      color: var(--accent);
-      padding: 0;
-      width: 32px;
-      height: 32px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 50%;
-      transition: all 0.3s;
-  }
+.monitor-page .connection-status.error {
+    color: var(--danger);
+}
 
-  .modal-reload:hover {
-      background: var(--accent-glow);
-      transform: scale(1.1);
-  }
+.monitor-page .device-ready-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    color: var(--accent);
+    font-size: 1.1rem;
+}
 
-  .modal-reload.spinning {
-      animation: spin 1s linear infinite;
-  }
+.monitor-page .device-ready-status i {
+    font-size: 1.3rem;
+}
 
-  @keyframes spin {
-      from {
-          transform: rotate(0deg);
-      }
+.monitor-page .connection-ready,
+.monitor-page .connection-ready .btn {
+    width: 100%;
+}
 
-      to {
-          transform: rotate(360deg);
-      }
-  }
+.monitor-page .btn-large {
+    padding: 1.25rem 2.5rem;
+    font-size: 1.1rem;
+}
 
-  .modal-body {
-      font-family: monospace;
-      font-size: 0.95em;
-      line-height: 1.6;
-      color: var(--text-primary);
-  }
+.monitor-page .btn-small {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+}
 
-  .stat-list {
-      margin-bottom: 16px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border);
-  }
+.monitor-page .compatibility-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+}
 
-  .stat-list:last-child {
-      margin-bottom: 0;
-      border-bottom: none;
-  }
+.monitor-page .compatibility-note i {
+    color: var(--accent);
+}
 
-  .stat-line {
-      padding: 6px 0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-  }
+.monitor-page .compatibility-note code {
+    font-size: 0.78rem;
+}
 
-  .stat-line:last-child {
-      border-bottom: none;
-  }
+.monitor-connect-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 2100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
 
-  .stat-label {
-      font-weight: 500;
-      color: var(--text-secondary);
-      font-size: 1em;
-      flex-shrink: 0;
-  }
+.monitor-connect-modal[hidden] {
+    display: none;
+}
 
-  .stat-value {
-      color: var(--text-primary);
-      font-weight: 600;
-      font-size: 1em;
-      text-align: right;
-      word-break: break-word;
-  }
+.monitor-connect-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-primary-82);
+    cursor: pointer;
+}
 
-  .stat-value.highlight {
-      color: var(--accent);
-  }
+.monitor-connect-modal-dialog {
+    position: relative;
+    z-index: 1;
+    width: min(100%, 36rem);
+    max-height: min(90vh, 44rem);
+    overflow: auto;
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-card);
+    box-shadow: 0 24px 60px var(--shadow-50);
+    animation: monitor-scale-in 0.22s ease-out;
+}
 
-  .stat-value.success {
-      color: var(--accent);
-  }
+.monitor-connect-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--border);
+}
 
-  .stat-value.warning {
-      color: var(--warning);
-  }
+.monitor-connect-modal-header h2 {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0;
+    font-size: 1.15rem;
+}
 
-  @keyframes fadeIn {
-      from {
-          opacity: 0;
-      }
+.monitor-connect-modal-header h2 > i {
+    color: var(--accent);
+}
 
-      to {
-          opacity: 1;
-      }
-  }
+.monitor-connect-modal-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--white-06);
+    color: var(--text-primary);
+    cursor: pointer;
+}
 
-  @keyframes scaleIn {
-      from {
-          transform: scale(0.9);
-          opacity: 0;
-      }
+.monitor-connect-modal-close:hover {
+    border-color: var(--accent-border);
+    background: var(--accent-glow);
+}
 
-      to {
-          transform: scale(1);
-          opacity: 1;
-      }
-  }
+.monitor-connect-modal-body .config-section {
+    margin-bottom: 0.75rem;
+}
+
+.monitor-connect-modal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.55rem;
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--border);
+}
+
+body.monitor-modal-open {
+    overflow: hidden;
+}
+
+.monitor-page.monitor-connected .monitor-stage {
+    margin-bottom: 1.25rem;
+}
+
+.monitor-page .monitor-metrics-card {
+    padding: 0.65rem 0.75rem;
+}
+
+.monitor-page .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+.monitor-page .metric-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.15rem;
+    min-height: 0;
+    padding: 0.55rem 0.7rem;
+    overflow: hidden;
+    border-radius: 10px;
+    text-align: left;
+    transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+
+.monitor-page .metric-card::before {
+    display: none;
+}
+
+.monitor-page .metric-icon {
+    display: none;
+}
+
+.monitor-page .metric-label {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.monitor-page .metric-value {
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    transition: color 0.25s ease;
+}
+
+.monitor-page .metric-card.motion {
+    border-color: var(--accent-border);
+    background: var(--accent-soft);
+    box-shadow: none;
+    transform: none;
+}
+
+.monitor-page .metric-card.motion .metric-value {
+    color: var(--accent);
+    animation: monitor-motion-flash 0.9s ease-in-out infinite;
+}
+
+.monitor-page .chart-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.monitor-page .chart-heading {
+    min-width: 0;
+}
+
+.monitor-page .chart-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    margin: 0;
+    font-size: clamp(1.05rem, 3vw, 1.25rem);
+}
+
+.monitor-page .chart-title > i {
+    color: var(--accent);
+}
+
+.monitor-page .chart-paused-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.55rem;
+    border: 1px solid rgba(232, 184, 109, 0.45);
+    border-radius: 999px;
+    background: var(--warning-glow);
+    color: var(--warning);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.monitor-page .chart-hint {
+    margin: 0.35rem 0 0;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.monitor-page .chart-container {
+    position: relative;
+    height: min(62vh, 560px);
+    min-height: 280px;
+    margin: 0;
+    padding: 0.75rem;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background:
+        radial-gradient(ellipse at top, var(--accent-soft), transparent 55%),
+        var(--bg-primary-72);
+}
+
+.monitor-page .threshold-drag-hint {
+    position: absolute;
+    top: 50%;
+    right: 14px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: var(--accent-dim);
+    color: var(--bg-primary);
+    font-size: 18px;
+    font-weight: 700;
+    box-shadow: 0 6px 16px var(--accent-glow);
+    cursor: ns-resize;
+    user-select: none;
+    touch-action: none;
+    pointer-events: auto;
+    transform: translateY(-50%);
+    transition: opacity 0.2s ease, transform 0.2s ease, background 0.2s ease;
+}
+
+.monitor-page .threshold-drag-hint[hidden] {
+    display: none;
+}
+
+.monitor-page .threshold-drag-hint.active {
+    background: var(--accent);
+    transform: translateY(-50%) scale(1.06);
+}
+
+.monitor-page .threshold-drag-hint-icon {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.monitor-page .info-panel {
+    padding: 1rem;
+}
+
+.monitor-page .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    gap: 0.65rem;
+}
+
+.monitor-page .info-field {
+    display: grid;
+    grid-template-columns: 1.25rem auto 1fr;
+    align-items: baseline;
+    gap: 0.45rem 0.55rem;
+    min-width: 0;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-primary-56);
+}
+
+.monitor-page .info-icon {
+    color: var(--accent);
+    font-size: 0.85rem;
+    text-align: center;
+}
+
+.monitor-page .info-label {
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.monitor-page .info-field > span:last-child {
+    justify-self: end;
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.88rem;
+    font-weight: 600;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+.monitor-page .modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: var(--bg-primary-82);
+    animation: monitor-fade-in 0.25s ease-out;
+}
+
+.monitor-page .modal-content {
+    width: min(100%, 26rem);
+    max-height: min(85vh, 36rem);
+    overflow-y: auto;
+    padding: 1.35rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-card);
+    box-shadow: 0 20px 60px var(--shadow-50);
+    animation: monitor-scale-in 0.25s ease-out;
+}
+
+.monitor-page .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.monitor-page .modal-header h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0;
+    color: var(--accent);
+    font-size: 1.25rem;
+}
+
+.monitor-page .modal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.monitor-page .modal-reload {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--white-06);
+    color: var(--accent);
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+.monitor-page .modal-reload:hover {
+    border-color: var(--accent-border);
+    background: var(--accent-glow);
+    transform: scale(1.06);
+}
+
+.monitor-page .modal-reload.spinning {
+    animation: monitor-spin 1s linear infinite;
+}
+
+.monitor-page .modal-body {
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.92rem;
+    line-height: 1.55;
+}
+
+.monitor-page .stat-list {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.monitor-page .stat-list:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.monitor-page .stat-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.45rem 0;
+}
+
+.monitor-page .stat-label {
+    flex-shrink: 0;
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+.monitor-page .stat-value {
+    color: var(--text-primary);
+    font-weight: 600;
+    text-align: right;
+    word-break: break-word;
+}
+
+.monitor-page .stat-value.highlight,
+.monitor-page .stat-value.success {
+    color: var(--accent);
+}
+
+.monitor-page .stat-value.warning {
+    color: var(--warning);
+}
+
+@keyframes monitor-pulse {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.55;
+        transform: scale(0.85);
+    }
+}
+
+@keyframes monitor-motion-flash {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.72;
+    }
+}
+
+@keyframes monitor-fade-in {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes monitor-scale-in {
+    from {
+        opacity: 0;
+        transform: scale(0.94);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes monitor-spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (max-width: 900px) {
+    .monitor-page .metrics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .monitor-page .chart-container {
+        height: min(52vh, 420px);
+    }
+}
+
+@media (max-width: 620px) {
+    .monitor-stage {
+        margin-bottom: 1.25rem;
+    }
+
+    .monitor-subtitle {
+        letter-spacing: 0.4em;
+        text-indent: 0.4em;
+    }
+
+    .monitor-page .connection-box {
+        padding: 1.35rem;
+    }
+
+    .monitor-page .btn-large {
+        width: 100%;
+        padding: 1.1rem 1.5rem;
+    }
+
+    .monitor-connect-modal-actions {
+        flex-direction: column;
+    }
+
+    .monitor-connect-modal-actions .btn {
+        width: 100%;
+    }
+
+    .monitor-page .metrics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .monitor-page .metric-card {
+        min-height: 0;
+        padding: 0.5rem 0.6rem;
+    }
+
+    .monitor-page .metric-value {
+        font-size: 0.95rem;
+    }
+
+    .monitor-page .chart-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .monitor-page .chart-header .btn {
+        width: 100%;
+    }
+
+    .monitor-page .info-field {
+        grid-template-columns: 1.25rem 1fr;
+    }
+
+    .monitor-page .info-label {
+        grid-column: 2;
+    }
+
+    .monitor-page .info-field > span:last-child {
+        grid-column: 2;
+        justify-self: start;
+        text-align: left;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .monitor-page .metric-card.motion .metric-value {
+        animation: none;
+    }
+}

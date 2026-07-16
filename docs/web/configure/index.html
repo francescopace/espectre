@@ -12,39 +12,80 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="stylesheet" href="/styles.css">
-  <link rel="stylesheet" href="/configure/configure.css">
-  <link rel="stylesheet" href="/tool-page.css">
+  <link rel="stylesheet" href="/styles.css?v=palette-v1">
+  <link rel="stylesheet" href="/movement-bar.css?v=v1">
+  <link rel="stylesheet" href="/configure/configure.css?v=ui-v3">
+  <link rel="stylesheet" href="/tool-page.css?v=compact-v3">
 </head>
 
 <body class="tool-page configure-page" data-tool="configure">
   <canvas id="cosmic-bg" aria-hidden="true"></canvas>
   <header id="site-header"></header>
-  <main class="container">
-    <div class="card compact">
-      <div class="collapsible-header" onclick="toggleConfig()">
-        <h2><i class="fab fa-bluetooth-b"></i> BLE Connection</h2>
-        <div class="status-item">
-          <div class="status-indicator disconnected" id="statusIndicator"></div>
-          <span id="statusText">Disconnected</span>
-        </div>
-        <span class="arrow" id="configArrow">▼</span>
-      </div>
-      <div class="collapsible-content" id="configContent">
-        <div class="button-row">
-          <button class="btn btn-primary" id="connectBtn">Connect</button>
-        </div>
+
+  <div id="movement-bar-vertical" class="movement-bar-vertical" hidden>
+    <div class="movement-bar-track">
+      <div id="movement-fill" class="movement-bar-fill" data-role="fill"></div>
+      <div id="threshold-marker" class="threshold-marker" data-role="marker" title="Drag to adjust motion threshold on device">
+        <span id="threshold-value" class="threshold-value" data-role="value">1.0</span>
       </div>
     </div>
+  </div>
 
-    <div class="card" id="configurationCard">
-      <div class="collapsible-header" onclick="toggleSection('configuration')">
-        <h2>⚙️ Device Configuration</h2>
-        <span class="arrow" id="configurationArrow">▼</span>
+  <main class="container">
+
+    <section class="configure-stage" aria-labelledby="configure-heading">
+      <div class="configure-title">
+        <h1 id="configure-heading">ESPectre</h1>
+        <span class="configure-subtitle">CONFIGURE</span>
       </div>
-      <div class="collapsible-content" id="configurationContent">
-        <div class="subsection-card" id="wifiProvisioningCard">
-          <h3>🌐 Wi-Fi Provisioning</h3>
+      <p class="configure-tagline">Provision Wi-Fi, MQTT, and device settings over Bluetooth.</p>
+
+      <div class="connection-box">
+        <div id="connectionPre" class="connection-pre">
+          <button id="connectBtn" class="btn btn-primary btn-large" type="button">
+            <i class="fab fa-bluetooth-b" aria-hidden="true"></i> Connect ESPectre
+          </button>
+          <p class="connection-hint">Connect your ESPectre device via Bluetooth</p>
+          <div id="connectionStatus" class="connection-status" role="status"></div>
+        </div>
+        <div id="connectionReady" class="connection-ready" hidden>
+          <div class="device-ready-status">
+            <i class="fas fa-check-circle" aria-hidden="true"></i>
+            <span id="deviceName">ESP32 Connected</span>
+          </div>
+          <button id="disconnectBtn" class="btn btn-secondary btn-small" type="button">
+            <i class="fas fa-unlink" aria-hidden="true"></i> Disconnect
+          </button>
+        </div>
+      </div>
+      <p class="compatibility-note">
+        <i class="fas fa-info-circle" aria-hidden="true"></i>
+        Requires a browser with Web Bluetooth support.
+      </p>
+    </section>
+
+    <div id="configureWorkspace" hidden>
+      <div class="site-warning" id="capabilityNotice" role="status" hidden></div>
+
+      <div class="configure-toolbar" id="runtimeToolbar" hidden>
+        <div class="toolbar-field" id="detectorField" hidden>
+          <label for="detectorValue">Detector</label>
+          <select id="detectorValue">
+            <option value="classic">classic</option>
+            <option value="ml">ml</option>
+          </select>
+        </div>
+        <button class="toolbar-toggle enabled" id="liveTelemetryBtn" type="button" hidden>
+          <span class="toolbar-toggle-label">Live telemetry</span>
+          <span class="toolbar-toggle-state" id="liveTelemetryState">On</span>
+        </button>
+      </div>
+
+      <div class="configure-sections" id="configurationCard" hidden>
+        <section class="configure-section" id="wifiProvisioningCard" hidden>
+          <header class="configure-section-header">
+            <h2><i class="fas fa-wifi" aria-hidden="true"></i> Wi-Fi</h2>
+          </header>
           <div class="config-section">
             <div class="input-group">
               <label for="wifiSsidInput">SSID</label>
@@ -64,13 +105,15 @@
             </div>
           </div>
           <div class="section-actions">
-            <button class="btn btn-secondary" id="wifiApplyBtn" disabled>Save Wi-Fi</button>
-            <button class="btn btn-danger" id="wifiClearBtn" disabled>Clear Wi-Fi</button>
+            <button class="btn btn-secondary btn-sm" id="wifiApplyBtn" disabled type="button">Save</button>
+            <button class="btn btn-danger btn-sm" id="wifiClearBtn" disabled type="button">Clear</button>
           </div>
-        </div>
+        </section>
 
-        <div class="subsection-card" id="mqttSettingsCard">
-          <h3>📡 MQTT Settings</h3>
+        <section class="configure-section" id="mqttSettingsCard" hidden>
+          <header class="configure-section-header">
+            <h2><i class="fas fa-tower-broadcast" aria-hidden="true"></i> MQTT</h2>
+          </header>
           <div class="config-section">
             <div class="input-group">
               <label for="mqttHostInput">Broker Host</label>
@@ -94,38 +137,39 @@
             </div>
           </div>
           <div class="section-actions">
-            <button class="btn btn-secondary" id="mqttApplyBtn" disabled>Save MQTT</button>
-            <button class="btn btn-danger" id="mqttClearBtn" disabled>Clear MQTT</button>
+            <button class="btn btn-secondary btn-sm" id="mqttApplyBtn" disabled type="button">Save</button>
+            <button class="btn btn-danger btn-sm" id="mqttClearBtn" disabled type="button">Clear</button>
           </div>
-        </div>
+        </section>
 
-        <div class="subsection-card" id="deviceSettingsCard">
-          <h3>🧩 Device Settings</h3>
-          <div class="config-section ble-toolbar-grid">
+        <section class="configure-section" id="deviceSettingsCard" hidden>
+          <header class="configure-section-header">
+            <h2><i class="fas fa-microchip" aria-hidden="true"></i> Device</h2>
+          </header>
+          <div class="config-section">
             <div class="input-group">
               <label for="deviceIdInput">Device ID</label>
               <input id="deviceIdInput" type="text" readonly disabled placeholder="Auto-generated by firmware">
-              <small>Stable auto-generated protocol identity used by BLE and MQTT.</small>
             </div>
             <div class="input-group">
               <label for="deviceNameInput">Device Name</label>
               <input id="deviceNameInput" type="text" readonly disabled placeholder="Derived by firmware">
-              <small>Canonical immutable device name derived from chip and device ID.</small>
             </div>
             <div class="input-group">
               <label for="deviceLabelInput">Device Label</label>
               <input id="deviceLabelInput" type="text" autocomplete="off" maxlength="64" placeholder="Living Room">
-              <small>Optional human-readable label shown in local tools and live info payloads.</small>
             </div>
           </div>
           <div class="section-actions">
-            <button class="btn btn-secondary" id="deviceApplyBtn" disabled>Save Device</button>
-            <button class="btn btn-danger" id="deviceClearBtn" disabled>Clear Device</button>
+            <button class="btn btn-secondary btn-sm" id="deviceApplyBtn" disabled type="button">Save</button>
+            <button class="btn btn-danger btn-sm" id="deviceClearBtn" disabled type="button">Clear</button>
           </div>
-        </div>
+        </section>
 
-        <div class="subsection-card">
-          <h3>🩺 Diagnostics</h3>
+        <section class="configure-section" id="diagnosticsCard" hidden>
+          <header class="configure-section-header">
+            <h2><i class="fas fa-stethoscope" aria-hidden="true"></i> Diagnostics</h2>
+          </header>
           <div class="diag-grid">
             <div class="diag-item">
               <div class="metric-label">Protocol</div>
@@ -180,66 +224,41 @@
               <div class="metric-value" id="diagStartupThreshold">-</div>
             </div>
           </div>
+        </section>
+      </div>
+
+      <div class="card compact configure-logs" id="logsCard" hidden>
+        <div class="collapsible-header" onclick="toggleSection('logs')">
+          <h2><i class="fas fa-terminal" aria-hidden="true"></i> Logs</h2>
+          <span class="arrow rotate" id="logsArrow">▼</span>
+        </div>
+        <div class="collapsible-content collapsed" id="logsContent">
+          <div class="log-grid">
+            <div class="log-panel">
+              <h3>System Info</h3>
+              <pre id="sysinfoLog"></pre>
+            </div>
+            <div class="log-panel">
+              <h3>Events</h3>
+              <pre id="eventLog"></pre>
+            </div>
+          </div>
+          <div class="section-actions logs-actions">
+            <button class="btn btn-secondary btn-sm" id="sysinfoBtn" disabled type="button">Request Info</button>
+            <button class="btn btn-danger btn-sm" id="clearBtn" type="button">Clear</button>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="card compact" id="telemetryCard">
-      <div class="metrics-grid">
-        <div class="metric-card" id="stateCard">
-          <div class="metric-label">State</div>
-          <div class="metric-value" id="stateValue">-</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">Motion Level</div>
-          <div class="metric-value" id="movementValue">-</div>
-        </div>
-        <div class="metric-card" id="thresholdCard">
-          <div class="metric-label">Threshold</div>
-          <input class="metric-value metric-value-input" id="thresholdValue" type="number" min="0" max="10" step="0.000001" value="" placeholder="-">
-        </div>
-        <div class="metric-card" id="detectorCard">
-          <div class="metric-label">Detector</div>
-          <select class="metric-value metric-value-input" id="detectorValue">
-            <option value="classic">classic</option>
-            <option value="ml">ml</option>
-          </select>
-        </div>
-        <button class="metric-card metric-toggle-button enabled" id="liveTelemetryBtn" type="button">
-          <div class="metric-label">Live Telemetry</div>
-          <div class="metric-toggle-state" id="liveTelemetryState">Enabled</div>
-        </button>
-      </div>
-    </div>
-
-    <div class="card" id="logsCard">
-      <div class="collapsible-header" onclick="toggleSection('logs')">
-        <h2>🧾 Logs</h2>
-        <span class="arrow" id="logsArrow">▼</span>
-      </div>
-      <div class="collapsible-content" id="logsContent">
-        <div class="log-grid">
-          <div class="log-panel">
-            <h3>System Info Stream</h3>
-            <pre id="sysinfoLog"></pre>
-          </div>
-          <div class="log-panel">
-            <h3>Event Log</h3>
-            <pre id="eventLog"></pre>
-          </div>
-        </div>
-        <div class="section-actions logs-actions">
-          <button class="btn btn-secondary" id="sysinfoBtn" disabled>Request Info</button>
-          <button class="btn btn-danger" id="clearBtn">Clear Logs</button>
-        </div>
-      </div>
-    </div>
   </main>
   <script src="/tool-page.js"></script>
-  <script src="/configure/configure.js"></script>
+  <script src="/espectre-ble.js"></script>
+  <script src="/movement-bar.js?v=v1"></script>
+  <script src="/configure/configure.js?v=ui-v3"></script>
   <footer id="site-footer"></footer>
-  <script src="/components.js"></script>
-  <script src="/cosmic-bg.js"></script>
+  <script src="/components.js?v=actions-v1"></script>
+  <script src="/cosmic-bg.js?v=palette-v1"></script>
   <script src="/analytics.js"></script>
 </body>
 

@@ -271,7 +271,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-pages:
-    name: Publish Web Flash Pages
+    name: Publish Website
     needs: release
     runs-on: ubuntu-latest
     permissions:
@@ -283,24 +283,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.14'
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Build Documentation
-        run: python .github/scripts/build_docs.py
-
-      - name: Build Search Index
-        run: npx -y pagefind --site docs/web --output-path docs/web/_pagefind --glob "documentation/**/*.html"
 
       - name: Download main firmware artifacts
         uses: actions/download-artifact@v8
@@ -354,11 +336,13 @@ jobs:
           test -f docs/web/configure/index.html
           test -f docs/web/monitor/index.html
           test -f docs/web/theremin/index.html
-          test -d docs/web/documentation
-          test -d docs/web/_pagefind
+          test -f docs/web/guides/setup/index.html
+          test -f docs/web/guides/detection/index.html
+          test -f docs/web/guides/custom-firmware/index.html
+          test -f docs/web/guides/hardware/index.html
           test -f docs/web/flash/firmware/main/firmware-manifest-main.json
           test "$(find docs/web/flash/firmware/main -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
-          echo "Web flash Pages build verified!"
+          echo "Website build verified!"
 
       - name: Setup Pages
         uses: actions/configure-pages@v6
@@ -369,7 +353,7 @@ jobs:
           path: docs/web
 
   deploy-pages:
-    name: Deploy Web Flash Pages
+    name: Deploy Website
     needs: publish-pages
     runs-on: ubuntu-latest
     permissions:

@@ -130,6 +130,10 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.firmware_version = "2026.7";
   info.chip = "esp32c6";
   info.detector = "classic";
+  info.supports_stats = true;
+  info.supports_runtime_threshold = true;
+  info.supports_runtime_detector = true;
+  info.supports_ota = true;
   info.network.ip_address = "192.168.1.10";
   info.network.mac_address = "AA:BB:CC:DD:EE:FF";
   info.network.channel = 6;
@@ -142,6 +146,11 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"frontend\":\"streamer\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"firmware_version\":\"2026.7\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"chip\":\"esp32c6\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_info\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_stats\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_runtime_threshold\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_runtime_detector\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_ota\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"network\":{") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"ip_address\":\"192.168.1.10\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"channel\":{\"primary\":6}") != std::string::npos);

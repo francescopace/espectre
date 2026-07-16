@@ -59,14 +59,9 @@
     }
 
     function setConnectionStatus(connected) {
-        const indicator = byId('statusIndicator');
-        const statusText = byId('statusText');
         const connectButton = byId('connectBtn');
-        if (!indicator || !statusText || !connectButton) return;
+        if (!connectButton) return;
 
-        indicator.classList.toggle('connected', connected);
-        indicator.classList.toggle('disconnected', !connected);
-        statusText.textContent = connected ? 'Connected' : 'Disconnected';
         connectButton.textContent = connected ? 'Disconnect' : 'Connect';
         connectButton.classList.toggle('btn-primary', !connected);
         connectButton.classList.toggle('btn-danger', connected);
@@ -114,22 +109,46 @@
     }
 
     function connectMqtt({ clientPrefix, subscription, onMessage, onStatus, onSubscribed }) {
+        const trackConnection = (result, errorType) => {
+            if (typeof window.trackEvent !== 'function') return;
+            const params = {
+                tool_name: clientPrefix,
+                transport: 'mqtt_websocket',
+                result
+            };
+            if (errorType) params.error_type = errorType;
+            window.trackEvent('tool_connection', params);
+        };
+
+        trackConnection('attempt');
         if (typeof window.mqtt === 'undefined') {
+            trackConnection('unsupported');
             window.alert('MQTT.js failed to load. Check the browser network policy and reload the page.');
             return null;
         }
         if (!subscription) {
+            trackConnection('validation_failure');
             window.alert('Please fill in all required fields.');
             return null;
         }
 
         const connection = mqttConnectionOptions(clientPrefix);
-        if (!connection) return null;
+        if (!connection) {
+            trackConnection('validation_failure');
+            return null;
+        }
 
         try {
             const client = window.mqtt.connect(connection.url, connection.options);
+            let successTracked = false;
+            let failureTracked = false;
+            let subscriptionFailureTracked = false;
             client.on('connect', () => {
                 onStatus(true);
+                if (!successTracked) {
+                    trackConnection('success');
+                    successTracked = true;
+                }
                 const config = byId('configContent');
                 const arrow = byId('configArrow');
                 if (config) config.classList.add('collapsed');
@@ -140,6 +159,10 @@
                 client.subscribe(subscription, (error) => {
                     if (error) {
                         console.error('Subscribe error:', error);
+                        if (!subscriptionFailureTracked) {
+                            trackConnection('subscription_failure');
+                            subscriptionFailureTracked = true;
+                        }
                         window.alert('Error subscribing to topic.');
                         return;
                     }
@@ -149,6 +172,10 @@
             client.on('message', onMessage);
             client.on('error', (error) => {
                 console.error('Connection error:', error);
+                if (!failureTracked) {
+                    trackConnection('failure', error.name || 'Error');
+                    failureTracked = true;
+                }
                 window.alert(`Connection error: ${websocketConnectionError(error)}`);
                 onStatus(false);
             });
@@ -156,6 +183,7 @@
             return client;
         } catch (error) {
             console.error('Connection error:', error);
+            trackConnection('failure', error.name || 'Error');
             window.alert(`Connection error: ${websocketConnectionError(error)}`);
             return null;
         }

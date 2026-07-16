@@ -1,47 +1,60 @@
-const SERVICE_UUID = 'd33ff46b-2203-4775-bc6f-b3a2c36af8f0';
-const TELEMETRY_UUID = '119d5cac-48da-4bd9-bfc3-169805868258';
-const SYSINFO_UUID = 'c8c89ffa-c401-461f-9ffc-942fa04adfe3';
-const CONTROL_UUID = '33ed9214-a8d7-40e8-82d1-c82747dcdc71';
+const TRACKED_CONFIGURE_ACTIONS = new Set([
+  'SET_DEVICE_CONFIG', 'CLEAR_DEVICE_CONFIG', 'SET_THRESHOLD', 'SET_DETECTOR',
+  'SET_WIFI_CONFIG', 'CLEAR_WIFI', 'SET_MQTT_CONFIG', 'CLEAR_MQTT_CONFIG'
+]);
+const SYSINFO_CAPABILITY_KEYS = new Set([
+  'supports_wifi_provisioning',
+  'supports_mqtt_config',
+  'supports_device_config',
+  'supports_runtime_threshold',
+  'supports_runtime_detector',
+  'supports_live_telemetry',
+  'supports_extended_diagnostics'
+]);
 
-let device = null;
-let telemetryChar = null;
-let sysinfoChar = null;
-let controlChar = null;
 let liveTelemetryRequested = true;
 let capabilityState = defaultCapabilities();
-let sysinfoSnapshotBuffer = [];
-let pendingThresholdValue = null;
+let capabilitiesResolved = false;
+let advertisedCapabilityKeys = new Set();
+let analyticsDeviceInfo = {};
+let lastTrackedDeviceProfile = null;
+let sysinfoSnapshotActive = false;
+
+const ble = new ESPectreBleClient({
+  onTelemetry: handleTelemetry,
+  onInvalidTelemetry: (byteLength) => log(`telemetry ignored: ${byteLength} bytes`),
+  onSysinfoLine: appendSysinfo,
+  onSysinfoSnapshot: handleSysinfoSnapshot,
+  onDisconnected: () => {
+    log('BLE device disconnected');
+    setConnected(false);
+  }
+});
+
+const movementBar = new ESPectreMovementBar({
+  root: document.getElementById('movement-bar-vertical'),
+  scaleMax: 10,
+  thresholdMin: 0,
+  thresholdMax: 10,
+  digits: 2,
+  onThresholdCommit: async (threshold) => {
+    await writeControl(`SET_THRESHOLD:${threshold.toFixed(6)}`);
+  }
+});
+movementBar.setVisible(false);
 
 const el = (id) => document.getElementById(id);
 
 function defaultCapabilities() {
 return {
-  supportsWifiProvisioning: true,
-  supportsMqttConfig: true,
-  supportsDeviceConfig: true,
-  supportsRuntimeThreshold: true,
-  supportsRuntimeDetector: true,
-  supportsLiveTelemetry: true,
-  supportsExtendedDiagnostics: true
+  supportsWifiProvisioning: false,
+  supportsMqttConfig: false,
+  supportsDeviceConfig: false,
+  supportsRuntimeThreshold: false,
+  supportsRuntimeDetector: false,
+  supportsLiveTelemetry: false,
+  supportsExtendedDiagnostics: false
 };
-}
-
-function knownFrontendCapabilities(frontend) {
-if (frontend === 'streamer') {
-  return {
-    supportsWifiProvisioning: true,
-    supportsMqttConfig: false,
-    supportsDeviceConfig: true,
-    supportsRuntimeThreshold: false,
-    supportsRuntimeDetector: false,
-    supportsLiveTelemetry: false,
-    supportsExtendedDiagnostics: false
-  };
-}
-if (frontend === 'native') {
-  return defaultCapabilities();
-}
-return null;
 }
 
 function log(message) {
@@ -52,7 +65,7 @@ el('eventLog').scrollTop = el('eventLog').scrollHeight;
 
 function revealLogs() {
 el('logsContent').classList.remove('collapsed');
-el('logsArrow').classList.add('rotate');
+el('logsArrow').classList.remove('rotate');
 }
 
 function showValidationError(message) {
@@ -70,71 +83,49 @@ const parsed = Number(match[0].replace(',', '.'));
 return Number.isFinite(parsed) ? parsed : null;
 }
 
-function formatMotionState(value) {
-if (value === 1 || value === '1' || value === 'motion') {
-  return 'Motion';
-}
-if (value === 0 || value === '0' || value === 'idle') {
-  return 'Idle';
-}
-return String(value);
+function showConnectionStatus(message, type = '') {
+  const status = el('connectionStatus');
+  if (!status) return;
+  status.textContent = message;
+  status.className = `connection-status ${type}`.trim();
 }
 
-function updateStateCard(value) {
-const stateCard = el('stateCard');
-const label = formatMotionState(value);
-el('stateValue').textContent = label;
-stateCard.classList.remove('idle', 'motion');
-if (label === 'Idle') {
-  stateCard.classList.add('idle');
-} else if (label === 'Motion') {
-  stateCard.classList.add('motion');
-}
-}
+function updateConnectionUi(connected) {
+  const connectionPre = el('connectionPre');
+  const connectionReady = el('connectionReady');
+  const workspace = el('configureWorkspace');
+  if (connectionPre) connectionPre.hidden = connected;
+  if (connectionReady) connectionReady.hidden = !connected;
+  if (workspace) workspace.hidden = !connected;
+  document.body.classList.toggle('configure-connected', connected);
+  ToolPage.setHeaderConnectionStatus(connected);
 
-function setThresholdPending(value = null) {
-pendingThresholdValue = Number.isFinite(value) ? value : null;
-el('thresholdCard').classList.toggle('pending', pendingThresholdValue !== null);
+  if (connected) {
+    const label = el('deviceName');
+    if (label) label.textContent = `${ble.name || 'ESP32'} Connected`;
+    showConnectionStatus('', '');
+  } else {
+    showConnectionStatus('', '');
+    movementBar.setMovement(0);
+    movementBar.setVisible(false);
+  }
 }
 
 function setConnected(connected) {
-el('statusText').textContent = connected ? 'Connected' : 'Disconnected';
-el('statusIndicator').className = `status-indicator ${connected ? 'connected' : 'disconnected'}`;
-el('connectBtn').textContent = connected ? 'Disconnect' : 'Connect';
-el('connectBtn').classList.toggle('btn-primary', !connected);
-el('connectBtn').classList.toggle('btn-danger', connected);
-ToolPage.setHeaderConnectionStatus(connected);
-el('sysinfoBtn').disabled = !connected;
-sysinfoSnapshotBuffer = [];
-if (!connected) {
-  capabilityState = defaultCapabilities();
-  setThresholdPending(null);
-}
-applyCapabilityState(connected);
-if (connected) {
-  el('configContent').classList.add('collapsed');
-  el('configArrow').classList.add('rotate');
-}
+  const connectBtn = el('connectBtn');
+  if (connectBtn) connectBtn.disabled = false;
+  updateConnectionUi(connected);
+  el('sysinfoBtn').disabled = !connected;
+  if (!connected) {
+    capabilityState = defaultCapabilities();
+    capabilitiesResolved = false;
+    advertisedCapabilityKeys = new Set();
+  }
+  applyCapabilityState(connected);
 }
 
 function liveTelemetryEnabled() {
 return liveTelemetryRequested;
-}
-
-function updateThresholdValue(value, force = false) {
-const threshold = parseDecimalInput(value);
-if (threshold === null) {
-  return null;
-}
-if (pendingThresholdValue !== null && Math.abs(threshold - pendingThresholdValue) <= 1e-4) {
-  setThresholdPending(null);
-}
-const input = el('thresholdValue');
-if (!force && document.activeElement === input) {
-  return threshold;
-}
-input.value = threshold.toFixed(6);
-return threshold;
 }
 
 function updateDetectorValue(value) {
@@ -142,17 +133,7 @@ if (value !== 'classic' && value !== 'ml') {
   return;
 }
 el('detectorValue').value = value;
-el('thresholdValue').max = value === 'ml' ? '1' : '10';
-}
-
-function updateMotionLevel(movement, threshold) {
-const movementValue = Number(movement);
-const thresholdValue = Number(threshold);
-if (!Number.isFinite(movementValue) || !Number.isFinite(thresholdValue) || thresholdValue <= 0) {
-  el('movementValue').textContent = '-';
-  return;
-}
-el('movementValue').textContent = `${((movementValue / thresholdValue) * 100).toFixed(1)}%`;
+movementBar.setScaleMax(value === 'ml' ? 1 : 10);
 }
 
 function updateTrafficDiagnostic() {
@@ -174,7 +155,7 @@ const button = el('liveTelemetryBtn');
 const state = el('liveTelemetryState');
 button.classList.toggle('enabled', liveTelemetryEnabled());
 button.classList.toggle('disabled', !liveTelemetryEnabled());
-state.textContent = liveTelemetryEnabled() ? 'Enabled' : 'Disabled';
+state.textContent = liveTelemetryEnabled() ? 'On' : 'Off';
 }
 
 function setCapability(name, supported) {
@@ -182,28 +163,45 @@ capabilityState[name] = supported;
 }
 
 function setCardVisible(cardId, visible) {
-el(cardId).classList.toggle('hidden', !visible);
-}
-
-function applyFrontendCapabilities(frontend) {
-const frontendCapabilities = knownFrontendCapabilities(frontend);
-if (!frontendCapabilities) {
-  return;
-}
-capabilityState = {
-  ...capabilityState,
-  ...frontendCapabilities
-};
+const node = el(cardId);
+if (!node) return;
+node.hidden = !visible;
 }
 
 function applyCapabilityState(connected) {
 const isConnected = Boolean(connected);
-setCardVisible('configurationCard', isConnected);
+const hasConfiguration = capabilitiesResolved && (
+  capabilityState.supportsWifiProvisioning ||
+  capabilityState.supportsMqttConfig ||
+  capabilityState.supportsDeviceConfig ||
+  capabilityState.supportsExtendedDiagnostics
+);
+const hasRuntimeToolbar = capabilitiesResolved && (
+  capabilityState.supportsRuntimeDetector ||
+  capabilityState.supportsLiveTelemetry
+);
+const showMovementBar = isConnected && capabilitiesResolved && (
+  capabilityState.supportsLiveTelemetry ||
+  capabilityState.supportsRuntimeThreshold
+);
+const capabilityNotice = el('capabilityNotice');
+if (!isConnected || hasConfiguration || hasRuntimeToolbar || showMovementBar) {
+  capabilityNotice.hidden = true;
+} else {
+  capabilityNotice.hidden = false;
+  capabilityNotice.textContent = capabilitiesResolved
+    ? (advertisedCapabilityKeys.size === 0
+        ? 'This firmware did not report BLE capability flags. Update the device firmware and reconnect.'
+        : 'This device does not expose configurable BLE features.')
+    : 'Reading supported BLE features from the device...';
+}
+setCardVisible('configurationCard', isConnected && hasConfiguration);
 setCardVisible('logsCard', isConnected);
-setCardVisible('wifiProvisioningCard', capabilityState.supportsWifiProvisioning);
-setCardVisible('mqttSettingsCard', capabilityState.supportsMqttConfig);
-setCardVisible('deviceSettingsCard', capabilityState.supportsDeviceConfig);
-setCardVisible('telemetryCard', isConnected && capabilityState.supportsLiveTelemetry);
+setCardVisible('wifiProvisioningCard', isConnected && capabilitiesResolved && capabilityState.supportsWifiProvisioning);
+setCardVisible('mqttSettingsCard', isConnected && capabilitiesResolved && capabilityState.supportsMqttConfig);
+setCardVisible('deviceSettingsCard', isConnected && capabilitiesResolved && capabilityState.supportsDeviceConfig);
+setCardVisible('diagnosticsCard', isConnected && capabilitiesResolved && capabilityState.supportsExtendedDiagnostics);
+setCardVisible('runtimeToolbar', isConnected && hasRuntimeToolbar);
 setCardVisible('diagWifiItem', capabilityState.supportsWifiProvisioning);
 setCardVisible('diagMqttItem', capabilityState.supportsMqttConfig);
 setCardVisible('diagDetectorItem', capabilityState.supportsExtendedDiagnostics);
@@ -222,29 +220,49 @@ el('mqttApplyBtn').disabled = !isConnected || !capabilityState.supportsMqttConfi
 el('mqttClearBtn').disabled = !isConnected || !capabilityState.supportsMqttConfig;
 el('deviceApplyBtn').disabled = !isConnected || !capabilityState.supportsDeviceConfig;
 el('deviceClearBtn').disabled = !isConnected || !capabilityState.supportsDeviceConfig;
-el('thresholdValue').disabled = !isConnected || !capabilityState.supportsRuntimeThreshold;
-setCardVisible('detectorCard', isConnected && capabilityState.supportsRuntimeDetector);
+setCardVisible('detectorField', isConnected && capabilityState.supportsRuntimeDetector);
+setCardVisible('liveTelemetryBtn', capabilityState.supportsLiveTelemetry);
 el('detectorValue').disabled = !isConnected || !capabilityState.supportsRuntimeDetector;
 el('liveTelemetryBtn').disabled = !capabilityState.supportsLiveTelemetry;
+movementBar.setVisible(showMovementBar);
+movementBar.setInteractive(isConnected && capabilityState.supportsRuntimeThreshold);
 updateLiveTelemetryButton();
 }
 
 async function applyLiveTelemetryPreference() {
-if (!telemetryChar || !capabilityState.supportsLiveTelemetry) {
+if (!ble.connected || !capabilityState.supportsLiveTelemetry) {
   return;
 }
-if (liveTelemetryEnabled()) {
-  await telemetryChar.startNotifications();
-  log('Telemetry notifications enabled');
-} else {
-  await telemetryChar.stopNotifications();
-  log('Telemetry notifications disabled');
-}
+await ble.setTelemetryNotifications(liveTelemetryEnabled());
+log(liveTelemetryEnabled() ? 'Telemetry notifications enabled' : 'Telemetry notifications disabled');
 }
 
 function appendSysinfoLog(line) {
 el('sysinfoLog').textContent += `${line}\n`;
 el('sysinfoLog').scrollTop = el('sysinfoLog').scrollHeight;
+}
+
+function resetSysinfoSnapshot() {
+sysinfoSnapshotActive = false;
+capabilityState = defaultCapabilities();
+capabilitiesResolved = false;
+advertisedCapabilityKeys = new Set();
+applyCapabilityState(ble.connected);
+}
+
+function handleTelemetry(telemetry) {
+  if (Number.isFinite(telemetry.movement)) {
+    movementBar.setMovement(telemetry.movement);
+  }
+  if (Number.isFinite(telemetry.threshold) && !movementBar.isDragging) {
+    movementBar.setThreshold(telemetry.threshold);
+  }
+}
+
+function handleSysinfoSnapshot() {
+sysinfoSnapshotActive = false;
+capabilitiesResolved = true;
+applyCapabilityState(ble.connected);
 }
 
 function applySysinfoLine(line) {
@@ -254,30 +272,34 @@ if (idx <= 0) {
 }
 const key = line.slice(0, idx);
 const value = line.slice(idx + 1);
-if (key === 'frontend') {
-  applyFrontendCapabilities(value);
-  applyCapabilityState(device && device.gatt && device.gatt.connected);
-} else if (key === 'supports_wifi_provisioning') {
+if (key === 'frontend' || key === 'chip') {
+  analyticsDeviceInfo[key] = value.toLowerCase();
+  if (analyticsDeviceInfo.frontend && analyticsDeviceInfo.chip) {
+    const profile = `${analyticsDeviceInfo.frontend}:${analyticsDeviceInfo.chip}`;
+    if (profile !== lastTrackedDeviceProfile) {
+      trackEvent('device_profile', {
+        tool_name: 'configure',
+        frontend: analyticsDeviceInfo.frontend,
+        chip: analyticsDeviceInfo.chip
+      });
+      lastTrackedDeviceProfile = profile;
+    }
+  }
+}
+if (key === 'supports_wifi_provisioning') {
   setCapability('supportsWifiProvisioning', value === 'true' || value === '1');
-  applyCapabilityState(device && device.gatt && device.gatt.connected);
 } else if (key === 'supports_mqtt_config') {
   setCapability('supportsMqttConfig', value === 'true' || value === '1');
-  applyCapabilityState(device && device.gatt && device.gatt.connected);
 } else if (key === 'supports_device_config') {
   setCapability('supportsDeviceConfig', value === 'true' || value === '1');
-  applyCapabilityState(device && device.gatt && device.gatt.connected);
 } else if (key === 'supports_runtime_threshold') {
   setCapability('supportsRuntimeThreshold', value === 'true' || value === '1');
-  applyCapabilityState(device && device.gatt && device.gatt.connected);
 } else if (key === 'supports_runtime_detector') {
   setCapability('supportsRuntimeDetector', value === 'true' || value === '1');
-  applyCapabilityState(device && device.gatt && device.gatt.connected);
 } else if (key === 'supports_live_telemetry') {
   setCapability('supportsLiveTelemetry', value === 'true' || value === '1');
-  applyCapabilityState(device && device.gatt && device.gatt.connected);
 } else if (key === 'supports_extended_diagnostics') {
   setCapability('supportsExtendedDiagnostics', value === 'true' || value === '1');
-  applyCapabilityState(device && device.gatt && device.gatt.connected);
 } else if (key === 'chip') {
   el('diagChip').textContent = value.toUpperCase();
 } else if (key === 'device_id') {
@@ -303,9 +325,7 @@ if (key === 'frontend') {
 } else if (key === 'threshold') {
   const threshold = parseLeadingNumber(value);
   if (threshold !== null) {
-    updateThresholdValue(threshold);
-  } else {
-    el('thresholdValue').value = value;
+    movementBar.setThreshold(threshold);
   }
 }
 
@@ -349,32 +369,50 @@ if (key === 'proto_version' || key === 'espectre_protocol_version') {
 
 function appendSysinfo(line) {
 appendSysinfoLog(line);
-if (!line) {
+if (!line || line === 'END') {
   return;
 }
-if (line === 'END') {
-  const snapshot = sysinfoSnapshotBuffer;
-  sysinfoSnapshotBuffer = [];
-  snapshot.forEach(applySysinfoLine);
-  return;
+
+if (!sysinfoSnapshotActive || line.startsWith('proto_version=')) {
+  resetSysinfoSnapshot();
+  sysinfoSnapshotActive = true;
 }
-sysinfoSnapshotBuffer.push(line);
+applySysinfoLine(line);
+
+const separatorIndex = line.indexOf('=');
+const key = separatorIndex > 0 ? line.slice(0, separatorIndex) : '';
+if (SYSINFO_CAPABILITY_KEYS.has(key)) {
+  advertisedCapabilityKeys.add(key);
+  capabilitiesResolved = true;
+  applyCapabilityState(ble.connected);
+  if (ble.connected && key === 'supports_live_telemetry') {
+    applyLiveTelemetryPreference().catch((error) => log(`error: ${error.message}`));
+  }
+}
 }
 
 async function writeControl(command) {
-const payload = new TextEncoder().encode(command);
-if (controlChar.writeValueWithResponse) {
-  await controlChar.writeValueWithResponse(payload);
-} else {
-  await controlChar.writeValue(payload);
+if (command === 'REQ_SYSINFO') {
+  resetSysinfoSnapshot();
+}
+const action = command.split(':', 1)[0];
+try {
+  await ble.writeControl(command);
+} catch (error) {
+  if (TRACKED_CONFIGURE_ACTIONS.has(action)) {
+    trackEvent('configure_change', {
+      action,
+      result: 'failure',
+      error_type: error.name || 'Error'
+    });
+  }
+  throw error;
 }
 const sensitive = command.startsWith('SET_WIFI_CONFIG:') || command.startsWith('SET_MQTT_CONFIG:');
 log(`control -> ${sensitive ? command.split(':', 1)[0] + ':[redacted]' : command}`);
+if (TRACKED_CONFIGURE_ACTIONS.has(action)) {
+  trackEvent('configure_change', { action, result: 'success' });
 }
-
-function parseDecimalInput(value) {
-const parsed = Number(String(value).trim().replace(',', '.'));
-return Number.isFinite(parsed) ? parsed : null;
 }
 
 function parsePortInput(value) {
@@ -400,83 +438,71 @@ showValidationError(`${sectionLabel} required ${suffix} missing: ${missingFields
 }
 
 async function connect() {
-if (!navigator.bluetooth) {
-  log('Web Bluetooth is not available in this browser.');
-  return;
-}
-
-log('Opening BLE device picker...');
-device = await navigator.bluetooth.requestDevice({
-  filters: [{ services: [SERVICE_UUID] }],
-  optionalServices: [SERVICE_UUID]
-});
-device.addEventListener('gattserverdisconnected', () => {
-  log('BLE device disconnected');
-  setConnected(false);
-});
-
-log(`Connecting to ${device.name || device.id}...`);
-const server = await device.gatt.connect();
-const service = await server.getPrimaryService(SERVICE_UUID);
-telemetryChar = await service.getCharacteristic(TELEMETRY_UUID);
-sysinfoChar = await service.getCharacteristic(SYSINFO_UUID);
-controlChar = await service.getCharacteristic(CONTROL_UUID);
-
-telemetryChar.addEventListener('characteristicvaluechanged', (event) => {
-  const dv = event.target.value;
-  if (!dv || dv.byteLength < 8) {
-    log(`telemetry ignored: ${dv ? dv.byteLength : 0} bytes`);
+  if (!ESPectreBleClient.supported) {
+    showConnectionStatus('Web Bluetooth is not available in this browser.', 'error');
+    log('Web Bluetooth is not available in this browser.');
+    ToolPage.showNotification('Web Bluetooth is not available in this browser.', 'error');
+    trackEvent('tool_connection', { tool_name: 'configure', transport: 'bluetooth', result: 'unsupported' });
     return;
   }
-  const movement = dv.getFloat32(0, true);
-  const threshold = dv.getFloat32(4, true);
-  const motionState = dv.byteLength >= 9 ? dv.getUint8(8) : null;
-  updateMotionLevel(movement, threshold);
-  if (document.activeElement !== el('thresholdValue')) {
-    el('thresholdValue').value = Number.isFinite(threshold) ? threshold.toFixed(6) : '';
-  }
-  if (motionState !== null) {
-    updateStateCard(motionState);
-  }
-});
 
-sysinfoChar.addEventListener('characteristicvaluechanged', (event) => {
-  const value = event.target.value;
-  const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  const line = new TextDecoder().decode(bytes).trim();
-  appendSysinfo(line);
-});
-
-if (liveTelemetryEnabled() && capabilityState.supportsLiveTelemetry) {
-  await telemetryChar.startNotifications();
-  log('Telemetry notifications enabled');
-} else {
-  log('Telemetry notifications disabled from UI');
-}
-await sysinfoChar.startNotifications();
-log('System info notifications enabled');
-setConnected(true);
-await writeControl('REQ_SYSINFO');
+  const connectBtn = el('connectBtn');
+  if (connectBtn) connectBtn.disabled = true;
+  showConnectionStatus('Requesting Bluetooth device…', 'connecting');
+  log('Opening BLE device picker...');
+  trackEvent('tool_connection', { tool_name: 'configure', transport: 'bluetooth', result: 'attempt' });
+  try {
+    await ble.connect({ telemetry: false, sysinfo: true });
+    log(`Connected to ${ble.name || 'ESPectre'}`);
+    if (liveTelemetryEnabled() && capabilityState.supportsLiveTelemetry) {
+      await ble.setTelemetryNotifications(true);
+      log('Telemetry notifications enabled');
+    } else {
+      log('Telemetry notifications disabled from UI');
+    }
+    log('System info notifications enabled');
+    setConnected(true);
+    trackEvent('tool_connection', { tool_name: 'configure', transport: 'bluetooth', result: 'success' });
+    await writeControl('REQ_SYSINFO');
+  } catch (error) {
+    if (connectBtn) connectBtn.disabled = false;
+    showConnectionStatus(error.message || 'Bluetooth connection failed.', 'error');
+    throw error;
+  }
 }
 
 async function disconnect() {
-if (device && device.gatt && device.gatt.connected) {
-  device.gatt.disconnect();
-}
-setConnected(false);
+  await ble.disconnect();
+  setConnected(false);
 }
 
-el('connectBtn').addEventListener('click', async () => {
-try {
-  if (device && device.gatt && device.gatt.connected) {
-    await disconnect();
-  } else {
-    await connect();
+async function toggleBleConnection() {
+  try {
+    if (ble.connected) {
+      await disconnect();
+    } else {
+      await connect();
+    }
+  } catch (error) {
+    log(`error: ${error.message}`);
+    ToolPage.showNotification(`Bluetooth connection failed: ${error.message}`, 'error');
+    trackEvent('tool_connection', {
+      tool_name: 'configure',
+      transport: 'bluetooth',
+      result: 'failure',
+      error_type: error.name || 'Error'
+    });
   }
-} catch (error) {
-  log(`error: ${error.message}`);
 }
+
+el('connectBtn').addEventListener('click', toggleBleConnection);
+el('disconnectBtn').addEventListener('click', () => {
+  toggleBleConnection();
 });
+window.toolPageActions = {
+  ...(window.toolPageActions || {}),
+  connectBtn: toggleBleConnection
+};
 
 el('sysinfoBtn').addEventListener('click', async () => {
 try {
@@ -490,7 +516,7 @@ el('liveTelemetryBtn').addEventListener('click', async () => {
 try {
   liveTelemetryRequested = !liveTelemetryRequested;
   updateLiveTelemetryButton();
-  if (device && device.gatt && device.gatt.connected) {
+  if (ble.connected) {
     await applyLiveTelemetryPreference();
   } else {
     log(liveTelemetryEnabled() ? 'Live BLE telemetry will be enabled on connect' : 'Live BLE telemetry will stay disabled on connect');
@@ -517,21 +543,6 @@ try {
   await writeControl('REQ_SYSINFO');
   log('Device settings cleared');
 } catch (error) {
-  log(`error: ${error.message}`);
-}
-});
-
-el('thresholdValue').addEventListener('change', async () => {
-try {
-  const threshold = updateThresholdValue(el('thresholdValue').value, true);
-  if (threshold === null) {
-    showValidationError('invalid threshold value');
-    return;
-  }
-  setThresholdPending(threshold);
-  await writeControl(`SET_THRESHOLD:${threshold.toFixed(6)}`);
-} catch (error) {
-  setThresholdPending(null);
   log(`error: ${error.message}`);
 }
 });
@@ -655,15 +666,16 @@ try {
 });
 
 el('clearBtn').addEventListener('click', () => {
-el('stateValue').textContent = '-';
-el('stateCard').classList.remove('idle', 'motion');
-el('movementValue').textContent = '-';
-el('thresholdValue').value = '';
-setThresholdPending(null);
-sysinfoSnapshotBuffer = [];
 el('sysinfoLog').textContent = '';
 el('eventLog').textContent = '';
+movementBar.setMovement(0);
 });
 
+if (!ESPectreBleClient.supported) {
+  el('connectBtn').disabled = true;
+  showConnectionStatus('Web Bluetooth is not supported. Use Chrome or Edge.', 'error');
+}
+
+updateConnectionUi(false);
 applyCapabilityState(false);
 updateLiveTelemetryButton();

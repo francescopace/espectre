@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Build Custom Firmware | ESPectre</title>
+    <meta name="description" content="Build a custom ESPectre frontend or embed its reusable sensing layers into an existing ESP32 firmware.">
+    <link rel="canonical" href="https://espectre.dev/guides/custom-firmware/">
+    <link rel="icon" href="/favicon.png" type="image/png">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://espectre.dev/guides/custom-firmware/">
+    <meta property="og:title" content="Build Custom Firmware | ESPectre">
+    <meta property="og:description" content="Build a complete frontend or embed ESPectre sensing into an existing firmware.">
+    <meta property="og:image" content="https://espectre.dev/espectre.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Build Custom Firmware | ESPectre">
+    <meta name="twitter:description" content="Build a complete frontend or embed ESPectre sensing into an existing firmware.">
+    <meta name="twitter:image" content="https://espectre.dev/espectre.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&amp;family=Outfit:wght@300;400;600;700&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="/styles.css?v=palette-v1">
+    <link rel="stylesheet" href="/guides/guides.css">
+</head>
+<body class="guide-page">
+    <canvas id="cosmic-bg"></canvas>
+    <header id="site-header"></header>
+    <main class="guide-shell">
+        <div class="guide-content">
+            <div class="guide-header">
+                <h1>Build or embed ESPectre firmware</h1>
+                <p>Build one of the existing frontends, or integrate the reusable CSI capture, processing, and detection layers into an ESP-IDF application.</p>
+            </div>
+
+            <section class="guide-section">
+                <h2>Choose an integration path</h2>
+                <div class="guide-grid two-column">
+                    <article class="guide-card"><i class="fas fa-box"></i><h3>Build a complete firmware</h3><p>Start from ESPHome, Native, Matter, or Streamer, then customize configuration, transports, detector behavior, and the product-facing surface.</p></article>
+                    <article class="guide-card"><i class="fas fa-puzzle-piece"></i><h3>Embed the sensing layers</h3><p>Bring CSI capture, conditioning, features, and detection into an existing ESP-IDF application while keeping your own lifecycle and user experience.</p></article>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Complete firmware frontends</h2>
+                <div class="guide-table-wrap">
+                    <table class="guide-table">
+                        <thead><tr><th>Frontend</th><th>Use it when</th><th>Toolchain</th></tr></thead>
+                        <tbody>
+                            <tr><td>ESPHome</td><td>You want Home Assistant entities and YAML configuration.</td><td>ESPHome / PlatformIO</td></tr>
+                            <tr><td>Native</td><td>You want standalone BLE provisioning, MQTT, and HTTPS OTA.</td><td>ESP-IDF</td></tr>
+                            <tr><td>Matter</td><td>You want an occupancy surface for Matter controllers.</td><td>ESP-IDF + esp-matter</td></tr>
+                            <tr><td>Streamer</td><td>You need raw CSI over UDP for research or data collection.</td><td>ESP-IDF</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Prepare the workspace</h2>
+                <ol class="guide-steps">
+                    <li class="guide-step"><h3>Clone the repository</h3><p>Work from the repository root so the wrapper can locate shared code, frontend configuration, and tests.</p></li>
+                    <li class="guide-step"><h3>Install the project environment</h3><p>Create the repository virtual environment and install the declared requirements for the workflows you plan to use.</p></li>
+                    <li class="guide-step"><h3>Check ESP-IDF</h3><p>Native, Matter, and Streamer require a usable ESP-IDF installation. Run the doctor command before the first build.</p></li>
+                </ol>
+                <pre class="guide-code"><code>./espectre doctor
+./espectre &lt;frontend&gt; --help</code></pre>
+            </section>
+
+            <section class="guide-section">
+                <h2>Build and flash</h2>
+                <p>Choose the target chip explicitly. Use each frontend's help output for current options and port naming.</p>
+                <pre class="guide-code"><code>./espectre esphome build --chip c3
+./espectre native build --chip c3
+./espectre matter build --chip c3
+./espectre streamer build --chip c3 --clean</code></pre>
+                <div class="guide-note">Streamer credentials are supplied at build time and Streamer binaries are not published by the browser flasher. Never commit local Wi-Fi or MQTT secrets.</div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Where to customize</h2>
+                <div class="guide-grid">
+                    <article class="guide-card"><i class="fas fa-wave-square"></i><h3>Core</h3><p>CSI formats, signal conditioning, features, and detectors. Keep C++ and Python algorithm behavior aligned.</p></article>
+                    <article class="guide-card"><i class="fas fa-gears"></i><h3>Runtime</h3><p>Platform-neutral orchestration and ESP-IDF services for capture, transport, storage, and lifecycle.</p></article>
+                    <article class="guide-card"><i class="fas fa-layer-group"></i><h3>Frontend</h3><p>Home Assistant, Matter, MQTT, BLE, and streamer-facing behavior belongs in the selected frontend.</p></article>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Embed ESPectre in an existing firmware</h2>
+                <p>The reusable C++ layers let an ESP-IDF product own boot, networking, storage, OTA, and UI while ESPectre supplies the sensing path.</p>
+                <ol class="guide-steps">
+                    <li class="guide-step"><h3>Connect CSI capture</h3><p>Feed compatible ESP32 CSI frames into the shared capture and processing boundary.</p></li>
+                    <li class="guide-step"><h3>Select the reusable layers</h3><p>Use the core directly for the smallest integration, or reuse runtime services when you also want lifecycle and orchestration.</p></li>
+                    <li class="guide-step"><h3>Map product events</h3><p>Translate movement score, motion state, calibration state, and diagnostics into the product's existing event system.</p></li>
+                    <li class="guide-step"><h3>Validate in context</h3><p>Measure CPU, memory, packet flow, reconnect behavior, and detection quality inside the complete product firmware.</p></li>
+                </ol>
+                <div class="guide-note">ESPectre currently exposes reusable source layers rather than a precompiled binary SDK. It is GPLv3 software, so evaluate the license obligations before combining and distributing it with closed-source firmware.</div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Validate before deployment</h2>
+                <ul class="guide-checklist">
+                    <li>Build the exact chip and frontend combination you will ship.</li>
+                    <li>Run shared C++ detection tests after changing core algorithms.</li>
+                    <li>Verify first boot, provisioning, reconnect, and recovery on physical hardware.</li>
+                    <li>Measure motion behavior in the intended room rather than relying only on bench tests.</li>
+                </ul>
+            </section>
+
+            <section class="guide-section">
+                <h2>Developer reference</h2>
+                <p>Current commands, configuration fields, and frontend-specific constraints are maintained in the repository <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md">setup reference</a>.</p>
+            </section>
+        </div>
+    </main>
+    <footer id="site-footer"></footer>
+    <script src="/components.js"></script>
+    <script>loadHeader({ page: 'guides' }); loadFooter();</script>
+    <script src="/cosmic-bg.js?v=palette-v1"></script>
+    <script src="/analytics.js"></script>
+</body>
+</html>

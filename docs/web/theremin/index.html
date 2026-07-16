@@ -5,21 +5,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESPectre | Theremin</title>
-    <meta name="description" content="Turn live ESPectre MQTT telemetry into an interactive browser theremin.">
+    <meta name="description" content="Turn live ESPectre Bluetooth telemetry into an interactive browser theremin.">
     <link rel="canonical" href="https://espectre.dev/theremin/">
     <link rel="icon" href="/favicon.png" type="image/png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="/styles.css">
-
-
-    <script src="https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js"
-        integrity="sha384-NH0fF47RMEIDzf1RMf9bUy5vjtPPeqjVNOlPwkJTbnb0B6+9N1x2hk7HnfJzm9C8"
-        crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="/styles.css?v=palette-v1">
   <link rel="stylesheet" href="/theremin/theremin.css">
-  <link rel="stylesheet" href="/tool-page.css">
+  <link rel="stylesheet" href="/tool-page.css?v=compact-v3">
 </head>
 
 <body class="tool-page theremin-page" data-tool="theremin">
@@ -27,60 +22,34 @@
     <header id="site-header"></header>
     <main class="container">
 
-        <div class="card compact">
-            <div class="collapsible-header" onclick="toggleConfig()">
-                <h2><i class="fas fa-tower-broadcast"></i> MQTT Configuration</h2>
-                <div class="status-item">
-                    <div class="status-indicator disconnected" id="statusIndicator"></div>
-                    <span id="statusText">Disconnected</span>
-                </div>
-                <span class="arrow" id="configArrow">▼</span>
+        <div class="theremin-connection-stage">
+            <div class="theremin-title">
+                <h1>ESPectre</h1>
+                <span class="theremin-subtitle">THEREMIN</span>
             </div>
-            <div class="collapsible-content" id="configContent">
-                <div class="config-section">
-                    <div class="input-group">
-                        <label for="protocol">WebSocket Security</label>
-                        <select id="protocol" onchange="updateTransportWarning()">
-                            <option value="ws" selected>ws:// (local or experimental)</option>
-                            <option value="wss">wss:// (TLS)</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
-                        <label for="broker">Broker Address</label>
-                        <input type="text" id="broker" placeholder="homeassistant.local" value="homeassistant.local">
-                    </div>
-                    <div class="input-group">
-                        <label for="port">WebSocket Port</label>
-                        <input type="number" id="port" placeholder="9001" value="9001">
-                    </div>
-                    <div class="input-group">
-                        <label for="wsPath">WebSocket Path</label>
-                        <input type="text" id="wsPath" placeholder="/mqtt" value="/mqtt">
-                    </div>
-                    <div class="input-group">
-                        <label for="topic">Topic</label>
-                        <input type="text" id="topic" placeholder="espectre/v1/devices/+/telemetry" value="espectre/v1/devices/+/telemetry">
-                    </div>
-                    <div class="input-group">
-                        <label for="username">Username (optional)</label>
-                        <input type="text" id="username" autocomplete="username" placeholder="mqtt">
-                    </div>
-                    <div class="input-group">
-                        <label for="password">Password (optional)</label>
-                        <input type="password" id="password" autocomplete="current-password" placeholder="Password">
-                    </div>
+            <p class="theremin-tagline">Move through Wi-Fi. Shape the sound.</p>
+            <div class="connection-box">
+                <div id="connectionPre" class="connection-pre">
+                    <button id="connectBtn" class="btn btn-primary btn-large" type="button">
+                        <i class="fab fa-bluetooth-b"></i> Connect ESPectre
+                    </button>
+                    <p class="connection-hint">Connect your ESPectre device via Bluetooth</p>
+                    <div id="connectionStatus" class="connection-status" role="status"></div>
                 </div>
-                <div class="site-warning" id="insecureWsWarning" role="status">
-                    This HTTPS page will attempt the selected insecure WebSocket connection, but the browser may block it as mixed content. If that happens, open the same Theremin locally with <code>./espectre ui theremin</code>, or use a <code>wss://</code> endpoint.
-                </div>
-                <div class="button-row">
-                    <button class="btn btn-primary" id="connectBtn" onclick="toggleConnection()">Connect</button>
-                    <button class="btn btn-danger" id="clearBtn" onclick="clearData()" hidden>Clear Data</button>
+                <div id="connectionReady" class="connection-ready" hidden>
+                    <div class="device-ready-status">
+                        <i class="fas fa-check-circle"></i>
+                        <span id="deviceName">ESP32 Connected</span>
+                    </div>
+                    <button id="disconnectBtn" class="btn btn-secondary btn-small" type="button">
+                        <i class="fas fa-unlink"></i> Disconnect
+                    </button>
                 </div>
             </div>
+            <p class="compatibility-note"><i class="fas fa-info-circle"></i> Requires a browser with Web Bluetooth support.</p>
         </div>
 
-
+      <div id="thereminWorkspace" hidden>
         <div class="card compact">
             <div class="metrics-grid">
                 <div class="metric-card">
@@ -351,12 +320,14 @@
                 </div>
             </div>
         </div>
+      </div>
     </main>
   <script src="/tool-page.js"></script>
+  <script src="/espectre-ble.js"></script>
   <script src="/theremin/theremin.js"></script>
     <footer id="site-footer"></footer>
   <script src="/components.js"></script>
-  <script src="/cosmic-bg.js"></script>
+  <script src="/cosmic-bg.js?v=palette-v1"></script>
   <script src="/analytics.js"></script>
 </body>
 

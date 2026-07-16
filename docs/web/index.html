@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESPectre</title>
-    <meta name="description" content="Open source Wi-Fi sensing platform for ESP32 devices. Privacy-first motion sensing with ESPHome, Matter, native BLE/MQTT, streamer tooling, and SDK-oriented firmware paths.">
+    <meta name="description" content="Open source, privacy-first Wi-Fi sensing platform for ESP32 devices, with ESPHome, Matter, native BLE/MQTT, streamer tooling, and reusable firmware layers.">
     <meta name="keywords" content="ESP32, WiFi sensing, CSI, motion detection, Home Assistant, ESPHome, Matter, MQTT, IoT">
     <meta name="author" content="Francesco Pace">
 
@@ -17,7 +17,7 @@
     <meta property="og:url" content="https://espectre.dev/">
     <meta property="og:type" content="website">
     <meta property="og:title" content="ESPectre | Privacy-First Wi-Fi Sensing Platform">
-    <meta property="og:description" content="Open source Wi-Fi sensing platform for ESP32 devices. Privacy-first motion sensing with ESPHome, Matter, native BLE/MQTT, streamer tooling, and SDK-oriented firmware paths.">
+    <meta property="og:description" content="Open source, privacy-first Wi-Fi sensing platform for ESP32 devices, with ESPHome, Matter, native BLE/MQTT, streamer tooling, and reusable firmware layers.">
     <meta property="og:image" content="https://espectre.dev/espectre.png">
 
     <!-- Twitter -->
@@ -25,17 +25,8 @@
     <meta property="twitter:domain" content="espectre.dev">
     <meta property="twitter:url" content="https://espectre.dev/">
     <meta name="twitter:title" content="ESPectre | Privacy-First Wi-Fi Sensing Platform">
-    <meta name="twitter:description" content="Open source Wi-Fi sensing platform for ESP32 devices. Privacy-first motion sensing with ESPHome, Matter, native BLE/MQTT, streamer tooling, and SDK-oriented firmware paths.">
+    <meta name="twitter:description" content="Open source, privacy-first Wi-Fi sensing platform for ESP32 devices, with ESPHome, Matter, native BLE/MQTT, streamer tooling, and reusable firmware layers.">
     <meta name="twitter:image" content="https://espectre.dev/espectre.png">
-
-    <!-- Google Analytics -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-S0NQNG0V11"></script>
-    <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('js', new Date());
-        gtag('config', 'G-S0NQNG0V11');
-    </script>
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -49,7 +40,7 @@
     <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"></noscript>
 
     <!-- Styles -->
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=palette-v1">
 </head>
 
 <body>
@@ -59,10 +50,11 @@
         <noscript>
             <a href="/" class="logo">ESPectre</a>
             <nav>
+                <a href="/flash/">Flash</a>
+                <a href="/configure/">Configure</a>
+                <a href="/guides/setup/">Guides</a>
                 <a href="/game/">The Game</a>
                 <a href="https://github.com/francescopace/espectre">GitHub</a>
-                <a href="https://github.com/francescopace/espectre/issues">Issues</a>
-                <a href="https://github.com/francescopace/espectre/discussions">Discussions</a>
             </nav>
         </noscript>
     </header>
@@ -75,123 +67,158 @@
             </div>
             <h1>ESPectre</h1>
             <p class="hero-subtitle">
-                Privacy-first Wi-Fi sensing platform for ESP32 devices.<br>
-                Detect motion from ordinary Wi-Fi signals, without cameras or microphones.<br>
-                Use ESPHome, Matter, native BLE/MQTT, streamer tooling, or custom firmware paths.
+                Turn ordinary ESP32 devices into privacy-first Wi-Fi sensing nodes.<br>
+                Detect motion without cameras or microphones, then use ESPHome, Matter,
+                native BLE/MQTT, or reusable sensing layers in your own firmware.
             </p>
             <div class="hero-buttons">
                 <a href="/flash/" class="btn btn-primary">
                     Flash Firmware
                 </a>
-                <a href="https://github.com/francescopace/espectre" class="btn btn-secondary">
-                    <i class="fab fa-github"></i> View on GitHub
+                <a href="/guides/setup/" class="btn btn-secondary">
+                    Setup Guide
                 </a>
             </div>
         </section>
 
-        <section id="config" class="code-section">
+        <section class="how-it-works">
             <div class="section-title">
-                <h2>Simple Configuration</h2>
-                <p>Use ESPHome for the fastest Home Assistant path, or choose another v3 frontend.</p>
+                <h2>How It Works</h2>
+                <p>
+                    Wi-Fi signals bounce around a room. When someone moves, those reflections change.
+                    ESPectre reads Channel State Information (CSI) from an ESP32 and turns those
+                    tiny radio-channel changes into motion and movement-score signals.
+                </p>
             </div>
-            <div class="code-block">
-                <div class="code-header">
-                    <span class="code-dot red"></span>
-                    <span class="code-dot yellow"></span>
-                    <span class="code-dot green"></span>
-                    <span class="code-title">espectre.yaml</span>
+        </section>
+
+        <section id="get-started" class="get-started">
+            <div class="section-title">
+                <h2>Get Started</h2>
+                <p>The fastest path is the browser flasher. No local toolchain required.</p>
+            </div>
+            <div class="features-grid steps-grid">
+                <div class="feature-card step-item">
+                    <div class="feature-icon step-number">1</div>
+                    <h3>Flash</h3>
+                    <p>Open <a href="/flash/">Flash Firmware</a> in a Chromium-based browser and pick ESPHome, Native, or Matter for your ESP32 board.</p>
                 </div>
-                <pre><span class="code-key">esp32</span>:
-  <span class="code-key">variant</span>: <span class="code-string">ESP32C6</span>  <span class="code-comment"># or S3, C3, C5...</span>
-  <span class="code-key">framework</span>:
-    <span class="code-key">type</span>: <span class="code-string">esp-idf</span>
-
-<span class="code-key">external_components</span>:
-  - <span class="code-key">source</span>:
-      <span class="code-key">type</span>: <span class="code-string">git</span>
-      <span class="code-key">url</span>: <span class="code-string">https://github.com/francescopace/espectre</span>
-      <span class="code-key">path</span>: <span class="code-string">src/cpp/frontend/esphome</span>
-    <span class="code-key">components</span>: [<span class="code-string">espectre</span>]
-
-<span class="code-key">espectre</span>:</pre>
+                <div class="feature-card step-item">
+                    <div class="feature-icon step-number">2</div>
+                    <h3>Configure</h3>
+                    <p>Follow the on-screen Wi-Fi setup. For Native, use <a href="/configure/">Configure</a> over BLE to provision Wi-Fi and MQTT.</p>
+                </div>
+                <div class="feature-card step-item">
+                    <div class="feature-icon step-number">3</div>
+                    <h3>Use it</h3>
+                    <p>ESPHome joins Home Assistant automatically. Matter pairs with your controller. Native works with <a href="/monitor/">MQTT Monitor</a> and custom clients.</p>
+                </div>
+                <div class="feature-card step-item">
+                    <div class="feature-icon step-number">4</div>
+                    <h3>Go deeper</h3>
+                    <p>Follow the <a href="/guides/setup/">setup guide</a>, learn <a href="/guides/detection/">how detection works</a>, or explore the interactive demos below.</p>
+                </div>
             </div>
         </section>
 
         <section class="features">
             <div class="section-title">
                 <h2>Why ESPectre?</h2>
-                <p>A different approach to presence detection</p>
+                <p>Motion sensing without cameras, microphones, or dedicated radar hardware.</p>
             </div>
             <div class="features-grid">
                 <div class="feature-card">
                     <div class="feature-icon"><i class="fas fa-wifi"></i></div>
-                    <h3>Through-Wall Detection</h3>
-                    <p>Wi-Fi signals pass through walls and furniture. Detect motion in areas cameras can't see.</p>
+                    <h3>Beyond Line of Sight</h3>
+                    <p>Radio-channel changes can reveal motion around furniture and across some interior boundaries, where cameras cannot see.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon"><i class="fas fa-shield-halved"></i></div>
                     <h3>Privacy First</h3>
-                    <p>No images, no audio. Only anonymous radio signal characteristics. GDPR-friendly by design.</p>
+                    <p>Derived radio-channel measurements are processed on-device, without recording images or audio.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon"><i class="fas fa-house-signal"></i></div>
-                    <h3>Home Assistant Native</h3>
-                    <p>ESPHome remains the polished production path for Home Assistant users.</p>
+                    <h3>Home Assistant Ready</h3>
+                    <p>Flash ESPHome from the browser, then adopt the device in Home Assistant.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-microchip"></i></div>
-                    <h3>ESP32 Powered</h3>
-                    <p>Runs on ESP32-S3, C6, C5, C3, and classic ESP32. Pick your favorite.</p>
+                    <div class="feature-icon"><i class="fas fa-network-wired"></i></div>
+                    <h3>Matter Path</h3>
+                    <p>Published Matter firmware opens the door to Apple Home, Google Home, Alexa, and other controllers.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-square-root-variable"></i></div>
-                    <h3>Shared Detectors</h3>
-                    <p>Classic and ML detector paths share the same runtime foundation across supported frontends.</p>
+                    <div class="feature-icon"><i class="fab fa-bluetooth-b"></i></div>
+                    <h3>Native BLE / MQTT</h3>
+                    <p>Standalone firmware with web tools for provisioning, telemetry, and OTA, without Home Assistant.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-flask"></i></div>
-                    <h3>Research Ready</h3>
-                    <p>Multi-frontend platform: C++ for production firmware, Python for R&D and algorithm development.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-home"></i></div>
-                    <h3>ESPectre Platform</h3>
-                    <p>Shared C++ sensing runtime with ESPHome, native BLE/MQTT, Matter, and streamer firmware paths.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-flask-vial"></i></div>
-                    <h3>Micro-ESPectre (Python)</h3>
-                    <p>Python/MicroPython R&D tooling for algorithm prototyping, validation, and data collection.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fab fa-github"></i></div>
-                    <h3>100% Open Source</h3>
-                    <p>Fully open source under GPLv3. You know exactly what's going on.</p>
+                    <div class="feature-icon"><i class="fas fa-code-branch"></i></div>
+                    <h3>Built to Be Reused</h3>
+                    <p>Shared sensing, runtime, and frontend layers support custom firmware and device integrations. Everything is open source under GPLv3.</p>
                 </div>
             </div>
         </section>
 
-        <section id="tools" class="features">
+        <section id="platform" class="features platform-vision">
             <div class="section-title">
-                <h2>One Site, Every Workflow</h2>
-                <p>Install, configure, inspect, and explore ESPectre from the browser.</p>
+                <h2>From One Sensor to a Sensing Platform</h2>
+                <p>
+                    ESPectre is useful today as a standalone motion sensor. Its roadmap grows the same
+                    privacy-first foundation into a modular, multi-device sensing system.
+                </p>
+            </div>
+            <div class="features-grid vision-grid">
+                <div class="feature-card vision-card">
+                    <span class="phase-label phase-current">Release candidate · v3</span>
+                    <div class="feature-icon"><i class="fas fa-cubes"></i></div>
+                    <h3>Modular Sensing</h3>
+                    <p>A shared core and runtime power ESPHome, Matter, Native, and Streamer frontends for smart homes, research, and custom products.</p>
+                </div>
+                <div class="feature-card vision-card">
+                    <span class="phase-label">Planned · v4</span>
+                    <div class="feature-icon"><i class="fas fa-house-laptop"></i></div>
+                    <h3>Web Orchestration</h3>
+                    <p>An optional web layer will coordinate multiple nodes with secure onboarding, room views, history, alerts, and remote management.</p>
+                </div>
+                <div class="feature-card vision-card">
+                    <span class="phase-label">Exploratory · v5</span>
+                    <div class="feature-icon"><i class="fas fa-tower-broadcast"></i></div>
+                    <h3>Standards-Ready</h3>
+                    <p>The platform is designed to adopt practical IEEE 802.11bf Wi-Fi Sensing hardware while keeping its frontends, protocol, and tooling stable.</p>
+                </div>
+            </div>
+            <p class="roadmap-link">
+                The planned web layer remains local-first and is intended to support local,
+                self-hosted, and future managed deployments.
+                <a href="https://github.com/francescopace/espectre/blob/main/docs/ROADMAP.md">Explore the roadmap on GitHub</a>.
+            </p>
+        </section>
+
+        <section id="examples" class="features">
+            <div class="section-title">
+                <h2>What Can You Build?</h2>
+                <p>
+                    Use motion and movement-score signals in practical automations,
+                    interactive experiences, and radio-channel experiments.
+                </p>
             </div>
             <div class="features-grid">
-                <a class="feature-card" href="/flash/">
-                    <div class="feature-icon"><i class="fas fa-microchip"></i></div>
-                    <h3>Flash</h3>
-                    <p>Install published ESPHome, Native, or Matter firmware over USB.</p>
-                </a>
-                <a class="feature-card" href="/configure/">
-                    <div class="feature-icon"><i class="fab fa-bluetooth-b"></i></div>
-                    <h3>Configure</h3>
-                    <p>Provision Wi-Fi and MQTT, then inspect and tune Native over BLE.</p>
-                </a>
-                <a class="feature-card" href="/monitor/">
-                    <div class="feature-icon"><i class="fas fa-chart-line"></i></div>
-                    <h3>MQTT Monitor</h3>
-                    <p>View live telemetry, change settings, inspect statistics, and manage OTA.</p>
-                </a>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-lightbulb"></i></div>
+                    <h3>Motion-Triggered Lighting</h3>
+                    <p>Turn on a light when movement is detected, then switch it off after the room has been quiet for a chosen period.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-temperature-three-quarters"></i></div>
+                    <h3>Room-Aware Climate</h3>
+                    <p>Use sustained inactivity as one input for reducing heating or cooling in an unused room.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-bell"></i></div>
+                    <h3>Home Motion Alerts</h3>
+                    <p>Send a Home Assistant or MQTT notification when movement is detected while nobody is expected at home.</p>
+                </div>
                 <a class="feature-card" href="/game/">
                     <div class="feature-icon"><i class="fas fa-gamepad"></i></div>
                     <h3>The Game</h3>
@@ -200,8 +227,13 @@
                 <a class="feature-card" href="/theremin/">
                     <div class="feature-icon"><i class="fas fa-music"></i></div>
                     <h3>Theremin</h3>
-                    <p>Turn live movement and CSI features into an interactive instrument.</p>
+                    <p>Turn live Bluetooth movement telemetry into an interactive instrument.</p>
                 </a>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-wave-square"></i></div>
+                    <h3>Radio Environment Research</h3>
+                    <p>Inspect CSI and signal-quality changes to explore how nearby devices, activity, and interference affect the Wi-Fi channel.</p>
+                </div>
             </div>
         </section>
     </main>
@@ -210,8 +242,8 @@
 
     <script src="components.js"></script>
     <script>loadHeader({ page: 'home' }); loadFooter();</script>
-    <script src="cosmic-bg.js"></script>
-    <script src="analytics.js"></script>
+    <script src="cosmic-bg.js?v=palette-v1"></script>
+    <script src="/analytics.js"></script>
 </body>
 
 </html>

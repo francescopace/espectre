@@ -209,6 +209,7 @@ async function readMatterQr() {
     if (!("serial" in navigator)) {
         matterQrStatus.textContent = "Web Serial is not available in this browser.";
         matterQrStatus.classList.add("is-error");
+        window.trackEvent?.("matter_qr_read", { result: "unsupported" });
         return;
     }
 
@@ -224,9 +225,11 @@ async function readMatterQr() {
         const codes = await readMatterCodes(port);
         await renderMatterQr(codes);
         matterQrStatus.textContent = "This QR is stored on the device and remains the same after normal updates.";
+        window.trackEvent?.("matter_qr_read", { result: "success" });
     } catch (error) {
         matterQrStatus.textContent = error.message || "Unable to read the Matter QR code.";
         matterQrStatus.classList.add("is-error");
+        window.trackEvent?.("matter_qr_read", { result: "failure", error_type: error.name || "Error" });
     } finally {
         if (port?.readable || port?.writable) {
             await port.close().catch(() => {});
@@ -261,24 +264,46 @@ async function refreshSelections() {
         setStatus(error.message, "is-error");
         downloadLink.href = "https://github.com/francescopace/espectre/releases";
         downloadLink.innerHTML = '<i class="fas fa-download"></i> Browse Releases';
+        window.trackEvent?.("firmware_catalog", {
+            channel: channelSelect.value,
+            result: "failure",
+            error_type: error.name || "Error"
+        });
     }
 }
 
 frontendSelect.addEventListener("change", () => {
     chipSelect.dataset.selectedValue = "";
+    window.trackEvent?.("firmware_selection", { selection_type: "frontend", frontend: frontendSelect.value });
     refreshSelections();
 });
 
 channelSelect.addEventListener("change", () => {
     chipSelect.dataset.selectedValue = "";
+    window.trackEvent?.("firmware_selection", { selection_type: "channel", channel: channelSelect.value });
     refreshSelections();
 });
 
 chipSelect.addEventListener("change", () => {
     chipSelect.dataset.selectedValue = chipSelect.value;
+    window.trackEvent?.("firmware_selection", { selection_type: "chip", chip: chipSelect.value });
     refreshSelections();
 });
 
 matterQrButton.addEventListener("click", readMatterQr);
+installButton.addEventListener("click", () => {
+    window.trackEvent?.("firmware_install_start", {
+        frontend: frontendSelect.value,
+        channel: channelSelect.value,
+        chip: chipSelect.value
+    });
+});
+downloadLink.addEventListener("click", () => {
+    window.trackEvent?.("firmware_download", {
+        frontend: frontendSelect.value,
+        channel: channelSelect.value,
+        chip: chipSelect.value
+    });
+});
 
 refreshSelections();

@@ -13,6 +13,26 @@
     
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
     if (!gl) return;
+
+    const palette = getComputedStyle(document.documentElement);
+
+    function readPaletteColor(property) {
+        const value = palette.getPropertyValue(property).trim();
+        const match = /^#([0-9a-f]{6})$/i.exec(value);
+        if (!match) {
+            console.warn(`cosmic-bg invalid palette color: ${property}`);
+            return null;
+        }
+
+        const hex = match[1];
+        return [0, 2, 4].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255);
+    }
+
+    const backgroundPrimary = readPaletteColor('--bg-primary');
+    const backgroundSecondary = readPaletteColor('--bg-secondary');
+    const accentPrimary = readPaletteColor('--accent');
+    const accentSecondary = readPaletteColor('--accent-secondary');
+    if (!backgroundPrimary || !backgroundSecondary || !accentPrimary || !accentSecondary) return;
     
     // Vertex shader
     const vsSource = `
@@ -28,6 +48,10 @@
         uniform vec2 iResolution;
         uniform float iTime;
         uniform vec2 iMouse;
+        uniform vec3 paletteBgPrimary;
+        uniform vec3 paletteBgSecondary;
+        uniform vec3 paletteAccentPrimary;
+        uniform vec3 paletteAccentSecondary;
         
         float hash(vec2 p) {
             return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -82,29 +106,31 @@
             
             float pattern = waves + noiseValue;
             
-            // ESPectre color palette - teal/cyan theme
-            vec3 color1 = vec3(0.0, 0.08, 0.06);   // Deep dark teal (background)
-            vec3 color2 = vec3(0.0, 0.83, 0.67);   // Bright teal (accent #00d4aa)
-            vec3 color3 = vec3(0.0, 0.5, 0.45);    // Medium teal
-            vec3 color4 = vec3(0.1, 0.2, 0.25);    // Dark blue-gray
+            // Derive the animated background from the shared CSS palette.
+            vec3 color1 = mix(paletteBgPrimary, paletteBgSecondary, 0.35);
+            vec3 color2 = paletteAccentPrimary;
+            vec3 color3 = paletteAccentSecondary;
+            vec3 color4 = mix(paletteBgSecondary, paletteAccentPrimary, 0.12);
             
-            // Color based on pattern
-            float t = fract(pattern + time * 0.1);
-            vec3 finalColor;
-            if(t < 0.33) {
-                finalColor = mix(color1, color3, t * 3.0);
-            } else if(t < 0.66) {
-                finalColor = mix(color3, color2, (t - 0.33) * 3.0);
-            } else {
-                finalColor = mix(color2, color1, (t - 0.66) * 3.0);
-            }
-            
-            // Intensity based on waves
-            finalColor *= (0.3 + pattern * 0.5);
+            // Slowly sweep between the two brand colors while the wave field
+            // controls their intensity independently.
+            float auroraMix = 0.5 + 0.5 * sin(
+                p.x * 1.4 + p.y * 0.8 - time * 0.45 + noiseValue * 4.0
+            );
+            vec3 auroraColor = mix(color2, color3, auroraMix);
+            float waveIntensity = 0.10 + smoothstep(-0.35, 0.55, pattern) * 0.38;
+
+            vec3 finalColor = mix(color1, color4, noiseValue * 0.8);
+            finalColor += auroraColor * waveIntensity;
             
             // Subtle glow in center
             float glow = exp(-dist * 1.5) * 0.15;
-            finalColor += glow * vec3(0.0, 0.83, 0.67);
+            vec3 glowColor = mix(
+                color2,
+                color3,
+                0.5 + 0.5 * sin(time * 0.35)
+            );
+            finalColor += glow * glowColor;
             
             // Vignette
             float vignette = 1.0 - length(uv - 0.5) * 1.0;
@@ -157,6 +183,15 @@
     const iResolution = gl.getUniformLocation(program, 'iResolution');
     const iTime = gl.getUniformLocation(program, 'iTime');
     const iMouse = gl.getUniformLocation(program, 'iMouse');
+    const paletteBgPrimary = gl.getUniformLocation(program, 'paletteBgPrimary');
+    const paletteBgSecondary = gl.getUniformLocation(program, 'paletteBgSecondary');
+    const paletteAccentPrimary = gl.getUniformLocation(program, 'paletteAccentPrimary');
+    const paletteAccentSecondary = gl.getUniformLocation(program, 'paletteAccentSecondary');
+
+    gl.uniform3fv(paletteBgPrimary, backgroundPrimary);
+    gl.uniform3fv(paletteBgSecondary, backgroundSecondary);
+    gl.uniform3fv(paletteAccentPrimary, accentPrimary);
+    gl.uniform3fv(paletteAccentSecondary, accentSecondary);
     
     let mouseX = 0, mouseY = 0;
     
@@ -205,4 +240,3 @@
 
     requestAnimationFrame(render);
 })();
-

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flash &amp; Wi-Fi Setup | ESPectre</title>
+    <meta name="description" content="Flash ESPectre firmware, provision Wi-Fi, connect Home Assistant, Matter, or MQTT, and recover from common setup problems.">
+    <link rel="canonical" href="https://espectre.dev/guides/setup/">
+    <link rel="icon" href="/favicon.png" type="image/png">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://espectre.dev/guides/setup/">
+    <meta property="og:title" content="Flash &amp; Wi-Fi Setup | ESPectre">
+    <meta property="og:description" content="The shortest path from an ESP32 board to a working ESPectre sensor.">
+    <meta property="og:image" content="https://espectre.dev/espectre.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Flash &amp; Wi-Fi Setup | ESPectre">
+    <meta name="twitter:description" content="The shortest path from an ESP32 board to a working ESPectre sensor.">
+    <meta name="twitter:image" content="https://espectre.dev/espectre.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&amp;family=Outfit:wght@300;400;600;700&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="/styles.css?v=palette-v1">
+    <link rel="stylesheet" href="/guides/guides.css">
+</head>
+<body class="guide-page">
+    <canvas id="cosmic-bg"></canvas>
+    <header id="site-header"></header>
+    <main class="guide-shell">
+        <div class="guide-content">
+            <div class="guide-header">
+                <h1>Flash firmware and configure Wi-Fi</h1>
+                <p>Install a published ESPectre image and complete the network setup for ESPHome, Native, or Matter.</p>
+            </div>
+
+            <section class="guide-section">
+                <h2>Before you begin</h2>
+                <div class="guide-grid">
+                    <article class="guide-card"><i class="fas fa-microchip"></i><h3>Supported board</h3><p>Use an ESP32, ESP32-C3, ESP32-C5, ESP32-C6, or ESP32-S3 board with a data-capable USB cable.</p></article>
+                    <article class="guide-card"><i class="fab fa-chrome"></i><h3>Compatible browser</h3><p>Browser flashing requires a Chromium-based browser with Web Serial support.</p></article>
+                    <article class="guide-card"><i class="fas fa-wifi"></i><h3>2.4 GHz Wi-Fi</h3><p>Have the SSID and password ready. ESP32 provisioning uses a 2.4 GHz network.</p></article>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Choose your firmware</h2>
+                <div class="guide-grid">
+                    <article class="guide-card"><h3>ESPHome</h3><p>The fastest route to Home Assistant, with automatic discovery and configurable entities.</p></article>
+                    <article class="guide-card"><h3>Native</h3><p>Standalone firmware with BLE provisioning, MQTT telemetry, and browser tools.</p></article>
+                    <article class="guide-card"><h3>Matter</h3><p>Commission an occupancy sensor into a compatible Matter ecosystem.</p></article>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Flash in four steps</h2>
+                <ol class="guide-steps">
+                    <li class="guide-step"><h3>Connect the board</h3><p>Plug the ESP32 into your computer over USB and close any serial monitor using the port.</p></li>
+                    <li class="guide-step"><h3>Select firmware and chip</h3><p>Open the web flasher, choose ESPHome, Native, or Matter, and select the matching ESP32 family.</p></li>
+                    <li class="guide-step"><h3>Install</h3><p>Choose the serial port, approve the browser prompt, and keep the cable connected until verification completes.</p></li>
+                    <li class="guide-step"><h3>Provision</h3><p>Continue with the frontend-specific network flow below.</p></li>
+                </ol>
+            </section>
+
+            <section class="guide-section">
+                <h2>Provision the connection</h2>
+                <div class="guide-grid">
+                    <article class="guide-card"><i class="fas fa-house-signal"></i><h3>ESPHome</h3><p>Use the ESPHome browser provisioning flow to configure Wi-Fi. Home Assistant should discover the device after it joins the network.</p></article>
+                    <article class="guide-card"><i class="fab fa-bluetooth-b"></i><h3>Native</h3><p>Open <a href="/configure/">Configure</a>, connect over Bluetooth, and save the Wi-Fi and MQTT settings.</p></article>
+                    <article class="guide-card"><i class="fas fa-qrcode"></i><h3>Matter</h3><p>Read the device QR from the web flasher, then add it from your Matter controller. Normal reflashing preserves its onboarding identity.</p></article>
+                </div>
+            </section>
+
+            <section id="troubleshooting" class="guide-section">
+                <h2>Common setup problems</h2>
+                <div class="guide-grid two-column">
+                    <article class="guide-card"><h3>No serial port</h3><ul><li>Use a data-capable USB cable.</li><li>Try another USB port.</li><li>Close serial monitors and reconnect the board.</li></ul></article>
+                    <article class="guide-card"><h3>Device will not join Wi-Fi</h3><ul><li>Confirm the network is 2.4 GHz.</li><li>Move the board closer to the access point.</li><li>Repeat provisioning with the exact SSID and password.</li></ul></article>
+                    <article class="guide-card"><h3>Native is not publishing</h3><ul><li>Verify MQTT host and credentials in Configure.</li><li>Use the <a href="/monitor/">MQTT Monitor</a> to check telemetry.</li></ul></article>
+                    <article class="guide-card"><h3>Matter commissioning times out</h3><ul><li>Keep the board close to the controller.</li><li>Make sure Bluetooth is enabled.</li><li>Reopen the commissioning window and retry.</li></ul></article>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Custom builds</h2>
+                <p>For custom thresholds, ML detection, or a product-specific frontend, continue with the <a href="/guides/custom-firmware/">custom firmware guide</a>.</p>
+            </section>
+        </div>
+    </main>
+    <footer id="site-footer"></footer>
+    <script src="/components.js"></script>
+    <script>loadHeader({ page: 'guides' }); loadFooter();</script>
+    <script src="/cosmic-bg.js?v=palette-v1"></script>
+    <script src="/analytics.js"></script>
+</body>
+</html>

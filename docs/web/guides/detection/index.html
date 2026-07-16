@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How Detection Works | ESPectre</title>
+    <meta name="description" content="A visual introduction to how ESPectre turns Wi-Fi Channel State Information into motion events and movement scores.">
+    <link rel="canonical" href="https://espectre.dev/guides/detection/">
+    <link rel="icon" href="/favicon.png" type="image/png">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://espectre.dev/guides/detection/">
+    <meta property="og:title" content="How Detection Works | ESPectre">
+    <meta property="og:description" content="From Wi-Fi reflections to a stable motion signal.">
+    <meta property="og:image" content="https://espectre.dev/espectre.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="How Detection Works | ESPectre">
+    <meta name="twitter:description" content="From Wi-Fi reflections to a stable motion signal.">
+    <meta name="twitter:image" content="https://espectre.dev/espectre.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&amp;family=Outfit:wght@300;400;600;700&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="/styles.css?v=palette-v1">
+    <link rel="stylesheet" href="/guides/guides.css">
+</head>
+<body class="guide-page">
+    <canvas id="cosmic-bg"></canvas>
+    <header id="site-header"></header>
+    <main class="guide-shell">
+        <div class="guide-content">
+            <div class="guide-header">
+                <h1>How motion detection works</h1>
+                <p>ESPectre converts changes in Wi-Fi Channel State Information into a movement score and motion state on the ESP32.</p>
+            </div>
+
+            <section class="guide-section">
+                <h2>The signal path</h2>
+                <p>Each received Wi-Fi packet provides Channel State Information (CSI): amplitude and phase measurements across OFDM subcarriers. ESPectre keeps a stable subset and turns temporal change into detector inputs.</p>
+                <div class="guide-pipeline">
+                    <div><strong>Wi-Fi packets</strong><span>2.4 GHz traffic</span></div>
+                    <div><strong>CSI capture</strong><span>Subcarrier samples</span></div>
+                    <div><strong>Conditioning</strong><span>Normalize and filter</span></div>
+                    <div><strong>Detection</strong><span>Classic or ML</span></div>
+                    <div><strong>Output</strong><span>Score and motion</span></div>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Why movement is visible</h2>
+                <div class="guide-grid">
+                    <article class="guide-card"><i class="fas fa-arrows-spin"></i><h3>Multipath</h3><p>Radio energy reaches the receiver over many reflected paths. A moving body changes some of those paths.</p></article>
+                    <article class="guide-card"><i class="fas fa-chart-line"></i><h3>Change over time</h3><p>A single CSI frame is not the answer. The useful signal is how selected subcarriers evolve across consecutive packets.</p></article>
+                    <article class="guide-card"><i class="fas fa-shield-halved"></i><h3>Local processing</h3><p>The detector runs on the ESP32 and publishes derived values instead of raw images, audio, or cloud recordings.</p></article>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Signal conditioning</h2>
+                <p>Raw CSI includes gain changes, outliers, and high-frequency noise. The shared pipeline makes the detector input more stable before it decides whether motion occurred.</p>
+                <div class="guide-grid">
+                    <article class="guide-card"><h3>Normalization</h3><p>Compensates for receiver gain changes so the score follows the channel rather than automatic gain control.</p></article>
+                    <article class="guide-card"><h3>Hampel filtering</h3><p>Rejects isolated outliers without flattening sustained motion.</p></article>
+                    <article class="guide-card"><h3>Low-pass filtering</h3><p>Reduces rapid noise while preserving the slower variation caused by nearby movement.</p></article>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Two detector paths</h2>
+                <div class="guide-grid two-column">
+                    <article class="guide-card"><i class="fas fa-sliders"></i><h3>Classic detector</h3><p>Measures the L1 change between consecutive conditioned CSI vectors. Startup calibration learns a quiet baseline and derives a threshold. This path is transparent, lightweight, and the default in published ESPHome images.</p></article>
+                    <article class="guide-card"><i class="fas fa-brain"></i><h3>ML detector</h3><p>Extracts a compact six-feature window and runs a small on-device model. It is useful for learned decision boundaries and remains available in supported local builds.</p></article>
+                </div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Calibration matters</h2>
+                <p>At startup, ESPectre needs a quiet reference. Placement, packet rate, nearby interference, and room geometry all affect the baseline.</p>
+                <ul class="guide-checklist">
+                    <li>Keep the monitored area still during startup calibration.</li>
+                    <li>Place the board where people cross several reflected signal paths.</li>
+                    <li>Avoid enclosing the antenna in metal or placing it directly against a large conductive surface.</li>
+                    <li>Treat the movement score as a room-specific signal, not an absolute physical unit.</li>
+                </ul>
+                <div class="guide-note">Wi-Fi sensing detects changes in the radio environment. It does not identify people, guarantee occupancy, or replace a safety-certified presence sensor.</div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Technical reference</h2>
+                <p>Equations, feature definitions, calibration details, and implementation alignment are available in the <a href="https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md">algorithm reference</a>.</p>
+            </section>
+        </div>
+    </main>
+    <footer id="site-footer"></footer>
+    <script src="/components.js"></script>
+    <script>loadHeader({ page: 'guides' }); loadFooter();</script>
+    <script src="/cosmic-bg.js?v=palette-v1"></script>
+    <script src="/analytics.js"></script>
+</body>
+</html>

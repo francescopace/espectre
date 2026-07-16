@@ -28,15 +28,6 @@
     <meta name="twitter:description" content="A reaction game powered by WiFi motion detection. No controller needed - just your body and WiFi.">
     <meta name="twitter:image" content="https://espectre.dev/espectre.png">
 
-    <!-- Google Analytics -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-S0NQNG0V11"></script>
-    <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('js', new Date());
-        gtag('config', 'G-S0NQNG0V11');
-    </script>
-
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -47,7 +38,8 @@
     <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"></noscript>
 
     <!-- Styles -->
-    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="../styles.css?v=palette-v1">
+    <link rel="stylesheet" href="/movement-bar.css?v=v1">
     <link rel="stylesheet" href="game.css">
 </head>
 
@@ -269,8 +261,10 @@
 
     <script src="../components.js"></script>
     <script>loadHeader({ page: 'game', isGamePage: true }); loadFooter();</script>
-    <script src="../cosmic-bg.js"></script>
-    <script src="../analytics.js"></script>
+    <script src="../cosmic-bg.js?v=palette-v1"></script>
+    <script src="/analytics.js"></script>
+    <script src="/espectre-ble.js"></script>
+    <script src="/movement-bar.js?v=v1"></script>
     <script src="game.js"></script>
 </body>
 

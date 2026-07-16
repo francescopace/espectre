@@ -16,11 +16,11 @@
 }
 
 .flash-card {
-    background: rgba(26, 26, 36, 0.92);
+    background: var(--bg-card-92);
     border: 1px solid var(--border);
     border-radius: 20px;
     padding: 1.5rem;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 20px 40px var(--shadow-25);
 }
 
 .flash-card h2 {
@@ -53,7 +53,7 @@
     padding: 0.85rem 1rem;
     border-radius: 12px;
     border: 1px solid var(--border);
-    background: rgba(10, 10, 15, 0.9);
+    background: var(--bg-primary-90);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 1rem;
@@ -64,8 +64,8 @@
     min-height: 3rem;
     padding: 0.85rem 1rem;
     border-radius: 14px;
-    background: rgba(10, 10, 15, 0.7);
-    border: 1px solid rgba(42, 42, 58, 0.9);
+    background: var(--bg-primary-70);
+    border: 1px solid var(--border-90);
 }
 
 .flash-summary {
@@ -83,7 +83,7 @@
 
 .flash-status.is-ready {
     color: var(--accent);
-    border-color: rgba(0, 212, 170, 0.35);
+    border-color: var(--accent-border);
 }
 
 .flash-actions {
@@ -96,6 +96,9 @@
 
 .flash-actions esp-web-install-button {
     min-width: 220px;
+    --esp-tools-button-color: var(--accent);
+    --esp-tools-button-text-color: var(--bg-primary);
+    --esp-tools-button-border-radius: 10px;
 }
 
 .matter-onboarding {
@@ -131,7 +134,7 @@
     height: 240px;
     padding: 12px;
     border-radius: 12px;
-    background: #fff;
+    background: var(--white);
 }
 
 .matter-qr-code img,

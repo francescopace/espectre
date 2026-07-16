@@ -43,6 +43,10 @@ struct EspectreDeviceInfo {
   std::string firmware_version{"unknown"};
   std::string chip{"unknown"};
   std::string detector;
+  bool supports_info{true};
+  bool supports_stats{false};
+  bool supports_runtime_threshold{false};
+  bool supports_runtime_detector{false};
   bool supports_ota{false};
   EspectreNetworkInfo network{};
 };
