@@ -29,14 +29,16 @@
   // Theremin State
   let thereminConfig = {
       enabled: true, // Always enabled
-      mode: 'quantized', // continuous, quantized, hybrid
-      scale: 'pentatonic', // pentatonic, major, minor, chromatic
+      mode: 'continuous', // continuous, quantized, hybrid
+      scale: 'chromatic', // pentatonic, major, minor, chromatic
       baseFrequency: 200,
       frequencyRange: 1800,
-      smoothingFactor: 0.3, // 0-1
+      // 0 = follow target immediately, 1 = maximum lag.
+      smoothingFactor: 0.2,
       volume: 0.5, // 0-1
       logarithmicMapping: true,
-      hybridThreshold: 0.5,
+      // Fraction of the live movement scale treated as "quiet" in hybrid mode.
+      hybridThreshold: 0.08,
       maxMovement: 4.0 // Maximum movement value that maps to highest frequency
   };
 
@@ -78,6 +80,8 @@
   let lastUpdateTime = 0;
   let interpolationActive = false;
   const INTERPOLATION_RATE = 60; // Hz (60 updates per second)
+  // Recent peak used so small live scores still span the audible range.
+  let movementPeak = 0.5;
 
   // Visual waveform (amplitude ← movement, oscillation ← pitch)
   const waveVisual = {
@@ -88,7 +92,8 @@
       lastFrameMs: 0,
       frequencyHz: 200,
       amplitude: 0,
-      reduceMotion: false
+      reduceMotion: false,
+      colors: null
   };
 
   // Musical Scales
@@ -147,8 +152,18 @@
       if (!waveVisual.canvas) return;
       waveVisual.ctx = waveVisual.canvas.getContext('2d');
       waveVisual.reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      cacheWaveColors();
       resizeWaveVisual();
       window.addEventListener('resize', resizeWaveVisual);
+  }
+
+  function cacheWaveColors() {
+      const styles = getComputedStyle(document.documentElement);
+      waveVisual.colors = {
+          accent: styles.getPropertyValue('--accent').trim() || '#7aa2e3',
+          accentSecondary: styles.getPropertyValue('--accent-secondary').trim() || '#9b8afb',
+          glow: styles.getPropertyValue('--accent-glow').trim() || 'rgba(122, 162, 227, 0.18)'
+      };
   }
 
   function resizeWaveVisual() {
@@ -164,9 +179,27 @@
       }
   }
 
+  function movementScale() {
+      const configuredMax = Math.max(Number(thereminConfig.maxMovement) || 0, 0.001);
+      // Follow recent peaks so low live scores are not crushed into one note,
+      // but never exceed the user-configured ceiling.
+      return Math.min(configuredMax, Math.max(movementPeak * 1.1, 0.12));
+  }
+
+  function updateMovementPeak(movement) {
+      const value = Number(movement);
+      if (!Number.isFinite(value) || value < 0) return;
+      if (value > movementPeak) {
+          movementPeak = value;
+          return;
+      }
+      // Decay quickly enough that the next gesture stays expressive.
+      movementPeak = Math.max(0.12, movementPeak * 0.985);
+  }
+
   function setWaveVisual(movement, frequencyHz) {
-      const maxMovement = Math.max(thereminConfig.maxMovement, 0.001);
-      const normalized = Math.min(Math.max(movement / maxMovement, 0), 1);
+      const scale = movementScale();
+      const normalized = Math.min(Math.max(movement / scale, 0), 1);
       // Keep a faint idle ripple so the stage never looks dead.
       waveVisual.amplitude = 0.06 + normalized * 0.94;
       if (Number.isFinite(frequencyHz) && frequencyHz > 0) {
@@ -223,10 +256,10 @@
 
       const midY = height * 0.5;
       const maxAmpPx = height * 0.38 * amp;
-      const styles = getComputedStyle(document.documentElement);
-      const accent = styles.getPropertyValue('--accent').trim() || '#7aa2e3';
-      const accentSecondary = styles.getPropertyValue('--accent-secondary').trim() || '#9b8afb';
-      const glow = styles.getPropertyValue('--accent-glow').trim() || 'rgba(122, 162, 227, 0.18)';
+      if (!waveVisual.colors) cacheWaveColors();
+      const accent = waveVisual.colors.accent;
+      const accentSecondary = waveVisual.colors.accentSecondary;
+      const glow = waveVisual.colors.glow;
 
       // Soft center glow
       const glowGrad = ctx.createRadialGradient(width * 0.5, midY, 0, width * 0.5, midY, height * 0.7);
@@ -284,8 +317,9 @@
 
   // Map movement to frequency (logarithmic or linear)
   function mapMovementToFrequency(movement) {
-      // Normalize movement (0-1) using configurable max movement value
-      const normalized = Math.min(Math.max(movement / thereminConfig.maxMovement, 0), 1);
+      updateMovementPeak(movement);
+      const scale = movementScale();
+      const normalized = Math.min(Math.max(movement / scale, 0), 1);
 
       const baseFreq = thereminConfig.baseFrequency;
       const freqRange = thereminConfig.frequencyRange;
@@ -302,6 +336,9 @@
           freq = baseFreq + (normalized * freqRange);
       }
 
+      if (!Number.isFinite(freq)) {
+          return baseFreq;
+      }
       return Math.max(20, Math.min(20000, freq)); // Clamp to audible range
   }
 
@@ -354,13 +391,16 @@
               result = quantizeToScale(targetFreq);
               break;
 
-          case 'hybrid':
-              if (Math.abs(movementDelta) < thereminConfig.hybridThreshold) {
+          case 'hybrid': {
+              // Quantize only while nearly still; otherwise glide continuously.
+              const quietDelta = Math.max(0.015, movementScale() * thereminConfig.hybridThreshold);
+              if (Math.abs(movementDelta) < quietDelta) {
                   result = quantizeToScale(targetFreq);
               } else {
                   result = targetFreq;
               }
               break;
+          }
 
           default:
               result = targetFreq;
@@ -427,6 +467,7 @@
   // Update oscillator frequency
   function updateFrequency(freq) {
       if (!oscillator || !isAudioInitialized) return;
+      if (!Number.isFinite(freq)) return;
 
       // Clamp frequency to valid range
       freq = Math.max(20, Math.min(20000, freq));
@@ -447,7 +488,7 @@
       const currentFreq = oscillator.frequency.value;
       const now = audioContext.currentTime;
 
-      oscillator.frequency.setTargetAtTime(freq, now, 0.01);
+      oscillator.frequency.setTargetAtTime(freq, now, 0.004);
 
       // Update filter
       updateFilter(freq);
@@ -678,37 +719,44 @@
       function interpolate() {
           if (!interpolationActive) return;
 
-          if (lastUpdateTime > 0) {
-              // Apply exponential smoothing
-              const alpha = thereminConfig.smoothingFactor;
-              smoothedMovement = alpha * targetMovement + (1 - alpha) * smoothedMovement;
+          try {
+              if (lastUpdateTime > 0) {
+                  // smoothingFactor: 0 = snappy, 1 = maximum lag (matches the UI label).
+                  const smooth = Math.min(Math.max(thereminConfig.smoothingFactor, 0), 0.95);
+                  const follow = 1 - smooth;
+                  smoothedMovement = follow * targetMovement + smooth * smoothedMovement;
 
-              // Map to frequency
-              const targetFreq = mapMovementToFrequency(smoothedMovement);
-              const movementDelta = Math.abs(targetMovement - lastMovement);
-              const finalFreq = processFrequency(targetFreq, movementDelta);
+                  // Map to frequency
+                  const targetFreq = mapMovementToFrequency(smoothedMovement);
+                  const movementDelta = Math.abs(targetMovement - lastMovement);
+                  const finalFreq = processFrequency(targetFreq, movementDelta);
 
-              // Update audio
-              if (thereminConfig.enabled) {
-                  updateFrequency(finalFreq);
-                  // Update tremolo if enabled
+                  // Update audio
+                  if (thereminConfig.enabled) {
+                      updateFrequency(finalFreq);
+                      // Update tremolo if enabled
+                      if (featureModConfig.tremoloEnabled) {
+                          updateTremolo();
+                      }
+                  }
+
+                  // Update UI
+                  document.getElementById('movementValue').textContent = smoothedMovement.toFixed(3);
+                  setWaveVisual(smoothedMovement, finalFreq);
+              } else {
+                  // No telemetry data yet, but still update tremolo if enabled.
                   if (featureModConfig.tremoloEnabled) {
                       updateTremolo();
                   }
+                  setWaveVisual(0, thereminConfig.baseFrequency);
               }
-
-              // Update UI
-              document.getElementById('movementValue').textContent = smoothedMovement.toFixed(3);
-              setWaveVisual(smoothedMovement, finalFreq);
-          } else {
-              // No telemetry data yet, but still update tremolo if enabled.
-              if (featureModConfig.tremoloEnabled) {
-                  updateTremolo();
+          } catch (error) {
+              console.warn('Theremin interpolation tick failed:', error);
+          } finally {
+              if (interpolationActive) {
+                  setTimeout(interpolate, updateInterval);
               }
-              setWaveVisual(0, thereminConfig.baseFrequency);
           }
-
-          setTimeout(interpolate, updateInterval);
       }
 
       interpolate();
@@ -918,6 +966,7 @@
       targetMovement = 0;
       smoothedMovement = 0;
       lastUpdateTime = 0;
+      movementPeak = 0.5;
       currentFeatures = null;
       setWaveVisual(0, thereminConfig.baseFrequency);
 

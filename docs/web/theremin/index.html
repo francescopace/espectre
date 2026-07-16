@@ -106,10 +106,10 @@
                             <div class="input-group">
                                 <label for="smoothing">Smoothing Factor (%)</label>
                                 <div class="slider-group">
-                                    <input type="range" id="smoothing" min="0" max="100" step="5" value="30">
-                                    <input type="number" id="smoothingValue" min="0" max="100" step="5" value="30">
+                                    <input type="range" id="smoothing" min="0" max="100" step="5" value="20">
+                                    <input type="number" id="smoothingValue" min="0" max="100" step="5" value="20">
                                 </div>
-                                <small>Smoothing factor for smoother transitions (0=none, 100=maximum)</small>
+                                <small>Motion lag (0=snappy, 100=maximum smoothing)</small>
                             </div>
                             <div class="input-group">
                                 <label class="toggle-label">
@@ -152,8 +152,8 @@
                             <div class="input-group">
                                 <label for="maxMovement">Max Movement Value</label>
                                 <div class="slider-group">
-                                    <input type="range" id="maxMovement" min="0.5" max="20" step="0.1" value="10.0">
-                                    <input type="number" id="maxMovementValue" min="0.5" max="20" step="0.1" value="10.0">
+                                    <input type="range" id="maxMovement" min="0.5" max="20" step="0.1" value="4.0">
+                                    <input type="number" id="maxMovementValue" min="0.5" max="20" step="0.1" value="4.0">
                                 </div>
                                 <small>Movement value that maps to highest frequency</small>
                             </div>
@@ -174,9 +174,9 @@
                             <div class="input-group">
                                 <label for="thereminMode">Operating Mode</label>
                                 <select id="thereminMode">
-                                    <option value="continuous">Continuous (Glissando)</option>
+                                    <option value="continuous" selected>Continuous (Glissando)</option>
                                     <option value="quantized">Quantized (Musical Scale)</option>
-                                    <option value="hybrid" selected>Hybrid</option>
+                                    <option value="hybrid">Hybrid</option>
                                 </select>
                                 <small>Continuous: continuous frequencies | Quantized: discrete notes | Hybrid: combination</small>
                             </div>
