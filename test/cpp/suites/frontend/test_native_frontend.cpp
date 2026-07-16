@@ -335,10 +335,10 @@ void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
   TEST_ASSERT_TRUE(frontend.setup());
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_command("{\"command_id\":\"cmd-1\",\"command\":\"set_threshold\",\"threshold\":4.5}");
+  mqtt.emit_command("{\"command_id\":\"cmd-1\",\"command\":\"set_threshold\",\"threshold\":0.45}");
 
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
-  TEST_ASSERT_EQUAL_FLOAT(4.5f, frontend_runtime_shim::state.last_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.45f, frontend_runtime_shim::state.last_threshold);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
   const auto &publish = mqtt_transport_mock::state.publishes.back();
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted", publish.topic.c_str());
@@ -481,9 +481,9 @@ void test_native_frontend_control_commands_validate_and_update_runtime(void) {
   TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL(0, static_cast<int>(ble_bindings_mock::state.sysinfo_lines.size()));
 
-  bindings.emit_control("SET_THRESHOLD:4.25");
+  bindings.emit_control("SET_THRESHOLD:0.425");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
-  TEST_ASSERT_EQUAL_FLOAT(4.25f, frontend_runtime_shim::state.last_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.425f, frontend_runtime_shim::state.last_threshold);
   TEST_ASSERT_TRUE(frontend.runtime_.config().threshold_mode == ThresholdMode::MANUAL);
 }
 

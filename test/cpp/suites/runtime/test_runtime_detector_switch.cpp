@@ -71,7 +71,7 @@ void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(voi
   runtime.csi_pipeline_.enabled_ = true;
   TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::CLASSIC));
   TEST_ASSERT_EQUAL_STRING("classic", runtime.get_snapshot().detector_name);
-  TEST_ASSERT_EQUAL_FLOAT(SEGMENTATION_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
+  TEST_ASSERT_EQUAL_FLOAT(CLASSIC_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
   TEST_ASSERT_TRUE(runtime.is_calibrating());
   TEST_ASSERT_EQUAL(1, listener.calibration_starts);
 

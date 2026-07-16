@@ -158,7 +158,7 @@ float hampel_filter_turbulence(hampel_turbulence_state_t *state, float turbulenc
     
     float deviation = std::abs(turbulence - median);
     
-    if (deviation > state->threshold * MAD_SCALE_FACTOR * mad) {
+    if (mad > 1e-6f && deviation > state->threshold * MAD_SCALE_FACTOR * mad) {
         return median;
     }
     

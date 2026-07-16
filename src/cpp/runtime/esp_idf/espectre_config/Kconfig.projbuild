@@ -9,7 +9,7 @@ choice ESPECTRE_DETECTION_ALGORITHM
     config ESPECTRE_DETECTION_ALGORITHM_CLASSIC
         bool "CLASSIC"
         help
-            L1-Delta primary detector with variance recovery and startup
+            Weighted L1-delta and turbulence-autocorrelation detector with startup
             threshold calibration.
 
     config ESPECTRE_DETECTION_ALGORITHM_ML
@@ -46,17 +46,12 @@ config ESPECTRE_SEGMENTATION_THRESHOLD_MANUAL
     default "1.0"
     depends on ESPECTRE_THRESHOLD_MODE_MANUAL
     help
-        Manual threshold as a decimal string. Classic accepts 0.0-10.0 and ML
-        accepts 0.0-1.0.
+        Manual probability threshold in the 0.0-1.0 range.
 
 config ESPECTRE_SEGMENTATION_WINDOW_SIZE
     int "Segmentation window size"
     range 10 200
     default 100
-
-config ESPECTRE_CLASSIC_RECOVERY_VOTE_ENABLED
-    bool "Enable Classic recovery vote"
-    default y
 
 config ESPECTRE_TRAFFIC_GENERATOR_RATE
     int "Target valid CSI rate (pps)"

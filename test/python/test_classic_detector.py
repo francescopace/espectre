@@ -1,293 +1,101 @@
-"""
-ESPectre - Classic Detector Tests
+"""Tests for the production weighted Classic detector."""
 
-Unit tests for the classic motion detector.
+import math
 
-Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
-"""
+import pytest
 
+from classic_detector import ClassicDetector
 from detector_interface import (
     MotionState,
-    load_detector_class,
-    get_detector_algorithm,
     detector_needs_startup_calibration,
-)
-from classic_detector import ClassicDetector
-from features import (
-    L1_DELTA_STARTUP_GATE,
-    L1_DELTA_STARTUP_THRESHOLD_FACTOR,
+    get_detector_algorithm,
+    load_detector_class,
 )
 
-BAND = [14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]
 
+def test_registry_exposes_weighted_classic() -> None:
+    detector = ClassicDetector()
 
-def make_csi(amplitudes_by_subcarrier):
-    """Build a 64-subcarrier int8 I/Q payload with the given real amplitudes."""
-    csi = [0] * 128
-    for sc_idx, amplitude in amplitudes_by_subcarrier.items():
-        csi[sc_idx * 2] = 0
-        csi[sc_idx * 2 + 1] = int(amplitude)
-    return csi
-
-
-def band_profile(scale=1):
-    return {sc: (20 + 3 * (i % 5)) * scale for i, sc in enumerate(BAND)}
-
-
-def shifted_profile(scale=1):
-    return {sc: (20 + 3 * ((i + 2) % 5)) * scale for i, sc in enumerate(BAND)}
-
-
-class _FakeSub:
-    """Minimal stand-in for a sub-detector, with controllable metric/state."""
-
-    def __init__(self, metric=0.0, threshold=0.1, ready=True):
-        self._m = metric
-        self._thr = threshold
-        self._ready = ready
-        self.current_moving_variance = metric
-
-    def process_packet(self, *args, **kwargs):
-        pass
-
-    def update_state(self):
-        return {}
-
-    def get_motion_metric(self):
-        return self._m
-
-    def get_threshold(self):
-        return self._thr
-
-    def is_ready(self):
-        return self._ready
-
-    def set_threshold(self, threshold):
-        self._thr = threshold
-        return True
-
-    def set_adaptive_threshold(self, threshold):
-        self._thr = threshold
-
-    def reset(self):
-        pass
-
-
-class _FakeL1Process(_FakeSub):
-    """L1 stand-in with a reusable amplitude profile for hot-path tests."""
-
-    _amplitude_buffer = [1.0, 2.0]
-    _amplitude_count = 2
-
-
-class _RecoveryPathSpy:
-    """Records all work delegated to the turbulence/Hampel path."""
-
-    def __init__(self):
-        self.turbulence_calls = 0
-        self.add_calls = 0
-
-    def calculate_turbulence_from_amplitudes(self, amplitudes, count):
-        self.turbulence_calls += 1
-        return 0.1
-
-    def add_turbulence(self, turbulence):
-        self.add_calls += 1
-
-
-def _decide(l1_metric, moving_variance, threshold=0.1, floor=1.0, vote=True,
-            recovery_vote_configured=True):
-    """Drive one fused decision with controlled sub-detector metrics."""
-    det = ClassicDetector(
-        window_size=10,
-        threshold=threshold,
-        enable_recovery_vote=recovery_vote_configured,
-    )
-    det._l1 = _FakeSub(l1_metric, threshold)
-    det._variance_ctx = _FakeSub(moving_variance)
-    det._floor_frozen = True                   # skip floor collection; use manual state
-    det._variance_floor = floor
-    det._recovery_vote_enabled = vote
-    det.update_state()
-    return det.get_state()
-
-
-# --- contract / registry ---------------------------------------------------
-
-def test_registry_exposes_classic():
     assert load_detector_class("classic") is ClassicDetector
     assert detector_needs_startup_calibration("classic")
+    assert get_detector_algorithm(detector) == "classic"
+    assert detector.get_name() == "Classic"
 
 
-def test_algorithm_and_name():
-    det = ClassicDetector(window_size=100, threshold=1.0)
-    assert ClassicDetector.ALGORITHM == "classic"
-    assert det.get_name() == "Classic"
-    assert get_detector_algorithm(det) == "classic"
+def test_linear_fusion_uses_exported_center_scale_and_weights() -> None:
+    detector = ClassicDetector()
+
+    assert detector._calculate_logit(
+        detector.FEATURE_CENTER[0],
+        detector.FEATURE_CENTER[1],
+    ) == pytest.approx(detector.INTERCEPT)
+    assert detector._calculate_logit(
+        detector.FEATURE_CENTER[0] + detector.FEATURE_SCALE[0],
+        detector.FEATURE_CENTER[1] + detector.FEATURE_SCALE[1],
+    ) == pytest.approx(
+        detector.INTERCEPT + sum(detector.FEATURE_WEIGHT)
+    )
 
 
-def test_delegates_startup_gate_contract_to_l1_delta():
-    assert ClassicDetector.STARTUP_THRESHOLD_FACTOR == L1_DELTA_STARTUP_THRESHOLD_FACTOR
-    assert ClassicDetector.STARTUP_GATE == L1_DELTA_STARTUP_GATE
+def test_hampel_master_switch_controls_both_feature_streams() -> None:
+    enabled = ClassicDetector(enable_hampel=True)
+    disabled = ClassicDetector(enable_hampel=False)
+
+    assert enabled._context.hampel_filter is not None
+    assert enabled._l1._hampel_filter is not None
+    assert disabled._context.hampel_filter is None
+    assert disabled._l1._hampel_filter is None
 
 
-def test_adaptive_threshold_sets_primary_threshold():
-    det = ClassicDetector(window_size=100, threshold=1.0)
-    det.set_adaptive_threshold(0.05)
-    assert abs(det.get_threshold() - 0.05) < 1e-9
+def test_startup_q95_adapts_probability_threshold() -> None:
+    detector = ClassicDetector()
+    detector._startup_logits = [-1.0, -0.8, -0.6, -0.4]
+
+    detector.set_adaptive_threshold(0.01)
+
+    q95 = detector._quantile(detector._startup_logits, 0.95)
+    base_logit = math.log(
+        detector.BASE_THRESHOLD / (1.0 - detector.BASE_THRESHOLD)
+    )
+    expected = detector._sigmoid(
+        base_logit
+        + detector.STARTUP_STRENGTH * (q95 - detector.TRAIN_IDLE_Q95_LOGIT)
+    )
+    assert detector.get_threshold() == pytest.approx(expected)
 
 
-# --- fused decision matrix -------------------------------------------------
+def test_manual_threshold_uses_probability_scale() -> None:
+    detector = ClassicDetector()
 
-def test_primary_l1_delta_fires_above_threshold():
-    assert _decide(l1_metric=0.2, moving_variance=0.0) == MotionState.MOTION
-
-
-def test_recovery_vote_recovers_in_band():
-    # l1 in band (0.06 < 0.08 <= 0.1), variance above K*floor, vote enabled -> MOTION
-    assert _decide(l1_metric=0.08, moving_variance=5.0) == MotionState.MOTION
+    assert detector.set_threshold(0.75)
+    assert detector.get_threshold() == pytest.approx(0.75)
+    assert not detector.set_threshold(1.01)
+    assert detector.get_threshold() == pytest.approx(0.75)
 
 
-def test_no_vote_when_variance_below_ratio():
-    # l1 in band but variance not elevated -> IDLE
-    assert _decide(l1_metric=0.08, moving_variance=2.0) == MotionState.IDLE
+def test_update_state_uses_weighted_probability(monkeypatch) -> None:
+    detector = ClassicDetector(window_size=20, threshold=0.5)
+    monkeypatch.setattr(detector, "is_ready", lambda: True)
+    monkeypatch.setattr(detector._l1, "mean", lambda: detector.FEATURE_CENTER[0])
+    monkeypatch.setattr(detector, "_turb_autocorr", lambda: detector.FEATURE_CENTER[1])
 
+    metrics = detector.update_state()
 
-def test_no_vote_when_gate_disabled():
-    # l1 in band, variance elevated, but the dispersion gate disabled the vote -> IDLE
-    assert _decide(l1_metric=0.08, moving_variance=5.0, vote=False) == MotionState.IDLE
-
-
-def test_no_vote_when_disabled_by_configuration():
-    assert _decide(
-        l1_metric=0.08,
-        moving_variance=5.0,
-        recovery_vote_configured=False,
-    ) == MotionState.IDLE
-
-
-def test_disabled_vote_does_not_allocate_variance_context():
-    det = ClassicDetector(window_size=10, enable_recovery_vote=False)
-    assert det._variance_ctx is None
-
-
-def test_disabled_vote_can_update_state_without_variance_context():
-    det = ClassicDetector(window_size=10, enable_recovery_vote=False)
-
-    metrics = det.update_state()
-
+    expected = detector._sigmoid(detector.INTERCEPT)
+    assert metrics["probability"] == pytest.approx(expected)
+    assert metrics["l1_delta"] == pytest.approx(detector.FEATURE_CENTER[0])
+    assert metrics["turb_autocorr"] == pytest.approx(detector.FEATURE_CENTER[1])
     assert metrics["state"] == MotionState.IDLE
-    assert metrics["moving_variance"] == 0.0
 
 
-def test_no_vote_below_band():
-    # deep-quiet l1 (below BAND_ALPHA*thr) never triggers the vote -> IDLE
-    assert _decide(l1_metric=0.03, moving_variance=5.0) == MotionState.IDLE
+def test_reset_preserves_threshold_and_clears_feature_state() -> None:
+    detector = ClassicDetector(threshold=0.7)
+    detector._current_probability = 0.9
+    detector._startup_logits = [1.0]
 
+    detector.reset()
 
-def test_recovery_samples_are_lazy_after_calibration():
-    det = ClassicDetector(window_size=10, threshold=1.0)
-    det._floor_frozen = True
-    det._variance_floor = 1.0
-    det._recovery_vote_enabled = True
-
-    det._l1 = _FakeSub(metric=0.5, threshold=1.0)
-    assert not det._should_collect_recovery_sample()
-
-    det._l1 = _FakeSub(metric=0.8, threshold=1.0)
-    assert det._should_collect_recovery_sample()
-
-    det._l1 = _FakeSub(metric=1.1, threshold=1.0)
-    assert not det._should_collect_recovery_sample()
-
-
-def test_recovery_samples_are_collected_during_calibration():
-    det = ClassicDetector(window_size=10, threshold=1.0)
-    det._floor_frozen = False
-    det._l1 = _FakeSub(metric=0.0, threshold=1.0)
-
-    assert det._should_collect_recovery_sample()
-
-
-def test_recovery_path_skips_turbulence_and_hampel_outside_vote_band():
-    det = ClassicDetector(window_size=10, threshold=1.0)
-    det._floor_frozen = True
-    det._variance_floor = 1.0
-    det._recovery_vote_enabled = True
-    det._l1 = _FakeL1Process(metric=0.5, threshold=1.0)
-    recovery_path = _RecoveryPathSpy()
-    det._variance_ctx = recovery_path
-
-    det.process_packet([0] * 128, BAND)
-
-    assert recovery_path.turbulence_calls == 0
-    assert recovery_path.add_calls == 0
-
-    det._l1 = _FakeL1Process(metric=0.8, threshold=1.0)
-    det.process_packet([0] * 128, BAND)
-
-    assert recovery_path.turbulence_calls == 1
-    assert recovery_path.add_calls == 1
-
-
-# --- integration on crafted CSI --------------------------------------------
-
-def test_quiet_profile_stays_idle():
-    det = ClassicDetector(window_size=20, threshold=0.05)
-    det._l1.lag = 5
-    payload = make_csi(band_profile())
-    for _ in range(60):
-        det.process_packet(payload, BAND)
-        det.update_state()
-    assert det.is_ready()
-    assert det.get_state() == MotionState.IDLE
-
-
-def test_strong_motion_triggers_via_primary():
-    det = ClassicDetector(window_size=20, threshold=0.05)
-    quiet = make_csi(band_profile())
-    moved = make_csi(shifted_profile())
-    for _ in range(30):
-        det.process_packet(quiet, BAND)
-        det.update_state()
-    saw_motion = False
-    for i in range(60):
-        det.process_packet(quiet if i % 2 == 0 else moved, BAND)
-        det.update_state()
-        if det.get_state() == MotionState.MOTION:
-            saw_motion = True
-    assert saw_motion
-
-
-def test_reset_preserves_frozen_floor_state():
-    det = ClassicDetector(window_size=20, threshold=0.05)
-    det.apply_startup_floor(1.0, True, 400)
-    det._floor_frozen = True
-    det.reset()
-    assert det._variance_floor == 1.0
-    assert det._recovery_vote_enabled
-    assert det._floor_frozen
-    assert det.get_state() == MotionState.IDLE
-    assert det.total_packets == 0
-
-
-def test_classic_does_not_allocate_legacy_floor_ring():
-    det = ClassicDetector(window_size=20)
-
-    assert not hasattr(det, "_variance_floor_ring")
-
-
-def test_apply_startup_floor_disables_vote_when_snapshot_too_small():
-    det = ClassicDetector(window_size=20, threshold=0.05)
-    det.apply_startup_floor(1.0, True, 10)
-    assert det._variance_floor == 1.0
-    assert not det._recovery_vote_enabled
-
-
-def test_apply_startup_floor_keeps_configured_vote_disabled():
-    det = ClassicDetector(window_size=20, enable_recovery_vote=False)
-    det.apply_startup_floor(1.0, True, 400)
-    assert det._floor_count == 0
-    assert det._variance_floor is None
-    assert not det._recovery_vote_enabled
+    assert detector.get_threshold() == pytest.approx(0.7)
+    assert detector.get_motion_metric() == 0.0
+    assert detector._startup_logits == []
+    assert detector.get_state() == MotionState.IDLE

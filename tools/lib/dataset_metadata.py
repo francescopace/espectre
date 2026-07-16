@@ -186,6 +186,7 @@ def estimate_runtime_threshold(
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
+    detector.on_startup_calibration_begin()
     band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)
     packets_since_evaluation = 0
     for pkt in packets:
@@ -218,8 +219,7 @@ def build_calibrated_classic_detector(
     """
     Return a ClassicDetector calibrated exactly like the production startup flow.
 
-    The returned detector has its startup-calibrated threshold applied and its
-    frozen variance floor preserved across the warm reset that follows calibration.
+    The returned detector has its detector-specific startup threshold applied.
     """
     selected_mode = _threshold_mode_from_config() if threshold_mode is None else str(threshold_mode)
     detector = ClassicDetector(
@@ -255,12 +255,10 @@ def build_calibrated_classic_detector(
     if not calibrator.is_successful():
         return None
     startup_threshold, _ = calibrator.calculate_threshold(selected_mode)
-    if hasattr(calibrator, "get_floor_snapshot") and hasattr(detector, "apply_startup_floor"):
-        floor_value, vote_enabled, sample_count = calibrator.get_floor_snapshot()
-        detector.apply_startup_floor(floor_value, vote_enabled, sample_count)
     detector.set_adaptive_threshold(float(startup_threshold))
+    applied_threshold = detector.get_threshold()
     detector.reset()
-    return detector, float(startup_threshold)
+    return detector, float(applied_threshold)
 
 
 def resolve_dataset_selection(

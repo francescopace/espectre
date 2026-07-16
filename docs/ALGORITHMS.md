@@ -113,11 +113,9 @@ the operational trade-off between false-positive reduction and responsiveness.
 
 `ClassicDetector` is the production non-ML path. It combines:
 
-- an L1-delta primary metric
-- a moving-variance recovery vote used only in the ambiguous band below the
-  calibrated threshold
-
-The moving-variance path is no longer a standalone runtime detector mode.
+- mean L1 displacement between normalized amplitude profiles
+- lag-1 autocorrelation of the gain-invariant turbulence stream
+- a fixed, weighted logistic fusion with no voting branches
 
 ### L1-Delta Primary Metric
 
@@ -137,50 +135,44 @@ d_i = mean_k |p_i[k] - p_(i-lag)[k]|
 Default `lag = 10`, which is roughly 100 ms at 100 packets per second.
 
 The detector metric is the running mean of `d_i` over the active detection
-window.
+window. Hampel filtering is applied to the per-packet `d_i` stream before the
+window mean.
+
+### Turbulence Autocorrelation
+
+Per-packet turbulence is the spatial coefficient of variation:
+
+```text
+t_i = std(A_i) / mean(A_i)
+```
+
+After Hampel filtering, Classic calculates lag-1 autocorrelation over the
+turbulence window. Both inputs are gain invariant under ideal uniform scaling.
+The shared `hampel_enabled` setting controls both Hampel filters.
+
+### Weighted Fusion
+
+Classic standardizes `l1_delta` and `turb_autocorr` with fixed training
+statistics, applies a two-term linear model, and converts its logit to a
+probability:
+
+```text
+logit = b + w_l1 * z(l1_delta) + w_ac * z(turb_autocorr)
+probability = 1 / (1 + exp(-logit))
+motion = probability > threshold
+```
+
+The coefficients come from grouped, de-overlapped out-of-fold training balanced
+by class, chip, and session. The runtime contains no majority vote or recovery
+branch.
 
 ### Startup Threshold Calibration
 
-In `classic`, startup calibration is driven by the L1-delta primary metric.
-
-Threshold modes:
-
-| Mode | Formula |
-|------|---------|
-| `auto` | `threshold_metric x 1.1` |
-| `min` | `threshold_metric x 1.0` |
-
-Current startup behavior:
-
-1. build a quiet anchor
-2. try to observe a valid `quiet -> motion -> quiet` pattern
-3. derive the threshold from that gap when successful
-4. otherwise fall back internally to the quiet-only statistic inside the same
-   startup budget
-
-The fallback keeps clean quiet-only calibration on the gated maximum. When
-startup contains movement-like chunks but not a complete trusted pattern, it
-uses the chunk median capped to the validated quiet-anchor band. This prevents
-partial movement from raising the threshold to motion level without lowering
-clean-session thresholds. The final packet is included in motion confirmation,
-and validated pre-motion quiet samples remain part of the variance-floor
-snapshot.
-
-The variance recovery path only activates when startup observed a quiet floor
-tight enough to trust.
-
-Set `classic_recovery_vote_enabled: false` in ESPHome or
-`CLASSIC_RECOVERY_VOTE_ENABLED = False` in Micro-ESPectre to keep the same
-L1-delta startup threshold calibration while disabling the variance recovery
-decision and its variance/floor computation at runtime.
-
-### Gated Variance Recovery
-
-Classic still tracks moving variance over the filtered turbulence stream, but it
-uses that value only as a support signal below the main L1-delta threshold.
-
-This keeps the primary decision on the profile-displacement metric while still
-allowing limited recovery in the ambiguous band.
+In `auto` mode, Classic begins from the validated global probability threshold
+and shifts its logit using the session's startup `q95` relative to the training
+idle reference. This preserves the learned two-feature decision boundary while
+compensating for session-level floor movement. Keep the room quiet during the
+startup window. Manual thresholds use the same `0.0-1.0` probability scale.
 
 ### Implementation Status
 

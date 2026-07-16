@@ -52,7 +52,6 @@ CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 
 # Detection algorithm
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
-CONF_CLASSIC_RECOVERY_VOTE_ENABLED = "classic_recovery_vote_enabled"
 
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
@@ -122,7 +121,6 @@ TRAFFIC_GENERATOR_RATE_MAX = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_RATE_MAX
 TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT"]
 TRAFFIC_GENERATOR_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME"]
 DETECTION_ALGORITHM_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME"]
-CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT"]
 PUBLISH_INTERVAL_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_PUBLISH_INTERVAL_DEFAULT"]
 EVALUATION_INTERVAL_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_EVALUATION_INTERVAL_DEFAULT"]
 INTERVAL_MIN = _RUNTIME_SCHEMA["RUNTIME_INTERVAL_MIN"]
@@ -189,10 +187,9 @@ CONFIG_SCHEMA = cv.Schema({
     ),
     
     # Detection algorithm: classic (default) or ml
-    # CLASSIC: L1-Delta primary with variance recovery - adaptive threshold
+    # CLASSIC: weighted L1 + autocorrelation fusion - adaptive threshold
     # ML: Machine Learning (MLP neural network) - higher accuracy, fixed subcarriers
     cv.Optional(CONF_DETECTION_ALGORITHM, default=DETECTION_ALGORITHM_DEFAULT): cv.one_of("classic", "ml", lower=True),
-    cv.Optional(CONF_CLASSIC_RECOVERY_VOTE_ENABLED, default=CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT): cv.boolean,
     cv.Optional(CONF_EVALUATION_INTERVAL, default=EVALUATION_INTERVAL_DEFAULT): cv.int_range(
         min=INTERVAL_MIN, max=INTERVAL_MAX
     ),
@@ -311,7 +308,6 @@ async def to_code(config):
     cg.add(var.set_traffic_generator_adaptive(config[CONF_TRAFFIC_GENERATOR_ADAPTIVE]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
-    cg.add(var.set_classic_recovery_vote_enabled(config[CONF_CLASSIC_RECOVERY_VOTE_ENABLED]))
     cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))
     cg.add(var.set_evaluation_interval(config[CONF_EVALUATION_INTERVAL]))
     cg.add(var.set_motion_on_hits(config[CONF_MOTION_ON_HITS]))

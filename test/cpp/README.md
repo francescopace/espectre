@@ -26,7 +26,7 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 | `test_utils` | Core | Unit | **Real** | Variance, magnitude, turbulence, compare functions |
 | `test_core_helpers` | Core | Unit | Synthetic | Core helper edge cases, thresholds, move semantics |
 | `test_hampel_filter` | Core | Unit | **Real** | Outlier removal filter |
-| `test_classic_detector` | Core | Unit | **Real** | Classic fusion algorithm, frozen variance floor, and recovery vote behavior |
+| `test_classic_detector` | Core | Unit | **Real** | Weighted Classic fusion, double Hampel, and startup adaptation |
 | `test_ml_detector` | Core | Unit | **Real** | ML detector, feature extraction, inference |
 | `test_traffic_generator` | Runtime | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
 | `test_runtime_helpers` | Runtime | Unit | Synthetic | Gain controller and WiFi CSI helper behavior |

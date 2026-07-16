@@ -309,9 +309,8 @@ Support in this phase:
 |--------|---------------|---------|---------------|
 | `detection_algorithm` | `classic` or `ml` | `classic`; Matter: `ml` | Shared detector family |
 | `threshold_mode` | `auto`, `min`, or `manual` | `auto` | Shared threshold mode |
-| `segmentation_threshold` | float | `1.0` | `classic`: `0.0-10.0`, `ml`: `0.0-1.0`; used when `threshold_mode=manual` |
+| `segmentation_threshold` | float | `1.0` | `0.0-1.0` probability; used when `threshold_mode=manual` |
 | `segmentation_window_size` | int | `100` | `10-200` packets |
-| `classic_recovery_vote_enabled` | bool | `true` | Classic-only variance recovery vote |
 | `traffic_generator_rate` | int | `100` | Target valid local CSI rate, `0-1000`; `0` disables internal traffic generation |
 | `traffic_generator_adaptive` | bool | `true` | Adjusts DNS or ICMP send pacing from valid local CSI callbacks |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |

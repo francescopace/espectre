@@ -94,15 +94,9 @@ static bool build_calibrated_classic_detector(ClassicDetector& detector, int cal
         out_threshold = CLASSIC_DEFAULT_THRESHOLD;
         return false;
     }
-    float variance_floor = 0.0f;
-    bool vote_enabled = false;
-    uint16_t floor_count = 0;
-    calibrator.floor_snapshot(variance_floor, vote_enabled, floor_count);
-    detector.apply_startup_floor(variance_floor, vote_enabled, floor_count);
     detector.on_startup_calibration_complete();
-    out_threshold = calibrator.threshold_metric() *
-                    get_threshold_factor(ThresholdMode::AUTO, detector.get_startup_threshold_factor());
-    detector.set_threshold(out_threshold);
+    detector.set_adaptive_threshold(calibrator.threshold_metric());
+    out_threshold = detector.get_threshold();
     detector.clear_buffer();
     return true;
 }
@@ -339,7 +333,7 @@ void tearDown(void) {}
 // Test 1: Classic with Fixed Subcarriers (Production Runtime)
 // ============================================================================
 // Uses the same startup-calibration flow as the runtime: build the threshold
-// from the Classic primary metric, freeze the quiet variance floor, then warm-clear
+// from the Classic probability metric, apply its session adaptation, then warm-clear
 // before evaluation.
 
 void test_classic_fixed_subcarriers(void) {
@@ -373,7 +367,7 @@ void test_classic_fixed_subcarriers(void) {
 
     printf("Adaptive threshold: %.6f (%s x %.1f)\n", adaptive_threshold,
            calibrated ? "shared calibration" : "default threshold", auto_factor);
-    printf("Frozen variance floor: %.6f (vote=%s)\n\n", detector.get_variance_floor(), detector.recovery_vote_enabled() ? "on" : "off");
+    printf("Fusion: l1_delta + turb_autocorr (double Hampel)\n\n");
 
     int static_presence_motion = 0;
     for (int p = 0; p < num_static_presence; p++) {

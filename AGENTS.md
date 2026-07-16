@@ -63,6 +63,11 @@ When tests fail:
 
 Never skip, disable, or weaken tests just to make them pass.
 
+Run tests that bind local UDP sockets outside the filesystem/network sandbox. The
+sandbox can reject `bind()` for every local address, including `127.0.0.1` and
+`0.0.0.0`; treat `PermissionError` or `EPERM` from the test socket setup as a
+sandbox restriction, not as evidence that the test should use a different IP.
+
 After changing detection/calibration logic, run the relevant C++ motion-detection test and Python performance validation when feasible:
 
 ```bash

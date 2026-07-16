@@ -15,6 +15,7 @@
 #include "csi_format.h"
 #include "detector_limits.h"
 #include "features.h"
+#include "filters.h"
 #include "utils.h"
 
 namespace espectre {
@@ -26,6 +27,12 @@ class L1DeltaTracker {
     clear();
   }
 
+  void configure_hampel(bool enabled,
+                        uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
+                        float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT) {
+    hampel_turbulence_init(&hampel_state_, window_size, threshold, enabled);
+  }
+
   void clear() {
     std::memset(profile_ring_, 0, sizeof(profile_ring_));
     std::memset(profile_len_, 0, sizeof(profile_len_));
@@ -34,6 +41,10 @@ class L1DeltaTracker {
     delta_index_ = 0U;
     delta_count_ = 0U;
     delta_sum_ = 0.0f;
+    if (hampel_state_.window_size >= HAMPEL_TURBULENCE_WINDOW_MIN) {
+      hampel_turbulence_init(&hampel_state_, hampel_state_.window_size,
+                             hampel_state_.threshold, hampel_state_.enabled);
+    }
   }
 
   void process(const float *amplitudes, uint8_t amplitude_count) {
@@ -62,7 +73,8 @@ class L1DeltaTracker {
             profile[i] = value;
             delta_sum += std::fabs(value - reference[i]);
           }
-          const float delta = delta_sum / profile_len;
+          const float delta = hampel_filter_turbulence(
+              &hampel_state_, delta_sum / profile_len);
           if (delta_count_ >= capacity_) {
             delta_sum_ -= delta_ring_[delta_index_];
           }
@@ -108,6 +120,7 @@ class L1DeltaTracker {
   uint16_t delta_index_{0U};
   uint16_t delta_count_{0U};
   float delta_sum_{0.0f};
+  hampel_filter_state_t hampel_state_{};
 };
 
 }  // namespace espectre

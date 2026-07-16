@@ -1,279 +1,224 @@
 """
 Micro-ESPectre - Classic Detector
 
-Non-ML fusion detector: L1-Delta primary with a variance recovery vote.
-
-L1-Delta drives detection with its stable, cross-session quiet floor and its
-startup gate. Moving variance is consulted only as a recovery vote in the
-ambiguous band just below the L1-Delta threshold, where L1-Delta and variance
-complementary failure modes: gentle motion that barely displaces the normalized
-profile can still raise the variance. The vote is threshold-free (a relative
-test against the variance metric's own session floor) and self-gated by that floor's
-dispersion, so the variance path is used only where its floor is tight enough to
-trust. On rooms where L1-Delta already fires, or where the variance floor is bursty
-(the S3 quiet-run failure mode), the vote stays out and the detector reduces to
-L1-Delta alone.
-
-Fusion decision per packet (l1 = L1-Delta metric, thr = L1-Delta threshold,
-variance = moving variance, base = variance session floor):
-
-    l1 > thr                                          -> MOTION  (L1-Delta)
-    BAND_ALPHA*thr < l1 <= thr and vote and variance>K*base -> MOTION  (variance recovery)
-    else                                              -> IDLE
-
-    The variance floor is frozen from startup-validated quiet samples supplied by the
-    shared calibrator. This keeps motion-first startup from poisoning the floor while
-    preserving the existing low-contrast recovery vote when enough quiet samples were
-    observed after the useful motion segment.
+Vote-free, two-feature motion detector using a weighted fusion of gain-invariant
+L1 profile displacement and turbulence autocorrelation. Hampel filtering is
+applied independently to both per-packet streams under one shared enable flag.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
+import math
+
 try:
     from src.detector_interface import IDetector, MotionState
-    from src.features import (
-        L1DeltaTracker,
-        L1_DELTA_STARTUP_GATE,
-        L1_DELTA_STARTUP_THRESHOLD_FACTOR,
-    )
+    from src.features import L1_DELTA_LAG, L1DeltaTracker, calc_autocorrelation
     from src.segmentation import SegmentationContext
 except ImportError:
     from detector_interface import IDetector, MotionState
-    from features import (
-        L1DeltaTracker,
-        L1_DELTA_STARTUP_GATE,
-        L1_DELTA_STARTUP_THRESHOLD_FACTOR,
-    )
+    from features import L1_DELTA_LAG, L1DeltaTracker, calc_autocorrelation
     from segmentation import SegmentationContext
 
 
 class ClassicDetector(IDetector):
-    """
-    L1-Delta + variance fusion detector (the default non-ML detector).
+    """Weighted ``l1_delta + turb_autocorr`` production detector."""
 
-    Uses an embedded L1-delta tracker as the primary path and a shared moving-
-    variance context as the support vote. The primary threshold and startup
-    calibration are L1-delta's; the variance side is self-maintained online without
-    exposing standalone detector classes.
-    """
     ALGORITHM = "classic"
+    STARTUP_GATE = True
 
-    # Delegate the startup-gate contract to L1-Delta (see threshold.py).
-    STARTUP_THRESHOLD_FACTOR = L1_DELTA_STARTUP_THRESHOLD_FACTOR
-    STARTUP_GATE = L1_DELTA_STARTUP_GATE
+    # Grouped, de-overlapped OOF fit, balanced by class/chip/session.
+    FEATURE_CENTER = (0.03669842332601547, 0.27886947989463806)
+    FEATURE_SCALE = (0.026984458789229393, 0.33479437232017517)
+    FEATURE_WEIGHT = (5.572897434234619, 3.1952695846557617)
+    INTERCEPT = -2.1254162788391113
 
-    # Fusion parameters (benchmark-tuned on the paired + long-quiet sets;
-    # see the ClassicDetector promotion ADR).
-    BAND_ALPHA = 0.6            # lower edge of the ambiguous band (x threshold)
-    RECOVERY_VOTE_RATIO = 3.0       # variance must exceed K x its own session floor
-    VARIANCE_FLOOR_MIN = 300        # samples before the vote may enable
+    BASE_THRESHOLD = 0.6066111851930618
+    TRAIN_IDLE_Q95_LOGIT = -0.6372601389884949
+    STARTUP_QUANTILE = 0.95
+    STARTUP_STRENGTH = 0.3
+    STARTUP_SAMPLE_LIMIT = 64
 
-    def __init__(self,
-                 window_size=100,
-                 threshold=1.0,
-                 enable_lowpass=False,
-                 lowpass_cutoff=11.0,
-                 enable_hampel=True,
-                 hampel_window=7,
-                 hampel_threshold=5.0,
-                 enable_recovery_vote=True,
+    # The detector owns its startup threshold formula; the shared multiplier is
+    # retained only for the generic calibrator's progress/fallback machinery.
+    STARTUP_THRESHOLD_FACTOR = 1.0
+
+    def __init__(self, window_size=100, threshold=BASE_THRESHOLD,
+                 enable_lowpass=False, lowpass_cutoff=11.0,
+                 enable_hampel=True, hampel_window=7, hampel_threshold=5.0,
                  **_unused):
-        """
-        Initialize the fusion detector.
-
-        Args mirror the shared detector factory contract. Filter kwargs are
-        forwarded to the variance support detector; L1-Delta ignores them.
-        """
-        self._l1 = L1DeltaTracker(window_size=window_size, threshold=threshold)
-        self._recovery_vote_configured = bool(enable_recovery_vote)
-        # Do not allocate or update the variance path in L1-only mode.
-        self._variance_ctx = None
-        if self._recovery_vote_configured:
-            self._variance_ctx = SegmentationContext(
-                window_size=window_size,
-                threshold=10.0,
-                enable_lowpass=enable_lowpass,
-                lowpass_cutoff=lowpass_cutoff,
-                enable_hampel=enable_hampel,
-                hampel_window=hampel_window,
-                hampel_threshold=hampel_threshold,
-                allocate_amplitude_buffer=False,
-            )
-
-        self._floor_count = 0
-        self._variance_floor = None           # median supplied by startup calibration
-        self._recovery_vote_enabled = False   # dispersion gate result
-        self._floor_frozen = False            # set once startup calibration completes
-
+        self._context = SegmentationContext(
+            window_size=window_size,
+            threshold=1.0,
+            enable_lowpass=enable_lowpass,
+            lowpass_cutoff=lowpass_cutoff,
+            enable_hampel=enable_hampel,
+            hampel_window=hampel_window,
+            hampel_threshold=hampel_threshold,
+        )
+        self._l1 = L1DeltaTracker(
+            window_size=max(2, window_size - L1_DELTA_LAG),
+            lag=L1_DELTA_LAG,
+            allocate_amplitude_buffer=False,
+            enable_hampel=enable_hampel,
+            hampel_window=hampel_window,
+            hampel_threshold=hampel_threshold,
+        )
+        self._ordered_turbulence = [0.0] * window_size
+        self._threshold = self._clamp_probability(threshold)
         self._state = MotionState.IDLE
         self._packet_count = 0
-        self._last_moving_variance = 0.0
+        self._current_probability = 0.0
+        self._current_logit = 0.0
+        self._current_l1_delta = 0.0
+        self._current_turb_autocorr = 0.0
+        self._startup_logits = []
 
-    # -- hot path -----------------------------------------------------------
+    @staticmethod
+    def _clamp_probability(value):
+        return max(0.0, min(1.0, float(value)))
 
-    def _should_collect_recovery_sample(self):
-        """Return whether the variance recovery path can affect the decision."""
-        if not self._recovery_vote_configured or self._variance_ctx is None:
-            return False
-        if not self._floor_frozen:
-            # Startup calibration owns the variance floor and needs every sample.
-            return True
-        if not self._recovery_vote_enabled or self._variance_floor is None:
-            return False
-        threshold = self.get_threshold()
-        l1_metric = self._l1.get_motion_metric()
-        return self.BAND_ALPHA * threshold < l1_metric <= threshold
+    @staticmethod
+    def _sigmoid(logit):
+        if logit < -20.0:
+            return 0.0
+        if logit > 20.0:
+            return 1.0
+        return 1.0 / (1.0 + math.exp(-logit))
+
+    @staticmethod
+    def _quantile(values, quantile):
+        if not values:
+            return None
+        ordered = list(values)
+        ordered.sort()
+        if len(ordered) == 1:
+            return ordered[0]
+        position = (len(ordered) - 1) * quantile
+        lower = int(position)
+        upper = min(lower + 1, len(ordered) - 1)
+        fraction = position - lower
+        return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
 
     def process_packet(self, csi_data, selected_subcarriers=None):
-        """Feed the packet to both the primary and the support detector."""
         self._packet_count += 1
-        self._l1.process_packet(csi_data, selected_subcarriers)
-        if self._should_collect_recovery_sample():
-            turbulence = self._variance_ctx.calculate_turbulence_from_amplitudes(
-                self._l1._amplitude_buffer,
-                self._l1._amplitude_count,
-            )
-            self._variance_ctx.add_turbulence(turbulence)
+        turbulence = self._context.calculate_spatial_turbulence(
+            csi_data, selected_subcarriers
+        )
+        self._l1.process_amplitudes(
+            self._context._amplitude_buffer,
+            self._context._amplitude_count,
+        )
+        self._context.add_turbulence(turbulence)
+
+    def _turb_autocorr(self):
+        ctx = self._context
+        count = ctx.buffer_count
+        values = self._ordered_turbulence
+        if count < ctx.window_size:
+            for i in range(count):
+                values[i] = ctx.turbulence_buffer[i]
+        else:
+            for i in range(count):
+                values[i] = ctx.turbulence_buffer[(ctx.buffer_index + i) % count]
+        mean = sum(values[:count]) / count if count else 0.0
+        variance = 0.0
+        for i in range(count):
+            diff = values[i] - mean
+            variance += diff * diff
+        variance = variance / count if count else 0.0
+        return calc_autocorrelation(values, count, mean=mean, variance=variance)
+
+    def _calculate_logit(self, l1_delta, turb_autocorr):
+        l1_norm = (l1_delta - self.FEATURE_CENTER[0]) / self.FEATURE_SCALE[0]
+        autocorr_norm = (
+            (turb_autocorr - self.FEATURE_CENTER[1]) / self.FEATURE_SCALE[1]
+        )
+        return (
+            self.INTERCEPT
+            + self.FEATURE_WEIGHT[0] * l1_norm
+            + self.FEATURE_WEIGHT[1] * autocorr_norm
+        )
 
     def update_state(self):
-        """
-        Update the fused motion state (call at publish time).
-
-        Returns:
-            dict: shared `motion_metric` (L1-Delta) plus fusion diagnostics.
-        """
-        if hasattr(self._l1, "update_metric"):
-            self._l1.update_metric()
+        if not self.is_ready():
+            self._current_probability = 0.0
+            self._state = MotionState.IDLE
         else:
-            self._l1.update_state()
-        l1v = self._l1.get_motion_metric()
-        moving_variance = 0.0
-        thr = self._l1.threshold if hasattr(self._l1, "threshold") else self._l1.get_threshold()
-        recovery_band = l1v > self.BAND_ALPHA * thr and l1v <= thr
-        variance_ctx = self._variance_ctx
-        variance_ready = (
-            variance_ctx is not None
-            and (
-                not hasattr(variance_ctx, "buffer_count")
-                or not hasattr(variance_ctx, "window_size")
-                or variance_ctx.buffer_count >= variance_ctx.window_size
+            self._current_l1_delta = self._l1.mean()
+            self._current_turb_autocorr = self._turb_autocorr()
+            self._current_logit = self._calculate_logit(
+                self._current_l1_delta,
+                self._current_turb_autocorr,
             )
-        )
-        variance_needed = (
-            self._recovery_vote_configured
-            and variance_ready
-            and (not self._floor_frozen or recovery_band)
-        )
-        if variance_needed:
-            variance_ctx.update_state()
-            if hasattr(variance_ctx, "current_moving_variance"):
-                moving_variance = variance_ctx.current_moving_variance
-            else:
-                moving_variance = variance_ctx.get_motion_metric()
-        self._last_moving_variance = moving_variance
-
-        ready = self._l1.is_ready()
-        band_low = self.BAND_ALPHA * thr
-        motion = False
-        if ready:
-            if l1v > thr:
-                motion = True
-            elif (self._recovery_vote_configured
-                  and self._recovery_vote_enabled and self._variance_floor is not None
-                  and l1v > band_low
-                  and moving_variance > self.RECOVERY_VOTE_RATIO * self._variance_floor):
-                motion = True
-        self._state = MotionState.MOTION if motion else MotionState.IDLE
+            self._current_probability = self._sigmoid(self._current_logit)
+            if len(self._startup_logits) < self.STARTUP_SAMPLE_LIMIT:
+                self._startup_logits.append(self._current_logit)
+            self._state = (
+                MotionState.MOTION
+                if self._current_probability > self._threshold
+                else MotionState.IDLE
+            )
 
         return {
-            'motion_metric': l1v,
-            'l1_delta': l1v,
-            'moving_variance': moving_variance,
-            'variance_floor': self._variance_floor if self._variance_floor is not None else 0.0,
-            'recovery_vote_enabled': self._recovery_vote_enabled,
-            'threshold': thr,
-            'state': self._state,
+            "state": self._state,
+            "motion_metric": self._current_probability,
+            "probability": self._current_probability,
+            "l1_delta": self._current_l1_delta,
+            "turb_autocorr": self._current_turb_autocorr,
+            "threshold": self._threshold,
         }
 
-    # -- delegated primary contract ----------------------------------------
+    def set_adaptive_threshold(self, _shared_threshold):
+        session_q95 = self._quantile(self._startup_logits, self.STARTUP_QUANTILE)
+        if session_q95 is None:
+            self._threshold = self.BASE_THRESHOLD
+            return
+        base_logit = math.log(self.BASE_THRESHOLD / (1.0 - self.BASE_THRESHOLD))
+        adapted_logit = base_logit + self.STARTUP_STRENGTH * (
+            session_q95 - self.TRAIN_IDLE_Q95_LOGIT
+        )
+        self._threshold = self._sigmoid(adapted_logit)
 
-    def get_state(self):
-        """Get the current fused motion state."""
-        return self._state
-
-    def get_motion_metric(self):
-        """Primary metric is L1-Delta's (used by startup calibration)."""
-        return self._l1.get_motion_metric()
-
-    def get_threshold(self):
-        """Primary threshold is L1-Delta's."""
-        return self._l1.threshold if hasattr(self._l1, "threshold") else self._l1.get_threshold()
+    def on_startup_calibration_begin(self):
+        """Discard stale runtime logits before a fresh calibration session."""
+        self._startup_logits = []
 
     def set_threshold(self, threshold):
-        """Set the primary (L1-Delta) threshold."""
-        return self._l1.set_threshold(threshold)
+        value = float(threshold)
+        if value < 0.0 or value > 1.0:
+            return False
+        self._threshold = value
+        return True
 
-    def set_adaptive_threshold(self, threshold):
-        """Set the startup-calibrated primary threshold.
+    def get_threshold(self):
+        return self._threshold
 
-        The shared startup calibrator now owns the validated-quiet selection and
-        passes any frozen floor snapshot via ``apply_startup_floor`` before this call.
-        If startup did not yield enough quiet variance samples the floor stays unset
-        and the detector runs as L1-Delta alone (safe default).
-        """
-        self._l1.set_adaptive_threshold(threshold)
-        self._floor_frozen = self._recovery_vote_configured
+    def get_motion_metric(self):
+        return self._current_probability
 
-    def get_last_moving_variance(self):
-        """Expose the latest variance metric to the shared startup calibrator."""
-        return self._last_moving_variance
-
-    def apply_startup_floor(self, variance_floor, recovery_vote_enabled, sample_count):
-        """Freeze one validated startup floor snapshot supplied by the calibrator."""
-        if not self._recovery_vote_configured:
-            self._floor_count = 0
-            self._variance_floor = None
-            self._recovery_vote_enabled = False
-            return
-
-        count = max(0, int(sample_count))
-        self._floor_count = count
-        self._variance_floor = float(variance_floor) if count > 0 else None
-        self._recovery_vote_enabled = (
-            self._recovery_vote_configured
-            and bool(recovery_vote_enabled)
-            and count >= self.VARIANCE_FLOOR_MIN
-        )
+    def get_state(self):
+        return self._state
 
     def is_ready(self):
-        """Detection readiness follows the primary detector."""
-        return self._l1.is_ready()
+        return (
+            self._context.buffer_count >= self._context.window_size
+            and self._l1.is_ready()
+        )
 
     def reset(self):
-        """Reset runtime state while preserving frozen calibration when present."""
-        preserve_frozen_floor = self._recovery_vote_configured and self._floor_frozen
-        preserved_floor = self._variance_floor
-        preserved_vote = self._recovery_vote_enabled
+        self._context.reset(full=True)
         self._l1.reset()
-        if self._recovery_vote_configured and self._variance_ctx is not None:
-            self._variance_ctx.reset(full=True)
-        if preserve_frozen_floor:
-            self._variance_floor = preserved_floor
-            self._recovery_vote_enabled = preserved_vote
-        else:
-            self._floor_count = 0
-            self._variance_floor = None
-            self._recovery_vote_enabled = False
-        self._floor_frozen = preserve_frozen_floor
         self._state = MotionState.IDLE
         self._packet_count = 0
-        self._last_moving_variance = 0.0
+        self._current_probability = 0.0
+        self._current_logit = 0.0
+        self._current_l1_delta = 0.0
+        self._current_turb_autocorr = 0.0
+        self._startup_logits = []
 
     def get_name(self):
-        """Get detector name."""
         return "Classic"
 
     @property
     def total_packets(self):
-        """Total packets processed."""
         return self._packet_count

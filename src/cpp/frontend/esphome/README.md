@@ -122,7 +122,6 @@ between them.
 ```yaml
 espectre:
   detection_algorithm: classic
-  classic_recovery_vote_enabled: true
   traffic_generator_rate: 100
   traffic_generator_adaptive: true
   traffic_generator_mode: ping

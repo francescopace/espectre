@@ -113,7 +113,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::ML);
   component.set_detection_algorithm("classic");
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::CLASSIC);
-  component.set_classic_recovery_vote_enabled(false);
   component.set_publish_interval(200);
   component.set_evaluation_interval(50);
   component.set_motion_on_hits(4);
@@ -138,7 +137,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_EQUAL(0, component.runtime_.config().traffic_generator_rate);
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::ML);
-  TEST_ASSERT_FALSE(component.runtime_.config().classic_recovery_vote_enabled);
   TEST_ASSERT_EQUAL(200, component.runtime_.config().publish_interval);
   TEST_ASSERT_EQUAL(50, component.runtime_.config().evaluation_interval);
   TEST_ASSERT_EQUAL(4, component.runtime_.config().motion_on_hits);
@@ -150,7 +148,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_EQUAL_FLOAT(4.5f, component.runtime_.config().hampel_threshold);
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_movement_sensor());
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_motion_binary_sensor());
-  TEST_ASSERT_EQUAL(0.0f, component.get_setup_priority() - esphome::setup_priority::AFTER_WIFI);
+  TEST_ASSERT_EQUAL_FLOAT(275.0f, component.get_setup_priority());
 }
 
 void test_threshold_number_behaviors_cover_parent_and_no_parent_paths(void) {
@@ -164,14 +162,14 @@ void test_threshold_number_behaviors_cover_parent_and_no_parent_paths(void) {
   TEST_ASSERT_FALSE(number.has_state());
 
   number.set_parent(&component);
-  number.control(6.25f);
-  TEST_ASSERT_EQUAL_FLOAT(6.25f, component.get_threshold());
-  component.set_threshold_runtime(3.75f);
+  number.control(0.625f);
+  TEST_ASSERT_EQUAL_FLOAT(0.625f, component.get_threshold());
+  component.set_threshold_runtime(0.375f);
   number.republish_state();
 
-  TEST_ASSERT_EQUAL_FLOAT(3.75f, component.get_threshold());
+  TEST_ASSERT_EQUAL_FLOAT(0.375f, component.get_threshold());
   TEST_ASSERT_TRUE(number.has_state());
-  TEST_ASSERT_EQUAL_FLOAT(3.75f, number.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(0.375f, number.get_state());
 }
 
 void test_calibrate_switch_behaviors_cover_all_user_paths(void) {
@@ -223,7 +221,7 @@ void test_detector_select_switches_and_republishes_runtime_state(void) {
   snapshot.threshold = SEGMENTATION_DEFAULT_THRESHOLD;
   component.on_detector_changed(snapshot);
   TEST_ASSERT_EQUAL_STRING("classic", detector_select.get_state().c_str());
-  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_THRESHOLD_MAX, threshold_number.traits.get_max_value());
+  TEST_ASSERT_EQUAL_FLOAT(CLASSIC_MAX_THRESHOLD, threshold_number.traits.get_max_value());
 }
 
 void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void) {

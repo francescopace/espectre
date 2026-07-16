@@ -137,7 +137,6 @@ class TestConfigDefaultValues:
         config = load_src_config()
         
         assert config.SEG_WINDOW_SIZE > 0
-        assert isinstance(config.CLASSIC_RECOVERY_VOTE_ENABLED, bool)
     
     def test_default_calibration_parameters(self):
         """Test default calibration parameters are reasonable"""

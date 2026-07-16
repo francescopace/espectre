@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-08
 - Recorded: 2026-07-09 (retrospective)
+- Amended: 2026-07-16
 
 ## Context
 
@@ -30,17 +31,17 @@ offline comparison, but it no longer defines the active runtime direction.
 Promote `ClassicDetector` as the production non-ML path and retire the legacy
 baselines from the active runtime path.
 
-The accepted Classic direction is:
+The original L1-primary plus recovery-vote design was superseded after grouped,
+de-overlapped feature analysis and gain-stressed replay showed that a direct
+two-feature fusion was both simpler and stronger. The accepted Classic direction
+is now:
 
-- L1-delta as the primary non-ML metric
-- shared startup calibration that prefers a validated
-  `quiet -> motion -> quiet` bootstrap
-- quiet-first fallback inside the same startup budget when motion-first
-  validation does not complete
-- gated startup threshold placement as captured in
-  `2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md`
-- supporting recovery logic aligned with the current Classic design rather than
-  older standalone baselines
+- weighted logistic fusion of `l1_delta` and `turb_autocorr`
+- no voting or conditional recovery branch
+- Hampel filtering on both per-packet feature streams under one master switch
+- a global probability boundary adapted by the session startup `q95` in logit
+  space
+- identical Python and C++ feature, filtering, fusion, and calibration behavior
 
 Historical variance-baseline tooling may remain for offline comparison, but it
 is no longer the production runtime reference.
@@ -56,6 +57,12 @@ better quiet-floor stability and a clearer production calibration story.
 
 Rejected. The experiments did not support one fixed threshold as a safe
 cross-session production policy.
+
+### Keep the gated variance recovery vote
+
+Rejected after the amended comparison. It added branching and calibration
+state, while the weighted autocorrelation fusion produced better paired recall,
+lower long-recording false positives, and stronger raw-CSI gain stress results.
 
 ## Consequences
 

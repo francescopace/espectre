@@ -11,6 +11,7 @@
 #include <cstdint>
 
 #include "base_detector.h"
+#include "classic_detector.h"
 #include "csi_traffic_types.h"
 #include "filters.h"
 #include "ml_detector.h"
@@ -55,8 +56,6 @@ constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN = 10;
 constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX = 200;
 constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT = 100;
 
-constexpr bool RUNTIME_CLASSIC_RECOVERY_VOTE_ENABLED_DEFAULT = true;
-
 constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MIN = 0;
 constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MAX = 1000;
 constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT = 100;
@@ -96,7 +95,8 @@ constexpr uint32_t runtime_publish_interval_default(uint32_t traffic_generator_r
 }
 
 constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
-  return algorithm == DetectionAlgorithm::ML ? RUNTIME_ML_THRESHOLD_MAX : RUNTIME_THRESHOLD_MAX;
+  return algorithm == DetectionAlgorithm::CLASSIC ? CLASSIC_MAX_THRESHOLD
+                                                   : RUNTIME_ML_THRESHOLD_MAX;
 }
 
 constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
@@ -104,12 +104,14 @@ constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
 }
 
 constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {
-  return algorithm == DetectionAlgorithm::ML ? ML_DEFAULT_THRESHOLD : SEGMENTATION_DEFAULT_THRESHOLD;
+  return algorithm == DetectionAlgorithm::ML ? ML_DEFAULT_THRESHOLD : CLASSIC_DEFAULT_THRESHOLD;
 }
 
 static_assert(RUNTIME_THRESHOLD_MIN == 0.0f, "Runtime threshold min must stay at zero");
 static_assert(RUNTIME_THRESHOLD_MAX == SEGMENTATION_MAX_THRESHOLD, "Runtime threshold max drifted from threshold.h");
 static_assert(RUNTIME_ML_THRESHOLD_MAX == ML_MAX_THRESHOLD, "Runtime ML threshold max drifted from ml_detector.h");
+static_assert(RUNTIME_ML_THRESHOLD_MAX == CLASSIC_MAX_THRESHOLD,
+              "Classic and ML probability scales must stay aligned");
 static_assert(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT == SEGMENTATION_DEFAULT_THRESHOLD,
               "Runtime segmentation threshold default drifted from threshold.h");
 static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN == DETECTOR_MIN_WINDOW_SIZE,

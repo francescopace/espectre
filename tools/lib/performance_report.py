@@ -881,7 +881,7 @@ def render_performance_report_markdown(
             "C++ integration suites stay aligned with the published Python replay metrics."
         ),
         "",
-        "- **Classic Detector**: Uses L1-Delta as the primary metric, with a gated moving-variance recovery vote.",
+        "- **Classic Detector**: Uses a vote-free weighted fusion of L1-Delta and turbulence autocorrelation.",
         "- **ML Detector**: Uses a pretrained neural network model based on turbulence and spectral features.",
         "",
         "See [ALGORITHMS.md](../ALGORITHMS.md) for the full detector design.",

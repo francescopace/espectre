@@ -272,7 +272,7 @@ void test_ml_feature_helpers_cover_guard_paths(void) {
 void test_classic_detector_move_semantics_and_base_accessors(void) {
     auto packet = make_constant_packet(3, 4);
 
-    ClassicDetector source(5, 2.5f);
+    ClassicDetector source(5, 0.75f);
     source.configure_lowpass(true, 2.0f);
     source.configure_hampel(true, 5, 2.5f);
     source.process_packet(nullptr, packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
@@ -287,7 +287,7 @@ void test_classic_detector_move_semantics_and_base_accessors(void) {
     TEST_ASSERT_TRUE(moved.is_hampel_enabled());
     TEST_ASSERT_EQUAL(1, moved.get_total_packets());
     TEST_ASSERT_EQUAL(1, moved.get_buffer_count());
-    TEST_ASSERT_EQUAL_FLOAT(2.5f, moved.get_threshold());
+    TEST_ASSERT_EQUAL_FLOAT(0.75f, moved.get_threshold());
 
     ClassicDetector assigned(7, 4.0f);
     assigned = std::move(moved);

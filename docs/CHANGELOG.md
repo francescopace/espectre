@@ -13,7 +13,7 @@ All notable changes to this project will be documented in this file.
 - **Matter is now part of the published firmware surface**: releases, snapshots, CI, and the web flasher now include Matter artifacts for the supported targets.
 - **Streamer workflows were promoted and cleaned up**: the C++ streamer path is now the main live-streaming implementation, with collector-driven discovery and broader multi-chip CLI support.
 - **ESPectre Protocol is now a shared platform service**: BLE, MQTT, provisioning, telemetry, and command handling now form a reusable baseline across ESP-IDF frontends.
-- **Classic startup calibration is now motion-first, with an internal quiet-only fallback**.
+- **Classic now uses a vote-free weighted fusion of L1-delta and turbulence autocorrelation**, with double Hampel filtering and session-adapted probability thresholds.
 - **The production ML feature set is now Core-6**, improving cross-device stability and keeping the runtime compact.
 - **The roadmap now frames `v3` as the modular multi-frontend platform phase**.
 
@@ -30,8 +30,7 @@ All notable changes to this project will be documented in this file.
 - **Pipelined firmware hardware benchmark** for ESPHome and Native Classic/ML variants, with ML builds overlapping Classic monitoring and generated per-chip performance reports.
 - **Matter frontend and release surface**, including published artifacts for releases, snapshots, and the web flasher.
 - **Shared HTTPS OTA service for ESP-IDF frontends** under `runtime/esp_idf`.
-- **L1-delta as the primary Classic runtime metric** in both the Python and C++ runtimes.
-- **Motion-first startup calibration for Classic thresholds** with internal quiet-only fallback.
+- **Weighted two-feature Classic runtime** aligned across Python and C++, using gain-invariant L1-delta and turbulence autocorrelation.
 - **Cross-language report parity gating** for `tools/generate_performance_report.py`: the published performance report now rebuilds and runs the host-side C++ integration suites, exports structured paired and long-recording metrics, and aborts if the Python and C++ aggregates drift.
 - **Parallel multi-detector live collect** through `./espectre collect --detector classic,ml`.
 - **Timed dataset collection now uses the selected production Classic or ML detector for its ready gate**, replacing the retired host-only moving-variance adapter.
@@ -66,9 +65,9 @@ Historical decision context for the Classic and ML promotions now lives in:
 - **ESPectre Protocol was extracted from the native frontend into shared runtime code** so multiple ESP-IDF frontends can reuse the same telemetry, command, BLE, and provisioning helpers.
 - **Native firmware was simplified into a dedicated standalone frontend**: BLE telemetry, MQTT diagnostics, device identity, and subscription behavior were cleaned up around the shared protocol contract.
 - **Streamer workflows were modernized**: multi-chip CLI support was expanded, collection is now collector-driven, the C++ streamer protocol became the primary live-streaming path, and ESP32-C3 transport defaults were tuned for high-rate capture.
-- **Dataset and sensing defaults were normalized across the project**: room-state labels were simplified, empty-room validation became part of the standard workflow, the active runtime path now uses one fixed shared subcarrier set, and Classic startup calibration remains adaptive-threshold tuning only, but now uses a shared motion-first bootstrap with a quiet-first fallback inside the same startup budget.
-- **Classic startup fallback was hardened at the calibration boundary**: the final packet now participates in motion confirmation, partial movement is capped to the validated quiet-anchor band instead of setting a motion-level threshold, and trusted pre-motion samples remain available to the variance recovery vote.
-- **Classic variance recovery can now be disabled explicitly** while retaining the same L1-delta startup threshold calibration, enabling L1-only experiments without source changes.
+- **Dataset and sensing defaults were normalized across the project**: room-state labels were simplified, empty-room validation became part of the standard workflow, and the active runtime path now uses one fixed shared subcarrier set.
+- **Classic startup calibration now adapts the learned probability boundary in logit space** from the session's quiet `q95` reference.
+- **Classic detection now uses direct weighted fusion without a recovery vote**, reducing runtime branches and calibration state.
 - **Default runtime subcarriers were moved away from the DC bin**: the shared fixed 12-subcarrier set is now `[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]`, improving current Classic real-data validation while keeping one cross-chip default band.
 - **Hardware gain lock was removed completely**: ESPectre now keeps AGC active on all chips and uses one shared CV-normalized turbulence path (`std/mean`) across runtime, collection, datasets, and tooling. This avoids the forced-gain instability and Wi-Fi RX/TX problems that may lead to packet loss.
 - **Matter build and CI flows were hardened**: published targets use the standard ESP-IDF path, commissioning behavior is stricter, and QEMU smoke tests now validate real application startup markers.

@@ -73,7 +73,6 @@ def create_detector(detection_algorithm, initial_threshold):
         enable_hampel=config.ENABLE_HAMPEL_FILTER,
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
-        enable_recovery_vote=config.CLASSIC_RECOVERY_VOTE_ENABLED,
     )
 
 
@@ -252,6 +251,9 @@ def run_startup_calibration(wlan, detector, traffic_gen):
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
+    begin_calibration = getattr(detector, "on_startup_calibration_begin", None)
+    if callable(begin_calibration):
+        begin_calibration()
     evaluation_interval = max(1, int(getattr(config, 'EVALUATION_INTERVAL', 25)))
 
     print('')

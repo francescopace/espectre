@@ -97,15 +97,15 @@ void test_runtime_frontend_controller_threshold_runtime_updates_config_and_snaps
   DummyRuntimeListener listener;
 
   TEST_ASSERT_FALSE(controller.set_threshold_runtime(-0.5f));
-  TEST_ASSERT_TRUE(controller.set_threshold_runtime(2.75f));
-  TEST_ASSERT_EQUAL_FLOAT(2.75f, controller.snapshot().threshold);
+  TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.75f));
+  TEST_ASSERT_EQUAL_FLOAT(0.75f, controller.snapshot().threshold);
   TEST_ASSERT_TRUE(controller.config().threshold_mode == ThresholdMode::MANUAL);
 
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.set_threshold_runtime(3.5f));
+  TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.5f));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
-  TEST_ASSERT_EQUAL_FLOAT(3.5f, frontend_runtime_shim::state.last_threshold);
-  TEST_ASSERT_EQUAL_FLOAT(3.5f, controller.snapshot().threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.5f, frontend_runtime_shim::state.last_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.5f, controller.snapshot().threshold);
 }
 
 void test_runtime_frontend_controller_recalibration_requires_capability_and_runtime(void) {
@@ -150,7 +150,7 @@ void test_runtime_frontend_controller_switches_detector_and_resets_threshold_mod
   TEST_ASSERT_TRUE(controller.set_detection_algorithm_runtime(DetectionAlgorithm::CLASSIC));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::CLASSIC);
-  TEST_ASSERT_EQUAL_FLOAT(SEGMENTATION_DEFAULT_THRESHOLD, controller.snapshot().threshold);
+  TEST_ASSERT_EQUAL_FLOAT(CLASSIC_DEFAULT_THRESHOLD, controller.snapshot().threshold);
 }
 
 void test_runtime_frontend_controller_can_select_stream_runtime_profile(void) {

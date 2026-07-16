@@ -266,15 +266,9 @@ static bool build_calibrated_classic_detector(ClassicDetector& detector, int cal
     out_threshold = CLASSIC_DEFAULT_THRESHOLD;
     return false;
   }
-  float variance_floor = 0.0f;
-  bool vote_enabled = false;
-  uint16_t floor_count = 0;
-  calibrator.floor_snapshot(variance_floor, vote_enabled, floor_count);
-  detector.apply_startup_floor(variance_floor, vote_enabled, floor_count);
   detector.on_startup_calibration_complete();
-  out_threshold = calibrator.threshold_metric() *
-                  get_threshold_factor(ThresholdMode::AUTO, detector.get_startup_threshold_factor());
-  detector.set_threshold(out_threshold);
+  detector.set_adaptive_threshold(calibrator.threshold_metric());
+  out_threshold = detector.get_threshold();
   detector.clear_buffer();
   return true;
 }

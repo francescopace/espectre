@@ -36,9 +36,6 @@
 #ifndef CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE
 #define CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE 100
 #endif
-#ifndef CONFIG_ESPECTRE_CLASSIC_RECOVERY_VOTE_ENABLED
-#define CONFIG_ESPECTRE_CLASSIC_RECOVERY_VOTE_ENABLED 1
-#endif
 #ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE
 #define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE 100
 #endif
@@ -128,11 +125,10 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
                               runtime_threshold_max(config.detection_algorithm),
                               "CONFIG_ESPECTRE_SEGMENTATION_THRESHOLD_MANUAL");
   if (config.threshold_mode != ThresholdMode::MANUAL) {
-    config.segmentation_threshold = RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT;
+    config.segmentation_threshold = runtime_default_threshold(config.detection_algorithm);
   }
 
   config.segmentation_window_size = static_cast<uint16_t>(CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE);
-  config.classic_recovery_vote_enabled = CONFIG_ESPECTRE_CLASSIC_RECOVERY_VOTE_ENABLED;
   config.traffic_generator_rate = static_cast<uint32_t>(CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE);
   config.traffic_generator_adaptive = CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE;
 #if CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS

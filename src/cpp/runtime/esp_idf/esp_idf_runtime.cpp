@@ -309,8 +309,7 @@ std::unique_ptr<BaseDetector> EspIdfRuntime::make_detector_(DetectionAlgorithm a
     detector = std::make_unique<MLDetector>(config_.segmentation_window_size, threshold);
   } else if (algorithm == DetectionAlgorithm::CLASSIC) {
     detector = std::make_unique<ClassicDetector>(config_.segmentation_window_size,
-                                                 threshold,
-                                                 config_.classic_recovery_vote_enabled);
+                                                 threshold);
   }
   if (detector != nullptr) {
     detector->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
@@ -428,6 +427,9 @@ bool EspIdfRuntime::start_calibration_() {
   next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
   threshold_calibration_active_.store(true, std::memory_order_relaxed);
   csi_pipeline_.clear_detector_buffer();
+  if (detector_ != nullptr) {
+    detector_->on_startup_calibration_begin();
+  }
   csi_pipeline_.set_packet_interceptor(&EspIdfRuntime::threshold_calibration_packet_callback_, this);
   ESP_LOGI(RUNTIME_TAG, "Starting %s threshold calibration with fixed subcarriers",
            detector_ != nullptr ? detector_->get_name() : "detector");
@@ -497,18 +499,20 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
     adaptive_threshold = threshold_calibrator_->threshold_metric() * factor;
     snapshot_.startup_threshold = adaptive_threshold;
     if (detector_ != nullptr) {
-      float variance_floor = 0.0f;
-      bool vote_enabled = false;
-      uint16_t floor_count = 0;
-      threshold_calibrator_->floor_snapshot(variance_floor, vote_enabled, floor_count);
-      detector_->apply_startup_floor(variance_floor, vote_enabled, floor_count);
       detector_->on_startup_calibration_complete();
     }
 
-    if (config_.threshold_mode != ThresholdMode::MANUAL) {
-      set_threshold_runtime(adaptive_threshold);
-      ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (%s x %.1f)", adaptive_threshold,
-               threshold_calibrator_->statistic_name(), factor);
+    if (config_.threshold_mode != ThresholdMode::MANUAL && detector_ != nullptr) {
+      detector_->set_adaptive_threshold(adaptive_threshold);
+      const float applied_threshold = detector_->get_threshold();
+      config_.segmentation_threshold = applied_threshold;
+      snapshot_.startup_threshold = applied_threshold;
+      snapshot_.threshold = applied_threshold;
+      if (listener_ != nullptr) {
+        listener_->on_threshold_changed(snapshot_);
+      }
+      ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (shared proposal %.6f)",
+               applied_threshold, adaptive_threshold);
     }
     csi_pipeline_.clear_detector_buffer();
   }

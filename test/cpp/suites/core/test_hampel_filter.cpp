@@ -117,12 +117,12 @@ void test_hampel_replaces_outlier(void) {
     hampel_turbulence_state_t state;
     hampel_turbulence_init(&state, 5, 3.0f, true);
     
-    // Fill buffer with stable values around 10
+    // Fill buffer with stable, non-degenerate values around 10.
     hampel_filter_turbulence(&state, 10.0f);
-    hampel_filter_turbulence(&state, 10.0f);
-    hampel_filter_turbulence(&state, 10.0f);
-    hampel_filter_turbulence(&state, 10.0f);
-    hampel_filter_turbulence(&state, 10.0f);
+    hampel_filter_turbulence(&state, 10.1f);
+    hampel_filter_turbulence(&state, 9.9f);
+    hampel_filter_turbulence(&state, 10.2f);
+    hampel_filter_turbulence(&state, 9.8f);
     
     // Extreme outlier should be replaced with median
     float result = hampel_filter_turbulence(&state, 1000.0f);
@@ -416,4 +416,3 @@ extern "C" void app_main(void) { process(); }
 #else
 int main(int argc, char **argv) { return process(); }
 #endif
-

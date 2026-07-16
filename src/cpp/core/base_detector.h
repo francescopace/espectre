@@ -129,6 +129,9 @@ public:
      * @return true if value was accepted
      */
     virtual bool set_threshold(float threshold) = 0;
+
+    /** Apply a detector-specific startup-calibrated threshold. */
+    virtual bool set_adaptive_threshold(float threshold) { return set_threshold(threshold); }
     
     /**
      * Get current threshold
@@ -157,6 +160,9 @@ public:
      */
     virtual bool startup_gate_enabled() const { return false; }
 
+    /** Hook called immediately before startup calibration begins. */
+    virtual void on_startup_calibration_begin() {}
+
     /**
      * Hook called when startup calibration completes successfully.
      *
@@ -173,15 +179,6 @@ public:
      */
     virtual float get_startup_floor_metric() const { return 0.0f; }
 
-    /**
-     * Apply one frozen startup floor snapshot produced by the shared calibrator.
-     *
-     * Classic overrides this to preserve the variance recovery vote across the
-     * warm clear that follows startup calibration.
-     */
-    virtual void apply_startup_floor(float variance_floor, bool recovery_vote_enabled,
-                                     uint16_t sample_count) {}
-    
     // ========================================================================
     // FILTER CONFIGURATION
     // ========================================================================
@@ -201,8 +198,9 @@ public:
      * @param window_size Window size (3-11)
      * @param threshold MAD multiplier threshold
      */
-    void configure_hampel(bool enabled, uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
-                          float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT);
+    virtual void configure_hampel(
+        bool enabled, uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
+        float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT);
     
     /**
      * Clear turbulence buffer (cold restart)

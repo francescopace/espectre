@@ -747,7 +747,6 @@ class CollectionDetectorGate:
             enable_hampel=config.ENABLE_HAMPEL_FILTER,
             hampel_window=config.HAMPEL_WINDOW,
             hampel_threshold=config.HAMPEL_THRESHOLD,
-            enable_recovery_vote=getattr(config, "CLASSIC_RECOVERY_VOTE_ENABLED", True),
         )
         self.calibrator = (
             StartupThresholdCalibrator(

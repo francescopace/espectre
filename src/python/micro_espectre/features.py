@@ -12,9 +12,11 @@ import math
 
 try:
     from src.detector_interface import MotionState
+    from src.filters import HampelFilter
     from src.segmentation import SegmentationContext
 except ImportError:
     from detector_interface import MotionState
+    from filters import HampelFilter
     from segmentation import SegmentationContext
 
 # Match the detector path: compare normalized profiles 10 packets apart
@@ -266,7 +268,8 @@ class L1DeltaTracker:
     """Allocation-free L1-delta metric tracker without detector surface."""
 
     def __init__(self, window_size=100, threshold=1.0, lag=L1_DELTA_LAG,
-                 allocate_amplitude_buffer=True):
+                 allocate_amplitude_buffer=True, enable_hampel=False,
+                 hampel_window=7, hampel_threshold=5.0):
         self.window_size = max(2, int(window_size))
         self.threshold = threshold
         self.lag = max(1, int(lag))
@@ -289,6 +292,10 @@ class L1DeltaTracker:
         self._state = MotionState.IDLE
         self._current_metric = 0.0
         self.last_delta = 0.0
+        self._hampel_filter = (
+            HampelFilter(hampel_window, hampel_threshold)
+            if enable_hampel else None
+        )
 
     def _push_delta(self, delta):
         if self._delta_count < self.window_size:
@@ -332,6 +339,8 @@ class L1DeltaTracker:
                         diff = value - reference[i]
                         delta_total += diff if diff >= 0 else -diff
                     self.last_delta = delta_total / profile_len
+                    if self._hampel_filter is not None:
+                        self.last_delta = self._hampel_filter.filter(self.last_delta)
                     self._push_delta(self.last_delta)
                 else:
                     for i in range(profile_len):
@@ -367,6 +376,10 @@ class L1DeltaTracker:
         else:
             self._current_metric = 0.0
         return self._current_metric
+
+    def mean(self):
+        """Return the current delta-window mean without changing detector state."""
+        return self._delta_sum / self._delta_count if self._delta_count else 0.0
 
     def update_state(self):
         metric = self.update_metric()
@@ -406,6 +419,8 @@ class L1DeltaTracker:
         self._state = MotionState.IDLE
         self._current_metric = 0.0
         self.last_delta = 0.0
+        if self._hampel_filter is not None:
+            self._hampel_filter.reset()
 
     def get_state(self):
         return self._state

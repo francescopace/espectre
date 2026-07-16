@@ -248,9 +248,9 @@ void test_csi_pipeline_set_threshold(void) {
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     
-    manager.set_threshold(2.5f);
+    manager.set_threshold(0.75f);
     
-    TEST_ASSERT_EQUAL_FLOAT(2.5f, detector.get_threshold());
+    TEST_ASSERT_EQUAL_FLOAT(0.75f, detector.get_threshold());
 }
 
 // ============================================================================
