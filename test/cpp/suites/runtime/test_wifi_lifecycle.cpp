@@ -172,6 +172,46 @@ void test_standalone_wifi_service_applies_policy_and_connects_on_start(void) {
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
 }
 
+void test_standalone_wifi_service_unmanaged_applies_policy_before_connect(void) {
+  StandaloneWifiService service;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  config.password = "secret";
+  config.manage_csi_lifecycle = false;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+  TEST_ASSERT_EQUAL(ESP_OK, service.start());
+
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_ps_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_bandwidth_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+}
+
+void test_standalone_wifi_service_reconnects_after_sta_stop(void) {
+  StandaloneWifiService service;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  config.password = "secret";
+
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+  TEST_ASSERT_EQUAL(ESP_OK, service.start());
+
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+
+  // A later STA_START without STOP must not double-connect.
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+
+  // Protocol/coexistence restarts clear the latch so association can resume.
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_STOP, nullptr);
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.connect_call_count);
+}
+
 void test_standalone_wifi_service_managed_lifecycle_dispatches_after_csi_init(void) {
   StandaloneWifiService service;
   StandaloneWifiConfig config;
@@ -333,6 +373,8 @@ int process(void) {
   RUN_TEST(test_wifi_lifecycle_register_handlers_cleans_up_when_second_registration_fails);
   RUN_TEST(test_standalone_wifi_service_configures_fast_scan_bssid_and_channel);
   RUN_TEST(test_standalone_wifi_service_applies_policy_and_connects_on_start);
+  RUN_TEST(test_standalone_wifi_service_unmanaged_applies_policy_before_connect);
+  RUN_TEST(test_standalone_wifi_service_reconnects_after_sta_stop);
   RUN_TEST(test_standalone_wifi_service_managed_lifecycle_dispatches_after_csi_init);
   RUN_TEST(test_standalone_wifi_service_get_info_reports_station_details);
   RUN_TEST(test_standalone_wifi_service_get_info_uses_cached_ip_from_got_ip_event);

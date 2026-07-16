@@ -93,7 +93,7 @@ Host-side workflows live at the repository CLI root:
 | `./espectre collect ...` | Unified host CLI for live detection, live recording, and legacy timed dataset collection |
 | `./espectre mqtt` | Interactive MQTT command and telemetry console |
 | `./espectre ui ...` | Open local browser tools |
-| `./espectre monitor ...` | Attach to serial logs with auto-reconnect |
+| `./espectre monitor ...` | Attach to serial logs with auto-reconnect; add `--reset` for a hard reset on open |
 
 See the repository [CLI.md](../../../docs/CLI.md) for current CLI syntax and
 host-side workflow behavior, and the shared [SETUP.md](../../../docs/SETUP.md)

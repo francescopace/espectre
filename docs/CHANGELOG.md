@@ -46,10 +46,14 @@ Historical decision context for the Classic and ML promotions now lives in:
 - [`docs/adr/2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](adr/2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
 - [`docs/adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md`](adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md)
 
+### Fixed
+
+- **Native Wi-Fi association after CSI STA_START policy**: standalone station connect now applies the CSI radio policy before `esp_wifi_connect()` when it does not own the lifecycle handlers, and clears the connect latch on `WIFI_EVENT_STA_STOP` so BLE coexistence or protocol renegotiation can reassociate instead of leaving the radio idle.
+
 ### Changed
 
+- **Serial monitor reset is now opt-in**: `espectre monitor` attaches without resetting by default, while benchmark workflows pass `--reset` explicitly when they need boot-time markers or a clean restart.
 - **Browser tools share a vertical movement bar**: The Game and Configure reuse `docs/web/movement-bar.js` and `movement-bar.css` for live movement and draggable threshold. Configure removes the old state/motion/threshold metric cards and uses a flatter settings layout with a slim detector/telemetry toolbar.
-
 - **The website guide surface is now fully static**: direct HTML pages, a versioned sitemap, and focused CI checks replace Markdown-to-HTML generation and Pagefind indexing.
 - **Internal CSI traffic generation is adaptive by default** across ESPHome, native, and Matter: one shared pacing task now regulates DNS or raw ICMP traffic from valid local CSI feedback, replacing the fixed-rate `esp_ping` session and keeping protocol-specific code limited to packet encoding and socket setup.
 - **CSI Wi-Fi startup is now shared and association-safe** across frontends: the runtime applies protocol and HT20 policy at `WIFI_EVENT_STA_START`, initializes CSI after `IP_EVENT_STA_GOT_IP`, and passes the event gateway directly to the traffic generator. This avoids the ESPHome first-connect drop and removes duplicate frontend policy and netif lookups.

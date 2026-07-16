@@ -446,7 +446,7 @@ def test_main_reuses_ml_build_started_during_classic_monitor(monkeypatch) -> Non
 def test_commands_clean_only_the_initial_frontend_build(tmp_path) -> None:
     case = benchmark.BenchmarkCase("esphome", "classic")
 
-    clean_build, _flash, _monitor = benchmark._commands_for_case(
+    clean_build, _flash, monitor = benchmark._commands_for_case(
         case,
         "c3",
         "/dev/test",
@@ -463,6 +463,8 @@ def test_commands_clean_only_the_initial_frontend_build(tmp_path) -> None:
 
     assert clean_build[-1] == "--clean"
     assert "--clean" not in incremental_build
+    assert monitor[-4:] == ["monitor", "--port", "/dev/test", "--reset"]
+    assert "esphome" not in monitor
 
 
 def test_update_native_sdkconfig_detector_selects_ml(tmp_path, monkeypatch) -> None:

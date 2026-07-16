@@ -317,11 +317,10 @@ def read_matter_onboarding(port: str, timeout_seconds: float = 20.0) -> bool:
 
     print(f"{Fore.CYAN}Matter QR: waiting for {port}; press RESET if needed...{Style.RESET_ALL}")
     try:
+        from .serial_monitor import hard_reset_serial
+
         with serial.Serial(port, baudrate=115200, timeout=1.0) as connection:
-            connection.dtr = False
-            connection.rts = True
-            time.sleep(0.1)
-            connection.rts = False
+            hard_reset_serial(connection)
 
             deadline = time.monotonic() + timeout_seconds
             qr_payload = None

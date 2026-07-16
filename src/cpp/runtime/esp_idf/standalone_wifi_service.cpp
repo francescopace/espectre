@@ -348,10 +348,28 @@ void StandaloneWifiService::handle_wifi_started_() {
     return;
   }
 
+  // When this service does not own the CSI lifecycle handlers, EspIdfRuntime may
+  // register its STA_START policy handler after ours. Apply the radio policy
+  // here before associating so set_protocol cannot abort an in-flight connect.
+  if (!config_.manage_csi_lifecycle) {
+    const esp_err_t policy_err = WiFiLifecycleManager::apply_started_csi_policy();
+    if (policy_err != ESP_OK) {
+      ESP_LOGW(TAG, "Failed to apply CSI Wi-Fi policy before connect: %s", esp_err_to_name(policy_err));
+    }
+  }
+
   if (!wifi_connect_requested_) {
     wifi_connect_requested_ = true;
     (void)esp_wifi_connect();
   }
+}
+
+void StandaloneWifiService::handle_wifi_stopped_() {
+  // Protocol/bandwidth changes (or BLE coexistence) can stop and restart STA
+  // after an earlier connect request. Clear the latch so the next STA_START
+  // associates again instead of leaving the radio idle.
+  wifi_connect_requested_ = false;
+  clear_cached_ip_info_();
 }
 
 void StandaloneWifiService::handle_wifi_disconnected_(void *event_data) {
@@ -395,6 +413,8 @@ void StandaloneWifiService::wifi_event_handler_(void *arg, esp_event_base_t even
   if (std::strcmp(event_base, WIFI_EVENT) == 0) {
     if (event_id == WIFI_EVENT_STA_START) {
       manager->handle_wifi_started_();
+    } else if (event_id == WIFI_EVENT_STA_STOP) {
+      manager->handle_wifi_stopped_();
     } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
       manager->handle_wifi_disconnected_(event_data);
       if (!manager->config_.manage_csi_lifecycle && manager->disconnected_cb_) {

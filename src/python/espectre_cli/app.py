@@ -122,6 +122,11 @@ def _add_monitor_parser(subparsers) -> None:
     monitor_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
     monitor_parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate (default: 115200)")
     monitor_parser.add_argument("--raw", action="store_true", help="Write raw serial bytes without text decoding")
+    monitor_parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Hard-reset the device when opening the monitor (default: no reset)",
+    )
     monitor_parser.set_defaults(handler=run_serial_monitor)
 
 

@@ -471,10 +471,13 @@ def test_run_matter_qr_reads_without_idf_environment(monkeypatch, tmp_path: Path
 def test_run_serial_monitor_reads_with_pyserial(monkeypatch) -> None:
     opened: list[tuple[str, int, float]] = []
     written: list[tuple[bytes, bool]] = []
+    resets: list[tuple[bool, bool]] = []
 
     class FakeSerialConnection:
         def __init__(self, port: str, *, baudrate: int, timeout: float) -> None:
             opened.append((port, baudrate, timeout))
+            self.dtr = True
+            self.rts = False
             self._reads = [b"hello", KeyboardInterrupt()]
 
         @property
@@ -487,6 +490,46 @@ def test_run_serial_monitor_reads_with_pyserial(monkeypatch) -> None:
             if isinstance(next_item, BaseException):
                 raise next_item
             return next_item
+
+        def close(self) -> None:
+            resets.append((self.dtr, self.rts))
+            return None
+
+    fake_serial = type(
+        "FakeSerialModule",
+        (),
+        {
+            "Serial": FakeSerialConnection,
+            "SerialException": RuntimeError,
+        },
+    )
+
+    monkeypatch.setattr(serial_monitor, "serial", fake_serial)
+    monkeypatch.setattr(serial_monitor, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(serial_monitor, "_write_serial_output", lambda data, *, raw: written.append((data, raw)))
+    monkeypatch.setattr(serial_monitor.time, "sleep", lambda _seconds: None)
+
+    serial_monitor.run_serial_monitor(argparse.Namespace(port=None, baud=74880, raw=True, reset=True))
+
+    assert opened == [("/dev/cu.auto", 74880, 1.0)]
+    assert written == [(b"hello", True)]
+    assert resets == [(False, False)]
+
+
+def test_run_serial_monitor_does_not_reset_by_default(monkeypatch) -> None:
+    reset_calls: list[object] = []
+
+    class FakeSerialConnection:
+        def __init__(self, port: str, *, baudrate: int, timeout: float) -> None:
+            del port, baudrate, timeout
+            self._reads = [KeyboardInterrupt()]
+
+        @property
+        def in_waiting(self) -> int:
+            return 0
+
+        def read(self, _size: int) -> bytes:
+            raise self._reads.pop(0)
 
         def close(self) -> None:
             return None
@@ -502,12 +545,11 @@ def test_run_serial_monitor_reads_with_pyserial(monkeypatch) -> None:
 
     monkeypatch.setattr(serial_monitor, "serial", fake_serial)
     monkeypatch.setattr(serial_monitor, "get_serial_port", lambda port: port or "/dev/cu.auto")
-    monkeypatch.setattr(serial_monitor, "_write_serial_output", lambda data, *, raw: written.append((data, raw)))
+    monkeypatch.setattr(serial_monitor, "hard_reset_serial", lambda connection: reset_calls.append(connection))
 
-    serial_monitor.run_serial_monitor(argparse.Namespace(port=None, baud=74880, raw=True))
+    serial_monitor.run_serial_monitor(argparse.Namespace(port=None, baud=115200, raw=False, reset=False))
 
-    assert opened == [("/dev/cu.auto", 74880, 1.0)]
-    assert written == [(b"hello", True)]
+    assert reset_calls == []
 
 
 def test_run_serial_monitor_retries_after_disconnect(monkeypatch) -> None:
@@ -525,6 +567,8 @@ def test_run_serial_monitor_retries_after_disconnect(monkeypatch) -> None:
         def __init__(self, port: str, *, baudrate: int, timeout: float) -> None:
             del baudrate, timeout
             opened.append(port)
+            self.dtr = True
+            self.rts = False
             self.instance_id = FakeSerialConnection.instance_count
             FakeSerialConnection.instance_count += 1
             if self.instance_id == 0:
@@ -562,9 +606,13 @@ def test_run_serial_monitor_retries_after_disconnect(monkeypatch) -> None:
         lambda port: port_requests.append(port) or (port or "/dev/cu.auto"),
     )
     monkeypatch.setattr(serial_monitor, "_write_serial_output", lambda data, *, raw: writes.append(data))
-    monkeypatch.setattr(serial_monitor.time, "sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(
+        serial_monitor.time,
+        "sleep",
+        lambda seconds: sleeps.append(seconds) if seconds == serial_monitor.RECONNECT_DELAY_SECONDS else None,
+    )
 
-    serial_monitor.run_serial_monitor(argparse.Namespace(port=None, baud=115200, raw=False))
+    serial_monitor.run_serial_monitor(argparse.Namespace(port=None, baud=115200, raw=False, reset=True))
 
     assert opened == ["/dev/cu.auto", "/dev/cu.auto"]
     assert writes == [b"ok"]
@@ -581,6 +629,10 @@ def test_build_parser_accepts_top_level_monitor() -> None:
     assert args.port == "/dev/cu.test"
     assert args.baud == 74880
     assert args.raw is True
+    assert args.reset is False
+
+    reset_args = parser.parse_args(["monitor", "--port", "/dev/cu.test", "--reset"])
+    assert reset_args.reset is True
 
 
 def test_build_parser_accepts_doctor() -> None:

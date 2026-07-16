@@ -60,10 +60,16 @@ class WiFiLifecycleManager {
    */
   esp_err_t process_pending_events();
 
+  /**
+   * Apply the short CSI radio policy that must run after WIFI_EVENT_STA_START
+   * and before association. Safe to call more than once; later calls are
+   * no-ops once protocol, bandwidth, and power-save already match.
+   */
+  static esp_err_t apply_started_csi_policy();
+
  private:
   esp_err_t init();
   static esp_err_t apply_csi_wifi_policy();
-  static esp_err_t apply_started_csi_policy();
   static void log_csi_runtime_state(const char *tag);
 
   // Static handlers for ESP-IDF C API (separated by event type)

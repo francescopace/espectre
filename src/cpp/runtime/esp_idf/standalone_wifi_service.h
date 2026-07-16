@@ -52,6 +52,7 @@ class StandaloneWifiService {
 
   esp_err_t configure_station_();
   void handle_wifi_started_();
+  void handle_wifi_stopped_();
   void handle_wifi_disconnected_(void *event_data);
   void handle_lifecycle_connected_();
   void handle_lifecycle_disconnected_();

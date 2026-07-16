@@ -110,11 +110,22 @@ Common flags:
 - `--port`
 - `--baud`
 - `--raw`
+- `--reset`
+
+By default, `monitor` attaches without resetting the device. Add `--reset`
+when you want a hard reset on open, for example to capture boot-time logs from
+the beginning.
 
 Example:
 
 ```bash
 ./espectre monitor --port /dev/cu.usbmodemXXXX
+```
+
+Reset on open:
+
+```bash
+./espectre monitor --port /dev/cu.usbmodemXXXX --reset
 ```
 
 ### `collect`

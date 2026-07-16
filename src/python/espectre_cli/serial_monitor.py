@@ -21,6 +21,7 @@ except ImportError:
 
 MAX_RECONNECT_ATTEMPTS = 3
 RECONNECT_DELAY_SECONDS = 1.0
+HARD_RESET_HOLD_SECONDS = 0.1
 
 
 def _require_pyserial() -> None:
@@ -29,6 +30,14 @@ def _require_pyserial() -> None:
     print(f"{Fore.RED}❌ pyserial not found. Install it with:{Style.RESET_ALL}")
     print("   pip install pyserial")
     raise SystemExit(1)
+
+
+def hard_reset_serial(connection) -> None:
+    """Pulse RTS while holding DTR low to hard-reset a typical ESP USB-UART board."""
+    connection.dtr = False
+    connection.rts = True
+    time.sleep(HARD_RESET_HOLD_SECONDS)
+    connection.rts = False
 
 
 def _write_serial_output(data: bytes, *, raw: bool) -> None:
@@ -44,6 +53,7 @@ def run_serial_monitor(args) -> None:
     """Attach to a serial port and stream device logs."""
     _require_pyserial()
     baud = int(args.baud)
+    reset_on_open = bool(getattr(args, "reset", False))
     reconnect_attempt = 0
     selected_port: str | None = None
 
@@ -66,10 +76,13 @@ def run_serial_monitor(args) -> None:
         print(f"{Fore.CYAN}Port:    {port}{Style.RESET_ALL}")
         print(f"{Fore.CYAN}Baud:    {baud}{Style.RESET_ALL}")
         print(f"{Fore.CYAN}Mode:    {'raw' if args.raw else 'text'}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Reset:   {'hard' if reset_on_open else 'none'}{Style.RESET_ALL}")
 
         connection = None
         try:
             connection = serial.Serial(port, baudrate=baud, timeout=1.0)
+            if reset_on_open:
+                hard_reset_serial(connection)
             selected_port = port
             reconnect_attempt = 0
             while True:

@@ -710,6 +710,9 @@ def _commands_for_case(
     clean: bool,
 ) -> tuple[list[str], list[str], list[str]]:
     launcher = str(REPO_ROOT / "espectre")
+    # Always use the shared serial monitor and request an explicit hard reset so
+    # one-shot boot markers (especially Matter smoke) are captured.
+    monitor_command = [launcher, "monitor", "--port", port, "--reset"]
     if case.frontend == "esphome":
         assert config is not None
         config_value = str(config)
@@ -719,7 +722,7 @@ def _commands_for_case(
         return (
             build_command,
             [launcher, "esphome", "flash", "--config", config_value, "--device", port],
-            [launcher, "esphome", "monitor", "--config", config_value, "--device", port],
+            monitor_command,
         )
     build_command = [launcher, case.frontend, "build", "--chip", chip]
     if clean:
@@ -727,7 +730,7 @@ def _commands_for_case(
     return (
         build_command,
         [launcher, case.frontend, "flash", "--port", port],
-        [launcher, "monitor", "--port", port],
+        monitor_command,
     )
 
 
