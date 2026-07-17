@@ -19,12 +19,40 @@ def _fake_report_data():
     return {
         "paired": {
             "classic": {
-                "C3": {"count": 1, "recall": 98.0, "precision": 99.3, "fp_rate": 0.3, "f1": 98.6},
-                "C5": {"count": 1, "recall": 99.9, "precision": 100.0, "fp_rate": 0.0, "f1": 100.0},
+                "C3": {
+                    "count": 1,
+                    "recall": 98.0,
+                    "precision": 99.3,
+                    "fp_rate": 0.3,
+                    "f1": 98.6,
+                    "effective_alarms": 1,
+                },
+                "C5": {
+                    "count": 1,
+                    "recall": 99.9,
+                    "precision": 100.0,
+                    "fp_rate": 0.0,
+                    "f1": 100.0,
+                    "effective_alarms": 0,
+                },
             },
             "ml": {
-                "C3": {"count": 1, "recall": 99.8, "precision": 100.0, "fp_rate": 0.0, "f1": 99.9},
-                "S3": {"count": 1, "recall": 100.0, "precision": 100.0, "fp_rate": 0.0, "f1": 100.0},
+                "C3": {
+                    "count": 1,
+                    "recall": 99.8,
+                    "precision": 100.0,
+                    "fp_rate": 0.0,
+                    "f1": 99.9,
+                    "effective_alarms": 0,
+                },
+                "S3": {
+                    "count": 1,
+                    "recall": 100.0,
+                    "precision": 100.0,
+                    "fp_rate": 0.0,
+                    "f1": 100.0,
+                    "effective_alarms": 2,
+                },
             },
         },
         "long_quiet": {
@@ -34,14 +62,12 @@ def _fake_report_data():
                     "avg_fp_rate": 0.30,
                     "max_fp_rate": 0.42,
                     "effective_alarms": 2,
-                    "false_motion_evaluations": 9,
                 },
                 "S3": {
                     "count": 1,
                     "avg_fp_rate": 1.20,
                     "max_fp_rate": 1.20,
                     "effective_alarms": 1,
-                    "false_motion_evaluations": 4,
                 },
             },
             "ml": {
@@ -50,14 +76,12 @@ def _fake_report_data():
                     "avg_fp_rate": 0.00,
                     "max_fp_rate": 0.00,
                     "effective_alarms": 0,
-                    "false_motion_evaluations": 0,
                 },
                 "S3": {
                     "count": 1,
                     "avg_fp_rate": 0.13,
                     "max_fp_rate": 0.13,
                     "effective_alarms": 0,
-                    "false_motion_evaluations": 0,
                 },
             },
         },
@@ -83,10 +107,12 @@ def test_render_performance_report_markdown_formats_missing_values_as_na() -> No
     assert "\n# Performance Metrics\n" in markdown
     assert "| Recall | 98.0% | 99.9% | N/A | N/A |" in markdown
     assert "| Recall | 99.8% | N/A | N/A | 100.0% |" in markdown
+    assert "| Effective Alarms | 1 | 0 | N/A | N/A |" in markdown
+    assert "| Effective Alarms | 0 | N/A | N/A | 2 |" in markdown
     assert "| Avg FP Rate | 0.30% | N/A | N/A | 1.20% |" in markdown
     assert "| Max FP Rate | 0.00% | N/A | N/A | 0.13% |" in markdown
     assert "| Effective Alarms | 2 | N/A | N/A | 1 |" in markdown
-    assert "| False Motion Evals | 0 | N/A | N/A | 0 |" in markdown
+    assert "False Motion Evals" not in markdown
     assert "Per-chip live firmware reports" in markdown
     assert "also verifies that the host-side C++ integration suites stay aligned" in markdown
 
@@ -141,12 +167,40 @@ def test_compare_cpp_and_python_report_data_accepts_matching_payloads() -> None:
     cpp_report_data = {
         "paired": {
             "classic": {
-                "C3": {"count": 1, "recall": 98.0, "precision": 99.3, "fp_rate": 0.3, "f1": 98.6},
-                "C5": {"count": 1, "recall": 99.9, "precision": 100.0, "fp_rate": 0.0, "f1": 100.0},
+                "C3": {
+                    "count": 1,
+                    "recall": 98.0,
+                    "precision": 99.3,
+                    "fp_rate": 0.3,
+                    "f1": 98.6,
+                    "effective_alarms": 1,
+                },
+                "C5": {
+                    "count": 1,
+                    "recall": 99.9,
+                    "precision": 100.0,
+                    "fp_rate": 0.0,
+                    "f1": 100.0,
+                    "effective_alarms": 0,
+                },
             },
             "ml": {
-                "C3": {"count": 1, "recall": 99.8, "precision": 100.0, "fp_rate": 0.0, "f1": 99.9},
-                "S3": {"count": 1, "recall": 100.0, "precision": 100.0, "fp_rate": 0.0, "f1": 100.0},
+                "C3": {
+                    "count": 1,
+                    "recall": 99.8,
+                    "precision": 100.0,
+                    "fp_rate": 0.0,
+                    "f1": 99.9,
+                    "effective_alarms": 0,
+                },
+                "S3": {
+                    "count": 1,
+                    "recall": 100.0,
+                    "precision": 100.0,
+                    "fp_rate": 0.0,
+                    "f1": 100.0,
+                    "effective_alarms": 2,
+                },
             },
         },
         "long_quiet": {
@@ -156,14 +210,12 @@ def test_compare_cpp_and_python_report_data_accepts_matching_payloads() -> None:
                     "avg_fp_rate": 0.30,
                     "max_fp_rate": 0.42,
                     "effective_alarms": 2,
-                    "false_motion_evaluations": 9,
                 },
                 "S3": {
                     "count": 1,
                     "avg_fp_rate": 1.20,
                     "max_fp_rate": 1.20,
                     "effective_alarms": 1,
-                    "false_motion_evaluations": 4,
                 },
             },
             "ml": {
@@ -172,14 +224,12 @@ def test_compare_cpp_and_python_report_data_accepts_matching_payloads() -> None:
                     "avg_fp_rate": 0.00,
                     "max_fp_rate": 0.00,
                     "effective_alarms": 0,
-                    "false_motion_evaluations": 0,
                 },
                 "S3": {
                     "count": 1,
                     "avg_fp_rate": 0.13,
                     "max_fp_rate": 0.13,
                     "effective_alarms": 0,
-                    "false_motion_evaluations": 0,
                 },
             },
         },
@@ -192,7 +242,14 @@ def test_compare_cpp_and_python_report_data_reports_drift() -> None:
     cpp_report_data = {
         "paired": {
             "classic": {
-                "C3": {"count": 1, "recall": 97.0, "precision": 99.3, "fp_rate": 0.3, "f1": 98.6},
+                "C3": {
+                    "count": 1,
+                    "recall": 97.0,
+                    "precision": 99.3,
+                    "fp_rate": 0.3,
+                    "f1": 98.6,
+                    "effective_alarms": 1,
+                },
             },
             "ml": {},
         },
@@ -203,7 +260,6 @@ def test_compare_cpp_and_python_report_data_reports_drift() -> None:
                     "avg_fp_rate": 0.30,
                     "max_fp_rate": 0.42,
                     "effective_alarms": 3,
-                    "false_motion_evaluations": 9,
                 },
             },
             "ml": {},

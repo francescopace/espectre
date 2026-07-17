@@ -217,7 +217,7 @@ def compare_cpp_and_python_report_data(
             python_by_chip=paired_python.get(algorithm, {}),
             cpp_by_chip=paired_cpp.get(algorithm, {}),
             float_metrics=("recall", "precision", "fp_rate", "f1"),
-            int_metrics=("count",),
+            int_metrics=("count", "effective_alarms"),
             tolerance=percent_tolerance,
         )
 
@@ -231,7 +231,7 @@ def compare_cpp_and_python_report_data(
             python_by_chip=long_python.get(algorithm, {}),
             cpp_by_chip=long_cpp.get(algorithm, {}),
             float_metrics=("avg_fp_rate", "max_fp_rate"),
-            int_metrics=("count", "effective_alarms", "false_motion_evaluations"),
+            int_metrics=("count", "effective_alarms"),
             tolerance=percent_tolerance,
         )
 

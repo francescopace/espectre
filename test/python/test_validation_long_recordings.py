@@ -41,18 +41,18 @@ class TestLongRecordings:
             return
 
         print("")
-        print("=" * 99)
+        print("=" * 88)
         print("                    LONG RECORDING ML SUMMARY (for seed search)")
-        print("=" * 99)
-        print("| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count | Alarms | False Motion Evals |")
-        print("|--------|---------|-----------|---------|----------|----------|--------|--------------------|")
+        print("=" * 88)
+        print("| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count | Alarms |")
+        print("|--------|---------|-----------|---------|----------|----------|--------|")
         for row in sorted(cls._rows, key=lambda item: item["chip"]):
             print(
                 f"| {row['chip']:<6} | {row['recall']:>6.1f}% | {row['precision']:>8.1f}% | "
                 f"{row['fp_rate']:>6.1f}% | {row['f1']:>7.1f}% | {row['fp_count']:>8d} | "
-                f"{row['effective_alarms']:>6d} | {row['false_motion_evaluations']:>18d} |"
+                f"{row['effective_alarms']:>6d} |"
             )
-        print("-" * 99)
+        print("-" * 88)
 
     @pytest.mark.parametrize("long_dataset", build_long_test_params(), indirect=False)
     def test_ml_vs_test_recordings(self, long_dataset):

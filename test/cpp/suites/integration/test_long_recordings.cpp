@@ -441,13 +441,12 @@ static void write_algorithm_json(FILE *handle, const char *algorithm) {
     first_chip = false;
     fprintf(handle,
             "\"%s\":{\"count\":%d,\"avg_fp_rate\":%.6f,\"max_fp_rate\":%.6f,"
-            "\"effective_alarms\":%d,\"false_motion_evaluations\":%d}",
+            "\"effective_alarms\":%d}",
             chip_name,
             aggregate.count,
             aggregate.avg_fp_rate,
             aggregate.max_fp_rate,
-            aggregate.effective_alarms,
-            aggregate.false_motion_evaluations);
+            aggregate.effective_alarms);
   }
 }
 

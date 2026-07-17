@@ -51,6 +51,7 @@ struct PerformanceResult {
     float fp_rate;
     float precision;
     float f1;
+    int effective_alarms;
     bool valid;
 };
 
@@ -101,27 +102,66 @@ static bool build_calibrated_classic_detector(ClassicDetector& detector, int cal
     return true;
 }
 
-static void record_result(const char* algorithm, float recall, float fp_rate, float precision, float f1) {
+static int count_effective_alarms(const std::vector<bool>& raw_motion_states) {
+    MotionState effective_state = MotionState::IDLE;
+    MotionState pending_state = MotionState::IDLE;
+    uint8_t pending_hits = 0;
+    int effective_alarms = 0;
+
+    for (bool raw_motion : raw_motion_states) {
+        const MotionState detector_state = raw_motion ? MotionState::MOTION : MotionState::IDLE;
+        const MotionState previous_state = effective_state;
+
+        if (detector_state == effective_state) {
+            pending_state = effective_state;
+            pending_hits = 0;
+        } else {
+            if (detector_state != pending_state) {
+                pending_state = detector_state;
+                pending_hits = 1;
+            } else if (pending_hits < UINT8_MAX) {
+                pending_hits++;
+            }
+
+            const uint8_t required_hits =
+                pending_state == MotionState::MOTION ? RUNTIME_MOTION_ON_HITS_DEFAULT
+                                                     : RUNTIME_MOTION_OFF_HITS_DEFAULT;
+            if (pending_hits >= required_hits) {
+                effective_state = pending_state;
+                pending_hits = 0;
+            }
+        }
+
+        if (effective_state != previous_state && effective_state == MotionState::MOTION) {
+            effective_alarms++;
+        }
+    }
+
+    return effective_alarms;
+}
+
+static void record_result(const char* algorithm, float recall, float fp_rate, float precision, float f1,
+                          int effective_alarms) {
     const char* current_label = csi_test_data::current_pair_label();
     if (g_results.empty() || g_results.back().dataset_name != current_label) {
         DatasetResults row{};
         row.dataset_name = current_label;
         row.chip_name = csi_test_data::chip_name(csi_test_data::current_chip());
-        row.classic = {0, 0, 0, 0, false};
-        row.ml = {0, 0, 0, 0, false};
+        row.classic = {0, 0, 0, 0, 0, false};
+        row.ml = {0, 0, 0, 0, 0, false};
         g_results.push_back(row);
     }
     
     DatasetResults& current = g_results.back();
     if (strcmp(algorithm, "classic") == 0) {
-        current.classic = {recall, fp_rate, precision, f1, true};
+        current.classic = {recall, fp_rate, precision, f1, effective_alarms, true};
     } else if (strcmp(algorithm, "ml") == 0) {
-        current.ml = {recall, fp_rate, precision, f1, true};
+        current.ml = {recall, fp_rate, precision, f1, effective_alarms, true};
     }
 }
 
 static PerformanceResult mean_result_for_chip(const char* chip_name, const char* algorithm) {
-    PerformanceResult mean{0, 0, 0, 0, false};
+    PerformanceResult mean{0, 0, 0, 0, 0, false};
     int count = 0;
     for (const auto& r : g_results) {
         if (strcmp(r.chip_name, chip_name) != 0) {
@@ -138,6 +178,7 @@ static PerformanceResult mean_result_for_chip(const char* chip_name, const char*
         mean.fp_rate += value.fp_rate;
         mean.precision += value.precision;
         mean.f1 += value.f1;
+        mean.effective_alarms += value.effective_alarms;
         count++;
     }
     if (count == 0) {
@@ -270,13 +311,15 @@ static void write_algorithm_json(FILE* handle, const char* algorithm) {
         first_chip = false;
         fprintf(
             handle,
-            "\"%s\":{\"count\":%d,\"recall\":%.6f,\"precision\":%.6f,\"fp_rate\":%.6f,\"f1\":%.6f}",
+            "\"%s\":{\"count\":%d,\"recall\":%.6f,\"precision\":%.6f,\"fp_rate\":%.6f,\"f1\":%.6f,"
+            "\"effective_alarms\":%d}",
             chip_name,
             count,
             metrics.recall,
             metrics.precision,
             metrics.fp_rate,
-            metrics.f1);
+            metrics.f1,
+            metrics.effective_alarms);
     }
 }
 
@@ -372,6 +415,7 @@ void test_classic_fixed_subcarriers(void) {
     const int warmup = window_size;
     int static_presence_eval = 0;
     int static_presence_motion = 0;
+    std::vector<bool> baseline_motion_states;
     uint32_t packets_since_evaluation = 0;
     for (int p = 0; p < num_static_presence; p++) {
         detector.process_packet((const int8_t*)static_presence_packets[p], pkt_size,
@@ -386,7 +430,9 @@ void test_classic_fixed_subcarriers(void) {
             continue;
         }
         static_presence_eval++;
-        if (detector.get_state() == MotionState::MOTION) {
+        const bool is_motion = detector.get_state() == MotionState::MOTION;
+        baseline_motion_states.push_back(is_motion);
+        if (is_motion) {
             static_presence_motion++;
         }
     }
@@ -419,14 +465,16 @@ void test_classic_fixed_subcarriers(void) {
         (float)motion_detected / (motion_detected + static_presence_motion) * 100.0f : 0.0f;
     float f1 = (precision + recall > 0) ?
         2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
+    const int effective_alarms = count_effective_alarms(baseline_motion_states);
 
     printf("Results:\n");
     printf("  * Recall:    %.1f%% (target: >%.0f%%)\n", recall, recall_target);
     printf("  * FP Rate:   %.1f%% (target: <%.1f%%)\n", fp_rate, fp_target);
     printf("  * Precision: %.1f%%\n", precision);
-    printf("  * F1-Score:  %.1f%%\n\n", f1);
+    printf("  * F1-Score:  %.1f%%\n", f1);
+    printf("  * Effective Alarms: %d\n\n", effective_alarms);
 
-    record_result("classic", recall, fp_rate, precision, f1);
+    record_result("classic", recall, fp_rate, precision, f1, effective_alarms);
 
     assert_metrics_are_valid(recall, fp_rate, precision, f1);
 }
@@ -461,6 +509,7 @@ void test_ml_detection(void) {
     // Process static presence at the production evaluation cadence.
     int static_presence_eval = 0;
     int static_presence_motion = 0;
+    std::vector<bool> baseline_motion_states;
     uint32_t packets_since_evaluation = 0;
     for (int i = 0; i < num_static_presence; i++) {
         detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
@@ -475,7 +524,9 @@ void test_ml_detection(void) {
             continue;
         }
         static_presence_eval++;
-        if (detector.get_state() == MotionState::MOTION) {
+        const bool is_motion = detector.get_state() == MotionState::MOTION;
+        baseline_motion_states.push_back(is_motion);
+        if (is_motion) {
             static_presence_motion++;
         }
     }
@@ -513,15 +564,17 @@ void test_ml_detection(void) {
         (float)motion_detected / (motion_detected + static_presence_motion) * 100.0f : 0.0f;
     float f1 = (precision + recall > 0) ?
         2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
+    const int effective_alarms = count_effective_alarms(baseline_motion_states);
     
     printf("Results:\n");
     printf("  * Recall:    %.1f%% (target: >%.0f%%)\n", recall, recall_target);
     printf("  * FP Rate:   %.1f%% (target: <%.0f%%)\n", fp_rate, fp_target);
     printf("  * Precision: %.1f%%\n", precision);
-    printf("  * F1-Score:  %.1f%%\n\n", f1);
+    printf("  * F1-Score:  %.1f%%\n", f1);
+    printf("  * Effective Alarms: %d\n\n", effective_alarms);
     
     // Record for summary table
-    record_result("ml", recall, fp_rate, precision, f1);
+    record_result("ml", recall, fp_rate, precision, f1, effective_alarms);
     
     assert_metrics_are_valid(recall, fp_rate, precision, f1);
 }

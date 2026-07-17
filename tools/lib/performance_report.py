@@ -249,6 +249,7 @@ def evaluate_detector_packets(
     baseline_eval_count = 0
     movement_eval_count = 0
     static_presence_motion_packets = 0
+    baseline_motion_states = []
     cadence = make_evaluation_cadence()
     for i, pkt in enumerate(static_presence_packets):
         detector.process_packet(pkt["csi_data"], selected_band)
@@ -258,7 +259,9 @@ def evaluate_detector_packets(
         if i < warmup:
             continue
         baseline_eval_count += 1
-        if detector.get_state() == MotionState.MOTION:
+        is_motion = detector.get_state() == MotionState.MOTION
+        baseline_motion_states.append(is_motion)
+        if is_motion:
             static_presence_motion_packets += 1
 
     motion_with_motion = 0
@@ -291,6 +294,7 @@ def evaluate_detector_packets(
         if (pkt_precision + pkt_recall) > 0
         else 0.0
     )
+    policy_metrics = _evaluate_idle_runtime_policy_evaluations(baseline_motion_states)
     return {
         "tp": pkt_tp,
         "fn": pkt_fn,
@@ -302,6 +306,7 @@ def evaluate_detector_packets(
         "f1": pkt_f1,
         "num_baseline": baseline_eval_count,
         "num_movement": movement_eval_count,
+        **policy_metrics,
     }
 
 
@@ -365,6 +370,7 @@ def compute_ml_dataset_result(
     warmup = window_size
     static_presence_motion_packets = 0
     static_presence_eval_count = 0
+    baseline_motion_states = []
 
     cadence = make_evaluation_cadence()
     for i, pkt in enumerate(static_presence_packets):
@@ -378,12 +384,14 @@ def compute_ml_dataset_result(
         probability = predict(values)
         current_state = MotionState.MOTION if probability > threshold else MotionState.IDLE
         static_presence_eval_count += 1
+        is_motion = current_state == MotionState.MOTION
+        baseline_motion_states.append(is_motion)
         if feature_indices:
             for feature_name, feature_idx in feature_indices.items():
                 value = float(values[feature_idx])
                 if np.isfinite(value):
                     static_series[feature_name].append(value)
-        if current_state == MotionState.MOTION:
+        if is_motion:
             static_presence_motion_packets += 1
 
     motion_with_motion = 0
@@ -423,6 +431,7 @@ def compute_ml_dataset_result(
         else 0.0
     )
 
+    policy_metrics = _evaluate_idle_runtime_policy_evaluations(baseline_motion_states)
     metrics = {
         "tp": pkt_tp,
         "fn": pkt_fn,
@@ -434,6 +443,7 @@ def compute_ml_dataset_result(
         "f1": pkt_f1,
         "num_baseline": static_presence_eval_count,
         "num_movement": motion_eval_count,
+        **policy_metrics,
     }
     feature_payload = {
         "baseline": {name: tuple(values) for name, values in static_series.items()},
@@ -761,6 +771,7 @@ def _average_detector_metrics(entries: Sequence[Dict[str, float]]) -> Optional[D
         "precision": sum(entry["precision"] for entry in entries) / len(entries),
         "fp_rate": sum(entry["fp_rate"] for entry in entries) / len(entries),
         "f1": sum(entry["f1"] for entry in entries) / len(entries),
+        "effective_alarms": sum(entry["effective_alarms"] for entry in entries),
     }
 
 
@@ -859,9 +870,6 @@ def compute_performance_report_data(
                 "avg_fp_rate": sum(fp_rates) / len(fp_rates),
                 "max_fp_rate": max(fp_rates),
                 "effective_alarms": sum(entry["effective_alarms"] for entry in entries),
-                "false_motion_evaluations": sum(
-                    entry["false_motion_evaluations"] for entry in entries
-                ),
             }
 
     _emit_progress(
@@ -914,12 +922,6 @@ def render_performance_report_markdown(
             "C++ integration suites stay aligned with the published Python replay metrics."
         ),
         "",
-        (
-            "Paired and long-quiet host replays sample detector state at the production "
-            "`evaluation_interval` cadence. Long Quiet Effective Alarms also apply "
-            "consecutive-hit filtering."
-        ),
-        "",
         "- **Classic Detector**: Uses weighted fusion of L1-Delta and turbulence autocorrelation.",
         "- **ML Detector**: Uses a pretrained neural network model based on turbulence and spectral features.",
         "",
@@ -947,6 +949,9 @@ def render_performance_report_markdown(
         "",
         "## Paired Real-Data Validation (empty+static_presence / motion)",
         "",
+        "Effective Alarms count each false MOTION transition on quiet or static-presence "
+        "segments, after the same consecutive-hit filtering used at deploy time.",
+        "",
         "### Classic Detector",
         "",
     ])
@@ -954,48 +959,39 @@ def render_performance_report_markdown(
     paired = report_data["paired"]
     paired_header = "| Metric | " + " | ".join(PAIRED_CHIP_LABELS[chip] for chip in CHIP_ORDER) + " |"
     paired_divider = "|--------|" + "|".join("----------" for _ in CHIP_ORDER) + "|"
-    lines.append(paired_header)
-    lines.append(paired_divider)
-    for key, label in (
-        ("recall", "Recall"),
-        ("precision", "Precision"),
-        ("fp_rate", "FP Rate"),
-        ("f1", "F1-Score"),
-    ):
-        values = []
-        for chip in CHIP_ORDER:
-            metrics = paired["classic"].get(chip)
-            values.append(f"{metrics[key]:.1f}%" if metrics is not None else "N/A")
-        lines.append(f"| {label} | " + " | ".join(values) + " |")
+    paired_row_specs = (
+        ("recall", "Recall", lambda value: f"{value:.1f}%"),
+        ("precision", "Precision", lambda value: f"{value:.1f}%"),
+        ("fp_rate", "FP Rate", lambda value: f"{value:.1f}%"),
+        ("f1", "F1-Score", lambda value: f"{value:.1f}%"),
+        ("effective_alarms", "Effective Alarms", lambda value: f"{int(value)}"),
+    )
+
+    def _append_paired_table(algorithm):
+        lines.append(paired_header)
+        lines.append(paired_divider)
+        for key, label, formatter in paired_row_specs:
+            values = []
+            for chip in CHIP_ORDER:
+                metrics = paired[algorithm].get(chip)
+                value = metrics.get(key) if metrics is not None else None
+                values.append(formatter(value) if value is not None else "N/A")
+            lines.append(f"| {label} | " + " | ".join(values) + " |")
+
+    _append_paired_table("classic")
 
     lines.extend([
         "",
         "### ML Detector",
         "",
-        paired_header,
-        paired_divider,
     ])
-    for key, label in (
-        ("recall", "Recall"),
-        ("precision", "Precision"),
-        ("fp_rate", "FP Rate"),
-        ("f1", "F1-Score"),
-    ):
-        values = []
-        for chip in CHIP_ORDER:
-            metrics = paired["ml"].get(chip)
-            values.append(f"{metrics[key]:.1f}%" if metrics is not None else "N/A")
-        lines.append(f"| {label} | " + " | ".join(values) + " |")
+    _append_paired_table("ml")
 
     lines.extend([
         "",
         "---",
         "",
         "## Long Quiet Real-Data Validation",
-        "",
-        "Effective Alarms count each false MOTION transition on quiet recordings, "
-        "after the same consecutive-hit filtering used at deploy time. "
-        "False Motion Evals count how many evaluations stay in that false MOTION state.",
         "",
         "### Classic Detector",
         "",
@@ -1006,7 +1002,6 @@ def render_performance_report_markdown(
         ("avg_fp_rate", "Avg FP Rate", lambda value: f"{value:.2f}%"),
         ("max_fp_rate", "Max FP Rate", lambda value: f"{value:.2f}%"),
         ("effective_alarms", "Effective Alarms", lambda value: f"{int(value)}"),
-        ("false_motion_evaluations", "False Motion Evals", lambda value: f"{int(value)}"),
     )
 
     def _append_long_quiet_table(algorithm):
