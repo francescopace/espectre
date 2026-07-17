@@ -22,6 +22,7 @@
 #include "esp_wifi.h"
 #include "csi_format.h"
 #include "pending_event.h"
+#include "runtime_sensing_schema.h"
 #include "wifi_csi_interface.h"
 
 namespace espectre {
@@ -204,7 +205,7 @@ class CsiPipeline {
   std::atomic<uint64_t> accepted_packets_total_{0U};
   uint32_t packets_since_evaluation_{0};
   uint8_t current_channel_{0};
-  uint8_t motion_on_hits_{3};
+  uint8_t motion_on_hits_{RUNTIME_MOTION_ON_HITS_DEFAULT};
   uint8_t motion_off_hits_{3};
   uint8_t pending_state_hits_{0};
   MotionState effective_motion_state_{MotionState::IDLE};

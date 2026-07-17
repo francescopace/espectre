@@ -61,7 +61,7 @@ config ESPECTRE_EVALUATION_INTERVAL
 config ESPECTRE_MOTION_ON_HITS
     int "Motion-on hits"
     range 1 20
-    default 3
+    default 4
 
 config ESPECTRE_MOTION_OFF_HITS
     int "Motion-off hits"

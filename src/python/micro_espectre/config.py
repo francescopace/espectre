@@ -28,7 +28,7 @@ TRAFFIC_GENERATOR_RATE = 100  # Default CSI stimulus rate (packets per second)
 TRAFFIC_GENERATOR_MODE = "ping"  # Default mode: "ping" or "dns"
 PUBLISH_INTERVAL = 100        # Packets between periodic MQTT/log updates
 EVALUATION_INTERVAL = 25      # Packets between internal detector evaluations
-MOTION_ON_HITS = 3            # Consecutive evaluated hits required for IDLE -> MOTION
+MOTION_ON_HITS = 4            # Consecutive evaluated hits required for IDLE -> MOTION
 MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -> IDLE
 
 # CSI Configuration

@@ -315,13 +315,16 @@ Support in this phase:
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
 | `publish_interval` | int | `100` | `1-1000` packets between periodic updates |
 | `evaluation_interval` | int | `25` | `1-1000` packets between detector evaluations |
-| `motion_on_hits` | int | `3` | `1-20` consecutive hits for `IDLE -> MOTION` |
-| `motion_off_hits` | int | `3` | `1-20` consecutive hits for `MOTION -> IDLE` |
+| `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` (about `1.0 s` at the default `100` pps / `25` interval) |
+| `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.75 s` at the same defaults) |
 | `lowpass_enabled` | bool | `false` | Enables low-pass filtering |
 | `lowpass_cutoff` | float | `11.0` | `5.0-20.0` Hz |
 | `hampel_enabled` | bool | `true` | Enables Hampel outlier filtering |
 | `hampel_window` | int | `7` | `3-11` samples |
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
+
+See [TUNING.md](TUNING.md) for how evaluation cadence and hit filtering set the
+expected publish delay (about `1 s` for `IDLE -> MOTION` with the defaults).
 
 Use the frontend README for the exact syntax and local workflow:
 

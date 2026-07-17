@@ -17,7 +17,7 @@ except ImportError:
 class RuntimeMotionPolicy:
     """Central runtime policy for evaluation cadence and hit filtering."""
 
-    def __init__(self, evaluation_interval=25, motion_on_hits=3, motion_off_hits=3):
+    def __init__(self, evaluation_interval=25, motion_on_hits=4, motion_off_hits=3):
         self.evaluation_interval = max(1, int(evaluation_interval))
         self.motion_on_hits = max(1, int(motion_on_hits))
         self.motion_off_hits = max(1, int(motion_off_hits))

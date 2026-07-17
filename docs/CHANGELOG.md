@@ -52,6 +52,8 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Changed
 
+- **Default `motion_on_hits` is now 4**: IDLE→MOTION now requires four consecutive evaluation hits across Python, ESP-IDF, and ESPHome defaults.
+- **Tuning docs now explain evaluation cadence and hit-filter latency**: `TUNING.md` and `SETUP.md` document that default `IDLE -> MOTION` needs about `1 s` of sustained raw motion (`25` packets × `4` hits at `100` pps).
 - **Performance report Effective Alarms now cover paired and long-quiet tables**: False Motion Evals were dropped from the published metrics; paired Classic/ML summaries sum filtered false MOTION transitions on static-presence segments.
 - **Host paired validation, dataset-quality Classic replay, and C++/Python motion integration tests now use the production evaluation cadence**: performance report paired Classic/ML metrics, trainer paired gates, `validate_dataset_quality` Classic scores, and `test_motion_detection` sample detector state every `evaluation_interval` packets (default 25), matching long-quiet replay and deploy-time runtime policy instead of scoring every packet.
 - **ML trainer no longer exposes detector-guided sample weighting**: `--sample-weight-mode` and the L1-guided / hard-negative weighting paths were removed; training always starts from uniform sample weights (optional `--positive-chip-boost` remains), and the weight-matrix cache was dropped.

@@ -138,15 +138,41 @@ separately and are not tied to this cadence anymore.
 ```yaml
 espectre:
   evaluation_interval: 25
-  motion_on_hits: 3
+  motion_on_hits: 4
   motion_off_hits: 3
 ```
+
+The detector still processes every CSI packet into its sliding window, but the
+published motion state updates only on a coarser cadence:
+
+1. every `evaluation_interval` packets, the runtime evaluates the detector and
+   gets a raw `IDLE` or `MOTION` reading
+2. that raw reading must repeat for `motion_on_hits` consecutive evaluations
+   before the published state becomes `MOTION`
+3. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
+
+These hits are consecutive evaluation ticks, not detector windows
+(`segmentation_window_size`). One opposing reading resets the pending count.
+
+With the defaults (`100` pps CSI target, `evaluation_interval = 25`):
+
+| Transition | Hits | Evaluation period | Minimum hold before publish |
+|------------|------|-------------------|-----------------------------|
+| `IDLE -> MOTION` | `4` | `0.25 s` | about `1.0 s` of sustained raw motion |
+| `MOTION -> IDLE` | `3` | `0.25 s` | about `0.75 s` of sustained raw idle |
+
+So a brief burst that crosses the detector threshold for one or two evaluations
+does not become a published motion alarm. That is the intended debounce: fewer
+false edges, at the cost of a short confirmation delay.
 
 Rules of thumb:
 
 - lower `evaluation_interval`: faster response, more evaluations
 - higher `evaluation_interval`: cheaper, more latency
 - more hit filtering: steadier state changes, slower transitions
+- expected publish latency is roughly
+  `(evaluation_interval / traffic_generator_rate) * motion_on_hits` seconds
+  when CSI is near the configured rate
 
 ## Filters
 

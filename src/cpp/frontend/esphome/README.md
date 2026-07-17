@@ -126,7 +126,7 @@ espectre:
   traffic_generator_adaptive: true
   traffic_generator_mode: ping
   segmentation_window_size: 100
-  motion_on_hits: 3
+  motion_on_hits: 4
   motion_off_hits: 3
 ```
 

@@ -536,7 +536,7 @@ def main():
     from src.runtime_policy import RuntimeMotionPolicy
     runtime_policy = RuntimeMotionPolicy(
         evaluation_interval=getattr(config, 'EVALUATION_INTERVAL', 25),
-        motion_on_hits=getattr(config, 'MOTION_ON_HITS', 3),
+        motion_on_hits=getattr(config, 'MOTION_ON_HITS', 4),
         motion_off_hits=getattr(config, 'MOTION_OFF_HITS', 3),
     )
        

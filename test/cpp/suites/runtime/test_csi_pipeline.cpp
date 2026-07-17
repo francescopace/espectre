@@ -23,7 +23,7 @@ static const char *TAG = "test_csi_pipeline";
 
 static constexpr uint32_t TEST_PUBLISH_RATE = 100;
 static constexpr uint32_t TEST_EVALUATION_INTERVAL = 25;
-static constexpr uint8_t TEST_DEFAULT_MOTION_ON_HITS = 3;
+static constexpr uint8_t TEST_DEFAULT_MOTION_ON_HITS = 4;
 static constexpr uint32_t TEST_MOTION_CALLBACK_TRIGGER_PACKET =
     TEST_EVALUATION_INTERVAL * TEST_DEFAULT_MOTION_ON_HITS;
 

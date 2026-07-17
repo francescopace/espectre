@@ -644,7 +644,7 @@ def _run_live_collect(args) -> None:
         detector = create_detector(kind, slot_initial_threshold)
         runtime_policy = RuntimeMotionPolicy(
             evaluation_interval=effective_evaluation_interval,
-            motion_on_hits=getattr(config, "MOTION_ON_HITS", 3),
+            motion_on_hits=getattr(config, "MOTION_ON_HITS", 4),
             motion_off_hits=getattr(config, "MOTION_OFF_HITS", 3),
         )
         return {

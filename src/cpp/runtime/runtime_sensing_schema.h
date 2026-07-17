@@ -63,7 +63,7 @@ constexpr uint32_t RUNTIME_EVALUATION_INTERVAL_DEFAULT = 25;
 
 constexpr uint8_t RUNTIME_MOTION_HITS_MIN = 1;
 constexpr uint8_t RUNTIME_MOTION_HITS_MAX = 20;
-constexpr uint8_t RUNTIME_MOTION_ON_HITS_DEFAULT = 3;
+constexpr uint8_t RUNTIME_MOTION_ON_HITS_DEFAULT = 4;
 constexpr uint8_t RUNTIME_MOTION_OFF_HITS_DEFAULT = 3;
 
 constexpr bool RUNTIME_LOWPASS_ENABLED_DEFAULT = false;
