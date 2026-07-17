@@ -117,9 +117,19 @@ RESPIRATION_ANALYSIS_BAND_HZ = (0.05, 2.00)
 RESPIRATION_SEGMENT_SCORE_MIN = 50.0
 RESPIRATION_EVIDENCE_SCORE_MIN = 50.0
 RESPIRATION_SUSPECT_SCORE_MIN = 35.0
+# Human breath-rate bands (Hz) folded into the Breath score. Spectral search
+# still uses the wider RESPIRATION_BAND_HZ candidate window; these nested bands
+# damp the final score when the consensus peak is outside quiet-adult rates
+# (~10-20 bpm pass, ~8-24 bpm warn fringe).
+BREATH_HZ_HUMAN_PASS_HZ = (0.17, 0.33)
+BREATH_HZ_HUMAN_WARN_HZ = (0.13, 0.40)
+BREATH_HZ_PASS_WEIGHT = 1.0
+BREATH_HZ_WARN_WEIGHT = 0.75
+BREATH_HZ_FAIL_WEIGHT = 0.40
 # Segment peaks must agree near the median candidate frequency; wandering
 # in-band noise (typical of empty rooms) is excluded from the consensus set.
-# Final Resp folds segment coverage into the score so soft marks use one number.
+# Final Breath folds coverage and human-rate Hz weight so soft marks use one
+# number.
 RESPIRATION_FREQ_CONSENSUS_HZ = 0.10
 RESPIRATION_PEAK_MAD_FULL = 0.04
 RESPIRATION_PEAK_MAD_ZERO = 0.12
@@ -379,11 +389,11 @@ def _respiration_evidence_from_profiles(profiles, packet_rate_pps):
         (RESPIRATION_PEAK_MAD_ZERO - peak_mad) / mad_span
     )
     # Consensus intensity, lightly damped when peaks wander, then scaled by the
-    # fraction of strong frequency-consistent segments so Resp alone is enough
-    # for soft marks (coverage stays in the payload for diagnostics only).
+    # fraction of strong frequency-consistent segments and by how close the
+    # consensus peak is to quiet-adult human rates. Soft marks use Breath alone
+    # (coverage and hz_weight stay in the payload for diagnostics).
     intensity = float(np.median(consensus_scores)) * (0.75 + 0.25 * stability)
     coverage = float(np.mean(strong & near))
-    score = intensity * (0.5 + 0.5 * coverage)
     selected = [
         item
         for item, is_strong, is_near in zip(segment_metrics, strong, near)
@@ -391,13 +401,17 @@ def _respiration_evidence_from_profiles(profiles, packet_rate_pps):
     ] or [
         item for item, is_near in zip(segment_metrics, near) if is_near
     ] or segment_metrics
+    peak_frequency_hz = float(np.median([
+        item["peak_frequency_hz"] for item in selected
+    ]))
+    hz_weight = _breath_hz_weight(peak_frequency_hz)
+    score = intensity * (0.5 + 0.5 * coverage) * hz_weight
     return {
         "score": float(score),
         "intensity": float(intensity),
         "coverage": coverage,
-        "peak_frequency_hz": float(np.median([
-            item["peak_frequency_hz"] for item in selected
-        ])),
+        "hz_weight": float(hz_weight),
+        "peak_frequency_hz": peak_frequency_hz,
         "prominence": float(np.median([item["prominence"] for item in selected])),
         "band_power_ratio": float(np.median([
             item["band_power_ratio"] for item in selected
@@ -654,21 +668,26 @@ def _format_pair_ratio_cell(pair_ratio, *, markdown=False):
     return _mark_cell(text, _pair_ratio_severity(pair_ratio), markdown=markdown)
 
 
-def _breath_hz_severity(peak_hz):
-    """Return soft review severity for Breath Hz frequency."""
+def _breath_hz_band_position(peak_hz):
+    """Return 'pass', 'warn', or 'fail' vs nested human breath-rate bands."""
     peak_hz = float(peak_hz)
-    band_lo, band_hi = RESPIRATION_BAND_HZ
-    if peak_hz < band_lo or peak_hz > band_hi:
+    pass_lo, pass_hi = BREATH_HZ_HUMAN_PASS_HZ
+    warn_lo, warn_hi = BREATH_HZ_HUMAN_WARN_HZ
+    if pass_lo <= peak_hz <= pass_hi:
+        return "pass"
+    if warn_lo <= peak_hz <= warn_hi:
         return "warn"
-    return None
+    return "fail"
 
 
-def _format_breath_hz_cell(peak_hz, *, markdown=False):
-    """Format Breath Hz with out-of-band soft marks."""
-    text = f"{float(peak_hz):.2f} Hz" if markdown else f"{float(peak_hz):.2f}"
-    return _mark_cell(
-        text, _breath_hz_severity(peak_hz), markdown=markdown
-    )
+def _breath_hz_weight(peak_hz):
+    """Return the Breath-score multiplier for a consensus peak frequency."""
+    position = _breath_hz_band_position(peak_hz)
+    if position == "pass":
+        return BREATH_HZ_PASS_WEIGHT
+    if position == "warn":
+        return BREATH_HZ_WARN_WEIGHT
+    return BREATH_HZ_FAIL_WEIGHT
 
 
 def _quiet_fp_severity(fp_rate):
@@ -697,11 +716,11 @@ def _format_score_cell(score, severity=None, *, markdown=False):
 # Indicative score tables share one renderer; each table keeps its own schema.
 # Presence/Empty: diagnostics first, Score last (soft-marked, sort key).
 _IDLE_EVIDENCE_SCORE_HEADER = (
-    "| Chip | Env | File | FP | Breath Hz | Resp | Score |"
+    "| Chip | Env | File | FP | Breath | Score |"
 )
-_IDLE_EVIDENCE_SCORE_SEPARATOR = "|---|---|---|---:|---:|---:|---:|"
+_IDLE_EVIDENCE_SCORE_SEPARATOR = "|---|---|---|---:|---:|---:|"
 _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR = (
-    "  |------|-----|------|-----:|---------:|-----:|---------:|"
+    "  |------|-----|------|-----:|------:|------:|"
 )
 _LONG_TEST_SCORE_HEADER = "| Chip | Env | File | FP | Score |"
 _LONG_TEST_SCORE_SEPARATOR = "|---|---|---|---:|---:|"
@@ -709,14 +728,14 @@ _LONG_TEST_SCORE_CONSOLE_SEPARATOR = "  |------|-----|------|-----:|------:|"
 
 
 def _respiration_evidence_band(respiration):
-    """Classify respiration evidence with one shared Presence/Empty Resp ladder.
+    """Classify Breath evidence with one shared Presence/Empty ladder.
 
-    Coverage is already folded into ``respiration["score"]``, so soft marks use
-    that single number.
+    Coverage and human-rate Hz weight are already folded into
+    ``respiration["score"]``, so soft marks use that single Breath number.
 
     Returns:
-        ``respiration`` when Resp clears the evidence floor, ``partial`` when it
-        clears the suspect floor, otherwise ``weak``.
+        ``respiration`` when Breath clears the evidence floor, ``partial`` when
+        it clears the suspect floor, otherwise ``weak``.
     """
     score = float(respiration["score"])
     if score >= RESPIRATION_EVIDENCE_SCORE_MIN:
@@ -726,8 +745,8 @@ def _respiration_evidence_band(respiration):
     return "weak"
 
 
-def _resp_severity(verdict, *, inverted=False):
-    """Return soft severity for Resp from the shared evidence ladder.
+def _breath_severity(verdict, *, inverted=False):
+    """Return soft severity for Breath from the shared evidence ladder.
 
     Presence (default): ``partial`` → warn, ``weak`` → fail.
     Empty (inverted): ``presence-like`` / strong evidence → fail,
@@ -768,25 +787,22 @@ def _format_idle_evidence_score_row(row, *, label, markdown=False):
     baseline_cell = _format_score_cell(
         score_value, _score_value_severity(score_value), markdown=markdown
     )
-    resp_cell = _format_score_cell(
+    breath_cell = _format_score_cell(
         row["respiration"]["score"],
-        _resp_severity(row.get("verdict"), inverted=(label == "empty")),
+        _breath_severity(row.get("verdict"), inverted=(label == "empty")),
         markdown=markdown,
-    )
-    peak_cell = _format_breath_hz_cell(
-        row["respiration"]["peak_frequency_hz"], markdown=markdown
     )
     if markdown:
         return (
             f"| {row['chip']} | {row.get('environment', '?')} | {file_cell} | "
             f"{_format_quiet_fp_cell(row['baseline']['fp_rate'], markdown=True)} | "
-            f"{peak_cell} | {resp_cell} | {baseline_cell} |"
+            f"{breath_cell} | {baseline_cell} |"
         )
     return (
         f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
         f"{file_cell:<16} | "
         f"{_format_quiet_fp_cell(row['baseline']['fp_rate']):>5} | "
-        f"{peak_cell:>6} | {resp_cell:>8} | {baseline_cell:>8} |"
+        f"{breath_cell:>8} | {baseline_cell:>8} |"
     )
 
 
@@ -2162,7 +2178,7 @@ def _classic_self_baseline_stats(csi_data, packet_rate_pps=100.0):
 def _empty_quality_verdict(baseline, respiration):
     """Classify one empty capture without turning diagnostics into admission.
 
-    Uses the same Resp ladder as Presence Scores; strong evidence maps to
+    Uses the same Breath ladder as Presence Scores; strong evidence maps to
     ``presence-like``, suspect evidence to ``partial``, and weak evidence stays
     ``clean`` when the Classic baseline is otherwise quiet.
     """
@@ -2903,20 +2919,21 @@ def _generate_report(
         f"❌ `>{QUIET_TEST_CLASSIC_FP_FAIL_RATIO:.0%}`"
     )
     lines.append(
-        f"- `Breath Hz` (Presence/Empty): ⚠️ outside "
-        f"`{RESPIRATION_BAND_HZ[0]:.2f}-{RESPIRATION_BAND_HZ[1]:.2f} Hz`"
-    )
-    lines.append(
         f"- `Score`: ⚠️ `<{SCORE_WARN_BELOW:.0f}`, ❌ `<{SCORE_FAIL_BELOW:.0f}`"
     )
     lines.append(
-        f"- `Resp` (shared ladder): "
-        f"strong when `Resp>={RESPIRATION_EVIDENCE_SCORE_MIN:.0f}`; "
-        f"⚠️ `partial` when `Resp>={RESPIRATION_SUSPECT_SCORE_MIN:.0f}`; "
-        f"otherwise `weak`."
+        f"- `Breath` (shared ladder): "
+        f"strong when `Breath>={RESPIRATION_EVIDENCE_SCORE_MIN:.0f}`; "
+        f"⚠️ `partial` when `Breath>={RESPIRATION_SUSPECT_SCORE_MIN:.0f}`; "
+        f"otherwise `weak`. Score folds coverage and human-rate Hz weight "
+        f"(×{BREATH_HZ_PASS_WEIGHT:.2f} in "
+        f"`{BREATH_HZ_HUMAN_PASS_HZ[0]:.2f}-{BREATH_HZ_HUMAN_PASS_HZ[1]:.2f} Hz`, "
+        f"×{BREATH_HZ_WARN_WEIGHT:.2f} in the "
+        f"`{BREATH_HZ_HUMAN_WARN_HZ[0]:.2f}-{BREATH_HZ_HUMAN_WARN_HZ[1]:.2f} Hz` "
+        f"fringe, ×{BREATH_HZ_FAIL_WEIGHT:.2f} outside)."
     )
     lines.append(
-        "- `Resp` polarity: Presence Scores mark ⚠️ `partial` / ❌ `weak` "
+        "- `Breath` polarity: Presence Scores mark ⚠️ `partial` / ❌ `weak` "
         "(higher is better); Empty Scores invert the same ladder "
         "(⚠️ `partial`, ❌ strong/`presence-like`; lower is better)\n"
     )
@@ -2942,18 +2959,17 @@ def _generate_report(
         "idle-only quiet test"
     )
     lines.append(
-        "- `Breath Hz`: median candidate respiration frequency among "
-        "frequency-consistent supported segments"
-    )
-    lines.append(
         "- `Ratio`: `p95(motion) / threshold` on replayed `ClassicDetector` "
         "probabilities"
     )
     lines.append(
-        "- `Resp`: detector-independent respiration-evidence score from "
-        "frequency-consensus segment quality, peak-stability damping, and "
-        "segment coverage; Presence and Empty share one Resp ladder, with Empty "
-        "marks inverted (high Resp means presence-like contamination)"
+        "- `Breath`: detector-independent respiration-evidence score from "
+        "frequency-consensus segment quality, peak-stability damping, segment "
+        "coverage, and quiet-adult human-rate Hz weight "
+        f"(search window `{RESPIRATION_BAND_HZ[0]:.2f}-"
+        f"{RESPIRATION_BAND_HZ[1]:.2f} Hz`); Presence and Empty share one "
+        "Breath ladder, with Empty marks inverted (high Breath means "
+        "presence-like contamination)"
     )
     lines.append("- `Margin`: `logit(probability) - logit(threshold)` on the post-bootstrap tail")
     lines.append("- `MAD`, `q95`, `q99`, and `Drift`: robust margin dispersion, tail, and second-half minus first-half median")

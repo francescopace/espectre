@@ -9,8 +9,8 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 ## Quality Check Summary
 
 - Total checks: 653
-- ✅ PASS: 607
-- ⚠️ WARN: 46
+- ✅ PASS: 606
+- ⚠️ WARN: 47
 - ❌ FAIL: 0
 
 ## Validation Domains
@@ -19,7 +19,7 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 |---|---:|---:|---:|
 | Common integrity | 565 | 33 | 0 |
 | Empty/static presence | 2 | 0 | 0 |
-| ClassicDetector indicative scores | 35 | 11 | 0 |
+| ClassicDetector indicative scores | 34 | 12 | 0 |
 | ML readiness | 4 | 1 | 0 |
 | Long-recording coverage | 1 | 1 | 0 |
 
@@ -41,36 +41,36 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 
 ## Presence Scores
 
-| Chip | Env | File | FP | Breath Hz | Resp | Score |
-|---|---|---|---:|---:|---:|---:|
-| C3 | bedroom | [2026-07-12 17:28](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260712_172816_395303_0001.npz) | 0.0% | 0.30 Hz | **24.3 ❌** | 100.0 |
-| C5 | bedroom | [2026-07-12 19:04](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz) | 0.0% | 0.25 Hz | 62.5 | 100.0 |
-| C5 | hobby_room | [2026-07-16 00:52](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz) | 0.0% | 0.23 Hz | **8.3 ❌** | 100.0 |
-| C5 | living_room | [2026-07-16 10:43](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001.npz) | 0.0% | 0.23 Hz | **18.4 ❌** | 100.0 |
-| C6 | living_room | [2026-07-16 10:43](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz) | 0.0% | 0.23 Hz | 50.7 | 100.0 |
-| S3 | bedroom | [2026-07-11 19:57](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz) | 0.0% | 0.23 Hz | 67.5 | 96.9 |
-| C3 | hobby_room | [2026-07-16 00:33](../static_presence/static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz) | 0.0% | 0.17 Hz | **14.0 ❌** | 96.7 |
-| C6 | hobby_room | [2026-07-04 15:32](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz) | 0.0% | 0.18 Hz | **3.8 ❌** | 95.5 |
-| S3 | hobby_room | [2026-07-15 23:39](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz) | 0.0% | 0.27 Hz | **7.7 ❌** | **91.9 ⚠️** |
-| S3 | living_room | [2026-07-16 10:10](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz) | 0.0% | 0.13 Hz | 51.0 | **88.9 ❌** |
-| C6 | bedroom | [2026-07-04 19:52](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz) | 0.6% | 0.20 Hz | **21.8 ❌** | **77.3 ❌** |
+| Chip | Env | File | FP | Breath | Score |
+|---|---|---|---:|---:|---:|
+| C3 | bedroom | [2026-07-12 17:28](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260712_172816_395303_0001.npz) | 0.0% | **24.3 ❌** | 100.0 |
+| C5 | bedroom | [2026-07-12 19:04](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz) | 0.0% | 62.5 | 100.0 |
+| C5 | hobby_room | [2026-07-16 00:52](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz) | 0.0% | **8.3 ❌** | 100.0 |
+| C5 | living_room | [2026-07-16 10:43](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001.npz) | 0.0% | **18.4 ❌** | 100.0 |
+| C6 | living_room | [2026-07-16 10:43](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz) | 0.0% | 50.7 | 100.0 |
+| S3 | bedroom | [2026-07-11 19:57](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz) | 0.0% | 67.5 | 96.9 |
+| C3 | hobby_room | [2026-07-16 00:33](../static_presence/static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz) | 0.0% | **10.5 ❌** | 96.7 |
+| C6 | hobby_room | [2026-07-04 15:32](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz) | 0.0% | **3.8 ❌** | 95.5 |
+| S3 | hobby_room | [2026-07-15 23:39](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz) | 0.0% | **7.7 ❌** | **91.9 ⚠️** |
+| S3 | living_room | [2026-07-16 10:10](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz) | 0.0% | **38.2 ⚠️** | **88.9 ❌** |
+| C6 | bedroom | [2026-07-04 19:52](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz) | 0.6% | **21.8 ❌** | **77.3 ❌** |
 
 ## Empty Scores
 
-| Chip | Env | File | FP | Breath Hz | Resp | Score |
-|---|---|---|---:|---:|---:|---:|
-| C6 | living_room | [2026-07-04 11:23](../empty/empty_c6_64sc_dev00007c2c6742bbac_20260704_112318_971151_0002.npz) | 0.0% | 0.23 Hz | 9.4 | 100.0 |
-| C5 | bedroom | [2026-07-04 15:16](../empty/empty_c5_64sc_dev000030eda0e46278_20260704_151620_081075_0002.npz) | 0.0% | 0.23 Hz | 17.8 | 100.0 |
-| C3 | hobby_room | [2026-07-04 16:15](../empty/empty_c3_64sc_dev0000acebe64ae708_20260704_161540_862193_0001.npz) | 0.0% | 0.20 Hz | 7.7 | 100.0 |
-| C5 | hobby_room | [2026-07-04 17:54](../empty/empty_c5_64sc_dev000030eda0e46278_20260704_175448_826137_0001.npz) | 0.0% | 0.10 Hz | 2.6 | 100.0 |
-| C6 | bedroom | [2026-07-12 21:56](../empty/empty_c6_64sc_dev00007c2c6742bbac_20260712_215645_774938_0001.npz) | 0.0% | 0.25 Hz | 12.0 | 100.0 |
-| S3 | living_room | [2026-07-13 00:23](../empty/empty_s3_64sc_dev000010b41de8ec00_20260713_002325_306350_0001.npz) | 0.0% | 0.30 Hz | 8.3 | 100.0 |
-| C3 | living_room | [2026-07-12 23:50](../empty/empty_c3_64sc_dev0000acebe64ae708_20260712_235052_800678_0001.npz) | 0.0% | 0.18 Hz | 7.5 | 99.7 |
-| C6 | hobby_room | [2026-07-04 15:16](../empty/empty_c6_64sc_dev00007c2c6742bbac_20260704_151620_420932_0003.npz) | 0.0% | 0.30 Hz | 20.4 | 98.7 |
-| S3 | bedroom | [2026-07-12 20:33](../empty/empty_s3_64sc_dev000010b41de8ec00_20260712_203314_805494_0001.npz) | 0.0% | 0.18 Hz | 12.9 | **93.1 ⚠️** |
-| C5 | living_room | [2026-07-04 19:21](../empty/empty_c5_64sc_dev000030eda0e46278_20260704_192116_870146_0001.npz) | 0.9% | 0.38 Hz | 7.8 | **91.2 ⚠️** |
-| C3 | bedroom | [2026-07-04 11:23](../empty/empty_c3_64sc_dev0000acebe64ae708_20260704_112319_314055_0003.npz) | 0.7% | 0.37 Hz | 11.1 | **86.0 ❌** |
-| S3 | hobby_room | [2026-07-15 20:20](../empty/empty_s3_64sc_dev000010b41de8ec00_20260715_202019_268337_0001.npz) | 0.0% | 0.17 Hz | 8.9 | **85.3 ❌** |
+| Chip | Env | File | FP | Breath | Score |
+|---|---|---|---:|---:|---:|
+| C6 | living_room | [2026-07-04 11:23](../empty/empty_c6_64sc_dev00007c2c6742bbac_20260704_112318_971151_0002.npz) | 0.0% | 9.4 | 100.0 |
+| C5 | bedroom | [2026-07-04 15:16](../empty/empty_c5_64sc_dev000030eda0e46278_20260704_151620_081075_0002.npz) | 0.0% | 17.8 | 100.0 |
+| C3 | hobby_room | [2026-07-04 16:15](../empty/empty_c3_64sc_dev0000acebe64ae708_20260704_161540_862193_0001.npz) | 0.0% | 7.7 | 100.0 |
+| C5 | hobby_room | [2026-07-04 17:54](../empty/empty_c5_64sc_dev000030eda0e46278_20260704_175448_826137_0001.npz) | 0.0% | 1.0 | 100.0 |
+| C6 | bedroom | [2026-07-12 21:56](../empty/empty_c6_64sc_dev00007c2c6742bbac_20260712_215645_774938_0001.npz) | 0.0% | 12.0 | 100.0 |
+| S3 | living_room | [2026-07-13 00:23](../empty/empty_s3_64sc_dev000010b41de8ec00_20260713_002325_306350_0001.npz) | 0.0% | 8.3 | 100.0 |
+| C3 | living_room | [2026-07-12 23:50](../empty/empty_c3_64sc_dev0000acebe64ae708_20260712_235052_800678_0001.npz) | 0.0% | 7.5 | 99.7 |
+| C6 | hobby_room | [2026-07-04 15:16](../empty/empty_c6_64sc_dev00007c2c6742bbac_20260704_151620_420932_0003.npz) | 0.0% | 20.4 | 98.7 |
+| S3 | bedroom | [2026-07-12 20:33](../empty/empty_s3_64sc_dev000010b41de8ec00_20260712_203314_805494_0001.npz) | 0.0% | 12.9 | **93.1 ⚠️** |
+| C5 | living_room | [2026-07-04 19:21](../empty/empty_c5_64sc_dev000030eda0e46278_20260704_192116_870146_0001.npz) | 0.9% | 5.9 | **91.2 ⚠️** |
+| C3 | bedroom | [2026-07-04 11:23](../empty/empty_c3_64sc_dev0000acebe64ae708_20260704_112319_314055_0003.npz) | 0.7% | 8.3 | **86.0 ❌** |
+| S3 | hobby_room | [2026-07-15 20:20](../empty/empty_s3_64sc_dev000010b41de8ec00_20260715_202019_268337_0001.npz) | 0.0% | 6.7 | **85.3 ❌** |
 
 ## Long-test scores
 
@@ -95,10 +95,9 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 - `TP` (Motion Scores): ⚠️ `<95%`, ❌ `<90%`
 - `Ratio` (Motion Scores, p95(motion)/threshold): ⚠️ `<3x`, ❌ `<2x`
 - `FP` (Presence/Empty/Long-test): ⚠️ `>2%`, ❌ `>5%`
-- `Breath Hz` (Presence/Empty): ⚠️ outside `0.10-0.50 Hz`
 - `Score`: ⚠️ `<95`, ❌ `<90`
-- `Resp` (shared ladder): strong when `Resp>=50`; ⚠️ `partial` when `Resp>=35`; otherwise `weak`.
-- `Resp` polarity: Presence Scores mark ⚠️ `partial` / ❌ `weak` (higher is better); Empty Scores invert the same ladder (⚠️ `partial`, ❌ strong/`presence-like`; lower is better)
+- `Breath` (shared ladder): strong when `Breath>=50`; ⚠️ `partial` when `Breath>=35`; otherwise `weak`. Score folds coverage and human-rate Hz weight (×1.00 in `0.17-0.33 Hz`, ×0.75 in the `0.13-0.40 Hz` fringe, ×0.40 outside).
+- `Breath` polarity: Presence Scores mark ⚠️ `partial` / ❌ `weak` (higher is better); Empty Scores invert the same ladder (⚠️ `partial`, ❌ strong/`presence-like`; lower is better)
 
 Computed metrics:
 
@@ -108,9 +107,8 @@ Computed metrics:
 - `FP` (Motion Scores): share of replayed `ClassicDetector` evaluation ticks classified as motion on `static_presence` (false positives)
 - `TP` (Motion Scores): share of replayed `ClassicDetector` evaluation ticks classified as motion on `motion` (true positives)
 - `FP` (Presence/Empty/Long-test): `ClassicDetector` false-positive share of evaluation ticks on a self-calibrated idle capture or idle-only quiet test
-- `Breath Hz`: median candidate respiration frequency among frequency-consistent supported segments
 - `Ratio`: `p95(motion) / threshold` on replayed `ClassicDetector` probabilities
-- `Resp`: detector-independent respiration-evidence score from frequency-consensus segment quality, peak-stability damping, and segment coverage; Presence and Empty share one Resp ladder, with Empty marks inverted (high Resp means presence-like contamination)
+- `Breath`: detector-independent respiration-evidence score from frequency-consensus segment quality, peak-stability damping, segment coverage, and quiet-adult human-rate Hz weight (search window `0.10-0.50 Hz`); Presence and Empty share one Breath ladder, with Empty marks inverted (high Breath means presence-like contamination)
 - `Margin`: `logit(probability) - logit(threshold)` on the post-bootstrap tail
 - `MAD`, `q95`, `q99`, and `Drift`: robust margin dispersion, tail, and second-half minus first-half median
 - `Bursts/min` and `Longest`: positive-margin activation episodes

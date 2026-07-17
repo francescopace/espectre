@@ -813,6 +813,11 @@ def test_collect_timed_adaptive_adjusts_legacy_pacing(monkeypatch) -> None:
     monkeypatch.setattr(csi_io.socket, "socket", lambda *args, **kwargs: FakeSocket(*args, **kwargs))
     monkeypatch.setattr(csi_io.CSICollector, "_build_ready_detector", lambda self: FakeReadyDetector())
     monkeypatch.setattr(csi_io.CSICollector, "READY_STABLE_SECONDS", 0.0)
+    monkeypatch.setattr(
+        csi_io.CollectionDetectorGate,
+        "default_window_size",
+        staticmethod(lambda: 1),
+    )
     monkeypatch.setattr(csi_io.CSICollector, "save_samples_by_device", lambda self, packets: [Path("sample_1.npz")])
 
     collector = csi_io.CSICollector(

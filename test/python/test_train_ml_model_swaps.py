@@ -22,6 +22,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TRAIN_SCRIPT = REPO_ROOT / "tools" / "train_ml_model.py"
 
+from config import MOTION_OFF_HITS, MOTION_ON_HITS
 from features import calc_l1_delta, l1_delta_series, extract_features_by_name
 
 
@@ -397,20 +398,26 @@ def test_seed_promotion_rejects_paired_regression():
 def test_idle_runtime_policy_rejects_isolated_hits_and_counts_alarm_duration():
     module = _load_train_module()
     stride = module.EVALUATION_INTERVAL
+    on_hits = MOTION_ON_HITS
+    off_hits = MOTION_OFF_HITS
 
-    isolated = [0.0] * (stride * 4)
+    isolated = [0.0] * (stride * on_hits)
     isolated[stride - 1] = 0.9
     assert module.evaluate_idle_runtime_policy(isolated) == {
         "effective_alarms": 0,
         "false_motion_evaluations": 0,
     }
 
-    burst = [0.0] * (stride * 8)
-    for evaluation in range(4):
+    # Exactly on_hits consecutive MOTION evaluations, then enough IDLE ticks to
+    # clear. Published MOTION starts on the confirming hit and stays through
+    # (off_hits - 1) trailing idle evaluations before MOTION_OFF_HITS clears it.
+    total_evaluations = on_hits + off_hits
+    burst = [0.0] * (stride * total_evaluations)
+    for evaluation in range(on_hits):
         burst[(evaluation + 1) * stride - 1] = 0.9
     assert module.evaluate_idle_runtime_policy(burst) == {
         "effective_alarms": 1,
-        "false_motion_evaluations": 4,
+        "false_motion_evaluations": off_hits,
     }
 
 

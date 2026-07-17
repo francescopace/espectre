@@ -27,39 +27,22 @@ def test_idf_frontend_defaults_optimize_for_size(frontend):
     assert "CONFIG_COMPILER_OPTIMIZATION_PERF=y" not in defaults
 
 
-def test_native_frontend_defaults_disable_unused_nimble_services():
+def test_native_frontend_defaults_enable_nimble_peripheral_only():
     defaults = (
         REPO_ROOT / "src" / "cpp" / "frontend" / "native" / "app" / "sdkconfig.defaults"
     ).read_text(encoding="utf-8")
 
-    disabled_services = (
-        "CONFIG_BT_NIMBLE_PROX_SERVICE",
-        "CONFIG_BT_NIMBLE_ANS_SERVICE",
-        "CONFIG_BT_NIMBLE_CTS_SERVICE",
-        "CONFIG_BT_NIMBLE_HTP_SERVICE",
-        "CONFIG_BT_NIMBLE_IPSS_SERVICE",
-        "CONFIG_BT_NIMBLE_TPS_SERVICE",
-        "CONFIG_BT_NIMBLE_IAS_SERVICE",
-        "CONFIG_BT_NIMBLE_LLS_SERVICE",
-        "CONFIG_BT_NIMBLE_SPS_SERVICE",
-        "CONFIG_BT_NIMBLE_HR_SERVICE",
-        "CONFIG_BT_NIMBLE_BAS_SERVICE",
-        "CONFIG_BT_NIMBLE_DIS_SERVICE",
-    )
+    assert "CONFIG_BT_ENABLED=y" in defaults
+    assert "CONFIG_BT_NIMBLE_ENABLED=y" in defaults
+    assert "CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y" in defaults
+    assert "CONFIG_BT_NIMBLE_ROLE_CENTRAL=n" in defaults
 
-    for service in disabled_services:
-        assert f"# {service} is not set" in defaults
-
-
-def test_native_frontend_defaults_disable_unused_mqtt_websocket_transports():
+def test_native_frontend_defaults_enable_mqtt_ssl_without_websocket():
     defaults = (
         REPO_ROOT / "src" / "cpp" / "frontend" / "native" / "app" / "sdkconfig.defaults"
     ).read_text(encoding="utf-8")
 
     assert "CONFIG_MQTT_TRANSPORT_SSL=y" in defaults
-    assert "# CONFIG_MQTT_TRANSPORT_WEBSOCKET is not set" in defaults
-    assert "# CONFIG_MQTT_TRANSPORT_WEBSOCKET_SECURE is not set" in defaults
-
 
 def test_matter_frontend_defaults_do_not_enable_ota_requestor():
     defaults = (

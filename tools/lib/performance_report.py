@@ -39,13 +39,6 @@ from tools.lib.csi_io import load_npz_as_packets, load_npz_csi_data
 
 DATA_DIR = data_dir()
 PERFORMANCE_DOC_PATH = repo_root() / "docs" / "performance" / "README.md"
-KEY_RUNTIME_FEATURE_GATES = {
-    "turb_mad_over_mean": 0.5,
-    "turb_autocorr": 0.5,
-    "l1_delta": 0.5,
-    "l1_delta_std": 0.5,
-    "l1_delta_waveform_length": 0.5,
-}
 
 
 def make_evaluation_cadence(evaluation_interval: int = EVALUATION_INTERVAL) -> RuntimeMotionPolicy:

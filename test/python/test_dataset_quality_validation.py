@@ -220,8 +220,8 @@ def test_empty_and_presence_verdicts_separate_contamination_types() -> None:
 
     assert module._empty_quality_verdict(baseline, respiration) == "presence-like"
     assert module._presence_evidence_verdict(baseline, respiration) == "respiration"
-    assert module._resp_severity("presence-like", inverted=True) == "fail"
-    assert module._resp_severity("respiration") is None
+    assert module._breath_severity("presence-like", inverted=True) == "fail"
+    assert module._breath_severity("respiration") is None
 
     motion_baseline = dict(baseline, fp_rate=0.08)
     assert module._empty_quality_verdict(motion_baseline, respiration) == "motion-like"
@@ -238,20 +238,20 @@ def test_empty_and_presence_share_respiration_score_ladder() -> None:
         "margin_mad": 0.7,
         "longest_burst_seconds": 0.0,
     }
-    # Soft marks use Resp alone; coverage is already folded into the score.
+    # Soft marks use Breath alone; coverage and Hz weight are folded in.
     partial = {"score": 40.8, "coverage": 0.0}
     assert module._respiration_evidence_band(partial) == "partial"
     assert module._empty_quality_verdict(baseline, partial) == "partial"
     assert module._presence_evidence_verdict(baseline, partial) == "partial"
-    assert module._resp_severity("partial") == "warn"
-    assert module._resp_severity("partial", inverted=True) == "warn"
+    assert module._breath_severity("partial") == "warn"
+    assert module._breath_severity("partial", inverted=True) == "warn"
 
     weak = {"score": 16.0, "coverage": 0.0}
     assert module._respiration_evidence_band(weak) == "weak"
     assert module._empty_quality_verdict(baseline, weak) == "clean"
     assert module._presence_evidence_verdict(baseline, weak) == "weak"
-    assert module._resp_severity("weak") == "fail"
-    assert module._resp_severity("clean", inverted=True) is None
+    assert module._breath_severity("weak") == "fail"
+    assert module._breath_severity("clean", inverted=True) is None
 
 
 def test_respiration_score_folds_segment_coverage() -> None:
@@ -285,10 +285,51 @@ def test_respiration_score_folds_segment_coverage() -> None:
     assert wandering_metrics is not None
     for metrics in (sustained_metrics, wandering_metrics):
         assert metrics["score"] == pytest.approx(
-            metrics["intensity"] * (0.5 + 0.5 * metrics["coverage"])
+            metrics["intensity"]
+            * (0.5 + 0.5 * metrics["coverage"])
+            * metrics["hz_weight"]
         )
     assert sustained_metrics["coverage"] > wandering_metrics["coverage"]
+    assert sustained_metrics["hz_weight"] == module.BREATH_HZ_PASS_WEIGHT
     assert sustained_metrics["score"] > wandering_metrics["score"] + 20.0
+
+
+def test_respiration_score_folds_human_rate_hz_weight() -> None:
+    """Consensus peaks outside quiet-adult rates must damp Breath."""
+    module = _load_validator_module()
+    rng = np.random.default_rng(19)
+    sample_rate_hz = 10.0
+    segment_seconds = 30
+    segment_samples = int(sample_rate_hz * segment_seconds)
+    weights = np.linspace(-0.12, 0.12, 12)
+
+    def _tone_block(freq_hz: float) -> np.ndarray:
+        time = np.arange(segment_samples) / sample_rate_hz
+        return (
+            1.0
+            + np.sin(2.0 * np.pi * freq_hz * time)[:, None] * weights[None, :]
+            + rng.normal(0.0, 0.015, size=(segment_samples, len(weights)))
+        )
+
+    human = np.concatenate([_tone_block(0.25) for _ in range(4)], axis=0)
+    edge = np.concatenate([_tone_block(0.45) for _ in range(4)], axis=0)
+    human_metrics = module._respiration_evidence_from_profiles(
+        human, packet_rate_pps=sample_rate_hz
+    )
+    edge_metrics = module._respiration_evidence_from_profiles(
+        edge, packet_rate_pps=sample_rate_hz
+    )
+
+    assert human_metrics is not None
+    assert edge_metrics is not None
+    assert human_metrics["hz_weight"] == module.BREATH_HZ_PASS_WEIGHT
+    assert edge_metrics["hz_weight"] == module.BREATH_HZ_FAIL_WEIGHT
+    assert human_metrics["score"] > edge_metrics["score"]
+    assert edge_metrics["score"] == pytest.approx(
+        edge_metrics["intensity"]
+        * (0.5 + 0.5 * edge_metrics["coverage"])
+        * module.BREATH_HZ_FAIL_WEIGHT
+    )
 
 
 def test_metadata_refresh_recommendation_triggers_for_missing_pair_warning() -> None:
@@ -804,9 +845,14 @@ def test_ratio_cells_mark_soft_warn_and_fail_thresholds() -> None:
     assert module._pair_ratio_severity(2.0) == "warn"
     assert module._pair_ratio_severity(1.9) == "fail"
     assert "❌" in module._format_pair_ratio_cell(1.73)
-    assert module._breath_hz_severity(0.23) is None
-    assert module._breath_hz_severity(0.05) == "warn"
-    assert module._breath_hz_severity(0.60) == "warn"
+    # Quiet-adult human rates keep full Breath weight; fringe/outside damp.
+    assert module._breath_hz_weight(0.23) == module.BREATH_HZ_PASS_WEIGHT
+    assert module._breath_hz_weight(0.17) == module.BREATH_HZ_PASS_WEIGHT
+    assert module._breath_hz_weight(0.33) == module.BREATH_HZ_PASS_WEIGHT
+    assert module._breath_hz_weight(0.14) == module.BREATH_HZ_WARN_WEIGHT
+    assert module._breath_hz_weight(0.38) == module.BREATH_HZ_WARN_WEIGHT
+    assert module._breath_hz_weight(0.10) == module.BREATH_HZ_FAIL_WEIGHT
+    assert module._breath_hz_weight(0.45) == module.BREATH_HZ_FAIL_WEIGHT
     assert module._pair_ratio(
         np.array([0.55, 0.70, 0.80]),
         threshold=0.5,

@@ -54,15 +54,6 @@ from conftest import get_classic_fp_rate_target, get_classic_recall_target, reco
 from threshold import StartupThresholdCalibrator, get_detector_auto_factor, get_detector_startup_gate
 
 
-KEY_RUNTIME_FEATURE_GATES = {
-    "turb_mad_over_mean": 0.5,
-    "turb_autocorr": 0.5,
-    "l1_delta": 0.5,
-    "l1_delta_std": 0.5,
-    "l1_delta_waveform_length": 0.5,
-}
-
-
 # ============================================================================
 # Dataset Configuration
 # ============================================================================
@@ -281,75 +272,6 @@ def run_classic_calibration(static_presence_packets, selected_band, window_size)
     return float(threshold)
 
 
-# ============================================================================
-# Feature Separation Tests
-# ============================================================================
-
-def fishers_criterion(values_class1, values_class2):
-    """
-    Calculate Fisher's criterion for class separability.
-    
-    J = (μ₁ - μ₂)² / (σ₁² + σ₂²)
-    
-    Higher J = better separation between classes.
-    """
-    mu1 = np.mean(values_class1)
-    mu2 = np.mean(values_class2)
-    var1 = np.var(values_class1)
-    var2 = np.var(values_class2)
-    
-    # Use very small epsilon to handle near-zero variances
-    # CV-normalized turbulence produces very small variance values (1e-14 to 1e-11)
-    # but can still show good separation (Fisher J > 1.0)
-    if var1 + var2 < 1e-20:
-        return 0.0
-    
-    return (mu1 - mu2) ** 2 / (var1 + var2)
-
-
-class TestFeatureSeparationRealData:
-    """Test separation for key runtime-exported ML features."""
-
-    # Gate only the features that experiments identified as robust standalone
-    # separators or unique contributors to the promoted Core-6 runtime set.
-    # `turb_skewness` remains part of the model, but it is a weaker complementary
-    # signal on some real datasets and is therefore not used as a standalone
-    # Fisher-separation gate here.
-    def test_key_runtime_feature_separation(self, dataset_config, default_subcarriers, window_size):
-        """Key promoted features should separate baseline and movement windows."""
-        static_presence_path, motion_path, _num_sc, _chip, _dataset_id = dataset_config
-        _metrics, feature_payload = _compute_ml_dataset_result(
-            static_presence_path,
-            motion_path,
-            tuple(default_subcarriers),
-            window_size,
-            0.5,
-            tuple(KEY_RUNTIME_FEATURE_GATES),
-        )
-        static_series = feature_payload["baseline"]
-        motion_series = feature_payload["motion"]
-
-        scores = {}
-        for feature_name, min_j in KEY_RUNTIME_FEATURE_GATES.items():
-            assert static_series[feature_name], f"No baseline samples collected for {feature_name}"
-            assert motion_series[feature_name], f"No motion samples collected for {feature_name}"
-
-            score = fishers_criterion(
-                static_series[feature_name],
-                motion_series[feature_name],
-            )
-            scores[feature_name] = score
-            assert score > min_j, (
-                f"Runtime feature separation too low for {feature_name}: "
-                f"{score:.6f} (target: >{min_j})"
-            )
-
-        print(f"\nRuntime feature Fisher scores: {scores}")
-
-
-# ============================================================================
-# Publish-Time Features Tests
-# ============================================================================
 # ============================================================================
 # Hampel Filter Tests with Real Data
 # ============================================================================

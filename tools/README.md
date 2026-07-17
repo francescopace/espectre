@@ -244,10 +244,10 @@ Defaults on every run:
   set
 
 Report layout: Quality Check Summary and Validation Domains first, then the
-score tables, then Validation rule / computed-metric notes. `Resp` folds
-segment coverage into one score; Presence and Empty share that ladder, and
-Empty only inverts the soft marks (high `Resp` means presence-like
-contamination).
+score tables, then Validation rule / computed-metric notes. `Breath` folds
+segment coverage and quiet-adult human-rate Hz weight into one score; Presence
+and Empty share that ladder, and Empty only inverts the soft marks (high
+`Breath` means presence-like contamination).
 
 **Checks performed:**
 - Metadata completeness — required dataset metadata exists, disk captures are
