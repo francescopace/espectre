@@ -24,7 +24,6 @@ namespace espectre {
 struct RuntimeConfig {
   RuntimeProfile runtime_profile{RuntimeProfile::SENSING};
   DetectionAlgorithm detection_algorithm{DetectionAlgorithm::CLASSIC};
-  ThresholdMode threshold_mode{ThresholdMode::AUTO};
   float segmentation_threshold{RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT};
   uint16_t segmentation_window_size{RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT};
   bool runtime_detector_selection_enabled{false};

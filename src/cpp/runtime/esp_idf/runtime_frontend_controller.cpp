@@ -98,7 +98,7 @@ bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
   } else {
     snapshot_.threshold = threshold;
   }
-  set_manual_threshold(config_, threshold);
+  config_.segmentation_threshold = threshold;
   snapshot_.threshold = threshold;
   return true;
 }
@@ -116,13 +116,11 @@ bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorit
   } else {
     config_.detection_algorithm = algorithm;
     config_.segmentation_threshold = runtime_default_threshold(algorithm);
-    config_.threshold_mode = ThresholdMode::AUTO;
     snapshot_.threshold = config_.segmentation_threshold;
     snapshot_.detector_name = detection_algorithm_name(algorithm);
   }
   config_.detection_algorithm = algorithm;
   config_.segmentation_threshold = snapshot_.threshold;
-  config_.threshold_mode = ThresholdMode::AUTO;
   return true;
 }
 

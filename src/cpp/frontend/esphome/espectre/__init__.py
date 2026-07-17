@@ -28,7 +28,6 @@ DEPENDENCIES = ["wifi"]
 AUTO_LOAD = ["sensor", "binary_sensor", "number", "select", "switch"]
 
 # Configuration parameters
-CONF_SEGMENTATION_THRESHOLD = "segmentation_threshold"
 CONF_SEGMENTATION_WINDOW_SIZE = "segmentation_window_size"
 CONF_TRAFFIC_GENERATOR_RATE = "traffic_generator_rate"
 CONF_TRAFFIC_GENERATOR_ADAPTIVE = "traffic_generator_adaptive"
@@ -109,9 +108,7 @@ def _load_runtime_schema(schema_path: Path):
 _RUNTIME_SCHEMA = _load_runtime_schema(_SCHEMA_HEADER)
 
 THRESHOLD_MIN = _RUNTIME_SCHEMA["RUNTIME_THRESHOLD_MIN"]
-THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_THRESHOLD_MAX"]
-ML_THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_ML_THRESHOLD_MAX"]
-THRESHOLD_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_THRESHOLD_MODE_DEFAULT_NAME"]
+THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_ML_THRESHOLD_MAX"]
 SEGMENTATION_WINDOW_SIZE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT"]
 SEGMENTATION_WINDOW_SIZE_MIN = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN"]
 SEGMENTATION_WINDOW_SIZE_MAX = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX"]
@@ -142,35 +139,10 @@ HAMPEL_THRESHOLD_MIN = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_THRESHOLD_MIN"]
 HAMPEL_THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_THRESHOLD_MAX"]
 
 
-def validate_segmentation_threshold(value):
-    """Validate segmentation_threshold: accepts 'auto', 'min', or a float."""
-    if isinstance(value, str):
-        value_lower = value.lower()
-        if value_lower in ("auto", "min"):
-            return value_lower
-        # Try to parse as float
-        try:
-            return float(value)
-        except ValueError:
-            raise cv.Invalid(f"Invalid threshold value '{value}'. Use 'auto', 'min', or a number {THRESHOLD_MIN}-{THRESHOLD_MAX}")
-    if isinstance(value, (int, float)):
-        if value < THRESHOLD_MIN or value > THRESHOLD_MAX:
-            raise cv.Invalid(f"Threshold must be between {THRESHOLD_MIN} and {THRESHOLD_MAX}")
-        return float(value)
-    raise cv.Invalid(f"Invalid threshold type. Use 'auto', 'min', or a number {THRESHOLD_MIN}-{THRESHOLD_MAX}")
-
-
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(ESpectreComponent),
     
     # Motion detection parameters
-    # segmentation_threshold:
-    #   - auto (default): adaptive startup calibration for Classic
-    #   - min: same startup metric with x 1.0 - maximum sensitivity (may have FP)
-    #   - number: fixed manual threshold
-    #       * classic: 0.0-10.0
-    #       * ml: 0.0-1.0
-    cv.Optional(CONF_SEGMENTATION_THRESHOLD, default=THRESHOLD_MODE_DEFAULT): validate_segmentation_threshold,
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=SEGMENTATION_WINDOW_SIZE_DEFAULT): cv.int_range(
         min=SEGMENTATION_WINDOW_SIZE_MIN, max=SEGMENTATION_WINDOW_SIZE_MAX
     ),
@@ -250,25 +222,6 @@ CONFIG_SCHEMA = cv.Schema({
 }).extend(cv.COMPONENT_SCHEMA)
 
 
-def _validate_threshold_for_detector(config):
-    """Enforce detector-specific manual threshold ranges."""
-    threshold_value = config[CONF_SEGMENTATION_THRESHOLD]
-    if (
-        config[CONF_DETECTION_ALGORITHM] == "ml"
-        and isinstance(threshold_value, (int, float))
-        and threshold_value > ML_THRESHOLD_MAX
-    ):
-        raise cv.Invalid(
-            f"ML manual threshold must be between {THRESHOLD_MIN} and {ML_THRESHOLD_MAX}"
-        )
-    return config
-
-
-FINAL_VALIDATE_SCHEMA = cv.All(
-    _validate_threshold_for_detector,
-)
-
-
 async def to_code(config):
     cg.add_library("espectre-shared", None, _library_uri(_LIBRARY_ROOT))
 
@@ -293,16 +246,8 @@ async def to_code(config):
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM", 128)
     # Note: CONFIG_FREERTOS_HZ=1000 is already set by ESPHome
     
-    # Configure parameters
-    # segmentation_threshold can be: "auto", "min", or a float
-    threshold_value = config[CONF_SEGMENTATION_THRESHOLD]
-    if isinstance(threshold_value, str):
-        # "auto" or "min" mode
-        cg.add(var.set_threshold_mode(threshold_value))
-    else:
-        # Numeric value - set as manual threshold
-        cg.add(var.set_segmentation_threshold(threshold_value))
-    
+    # Threshold is selected automatically at startup and remains adjustable
+    # through the runtime number control.
     cg.add(var.set_segmentation_window_size(config[CONF_SEGMENTATION_WINDOW_SIZE]))
     cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
     cg.add(var.set_traffic_generator_adaptive(config[CONF_TRAFFIC_GENERATOR_ADAPTIVE]))
@@ -334,12 +279,11 @@ async def to_code(config):
     # Note: number.new_number() handles component registration internally
     # Do NOT call register_component separately - it causes double initialization
     # that leads to "Load access fault" crash on boot (null pointer in early setup)
-    threshold_max = ML_THRESHOLD_MAX if config[CONF_DETECTION_ALGORITHM] == "ml" else THRESHOLD_MAX
-    threshold_step = 0.01 if config[CONF_DETECTION_ALGORITHM] == "ml" else 0.1
+    threshold_step = 0.01
     num = await number.new_number(
         config[CONF_THRESHOLD_NUMBER],
         min_value=THRESHOLD_MIN,
-        max_value=threshold_max,
+        max_value=THRESHOLD_MAX,
         step=threshold_step,
     )
     cg.add(num.set_parent(var))

@@ -308,8 +308,7 @@ Support in this phase:
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
 | `detection_algorithm` | `classic` or `ml` | `classic`; Matter: `ml` | Shared detector family |
-| `threshold_mode` | `auto`, `min`, or `manual` | `auto` | Shared threshold mode |
-| `segmentation_threshold` | float | `1.0` | `0.0-1.0` probability; used when `threshold_mode=manual` |
+| Runtime threshold | probability | detector-specific | Selected automatically at startup; adjustable from the frontend during the session |
 | `segmentation_window_size` | int | `100` | `10-200` packets |
 | `traffic_generator_rate` | int | `100` | Target valid local CSI rate, `0-1000`; `0` disables internal traffic generation |
 | `traffic_generator_adaptive` | bool | `true` | Adjusts DNS or ICMP send pacing from valid local CSI callbacks |

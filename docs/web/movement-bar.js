@@ -11,10 +11,10 @@
     'use strict';
 
     const DEFAULTS = Object.freeze({
-        scaleMax: 10,
+        scaleMax: 1,
         thresholdMin: 0,
-        thresholdMax: 10,
-        digits: 1,
+        thresholdMax: 1,
+        digits: 2,
         autoScale: true,
         // Idle marker position as a fraction of bar height (0 = bottom, 1 = top).
         thresholdAnchor: 0.5,
@@ -100,7 +100,7 @@
 
         /**
          * Sets the hard threshold ceiling (and fixed scale when autoScale is off).
-         * Configure uses this when switching classic (10) vs ML (1).
+         * Classic and ML share the same 0.0-1.0 probability scale.
          */
         setScaleMax(scaleMax) {
             const parsed = Number(scaleMax);

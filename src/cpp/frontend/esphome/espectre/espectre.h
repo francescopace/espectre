@@ -46,12 +46,6 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   float get_setup_priority() const override { return 275.0f; }
 
   // Setters for YAML configuration
-  void set_segmentation_threshold(float threshold) { 
-    set_manual_threshold(this->runtime_.config(), threshold);
-  }
-  void set_threshold_mode(const std::string &mode) {
-    this->runtime_.config().threshold_mode = parse_threshold_mode(mode.c_str());
-  }
   void set_segmentation_window_size(uint16_t size) { this->runtime_.config().segmentation_window_size = size; }
   void set_traffic_generator_rate(uint32_t rate) { this->runtime_.config().traffic_generator_rate = rate; }
   void set_traffic_generator_adaptive(bool adaptive) {

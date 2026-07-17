@@ -510,9 +510,9 @@ class TestMQTTCommands:
     
     def test_cmd_set_threshold_success(self, commands_instance, mock_mqtt_client_instance, mock_segmentation):
         """Test setting detection threshold (session-only, not persisted)"""
-        commands_instance.cmd_set_threshold({'threshold': 2.5})
+        commands_instance.cmd_set_threshold({'threshold': 0.75})
         
-        assert mock_segmentation.get_threshold() == 2.5
+        assert mock_segmentation.get_threshold() == 0.75
     
     def test_cmd_set_threshold_missing_threshold(self, commands_instance, mock_mqtt_client_instance):
         """Test threshold command without threshold"""

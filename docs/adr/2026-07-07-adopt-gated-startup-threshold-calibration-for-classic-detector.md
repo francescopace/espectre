@@ -1,10 +1,18 @@
 # ADR: adopt gated startup threshold calibration for classic detector
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-07-07
 - Recorded: 2026-07-09 (retrospective)
+- Superseded by: `2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`
 
 ## Context
+
+This ADR records the strongest calibration policy for the former L1-primary
+Classic detector. The amended Classic decision in
+`2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md` replaces
+that numeric gated proposal with weighted probability fusion, automatic
+startup placement, and session-only threshold overrides. The contamination
+analysis below remains useful historical context.
 
 Once `l1_delta` had been promoted as the primary non-ML metric, the remaining
 open question was not the metric itself, but how `ClassicDetector` should place

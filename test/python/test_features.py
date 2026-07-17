@@ -231,7 +231,9 @@ class TestExtractAllFeatures:
     def test_returns_default_feature_count(self):
         """Test that the default feature count is returned"""
         buffer = [float(i) for i in range(50)]
-        features = extract_features_by_name(buffer, 50, feature_names=DEFAULT_FEATURES)
+        features = extract_features_by_name(
+            buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer
+        )
         assert len(features) == len(DEFAULT_FEATURES)
     
     def test_empty_buffer_returns_zeros(self):
@@ -278,7 +280,9 @@ class TestExtractAllFeatures:
         """Test that all features are floats"""
         np.random.seed(42)
         buffer = list(np.random.normal(5, 2, 50))
-        features = extract_features_by_name(buffer, 50, feature_names=DEFAULT_FEATURES)
+        features = extract_features_by_name(
+            buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer
+        )
         for i, f in enumerate(features):
             assert isinstance(f, (int, float)), f"Feature {i} ({FEATURE_NAMES[i]}) is {type(f)}"
     
@@ -290,8 +294,12 @@ class TestExtractAllFeatures:
         np.random.seed(42)
         motion_buffer = list(np.random.normal(5, 3, 50))
         
-        idle_features = extract_features_by_name(idle_buffer, 50, feature_names=DEFAULT_FEATURES)
-        motion_features = extract_features_by_name(motion_buffer, 50, feature_names=DEFAULT_FEATURES)
+        idle_features = extract_features_by_name(
+            idle_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=idle_buffer
+        )
+        motion_features = extract_features_by_name(
+            motion_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=motion_buffer
+        )
 
         # turb_mad_over_mean is part of the production Core-6 set and rises with
         # turbulence, so motion must exceed idle. The vectors must also differ.

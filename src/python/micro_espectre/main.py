@@ -11,7 +11,7 @@ import time
 import gc
 import os
 import src.config as config
-from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN, SEG_THRESHOLD
+from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN
 from src.device_utils import (
     normalize_ht20_csi_payload,
     csi_read_frame,
@@ -46,7 +46,7 @@ def print_heap(label):
     print(f"[MEM] {label}: free={gc.mem_free()} alloc={gc.mem_alloc()}")
 
 
-def create_detector(detection_algorithm, initial_threshold):
+def create_detector(detection_algorithm):
     """
     Create the configured detector instance from the shared registry.
 
@@ -59,10 +59,7 @@ def create_detector(detection_algorithm, initial_threshold):
     except ValueError:
         raise ValueError(f"Unsupported DETECTION_ALGORITHM: {detection_algorithm}")
 
-    if detector_needs_startup_calibration(detection_algorithm):
-        threshold = initial_threshold if isinstance(initial_threshold, (int, float)) else 1.0
-    else:
-        threshold = ML_DEFAULT_THRESHOLD
+    threshold = 1.0 if detector_needs_startup_calibration(detection_algorithm) else ML_DEFAULT_THRESHOLD
 
     print(f'Detection algorithm: {get_detector_label(detection_algorithm)}')
     return detector_class(
@@ -210,6 +207,7 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     detector_name = detector.get_name()
     if not detector_uses_startup_calibration(detector):
         g_state.calibration_mode = True
+        detector.set_threshold(ML_DEFAULT_THRESHOLD)
 
         print('')
         print('='*60)
@@ -360,24 +358,11 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     gc.collect()
     success = calibration_tracker.is_successful()
     if success:
-        if isinstance(SEG_THRESHOLD, str):
-            startup_threshold, threshold_formula = calibration_tracker.calculate_threshold(SEG_THRESHOLD)
-            if hasattr(calibration_tracker, "get_floor_snapshot") and hasattr(detector, "apply_startup_floor"):
-                floor_value, vote_enabled, sample_count = calibration_tracker.get_floor_snapshot()
-                detector.apply_startup_floor(floor_value, vote_enabled, sample_count)
-            detector.set_adaptive_threshold(startup_threshold)
-            threshold_source = f"{SEG_THRESHOLD} ({threshold_formula})"
-            print(f'Startup threshold: {startup_threshold:.4f} ({threshold_source})')
-        else:
-            startup_threshold, _ = calibration_tracker.calculate_threshold("auto")
-            if hasattr(calibration_tracker, "get_floor_snapshot") and hasattr(detector, "apply_startup_floor"):
-                floor_value, vote_enabled, sample_count = calibration_tracker.get_floor_snapshot()
-                detector.apply_startup_floor(floor_value, vote_enabled, sample_count)
-            if hasattr(detector, "set_adaptive_threshold"):
-                detector.set_adaptive_threshold(startup_threshold)
-            detector.set_threshold(float(SEG_THRESHOLD))
-            threshold_source = "manual"
-            print(f'Manual threshold: {SEG_THRESHOLD:.2f} (startup would be: {startup_threshold:.4f})')
+        startup_threshold, threshold_formula = calibration_tracker.calculate_threshold()
+        detector.set_adaptive_threshold(startup_threshold)
+        startup_threshold = detector.get_threshold()
+        threshold_source = f"automatic ({threshold_formula})"
+        print(f'Startup threshold: {startup_threshold:.4f} ({threshold_source})')
 
         detector.reset()
 
@@ -444,9 +429,7 @@ def main():
     detection_algorithm = normalize_detector_algorithm(
         getattr(config, 'DETECTION_ALGORITHM', 'classic')
     )
-    initial_threshold = getattr(config, 'SEG_THRESHOLD', 1.0)
-
-    detector = create_detector(detection_algorithm, initial_threshold)
+    detector = create_detector(detection_algorithm)
     print_heap('after_detector_init')
     
     # Initialize and start traffic generator (rate is static from config.py)

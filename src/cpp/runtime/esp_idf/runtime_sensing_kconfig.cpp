@@ -21,18 +21,6 @@
 #ifndef CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML
 #define CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML 0
 #endif
-#ifndef CONFIG_ESPECTRE_THRESHOLD_MODE_AUTO
-#define CONFIG_ESPECTRE_THRESHOLD_MODE_AUTO 1
-#endif
-#ifndef CONFIG_ESPECTRE_THRESHOLD_MODE_MIN
-#define CONFIG_ESPECTRE_THRESHOLD_MODE_MIN 0
-#endif
-#ifndef CONFIG_ESPECTRE_THRESHOLD_MODE_MANUAL
-#define CONFIG_ESPECTRE_THRESHOLD_MODE_MANUAL 0
-#endif
-#ifndef CONFIG_ESPECTRE_SEGMENTATION_THRESHOLD_MANUAL
-#define CONFIG_ESPECTRE_SEGMENTATION_THRESHOLD_MANUAL "1.0"
-#endif
 #ifndef CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE
 #define CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE 100
 #endif
@@ -110,23 +98,7 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
   config.detection_algorithm = DetectionAlgorithm::CLASSIC;
 #endif
 
-#if CONFIG_ESPECTRE_THRESHOLD_MODE_MANUAL
-  config.threshold_mode = ThresholdMode::MANUAL;
-#elif CONFIG_ESPECTRE_THRESHOLD_MODE_MIN
-  config.threshold_mode = ThresholdMode::MIN;
-#else
-  config.threshold_mode = ThresholdMode::AUTO;
-#endif
-
-  config.segmentation_threshold =
-      parse_float_or_default_(CONFIG_ESPECTRE_SEGMENTATION_THRESHOLD_MANUAL,
-                              RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT,
-                              RUNTIME_THRESHOLD_MIN,
-                              runtime_threshold_max(config.detection_algorithm),
-                              "CONFIG_ESPECTRE_SEGMENTATION_THRESHOLD_MANUAL");
-  if (config.threshold_mode != ThresholdMode::MANUAL) {
-    config.segmentation_threshold = runtime_default_threshold(config.detection_algorithm);
-  }
+  config.segmentation_threshold = runtime_default_threshold(config.detection_algorithm);
 
   config.segmentation_window_size = static_cast<uint16_t>(CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE);
   config.traffic_generator_rate = static_cast<uint32_t>(CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE);

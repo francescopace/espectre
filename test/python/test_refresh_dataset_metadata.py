@@ -74,3 +74,4 @@ def test_refresh_metadata_writes_pair_fields():
         }
     ]
     assert empty_entry["filename"] == "empty_s3_64sc_dev1_20260704_100000_0001.npz"
+    assert refreshed["updated_at"] == "2026-07-04T00:00:00"

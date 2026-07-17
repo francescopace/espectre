@@ -159,19 +159,12 @@ def _resolve_entry_path(label: str, entry: Dict[str, Any]) -> Path:
     return DATA_DIR / str(label) / str(filename)
 
 
-def _threshold_mode_from_config() -> str:
-    """Return the shared startup-threshold mode used by the repo config."""
-    return str(config.SEG_THRESHOLD) if isinstance(config.SEG_THRESHOLD, str) else "auto"
-
-
 def estimate_runtime_threshold(
     packets: Iterable[Dict[str, Any]],
     *,
-    threshold_mode: Optional[str] = None,
     selected_subcarriers: Optional[Iterable[int]] = None,
 ) -> Optional[float]:
     """Replay the classic startup calibration and return a production-aligned threshold."""
-    selected_mode = _threshold_mode_from_config() if threshold_mode is None else str(threshold_mode)
     detector = ClassicDetector(
         window_size=config.SEG_WINDOW_SIZE,
         threshold=1.0,
@@ -205,29 +198,36 @@ def estimate_runtime_threshold(
             break
     if not calibrator.is_successful():
         return None
-    threshold, _ = calibrator.calculate_threshold(selected_mode)
-    return float(threshold)
+    threshold, _ = calibrator.calculate_threshold()
+    detector.set_adaptive_threshold(float(threshold))
+    return float(detector.get_threshold())
 
 
 def build_calibrated_classic_detector(
     packets: Iterable[Dict[str, Any]],
     *,
-    threshold_mode: Optional[str] = None,
     selected_subcarriers: Optional[Iterable[int]] = None,
     threshold: float = 1.0,
+    enable_hampel: Optional[bool] = None,
 ) -> Optional[Tuple[ClassicDetector, float]]:
     """
     Return a ClassicDetector calibrated exactly like the production startup flow.
 
     The returned detector has its detector-specific startup threshold applied.
+    ``enable_hampel`` defaults to the runtime configuration and is exposed so
+    tests can exercise both branches without mutating global configuration.
     """
-    selected_mode = _threshold_mode_from_config() if threshold_mode is None else str(threshold_mode)
+    hampel_enabled = (
+        config.ENABLE_HAMPEL_FILTER
+        if enable_hampel is None
+        else bool(enable_hampel)
+    )
     detector = ClassicDetector(
         window_size=config.SEG_WINDOW_SIZE,
         threshold=threshold,
         enable_lowpass=config.ENABLE_LOWPASS_FILTER,
         lowpass_cutoff=config.LOWPASS_CUTOFF,
-        enable_hampel=config.ENABLE_HAMPEL_FILTER,
+        enable_hampel=hampel_enabled,
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
     )
@@ -254,7 +254,7 @@ def build_calibrated_classic_detector(
             break
     if not calibrator.is_successful():
         return None
-    startup_threshold, _ = calibrator.calculate_threshold(selected_mode)
+    startup_threshold, _ = calibrator.calculate_threshold()
     detector.set_adaptive_threshold(float(startup_threshold))
     applied_threshold = detector.get_threshold()
     detector.reset()

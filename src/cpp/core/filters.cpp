@@ -125,7 +125,7 @@ float hampel_filter(const float *window, size_t window_size,
     float mad_scaled = MAD_SCALE_FACTOR * mad;
     float deviation = std::abs(current_value - median);
     
-    if (deviation > threshold * mad_scaled) {
+    if (mad > 1e-6f && deviation > threshold * mad_scaled) {
         return median;
     }
     

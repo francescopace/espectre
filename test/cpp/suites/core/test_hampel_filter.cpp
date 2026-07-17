@@ -9,6 +9,7 @@
 #include "test_harness.h"
 #include <cmath>
 #include "filters.h"
+#include "l1_delta_tracker.h"
 #include "csi_format.h"
 #include "utils.h"
 #include "esphome/core/log.h"
@@ -166,7 +167,7 @@ void test_hampel_filter_with_small_window(void) {
 }
 
 void test_hampel_filter_detects_outlier(void) {
-    float window[] = {10.0f, 10.0f, 10.0f, 10.0f, 10.0f};
+    float window[] = {9.8f, 9.9f, 10.0f, 10.1f, 10.2f};
     
     // Extreme outlier
     float result = hampel_filter(window, 5, 100.0f, 3.0f);
@@ -183,6 +184,45 @@ void test_hampel_filter_passes_normal_value(void) {
     
     // Should pass through unchanged (within tolerance of median)
     TEST_ASSERT_FLOAT_WITHIN(1.0f, 10.5f, result);
+}
+
+void test_hampel_filter_zero_mad_matches_stateful_behavior(void) {
+    const float window[] = {10.0f, 10.0f, 10.0f, 10.0f, 10.0f};
+    TEST_ASSERT_EQUAL_FLOAT(100.0f, hampel_filter(window, 5, 100.0f, 3.0f));
+}
+
+void test_l1_delta_tracker_filters_outlier(void) {
+    L1DeltaTracker enabled;
+    L1DeltaTracker disabled;
+    enabled.configure(16U);
+    disabled.configure(16U);
+    enabled.configure_hampel(true, 5U, 3.0f);
+    disabled.configure_hampel(false, 5U, 3.0f);
+
+    const float baseline[] = {1.0f, 1.0f};
+    for (uint8_t i = 0U; i < L1_DELTA_LAG; i++) {
+        enabled.process(baseline, 2U);
+        disabled.process(baseline, 2U);
+    }
+
+    const float normal_deltas[] = {0.08f, 0.09f, 0.10f, 0.11f, 0.12f};
+    for (float delta : normal_deltas) {
+        const float profile[] = {1.0f + delta, 1.0f - delta};
+        enabled.process(profile, 2U);
+        disabled.process(profile, 2U);
+    }
+    const float outlier[] = {2.0f, 0.0f};
+    enabled.process(outlier, 2U);
+    disabled.process(outlier, 2U);
+
+    float enabled_series[16]{};
+    float disabled_series[16]{};
+    const uint16_t enabled_count = enabled.build_series(enabled_series);
+    const uint16_t disabled_count = disabled.build_series(disabled_series);
+    TEST_ASSERT_EQUAL(6U, enabled_count);
+    TEST_ASSERT_EQUAL(6U, disabled_count);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.11f, enabled_series[enabled_count - 1U]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, disabled_series[disabled_count - 1U]);
 }
 
 // ============================================================================
@@ -397,6 +437,8 @@ int process(void) {
     RUN_TEST(test_hampel_filter_with_small_window);
     RUN_TEST(test_hampel_filter_detects_outlier);
     RUN_TEST(test_hampel_filter_passes_normal_value);
+    RUN_TEST(test_hampel_filter_zero_mad_matches_stateful_behavior);
+    RUN_TEST(test_l1_delta_tracker_filters_outlier);
     
     // Edge cases
     RUN_TEST(test_hampel_with_all_same_values);

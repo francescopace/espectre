@@ -6,7 +6,7 @@
  * Algorithm:
  * 1. Calculate spatial turbulence per packet using CV normalization
  *    (`std/mean`)
- * 2. Apply optional Hampel filter to remove outliers
+ * 2. Apply optional Hampel filtering to turbulence and L1-delta streams
  * 3. Apply optional low-pass filter for noise reduction
  * 4. Extract statistical features from turbulence buffer
  * 5. Run MLP inference using exported architecture metadata
@@ -72,6 +72,10 @@ public:
     bool set_threshold(float threshold) override;
     float get_threshold() const override { return threshold_; }
     const char* get_name() const override { return "ML"; }
+    void configure_hampel(
+        bool enabled,
+        uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
+        float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT) override;
 
 private:
     /**

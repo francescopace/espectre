@@ -144,7 +144,7 @@ public:
     virtual const char* get_name() const = 0;
 
     /**
-     * Get the detector-specific startup multiplier for AUTO threshold mode
+     * Get the detector-specific automatic startup multiplier.
      *
      * threshold = threshold_metric x factor. Matches the Python
      * runtime's detector STARTUP_THRESHOLD_FACTOR convention, where

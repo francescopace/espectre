@@ -363,7 +363,7 @@ class EspectreMQTTShell:
 <ansibrightcyan><b>ESPectre MQTT Shell Commands</b></ansibrightcyan>
 
 <ansiyellow><b>Configuration Commands:</b></ansiyellow>
-  <ansigreen>set_threshold|st</ansigreen> &lt;val&gt;               Set segmentation threshold (0.5-10.0)
+  <ansigreen>set_threshold|st</ansigreen> &lt;val&gt;               Set session threshold (0.0-1.0)
 
 <ansiyellow><b>System Commands:</b></ansiyellow>
   <ansigreen>info|i</ansigreen>                              Show current configuration

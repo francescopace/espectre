@@ -4,11 +4,8 @@
  * Calculates adaptive threshold from calibration baseline values.
  * Called after calibration to compute the detection threshold.
  *
- * Startup-threshold formula: threshold = threshold_metric x factor
- *
- * Modes:
- * - "auto": threshold_metric x detector_auto_factor
- * - "min": threshold_metric x 1.0 (maximum sensitivity, may have FP)
+ * Startup threshold calibration is automatic. Detectors may apply their own
+ * session adaptation to the shared calibration metric.
  *
  * The default Classic path is motion-first with an internal quiet-first
  * fallback. Successful motion-first calibration can finish before the nominal
@@ -63,7 +60,7 @@ inline float clamp_threshold(float threshold, float min_threshold, float max_thr
     return threshold;
 }
 
-// Multiplier for "auto" mode threshold (reduces false positives)
+// Default startup multiplier for detectors that use the shared metric.
 constexpr float DEFAULT_ADAPTIVE_FACTOR = 1.3f;
 
 // Startup calibration consistency gate (benchmark-tuned on the paired
@@ -84,30 +81,6 @@ constexpr uint16_t STARTUP_FLOOR_SIZE = 1000;
 constexpr uint16_t STARTUP_FLOOR_MIN = 300;
 constexpr float STARTUP_FLOOR_DISPERSION_CUT = 4.0f;
 constexpr uint8_t STARTUP_MOTION_MAX_LEVELS = 40;
-
-/**
- * Threshold mode enumeration
- */
-enum class ThresholdMode {
-  AUTO,    // threshold_metric x detector factor
-  MIN,     // threshold_metric x 1.0 (maximum sensitivity)
-  MANUAL   // User-specified fixed value (no adaptive calculation)
-};
-
-
-/**
- * Get threshold multiplier from mode
- *
- * @param mode Threshold mode (AUTO or MIN)
- * @param auto_factor Detector-specific AUTO multiplier (default: 1.3)
- * @return multiplier value (auto_factor for AUTO, 1.0 for MIN)
- */
-inline float get_threshold_factor(ThresholdMode mode, float auto_factor = DEFAULT_ADAPTIVE_FACTOR) {
-  if (mode == ThresholdMode::AUTO) {
-    return auto_factor;
-  }
-  return 1.0f;  // MIN: no multiplier
-}
 
 /**
  * Startup threshold calibrator with a motion-first primary path and an

@@ -517,7 +517,6 @@ def _run_live_collect(args) -> None:
     base_window_packets = max(1, int(getattr(config, "SEG_WINDOW_SIZE", 100)))
     effective_window_packets = max(1, int(round(initial_pacing_pps)))
     effective_evaluation_interval = max(1, effective_window_packets // 4)
-    raw_threshold_setting = getattr(config, "SEG_THRESHOLD", ML_DEFAULT_THRESHOLD)
     base_calibration_target_packets = max(
         1,
         int(getattr(config, "CALIBRATION_BUFFER_SIZE", base_window_packets * 10)),
@@ -527,11 +526,7 @@ def _run_live_collect(args) -> None:
     summary_evaluation_interval = effective_evaluation_interval
 
     def get_initial_threshold(kind):
-        if isinstance(raw_threshold_setting, (int, float)):
-            return float(raw_threshold_setting)
-        if kind == "ml":
-            return ML_DEFAULT_THRESHOLD
-        return 1.0
+        return ML_DEFAULT_THRESHOLD if kind == "ml" else 1.0
 
     def get_detector_threshold(detector, fallback=1.0):
         if hasattr(detector, "get_threshold"):
@@ -853,25 +848,12 @@ def _run_live_collect(args) -> None:
             detector.reset()
 
         if calibration_tracker is not None and calibration_tracker.is_successful():
-            if isinstance(raw_threshold_setting, str):
-                startup_threshold, threshold_formula = calibration_tracker.calculate_threshold(raw_threshold_setting)
-                if hasattr(calibration_tracker, "get_floor_snapshot") and hasattr(detector, "apply_startup_floor"):
-                    floor_value, vote_enabled, sample_count = calibration_tracker.get_floor_snapshot()
-                    detector.apply_startup_floor(floor_value, vote_enabled, sample_count)
-                if hasattr(detector, "set_adaptive_threshold"):
-                    detector.set_adaptive_threshold(startup_threshold)
-                elif hasattr(detector, "set_threshold"):
-                    detector.set_threshold(startup_threshold)
-                slot["calibration_threshold_source"] = f"{raw_threshold_setting} ({threshold_formula})"
-            else:
-                startup_threshold, _ = calibration_tracker.calculate_threshold("auto")
-                if hasattr(calibration_tracker, "get_floor_snapshot") and hasattr(detector, "apply_startup_floor"):
-                    floor_value, vote_enabled, sample_count = calibration_tracker.get_floor_snapshot()
-                    detector.apply_startup_floor(floor_value, vote_enabled, sample_count)
-                if hasattr(detector, "set_adaptive_threshold"):
-                    detector.set_adaptive_threshold(startup_threshold)
-                detector.set_threshold(float(raw_threshold_setting))
-                slot["calibration_threshold_source"] = "manual"
+            startup_threshold, threshold_formula = calibration_tracker.calculate_threshold()
+            if hasattr(detector, "set_adaptive_threshold"):
+                detector.set_adaptive_threshold(startup_threshold)
+            elif hasattr(detector, "set_threshold"):
+                detector.set_threshold(startup_threshold)
+            slot["calibration_threshold_source"] = f"automatic ({threshold_formula})"
             slot["calibration_success"] = True
         else:
             slot["calibration_success"] = False
@@ -1200,8 +1182,7 @@ def _run_live_collect(args) -> None:
         ml_suffix = " (ml, fixed)" if len(detector_kinds) > 1 else ""
         print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {get_initial_threshold('ml'):.2f}{ml_suffix}")
     if calibrated_kinds:
-        threshold_text = raw_threshold_setting if isinstance(raw_threshold_setting, str) else f"{float(raw_threshold_setting):.4f}"
-        print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {threshold_text} (after startup calibration)")
+        print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} automatic (after startup calibration)")
     print(
         f"  {Fore.CYAN}Pps:{Style.RESET_ALL}       {pacing_pps:g}pps "
         f"({'adaptive' if adaptive_enabled else 'fixed'})"

@@ -140,23 +140,23 @@ Key config values live in `config.py`:
 
 ```python
 DETECTION_ALGORITHM = "classic"  # "classic" or "ml"
-SEG_THRESHOLD = "auto"       # "auto", "min", or a manual 0.0-1.0 probability
 SEG_WINDOW_SIZE = 100
 EVALUATION_INTERVAL = 25
 MOTION_ON_HITS = 3
 MOTION_OFF_HITS = 3
 ```
 
-In `classic`, `SEG_THRESHOLD = "auto"` selects the shared startup threshold
-calibration; keep the room quiet immediately after boot. For the practical
+Classic selects its threshold automatically during startup calibration; keep
+the room quiet immediately after boot. ML uses its trained default threshold.
+Both thresholds remain adjustable at runtime. For the practical
 startup workflow, see [TUNING.md](../../../docs/TUNING.md). For the
 calibration formulas and detector theory, see
 [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 
 ### Filters
 
-Both detector paths support the same lightweight filters. In Classic, the
-single Hampel switch controls both the L1-delta and turbulence streams:
+Both detector paths support the same lightweight filters. In Classic and ML,
+the single Hampel switch controls both the L1-delta and turbulence streams:
 
 ```python
 ENABLE_HAMPEL_FILTER = True

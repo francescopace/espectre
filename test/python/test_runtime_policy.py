@@ -22,6 +22,17 @@ class TestRuntimeMotionPolicy:
         policy.note_packet()
         assert policy.should_evaluate()
 
+    def test_note_evaluation_tick_resets_cadence(self):
+        policy = RuntimeMotionPolicy(evaluation_interval=3, motion_on_hits=1, motion_off_hits=1)
+
+        assert not policy.note_evaluation_tick()
+        assert not policy.note_evaluation_tick()
+        assert policy.note_evaluation_tick()
+        assert policy.packets_since_evaluation == 0
+        assert not policy.note_evaluation_tick()
+        assert not policy.note_evaluation_tick()
+        assert policy.note_evaluation_tick()
+
     def test_publish_forces_evaluation(self):
         policy = RuntimeMotionPolicy(evaluation_interval=25, motion_on_hits=3, motion_off_hits=3)
         policy.note_packet()

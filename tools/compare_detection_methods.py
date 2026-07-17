@@ -35,11 +35,13 @@ from tools.lib.dataset_metadata import (
 )
 from tools.lib.ui import show_plot_window
 from config import (
-    SEG_WINDOW_SIZE, SEG_THRESHOLD,
+    SEG_WINDOW_SIZE,
     ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
     ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF,
-    DEFAULT_SUBCARRIERS
+    DEFAULT_SUBCARRIERS,
+    EVALUATION_INTERVAL,
 )
+from runtime_policy import make_evaluation_cadence
 from filters import HampelFilter, LowPassFilter
 from threshold import DEFAULT_ADAPTIVE_FACTOR, calculate_startup_threshold_from_max
 from classic_detector import ClassicDetector
@@ -56,10 +58,7 @@ except ImportError:
 
 # Configuration
 WINDOW_SIZE = SEG_WINDOW_SIZE
-THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else float(SEG_THRESHOLD)
-
-# Threshold mode config aligned with the shared micro_espectre startup path.
-THRESHOLD_MODE = SEG_THRESHOLD if isinstance(SEG_THRESHOLD, str) else "auto"
+THRESHOLD = 1.0
 
 
 def _extract_motion_start_from_description(description):
@@ -187,14 +186,13 @@ def calculate_rssi(csi_packet):
     return np.mean(amplitudes)
 
 
-def calculate_adaptive_threshold(values, threshold_mode=None, auto_factor=DEFAULT_ADAPTIVE_FACTOR):
+def calculate_adaptive_threshold(values, auto_factor=DEFAULT_ADAPTIVE_FACTOR):
     """Calculate threshold with the shared startup-threshold policy."""
     if len(values) == 0:
         return 1.0
-    selected_mode = THRESHOLD_MODE if threshold_mode is None else threshold_mode
     max_value = float(np.max(np.asarray(values, dtype=float)))
     threshold, _formula = calculate_startup_threshold_from_max(
-        max_value, selected_mode, auto_factor=auto_factor
+        max_value, auto_factor=auto_factor
     )
     return float(threshold)
 
@@ -253,12 +251,15 @@ class ClassicDetectorAdapter:
             hampel_threshold=HAMPEL_THRESHOLD,
         )
         self._track_data = bool(track_data)
+        self._cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
         self.metric_history = []
         self.state_history = []
 
     def process_packet(self, packet):
         csi_data = packet['csi_data'] if isinstance(packet, dict) else packet
         self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
+        if not self._cadence.note_evaluation_tick():
+            return
         state = self._detector.update_state()
         if self._track_data:
             self.metric_history.append(float(state.get('motion_metric', 0.0)))
@@ -266,6 +267,7 @@ class ClassicDetectorAdapter:
 
     def reset(self):
         self._detector.reset()
+        self._cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
         self.metric_history = []
         self.state_history = []
 
@@ -284,12 +286,15 @@ class MLDetectorAdapter:
             hampel_threshold=HAMPEL_THRESHOLD,
         )
         self._detector.track_data = track_data
+        self._cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
         self.probability_history = self._detector.probability_history
         self.state_history = self._detector.state_history
 
     def process_packet(self, packet):
         csi_data = packet['csi_data'] if isinstance(packet, dict) else packet
         self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
+        if not self._cadence.note_evaluation_tick():
+            return
         self._detector.update_state()
         self.probability_history = self._detector.probability_history
         self.state_history = self._detector.state_history
@@ -299,6 +304,7 @@ class MLDetectorAdapter:
 
     def reset(self):
         self._detector.reset()
+        self._cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
         self.probability_history = self._detector.probability_history
         self.state_history = self._detector.state_history
 
@@ -665,7 +671,7 @@ def run_all_chips():
         classic_precision = classic_tp / (classic_tp + classic_fp) * 100 if (classic_tp + classic_fp) > 0 else 0
         classic_f1 = 2 * classic_precision * classic_recall / (classic_precision + classic_recall) if (classic_precision + classic_recall) > 0 else 0
         
-        # ML metrics from fixed-threshold evaluation path
+        # ML metrics from the trained-default threshold evaluation path
         if ml_baseline and ml_movement:
             ml_res = result_by_name.get('ML', {'fp': 0, 'tp': 0})
             ml_fp = ml_res['fp']

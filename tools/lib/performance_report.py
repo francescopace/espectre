@@ -33,7 +33,7 @@ from config import (
 )
 from detector_interface import MotionState
 from features import FEATURE_NAMES as RUNTIME_FEATURE_NAMES
-from runtime_policy import RuntimeMotionPolicy
+from runtime_policy import RuntimeMotionPolicy, make_evaluation_cadence as _make_evaluation_cadence
 from tools.lib.csi_io import load_npz_as_packets, load_npz_csi_data
 
 
@@ -46,6 +46,16 @@ KEY_RUNTIME_FEATURE_GATES = {
     "l1_delta_std": 0.5,
     "l1_delta_waveform_length": 0.5,
 }
+
+
+def make_evaluation_cadence(evaluation_interval: int = EVALUATION_INTERVAL) -> RuntimeMotionPolicy:
+    """Return a runtime policy used only for evaluation-interval cadence."""
+    return _make_evaluation_cadence(evaluation_interval)
+
+
+def note_evaluation_tick(cadence: RuntimeMotionPolicy) -> bool:
+    """Record one packet and return True when a deploy-time evaluation is due."""
+    return cadence.note_evaluation_tick()
 
 
 def evaluate_idle_runtime_policy(raw_motion_states: Sequence[bool]) -> Dict[str, int]:
@@ -232,23 +242,36 @@ def evaluate_detector_packets(
     static_presence_packets: Sequence[dict[str, Any]],
     motion_packets: Sequence[dict[str, Any]],
     selected_band: Sequence[int],
+    warmup: int = DETECTOR_DEFAULT_WINDOW_SIZE,
 ) -> Dict[str, float]:
-    """Replay one baseline/motion pair through a detector."""
-    num_baseline = len(static_presence_packets)
-    num_movement = len(motion_packets)
-
+    """Replay one baseline/motion pair at the production evaluation cadence."""
+    warmup = max(0, int(warmup))
+    baseline_eval_count = 0
+    movement_eval_count = 0
     static_presence_motion_packets = 0
-    for pkt in static_presence_packets:
+    cadence = make_evaluation_cadence()
+    for i, pkt in enumerate(static_presence_packets):
         detector.process_packet(pkt["csi_data"], selected_band)
+        if not note_evaluation_tick(cadence):
+            continue
         detector.update_state()
+        if i < warmup:
+            continue
+        baseline_eval_count += 1
         if detector.get_state() == MotionState.MOTION:
             static_presence_motion_packets += 1
 
     motion_with_motion = 0
     motion_without_motion = 0
-    for pkt in motion_packets:
+    cadence = make_evaluation_cadence()
+    for i, pkt in enumerate(motion_packets):
         detector.process_packet(pkt["csi_data"], selected_band)
+        if not note_evaluation_tick(cadence):
+            continue
         detector.update_state()
+        if i < warmup:
+            continue
+        movement_eval_count += 1
         if detector.get_state() == MotionState.MOTION:
             motion_with_motion += 1
         else:
@@ -256,11 +279,13 @@ def evaluate_detector_packets(
 
     pkt_tp = motion_with_motion
     pkt_fn = motion_without_motion
-    pkt_tn = num_baseline - static_presence_motion_packets
+    pkt_tn = max(baseline_eval_count - static_presence_motion_packets, 0)
     pkt_fp = static_presence_motion_packets
     pkt_recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0.0
     pkt_precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0.0
-    pkt_fp_rate = pkt_fp / num_baseline * 100.0 if num_baseline > 0 else 0.0
+    pkt_fp_rate = (
+        pkt_fp / baseline_eval_count * 100.0 if baseline_eval_count > 0 else 0.0
+    )
     pkt_f1 = (
         2 * (pkt_precision / 100.0) * (pkt_recall / 100.0) / ((pkt_precision + pkt_recall) / 100.0) * 100.0
         if (pkt_precision + pkt_recall) > 0
@@ -275,8 +300,8 @@ def evaluate_detector_packets(
         "precision": pkt_precision,
         "fp_rate": pkt_fp_rate,
         "f1": pkt_f1,
-        "num_baseline": num_baseline,
-        "num_movement": num_movement,
+        "num_baseline": baseline_eval_count,
+        "num_movement": movement_eval_count,
     }
 
 
@@ -305,6 +330,7 @@ def compute_classic_dataset_result(
         static_presence_packets,
         motion_packets,
         selected_band,
+        warmup=window_size,
     )
     return adaptive_threshold, metrics
 
@@ -336,50 +362,57 @@ def compute_ml_dataset_result(
     static_series = {feature_name: [] for feature_name in feature_names}
     motion_series = {feature_name: [] for feature_name in feature_names}
 
-    num_baseline = len(static_presence_packets)
-    num_movement = len(motion_packets)
     warmup = window_size
     static_presence_motion_packets = 0
-    static_presence_eval_count = max(num_baseline - warmup, 0)
+    static_presence_eval_count = 0
 
+    cadence = make_evaluation_cadence()
     for i, pkt in enumerate(static_presence_packets):
         detector.process_packet(pkt["csi_data"], selected_subcarriers)
-        if not detector.is_ready():
+        if not note_evaluation_tick(cadence):
+            continue
+        if not detector.is_ready() or i < warmup:
             continue
 
         values = detector._extract_features()
         probability = predict(values)
         current_state = MotionState.MOTION if probability > threshold else MotionState.IDLE
-        if i >= warmup and feature_indices:
+        static_presence_eval_count += 1
+        if feature_indices:
             for feature_name, feature_idx in feature_indices.items():
                 value = float(values[feature_idx])
                 if np.isfinite(value):
                     static_series[feature_name].append(value)
-        if i >= warmup and current_state == MotionState.MOTION:
+        if current_state == MotionState.MOTION:
             static_presence_motion_packets += 1
 
     motion_with_motion = 0
     motion_without_motion = 0
-    motion_eval_count = max(num_movement - warmup, 0)
+    motion_eval_count = 0
+    cadence = make_evaluation_cadence()
     for i, pkt in enumerate(motion_packets):
         detector.process_packet(pkt["csi_data"], selected_subcarriers)
+        if not note_evaluation_tick(cadence):
+            continue
+        if i < warmup or not detector.is_ready():
+            continue
         values = detector._extract_features()
         probability = predict(values)
         current_state = MotionState.MOTION if probability > threshold else MotionState.IDLE
-        if i >= warmup:
-            if feature_indices:
-                for feature_name, feature_idx in feature_indices.items():
-                    value = float(values[feature_idx])
-                    if np.isfinite(value):
-                        motion_series[feature_name].append(value)
-            if current_state == MotionState.MOTION:
-                motion_with_motion += 1
-            else:
-                motion_without_motion += 1
+        motion_eval_count += 1
+        if feature_indices:
+            for feature_name, feature_idx in feature_indices.items():
+                value = float(values[feature_idx])
+                if np.isfinite(value):
+                    motion_series[feature_name].append(value)
+        if current_state == MotionState.MOTION:
+            motion_with_motion += 1
+        else:
+            motion_without_motion += 1
 
     pkt_tp = motion_with_motion
     pkt_fn = motion_without_motion
-    pkt_tn = static_presence_eval_count - static_presence_motion_packets if static_presence_eval_count > 0 else 0
+    pkt_tn = max(static_presence_eval_count - static_presence_motion_packets, 0)
     pkt_fp = static_presence_motion_packets
     pkt_recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0.0
     pkt_precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0.0
@@ -422,12 +455,18 @@ def compute_ml_empty_fp_result(
     packets = load_empty_room_packets(empty_dataset_path)
     detector = MLDetector(window_size=window_size, threshold=threshold)
 
-    eval_count = max(len(packets) - window_size, 0)
+    eval_count = 0
     motion_packets = 0
+    cadence = make_evaluation_cadence()
     for i, pkt in enumerate(packets):
         detector.process_packet(pkt["csi_data"], selected_subcarriers)
+        if not note_evaluation_tick(cadence):
+            continue
         detector.update_state()
-        if i >= window_size and detector.get_state() == MotionState.MOTION:
+        if i < window_size:
+            continue
+        eval_count += 1
+        if detector.get_state() == MotionState.MOTION:
             motion_packets += 1
 
     fp_rate = motion_packets / eval_count * 100.0 if eval_count > 0 else 0.0
@@ -581,14 +620,12 @@ def evaluate_ml_long_recording(
     movement_with_motion = 0
     movement_without_motion = 0
 
-    packets_since_evaluation = 0
+    cadence = make_evaluation_cadence()
     for i, pkt in enumerate(baseline_packets):
         detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
-        packets_since_evaluation += 1
-        if packets_since_evaluation < EVALUATION_INTERVAL:
+        if not note_evaluation_tick(cadence):
             continue
         detector.update_state()
-        packets_since_evaluation = 0
         if i >= warmup:
             baseline_eval_count += 1
         if i >= warmup and detector.get_state() == MotionState.MOTION:
@@ -596,13 +633,12 @@ def evaluate_ml_long_recording(
         if i >= warmup:
             baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
 
+    cadence = make_evaluation_cadence()
     for i, pkt in enumerate(movement_packets):
         detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
-        packets_since_evaluation += 1
-        if packets_since_evaluation < EVALUATION_INTERVAL:
+        if not note_evaluation_tick(cadence):
             continue
         detector.update_state()
-        packets_since_evaluation = 0
         if i >= warmup:
             movement_eval_count += 1
             if detector.get_state() == MotionState.MOTION:
@@ -660,14 +696,12 @@ def evaluate_classic_long_recording(
 
     baseline_motion_states = []
 
-    packets_since_evaluation = 0
+    cadence = make_evaluation_cadence()
     for i, pkt in enumerate(baseline_packets):
         detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
-        packets_since_evaluation += 1
-        if packets_since_evaluation < EVALUATION_INTERVAL:
+        if not note_evaluation_tick(cadence):
             continue
         detector.update_state()
-        packets_since_evaluation = 0
         if i >= warmup:
             baseline_eval_count += 1
         if i >= warmup and detector.get_state() == MotionState.MOTION:
@@ -675,13 +709,12 @@ def evaluate_classic_long_recording(
         if i >= warmup:
             baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
 
+    cadence = make_evaluation_cadence()
     for i, pkt in enumerate(movement_packets):
         detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
-        packets_since_evaluation += 1
-        if packets_since_evaluation < EVALUATION_INTERVAL:
+        if not note_evaluation_tick(cadence):
             continue
         detector.update_state()
-        packets_since_evaluation = 0
         if i >= warmup:
             movement_eval_count += 1
             if detector.get_state() == MotionState.MOTION:
@@ -881,7 +914,13 @@ def render_performance_report_markdown(
             "C++ integration suites stay aligned with the published Python replay metrics."
         ),
         "",
-        "- **Classic Detector**: Uses a vote-free weighted fusion of L1-Delta and turbulence autocorrelation.",
+        (
+            "Paired and long-quiet host replays sample detector state at the production "
+            "`evaluation_interval` cadence. Long Quiet Effective Alarms also apply "
+            "consecutive-hit filtering."
+        ),
+        "",
+        "- **Classic Detector**: Uses weighted fusion of L1-Delta and turbulence autocorrelation.",
         "- **ML Detector**: Uses a pretrained neural network model based on turbulence and spectral features.",
         "",
         "See [ALGORITHMS.md](../ALGORITHMS.md) for the full detector design.",
@@ -954,12 +993,9 @@ def render_performance_report_markdown(
         "",
         "## Long Quiet Real-Data Validation",
         "",
-        "Long-recording detector states are sampled at the deploy runtime cadence: "
-        f"one evaluation every {EVALUATION_INTERVAL} packets. Effective Alarms and "
-        "False Motion Evals then apply "
-        f"{MOTION_ON_HITS} consecutive hits to enter MOTION, and {MOTION_OFF_HITS} to leave it. "
-        "They count triggered alarms and evaluations spent in a false MOTION state across "
-        "all quiet recordings per chip.",
+        "Effective Alarms count each false MOTION transition on quiet recordings, "
+        "after the same consecutive-hit filtering used at deploy time. "
+        "False Motion Evals count how many evaluations stay in that false MOTION state.",
         "",
         "### Classic Detector",
         "",

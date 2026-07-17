@@ -19,6 +19,16 @@ pip install -r requirements-ml.txt
 The main repository workflow and the ML training stack both target
 Python `3.14`.
 
+Before training, refresh and admit the corpus:
+
+```bash
+python tools/validate_dataset_quality.py
+```
+
+That command updates pair metadata when needed, writes
+`data/auto_generated/DATASET_QUALITY_CHECK.md`, and fails only on admission
+checks. Classic indicative scores are review-only.
+
 ## Basic Training Workflow
 
 Run the default trainer:
@@ -27,13 +37,10 @@ Run the default trainer:
 python tools/train_ml_model.py
 ```
 
-This evaluates grouped CV, trains the final candidate in memory, and runs the
-paired and long-recording gates. It does not replace runtime artifacts. Export
-the same configuration only with an explicit promotion:
-
-```bash
-python tools/train_ml_model.py --promote
-```
+This evaluates grouped CV, trains the final candidate, runs the paired gate,
+and exports runtime artifacts when that gate passes and does not regress
+against the current baseline. Use `--no-export` to evaluate without replacing
+artifacts.
 
 Useful variants:
 
@@ -81,8 +88,8 @@ balanced, blocked windows from the held-out partition. Supplying `--seed` makes
 training, sampling, and permutation SHAP reproducible. Use `--no-export` for
 diagnostic runs so the current runtime artifacts remain unchanged.
 `--ablation-feature` compares Core-6 against one feature removal using the same
-seed, grouped CV, paired validation, and all curated long recordings. It also
-leaves the exported runtime artifacts unchanged.
+seed, grouped CV, and paired validation. It also leaves the exported runtime
+artifacts unchanged.
 The broader `--ablation` command remains a CV-only screening tool; do not use
 its ranking for feature promotion until the finalist passes
 `--ablation-feature`.
@@ -103,15 +110,14 @@ Current default training settings:
 - `--scaler standard`
 - `--batch-size 1024`
 - `--device cpu`
-- `--sample-weight-mode none`
 
 Values above `1.0` for `--fp-weight` reduce false positives at the cost of
 slightly lower recall.
 
 CUDA and Apple MPS are available only when requested explicitly through
 `--device cuda` or `--device mps`; this small MLP usually runs fastest and most
-predictably on CPU. The trainer caches the derived feature matrix and base
-sample weights for repeat runs; use `--no-cache` to force a rebuild.
+predictably on CPU. The trainer caches the derived feature matrix for repeat
+runs; use `--no-cache` to force a rebuild.
 
 ## What The Trainer Does
 
@@ -120,25 +126,23 @@ The training pipeline:
 1. Loads all `.npz` files from `data/` for `empty`, `static_presence`, and
    `motion`.
 2. Uses the shared CV-normalized turbulence path (`std/mean`) across all files.
-3. Applies the selected sample-weight policy. The default production retrain
-   uses `none` so the first clean AGC-active baseline does not inherit
-   support-detector threshold bias.
-4. Extracts the selected ML feature set per sliding window. The production
-   default is the Core-6 set.
-5. Runs grouped cross-validation by paired capture/session, with blocked
+3. Extracts the selected ML feature set per sliding window. The production
+   default is the Core-6 set. When Hampel is enabled, the trainer filters both
+   base streams before feature extraction: turbulence for all `turb_*`
+   features and per-packet L1 deltas for all `l1_delta*` features.
+4. Runs grouped cross-validation by paired capture/session, with blocked
    scoring to reduce overlap optimism.
-6. Optionally computes balanced SHAP explanations on the held-out blocked
+5. Optionally computes balanced SHAP explanations on the held-out blocked
    windows from each fold.
-7. Reports worst-group metrics for session, chip, environment, and source file.
-8. Trains the selected MLP architecture with PyTorch, early stopping, and dropout.
-9. Evaluates the in-memory candidate on paired captures and curated long recordings.
-10. Exports Python and C++ runtime artifacts plus a regression dataset only
-    when promotion is explicitly requested.
+6. Reports worst-group metrics for session, chip, environment, and source file.
+7. Trains the selected MLP architecture with PyTorch, early stopping, and dropout.
+8. Evaluates the in-memory candidate on paired captures.
+9. Exports Python and C++ runtime artifacts plus a regression dataset unless
+   `--no-export` is set or the paired gate rejects the candidate.
 
-Support-detector-guided weighting is analysis-only until the clean AGC-active
-dataset is recollected and re-evaluated. The guided modes now score windows with
-the l1_delta runtime replay, which keeps a near-static quiet floor across
-AGC and RF-interference changes.
+Training uses uniform sample weights by default. Optional `--positive-chip-boost`
+can still reweight motion windows for specific chips. Detector-guided sample
+weighting was evaluated and rejected; see the related ADR.
 
 ## Exported Artifacts
 
@@ -153,36 +157,31 @@ generated weight files.
 
 `ml_test_data.npz` is an inference-regression artifact, not the main
 model-selection metric. Architecture, weighting, and scaler choices should
-treat grouped blocked CV as a diagnostic. Paired validation is a
-non-regression constraint, and deploy-like long recordings drive final model
-selection.
+treat grouped blocked CV as a diagnostic. Paired validation is the real-data
+promotion gate and ranking signal. Long-recording checks stay in the
+performance report and dedicated pytest suites.
 
 ## Promotion Guidance
 
-For production artifact promotion, prefer one of these gated flows instead of a
-plain export:
+For production artifact updates, prefer one of these gated flows:
 
-- `python tools/train_ml_model.py --promote`
+- `python tools/train_ml_model.py`
 - `python tools/train_ml_model.py --seed-search-until-improvement <N>`
 - `python tools/train_ml_model.py --experiment --experiment-promote`
 - `python tools/train_ml_model.py --experiment-fp-weights "..." --experiment-promote`
 
-A plain training run leaves artifacts unchanged. `--promote` is required for a
-normal export. It evaluates both the candidate and current exported arrays,
-then writes artifacts only when paired metrics do not regress and at least one
-long-recording cost improves without worsening the others.
-Experiment campaigns leave artifacts unchanged unless `--experiment-promote`
-is supplied. Seed search and experiment promotions confirm the selected
-artifacts with the full pytest verification before keeping them.
+A normal training run exports when the paired gate passes and does not regress
+against the exported baseline. Use `--no-export` to leave runtime artifacts
+unchanged. Experiment campaigns leave artifacts unchanged unless
+`--experiment-promote` is supplied. Seed search and experiment promotions
+confirm the selected artifacts with the paired gate before keeping them.
 
-The long gate also replays the production evaluation cadence and consecutive-hit
-policy. Candidate ranking is false-positive-first: effective IDLE-to-MOTION
-alarms, time spent in false MOTION measured in policy evaluations,
-worst-recording FP rate, and raw false positives precede recall, F1, and CV.
-Paired recall and FP are enforced as non-regression constraints. Raw metrics remain
-useful diagnostics, while policy metrics represent user-visible false alarms
-more directly. Event recall and detection latency require long recordings with
-an annotated motion start and are not inferred from quiet-only captures.
+Candidate ranking is paired-first: pass count, max FP rate, worst-chip recall,
+and worst-chip F1 precede grouped CV. Long-recording FP policy metrics remain
+useful in `generate_performance_report` and
+`test_validation_long_recordings.py`, but they do not block trainer promotion.
+Event recall and detection latency still require long recordings with an
+annotated motion start and are not inferred from quiet-only captures.
 
 For exploratory retrains, `--scaler clipped_standard`, alternate `--device`
 choices, `--no-cache`, and smaller `--batch-size` values are available, but

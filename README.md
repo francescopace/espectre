@@ -83,7 +83,7 @@ For shared prerequisites and supported targets, use [SETUP.md](docs/SETUP.md).
 For the repository CLI surface, use [CLI.md](docs/CLI.md).
 
 ![ESPectre Home Assistant dashboard](docs/images/espectre-home-assistant.png)
-*Home Assistant dashboard with motion state, movement score, threshold control, and diagnostics*
+*Home Assistant dashboard with motion state, movement score, detector selection, threshold control, and recalibration*
 
 ## Platform Architecture
 

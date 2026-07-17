@@ -7,7 +7,6 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-import importlib.util
 from pathlib import Path
 
 import pytest
@@ -16,7 +15,6 @@ from tools.lib.performance_report import (
     evaluate_classic_long_recording as _evaluate_classic_long_recording,
     evaluate_ml_long_recording as _evaluate_ml_long_recording,
 )
-from tools.lib.repo_paths import tools_dir
 
 from conftest import (
     DATA_DIR,
@@ -26,17 +24,6 @@ from conftest import (
     get_available_long_test_datasets,
     load_long_test_dataset,
 )
-
-
-TRAIN_ML_MODEL_PATH = tools_dir() / "train_ml_model.py"
-
-
-def _load_train_ml_model_module():
-    """Load the training script directly from the tools directory."""
-    spec = importlib.util.spec_from_file_location("train_ml_model_gate", TRAIN_ML_MODEL_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 class TestLongRecordings:
@@ -69,12 +56,7 @@ class TestLongRecordings:
 
     @pytest.mark.parametrize("long_dataset", build_long_test_params(), indirect=False)
     def test_ml_vs_test_recordings(self, long_dataset):
-        """
-        Evaluate the ML detector on the 60-second test recordings.
-
-        The output table is intentionally stable because train_ml_model.py
-        parses it during seed search.
-        """
+        """Evaluate the ML detector on the 60-second test recordings."""
         if long_dataset is None:
             pytest.skip("No long test recordings available in data/test")
 
@@ -163,7 +145,7 @@ class TestLongRecordingsClassic:
             assert len(movement_packets) > 0
         assert metrics["baseline_eval_count"] >= 0
         assert metrics["movement_eval_count"] >= 0
-        assert 0.0 <= metrics["adaptive_threshold"] <= 10.0
+        assert 0.0 <= metrics["adaptive_threshold"] <= 1.0
         assert 0.0 <= metrics["recall"] <= 100.0
         assert 0.0 <= metrics["precision"] <= 100.0
         assert 0.0 <= metrics["fp_rate"] <= 100.0
@@ -207,25 +189,3 @@ class TestLongRecordingHelpers:
         else:
             assert len(movement_packets) > 0
         assert str(entry.get("chip", "")).upper() == chip
-
-    def test_long_gate_output_parser_extracts_rows(self):
-        train_ml_model = _load_train_ml_model_module()
-        output = """
-===================================================================================
-                    LONG RECORDING ML SUMMARY (for seed search)
-===================================================================================
-| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count | Alarms | False Motion Evals |
-|--------|---------|-----------|---------|----------|----------|--------|--------------------|
-| C3     |   99.9% |     97.1% |    3.0% |    98.5% |       89 |      0 |                  0 |
-| C5     |   98.4% |     96.3% |    4.1% |    97.3% |      121 |      1 |                  4 |
-| C6     |   96.7% |     94.8% |    5.2% |    95.7% |      165 |      2 |                  9 |
------------------------------------------------------------------------------------
-"""
-        metrics = train_ml_model._parse_long_recording_metrics(output)
-        assert metrics is not None
-        assert metrics["pass_count"] == 2
-        assert metrics["total_fp"] == 375
-        assert metrics["total_effective_alarms"] == 3
-        assert metrics["total_false_motion_evaluations"] == 13
-        assert metrics["mean_f1"] == pytest.approx((98.5 + 97.3 + 95.7) / 3.0)
-        assert metrics["worst_chip_f1"] == pytest.approx(95.7)

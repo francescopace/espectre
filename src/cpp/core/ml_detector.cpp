@@ -44,6 +44,12 @@ MLDetector::MLDetector(uint16_t window_size, float threshold)
              window_size_, threshold_, uses_l1_features_ ? 1 : 0);
 }
 
+void MLDetector::configure_hampel(bool enabled, uint8_t window_size,
+                                  float threshold) {
+    BaseDetector::configure_hampel(enabled, window_size, threshold);
+    l1_tracker_.configure_hampel(enabled, window_size, threshold);
+}
+
 // ============================================================================
 // DETECTION LOGIC
 // ============================================================================

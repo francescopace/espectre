@@ -2,36 +2,41 @@
 """
 ESPectre - Dataset Quality Validation
 
-Validates CSI datasets for integrity, quality, and readiness for ML training.
-Generates a structured report with per-file and per-pair analysis.
+Dual-purpose validator with an explicit anti-circularity rule:
+
+1. Dataset admission (can FAIL the run)
+   Integrity, continuity, signal quality, coarse empty/static sanity, and ML
+   readiness. These checks do not use Classic's decision boundary.
+
+2. Classic indicative scores (never veto admission)
+   Replay the production ClassicDetector on pairs and quiet tests to produce a
+   0-100 indicative score per capture/pair. Useful for human review and detector
+   trend-watching; not a hard filter of which files exist in the corpus.
+
+See docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics.md.
 
 Checks performed:
   1. Metadata completeness - Required derived/manual dataset_info fields exist
   2. File integrity        - NPZ loads, expected keys exist, shapes are valid
   3. Signal quality        - Amplitude range, zero-packet detection
-  4. Pair validation       - Metadata-backed production-aligned threshold activation on static/motion pairs
-  5. ML readiness          - Label balance, minimum samples, chip diversity
-
-Per-file integrity and signal-quality checks cover `empty`, `static_presence`,
-`motion`, and `test`. The final summary separates common integrity, Classic
-readiness, ML readiness, and long-recording coverage.
+  4. Empty presence        - Empty files exist and overlap chip/environment groups
+  5. Classic scores        - Pair replay plus independently calibrated idle baselines
+  6. ML readiness          - Label balance, minimum samples, chip diversity
 
 SOURCE CODE ALIGNMENT:
   This script imports core functions directly from src/python/micro_espectre/ to ensure correctness:
   - src/python/micro_espectre/utils.py: calculate_spatial_turbulence(), calculate_moving_variance()
   - src/python/micro_espectre/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
-  - src/python/micro_espectre/classic_detector.py: production runtime replay for pair validation
+  - src/python/micro_espectre/classic_detector.py: indicative Classic replay and scores
 
   Amplitude extraction is vectorized with numpy (int8 → int16 to avoid overflow)
   rather than looping through src/micro_espectre/utils.py:extract_amplitudes() per packet.
   src/micro_espectre/utils.py works on Python int lists (no overflow), but NPZ stores numpy int8.
 
 Usage:
-    python validate_dataset_quality.py              # Full validation
+    python validate_dataset_quality.py              # Full validation (auto report + metadata refresh)
     python validate_dataset_quality.py --chip C6    # Validate C6 only
-    python validate_dataset_quality.py --report     # Generate markdown report
-    python validate_dataset_quality.py --refresh-metadata  # Force-refresh dataset_info.json first
-    python validate_dataset_quality.py --strict     # Fail on warnings too
+    python validate_dataset_quality.py --no-report  # Skip markdown report
 
 Author: Hadi (hadikurniawanar@gmail.com)
 Revised by: Francesco Pace <francesco.pace@gmail.com>
@@ -72,8 +77,10 @@ from utils import (                                      # noqa: E402
 from config import (  # noqa: E402
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
+    EVALUATION_INTERVAL,
     SEG_WINDOW_SIZE,
 )
+from runtime_policy import make_evaluation_cadence  # noqa: E402
 # ------------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------------
@@ -83,8 +90,8 @@ REPORT_OUTPUT = generated_data_dir() / "DATASET_QUALITY_CHECK.md"
 PAIR_MAX_DELTA_SECONDS = 30 * 60
 
 # Quality thresholds
-# Keep these aligned with the current collection defaults (~100 pps) and the
-# production-facing promotion targets (>95% recall, <5% false positives).
+# Admission gates are detector-independent. Classic diagnostic thresholds mirror
+# production promotion targets but never veto dataset admission.
 MIN_PACKETS = 5000
 MAX_ZERO_PACKET_RATIO = 0.005
 MIN_AMPLITUDE_MEAN = 15.0
@@ -95,13 +102,47 @@ MAX_STREAM_SEQ_GAP_WARN_PACKETS = 10
 MAX_STREAM_SEQ_GAP_FAIL_PACKETS = 20
 MAX_INTER_PACKET_GAP_WARN_MS = 100.0
 MAX_INTER_PACKET_GAP_FAIL_MS = 250.0
-MIN_EMPTY_SEPARABILITY_AUC = 0.90
-MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.90
+# Self-calibrated idle-baseline review. Empty and static-presence captures may
+# come from different sessions, so each capture owns its startup calibration.
+BASELINE_BLOCK_SECONDS = 5.0
+BASELINE_MARGIN_MAD_FULL = 0.75
+BASELINE_MARGIN_MAD_WARN = 1.00
+BASELINE_MARGIN_MAD_ZERO = 1.50
+BASELINE_LONGEST_BURST_WARN_SECONDS = 1.0
+BASELINE_LONGEST_BURST_ZERO_SECONDS = 5.0
+RESPIRATION_TARGET_RATE_HZ = 10.0
+RESPIRATION_SEGMENT_SECONDS = 30.0
+RESPIRATION_BAND_HZ = (0.10, 0.50)
+RESPIRATION_ANALYSIS_BAND_HZ = (0.05, 2.00)
+RESPIRATION_SEGMENT_SCORE_MIN = 50.0
+RESPIRATION_EVIDENCE_SCORE_MIN = 50.0
+RESPIRATION_SUSPECT_SCORE_MIN = 35.0
+# Segment peaks must agree near the median candidate frequency; wandering
+# in-band noise (typical of empty rooms) is excluded from the consensus set.
+# Final Resp folds segment coverage into the score so soft marks use one number.
+RESPIRATION_FREQ_CONSENSUS_HZ = 0.10
+RESPIRATION_PEAK_MAD_FULL = 0.04
+RESPIRATION_PEAK_MAD_ZERO = 0.12
 QUIET_TEST_CLASSIC_FP_WARN_RATIO = 0.02
 QUIET_TEST_CLASSIC_FP_FAIL_RATIO = 0.05
 MAX_STATIC_ACTIVE_RATIO = 0.05
 MIN_MOTION_ACTIVE_RATIO = 0.95
 MIN_ACTIVE_RATIO_MARGIN = 0.90
+# Soft review fail levels (still non-blocking for admission).
+FAIL_STATIC_ACTIVE_RATIO = 0.10
+FAIL_MOTION_ACTIVE_RATIO = 0.90
+# Indicative dataset-score anchors (not admission gates).
+CLASSIC_SCORE_STATIC_ZERO = 0.10
+CLASSIC_SCORE_MOTION_FULL = 0.95
+CLASSIC_SCORE_RATIO_FULL = 4.0
+CLASSIC_SCORE_QUIET_ZERO = 0.10
+# Soft review marks on the Score column itself (still non-blocking).
+SCORE_WARN_BELOW = 95.0
+SCORE_FAIL_BELOW = 90.0
+# Ratio (Motion Scores) = p95(motion) / threshold. Soft marks for weak
+# separation; more robust than max(motion) / threshold.
+RATIO_WARN_BELOW = 3.0
+RATIO_FAIL_BELOW = 2.0
 METADATA_LABELS = ('empty', 'static_presence', 'motion', 'test')
 PER_FILE_QUALITY_LABELS = METADATA_LABELS
 REQUIRED_PAIR_FIELD_BY_LABEL = {
@@ -175,6 +216,219 @@ def _compute_turbulence_series(csi_data):
     return np.asarray(turbulence, dtype=np.float64)
 
 
+def _clamp_unit(value):
+    """Clamp a diagnostic component into [0, 1]."""
+    return float(max(0.0, min(1.0, value)))
+
+
+def _respiration_component_metrics(component, subcarrier_series, sample_rate_hz):
+    """Measure narrow-band periodicity for one PCA time component."""
+    count = len(component)
+    window = np.hanning(count)
+    frequencies = np.fft.rfftfreq(count, d=1.0 / sample_rate_hz)
+    power = np.abs(np.fft.rfft(component * window)) ** 2
+    respiration_mask = (
+        (frequencies >= RESPIRATION_BAND_HZ[0])
+        & (frequencies <= RESPIRATION_BAND_HZ[1])
+    )
+    analysis_mask = (
+        (frequencies >= RESPIRATION_ANALYSIS_BAND_HZ[0])
+        & (frequencies <= RESPIRATION_ANALYSIS_BAND_HZ[1])
+    )
+    if not np.any(respiration_mask) or not np.any(analysis_mask):
+        return None
+
+    respiration_indices = np.flatnonzero(respiration_mask)
+    peak_index = int(respiration_indices[np.argmax(power[respiration_mask])])
+    peak_frequency = float(frequencies[peak_index])
+    noise_mask = analysis_mask & (np.abs(frequencies - peak_frequency) > 0.06)
+    noise_floor = float(np.median(power[noise_mask])) if np.any(noise_mask) else 0.0
+    prominence = float(power[peak_index] / max(noise_floor, 1e-12))
+    band_power_ratio = float(
+        power[respiration_mask].sum() / max(power[analysis_mask].sum(), 1e-12)
+    )
+
+    centered = component - float(np.mean(component))
+    variance = float(np.dot(centered, centered))
+    lag_min = max(1, int(round(sample_rate_hz / RESPIRATION_BAND_HZ[1])))
+    lag_max = min(count - 2, int(round(sample_rate_hz / RESPIRATION_BAND_HZ[0])))
+    autocorrelation_peak = 0.0
+    if variance > 1e-12 and lag_max >= lag_min:
+        autocorrelation_peak = max(
+            float(np.dot(centered[:-lag], centered[lag:]) / variance)
+            for lag in range(lag_min, lag_max + 1)
+        )
+
+    subcarrier_power = np.abs(
+        np.fft.rfft(subcarrier_series * window[:, None], axis=0)
+    ) ** 2
+    supported = 0
+    for index in range(subcarrier_power.shape[1]):
+        current = subcarrier_power[:, index]
+        current_peak_index = int(
+            respiration_indices[np.argmax(current[respiration_mask])]
+        )
+        current_noise = (
+            float(np.median(current[noise_mask])) if np.any(noise_mask) else 0.0
+        )
+        current_prominence = float(
+            current[current_peak_index] / max(current_noise, 1e-12)
+        )
+        if (
+            abs(float(frequencies[current_peak_index]) - peak_frequency) <= 0.05
+            and current_prominence >= 4.0
+        ):
+            supported += 1
+    support_ratio = supported / max(subcarrier_power.shape[1], 1)
+
+    prominence_score = _clamp_unit(
+        (np.log10(max(prominence, 1.0)) - np.log10(4.0))
+        / (np.log10(30.0) - np.log10(4.0))
+    )
+    band_score = _clamp_unit((band_power_ratio - 0.15) / 0.30)
+    autocorrelation_score = _clamp_unit((autocorrelation_peak - 0.20) / 0.50)
+    support_score = _clamp_unit((support_ratio - 0.25) / 0.50)
+    evidence_score = 100.0 * (
+        0.30 * prominence_score
+        + 0.20 * band_score
+        + 0.25 * autocorrelation_score
+        + 0.25 * support_score
+    )
+    return {
+        "score": float(evidence_score),
+        "peak_frequency_hz": peak_frequency,
+        "prominence": prominence,
+        "band_power_ratio": band_power_ratio,
+        "autocorrelation_peak": autocorrelation_peak,
+        "support_ratio": float(support_ratio),
+    }
+
+
+def _respiration_evidence_from_profiles(profiles, packet_rate_pps):
+    """Return frequency-consensus respiration evidence from amplitude profiles.
+
+    Each 30-second segment still scores narrow-band periodicity on the top PCA
+    components. Aggregation then keeps only segments whose peak frequency lies
+    near the median candidate: true respiration is quasi-stationary, while
+    empty-room in-band noise tends to jump between unrelated peaks.
+    """
+    values = np.asarray(profiles, dtype=np.float64)
+    if values.ndim != 2 or values.shape[1] < 2:
+        return None
+
+    downsample_size = max(
+        1, int(round(float(packet_rate_pps) / RESPIRATION_TARGET_RATE_HZ))
+    )
+    downsample_count = len(values) // downsample_size
+    if downsample_count == 0:
+        return None
+    values = values[:downsample_count * downsample_size].reshape(
+        downsample_count, downsample_size, values.shape[1]
+    ).mean(axis=1)
+    sample_rate_hz = float(packet_rate_pps) / downsample_size
+    segment_size = max(8, int(round(sample_rate_hz * RESPIRATION_SEGMENT_SECONDS)))
+    segment_count = len(values) // segment_size
+    if segment_count == 0:
+        return None
+
+    segment_metrics = []
+    time_axis = np.arange(segment_size, dtype=np.float64)
+    time_axis -= time_axis.mean()
+    time_energy = float(np.dot(time_axis, time_axis))
+    for segment_index in range(segment_count):
+        segment = values[
+            segment_index * segment_size:(segment_index + 1) * segment_size
+        ].copy()
+        segment -= segment.mean(axis=0, keepdims=True)
+        slopes = np.dot(time_axis, segment) / max(time_energy, 1e-12)
+        segment -= time_axis[:, None] * slopes[None, :]
+        scales = segment.std(axis=0)
+        valid = scales > 1e-6
+        if int(valid.sum()) < 2:
+            continue
+        segment = segment[:, valid] / scales[valid]
+
+        u, singular_values, _ = np.linalg.svd(segment, full_matrices=False)
+        candidates = []
+        for component_index in range(min(3, len(singular_values))):
+            component = u[:, component_index] * singular_values[component_index]
+            metrics = _respiration_component_metrics(
+                component, segment, sample_rate_hz
+            )
+            if metrics is not None:
+                candidates.append(metrics)
+        if candidates:
+            segment_metrics.append(max(candidates, key=lambda item: item["score"]))
+
+    if not segment_metrics:
+        return None
+
+    scores = np.asarray([item["score"] for item in segment_metrics], dtype=np.float64)
+    peaks = np.asarray(
+        [item["peak_frequency_hz"] for item in segment_metrics], dtype=np.float64
+    )
+    center_hz = float(np.median(peaks))
+    near = np.abs(peaks - center_hz) <= RESPIRATION_FREQ_CONSENSUS_HZ
+    strong = scores >= RESPIRATION_SEGMENT_SCORE_MIN
+    consensus_scores = scores[near] if np.any(near) else scores
+    peak_mad = float(np.median(np.abs(peaks - center_hz)))
+    mad_span = max(
+        RESPIRATION_PEAK_MAD_ZERO - RESPIRATION_PEAK_MAD_FULL, 1e-6
+    )
+    stability = _clamp_unit(
+        (RESPIRATION_PEAK_MAD_ZERO - peak_mad) / mad_span
+    )
+    # Consensus intensity, lightly damped when peaks wander, then scaled by the
+    # fraction of strong frequency-consistent segments so Resp alone is enough
+    # for soft marks (coverage stays in the payload for diagnostics only).
+    intensity = float(np.median(consensus_scores)) * (0.75 + 0.25 * stability)
+    coverage = float(np.mean(strong & near))
+    score = intensity * (0.5 + 0.5 * coverage)
+    selected = [
+        item
+        for item, is_strong, is_near in zip(segment_metrics, strong, near)
+        if is_strong and is_near
+    ] or [
+        item for item, is_near in zip(segment_metrics, near) if is_near
+    ] or segment_metrics
+    return {
+        "score": float(score),
+        "intensity": float(intensity),
+        "coverage": coverage,
+        "peak_frequency_hz": float(np.median([
+            item["peak_frequency_hz"] for item in selected
+        ])),
+        "prominence": float(np.median([item["prominence"] for item in selected])),
+        "band_power_ratio": float(np.median([
+            item["band_power_ratio"] for item in selected
+        ])),
+        "autocorrelation_peak": float(np.median([
+            item["autocorrelation_peak"] for item in selected
+        ])),
+        "support_ratio": float(np.median([
+            item["support_ratio"] for item in selected
+        ])),
+        "segment_count": len(segment_metrics),
+        "peak_mad_hz": peak_mad,
+    }
+
+
+def _compute_respiration_evidence(csi_data, packet_rate_pps):
+    """Extract gain-normalized profiles and evaluate respiration evidence."""
+    amplitudes = _extract_amplitudes_matrix(csi_data)
+    if amplitudes.size == 0:
+        return None
+    profiles = amplitudes[:, DEFAULT_SUBCARRIERS]
+    means = profiles.mean(axis=1)
+    profiles = np.divide(
+        profiles,
+        means[:, None],
+        out=np.zeros_like(profiles, dtype=np.float64),
+        where=means[:, None] > 0.0,
+    )
+    return _respiration_evidence_from_profiles(profiles, packet_rate_pps)
+
+
 def _window_mean(values, window_size=None):
     """Compute sliding-window means aligned to the full-window region."""
     if window_size is None:
@@ -217,13 +471,510 @@ def _build_empty_separation_score(
 # Validation checks
 # ------------------------------------------------------------------
 
-VALIDATION_DOMAINS = ('integrity', 'classic', 'ml', 'long_recording')
+VALIDATION_DOMAINS = (
+    'integrity',
+    'label_sanity',
+    'classic',
+    'ml',
+    'long_recording',
+)
 VALIDATION_DOMAIN_LABELS = {
     'integrity': 'Common integrity',
-    'classic': 'Classic readiness',
+    'label_sanity': 'Empty/static presence',
+    'classic': 'ClassicDetector indicative scores',
     'ml': 'ML readiness',
     'long_recording': 'Long-recording coverage',
 }
+def _clamp_score(value):
+    """Clamp an indicative score into [0, 100]."""
+    return float(max(0.0, min(100.0, value)))
+
+
+def classic_pair_score(static_active_ratio, motion_active_ratio, pair_ratio):
+    """Return an indicative 0-100 Classic score for one static/motion pair.
+
+    Weights favor idle cleanliness and motion coverage; p95 Ratio is a light
+    tie-breaker. This is review guidance, not an admission veto.
+    """
+    idle_clean = _clamp_score(
+        100.0 * (1.0 - float(static_active_ratio) / CLASSIC_SCORE_STATIC_ZERO)
+    )
+    motion_cover = _clamp_score(
+        100.0 * float(motion_active_ratio) / CLASSIC_SCORE_MOTION_FULL
+    )
+    ratio_value = float(pair_ratio)
+    if not np.isfinite(ratio_value):
+        ratio_value = CLASSIC_SCORE_RATIO_FULL
+    ratio_score = _clamp_score(
+        100.0
+        * (min(ratio_value, CLASSIC_SCORE_RATIO_FULL) - 1.0)
+        / (CLASSIC_SCORE_RATIO_FULL - 1.0)
+    )
+    return round(0.5 * idle_clean + 0.4 * motion_cover + 0.1 * ratio_score, 1)
+
+
+def classic_quiet_score(fp_rate):
+    """Return an indicative 0-100 Classic score for one idle-only quiet capture."""
+    return round(
+        _clamp_score(100.0 * (1.0 - float(fp_rate) / CLASSIC_SCORE_QUIET_ZERO)),
+        1,
+    )
+
+
+def classic_baseline_score(fp_rate, margin_mad, longest_burst_seconds):
+    """Return a 0-100 self-calibrated idle-baseline score.
+
+    Cleanliness carries half of the score. Robust logit-margin dispersion and
+    sustained activation carry 30% and 20%, respectively. This remains a
+    review-only Classic diagnostic, not a dataset-admission gate.
+    """
+    cleanliness = _clamp_score(
+        100.0 * (1.0 - float(fp_rate) / CLASSIC_SCORE_QUIET_ZERO)
+    )
+    mad_span = BASELINE_MARGIN_MAD_ZERO - BASELINE_MARGIN_MAD_FULL
+    stability = _clamp_score(
+        100.0
+        * (BASELINE_MARGIN_MAD_ZERO - float(margin_mad))
+        / mad_span
+    )
+    burst_clean = _clamp_score(
+        100.0
+        * (
+            1.0
+            - float(longest_burst_seconds)
+            / BASELINE_LONGEST_BURST_ZERO_SECONDS
+        )
+    )
+    return round(0.5 * cleanliness + 0.3 * stability + 0.2 * burst_clean, 1)
+
+
+def _threshold_severity(
+    value,
+    *,
+    warn_above=None,
+    fail_above=None,
+    warn_below=None,
+    fail_below=None,
+):
+    """Return 'fail', 'warn', or None for a soft review threshold breach."""
+    value = float(value)
+    if fail_above is not None and value > fail_above:
+        return 'fail'
+    if fail_below is not None and value < fail_below:
+        return 'fail'
+    if warn_above is not None and value > warn_above:
+        return 'warn'
+    if warn_below is not None and value < warn_below:
+        return 'warn'
+    return None
+
+
+def _mark_cell(text, severity, *, markdown=False):
+    """Append soft WARN/FAIL icons to a cell value."""
+    if severity == 'fail':
+        marked = f"{text} ❌"
+    elif severity == 'warn':
+        marked = f"{text} ⚠️"
+    else:
+        return text
+    if markdown:
+        return f"**{marked}**"
+    return marked
+
+
+def _format_percent_ratio_cell(
+    value,
+    *,
+    warn_above=None,
+    fail_above=None,
+    warn_below=None,
+    fail_below=None,
+    markdown=False,
+):
+    """Format a percentage-ratio cell and mark soft WARN/FAIL breaches."""
+    text = f"{float(value):.1%}"
+    severity = _threshold_severity(
+        value,
+        warn_above=warn_above,
+        fail_above=fail_above,
+        warn_below=warn_below,
+        fail_below=fail_below,
+    )
+    return _mark_cell(text, severity, markdown=markdown)
+
+
+def _format_static_above_cell(value, *, markdown=False):
+    return _format_percent_ratio_cell(
+        value,
+        warn_above=MAX_STATIC_ACTIVE_RATIO,
+        fail_above=FAIL_STATIC_ACTIVE_RATIO,
+        markdown=markdown,
+    )
+
+
+def _format_motion_above_cell(value, *, markdown=False):
+    return _format_percent_ratio_cell(
+        value,
+        warn_below=MIN_MOTION_ACTIVE_RATIO,
+        fail_below=FAIL_MOTION_ACTIVE_RATIO,
+        markdown=markdown,
+    )
+
+
+def _format_quiet_fp_cell(value, *, markdown=False):
+    return _format_percent_ratio_cell(
+        value,
+        warn_above=QUIET_TEST_CLASSIC_FP_WARN_RATIO,
+        fail_above=QUIET_TEST_CLASSIC_FP_FAIL_RATIO,
+        markdown=markdown,
+    )
+
+
+def _pair_ratio(motion_scores, threshold):
+    """Return p95(motion) / threshold from Classic probability series."""
+    motion_scores = np.asarray(motion_scores, dtype=np.float64)
+    if motion_scores.size == 0 or float(threshold) <= 0.0:
+        return 0.0
+    motion_p95 = float(np.percentile(motion_scores, 95))
+    return float(motion_p95 / float(threshold))
+
+
+def _pair_ratio_severity(pair_ratio):
+    """Return soft review severity for Ratio on Motion Scores."""
+    return _threshold_severity(
+        pair_ratio,
+        warn_below=RATIO_WARN_BELOW,
+        fail_below=RATIO_FAIL_BELOW,
+    )
+
+
+def _format_pair_ratio_cell(pair_ratio, *, markdown=False):
+    """Format Ratio as p95(motion)/threshold with soft marks."""
+    text = f"{float(pair_ratio):.2f}x" if markdown else f"{float(pair_ratio):.1f}x"
+    return _mark_cell(text, _pair_ratio_severity(pair_ratio), markdown=markdown)
+
+
+def _breath_hz_severity(peak_hz):
+    """Return soft review severity for Breath Hz frequency."""
+    peak_hz = float(peak_hz)
+    band_lo, band_hi = RESPIRATION_BAND_HZ
+    if peak_hz < band_lo or peak_hz > band_hi:
+        return "warn"
+    return None
+
+
+def _format_breath_hz_cell(peak_hz, *, markdown=False):
+    """Format Breath Hz with out-of-band soft marks."""
+    text = f"{float(peak_hz):.2f} Hz" if markdown else f"{float(peak_hz):.2f}"
+    return _mark_cell(
+        text, _breath_hz_severity(peak_hz), markdown=markdown
+    )
+
+
+def _quiet_fp_severity(fp_rate):
+    """Return soft review severity for a quiet-test false-positive rate."""
+    return _threshold_severity(
+        fp_rate,
+        warn_above=QUIET_TEST_CLASSIC_FP_WARN_RATIO,
+        fail_above=QUIET_TEST_CLASSIC_FP_FAIL_RATIO,
+    )
+
+
+def _score_value_severity(score):
+    """Return soft review severity for an indicative 0-100 Score value."""
+    return _threshold_severity(
+        score,
+        warn_below=SCORE_WARN_BELOW,
+        fail_below=SCORE_FAIL_BELOW,
+    )
+
+
+def _format_score_cell(score, severity=None, *, markdown=False):
+    """Format a 0-100 score cell, optionally with soft WARN/FAIL icons."""
+    return _mark_cell(f"{float(score):.1f}", severity, markdown=markdown)
+
+
+# Indicative score tables share one renderer; each table keeps its own schema.
+# Presence/Empty: diagnostics first, Score last (soft-marked, sort key).
+_IDLE_EVIDENCE_SCORE_HEADER = (
+    "| Chip | Env | File | FP | Breath Hz | Resp | Score |"
+)
+_IDLE_EVIDENCE_SCORE_SEPARATOR = "|---|---|---|---:|---:|---:|---:|"
+_IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR = (
+    "  |------|-----|------|-----:|---------:|-----:|---------:|"
+)
+_LONG_TEST_SCORE_HEADER = "| Chip | Env | File | FP | Score |"
+_LONG_TEST_SCORE_SEPARATOR = "|---|---|---|---:|---:|"
+_LONG_TEST_SCORE_CONSOLE_SEPARATOR = "  |------|-----|------|-----:|------:|"
+
+
+def _respiration_evidence_band(respiration):
+    """Classify respiration evidence with one shared Presence/Empty Resp ladder.
+
+    Coverage is already folded into ``respiration["score"]``, so soft marks use
+    that single number.
+
+    Returns:
+        ``respiration`` when Resp clears the evidence floor, ``partial`` when it
+        clears the suspect floor, otherwise ``weak``.
+    """
+    score = float(respiration["score"])
+    if score >= RESPIRATION_EVIDENCE_SCORE_MIN:
+        return "respiration"
+    if score >= RESPIRATION_SUSPECT_SCORE_MIN:
+        return "partial"
+    return "weak"
+
+
+def _resp_severity(verdict, *, inverted=False):
+    """Return soft severity for Resp from the shared evidence ladder.
+
+    Presence (default): ``partial`` → warn, ``weak`` → fail.
+    Empty (inverted): ``presence-like`` / strong evidence → fail,
+    ``partial`` → warn, weak/clean → unmarked.
+    Motion/unstable verdicts stay on Score / FP.
+    """
+    band = verdict
+    if verdict == "presence-like":
+        band = "respiration"
+    elif verdict == "clean":
+        band = "weak"
+
+    if inverted:
+        if band == "respiration":
+            return "fail"
+        if band == "partial":
+            return "warn"
+        return None
+
+    if band == "weak":
+        return "fail"
+    if band == "partial":
+        return "warn"
+    return None
+
+
+def _idle_evidence_file_cell(row, label, *, markdown=False):
+    """Return the File cell for one Presence/Empty score row."""
+    if markdown:
+        return _md_file_link(row["display_date"], label, row["filename"])
+    return row["display_date"]
+
+
+def _format_idle_evidence_score_row(row, *, label, markdown=False):
+    """Format one Presence/Empty score row with the shared column schema."""
+    file_cell = _idle_evidence_file_cell(row, label, markdown=markdown)
+    score_value = row["baseline"]["score"]
+    baseline_cell = _format_score_cell(
+        score_value, _score_value_severity(score_value), markdown=markdown
+    )
+    resp_cell = _format_score_cell(
+        row["respiration"]["score"],
+        _resp_severity(row.get("verdict"), inverted=(label == "empty")),
+        markdown=markdown,
+    )
+    peak_cell = _format_breath_hz_cell(
+        row["respiration"]["peak_frequency_hz"], markdown=markdown
+    )
+    if markdown:
+        return (
+            f"| {row['chip']} | {row.get('environment', '?')} | {file_cell} | "
+            f"{_format_quiet_fp_cell(row['baseline']['fp_rate'], markdown=True)} | "
+            f"{peak_cell} | {resp_cell} | {baseline_cell} |"
+        )
+    return (
+        f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
+        f"{file_cell:<16} | "
+        f"{_format_quiet_fp_cell(row['baseline']['fp_rate']):>5} | "
+        f"{peak_cell:>6} | {resp_cell:>8} | {baseline_cell:>8} |"
+    )
+
+
+def _format_long_test_score_row(row, *, markdown=False):
+    """Format one idle-only long-test indicative score row."""
+    score_value = row["classic_score"]
+    score_severity = _score_value_severity(score_value)
+    file_cell = _quiet_file_cell(
+        row.get("filename", "?"),
+        row.get("display_date", "?"),
+        markdown=markdown,
+    )
+    if markdown:
+        return (
+            f"| {row.get('chip', '?')} | {row.get('environment', '?')} | "
+            f"{file_cell} | "
+            f"{_format_quiet_fp_cell(row['fp_rate'], markdown=True)} | "
+            f"{_format_score_cell(score_value, score_severity, markdown=True)} |"
+        )
+    return (
+        f"  | {str(row.get('chip', '?')):<4} | "
+        f"{str(row.get('environment', '?')):<11} | "
+        f"{file_cell:<16} | "
+        f"{_format_quiet_fp_cell(row['fp_rate']):>5} | "
+        f"{_format_score_cell(score_value, score_severity):>8} |"
+    )
+
+
+def _render_score_table(rows, table_spec, *, markdown=False):
+    """Return lines for one indicative score table, or [] when empty."""
+    if not rows:
+        return []
+
+    lines = []
+    title = table_spec["title"]
+    if markdown:
+        lines.append(f"\n## {title}\n")
+        intro = table_spec.get("intro")
+        if intro:
+            lines.append(f"{intro}\n")
+        lines.append(table_spec["header"])
+        lines.append(table_spec["separator"])
+    else:
+        if table_spec.get("console_heading", True):
+            lines.append(f"  {title}:")
+        lines.append(f"  {table_spec['header']}")
+        lines.append(table_spec["console_separator"])
+
+    format_row = table_spec["format_row"]
+    for row in sorted(rows, key=table_spec["sort_key"]):
+        lines.append(format_row(row, markdown=markdown))
+    return lines
+
+
+_PRESENCE_SCORE_TABLE = {
+    "title": "Presence Scores",
+    "header": _IDLE_EVIDENCE_SCORE_HEADER,
+    "separator": _IDLE_EVIDENCE_SCORE_SEPARATOR,
+    "console_separator": _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR,
+    "sort_key": lambda item: -item["baseline"]["score"],
+    "format_row": lambda row, *, markdown=False: _format_idle_evidence_score_row(
+        row, label="static_presence", markdown=markdown
+    ),
+}
+_EMPTY_SCORE_TABLE = {
+    "title": "Empty Scores",
+    "header": _IDLE_EVIDENCE_SCORE_HEADER,
+    "separator": _IDLE_EVIDENCE_SCORE_SEPARATOR,
+    "console_separator": _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR,
+    "sort_key": lambda item: -item["baseline"]["score"],
+    "format_row": lambda row, *, markdown=False: _format_idle_evidence_score_row(
+        row, label="empty", markdown=markdown
+    ),
+}
+_LONG_TEST_SCORE_TABLE = {
+    "title": "Long-test scores",
+    "header": _LONG_TEST_SCORE_HEADER,
+    "separator": _LONG_TEST_SCORE_SEPARATOR,
+    "console_separator": _LONG_TEST_SCORE_CONSOLE_SEPARATOR,
+    "sort_key": lambda item: -item.get("classic_score", 0.0),
+    "format_row": _format_long_test_score_row,
+}
+
+
+def _entry_environment(entry):
+    """Return a compact environment label for table display."""
+    value = entry.get("environment") if isinstance(entry, dict) else None
+    if _is_missing_metadata_value(value):
+        return "?"
+    return str(value)
+
+
+def _dataset_file_href(label, filename):
+    """Return a report-relative href for one dataset NPZ under its label folder."""
+    return f"../{label}/{filename}"
+
+
+def _md_file_link(text, label, filename):
+    """Markdown link with a short readable label pointing at one dataset NPZ."""
+    return f"[{text}]({_dataset_file_href(label, filename)})"
+
+
+def _pair_files_cell(
+    static_filename,
+    motion_filename,
+    static_date,
+    motion_date,
+    *,
+    markdown=False,
+):
+    """Render static_presence/motion links using readable capture dates."""
+    if markdown:
+        return (
+            f"{_md_file_link(static_date, 'static_presence', static_filename)} / "
+            f"{_md_file_link(motion_date, 'motion', motion_filename)}"
+        )
+    return f"{static_date} / {motion_date}"
+
+
+def _empty_static_files_cell(
+    empty_filename,
+    static_filename,
+    empty_date,
+    static_date,
+    *,
+    markdown=False,
+):
+    """Render cross-session empty/static_presence links."""
+    if markdown:
+        return (
+            f"{_md_file_link(empty_date, 'empty', empty_filename)} / "
+            f"{_md_file_link(static_date, 'static_presence', static_filename)}"
+        )
+    return f"{empty_date} / {static_date}"
+
+
+def _baseline_severity(fp_rate, margin_mad, longest_burst_seconds):
+    """Return soft severity for one self-calibrated idle baseline."""
+    severities = (
+        _threshold_severity(
+            fp_rate,
+            warn_above=QUIET_TEST_CLASSIC_FP_WARN_RATIO,
+            fail_above=QUIET_TEST_CLASSIC_FP_FAIL_RATIO,
+        ),
+        _threshold_severity(
+            margin_mad,
+            warn_above=BASELINE_MARGIN_MAD_WARN,
+            fail_above=BASELINE_MARGIN_MAD_ZERO,
+        ),
+        _threshold_severity(
+            longest_burst_seconds,
+            warn_above=BASELINE_LONGEST_BURST_WARN_SECONDS,
+            fail_above=BASELINE_LONGEST_BURST_ZERO_SECONDS,
+        ),
+    )
+    if 'fail' in severities:
+        return 'fail'
+    if 'warn' in severities:
+        return 'warn'
+    return None
+
+
+def _entry_display_date(entry, filename=None):
+    """Return a compact capture date for quiet-test table display."""
+    collected_at = entry.get("collected_at") if isinstance(entry, dict) else None
+    if not _is_missing_metadata_value(collected_at):
+        try:
+            return datetime.datetime.fromisoformat(str(collected_at)).strftime(
+                "%Y-%m-%d %H:%M"
+            )
+        except ValueError:
+            pass
+
+    name = filename or (entry.get("filename") if isinstance(entry, dict) else None)
+    if name:
+        match = re.search(r"_(\d{8})_(\d{6})(?:_\d+)*\.npz$", str(name))
+        if match:
+            day = datetime.datetime.strptime(match.group(1), "%Y%m%d")
+            clock = datetime.datetime.strptime(match.group(2), "%H%M%S")
+            return f"{day.strftime('%Y-%m-%d')} {clock.strftime('%H:%M')}"
+    return "?"
+
+
+def _quiet_file_cell(filename, display_date, *, markdown=False):
+    """Render the quiet-test file cell using a readable capture date."""
+    if markdown:
+        return _md_file_link(display_date, "test", filename)
+    return display_date
 
 
 class ValidationResult:
@@ -247,6 +998,21 @@ def _tag_results(results, domain):
     for result in results:
         result.domain = domain
     return results
+
+
+def _is_issue_result(result):
+    """Return True for console-worthy WARN/FAIL results."""
+    return getattr(result, "status", None) in ("WARN", "FAIL")
+
+
+def _issue_results(results):
+    """Return only WARN/FAIL results."""
+    return [result for result in results if _is_issue_result(result)]
+
+
+def _classic_diagnostic_status(status):
+    """Downgrade Classic FAIL to WARN so diagnostics never veto admission."""
+    return "WARN" if status == "FAIL" else status
 
 
 def _result_counts(results):
@@ -431,7 +1197,11 @@ def refresh_pair_metadata(files, *, selected_chips=None):
 
 
 def refresh_metadata(info, chip_filter=None):
-    """Return a refreshed copy of dataset_info and derived metadata summaries."""
+    """Return a refreshed copy of dataset_info and derived metadata summaries.
+
+    Does not bump ``updated_at``; callers should set it only when the refreshed
+    content differs from the previous dataset_info.
+    """
     refreshed = deepcopy(info)
     files = refreshed.get("files", {})
     if chip_filter:
@@ -442,18 +1212,7 @@ def refresh_metadata(info, chip_filter=None):
     else:
         selected_chips = None
     pair_rows = refresh_pair_metadata(files, selected_chips=selected_chips)
-
-    if pair_rows:
-        refreshed["updated_at"] = datetime.datetime.now().isoformat(timespec="microseconds")
-
     return refreshed, pair_rows
-
-
-def normalize_updated_at(info, value):
-    """Return a copy with updated_at set to a stable comparison value."""
-    normalized = deepcopy(info)
-    normalized["updated_at"] = value
-    return normalized
 
 
 def summarize_pair_rows(pair_rows):
@@ -917,7 +1676,9 @@ def validate_capture_continuity(data, csi_data):
 
 
 def validate_pair(bl_csi, mv_csi):
-    """Validate a static-presence/motion pair.
+    """Classic indicative replay for a static-presence/motion pair.
+
+    Results are non-blocking: soft misses become WARN and never veto admission.
 
     Args:
         bl_csi: static-presence CSI array (num_packets, 128)
@@ -928,7 +1689,7 @@ def validate_pair(bl_csi, mv_csi):
             static_active_ratio,
             motion_active_ratio,
             threshold,
-            motion_peak_ratio,
+            pair_ratio,  # p95(motion) / threshold
         )
     """
     results = []
@@ -939,8 +1700,8 @@ def validate_pair(bl_csi, mv_csi):
     )
     if calibrated is None:
         results.append(ValidationResult(
-            "threshold_activation",
-            "FAIL",
+            "classic_pair_activation",
+            "WARN",
             "Could not calibrate the classic startup threshold from the static capture",
         ))
         return results, 0.0, 0.0, 0.0, 0.0
@@ -954,15 +1715,15 @@ def validate_pair(bl_csi, mv_csi):
     mv_states = mv_replay["state_series"]
     if len(bl_states) == 0 or len(mv_states) == 0:
         results.append(ValidationResult(
-            "threshold_activation",
-            "FAIL",
-            "Insufficient full-window detector samples for pair validation",
+            "classic_pair_activation",
+            "WARN",
+            "Insufficient full-window Classic samples for pair diagnostic",
         ))
         return results, 0.0, 0.0, threshold, 0.0
 
     static_active_ratio = float(bl_states.mean())
     motion_active_ratio = float(mv_states.mean())
-    motion_peak_ratio = float(mv_metric.max() / threshold) if threshold > 0 else float('inf')
+    pair_ratio = _pair_ratio(mv_metric, threshold)
     active_ratio_delta = motion_active_ratio - static_active_ratio
 
     passes = (
@@ -971,20 +1732,20 @@ def validate_pair(bl_csi, mv_csi):
         and active_ratio_delta >= MIN_ACTIVE_RATIO_MARGIN
     )
     message = (
-        "Runtime-calibrated l1_delta threshold activation: "
+        "Classic diagnostic probability activation: "
         f"static_above={static_active_ratio:.1%}, "
         f"motion_above={motion_active_ratio:.1%}, "
         f"delta={active_ratio_delta:+.1%}, "
-        f"motion_peak={motion_peak_ratio:.2f}x threshold, "
+        f"ratio={pair_ratio:.2f}x p95(motion)/threshold, "
         f"threshold={threshold:.6f}"
     )
     results.append(ValidationResult(
-        "threshold_activation",
-        "PASS" if passes else "FAIL",
+        "classic_pair_activation",
+        "PASS" if passes else "WARN",
         message,
         round(motion_active_ratio, 4),
     ))
-    return results, static_active_ratio, motion_active_ratio, threshold, motion_peak_ratio
+    return results, static_active_ratio, motion_active_ratio, threshold, pair_ratio
 
 
 def _training_session_group(label, entry):
@@ -1154,11 +1915,14 @@ def _compute_turbulence_and_moving_variance_series(csi_data):
 
 
 def _replay_classic_metrics(csi_data, detector):
-    """Replay one capture through a calibrated ClassicDetector."""
+    """Replay one capture through ClassicDetector at evaluation cadence."""
     score_series = []
     state_series = []
+    cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
     for packet in csi_data:
         detector.process_packet(packet, DEFAULT_SUBCARRIERS)
+        if not cadence.note_evaluation_tick():
+            continue
         metrics = detector.update_state()
         if detector.is_ready():
             score_series.append(float(metrics.get("motion_metric", 0.0)))
@@ -1283,8 +2047,256 @@ def _rank_auc(neg_values, pos_values):
     return (rank_sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_neg * n_pos)
 
 
+def _probability_logit(values):
+    """Convert probabilities to finite logits for session-relative margins."""
+    probabilities = np.asarray(values, dtype=np.float64)
+    clipped = np.clip(probabilities, 1e-6, 1.0 - 1e-6)
+    return np.log(clipped / (1.0 - clipped))
+
+
+def _packet_rate_from_entry(entry):
+    """Estimate capture packet rate from metadata, falling back to 100 pps."""
+    duration_ms = float(entry.get("duration_ms", 0.0) or 0.0)
+    num_packets = int(entry.get("num_packets", 0) or 0)
+    if duration_ms > 0.0 and num_packets > 0:
+        return num_packets * 1000.0 / duration_ms
+    return 100.0
+
+
+def _active_burst_metrics(states, packet_rate_pps):
+    """Return active burst count/rate and longest duration.
+
+    ``states`` are sampled at the production evaluation cadence, so durations
+    use ``packet_rate_pps / EVALUATION_INTERVAL`` as the sample rate.
+    """
+    burst_count = 0
+    longest = 0
+    current = 0
+    for state in np.asarray(states, dtype=np.int8):
+        if state:
+            current += 1
+            if current == 1:
+                burst_count += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+
+    eval_rate_hz = max(float(packet_rate_pps), 1e-6) / float(EVALUATION_INTERVAL)
+    eval_seconds = len(states) / eval_rate_hz
+    bursts_per_minute = (
+        burst_count * 60.0 / eval_seconds if eval_seconds > 0.0 else 0.0
+    )
+    return {
+        "burst_count": burst_count,
+        "bursts_per_minute": float(bursts_per_minute),
+        "longest_burst_seconds": longest / eval_rate_hz,
+        "eval_seconds": float(eval_seconds),
+    }
+
+
+def _classic_self_baseline_stats(csi_data, packet_rate_pps=100.0):
+    """Self-calibrate one idle capture and evaluate its post-bootstrap tail."""
+    if len(csi_data) <= CALIBRATION_BUFFER_SIZE:
+        return None
+
+    calibration_packets = csi_data[:CALIBRATION_BUFFER_SIZE]
+    calibrated = build_calibrated_classic_detector(
+        _csi_matrix_to_packets(calibration_packets),
+        selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
+    )
+    if calibrated is None:
+        return None
+    detector, threshold = calibrated
+    replay = _replay_classic_metrics(csi_data[CALIBRATION_BUFFER_SIZE:], detector)
+    scores = replay["score_series"]
+    if len(scores) == 0:
+        return None
+
+    states = replay["state_series"]
+    threshold_logit = float(_probability_logit([threshold])[0])
+    margins = _probability_logit(scores) - threshold_logit
+    margin_median = float(np.median(margins))
+    margin_mad = float(np.median(np.abs(margins - margin_median)))
+
+    eval_rate_hz = max(float(packet_rate_pps), 1e-6) / float(EVALUATION_INTERVAL)
+    block_size = max(1, int(round(eval_rate_hz * BASELINE_BLOCK_SECONDS)))
+    full_block_count = len(margins) // block_size
+    if full_block_count:
+        block_margins = np.asarray([
+            np.median(margins[index * block_size:(index + 1) * block_size])
+            for index in range(full_block_count)
+        ], dtype=np.float64)
+    else:
+        block_margins = np.asarray([margin_median], dtype=np.float64)
+
+    split = len(margins) // 2
+    margin_drift = (
+        float(np.median(margins[split:]) - np.median(margins[:split]))
+        if split > 0
+        else 0.0
+    )
+    burst_metrics = _active_burst_metrics(states, packet_rate_pps)
+    fp_rate = float(states.mean())
+    score = classic_baseline_score(
+        fp_rate,
+        margin_mad,
+        burst_metrics["longest_burst_seconds"],
+    )
+    return {
+        "threshold": float(threshold),
+        "eval_count": int(len(scores)),
+        "motion_count": int(states.sum()),
+        "fp_rate": fp_rate,
+        "margin_median": margin_median,
+        "margin_mad": margin_mad,
+        "margin_q95": float(np.quantile(margins, 0.95)),
+        "margin_q99": float(np.quantile(margins, 0.99)),
+        "margin_drift": margin_drift,
+        "margin_series": margins,
+        "block_margins": block_margins,
+        "score": score,
+        **burst_metrics,
+    }
+
+
+def _empty_quality_verdict(baseline, respiration):
+    """Classify one empty capture without turning diagnostics into admission.
+
+    Uses the same Resp ladder as Presence Scores; strong evidence maps to
+    ``presence-like``, suspect evidence to ``partial``, and weak evidence stays
+    ``clean`` when the Classic baseline is otherwise quiet.
+    """
+    if (
+        baseline["fp_rate"] > QUIET_TEST_CLASSIC_FP_FAIL_RATIO
+        or baseline["longest_burst_seconds"] > BASELINE_LONGEST_BURST_ZERO_SECONDS
+    ):
+        return "motion-like"
+    band = _respiration_evidence_band(respiration)
+    if band == "respiration":
+        return "presence-like"
+    if band == "partial":
+        return "partial"
+    if _baseline_severity(
+        baseline["fp_rate"],
+        baseline["margin_mad"],
+        baseline["longest_burst_seconds"],
+    ):
+        return "unstable"
+    return "clean"
+
+
+def _presence_evidence_verdict(baseline, respiration):
+    """Classify respiration evidence for one static-presence capture."""
+    if baseline["fp_rate"] > QUIET_TEST_CLASSIC_FP_FAIL_RATIO:
+        return "motion-contaminated"
+    return _respiration_evidence_band(respiration)
+
+
+def _group_entries_by_chip_env(entries):
+    """Group dataset entries by (chip, environment)."""
+    group_map = {}
+    for entry in entries:
+        group = (
+            str(entry.get("chip", "unknown")).upper(),
+            str(entry.get("environment", "unknown")),
+        )
+        group_map.setdefault(group, []).append(entry)
+    return group_map
+
+
+def _compute_idle_evidence_for_entry(entry, label, npz_cache):
+    """Return (baseline, respiration, error) for one empty/static_presence entry."""
+    try:
+        filepath = _resolve_dataset_entry_path(entry, label)
+        data, csi_key = _load_cached_or_npz(filepath, npz_cache)
+        csi_data = data[csi_key]
+        packet_rate_pps = _packet_rate_from_entry(entry)
+        baseline = _classic_self_baseline_stats(csi_data, packet_rate_pps)
+        respiration = _compute_respiration_evidence(csi_data, packet_rate_pps)
+        return baseline, respiration, None
+    except (OSError, ValueError, KeyError, np.linalg.LinAlgError) as exc:
+        return None, None, str(exc)
+
+
+def _idle_evidence_score_row(entry, baseline, respiration, verdict):
+    """Build one shared Presence/Empty score-table row."""
+    filename = str(entry.get("filename", "?"))
+    return {
+        "chip": str(entry.get("chip", "?")).upper(),
+        "environment": _entry_environment(entry),
+        "filename": filename,
+        "display_date": _entry_display_date(entry, filename),
+        "baseline": baseline,
+        "respiration": respiration,
+        "verdict": verdict,
+    }
+
+
+def _empty_quality_detail(verdict, baseline, respiration):
+    return (
+        f"Empty quality: verdict={verdict}, baseline_score={baseline['score']:.1f}, "
+        f"self_fp={baseline['fp_rate']:.1%}, respiration_score={respiration['score']:.1f}, "
+        f"respiration_coverage={respiration['coverage']:.0%}"
+    )
+
+
+def _presence_evidence_detail(verdict, baseline, respiration):
+    return (
+        f"Presence evidence: verdict={verdict}, respiration_score={respiration['score']:.1f}, "
+        f"coverage={respiration['coverage']:.0%}, "
+        f"peak={respiration['peak_frequency_hz']:.2f} Hz, "
+        f"support={respiration['support_ratio']:.0%}, self_fp={baseline['fp_rate']:.1%}"
+    )
+
+
+def _evaluate_idle_evidence_files(
+    entries,
+    *,
+    label,
+    check_kind,
+    compute_error_message,
+    verdict_fn,
+    pass_verdict,
+    result_value_fn,
+    detail_fn,
+    npz_cache,
+):
+    """Score one empty or static_presence label set into results + table rows."""
+    results = []
+    score_rows = []
+    for entry in entries:
+        filename = str(entry.get("filename", "?"))
+        baseline, respiration, error = _compute_idle_evidence_for_entry(
+            entry, label, npz_cache
+        )
+        if baseline is None or respiration is None:
+            results.append(ValidationResult(
+                f"{check_kind}/{filename}",
+                "WARN",
+                f"{compute_error_message}: {error or 'insufficient data'}",
+            ))
+            continue
+
+        verdict = verdict_fn(baseline, respiration)
+        status = "PASS" if verdict == pass_verdict else "WARN"
+        results.append(ValidationResult(
+            f"{check_kind}/{filename}",
+            status,
+            detail_fn(verdict, baseline, respiration),
+            result_value_fn(baseline, respiration),
+        ))
+        score_rows.append(
+            _idle_evidence_score_row(entry, baseline, respiration, verdict)
+        )
+    return results, score_rows
+
+
 def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
-    """Validate whether empty datasets are internally usable and separable."""
+    """Score empty contamination and static-presence respiration evidence.
+
+    Returns:
+        tuple: (results, empty_score_rows, presence_score_rows)
+    """
     results = []
 
     empty_files = dataset_info.get('files', {}).get('empty', [])
@@ -1300,124 +2312,54 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
             "empty_dataset_presence", "WARN",
             "No empty datasets available for validation"
         ))
-        return results
+    else:
+        results.append(ValidationResult(
+            "empty_dataset_presence", "PASS",
+            f"{len(empty_files)} empty file(s) available", len(empty_files)
+        ))
 
-    results.append(ValidationResult(
-        "empty_dataset_presence", "PASS",
-        f"{len(empty_files)} empty file(s) available", len(empty_files)
-    ))
-
-    overlap_groups = []
-    empty_group_map = {}
-    for entry in empty_files:
-        group = (
-            str(entry.get('chip', 'unknown')).upper(),
-            str(entry.get('environment', 'unknown')),
-        )
-        empty_group_map.setdefault(group, []).append(entry)
-
-    static_group_map = {}
-    for entry in static_presence_files:
-        group = (
-            str(entry.get('chip', 'unknown')).upper(),
-            str(entry.get('environment', 'unknown')),
-        )
-        static_group_map.setdefault(group, []).append(entry)
-
-    for group in sorted(set(empty_group_map) & set(static_group_map)):
-        overlap_groups.append(group)
+    empty_group_map = _group_entries_by_chip_env(empty_files)
+    static_group_map = _group_entries_by_chip_env(static_presence_files)
+    overlap_groups = sorted(set(empty_group_map) & set(static_group_map))
 
     if not overlap_groups:
         results.append(ValidationResult(
             "empty_overlap_groups", "WARN",
             "No overlapping chip/environment groups with static presence"
         ))
-        return results
-
-    results.append(ValidationResult(
-        "empty_overlap_groups", "PASS",
-        f"{len(overlap_groups)} overlapping chip/environment group(s): {overlap_groups}",
-        len(overlap_groups)
-    ))
-
-    for chip, environment in overlap_groups:
-        empty_turb_mean_series = []
-        static_turb_mean_series = []
-
-        for entry in empty_group_map[(chip, environment)]:
-            filepath = _resolve_dataset_entry_path(entry, 'empty')
-            data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-            csi_data = data[csi_key]
-            turbulence = _compute_turbulence_series(csi_data)
-            if len(turbulence):
-                turb_mean = _window_mean(turbulence)
-                if len(turb_mean):
-                    empty_turb_mean_series.append(np.asarray(turb_mean, dtype=np.float64))
-
-        for entry in static_group_map[(chip, environment)]:
-            filepath = _resolve_dataset_entry_path(entry, 'static_presence')
-            data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-            csi_data = data[csi_key]
-            turbulence = _compute_turbulence_series(csi_data)
-            if len(turbulence):
-                turb_mean = _window_mean(turbulence)
-                if len(turb_mean):
-                    static_turb_mean_series.append(np.asarray(turb_mean, dtype=np.float64))
-
-        if (
-            not empty_turb_mean_series
-            or not static_turb_mean_series
-        ):
-            results.append(ValidationResult(
-                f"empty_separation_{chip}_{environment}", "WARN",
-                f"Insufficient score-feature data for group {(chip, environment)}"
-            ))
-            continue
-
-        empty_turb_mean = np.concatenate(empty_turb_mean_series)
-        static_turb_mean = np.concatenate(static_turb_mean_series)
-
-        empty_score, static_score = _build_empty_separation_score(
-            empty_turb_mean,
-            static_turb_mean,
-        )
-        auc = _rank_auc(static_score, empty_score)
-        if auc is None:
-            results.append(ValidationResult(
-                f"empty_separation_{chip}_{environment}", "WARN",
-                f"Could not compute empty-vs-static score for group {(chip, environment)}"
-            ))
-            continue
-
-        forward = _evaluate_threshold_direction(
-            static_score, empty_score, expect_pos_higher=True
-        )
-        reverse = _evaluate_threshold_direction(
-            static_score, empty_score, expect_pos_higher=False
-        )
-        best = forward if reverse is None or (forward and forward[:2] >= reverse[:2]) else reverse
-        balanced_acc, accuracy, threshold, direction = best
-        separability_auc = max(float(auc), 1.0 - float(auc))
-        status = (
-            "PASS"
-            if separability_auc >= MIN_EMPTY_SEPARABILITY_AUC
-            and balanced_acc >= MIN_EMPTY_SEPARABILITY_BALANCED_ACC
-            else "WARN"
-        )
-
+    else:
         results.append(ValidationResult(
-            f"empty_separation_{chip}_{environment}",
-            status,
-            (
-                f"Empty-vs-static score separates group {(chip, environment)}: "
-                f"AUC={separability_auc:.3f}, balanced_acc={balanced_acc:.3f}, "
-                f"threshold={threshold:.4f}, direction={direction}, "
-                f"score=z(turb_mean)"
-            ),
-            round(separability_auc, 3)
+            "empty_overlap_groups", "PASS",
+            f"{len(overlap_groups)} overlapping chip/environment group(s): {overlap_groups}",
+            len(overlap_groups)
         ))
 
-    return results
+    empty_results, empty_score_rows = _evaluate_idle_evidence_files(
+        empty_files,
+        label="empty",
+        check_kind="empty_quality",
+        compute_error_message="Could not compute empty quality diagnostics",
+        verdict_fn=_empty_quality_verdict,
+        pass_verdict="clean",
+        result_value_fn=lambda baseline, _respiration: baseline["score"],
+        detail_fn=_empty_quality_detail,
+        npz_cache=npz_cache,
+    )
+    presence_results, presence_score_rows = _evaluate_idle_evidence_files(
+        static_presence_files,
+        label="static_presence",
+        check_kind="presence_evidence",
+        compute_error_message="Could not compute presence evidence",
+        verdict_fn=_presence_evidence_verdict,
+        pass_verdict="respiration",
+        result_value_fn=lambda _baseline, respiration: respiration["score"],
+        detail_fn=_presence_evidence_detail,
+        npz_cache=npz_cache,
+    )
+    results.extend(empty_results)
+    results.extend(presence_results)
+
+    return results, empty_score_rows, presence_score_rows
 
 
 def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
@@ -1468,13 +2410,14 @@ def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
             motion_start,
         ))
 
+    quiet_score_rows = []
     if not idle_candidates:
         results.append(ValidationResult(
             "quiet_test_presence",
             "WARN",
             "No idle-only test recordings available for validation",
         ))
-        return results
+        return results, quiet_score_rows
 
     results.append(ValidationResult(
         "quiet_test_presence",
@@ -1493,145 +2436,144 @@ def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
         if classic_metrics is None:
             results.append(ValidationResult(
                 f"quiet_test_idle/{filename}",
-                "FAIL",
+                "WARN",
                 "Could not self-calibrate ClassicDetector on the idle-only test recording",
             ))
             continue
 
-        classic_status = _quiet_fp_status(
+        classic_status = _classic_diagnostic_status(_quiet_fp_status(
             classic_metrics["fp_rate"],
             QUIET_TEST_CLASSIC_FP_WARN_RATIO,
             QUIET_TEST_CLASSIC_FP_FAIL_RATIO,
-        )
+        ))
         status = _merge_statuses(classic_status)
+        score = classic_quiet_score(classic_metrics["fp_rate"])
+        quiet_score_rows.append({
+            "fp_rate": round(classic_metrics["fp_rate"], 4),
+            "classic_score": score,
+            "chip": str(entry.get("chip", "?")).upper(),
+            "environment": _entry_environment(entry),
+            "display_date": _entry_display_date(entry, filename),
+            "filename": filename,
+        })
 
         results.append(ValidationResult(
             f"quiet_test_idle/{filename}",
             status,
             (
-                "Idle-only long-run replay: "
+                "Classic indicative idle-only long-run replay: "
+                f"score={score:.1f}/100, "
                 f"Classic self-FP={classic_metrics['fp_rate']:.1%} "
                 f"(threshold={classic_metrics['threshold']:.6f}, eval={classic_metrics['eval_count']})"
             ),
-            round(classic_metrics["fp_rate"], 4),
+            score,
         ))
 
-    return results
+    return results, quiet_score_rows
 
 
 # ------------------------------------------------------------------
 # Main validation pipeline
 # ------------------------------------------------------------------
 
-def run_validation(chip_filter=None, strict=False, generate_report=False, refresh_metadata_first=False):
+def run_validation(chip_filter=None, generate_report=True):
     """Run full dataset validation."""
 
-    print("=" * 70)
-    print("  ESPectre Dataset Quality Validation")
-    print("=" * 70)
-    print(f"  Data directory: {DATA_DIR}")
-    print(f"  Timestamp: {datetime.datetime.now().isoformat()}")
+    print("ESPectre Dataset Quality Validation")
+    print(f"Data: {DATA_DIR}")
     if chip_filter:
-        print(f"  Chip filter: {chip_filter}")
-    print()
+        print(f"Chip filter: {chip_filter}")
 
     # Load dataset info
     if DATASET_INFO.exists():
         dataset_info = load_dataset_info()
-        print(f"📋 Loaded dataset_info.json (updated: {dataset_info.get('updated_at', 'unknown')})")
+        print(f"dataset_info.json updated_at={dataset_info.get('updated_at', 'unknown')}")
     else:
         print("⚠️  dataset_info.json not found, scanning files directly")
         dataset_info = {'files': {'empty': [], 'static_presence': [], 'motion': []}}
 
-    if refresh_metadata_first and DATASET_INFO.exists():
-        print("\n" + "-" * 70)
-        print("  METADATA REFRESH")
-        print("-" * 70)
-
+    if DATASET_INFO.exists():
         refreshed_info, refreshed_pairs = refresh_metadata(dataset_info, chip_filter=chip_filter)
         summarize_pair_rows(refreshed_pairs)
-        comparable_refreshed = normalize_updated_at(refreshed_info, dataset_info.get("updated_at"))
-        is_unchanged = comparable_refreshed == dataset_info
-        save_dataset_info(refreshed_info)
-        dataset_info = refreshed_info
-        if is_unchanged:
-            print(f"Force-wrote {DATASET_INFO}")
-        else:
+        if refreshed_info != dataset_info:
+            refreshed_info["updated_at"] = datetime.datetime.now().isoformat(
+                timespec="microseconds"
+            )
+            save_dataset_info(refreshed_info)
             print(f"Wrote {DATASET_INFO}")
+        else:
+            print(f"Metadata unchanged")
+        dataset_info = refreshed_info
 
     all_results = []
     pair_results = []
     missing_motion_pair_count = 0
+    printed_issues_heading = False
+
+    def _emit_issues(results, *, heading):
+        nonlocal printed_issues_heading
+        issues = _issue_results(results)
+        all_results.extend(results)
+        if not issues:
+            return
+        if not printed_issues_heading:
+            print("\nIssues (WARN/FAIL only)")
+            printed_issues_heading = True
+        print(heading)
+        for result in issues:
+            print(f"   {result}")
 
     # ------------------------------------------------------------------
     # Phase 1: Validate required dataset_info metadata
     # ------------------------------------------------------------------
-    print("\n" + "-" * 70)
-    print("  METADATA COMPLETENESS")
-    print("-" * 70)
-
     metadata_results = validate_metadata_completeness(
         dataset_info,
         chip_filter=chip_filter,
     )
     _tag_results(metadata_results, 'integrity')
-    for r in metadata_results:
-        print(f"   {r}")
-        all_results.append(r)
+    _emit_issues(metadata_results, heading="Metadata completeness")
 
     # ------------------------------------------------------------------
     # Phase 2: Load all NPZ files once, validate integrity & quality
     # ------------------------------------------------------------------
-    print("\n" + "-" * 70)
-    print("  FILE INTEGRITY & SIGNAL QUALITY")
-    print("-" * 70)
-
     # Cache: path -> (NpzFile, csi_key) — avoids reloading in pair validation
     npz_cache = {}
 
     for label in PER_FILE_QUALITY_LABELS:
         label_dir = DATA_DIR / label
         if not label_dir.exists():
-            print(f"\n⚠️  Directory not found: {label_dir}")
+            print(f"⚠️  Directory not found: {label_dir}")
             continue
 
         for npz_file in sorted(label_dir.glob("*.npz")):
             if chip_filter and chip_filter.lower() not in npz_file.name.lower():
                 continue
 
-            print(f"\n📁 {label}/{npz_file.name}")
-
+            file_results = []
             integrity_results, data = validate_file_integrity(npz_file)
             _tag_results(integrity_results, 'integrity')
-            for r in integrity_results:
-                print(f"   {r}")
-                all_results.append(r)
+            file_results.extend(integrity_results)
 
-            if data is None:
-                continue
+            if data is not None:
+                csi_key = _get_csi_key(data)
+                npz_cache[npz_file] = (data, csi_key)
 
-            csi_key = _get_csi_key(data)
-            npz_cache[npz_file] = (data, csi_key)
+                quality_results = validate_signal_quality(data[csi_key])
+                _tag_results(quality_results, 'integrity')
+                file_results.extend(quality_results)
 
-            quality_results = validate_signal_quality(data[csi_key])
-            _tag_results(quality_results, 'integrity')
-            for r in quality_results:
-                print(f"   {r}")
-                all_results.append(r)
+                continuity_results = validate_capture_continuity(data, data[csi_key])
+                _tag_results(continuity_results, 'integrity')
+                file_results.extend(continuity_results)
 
-            continuity_results = validate_capture_continuity(data, data[csi_key])
-            _tag_results(continuity_results, 'integrity')
-            for r in continuity_results:
-                print(f"   {r}")
-                all_results.append(r)
+            _emit_issues(
+                file_results,
+                heading=f"{label}/{npz_file.name}",
+            )
 
     # ------------------------------------------------------------------
     # Phase 3: Pair validation (static presence <-> motion)
     # ------------------------------------------------------------------
-    print("\n" + "-" * 70)
-    print("  PAIR VALIDATION (static presence vs motion)")
-    print("-" * 70)
-
     static_presence_dir = DATA_DIR / "static_presence"
     motion_dir = DATA_DIR / "motion"
 
@@ -1644,6 +2586,10 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
         }
 
         static_entries = dataset_info.get("files", {}).get("static_presence", [])
+        motion_entries_by_name = {
+            str(item.get("filename", "")): item
+            for item in dataset_info.get("files", {}).get("motion", [])
+        }
         for entry in static_entries:
             if not _entry_matches_chip(entry, chip_filter):
                 continue
@@ -1654,21 +2600,39 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
             best_mv = motion_files.get(mv_name)
 
             if bl_file is None:
-                print(f"\n⚠️  Static-presence file missing: {bl_name}")
+                _emit_issues(
+                    _tag_results(
+                        [ValidationResult(
+                            "pair_static_missing",
+                            "WARN",
+                            f"Static-presence file missing: {bl_name}",
+                        )],
+                        "classic",
+                    ),
+                    heading="Pair validation",
+                )
                 continue
             if best_mv is None:
-                print(f"\n⚠️  No motion pair for: {bl_file.name}")
                 missing_motion_pair_count += 1
+                _emit_issues(
+                    _tag_results(
+                        [ValidationResult(
+                            "pair_motion_missing",
+                            "WARN",
+                            f"No motion pair for: {bl_file.name}",
+                        )],
+                        "classic",
+                    ),
+                    heading="Pair validation",
+                )
                 continue
 
             chip = str(entry.get("chip", "unknown")).upper()
             mv_file = best_mv
+            motion_entry = motion_entries_by_name.get(mv_name, {})
 
             sc_source = "DEFAULT_SUBCARRIERS"
             cv_mode = "CV"
-
-            print(f"\n🔗 Pair: {bl_file.name} ↔ {mv_file.name}")
-            print(f"   [subcarriers: {sc_source}, turbulence: {cv_mode}]")
 
             # Use cached NPZ data when available, otherwise load
             if bl_file in npz_cache and mv_file in npz_cache:
@@ -1681,59 +2645,80 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
                     bl_key = _get_csi_key(bl_data)
                     mv_key = _get_csi_key(mv_data)
                 except Exception as e:
-                    results_err = [ValidationResult("pair_load", "FAIL", f"Cannot load pair: {e}")]
-                    for r in results_err:
-                        print(f"   {r}")
-                        all_results.append(r)
+                    _emit_issues(
+                        _tag_results(
+                            [ValidationResult(
+                                "pair_load",
+                                "FAIL",
+                                f"Cannot load pair: {e}",
+                            )],
+                            "classic",
+                        ),
+                        heading=f"Pair {bl_file.name} ↔ {mv_file.name}",
+                    )
                     continue
 
-            pair_res, static_active_ratio, motion_active_ratio, pair_threshold, motion_peak_ratio = validate_pair(
+            pair_res, static_active_ratio, motion_active_ratio, pair_threshold, pair_ratio = validate_pair(
                 bl_data[bl_key], mv_data[mv_key],
             )
             _tag_results(pair_res, 'classic')
+            score = classic_pair_score(
+                static_active_ratio, motion_active_ratio, pair_ratio
+            )
+            classic_status = (
+                'WARN' if any(r.status == 'WARN' for r in pair_res)
+                else 'PASS'
+            )
             for r in pair_res:
-                print(f"   {r}")
-                all_results.append(r)
+                if r.name == "classic_pair_activation" and r.status in ("PASS", "WARN"):
+                    r.message = (
+                        f"Classic indicative pair score={score:.1f}/100; "
+                        + r.message
+                    )
+                    r.value = score
+            _emit_issues(
+                pair_res,
+                heading=f"Pair {bl_file.name} ↔ {mv_file.name}",
+            )
 
-            pair_status = 'FAIL' if any(r.status == 'FAIL' for r in pair_res) else 'PASS'
             pair_results.append({
                 'static_presence': bl_file.name,
                 'motion': mv_file.name,
+                'static_date': _entry_display_date(entry, bl_file.name),
+                'motion_date': _entry_display_date(motion_entry, mv_file.name),
                 'chip': chip.upper(),
+                'environment': _entry_environment(entry),
                 'threshold': pair_threshold,
                 'static_active_ratio': static_active_ratio,
                 'motion_active_ratio': motion_active_ratio,
-                'motion_peak_ratio': motion_peak_ratio,
+                'pair_ratio': pair_ratio,
+                'classic_score': score,
                 'sc_source': sc_source,
                 'cv_mode': cv_mode,
-                'status': pair_status,
+                'classic_status': classic_status,
+                'status': classic_status,
             })
 
     # ------------------------------------------------------------------
     # Phase 4: Empty sanity
     # ------------------------------------------------------------------
-    print("\n" + "-" * 70)
-    print("  EMPTY SANITY")
-    print("-" * 70)
-
-    empty_results = validate_empty_sanity(
+    empty_results, empty_score_rows, presence_score_rows = validate_empty_sanity(
         dataset_info,
         npz_cache,
         chip_filter=chip_filter,
     )
-    _tag_results(empty_results, 'ml')
-    for r in empty_results:
-        print(f"   {r}")
-        all_results.append(r)
+    for result in empty_results:
+        result.domain = (
+            'classic'
+            if result.name.startswith(('empty_quality/', 'presence_evidence/'))
+            else 'label_sanity'
+        )
+    _emit_issues(empty_results, heading="Empty / presence sanity")
 
     # ------------------------------------------------------------------
     # Phase 5: Quiet-test sanity
     # ------------------------------------------------------------------
-    print("\n" + "-" * 70)
-    print("  QUIET TEST SANITY")
-    print("-" * 70)
-
-    quiet_test_results = validate_quiet_test_recordings(
+    quiet_test_results, quiet_score_rows = validate_quiet_test_recordings(
         dataset_info,
         npz_cache,
         chip_filter=chip_filter,
@@ -1743,22 +2728,14 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
             'classic' if result.name.startswith('quiet_test_idle/')
             else 'long_recording'
         )
-    for r in quiet_test_results:
-        print(f"   {r}")
-        all_results.append(r)
+    _emit_issues(quiet_test_results, heading="Quiet-test sanity")
 
     # ------------------------------------------------------------------
     # Phase 6: ML readiness
     # ------------------------------------------------------------------
-    print("\n" + "-" * 70)
-    print("  ML READINESS")
-    print("-" * 70)
-
     ml_results = validate_ml_readiness(dataset_info, chip_filter=chip_filter)
     _tag_results(ml_results, 'ml')
-    for r in ml_results:
-        print(f"   {r}")
-        all_results.append(r)
+    _emit_issues(ml_results, heading="ML readiness")
 
     # ------------------------------------------------------------------
     # Summary
@@ -1767,141 +2744,225 @@ def run_validation(chip_filter=None, strict=False, generate_report=False, refres
     warn_count = sum(1 for r in all_results if r.status == 'WARN')
     fail_count = sum(1 for r in all_results if r.status == 'FAIL')
 
-    print("\n" + "=" * 70)
-    print("  SUMMARY")
-    print("=" * 70)
-    print(f"   ✅ PASS: {pass_count}")
-    print(f"   ⚠️  WARN: {warn_count}")
-    print(f"   ❌ FAIL: {fail_count}")
-    print(f"   Total checks: {len(all_results)}")
+    if not printed_issues_heading:
+        print("\nNo WARN/FAIL checks")
 
-    print("\n  RESULTS BY DOMAIN")
-    print("  " + "-" * 66)
-    print("  | Domain                    | PASS | WARN | FAIL | Result |")
-    print("  |---------------------------|-----:|-----:|-----:|--------|")
+    print("\nSummary")
+    print(f"  PASS {pass_count}  WARN {warn_count}  FAIL {fail_count}  total {len(all_results)}")
+    print("  | Domain                    | PASS | WARN | FAIL |")
+    print("  |---------------------------|-----:|-----:|-----:|")
     for domain in VALIDATION_DOMAINS:
         domain_results = [result for result in all_results if result.domain == domain]
         counts = _result_counts(domain_results)
-        if counts['FAIL']:
-            outcome = 'FAIL'
-        elif counts['WARN']:
-            outcome = 'WARN'
-        else:
-            outcome = 'PASS'
         print(
             f"  | {VALIDATION_DOMAIN_LABELS[domain]:<25} | "
-            f"{counts['PASS']:>4} | {counts['WARN']:>4} | {counts['FAIL']:>4} | "
-            f"{outcome:<6} |"
+            f"{counts['PASS']:>4} | {counts['WARN']:>4} | {counts['FAIL']:>4} |"
         )
 
-    if pair_results:
-        pass_pairs = sum(1 for p in pair_results if p['status'] == 'PASS')
-        print(f"   Pairs: {pass_pairs}/{len(pair_results)} passed")
+    if pair_results or quiet_score_rows or empty_score_rows or presence_score_rows:
+        print("\nIndicative scores (review only)")
+        if pair_results:
+            print(
+                "  | Chip | Env | static_presence / motion | FP | TP | Ratio | Score |"
+            )
+            print(
+                "  |------|-----|-------------------------|-----:|-----:|------:|------:|"
+            )
+            for p in sorted(
+                pair_results,
+                key=lambda row: -row.get('classic_score', 0.0),
+            ):
+                score_severity = _score_value_severity(p['classic_score'])
+                print(
+                    f"  | {p['chip']:<4} | {p.get('environment', '?'):<11} | "
+                    f"{_pair_files_cell(p['static_presence'], p['motion'], p.get('static_date', '?'), p.get('motion_date', '?')):<23} | "
+                    f"{_format_static_above_cell(p['static_active_ratio']):>5} | "
+                    f"{_format_motion_above_cell(p['motion_active_ratio']):>5} | "
+                    f"{_format_pair_ratio_cell(p['pair_ratio']):>6} | "
+                    f"{_format_score_cell(p['classic_score'], score_severity):>8} |"
+                )
+            mean_pair = float(np.mean([p['classic_score'] for p in pair_results]))
+            print(f"  Pair mean score: {mean_pair:.1f}/100")
+        for rows, table_spec in (
+            (presence_score_rows, _PRESENCE_SCORE_TABLE),
+            (empty_score_rows, _EMPTY_SCORE_TABLE),
+            (quiet_score_rows, _LONG_TEST_SCORE_TABLE),
+        ):
+            for line in _render_score_table(rows, table_spec):
+                print(line)
 
     if should_recommend_dataset_metadata_refresh(
         all_results,
         missing_motion_pair_count=missing_motion_pair_count,
     ):
-        print("\n💡 Metadata refresh recommended:")
-        print("   Run `python tools/validate_dataset_quality.py --refresh-metadata`")
-        print("   to regenerate explicit static_presence/motion pair metadata.")
+        print("\n💡 Pair metadata still incomplete after automatic refresh:")
+        print("   Check chip, subcarrier, device_id, and collected_at alignment")
+        print("   between static_presence and motion captures.")
 
     if generate_report:
-        _generate_report(pair_results, all_results, dataset_info)
-        print(f"\n📄 Report written to: {REPORT_OUTPUT}")
+        _generate_report(
+            pair_results,
+            all_results,
+            quiet_score_rows,
+            empty_score_rows,
+            presence_score_rows,
+        )
+        print(f"\nReport: {REPORT_OUTPUT}")
 
     if fail_count > 0:
         print("\n❌ Validation FAILED")
         return 1
-    elif warn_count > 0 and strict:
-        print("\n⚠️  Validation FAILED (strict mode)")
-        return 1
-    else:
-        print("\n✅ Validation PASSED")
-        return 0
+    print("\n✅ Validation PASSED")
+    return 0
 
 
-def _generate_report(pair_results, all_results, dataset_info):
+def _generate_report(
+    pair_results,
+    all_results,
+    quiet_score_rows,
+    empty_score_rows,
+    presence_score_rows,
+):
     """Generate markdown report."""
     lines = []
     lines.append("# Dataset Quality Check\n")
     lines.append(f"Last update: {datetime.date.today().isoformat()}")
     lines.append(f"Source: `data/dataset_info.json`")
     lines.append(f"Generated by: `tools/validate_dataset_quality.py`\n")
-
-    lines.append("## Validation rule\n")
-    lines.append("Per-file integrity and signal-quality checks cover `empty`, `static_presence`, `motion`, and `test`.\n")
-    lines.append("A pair is considered valid when:\n")
-    lines.append("- labels are coherent (`static_presence` vs `motion`)")
     lines.append(
-        "- replaying the production `ClassicDetector` with a threshold calibrated "
-        "from the pair `static_presence` capture keeps `static_presence` mostly idle"
+        "Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics.md`.\n"
     )
-    lines.append(
-        f"- `static_presence` above-threshold share <= {MAX_STATIC_ACTIVE_RATIO:.0%}, "
-        f"`motion` above-threshold share >= {MIN_MOTION_ACTIVE_RATIO:.0%}, and "
-        f"the motion-minus-static gap >= {MIN_ACTIVE_RATIO_MARGIN:.0%}\n"
-    )
-    lines.append("Empty sanity uses overlapping `static_presence` groups with the same ")
-    lines.append("chip/environment to check both quietness and separability, after dropping ")
-    lines.append("reference frames from `empty` files when present.\n")
-    lines.append("Computed metrics:\n")
-    lines.append("- `Threshold`: pair-specific classic runtime threshold calibrated from `static_presence`")
-    lines.append("- `Static Above`: share of replayed classic windows classified as motion on `static_presence`")
-    lines.append("- `Motion Above`: share of replayed classic windows classified as motion on `motion`")
-    lines.append("- `Motion Peak`: maximum replayed classic primary score divided by the threshold")
-    lines.append("- `Empty separation`: score-based separability between `empty` and ")
-    lines.append("  `static_presence` windows using `z(turb_mean)`")
-    lines.append("- `Gap`: non-negative time between the `static_presence` and `motion` capture intervals")
-    lines.append("  regardless of acquisition order (`0s` means the intervals overlap)")
-    lines.append("- `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set")
-    lines.append("- `Turbulence`: `CV` = coefficient of variation (`std/mean`), the shared production path for the variance baseline and ML\n")
-
-    lines.append("## Results (sorted by chip, then motion activation desc)\n")
-    lines.append("| Chip | File pair (static_presence / motion) | Threshold | Static Above | Motion Above | Motion Peak | Subcarriers | Turbulence | Status |")
-    lines.append("|---|---|---:|---:|---:|---:|---|---|---|")
-
-    sorted_pairs = sorted(pair_results, key=lambda x: (x['chip'], -x['motion_active_ratio']))
-    for p in sorted_pairs:
-        lines.append(
-            f"| {p['chip']} | `{p['static_presence']}` / `{p['motion']}` | "
-            f"{p['threshold']:.2e} | {p['static_active_ratio']:.1%} | "
-            f"{p['motion_active_ratio']:.1%} | {p['motion_peak_ratio']:.2f}x | "
-            f"{p.get('sc_source', '?')} | {p.get('cv_mode', '?')} | {p['status']} |"
-        )
-
-    lines.append(f"\n## Classic Pair Summary\n")
-    pass_pairs = sum(1 for p in pair_results if p['status'] == 'PASS')
-    fail_pairs = sum(1 for p in pair_results if p['status'] == 'FAIL')
-    lines.append(f"- total pairs: {len(pair_results)}")
-    lines.append(f"- pass: {pass_pairs}")
-    lines.append(f"- fail: {fail_pairs}")
 
     pass_count = sum(1 for r in all_results if r.status == 'PASS')
     warn_count = sum(1 for r in all_results if r.status == 'WARN')
     fail_count = sum(1 for r in all_results if r.status == 'FAIL')
-    lines.append(f"\n## Validation Domains\n")
-    lines.append("| Domain | PASS | WARN | FAIL | Result |")
-    lines.append("|---|---:|---:|---:|---|")
-    for domain in VALIDATION_DOMAINS:
-        domain_results = [result for result in all_results if result.domain == domain]
-        counts = _result_counts(domain_results)
-        if counts['FAIL']:
-            outcome = 'FAIL'
-        elif counts['WARN']:
-            outcome = 'WARN'
-        else:
-            outcome = 'PASS'
-        lines.append(
-            f"| {VALIDATION_DOMAIN_LABELS[domain]} | {counts['PASS']} | "
-            f"{counts['WARN']} | {counts['FAIL']} | {outcome} |"
-        )
-
-    lines.append(f"\n## Detailed Check Summary\n")
+    lines.append("## Quality Check Summary\n")
     lines.append(f"- Total checks: {len(all_results)}")
     lines.append(f"- ✅ PASS: {pass_count}")
     lines.append(f"- ⚠️ WARN: {warn_count}")
-    lines.append(f"- ❌ FAIL: {fail_count}")
+    lines.append(f"- ❌ FAIL: {fail_count}\n")
+
+    lines.append("## Validation Domains\n")
+    lines.append("| Domain | PASS | WARN | FAIL |")
+    lines.append("|---|---:|---:|---:|")
+    for domain in VALIDATION_DOMAINS:
+        domain_results = [result for result in all_results if result.domain == domain]
+        counts = _result_counts(domain_results)
+        lines.append(
+            f"| {VALIDATION_DOMAIN_LABELS[domain]} | {counts['PASS']} | "
+            f"{counts['WARN']} | {counts['FAIL']} |"
+        )
+
+    lines.append("\n## Motion Scores\n")
+    lines.append(
+        "| Chip | Env | static_presence / motion | Threshold | "
+        "FP | TP | Ratio | Score |"
+    )
+    lines.append("|---|---|---|---:|---:|---:|---:|---:|")
+
+    sorted_pairs = sorted(
+        pair_results,
+        key=lambda x: -x.get('classic_score', 0.0),
+    )
+    for p in sorted_pairs:
+        score_value = p.get('classic_score', 0.0)
+        lines.append(
+            f"| {p['chip']} | {p.get('environment', '?')} | "
+            f"{_pair_files_cell(p['static_presence'], p['motion'], p.get('static_date', '?'), p.get('motion_date', '?'), markdown=True)} | "
+            f"{p['threshold']:.2e} | "
+            f"{_format_static_above_cell(p['static_active_ratio'], markdown=True)} | "
+            f"{_format_motion_above_cell(p['motion_active_ratio'], markdown=True)} | "
+            f"{_format_pair_ratio_cell(p['pair_ratio'], markdown=True)} | "
+            f"{_format_score_cell(score_value, _score_value_severity(score_value), markdown=True)} |"
+        )
+
+    for rows, table_spec in (
+        (presence_score_rows, _PRESENCE_SCORE_TABLE),
+        (empty_score_rows, _EMPTY_SCORE_TABLE),
+        (quiet_score_rows, _LONG_TEST_SCORE_TABLE),
+    ):
+        lines.extend(_render_score_table(rows, table_spec, markdown=True))
+
+    lines.append("\n## Validation rule\n")
+    lines.append(
+        f"- `FP` (Motion Scores): ⚠️ `>{MAX_STATIC_ACTIVE_RATIO:.0%}`, "
+        f"❌ `>{FAIL_STATIC_ACTIVE_RATIO:.0%}`"
+    )
+    lines.append(
+        f"- `TP` (Motion Scores): ⚠️ `<{MIN_MOTION_ACTIVE_RATIO:.0%}`, "
+        f"❌ `<{FAIL_MOTION_ACTIVE_RATIO:.0%}`"
+    )
+    lines.append(
+        f"- `Ratio` (Motion Scores, p95(motion)/threshold): "
+        f"⚠️ `<{RATIO_WARN_BELOW:.0f}x`, "
+        f"❌ `<{RATIO_FAIL_BELOW:.0f}x`"
+    )
+    lines.append(
+        f"- `FP` (Presence/Empty/Long-test): "
+        f"⚠️ `>{QUIET_TEST_CLASSIC_FP_WARN_RATIO:.0%}`, "
+        f"❌ `>{QUIET_TEST_CLASSIC_FP_FAIL_RATIO:.0%}`"
+    )
+    lines.append(
+        f"- `Breath Hz` (Presence/Empty): ⚠️ outside "
+        f"`{RESPIRATION_BAND_HZ[0]:.2f}-{RESPIRATION_BAND_HZ[1]:.2f} Hz`"
+    )
+    lines.append(
+        f"- `Score`: ⚠️ `<{SCORE_WARN_BELOW:.0f}`, ❌ `<{SCORE_FAIL_BELOW:.0f}`"
+    )
+    lines.append(
+        f"- `Resp` (shared ladder): "
+        f"strong when `Resp>={RESPIRATION_EVIDENCE_SCORE_MIN:.0f}`; "
+        f"⚠️ `partial` when `Resp>={RESPIRATION_SUSPECT_SCORE_MIN:.0f}`; "
+        f"otherwise `weak`."
+    )
+    lines.append(
+        "- `Resp` polarity: Presence Scores mark ⚠️ `partial` / ❌ `weak` "
+        "(higher is better); Empty Scores invert the same ladder "
+        "(⚠️ `partial`, ❌ strong/`presence-like`; lower is better)\n"
+    )
+    lines.append("Computed metrics:\n")
+    lines.append("- `Env`: capture environment from `dataset_info.json`")
+    lines.append(
+        "- `File` and `static_presence / motion`: capture-date links to the NPZ paths"
+    )
+    lines.append(
+        "- `File` (long-test): readable capture date linking to the test NPZ"
+    )
+    lines.append(
+        "- `FP` (Motion Scores): share of replayed `ClassicDetector` evaluation "
+        "ticks classified as motion on `static_presence` (false positives)"
+    )
+    lines.append(
+        "- `TP` (Motion Scores): share of replayed `ClassicDetector` evaluation "
+        "ticks classified as motion on `motion` (true positives)"
+    )
+    lines.append(
+        "- `FP` (Presence/Empty/Long-test): `ClassicDetector` false-positive "
+        "share of evaluation ticks on a self-calibrated idle capture or "
+        "idle-only quiet test"
+    )
+    lines.append(
+        "- `Breath Hz`: median candidate respiration frequency among "
+        "frequency-consistent supported segments"
+    )
+    lines.append(
+        "- `Ratio`: `p95(motion) / threshold` on replayed `ClassicDetector` "
+        "probabilities"
+    )
+    lines.append(
+        "- `Resp`: detector-independent respiration-evidence score from "
+        "frequency-consensus segment quality, peak-stability damping, and "
+        "segment coverage; Presence and Empty share one Resp ladder, with Empty "
+        "marks inverted (high Resp means presence-like contamination)"
+    )
+    lines.append("- `Margin`: `logit(probability) - logit(threshold)` on the post-bootstrap tail")
+    lines.append("- `MAD`, `q95`, `q99`, and `Drift`: robust margin dispersion, tail, and second-half minus first-half median")
+    lines.append("- `Bursts/min` and `Longest`: positive-margin activation episodes")
+    lines.append(
+        "- `Score`: indicative 0-100 score from `ClassicDetector` replay, "
+        "tables sorted descending; on Presence/Empty it is the self-calibrated "
+        "idle score (0.5×cleanliness + 0.3×stability + 0.2×burst_clean)"
+    )
 
     REPORT_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     with open(REPORT_OUTPUT, 'w') as f:
@@ -1918,32 +2979,21 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python validate_dataset_quality.py              # Full validation
+  python validate_dataset_quality.py              # Full validation (auto report + metadata refresh)
   python validate_dataset_quality.py --chip C6    # Validate C6 only
-  python validate_dataset_quality.py --report     # Generate markdown report
-  python validate_dataset_quality.py --refresh-metadata  # Force-refresh metadata first
-  python validate_dataset_quality.py --strict     # Fail on warnings
+  python validate_dataset_quality.py --no-report  # Skip markdown report
         """
     )
     parser.add_argument('--chip', type=str, default=None,
                        help='Filter by chip type (e.g., C6, S3, C3, ESP32)')
-    parser.add_argument('--report', action='store_true',
-                       help='Generate DATASET_QUALITY_CHECK.md report')
-    parser.add_argument(
-        '--refresh-metadata',
-        action='store_true',
-        help='Force-refresh derived dataset_info pair metadata before validation',
-    )
-    parser.add_argument('--strict', action='store_true',
-                       help='Treat warnings as failures')
+    parser.add_argument('--no-report', action='store_true',
+                       help='Skip writing DATASET_QUALITY_CHECK.md')
 
     args = parser.parse_args()
 
     exit_code = run_validation(
         chip_filter=args.chip,
-        strict=args.strict,
-        generate_report=args.report,
-        refresh_metadata_first=args.refresh_metadata,
+        generate_report=not args.no_report,
     )
     sys.exit(exit_code)
 

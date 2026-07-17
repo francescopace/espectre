@@ -14,8 +14,8 @@ Training features:
   - Configurable FP penalty (--fp-weight) and feature normalization (--scaler)
 
 Usage:
-    python tools/train_ml_model.py                    # Evaluate current production defaults
-    python tools/train_ml_model.py --promote          # Explicitly export the evaluated candidate
+    python tools/train_ml_model.py                    # Train and export if paired gate passes
+    python tools/train_ml_model.py --no-export        # Evaluate without replacing runtime artifacts
     python tools/train_ml_model.py --info             # Show dataset info
     python tools/train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
     python tools/train_ml_model.py --experiment --experiment-promote
@@ -27,8 +27,9 @@ Usage:
                                                     # Smaller batch size experiment
     python tools/train_ml_model.py --device cuda # Force CUDA when available
     python tools/train_ml_model.py --device mps  # Force Apple GPU when available
-    python tools/train_ml_model.py --shap              # Grouped OOF SHAP (200 samples)
-    python tools/train_ml_model.py --shap 500          # Grouped OOF SHAP (500 samples)
+    python tools/train_ml_model.py --shap --no-export  # Grouped OOF SHAP (200 samples)
+    python tools/train_ml_model.py --shap 500 --no-export
+                                                    # Grouped OOF SHAP (500 samples)
 
 Configuration:
   - TRAINING_FEATURES: Production Core-6 feature list
@@ -53,15 +54,11 @@ import importlib.util
 import json
 import numpy as np
 import random
-import subprocess
 import re
 import shutil
 import tempfile
 from pathlib import Path
-from collections import deque
 from dataclasses import dataclass
-from functools import lru_cache
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT_PATH = SCRIPT_DIR.parent
 if str(REPO_ROOT_PATH) not in sys.path:
@@ -71,7 +68,6 @@ from tools.lib.repo_paths import (
     cpp_core_dir,
     generated_data_dir,
     python_src_dir,
-    python_tests_dir,
     repo_root,
 )
 from contextlib import contextmanager
@@ -330,14 +326,9 @@ def predict_logits(model, X):
         logits = model.forward_logits(torch.from_numpy(X).to(device))
     return logits.detach().cpu().numpy().reshape(-1)
 
-TESTS_DIR = python_tests_dir()
-if str(TESTS_DIR) not in sys.path:
-    sys.path.insert(0, str(TESTS_DIR))
-
 from tools.lib.csi_io import load_npz_as_packets
 from tools.lib.dataset_metadata import (
     DATA_DIR,
-    estimate_runtime_threshold,
     resolve_explicit_pair,
 )
 from config import (
@@ -350,23 +341,22 @@ from config import (
     LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
-from classic_detector import ClassicDetector
 from segmentation import SegmentationContext
 from tools.lib.performance_report import (
     evaluate_idle_runtime_policy as evaluate_idle_runtime_policy_states,
 )
+from runtime_policy import make_evaluation_cadence
 from features import (
-    extract_features_by_name, DEFAULT_FEATURES,
+    DEFAULT_FEATURES,
+    L1_DELTA_LAG,
+    L1DeltaTracker,
+    extract_features_by_name,
 )
 from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES, MLDetector
 
 
-def _needs_amplitude_history(feature_names):
-    """True when any requested feature is computed from the L1-delta stream.
-
-    All supported `l1_delta*` features require the per-packet amplitude-profile
-    history; every turbulence feature does not.
-    """
+def _needs_l1_series(feature_names):
+    """Return whether any requested feature is computed from L1 deltas."""
     return any(str(name).startswith('l1_delta') for name in feature_names)
 
 # ============================================================================
@@ -390,10 +380,7 @@ DEFAULT_FP_WEIGHT = 2.0
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
-SAMPLE_WEIGHT_MODES = ('none', 'l1_guided', 'l1_hard_negative')
-DEFAULT_SAMPLE_WEIGHT_MODE = 'none'
-TRAINING_FEATURE_CACHE_VERSION = 5
-TRAINING_WEIGHT_CACHE_VERSION = 5
+TRAINING_FEATURE_CACHE_VERSION = 6
 # All chips included: MLDetector keeps the legacy variance-baseline CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
 DEFAULT_EXCLUDED_CHIPS = ()
@@ -411,17 +398,8 @@ DEFAULT_EXPERIMENT_SCREENING_SEED = 20260519
 DEFAULT_EXPERIMENT_INITIAL_SEEDS = (20260518, 20260519, 20260520)
 DEFAULT_EXPERIMENT_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 20260522)
 DEFAULT_PAIRED_GATE_CHIPS = ('C3', 'C5', 'C6', 'ESP32', 'S3')
-DEFAULT_LONG_GATE_CHIPS = ('C3', 'C5', 'C6', 'S3')
 DEFAULT_GAIN_STRESS_SCALES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
 GAIN_SENSITIVE_FEATURES = ()
-PYTEST_PAIRED_ML_GATE = (
-    'test/python/test_validation_real_data.py::'
-    'TestPerformanceMetrics::test_ml_detection_accuracy'
-)
-PYTEST_LONG_ML_GATE = (
-    'test/python/test_validation_long_recordings.py::'
-    'TestLongRecordings::test_ml_vs_test_recordings'
-)
 DEFAULT_MAX_EPOCHS = 100
 DEFAULT_EARLY_STOP_PATIENCE = 8
 DEFAULT_LR_PATIENCE = 4
@@ -436,10 +414,6 @@ DEFAULT_REPORT_GROUP_KEYS = (
     'session_group',
     'source_file',
 )
-MAX_PROMOTION_TOTAL_FP_INCREASE = 0
-MAX_PROMOTION_FP_RATE_INCREASE = 0.0
-MAX_PROMOTION_EFFECTIVE_ALARM_INCREASE = 0
-MAX_PROMOTION_FALSE_MOTION_EVALUATION_INCREASE = 0
 ACTIVE_TORCH_DEVICE = DEFAULT_TORCH_DEVICE
 # ============================================================================
 # Data Loading
@@ -486,14 +460,6 @@ def normalize_allowed_labels(labels):
     return {str(label).strip().lower() for label in labels if str(label).strip()} or None
 
 
-def normalize_sample_weight_mode(value):
-    """Return a supported sample-weight mode."""
-    mode = str(value or DEFAULT_SAMPLE_WEIGHT_MODE).strip().lower()
-    if mode not in SAMPLE_WEIGHT_MODES:
-        raise argparse.ArgumentTypeError(
-            f"unsupported sample weight mode {mode!r}; expected one of {SAMPLE_WEIGHT_MODES}"
-        )
-    return mode
 
 
 def parse_hidden_layers(value):
@@ -700,17 +666,6 @@ def apply_positive_chip_boost(sample_weights, sample_context, y, chip_boosts):
     return weights, summary
 
 
-def _build_dataset_file_index(dataset_info):
-    """Build filename -> (label, entry) index from dataset_info files section."""
-    index = {}
-    for label, files in dataset_info.get('files', {}).items():
-        for entry in files:
-            name = entry.get('filename')
-            if name:
-                index[name] = (label, entry)
-    return index
-
-
 def _first_non_empty(mapping, keys):
     """Return the first non-empty string-like value for a list of keys."""
     for key in keys:
@@ -821,17 +776,6 @@ def _fallback_file_context(filename, label, packet):
         'collected_at': packet.get('collected_at', ''),
     }
     return _build_file_context(label, fallback)
-
-
-def build_pair_static_map(dataset_info):
-    """Map motion filename -> paired static_presence filename from dataset_info."""
-    pair_map = {}
-    for entry in dataset_info.get('files', {}).get('motion', []):
-        name = entry.get('filename')
-        static_name = entry.get('optimal_pair_static_presence_file')
-        if name and static_name:
-            pair_map[str(name)] = str(static_name)
-    return pair_map
 
 
 def is_motion_label(label_name, dataset_info):
@@ -1080,37 +1024,6 @@ def _feature_cache_manifest(feature_names, environment_filter=None,
     }
 
 
-def _weight_cache_manifest(environment_filter=None,
-                           excluded_chips=None,
-                           allowed_labels=BINARY_TRAINING_LABELS,
-                           sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
-                           window_size=SEG_WINDOW_SIZE,
-                           enable_lowpass=ENABLE_LOWPASS_FILTER,
-                           lowpass_cutoff=LOWPASS_CUTOFF,
-                           enable_hampel=ENABLE_HAMPEL_FILTER,
-                           hampel_window=HAMPEL_WINDOW,
-                           hampel_threshold=HAMPEL_THRESHOLD):
-    """Build a stable manifest for cached sample weights."""
-    dataset_manifest = _training_dataset_manifest(
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        allowed_labels=allowed_labels,
-    )
-    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
-    return {
-        'version': TRAINING_WEIGHT_CACHE_VERSION,
-        'dataset': dataset_manifest,
-        'sample_weight_mode': sample_weight_mode,
-        'default_subcarriers': [int(sc) for sc in DEFAULT_SUBCARRIERS],
-        'window_size': int(window_size),
-        'enable_lowpass': bool(enable_lowpass),
-        'lowpass_cutoff': float(lowpass_cutoff),
-        'enable_hampel': bool(enable_hampel),
-        'hampel_window': int(hampel_window),
-        'hampel_threshold': float(hampel_threshold),
-    }
-
-
 def _cache_path(prefix, manifest):
     """Return the on-disk path for a cache manifest."""
     payload = json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode('utf-8')
@@ -1121,11 +1034,6 @@ def _cache_path(prefix, manifest):
 def _feature_cache_path(manifest):
     """Return the on-disk path for a feature-matrix cache."""
     return _cache_path('training_features', manifest)
-
-
-def _weight_cache_path(manifest):
-    """Return the on-disk path for a sample-weight cache."""
-    return _cache_path('training_weights', manifest)
 
 
 def _load_feature_cache(cache_path, manifest):
@@ -1184,48 +1092,12 @@ def _save_feature_cache(cache_path, manifest, X, y, feature_names,
         print(f"  Warning: could not write feature cache {cache_path.name}: {exc}")
 
 
-def _load_weight_cache(cache_path, manifest, expected_length):
-    """Load cached sample weights for a specific weighting policy."""
-    if not cache_path.exists():
-        return None
-    try:
-        with np.load(cache_path, allow_pickle=True) as data:
-            cached_manifest = json.loads(str(data['manifest_json'].item()))
-            if cached_manifest != manifest:
-                return None
-            sample_weights = data['sample_weights'].astype(np.float32, copy=False)
-            if len(sample_weights) != expected_length:
-                raise ValueError(
-                    f"weight cache length mismatch "
-                    f"(weights={len(sample_weights)} expected={expected_length})"
-                )
-            return sample_weights
-    except Exception as exc:
-        print(f"  Warning: ignoring invalid weight cache {cache_path.name}: {exc}")
-        return None
-
-
-def _save_weight_cache(cache_path, manifest, sample_weights):
-    """Persist sample weights for repeated local runs."""
-    try:
-        GENERATED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        payload = {
-            'manifest_json': np.asarray(json.dumps(manifest, sort_keys=True)),
-            'sample_weights': np.asarray(sample_weights, dtype=np.float32),
-        }
-        np.savez(cache_path, **payload)
-    except Exception as exc:
-        print(f"  Warning: could not write weight cache {cache_path.name}: {exc}")
-
-
 def load_training_matrix(environment_filter=None, excluded_chips=None,
-                         feature_names=None, sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
-                         use_cache=True):
-    """Load or build the cached feature matrix and sample weights used by training."""
+                         feature_names=None, use_cache=True):
+    """Load or build the cached feature matrix used by training."""
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
     feature_names = list(feature_names)
-    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
 
     feature_manifest = _feature_cache_manifest(
         feature_names,
@@ -1233,16 +1105,8 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
         excluded_chips=excluded_chips,
         allowed_labels=BINARY_TRAINING_LABELS,
     )
-    weight_manifest = _weight_cache_manifest(
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        allowed_labels=BINARY_TRAINING_LABELS,
-        sample_weight_mode=sample_weight_mode,
-    )
     feature_cache_path = _feature_cache_path(feature_manifest)
-    weight_cache_path = _weight_cache_path(weight_manifest)
     feature_matrix = None
-    sample_weights = None
     all_packets = None
     stats = None
 
@@ -1300,49 +1164,12 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
             )
             print(f"  Training feature cache: wrote {feature_cache_path.name}")
 
-    if use_cache:
-        sample_weights = _load_weight_cache(
-            weight_cache_path,
-            weight_manifest,
-            expected_length=len(feature_matrix['y']),
-        )
-        if sample_weights is not None:
-            print(f"  Training weight cache: hit ({weight_cache_path.name})")
-        else:
-            print(f"  Training weight cache: miss ({weight_cache_path.name})")
-    else:
-        print("  Training weight cache: disabled")
-
-    if sample_weights is None:
-        if all_packets is None:
-            load_start = perf_counter()
-            all_packets, _ = load_all_data(
-                environment_filter=environment_filter,
-                excluded_chips=excluded_chips,
-            )
-            print(
-                "  Reload time for weights: "
-                f"{format_duration(perf_counter() - load_start)}"
-            )
-        print(f"\nComputing sample weights ({sample_weight_mode})...")
-        weights_start = perf_counter()
-        sample_weights = compute_sample_weights(
-            all_packets,
-            feature_matrix['y'],
-            sample_weight_mode=sample_weight_mode,
-            window_size=SEG_WINDOW_SIZE,
-        )
-        print(f"  Sample weights time: {format_duration(perf_counter() - weights_start)}")
-        if use_cache:
-            _save_weight_cache(weight_cache_path, weight_manifest, sample_weights)
-            print(f"  Training weight cache: wrote {weight_cache_path.name}")
-
     matrix = {
         'X': feature_matrix['X'],
         'y': feature_matrix['y'],
         'feature_names': feature_matrix['feature_names'],
         'sample_context': feature_matrix['sample_context'],
-        'sample_weights': np.asarray(sample_weights, dtype=np.float32),
+        'sample_weights': np.ones(len(feature_matrix['y']), dtype=np.float32),
         'stats': feature_matrix['stats'],
     }
     return matrix, all_packets
@@ -1367,7 +1194,8 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         return_metadata: If True, return per-sample metadata
         enable_lowpass: Enable low-pass filter on turbulence (default: config.py)
         lowpass_cutoff: Low-pass cutoff frequency in Hz (default: config.py)
-        enable_hampel: Enable Hampel outlier filter on turbulence (default: config.py)
+        enable_hampel: Enable Hampel filtering on turbulence and L1-delta streams
+                       (default: config.py)
         hampel_window: Hampel filter window size (default: 7)
         hampel_threshold: Hampel filter threshold in MAD units (default: 5.0)
     
@@ -1420,8 +1248,20 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
         )
-        needs_amplitude_history = _needs_amplitude_history(feature_names)
-        amplitude_history = deque(maxlen=window_size) if needs_amplitude_history else None
+        needs_l1_series = _needs_l1_series(feature_names)
+        l1_capacity = max(2, window_size - L1_DELTA_LAG)
+        l1_tracker = (
+            L1DeltaTracker(
+                window_size=l1_capacity,
+                lag=L1_DELTA_LAG,
+                allocate_amplitude_buffer=False,
+                enable_hampel=enable_hampel,
+                hampel_window=hampel_window,
+                hampel_threshold=hampel_threshold,
+            )
+            if needs_l1_series else None
+        )
+        l1_series = [0.0] * l1_capacity if needs_l1_series else None
         window_index = 0
         for pkt in file_packets:
             csi_data = pkt['csi_data']
@@ -1431,8 +1271,8 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
                 return_amplitudes=True,
             )
             ctx.add_turbulence(turb)
-            if amplitude_history is not None:
-                amplitude_history.append(amps)
+            if l1_tracker is not None:
+                l1_tracker.process_amplitudes(amps, len(amps))
 
             if ctx.buffer_count < window_size:
                 continue
@@ -1442,10 +1282,12 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             turb_list = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
             n = len(turb_list)
 
+            l1_count = l1_tracker.copy_deltas_into(l1_series) if l1_tracker is not None else 0
             features = extract_features_by_name(
                 turb_list, n,
                 feature_names=feature_names,
-                amplitude_history=list(amplitude_history) if amplitude_history is not None else None,
+                l1_series=l1_series,
+                l1_series_count=l1_count,
             )
 
             X.append(features)
@@ -1464,134 +1306,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         for key, values in sample_context.items()
     }
     return X_arr, y_arr, feature_names, context_arrays
-
-
-def compute_sample_weights(packets, labels, sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
-                           window_size=SEG_WINDOW_SIZE):
-    """Compute base sample weights for the selected training policy."""
-    mode = normalize_sample_weight_mode(sample_weight_mode)
-    if mode == 'none':
-        return np.ones(len(labels), dtype=np.float32)
-
-    dataset_info = load_dataset_info()
-    if mode == 'l1_guided':
-        policy = 'full'
-    elif mode == 'l1_hard_negative':
-        policy = 'hard_negative'
-    else:
-        raise AssertionError(f"Unhandled sample weight mode: {mode}")
-
-    return compute_l1_guided_sample_weights(
-        packets,
-        build_pair_static_map(dataset_info),
-        window_size=window_size,
-        policy=policy,
-    )
-
-
-def estimate_support_threshold_from_packets(file_packets):
-    """Estimate the production classic startup threshold from a file capture."""
-    threshold = estimate_runtime_threshold(file_packets)
-    if threshold is None:
-        return None
-    return max(float(threshold), 1e-6)
-
-
-def compute_l1_guided_sample_weights(packets, pair_static_map, window_size=SEG_WINDOW_SIZE,
-                                     policy='full'):
-    """
-    Compute sample weights using the classic primary score per source file.
-
-    Weight policy:
-    - full policy: hard-positive mining for movement samples
-    - hard_negative policy: leave movement samples neutral
-    - baseline samples: promote hard negatives (2.0) when metric >= threshold, else 1.0
-    - per-file thresholds replay the production classic startup calibration:
-      quiet captures self-calibrate, and motion files inherit the threshold of
-      their paired static capture when it is part of the training set
-    - unpaired motion files fall back to their own gated calibration replay
-    - weights are normalized per file so no single recording dominates training
-    """
-    weights = []
-
-    grouped = {}
-    for pkt in packets:
-        source = pkt.get('source_file', '__single_stream__')
-        grouped.setdefault(source, []).append(pkt)
-
-    threshold_cache = {}
-
-    def threshold_for(source_file):
-        """Production classic startup threshold for one source file."""
-        if source_file in threshold_cache:
-            return threshold_cache[source_file]
-        static_name = pair_static_map.get(source_file)
-        if static_name is not None and static_name != source_file and static_name in grouped:
-            threshold = threshold_for(static_name)
-        else:
-            threshold = estimate_support_threshold_from_packets(grouped[source_file])
-        if threshold is None:
-            threshold = 1.0
-        threshold_cache[source_file] = threshold
-        return threshold
-
-    for source_file, file_packets in grouped.items():
-        effective_threshold = max(float(threshold_for(source_file)), 1e-6)
-
-        detector = ClassicDetector(
-            window_size=window_size,
-            threshold=effective_threshold,
-            enable_lowpass=ENABLE_LOWPASS_FILTER,
-            lowpass_cutoff=LOWPASS_CUTOFF,
-            enable_hampel=ENABLE_HAMPEL_FILTER,
-            hampel_window=HAMPEL_WINDOW,
-            hampel_threshold=HAMPEL_THRESHOLD,
-        )
-        file_weights = []
-        for packet_index, pkt in enumerate(file_packets):
-            detector.process_packet(pkt['csi_data'], DEFAULT_SUBCARRIERS)
-            detector.update_state()
-            # Gate on the packet count, not detector readiness, so weights stay
-            # 1:1 with the extract_features window rows; the classic primary score
-            # reads 0.0 for the extra lag packets, leaving those rows at the
-            # base weight.
-            if packet_index + 1 < window_size:
-                continue
-
-            ratio = max(0.0, float(detector.get_motion_metric())) / max(effective_threshold, 1e-6)
-            if pkt.get('is_motion', False):
-                # Hard-positive mining:
-                # subtle/near-threshold motion is exactly where recall drops in
-                # deployment, so up-weight it; easy positives get lower weight.
-                if policy == 'hard_negative':
-                    base = 1.0
-                elif ratio < 0.5:
-                    base = 2.4
-                elif ratio < 0.8:
-                    base = 2.0
-                elif ratio < 1.0:
-                    base = 1.7
-                elif ratio < 1.3:
-                    base = 1.3
-                elif ratio < 1.8:
-                    base = 1.0
-                else:
-                    base = 0.8
-            else:
-                base = 2.0 if ratio >= 1.0 else 1.0
-
-            file_weights.append(base)
-
-        if not file_weights:
-            continue
-
-        file_weights = np.asarray(file_weights, dtype=np.float32)
-        file_mean = float(np.mean(file_weights))
-        if file_mean > 1e-6:
-            file_weights /= file_mean
-        weights.extend(file_weights.tolist())
-
-    return np.array(weights, dtype=np.float32)
 
 
 # ============================================================================
@@ -1827,8 +1541,6 @@ def build_group_report(y_true, y_prob, group_values):
 
 def load_exported_ml_weights():
     """Load the currently exported MicroPython ML weights module."""
-    import importlib.util
-
     weights_path = SRC_DIR / 'ml_weights.py'
     if not weights_path.exists():
         raise FileNotFoundError(f"Exported ML weights not found: {weights_path}")
@@ -1984,33 +1696,6 @@ def print_gain_stress_summary(results):
                 f"R {worst_recall['group']}={worst_recall['recall']:.1f}% | "
                 f"FP {worst_fp['group']}={worst_fp['fp_rate']:.1f}%"
             )
-
-
-def evaluate_model_gain_stress(model, scaler, X_raw, y, feature_names, sample_context,
-                               scales=DEFAULT_GAIN_STRESS_SCALES):
-    """Evaluate an in-memory trained model under artificial gain scaling."""
-    scales = parse_gain_stress_scales(scales)
-    results = {}
-    for gain_scale in scales:
-        X_stressed, sensitive_indices = apply_gain_stress_to_features(
-            X_raw,
-            feature_names,
-            gain_scale,
-        )
-        X_scaled = scaler.transform(X_stressed)
-        y_prob = predict_runtime_probabilities(model, X_scaled)
-        scale_result = {
-            'scale': float(gain_scale),
-            'sensitive_indices': [int(idx) for idx in sensitive_indices],
-            'overall': evaluate_probabilities(y, y_prob),
-            'group_reports': {},
-        }
-        for group_key in DEFAULT_REPORT_GROUP_KEYS:
-            report = build_group_report(y, y_prob, sample_context.get(group_key))
-            if report is not None:
-                scale_result['group_reports'][group_key] = report
-        results[float(gain_scale)] = scale_result
-    return results
 
 
 def build_candidate_key(cv_results):
@@ -2256,22 +1941,6 @@ def predict_runtime_probabilities(model, X):
     mask = (logits >= -20.0) & (logits <= 20.0)
     probabilities[mask] = 1.0 / (1.0 + np.exp(-logits[mask]))
     return probabilities
-
-
-def evaluate_model(model, X_test, y_test):
-    """
-    Evaluate a model on test data and return metrics dict.
-    
-    Args:
-        model: Trained PyTorch model
-        X_test: Test features (normalized)
-        y_test: Test labels
-    
-    Returns:
-        dict: Metrics (recall, precision, fp_rate, f1, tp, fp, tn, fn)
-    """
-    probabilities = predict_probabilities(model, X_test)
-    return evaluate_probabilities(y_test, probabilities)
 
 
 def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epochs=DEFAULT_MAX_EPOCHS,
@@ -3156,17 +2825,6 @@ def print_cv_summary(cv_results, title="Primary grouped CV"):
             )
 
 
-def _format_confusion_matrix_rows(confusion_matrix, class_names):
-    """Render a compact confusion matrix table."""
-    confusion_matrix = np.asarray(confusion_matrix, dtype=np.int32)
-    header = "pred -> " + " ".join(f"{name:>16}" for name in class_names)
-    rows = [header]
-    for idx, class_name in enumerate(class_names):
-        values = " ".join(f"{int(value):>16d}" for value in confusion_matrix[idx])
-        rows.append(f"actual {class_name:<8} {values}")
-    return rows
-
-
 def select_regression_subset_indices(sample_context, max_samples=2048, block_stride=SEG_WINDOW_SIZE):
     """Pick a deterministic subset for inference-regression artifacts."""
     if sample_context is None:
@@ -3267,7 +2925,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
               evaluate_deployment=False,
               environment_filter=None, excluded_chips=None,
               positive_chip_boost=None,
-              sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
               use_cache=True):
     """
     Train models with all available data.
@@ -3284,14 +2941,13 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         scaler_mode: Feature normalization mode.
         batch_size: Mini-batch size used for training and CV.
         export_artifacts: If False, leave runtime artifacts unchanged.
-        evaluate_deployment: Train the final in-memory model and run paired and
-                             long gates even when artifacts are not exported.
+        evaluate_deployment: Train the final in-memory model and run the paired
+                             gate even when artifacts are not exported.
         environment_filter: Optional environment name(s) to keep.
         excluded_chips: Optional chip name(s) to exclude.
         positive_chip_boost: Optional {CHIP: factor} boost applied to motion
                              samples after feature extraction.
-        sample_weight_mode: Base sample weighting policy.
-        use_cache: If True, reuse cached feature matrix and base sample weights.
+        use_cache: If True, reuse the cached feature matrix.
 
     Returns:
         tuple[int, int | None, dict | None]:
@@ -3304,7 +2960,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
-    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
     if hidden_layers is None:
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
     if feature_names is None:
@@ -3336,7 +2991,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         feature_names=feature_names if feature_names is not None else DEFAULT_FEATURES.copy(),
-        sample_weight_mode=sample_weight_mode,
         use_cache=use_cache,
     )
     X = matrix['X']
@@ -3397,7 +3051,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             f"Error: sample weights mismatch (weights={len(sample_weights)}, samples={len(X)})."
         )
         return 1, seed, None
-    print(f"  Weight mode: {sample_weight_mode}")
     print(
         f"  Weight stats: min={float(np.min(sample_weights)):.3f}, "
         f"max={float(np.max(sample_weights)):.3f}, "
@@ -3490,57 +3143,42 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     print(f"  Final training time: {format_duration(perf_counter() - final_train_start)}")
 
     if evaluate_deployment:
-        print("\nEvaluating in-memory candidate on paired and long recordings...")
+        print("\nEvaluating in-memory candidate on paired recordings...")
         paired_gate = evaluate_paired_gate(model, scaler, actual_feature_names)
-        long_gate = evaluate_long_gate(model, scaler, actual_feature_names)
         cv_results['paired'] = paired_gate
-        cv_results['long'] = long_gate
         print(
             f"  Paired: pass={paired_gate['pass_count']} "
             f"maxFP={paired_gate['max_fp_rate']:.2f}% "
             f"worstRecall={paired_gate['worst_chip_recall']:.2f}%"
         )
-        print(
-            f"  Long: alarms={long_gate['total_effective_alarms']} "
-            f"falseMotionEvals={long_gate['total_false_motion_evaluations']} "
-            f"maxFP={long_gate['max_fp_rate']:.2f}% totalFP={long_gate['total_fp']}"
-        )
         paired_total = len(paired_gate.get('by_chip', {}))
         if export_artifacts and (
             paired_total == 0
             or paired_gate['pass_count'] < paired_total
-            or long_gate is None
         ):
-            print("Error: deployment gates failed; runtime artifacts were not exported")
+            print("Error: paired deployment gate failed; runtime artifacts were not exported")
             return 1, seed, cv_results
         if export_artifacts:
             try:
                 baseline_paired = evaluate_exported_paired_gate()
-                baseline_long = evaluate_exported_long_gate()
             except (FileNotFoundError, ImportError, AttributeError) as exc:
                 baseline_paired = None
-                baseline_long = None
-                print(f"  Exported baseline unavailable ({exc}); using absolute gates")
-            if baseline_paired is not None and baseline_long is not None:
+                print(f"  Exported baseline unavailable ({exc}); using absolute paired gate")
+            if baseline_paired is not None:
                 print(
-                    f"  Baseline long: alarms={baseline_long['total_effective_alarms']} "
-                    f"falseMotionEvals={baseline_long['total_false_motion_evaluations']} "
-                    f"maxFP={baseline_long['max_fp_rate']:.2f}% totalFP={baseline_long['total_fp']}"
+                    f"  Baseline paired: pass={baseline_paired['pass_count']} "
+                    f"maxFP={baseline_paired['max_fp_rate']:.2f}% "
+                    f"worstRecall={baseline_paired['worst_chip_recall']:.2f}%"
                 )
-                if not deployment_gates_beat_baseline(
-                    paired_gate,
-                    long_gate,
-                    baseline_paired,
-                    baseline_long,
-                ):
+                if not paired_result_non_regression(paired_gate, baseline_paired):
                     print(
-                        "Error: candidate does not provide a non-regressing "
-                        "deployment-gate improvement; runtime artifacts were not exported"
+                        "Error: candidate regresses the paired deployment gate; "
+                        "runtime artifacts were not exported"
                     )
                     return 1, seed, cv_results
 
     if not export_artifacts:
-        print("\nArtifacts unchanged. Re-run with --promote to export this configuration.")
+        print("\nArtifacts unchanged (--no-export).")
         return 0, seed, cv_results
 
     regression_indices = select_regression_subset_indices(
@@ -3621,10 +3259,6 @@ def summarize_gate(by_chip):
         'worst_chip_f1': float(np.min([row['f1'] for row in rows])),
         'total_fp': int(sum(row['fp'] for row in rows)),
         'total_fn': int(sum(row['fn'] for row in rows)),
-        'total_effective_alarms': int(sum(row.get('effective_alarms', 0) for row in rows)),
-        'total_false_motion_evaluations': int(
-            sum(row.get('false_motion_evaluations', 0) for row in rows)
-        ),
     }
 
 
@@ -3677,12 +3311,22 @@ class StreamingFeatureExtractor:
             hampel_window=HAMPEL_WINDOW,
             hampel_threshold=HAMPEL_THRESHOLD,
         )
-        # L1-delta features need the amplitude-profile history over the window,
-        # matching the training feature path; skip the buffer otherwise.
-        self.needs_amplitude_history = _needs_amplitude_history(self.feature_names)
-        self.amplitude_history = (
-            deque(maxlen=SEG_WINDOW_SIZE) if self.needs_amplitude_history else None
+        # L1 features share the Hampel-filtered delta stream used by training
+        # and both runtimes; skip the tracker when the model has no L1 inputs.
+        self.needs_l1_series = _needs_l1_series(self.feature_names)
+        l1_capacity = max(2, SEG_WINDOW_SIZE - L1_DELTA_LAG)
+        self.l1_tracker = (
+            L1DeltaTracker(
+                window_size=l1_capacity,
+                lag=L1_DELTA_LAG,
+                allocate_amplitude_buffer=False,
+                enable_hampel=ENABLE_HAMPEL_FILTER,
+                hampel_window=HAMPEL_WINDOW,
+                hampel_threshold=HAMPEL_THRESHOLD,
+            )
+            if self.needs_l1_series else None
         )
+        self.l1_series = [0.0] * l1_capacity if self.needs_l1_series else None
 
     def process_packet(self, csi_data):
         turbulence, amplitudes = self.context.calculate_spatial_turbulence(
@@ -3691,8 +3335,8 @@ class StreamingFeatureExtractor:
             return_amplitudes=True,
         )
         self.context.add_turbulence(turbulence)
-        if self.amplitude_history is not None:
-            self.amplitude_history.append(amplitudes)
+        if self.l1_tracker is not None:
+            self.l1_tracker.process_amplitudes(amplitudes, len(amplitudes))
         if self.context.buffer_count < self.context.window_size:
             return None
 
@@ -3701,15 +3345,16 @@ class StreamingFeatureExtractor:
             self.context.turbulence_buffer[idx:]
             + self.context.turbulence_buffer[:idx]
         )
+        l1_count = (
+            self.l1_tracker.copy_deltas_into(self.l1_series)
+            if self.l1_tracker is not None else 0
+        )
         return extract_features_by_name(
             turb_list,
             len(turb_list),
             feature_names=self.feature_names,
-            amplitude_history=(
-                list(self.amplitude_history)
-                if self.amplitude_history is not None
-                else None
-            ),
+            l1_series=self.l1_series,
+            l1_series_count=l1_count,
         )
 
 
@@ -3762,26 +3407,37 @@ def packet_csi_data(packet):
 
 
 def evaluate_streaming_split(evaluator, static_presence_packets, motion_packets, threshold=0.5):
-    """Evaluate a paired split with one runtime-equivalent evaluator."""
+    """Evaluate a paired split at the production evaluation cadence."""
     warmup = SEG_WINDOW_SIZE
-    static_presence_eval_count = max(len(static_presence_packets) - warmup, 0)
-    motion_eval_count = max(len(motion_packets) - warmup, 0)
+    static_presence_eval_count = 0
+    motion_eval_count = 0
     static_presence_motion_packets = 0
     motion_with_motion = 0
     motion_without_motion = 0
 
+    cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
     for i, pkt in enumerate(static_presence_packets):
         prob = evaluator.process_packet(packet_csi_data(pkt))
-        if i >= warmup and prob is not None and prob > threshold:
+        if not cadence.note_evaluation_tick():
+            continue
+        if i < warmup or prob is None:
+            continue
+        static_presence_eval_count += 1
+        if prob > threshold:
             static_presence_motion_packets += 1
 
+    cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
     for i, pkt in enumerate(motion_packets):
         prob = evaluator.process_packet(packet_csi_data(pkt))
-        if i >= warmup and prob is not None:
-            if prob > threshold:
-                motion_with_motion += 1
-            else:
-                motion_without_motion += 1
+        if not cadence.note_evaluation_tick():
+            continue
+        if i < warmup or prob is None:
+            continue
+        motion_eval_count += 1
+        if prob > threshold:
+            motion_with_motion += 1
+        else:
+            motion_without_motion += 1
 
     tp = motion_with_motion
     fn = motion_without_motion
@@ -3832,17 +3488,39 @@ def evaluate_array_split(center, scale, layers, feature_names,
     )
 
 
-def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None):
-    """Evaluate a candidate on the paired validation datasets."""
-    chips = tuple(chips or DEFAULT_PAIRED_GATE_CHIPS)
-    by_chip = {}
-    for chip in chips:
+# Process-local cache for immutable paired validation NPZ streams.
+_PAIRED_PACKET_CACHE = {}
+
+
+def _load_npz_packets_cached(path):
+    """Load NPZ packets once per process for repeated paired-gate evaluations."""
+    key = str(Path(path).resolve())
+    cached = _PAIRED_PACKET_CACHE.get(key)
+    if cached is not None:
+        return cached
+    packets = load_npz_as_packets(path)
+    _PAIRED_PACKET_CACHE[key] = packets
+    return packets
+
+
+def _iter_paired_chip_packets(chips=None):
+    """Yield (chip, static_presence_packets, motion_packets) for available pairs."""
+    for chip in tuple(chips or DEFAULT_PAIRED_GATE_CHIPS):
         try:
             pair = resolve_explicit_pair(chip=chip, num_sc=64)
         except FileNotFoundError:
             continue
-        static_presence_packets = load_npz_as_packets(pair.static_presence.path)
-        motion_packets = load_npz_as_packets(pair.motion.path)
+        yield (
+            chip,
+            _load_npz_packets_cached(pair.static_presence.path),
+            _load_npz_packets_cached(pair.motion.path),
+        )
+
+
+def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None):
+    """Evaluate a candidate on the paired validation datasets."""
+    by_chip = {}
+    for chip, static_presence_packets, motion_packets in _iter_paired_chip_packets(chips):
         by_chip[chip] = evaluate_split(
             model,
             scaler,
@@ -3854,156 +3532,9 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
     return summarize_gate(by_chip)
 
 
-@lru_cache(maxsize=4)
-def _long_gate_feature_splits(feature_names, chips):
-    """
-    Replay the curated long recordings once and cache their feature streams.
-
-    Feature extraction does not depend on model weights or scaler, so the
-    per-packet replay cost is paid once per (feature set, chip filter) and
-    every candidate evaluation reduces to a batched forward pass.
-    """
-    from conftest import get_available_long_test_datasets
-
-    warmup = SEG_WINDOW_SIZE
-    splits = []
-    use_runtime_extractor = all(name in EXPORTED_FEATURE_NAMES for name in feature_names)
-    runtime_indices = (
-        [EXPORTED_FEATURE_NAMES.index(name) for name in feature_names]
-        if use_runtime_extractor else None
-    )
-    for _, static_presence_packets, motion_packets, _, chip, _ in get_available_long_test_datasets(
-        chips=chips
-    ):
-        if use_runtime_extractor:
-            extractor = MLDetector(
-                window_size=SEG_WINDOW_SIZE,
-                enable_lowpass=ENABLE_LOWPASS_FILTER,
-                lowpass_cutoff=LOWPASS_CUTOFF,
-                enable_hampel=ENABLE_HAMPEL_FILTER,
-                hampel_window=HAMPEL_WINDOW,
-                hampel_threshold=HAMPEL_THRESHOLD,
-            )
-        else:
-            extractor = StreamingFeatureExtractor(feature_names)
-        static_presence_features = []
-        motion_features = []
-        for i, pkt in enumerate(static_presence_packets):
-            csi_data = packet_csi_data(pkt)
-            if use_runtime_extractor:
-                extractor.process_packet(csi_data, DEFAULT_SUBCARRIERS)
-                features = (
-                    extractor._extract_features()
-                    if extractor.is_ready() else None
-                )
-                if features is not None:
-                    features = [features[idx] for idx in runtime_indices]
-            else:
-                features = extractor.process_packet(csi_data)
-            if i >= warmup and features is not None:
-                static_presence_features.append(features)
-        for i, pkt in enumerate(motion_packets):
-            csi_data = packet_csi_data(pkt)
-            if use_runtime_extractor:
-                extractor.process_packet(csi_data, DEFAULT_SUBCARRIERS)
-                features = (
-                    extractor._extract_features()
-                    if extractor.is_ready() else None
-                )
-                if features is not None:
-                    features = [features[idx] for idx in runtime_indices]
-            else:
-                features = extractor.process_packet(csi_data)
-            if i >= warmup and features is not None:
-                motion_features.append(features)
-        splits.append({
-            'chip': chip,
-            'static_presence_features': np.asarray(
-                static_presence_features, dtype=np.float32
-            ).reshape(len(static_presence_features), len(feature_names)),
-            'motion_features': np.asarray(
-                motion_features, dtype=np.float32
-            ).reshape(len(motion_features), len(feature_names)),
-            'static_presence_eval_count': max(len(static_presence_packets) - warmup, 0),
-            'motion_eval_count': max(len(motion_packets) - warmup, 0),
-        })
-    return tuple(splits)
-
-
-def _evaluate_feature_split(split, center, scale, layers, threshold):
-    """Evaluate one cached long-recording split with a batched forward pass."""
-    static_presence_probs = _batch_predict_probabilities(
-        split['static_presence_features'], center, scale, layers
-    )
-    motion_probs = _batch_predict_probabilities(
-        split['motion_features'], center, scale, layers
-    )
-
-    fp = int(np.sum(static_presence_probs > threshold))
-    tp = int(np.sum(motion_probs > threshold))
-    fn = int(motion_probs.size) - tp
-    tn = max(split['static_presence_eval_count'] - fp, 0)
-    recall = tp / (tp + fn) * 100.0 if (tp + fn) else 0.0
-    precision = tp / (tp + fp) * 100.0 if (tp + fp) else 0.0
-    fp_rate = (
-        fp / split['static_presence_eval_count'] * 100.0
-        if split['static_presence_eval_count']
-        else 0.0
-    )
-    f1 = (
-        2 * (precision / 100.0) * (recall / 100.0) / ((precision + recall) / 100.0) * 100.0
-        if (precision + recall)
-        else 0.0
-    )
-    policy_metrics = evaluate_idle_runtime_policy(static_presence_probs, threshold)
-    return {
-        'recall': float(recall),
-        'precision': float(precision),
-        'fp_rate': float(fp_rate),
-        'f1': float(f1),
-        'tp': int(tp),
-        'fp': int(fp),
-        'tn': int(tn),
-        'fn': int(fn),
-        'static_presence_eval_count': int(split['static_presence_eval_count']),
-        'motion_eval_count': int(split['motion_eval_count']),
-        **policy_metrics,
-    }
-
-
-def _evaluate_long_gate_arrays(feature_names, center, scale, layers, threshold, chips):
-    """Evaluate inference arrays on every cached long recording.
-
-    Keys duplicate-chip recordings individually so the aggregates cover all
-    datasets, matching the pytest long-gate summary.
-    """
-    by_dataset = {}
-    for split in _long_gate_feature_splits(tuple(feature_names), chips):
-        key = split['chip']
-        suffix = 2
-        while key in by_dataset:
-            key = f"{split['chip']}#{suffix}"
-            suffix += 1
-        by_dataset[key] = _evaluate_feature_split(
-            split, center, scale, layers, threshold
-        )
-    return summarize_gate(by_dataset)
-
-
-def evaluate_long_gate(model, scaler, feature_names, threshold=0.5, chips=None):
-    """Evaluate a candidate on the curated long recordings."""
-    chips = tuple(chips or DEFAULT_LONG_GATE_CHIPS)
-    center, scale = get_preprocessor_arrays(scaler)
-    layers = _layer_arrays_from_model(model)
-    return _evaluate_long_gate_arrays(feature_names, center, scale, layers, threshold, chips)
-
-
 def _load_exported_model_arrays():
     """Load exported MicroPython weights as inference-ready arrays."""
-    weights_path = SRC_DIR / 'ml_weights.py'
-    spec = importlib.util.spec_from_file_location('_exported_ml_weights', weights_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_exported_ml_weights()
     center = np.asarray(module.FEATURE_MEAN, dtype=np.float64)
     scale = np.asarray(module.FEATURE_SCALE, dtype=np.float64)
     layers = []
@@ -4016,235 +3547,95 @@ def _load_exported_model_arrays():
     return list(module.FEATURE_NAMES), center, scale, layers
 
 
-def evaluate_exported_long_gate(threshold=0.5, chips=None):
-    """Evaluate the exported ml_weights artifacts on the curated long recordings."""
-    chips = tuple(chips or DEFAULT_LONG_GATE_CHIPS)
-    feature_names, center, scale, layers = _load_exported_model_arrays()
-    return _evaluate_long_gate_arrays(feature_names, center, scale, layers, threshold, chips)
-
-
 def evaluate_exported_paired_gate(threshold=0.5, chips=None):
     """Evaluate exported runtime arrays on the paired validation datasets."""
-    chips = tuple(chips or DEFAULT_PAIRED_GATE_CHIPS)
     feature_names, center, scale, layers = _load_exported_model_arrays()
     by_chip = {}
-    for chip in chips:
-        try:
-            pair = resolve_explicit_pair(chip=chip, num_sc=64)
-        except FileNotFoundError:
-            continue
+    for chip, static_presence_packets, motion_packets in _iter_paired_chip_packets(chips):
         by_chip[chip] = evaluate_array_split(
             center,
             scale,
             layers,
             feature_names,
-            load_npz_as_packets(pair.static_presence.path),
-            load_npz_as_packets(pair.motion.path),
+            static_presence_packets,
+            motion_packets,
             threshold=threshold,
         )
     return summarize_gate(by_chip)
 
 
-def _parse_long_recording_metrics(output):
-    """Parse the stable long-recording ML summary table emitted by pytest."""
-    pattern = re.compile(
-        r"\|\s*([A-Za-z0-9_-]+)\s*\|"
-        r"\s*([0-9.]+)%\s*\|"
-        r"\s*([0-9.]+)%\s*\|"
-        r"\s*([0-9.]+)%\s*\|"
-        r"\s*([0-9.]+)%\s*\|"
-        r"\s*(\d+)\s*\|"
-        r"(?:\s*(\d+)\s*\|\s*(\d+)\s*\|)?"
-    )
-    rows = []
-    for match in pattern.finditer(output):
-        chip, recall, precision, fp_rate, f1, fp_count, alarms, false_motion = match.groups()
-        rows.append({
-            'chip': chip,
-            'recall': float(recall),
-            'precision': float(precision),
-            'fp_rate': float(fp_rate),
-            'f1': float(f1),
-            'fp_count': int(fp_count),
-            'effective_alarms': int(alarms or 0),
-            'false_motion_evaluations': int(false_motion or 0),
-        })
-
-    if not rows:
-        return None
-
-    return {
-        'rows': rows,
-        'by_chip': {r['chip']: r for r in rows},
-        'pass_count': int(sum(1 for r in rows if r['recall'] > 95.0 and r['fp_rate'] < 5.0)),
-        'mean_recall': float(np.mean([r['recall'] for r in rows])),
-        'worst_chip_recall': float(np.min([r['recall'] for r in rows])),
-        'mean_fp_rate': float(np.mean([r['fp_rate'] for r in rows])),
-        'max_fp_rate': float(np.max([r['fp_rate'] for r in rows])),
-        'mean_f1': float(np.mean([r['f1'] for r in rows])),
-        'worst_chip_f1': float(np.min([r['f1'] for r in rows])),
-        'total_fp': int(sum(r['fp_count'] for r in rows)),
-        'total_effective_alarms': int(sum(r['effective_alarms'] for r in rows)),
-        'total_false_motion_evaluations': int(sum(r['false_motion_evaluations'] for r in rows)),
-    }
-
-
 @dataclass
 class ExportedMLGateResult:
-    """Combined verification result for exported ML artifacts."""
+    """Verification result for exported ML artifacts (paired gate)."""
 
     paired_returncode: int
     paired_output: str
-    long_metrics: dict | None
-    long_output: str
     paired_metrics: dict | None = None
 
     @property
     def available(self):
-        return self.long_metrics is not None
+        return self.paired_returncode == 0 or self.paired_metrics is not None
 
     @property
     def passed(self):
-        return self.paired_returncode == 0 and self.available
+        return self.paired_returncode == 0
 
 
-def _run_ml_performance_tests():
-    """
-    Run the long-recording ML gate and parse per-chip metrics.
-
-    Returns:
-        tuple: (metrics_dict_or_none, raw_output)
-    """
-    project_root = repo_root()
-    cmd = [
-        sys.executable,
-        '-m',
-        'pytest',
-        PYTEST_LONG_ML_GATE,
-        '-v',
-        '-s',
-        # Disable xdist: workers swallow the teardown summary table this
-        # function parses.
-        '-n0',
-    ]
-    result = subprocess.run(
-        cmd,
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
-    output = (result.stdout or "") + "\n" + (result.stderr or "")
-    return _parse_long_recording_metrics(output), output
-
-
-def _run_ml_paired_tests():
-    """Run the paired ML regression suite and return (returncode, output)."""
-    project_root = repo_root()
-    cmd = [
-        sys.executable,
-        '-m',
-        'pytest',
-        PYTEST_PAIRED_ML_GATE,
-        '-v',
-        '-s',
-        # Single-test gate: xdist only adds worker startup overhead and
-        # mangles diagnostic output.
-        '-n0',
-    ]
-    result = subprocess.run(
-        cmd,
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
-    output = (result.stdout or "") + "\n" + (result.stderr or "")
-    return int(result.returncode), output
-
-
-def run_exported_ml_gates(long_in_process=False):
-    """
-    Run all required gates for already-exported ML artifacts.
-
-    With long_in_process=True the long-recording gate is evaluated in this
-    process on cached feature streams instead of a pytest subprocess. That
-    keeps per-candidate seed-search cost low; the pytest form remains the
-    final verification for promoted artifacts.
-    """
-    if long_in_process:
-        paired_metrics = evaluate_exported_paired_gate()
-        paired_total = len(paired_metrics.get('by_chip', {})) if paired_metrics else 0
-        paired_rc = 0 if paired_total and paired_metrics['pass_count'] == paired_total else 1
-        paired_output = ""
-        long_metrics = evaluate_exported_long_gate()
-        long_output = (
-            "" if long_metrics is not None
-            else "in-process long gate: no curated long recordings available"
-        )
-    else:
-        paired_rc, paired_output = _run_ml_paired_tests()
-        paired_metrics = None
-        long_metrics, long_output = _run_ml_performance_tests()
+def run_exported_ml_gates():
+    """Run the paired gate for already-exported ML artifacts."""
+    paired_metrics = evaluate_exported_paired_gate()
+    paired_total = len(paired_metrics.get('by_chip', {})) if paired_metrics else 0
+    paired_rc = 0 if paired_total and paired_metrics['pass_count'] == paired_total else 1
     return ExportedMLGateResult(
         paired_returncode=paired_rc,
-        paired_output=paired_output,
-        long_metrics=long_metrics,
-        long_output=long_output,
+        paired_output="",
         paired_metrics=paired_metrics,
     )
 
 
-def _real_ml_gate_key(real_metrics):
-    """Ranking key for ML-only real-data gate results."""
-    if real_metrics is None:
+def _paired_gate_key(paired_metrics):
+    """Ranking key for paired real-data gate results."""
+    if paired_metrics is None:
         return None
     return (
-        -real_metrics.get('total_effective_alarms', 0),
-        -real_metrics.get('total_false_motion_evaluations', 0),
-        -real_metrics['max_fp_rate'],
-        -real_metrics['total_fp'],
-        real_metrics['mean_recall'],
-        real_metrics['pass_count'],
-        real_metrics['worst_chip_f1'],
-        real_metrics['mean_f1'],
+        paired_metrics.get('pass_count', 0),
+        -paired_metrics.get('max_fp_rate', float('inf')),
+        paired_metrics.get('worst_chip_recall', -float('inf')),
+        paired_metrics.get('worst_chip_f1', -float('inf')),
+        paired_metrics.get('mean_f1', -float('inf')),
+        paired_metrics.get('mean_recall', -float('inf')),
     )
 
 
-def _combined_candidate_key(cv_metrics, real_metrics=None):
+def _combined_candidate_key(cv_metrics, paired_metrics=None):
     """
     Final selection key.
 
-    Stage 1: CV robust metrics filter obvious weak candidates.
-    Stage 2: ML-only real-data gate decides final promotion using deploy-like data.
+    Paired validation leads ranking; grouped CV remains the tie-breaker.
     """
     cv_key = build_candidate_key(cv_metrics)
-    real_key = _real_ml_gate_key(real_metrics)
-    if real_key is None:
+    paired_key = _paired_gate_key(paired_metrics)
+    if paired_key is None:
         return cv_key
-    return real_key + cv_key
-
-
-def _format_long_ml_summary(real_metrics):
-    """Build a short one-line summary for ML-only real-data gate metrics."""
-    if real_metrics is None:
-        return "long_gate=unavailable"
-    total = len(real_metrics.get('rows') or real_metrics.get('by_chip', {}))
-    return (
-        f"long_gate={total} "
-        f"mean_f1={real_metrics['mean_f1']:.1f}% "
-        f"worst_f1={real_metrics['worst_chip_f1']:.1f}% "
-        f"alarms={real_metrics.get('total_effective_alarms', 0)} "
-        f"false_motion_evals={real_metrics.get('total_false_motion_evaluations', 0)} "
-        f"total_fp={real_metrics['total_fp']} "
-        f"mean_recall={real_metrics['mean_recall']:.1f}%"
-    )
+    return paired_key + cv_key
 
 
 def _format_exported_gate_summary(gate):
     """Build a short one-line summary for exported-artifact verification."""
     if gate is None:
         return "exported_gates=not_run"
-    paired = "paired=pass" if gate.paired_returncode == 0 else f"paired=fail({gate.paired_returncode})"
-    return f"{paired} {_format_long_ml_summary(gate.long_metrics)}"
+    if gate.paired_returncode == 0:
+        paired = "paired=pass"
+    else:
+        paired = f"paired=fail({gate.paired_returncode})"
+    metrics = gate.paired_metrics
+    if metrics is None:
+        return paired
+    return (
+        f"{paired} maxFP={metrics.get('max_fp_rate', 0.0):.2f}% "
+        f"worstRecall={metrics.get('worst_chip_recall', 0.0):.2f}% "
+        f"worstF1={metrics.get('worst_chip_f1', 0.0):.2f}%"
+    )
 
 
 def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, static_presence_gate):
@@ -4262,32 +3653,12 @@ def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, 
         )
     ):
         return False
-    candidate_long = candidate_gate.long_metrics or {}
-    baseline_long = static_presence_gate.long_metrics or {}
-    if (
-        candidate_long.get('total_fp', 0)
-        > baseline_long.get('total_fp', 0) + MAX_PROMOTION_TOTAL_FP_INCREASE
-    ):
-        return False
-    if (
-        candidate_long.get('max_fp_rate', 0.0)
-        > baseline_long.get('max_fp_rate', 0.0) + MAX_PROMOTION_FP_RATE_INCREASE
-    ):
-        return False
-    if (
-        candidate_long.get('total_effective_alarms', 0)
-        > baseline_long.get('total_effective_alarms', 0) + MAX_PROMOTION_EFFECTIVE_ALARM_INCREASE
-    ):
-        return False
-    if (
-        candidate_long.get('total_false_motion_evaluations', 0)
-        > baseline_long.get('total_false_motion_evaluations', 0)
-        + MAX_PROMOTION_FALSE_MOTION_EVALUATION_INCREASE
-    ):
-        return False
-    return _combined_candidate_key(candidate_cv, candidate_gate.long_metrics) > _combined_candidate_key(
+    return _combined_candidate_key(
+        candidate_cv,
+        candidate_gate.paired_metrics,
+    ) > _combined_candidate_key(
         static_presence_cv,
-        static_presence_gate.long_metrics,
+        static_presence_gate.paired_metrics,
     )
 
 
@@ -4295,21 +3666,13 @@ def _search_candidate_key(cv_metrics, gate=None):
     """Ranking key for broken-baseline seed search fallback."""
     gate_passed = 1 if gate is not None and gate.passed else 0
     paired_passed = 1 if gate is not None and gate.paired_returncode == 0 else 0
-    long_available = 1 if gate is not None and gate.long_metrics is not None else 0
-    real_key = _real_ml_gate_key(gate.long_metrics if gate is not None else None)
-    if real_key is None:
-        real_key = (-float('inf'),) * 8
-    paired_metrics = gate.paired_metrics if gate is not None else None
-    paired_key = (
-        paired_metrics.get('worst_chip_recall', -float('inf')),
-        paired_metrics.get('worst_chip_f1', -float('inf')),
-        -paired_metrics.get('max_fp_rate', float('inf')),
-    ) if paired_metrics is not None else (-float('inf'),) * 3
+    paired_key = _paired_gate_key(gate.paired_metrics if gate is not None else None)
+    if paired_key is None:
+        paired_key = (-float('inf'),) * 6
     return (
         gate_passed,
         paired_passed,
-        long_available,
-    ) + tuple(real_key) + paired_key + build_candidate_key(cv_metrics)
+    ) + tuple(paired_key) + build_candidate_key(cv_metrics)
 
 
 def _model_artifact_paths():
@@ -4345,21 +3708,18 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                             hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
                             batch_size=DEFAULT_BATCH_SIZE, environment_filter=None,
                             excluded_chips=None, positive_chip_boost=None,
-                            sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
                             use_cache=True):
     """
     Train repeatedly with auto-generated seeds until the promoted candidate improves.
 
     Baseline is recomputed using the seed embedded in the current exported model.
-    Promotion uses paired data as a non-regression constraint and deploy-like
-    long recordings as the primary ranking signal. Grouped CV remains a
-    diagnostic and final tie-breaker; it never rejects a candidate before the
-    real-data gates run.
+    Promotion uses paired validation as the real-data gate and ranking signal.
+    Grouped CV remains a diagnostic and final tie-breaker.
 
-    When the current exported baseline fails those gates, the command falls back
-    to a ranking mode: it evaluates all MAX_TRIALS candidates, keeps the best
-    exported candidate that beats the broken baseline, and restores it at the
-    end even if no candidate reaches a fully passing gate state.
+    When the current exported baseline fails the paired gate, the command falls
+    back to a ranking mode: it evaluates all MAX_TRIALS candidates, keeps the
+    best exported candidate that beats the broken baseline, and restores it at
+    the end even if no candidate reaches a fully passing gate state.
     """
     if max_trials < 1:
         print("Error: --seed-search-until-improvement must be >= 1")
@@ -4371,7 +3731,6 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
-    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
     try:
         ensure_torch_available()
         torch_device_label = describe_torch_device()
@@ -4389,7 +3748,6 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     print(f"FP weight: {fp_weight}")
     print(f"Scaler: {scaler_mode}")
     print(f"Batch size: {batch_size}")
-    print(f"Sample weight mode: {sample_weight_mode}")
     print(f"Torch device: {torch_device_label}")
     if environment_filter is not None:
         print(f"Environment filter: {', '.join(sorted(parse_environment_filter(environment_filter)))}")
@@ -4406,23 +3764,25 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         static_presence_seed = 42
         print("\nWarning: current exported seed not found, using 42 as baseline seed")
 
+    train_kwargs = {
+        'fp_weight': fp_weight,
+        'feature_names': feature_names,
+        'feature_importance': False,
+        'ablation': False,
+        'hidden_layers': hidden_layers,
+        'scaler_mode': scaler_mode,
+        'batch_size': batch_size,
+        'environment_filter': environment_filter,
+        'excluded_chips': excluded_chips,
+        'positive_chip_boost': positive_chip_boost,
+        'use_cache': use_cache,
+    }
+
     print(f"\nEvaluating current model baseline with seed {static_presence_seed}...")
     static_presence_rc, _, static_presence_metrics = train_all(
-        fp_weight=fp_weight,
         seed=static_presence_seed,
-        feature_names=feature_names,
-        feature_importance=False,
-        ablation=False,
-        shap_samples=200,
-        hidden_layers=hidden_layers,
-        scaler_mode=scaler_mode,
-        batch_size=batch_size,
         export_artifacts=False,
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        positive_chip_boost=positive_chip_boost,
-        sample_weight_mode=sample_weight_mode,
-        use_cache=use_cache,
+        **train_kwargs,
     )
     if static_presence_rc != 0 or static_presence_metrics is None:
         print("Error: unable to evaluate current model baseline")
@@ -4435,12 +3795,12 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         f"chip_min_recall={static_presence_chip.get('recall', 0.0):.1f}% "
         f"blocked_oof_f1={static_presence_metrics['oof_f1']:.1f}%"
     )
-    static_presence_gate = run_exported_ml_gates(long_in_process=True)
+    static_presence_gate = run_exported_ml_gates()
     print(f"Baseline exported ML gates: {_format_exported_gate_summary(static_presence_gate)}")
     broken_baseline_mode = not static_presence_gate.passed
     if broken_baseline_mode:
         print(
-            "Warning: baseline exported ML gates failed; "
+            "Warning: baseline paired gate failed; "
             "running all trials and ranking candidates against the broken baseline"
         )
 
@@ -4458,69 +3818,30 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
 
     for idx in range(1, max_trials + 1):
         print(f"\n[{idx}/{max_trials}] Training with auto-generated seed")
-        train_rc, used_seed, metrics = train_all(
-            fp_weight=fp_weight,
+        # One train_all per trial: CV once, then final fit + export for the paired gate.
+        export_rc, used_seed, final_metrics = train_all(
             seed=None,
-            feature_names=feature_names,
-            feature_importance=False,
-            ablation=False,
-            shap_samples=200,
-            hidden_layers=hidden_layers,
-            scaler_mode=scaler_mode,
-            batch_size=batch_size,
-            export_artifacts=False,
-            environment_filter=environment_filter,
-            excluded_chips=excluded_chips,
-            positive_chip_boost=positive_chip_boost,
-            sample_weight_mode=sample_weight_mode,
-            use_cache=use_cache,
+            export_artifacts=True,
+            **train_kwargs,
         )
-        if train_rc != 0 or metrics is None:
-            print(f"  Training failed (exit={train_rc})")
+        if export_rc != 0 or final_metrics is None:
+            print(f"  Candidate train/export failed (exit={export_rc})")
+            _restore_artifacts(saved_files)
+            trial_summaries.append((used_seed, final_metrics or {}, None, 'export_failed'))
             continue
 
-        session_summary = metrics.get('group_reports', {}).get('session_group', {}).get('worst_recall', {})
-        fp_summary = metrics.get('group_reports', {}).get('session_group', {}).get('worst_fp_rate', {})
+        session_summary = final_metrics.get('group_reports', {}).get('session_group', {}).get('worst_recall', {})
+        fp_summary = final_metrics.get('group_reports', {}).get('session_group', {}).get('worst_fp_rate', {})
         print(
             f"  Result: session_min_recall={session_summary.get('recall', 0.0):.1f}% "
             f"session_max_fp={fp_summary.get('fp_rate', 0.0):.1f}% "
-            f"blocked_oof_f1={metrics['oof_f1']:.1f}%"
+            f"blocked_oof_f1={final_metrics['oof_f1']:.1f}%"
         )
 
-        if broken_baseline_mode:
-            print("  Broken baseline mode: exporting candidate for ranking...")
-        else:
-            print("  CV recorded as diagnostic; exporting candidate for real-data ML gates...")
-        export_rc, _, final_metrics = train_all(
-            fp_weight=fp_weight,
-            seed=used_seed,
-            feature_names=feature_names,
-            feature_importance=False,
-            ablation=False,
-            shap_samples=200,
-            hidden_layers=hidden_layers,
-            scaler_mode=scaler_mode,
-            batch_size=batch_size,
-            export_artifacts=True,
-            environment_filter=environment_filter,
-            excluded_chips=excluded_chips,
-            positive_chip_boost=positive_chip_boost,
-            sample_weight_mode=sample_weight_mode,
-            use_cache=use_cache,
-        )
-        if export_rc != 0 or final_metrics is None:
-            print("  Candidate export failed, restoring previous artifacts")
-            _restore_artifacts(saved_files)
-            trial_summaries.append((used_seed, metrics, None, 'export_failed'))
-            continue
-
-        candidate_gate = run_exported_ml_gates(long_in_process=True)
+        candidate_gate = run_exported_ml_gates()
         print(f"  Exported ML gates: {_format_exported_gate_summary(candidate_gate)}")
-        if not candidate_gate.passed:
-            if candidate_gate.paired_returncode != 0 and candidate_gate.paired_output.strip():
-                print(candidate_gate.paired_output.strip())
-            if candidate_gate.long_metrics is None and candidate_gate.long_output.strip():
-                print(candidate_gate.long_output.strip())
+        if not candidate_gate.passed and candidate_gate.paired_output.strip():
+            print(candidate_gate.paired_output.strip())
 
         if broken_baseline_mode:
             status = 'ranked_rejected'
@@ -4548,10 +3869,10 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             improved_seed = used_seed
             improved_metrics = final_metrics
             improved_gate = candidate_gate
-            print("  Improvement found after real-data ML gate: stopping search")
+            print("  Improvement found after paired ML gate: stopping search")
             break
 
-        print("  Real-data ML gate rejected candidate, restoring previous artifacts")
+        print("  Paired ML gate rejected candidate, restoring previous artifacts")
         _restore_artifacts(saved_files)
 
     print("\n" + "=" * 70)
@@ -4563,7 +3884,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         print(
             f"  seed={seed} | sessionMinR={session_summary.get('recall', 0.0):.1f}% "
             f"sessionMaxFP={fp_summary.get('fp_rate', 0.0):.1f}% "
-            f"blockedOOF={metrics['oof_f1']:.1f}% | {status} | "
+            f"blockedOOF={metrics.get('oof_f1', 0.0):.1f}% | {status} | "
             f"{_format_exported_gate_summary(gate)}"
         )
 
@@ -4576,18 +3897,8 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                 f"{_format_exported_gate_summary(improved_gate)})"
             )
             return 0
-        # Candidates are gated with the in-process long gate; confirm the
-        # promoted artifacts once with the full pytest verification.
-        final_gate = run_exported_ml_gates()
-        print(f"Final exported ML gates: {_format_exported_gate_summary(final_gate)}")
-        if not final_gate.passed:
-            _restore_artifacts(saved_files)
-            print("\nFinal exported ML gate verification failed; previous artifacts restored")
-            if final_gate.paired_returncode != 0 and final_gate.paired_output.strip():
-                print(final_gate.paired_output.strip())
-            if final_gate.long_metrics is None and final_gate.long_output.strip():
-                print(final_gate.long_output.strip())
-            return 1
+        # Artifacts already hold the promoted candidate; reuse the gate that just passed.
+        print(f"Final exported ML gates: {_format_exported_gate_summary(improved_gate)}")
         print(
             f"\nSelected seed: {improved_seed} "
             f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "
@@ -4646,10 +3957,6 @@ def architecture_stats(input_dim, hidden_layers):
 def architecture_campaign_rank_key(result):
     """Sort key for single-run architecture candidates (lower is better)."""
     return (
-        result['long']['total_effective_alarms'],
-        result['long']['total_false_motion_evaluations'],
-        result['long']['max_fp_rate'],
-        result['long']['total_fp'],
         -result['paired']['pass_count'],
         result['paired']['max_fp_rate'],
         -result['paired']['worst_chip_recall'],
@@ -4671,23 +3978,6 @@ def aggregate_architecture_runs(name, runs):
         'weight_kb': float(template['weight_kb']),
         'flops': int(template['flops']),
         'seeds': [int(run['seed']) for run in runs],
-        'median_long_max_fp_rate': float(np.median([run['long']['max_fp_rate'] for run in runs])),
-        'median_long_total_fp': float(np.median([run['long']['total_fp'] for run in runs])),
-        'median_long_effective_alarms': float(np.median([
-            run['long']['total_effective_alarms'] for run in runs
-        ])),
-        'median_long_false_motion_evaluations': float(np.median([
-            run['long']['total_false_motion_evaluations'] for run in runs
-        ])),
-        'worst_long_effective_alarms': int(np.max([
-            run['long']['total_effective_alarms'] for run in runs
-        ])),
-        'worst_long_false_motion_evaluations': int(np.max([
-            run['long']['total_false_motion_evaluations'] for run in runs
-        ])),
-        'median_long_pass_count': float(np.median([run['long']['pass_count'] for run in runs])),
-        'median_long_worst_chip_f1': float(np.median([run['long']['worst_chip_f1'] for run in runs])),
-        'worst_long_max_fp_rate': float(np.max([run['long']['max_fp_rate'] for run in runs])),
         'median_paired_pass_count': float(np.median([run['paired']['pass_count'] for run in runs])),
         'median_paired_max_fp_rate': float(np.median([run['paired']['max_fp_rate'] for run in runs])),
         'median_paired_worst_chip_recall': float(np.median([
@@ -4703,12 +3993,6 @@ def aggregate_architecture_runs(name, runs):
 def aggregate_architecture_rank_key(summary):
     """Sort key for aggregated architecture summaries (lower is better)."""
     return (
-        summary['median_long_effective_alarms'],
-        summary['median_long_false_motion_evaluations'],
-        summary['worst_long_effective_alarms'],
-        summary['worst_long_false_motion_evaluations'],
-        summary['median_long_max_fp_rate'],
-        summary['median_long_total_fp'],
         -summary['median_paired_pass_count'],
         summary['median_paired_max_fp_rate'],
         -summary['median_paired_worst_chip_recall'],
@@ -4730,67 +4014,17 @@ def paired_non_regression(candidate, baseline):
     )
 
 
-def metric_tuple_is_non_regressing_improvement(candidate, baseline, tolerance=1e-6):
-    """Require every ordered cost metric to hold and at least one to improve."""
-    pairs = tuple(zip(candidate, baseline))
-    return (
-        all(candidate_value <= baseline_value + tolerance for candidate_value, baseline_value in pairs)
-        and any(candidate_value < baseline_value - tolerance for candidate_value, baseline_value in pairs)
-    )
-
-
-def deployment_gates_beat_baseline(candidate_paired, candidate_long,
-                                   baseline_paired, baseline_long):
-    """Apply the shared paired constraint and long-cost promotion rule."""
-    if not paired_result_non_regression(candidate_paired, baseline_paired):
-        return False
-    candidate_cost = (
-        candidate_long['total_effective_alarms'],
-        candidate_long['total_false_motion_evaluations'],
-        candidate_long['max_fp_rate'],
-        candidate_long['total_fp'],
-    )
-    baseline_cost = (
-        baseline_long['total_effective_alarms'],
-        baseline_long['total_false_motion_evaluations'],
-        baseline_long['max_fp_rate'],
-        baseline_long['total_fp'],
-    )
-    return metric_tuple_is_non_regressing_improvement(candidate_cost, baseline_cost)
-
-
 def architecture_candidate_beats_baseline(candidate, baseline):
-    """Promote only stable FP-first improvements that do not regress paired validation."""
+    """Promote only stable paired improvements that do not regress validation."""
     if candidate['name'] == baseline['name']:
         return True
     if not paired_non_regression(candidate, baseline):
-        return False
-    if (
-        candidate['worst_long_effective_alarms'] > baseline['worst_long_effective_alarms']
-        or candidate['worst_long_false_motion_evaluations']
-        > baseline['worst_long_false_motion_evaluations']
-        or candidate['worst_long_max_fp_rate'] > baseline['worst_long_max_fp_rate'] + 1e-6
-    ):
-        return False
-    candidate_long = (
-        candidate['median_long_effective_alarms'],
-        candidate['median_long_false_motion_evaluations'],
-        candidate['median_long_max_fp_rate'],
-        candidate['median_long_total_fp'],
-    )
-    static_presence_long = (
-        baseline['median_long_effective_alarms'],
-        baseline['median_long_false_motion_evaluations'],
-        baseline['median_long_max_fp_rate'],
-        baseline['median_long_total_fp'],
-    )
-    if not metric_tuple_is_non_regressing_improvement(candidate_long, static_presence_long):
         return False
     return aggregate_architecture_rank_key(candidate) < aggregate_architecture_rank_key(baseline)
 
 
 def evaluate_architecture_candidate(name, hidden_layers, seed, dataset, scaler_mode, batch_size, fp_weight):
-    """Train and evaluate one architecture on CV, paired gate, and long gate."""
+    """Train and evaluate one architecture on CV and the paired gate."""
     stats = architecture_stats(dataset['X'].shape[1], hidden_layers)
     print(f"\n== {name} | seed {seed} ==")
     print(
@@ -4841,7 +4075,6 @@ def evaluate_architecture_candidate(name, hidden_layers, seed, dataset, scaler_m
     inference_us = (perf_counter() - bench_start) / n_bench * 1e6
 
     paired = evaluate_paired_gate(model, scaler, dataset['feature_names'])
-    long_gate = evaluate_long_gate(model, scaler, dataset['feature_names'])
     result = {
         'name': name,
         'seed': int(seed),
@@ -4854,13 +4087,12 @@ def evaluate_architecture_candidate(name, hidden_layers, seed, dataset, scaler_m
         'inference_us': float(inference_us),
         'cv': slim_cv_result(cv),
         'paired': paired,
-        'long': long_gate,
     }
     print(
         f"{name} | OOF={result['cv']['oof_f1']:.1f}% | "
-        f"paired pass={paired['pass_count']} maxFP={paired['max_fp_rate']:.1f}% | "
-        f"long pass={long_gate['pass_count']} maxFP={long_gate['max_fp_rate']:.1f}% "
-        f"totalFP={long_gate['total_fp']} worstF1={long_gate['worst_chip_f1']:.1f}% | "
+        f"paired pass={paired['pass_count']} maxFP={paired['max_fp_rate']:.1f}% "
+        f"worstRecall={paired['worst_chip_recall']:.1f}% "
+        f"worstF1={paired['worst_chip_f1']:.1f}% | "
         f"inf={inference_us:.1f} us"
     )
     return result
@@ -4884,7 +4116,7 @@ def build_feature_ablation_dataset(dataset, feature_name):
 
 
 def _print_feature_ablation_comparison(baseline, candidate):
-    """Print the CV and real-data deltas for a targeted feature ablation."""
+    """Print the CV and paired real-data deltas for a targeted feature ablation."""
     rows = (
         ('Blocked OOF F1', baseline['cv']['oof_f1'], candidate['cv']['oof_f1'], '%'),
         ('Fold F1', baseline['cv']['f1_mean'], candidate['cv']['f1_mean'], '%'),
@@ -4905,21 +4137,11 @@ def _print_feature_ablation_comparison(baseline, candidate):
         ('Paired mean F1', baseline['paired']['mean_f1'], candidate['paired']['mean_f1'], '%'),
         ('Paired worst-chip F1', baseline['paired']['worst_chip_f1'], candidate['paired']['worst_chip_f1'], '%'),
         ('Paired max FP rate', baseline['paired']['max_fp_rate'], candidate['paired']['max_fp_rate'], '%'),
-        ('Long mean F1', baseline['long']['mean_f1'], candidate['long']['mean_f1'], '%'),
-        ('Long worst-chip F1', baseline['long']['worst_chip_f1'], candidate['long']['worst_chip_f1'], '%'),
-        ('Long max FP rate', baseline['long']['max_fp_rate'], candidate['long']['max_fp_rate'], '%'),
-        ('Long total FP', baseline['long']['total_fp'], candidate['long']['total_fp'], ''),
         (
-            'Long effective alarms',
-            baseline['long']['total_effective_alarms'],
-            candidate['long']['total_effective_alarms'],
-            '',
-        ),
-        (
-            'Long false-motion evals',
-            baseline['long']['total_false_motion_evaluations'],
-            candidate['long']['total_false_motion_evaluations'],
-            '',
+            'Paired worst-chip recall',
+            baseline['paired']['worst_chip_recall'],
+            candidate['paired']['worst_chip_recall'],
+            '%',
         ),
     )
     print("\n" + "=" * 82)
@@ -4943,13 +4165,9 @@ def _print_feature_ablation_comparison(baseline, candidate):
 
 
 def _feature_ablation_rank_key(result):
-    """Rank one targeted ablation result with deployment metrics first."""
+    """Rank one targeted ablation result with paired metrics first."""
     cv = result['cv']
-    return _real_ml_gate_key(result['long']) + (
-        result['paired']['pass_count'],
-        -result['paired']['max_fp_rate'],
-        result['paired']['worst_chip_recall'],
-        result['paired']['worst_chip_f1'],
+    return _paired_gate_key(result['paired']) + (
         cv['worst_session_recall'],
         cv['worst_chip_recall'],
         -cv['worst_session_fp_rate'],
@@ -4969,13 +4187,8 @@ def paired_result_non_regression(candidate, baseline, tolerance=0.25):
 
 
 def deployment_candidate_beats_baseline(candidate, baseline):
-    """Compare single-run candidates with paired as a constraint and long first."""
-    if not deployment_gates_beat_baseline(
-        candidate['paired'],
-        candidate['long'],
-        baseline['paired'],
-        baseline['long'],
-    ):
+    """Compare single-run candidates with paired validation leading the rank."""
+    if not paired_result_non_regression(candidate['paired'], baseline['paired']):
         return False
     return _feature_ablation_rank_key(candidate) > _feature_ablation_rank_key(baseline)
 
@@ -4987,14 +4200,11 @@ def experiment_feature_ablation(feature_name, seed=None,
                                 environment_filter=None,
                                 excluded_chips=None,
                                 positive_chip_boost=None,
-                                sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
                                 use_cache=True):
     """Compare Core-6 against one feature removal without exporting artifacts."""
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
-    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
-
     try:
         ensure_torch_available()
         seed = resolve_training_seed(seed if seed is not None else read_exported_seed())
@@ -5014,7 +4224,6 @@ def experiment_feature_ablation(feature_name, seed=None,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         feature_names=TRAINING_FEATURES,
-        sample_weight_mode=sample_weight_mode,
         use_cache=use_cache,
     )
     if not matrix['stats']['chips']:
@@ -5064,9 +4273,9 @@ def experiment_feature_ablation(feature_name, seed=None,
     )
     _print_feature_ablation_comparison(baseline, candidate)
     if deployment_candidate_beats_baseline(candidate, baseline):
-        print("FP-first result: candidate ranks above the Core-6 baseline for this seed.")
+        print("Paired-first result: candidate ranks above the Core-6 baseline for this seed.")
     else:
-        print("FP-first result: candidate does not beat the Core-6 baseline for this seed.")
+        print("Paired-first result: candidate does not beat the Core-6 baseline for this seed.")
     return 0
 
 
@@ -5077,7 +4286,6 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
                              excluded_chips=None,
                              architectures=None,
                              positive_chip_boost=None,
-                             sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
                              output_path=DEFAULT_EXPERIMENT_OUTPUT,
                              promote_winner=False,
                              use_cache=True):
@@ -5085,7 +4293,6 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
-    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
     architectures = normalize_architecture_specs(architectures or DEFAULT_ARCHITECTURE_SWEEP)
 
     static_presence_layers = tuple(DEFAULT_HIDDEN_LAYERS)
@@ -5121,7 +4328,6 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     print(f"Batch size: {batch_size}")
     print(f"Torch device: {torch_device_label}")
     print(f"FP weight: {fp_weight}")
-    print(f"Sample weight mode: {sample_weight_mode}")
     print(f"Screening seed: {screening_seed}")
     print(
         "Architectures: "
@@ -5142,7 +4348,6 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         feature_names=TRAINING_FEATURES,
-        sample_weight_mode=sample_weight_mode,
         use_cache=use_cache,
     )
     stats = matrix['stats']
@@ -5186,7 +4391,6 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
             'environment': sorted(environment_filter) if environment_filter else None,
             'exclude_chip': sorted(excluded_chips) if excluded_chips else [],
             'positive_chip_boost': positive_chip_boost,
-            'sample_weight_mode': sample_weight_mode,
             'screening_seed': screening_seed,
             'initial_seeds': list(DEFAULT_EXPERIMENT_INITIAL_SEEDS),
             'final_seeds': list(DEFAULT_EXPERIMENT_FINAL_SEEDS),
@@ -5246,12 +4450,11 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         results['seed_filter'] = seed_filter
         write_json_results(output_path, results)
         print(
-            f"{name} | median alarms={summary['median_long_effective_alarms']:.1f} | "
-            f"median falseMotionEvals={summary['median_long_false_motion_evaluations']:.1f} | "
-            f"median long maxFP={summary['median_long_max_fp_rate']:.1f}% | "
-            f"median totalFP={summary['median_long_total_fp']:.1f} | "
-            f"median worstF1={summary['median_long_worst_chip_f1']:.1f}% | "
-            f"median paired pass={summary['median_paired_pass_count']:.1f}"
+            f"{name} | median paired pass={summary['median_paired_pass_count']:.1f} | "
+            f"median maxFP={summary['median_paired_max_fp_rate']:.1f}% | "
+            f"median worstRecall={summary['median_paired_worst_chip_recall']:.1f}% | "
+            f"median worstF1={summary['median_paired_worst_chip_f1']:.1f}% | "
+            f"median OOF={summary['median_oof_f1']:.1f}%"
         )
 
     static_presence_filter = next(item for item in seed_filter if item['name'] == static_presence_name)
@@ -5285,12 +4488,11 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         results['seed_finalists'] = seed_finalists
         write_json_results(output_path, results)
         print(
-            f"{name} | median alarms={summary['median_long_effective_alarms']:.1f} | "
-            f"median falseMotionEvals={summary['median_long_false_motion_evaluations']:.1f} | "
-            f"median long maxFP={summary['median_long_max_fp_rate']:.1f}% | "
-            f"median totalFP={summary['median_long_total_fp']:.1f} | "
-            f"median worstF1={summary['median_long_worst_chip_f1']:.1f}% | "
-            f"median paired pass={summary['median_paired_pass_count']:.1f}"
+            f"{name} | median paired pass={summary['median_paired_pass_count']:.1f} | "
+            f"median maxFP={summary['median_paired_max_fp_rate']:.1f}% | "
+            f"median worstRecall={summary['median_paired_worst_chip_recall']:.1f}% | "
+            f"median worstF1={summary['median_paired_worst_chip_f1']:.1f}% | "
+            f"median OOF={summary['median_oof_f1']:.1f}%"
         )
 
     seed_finalists = sorted(seed_finalists, key=aggregate_architecture_rank_key)
@@ -5315,7 +4517,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         print(f"\nDecision: keep {static_presence_name}")
         return 0
 
-    print(f"\nDecision: {winner['name']} beats {static_presence_name} on FP-first ranking")
+    print(f"\nDecision: {winner['name']} beats {static_presence_name} on paired ranking")
     if not promote_winner:
         print("Promotion disabled (--experiment-promote not set), leaving current artifacts unchanged")
         return 0
@@ -5329,7 +4531,6 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         feature_names=TRAINING_FEATURES,
         feature_importance=False,
         ablation=False,
-        shap_samples=200,
         hidden_layers=spec['layers'],
         scaler_mode=scaler_mode,
         batch_size=batch_size,
@@ -5337,7 +4538,6 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         positive_chip_boost=positive_chip_boost,
-        sample_weight_mode=sample_weight_mode,
         use_cache=use_cache,
     )
     if export_rc != 0 or export_metrics is None:
@@ -5357,25 +4557,20 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
             'status': 'verification_failed',
             'seed': int(used_seed),
             'paired_returncode': int(final_gate.paired_returncode),
-            'long_metrics': final_gate.long_metrics,
             'backup_dir': str(backup_dir),
         }
         write_json_results(output_path, results)
         print("Promotion verification failed, restored previous artifacts")
         if final_gate.paired_output.strip():
             print(final_gate.paired_output.strip())
-        if final_gate.long_output.strip():
-            print(final_gate.long_output.strip())
         return 1
 
     results['promotion']['final_export'] = {
         'status': 'promoted',
         'seed': int(used_seed),
         'paired_returncode': int(final_gate.paired_returncode),
-        'long_metrics': final_gate.long_metrics,
         'backup_dir': str(backup_dir),
         'paired_output': final_gate.paired_output,
-        'long_output': final_gate.long_output,
     }
     write_json_results(output_path, results)
     print(f"Promoted architecture: {winner['name']} (seed {used_seed})")
@@ -5386,7 +4581,6 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
                           batch_size=DEFAULT_BATCH_SIZE, hidden_layers=None,
                           environment_filter=None, excluded_chips=None,
                           positive_chip_boost=None,
-                          sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
                           output_path=DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT,
                           promote_winner=False, use_cache=True):
     """Run a gated, multi-seed FP-weight campaign."""
@@ -5399,7 +4593,6 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
-    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
     screening_seed = read_exported_seed() or DEFAULT_EXPERIMENT_SCREENING_SEED
 
     try:
@@ -5416,7 +4609,6 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
     print(f"Scaler: {scaler_mode}")
     print(f"Batch size: {batch_size}")
     print(f"Torch device: {torch_device_label}")
-    print(f"Sample weight mode: {sample_weight_mode}")
     print(f"Screening seed: {screening_seed}")
     print(f"FP weights: {', '.join(map(str, weights))}")
     print("Artifacts: unchanged during evaluation")
@@ -5425,7 +4617,6 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         feature_names=TRAINING_FEATURES,
-        sample_weight_mode=sample_weight_mode,
         use_cache=use_cache,
     )
     if not matrix['stats']['chips']:
@@ -5456,7 +4647,6 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
             'hidden_layers': hidden_layers,
             'scaler': scaler_mode,
             'batch_size': batch_size,
-            'sample_weight_mode': sample_weight_mode,
             'screening_seed': screening_seed,
             'initial_seeds': list(DEFAULT_EXPERIMENT_INITIAL_SEEDS),
             'final_seeds': list(DEFAULT_EXPERIMENT_FINAL_SEEDS),
@@ -5538,7 +4728,6 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         positive_chip_boost=positive_chip_boost,
-        sample_weight_mode=sample_weight_mode,
         use_cache=use_cache,
     )
     final_gate = run_exported_ml_gates() if export_rc == 0 else None
@@ -5552,7 +4741,6 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
         'status': 'promoted',
         'seed': int(used_seed),
         'fp_weight': float(winner['fp_weight']),
-        'long_metrics': final_gate.long_metrics,
     }
     write_json_results(output_path, results)
     print(f"Promoted fp_weight={winner['fp_weight']:g} (seed {used_seed})")
@@ -5565,8 +4753,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  python tools/train_ml_model.py                    # Evaluate defaults; leave artifacts unchanged
-  python tools/train_ml_model.py --promote          # Explicitly export the evaluated configuration
+  python tools/train_ml_model.py                    # Train and export if the paired gate passes
+  python tools/train_ml_model.py --no-export        # Evaluate without replacing runtime artifacts
   python tools/train_ml_model.py --info             # Show dataset info
   python tools/train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
   python tools/train_ml_model.py --experiment --experiment-promote
@@ -5591,8 +4779,9 @@ Examples:
                                            # Stop at first improvement (max 20 trials)
   python tools/train_ml_model.py --gain-stress-gate --environment bedroom
                                            # Diagnose exported model robustness to feature gain shifts
-  python tools/train_ml_model.py --shap              # Grouped OOF SHAP (200 samples)
-  python tools/train_ml_model.py --shap 500          # Grouped OOF SHAP (500 samples)
+  python tools/train_ml_model.py --shap --no-export  # Grouped OOF SHAP (200 samples)
+  python tools/train_ml_model.py --shap 500 --no-export
+                                           # Grouped OOF SHAP (500 samples)
   python tools/train_ml_model.py --ablation-feature turb_skewness --seed 1386543369
                                            # Targeted CV and real-data feature ablation
 
@@ -5655,11 +4844,10 @@ To compare ML with the moving-variance baseline, use:
                        help='Comma-separated hidden layer widths for the MLP '
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
     parser.add_argument('--no-export', action='store_true',
-                       help='Run only CV diagnostics; runtime artifacts are unchanged')
-    parser.add_argument('--promote', action='store_true',
-                       help='Explicitly export a normal training candidate after paired and long evaluation')
+                       help='Leave runtime artifacts unchanged (CV-only for normal training; '
+                            'also use with --shap / --ablation diagnostics)')
     parser.add_argument('--no-cache', action='store_true',
-                       help='Rebuild training features and sample weights instead of using the local cache')
+                       help='Rebuild the training feature matrix instead of using the local cache')
     parser.add_argument('--environment', type=str, default=None,
                        help='Restrict training/evaluation to one or more named environments '
                             '(comma-separated, e.g. bedroom or bedroom,living_room)')
@@ -5670,14 +4858,6 @@ To compare ML with the moving-variance baseline, use:
                             f'default: {",".join(DEFAULT_EXCLUDED_CHIPS)})')
     parser.add_argument('--positive-chip-boost', type=parse_positive_chip_boost, default=None,
                        help='Boost motion samples for specific chips, e.g. ESP32=1.2 or ESP32=1.2,S3=1.1')
-    parser.add_argument('--sample-weight-mode', choices=SAMPLE_WEIGHT_MODES,
-                       default=DEFAULT_SAMPLE_WEIGHT_MODE,
-                       help='Base sample weighting policy. "none" keeps the support detector '
-                            'out of training; "l1_guided" scores windows with the l1_delta '
-                            'replay against per-file runtime-calibrated startup thresholds '
-                            '(motion files inherit the paired static capture); '
-                            '"l1_hard_negative" uses l1_delta only to promote hard idle windows '
-                            f'(default: {DEFAULT_SAMPLE_WEIGHT_MODE})')
     parser.add_argument('--shap', type=int, nargs='?', const=200, default=None,
                        metavar='SAMPLES',
                        help='Calculate grouped out-of-fold SHAP importance '
@@ -5687,8 +4867,8 @@ To compare ML with the moving-variance baseline, use:
     parser.add_argument('--ablation', action='store_true',
                        help='Run ablation study (test removing each feature)')
     parser.add_argument('--ablation-feature', type=str, default=None,
-                       help='Compare Core-6 against one named feature removal using grouped CV, '
-                            'paired data, and long recordings without exporting artifacts')
+                       help='Compare Core-6 against one named feature removal using grouped CV '
+                            'and paired validation without exporting artifacts')
     args = parser.parse_args()
     set_active_torch_device(args.device)
     selected_training_features = list(DEFAULT_FEATURES)
@@ -5697,21 +4877,6 @@ To compare ML with the moving-variance baseline, use:
         show_info()
         return 0
 
-    if args.promote and args.no_export:
-        print("Error: --promote and --no-export are mutually exclusive")
-        return 1
-    if args.promote and (
-        args.experiment
-        or args.experiment_fp_weights is not None
-        or args.seed_search_until_improvement > 0
-        or args.gain_stress_gate
-        or args.ablation
-        or args.ablation_feature
-        or args.shap is not None
-        or args.correlation
-    ):
-        print("Error: --promote is only valid for the normal training flow")
-        return 1
     if args.experiment_promote and not (
         args.experiment or args.experiment_fp_weights is not None
     ):
@@ -5751,7 +4916,6 @@ To compare ML with the moving-variance baseline, use:
             excluded_chips=args.exclude_chip,
             architectures=args.experiment_architectures,
             positive_chip_boost=args.positive_chip_boost,
-            sample_weight_mode=args.sample_weight_mode,
             output_path=args.experiment_output,
             promote_winner=args.experiment_promote,
             use_cache=not args.no_cache,
@@ -5766,7 +4930,6 @@ To compare ML with the moving-variance baseline, use:
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
             positive_chip_boost=args.positive_chip_boost,
-            sample_weight_mode=args.sample_weight_mode,
             output_path=args.fp_weight_experiment_output,
             promote_winner=args.experiment_promote,
             use_cache=not args.no_cache,
@@ -5785,7 +4948,6 @@ To compare ML with the moving-variance baseline, use:
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
             positive_chip_boost=args.positive_chip_boost,
-            sample_weight_mode=args.sample_weight_mode,
             use_cache=not args.no_cache,
         )
     
@@ -5815,7 +4977,6 @@ To compare ML with the moving-variance baseline, use:
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
             positive_chip_boost=args.positive_chip_boost,
-            sample_weight_mode=args.sample_weight_mode,
             use_cache=not args.no_cache,
         )
 
@@ -5832,9 +4993,12 @@ To compare ML with the moving-variance baseline, use:
         environment_filter=args.environment,
         excluded_chips=args.exclude_chip,
         positive_chip_boost=args.positive_chip_boost,
-        sample_weight_mode=args.sample_weight_mode,
         use_cache=not args.no_cache,
-        export_artifacts=args.promote,
+        export_artifacts=(
+            not args.no_export
+            and args.shap is None
+            and not args.ablation
+        ),
         evaluate_deployment=(
             not args.no_export
             and args.shap is None

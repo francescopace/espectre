@@ -25,16 +25,16 @@ views:
           entity: sensor.espectre_movement_score
           name: Movement Level
           min: 0
-          max: 10
+          max: 1
           needle: true
           segments:
             - from: 0
               color: green
-            - from: 0.5
+            - from: 0.3
               color: yellow
-            - from: 1
+            - from: 0.5
               color: orange
-            - from: 2
+            - from: 0.7
               color: red
         # Dynamic gauge (alternative) - segments adapt to threshold value
         # Requires 'Config Template Card' from HACS:
@@ -49,7 +49,7 @@ views:
         #     entity: sensor.espectre_movement_score
         #     name: Movement Level
         #     min: 0
-        #     max: 10
+        #     max: 1
         #     needle: true
         #     segments:
         #       - from: 0
@@ -77,13 +77,12 @@ views:
           features_position: bottom
         - type: entities
           entities:
+            - entity: select.espectre_detector
+              icon: mdi:chip
+              name: Detector
             - entity: number.espectre_threshold
               icon: mdi:tune-vertical
               name: Threshold
-          show_header_toggle: false
-          state_color: false
-        - type: entities
-          entities:
             - entity: switch.espectre_calibrate
               icon: mdi:refresh
               name: Recalibrate

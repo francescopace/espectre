@@ -323,19 +323,19 @@ class TestAdaptiveThreshold:
     def test_set_adaptive_threshold(self):
         """Test setting adaptive threshold"""
         ctx = SegmentationContext()
-        ctx.set_adaptive_threshold(2.0)
+        ctx.set_adaptive_threshold(0.75)
         
-        assert ctx.threshold == 2.0
+        assert ctx.threshold == 0.75
     
     def test_adaptive_threshold_clamping(self):
-        """Test that adaptive threshold is clamped to [1e-6, 10.0]"""
+        """Test that adaptive threshold is clamped to [1e-6, 1.0]"""
         ctx = SegmentationContext()
         
         ctx.set_adaptive_threshold(1e-8)  # Too low
         assert ctx.threshold == pytest.approx(1e-6)
         
         ctx.set_adaptive_threshold(100.0)  # Too high
-        assert ctx.threshold == 10.0
+        assert ctx.threshold == 1.0
         
         # Values within range should pass through
         ctx.set_adaptive_threshold(0.01)

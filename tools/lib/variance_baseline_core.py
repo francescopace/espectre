@@ -37,7 +37,7 @@ from config import (
 )
 from tools.lib.repo_paths import data_dir
 from segmentation import SegmentationContext
-from threshold import get_threshold_factor
+from threshold import DEFAULT_ADAPTIVE_FACTOR
 
 
 DATA_DIR = data_dir()
@@ -246,7 +246,7 @@ def calibrate_startup_threshold(
     if max_moving_variance is None:
         return 1.0, None
 
-    threshold = max_moving_variance * get_threshold_factor("auto")
+    threshold = max_moving_variance * DEFAULT_ADAPTIVE_FACTOR
     return max(float(threshold), 1e-6), max_moving_variance
 
 

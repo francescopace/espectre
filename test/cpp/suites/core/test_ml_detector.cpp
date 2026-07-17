@@ -14,7 +14,11 @@
 #include <cmath>
 #include <algorithm>
 #include <vector>
+#define private public
+#define protected public
 #include "ml_detector.h"
+#undef protected
+#undef private
 #include "features.h"
 #include "ml_weights.h"
 #include "esphome/core/log.h"
@@ -111,6 +115,17 @@ void test_ml_detector_get_name(void) {
     MLDetector detector;
     
     TEST_ASSERT_EQUAL_STRING("ML", detector.get_name());
+}
+
+void test_ml_detector_hampel_master_switch_controls_both_streams(void) {
+    MLDetector detector;
+    detector.configure_hampel(true, 5U, 3.0f);
+    TEST_ASSERT_TRUE(detector.hampel_state_.enabled);
+    TEST_ASSERT_TRUE(detector.l1_tracker_.hampel_state_.enabled);
+
+    detector.configure_hampel(false, 5U, 3.0f);
+    TEST_ASSERT_FALSE(detector.hampel_state_.enabled);
+    TEST_ASSERT_FALSE(detector.l1_tracker_.hampel_state_.enabled);
 }
 
 // ============================================================================
@@ -347,6 +362,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ml_detector_default_constructor);
     RUN_TEST(test_ml_detector_custom_constructor);
     RUN_TEST(test_ml_detector_get_name);
+    RUN_TEST(test_ml_detector_hampel_master_switch_controls_both_streams);
     
     // Threshold tests
     RUN_TEST(test_ml_detector_set_threshold_valid);

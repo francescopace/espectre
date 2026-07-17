@@ -22,7 +22,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TRAIN_SCRIPT = REPO_ROOT / "tools" / "train_ml_model.py"
 
-from features import calc_l1_delta, extract_features_by_name
+from features import calc_l1_delta, l1_delta_series, extract_features_by_name
 
 
 def _load_train_module():
@@ -33,22 +33,30 @@ def _load_train_module():
     return module
 
 
-def test_extract_features_by_name_supports_l1_delta_feature():
+def test_extract_features_by_name_requires_explicit_l1_stream():
     base_profile = [1.0, 2.0, 4.0, 8.0]
     changed_profile = [8.0, 4.0, 2.0, 1.0]
     amplitude_history = [base_profile] * 10 + [changed_profile] * 10
     turbulence = [0.1] * len(amplitude_history)
 
+    l1_series = l1_delta_series(amplitude_history, len(amplitude_history))
     expected = calc_l1_delta(amplitude_history, len(amplitude_history))
     features = extract_features_by_name(
         turbulence,
         len(turbulence),
         feature_names=["l1_delta"],
-        amplitude_history=amplitude_history,
+        l1_series=l1_series,
     )
 
     assert features == pytest.approx([expected])
     assert expected > 0.0
+
+    with pytest.raises(ValueError, match="l1_series is required"):
+        extract_features_by_name(
+            turbulence,
+            len(turbulence),
+            feature_names=["l1_delta"],
+        )
 
 
 def test_training_cache_manifest_tracks_runtime_filter_defaults():
@@ -93,6 +101,91 @@ def test_extract_features_uses_runtime_filter_defaults(monkeypatch):
     assert created["enable_hampel"] == module.ENABLE_HAMPEL_FILTER
     assert created["hampel_window"] == module.HAMPEL_WINDOW
     assert created["hampel_threshold"] == pytest.approx(module.HAMPEL_THRESHOLD)
+
+
+def test_extract_features_applies_hampel_to_l1_stream(monkeypatch):
+    module = _load_train_module()
+    created = {}
+
+    class FakeL1DeltaTracker:
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+
+        def process_amplitudes(self, amplitudes, amplitude_count):
+            assert amplitude_count == len(amplitudes)
+
+        def copy_deltas_into(self, out):
+            out[0] = 0.25
+            return 1
+
+    monkeypatch.setattr(module, "L1DeltaTracker", FakeL1DeltaTracker)
+    packets = [
+        {
+            "source_file": "sample.npz",
+            "csi_data": [1] * 128,
+            "is_motion": False,
+        }
+        for _ in range(2)
+    ]
+
+    X, _, _, _ = module.extract_features(
+        packets,
+        window_size=2,
+        feature_names=["l1_delta"],
+        return_metadata=True,
+        enable_hampel=True,
+        hampel_window=5,
+        hampel_threshold=3.0,
+    )
+
+    assert X[-1, 0] == pytest.approx(0.25)
+    assert created["enable_hampel"] is True
+    assert created["hampel_window"] == 5
+    assert created["hampel_threshold"] == pytest.approx(3.0)
+
+
+def test_training_and_runtime_feature_streams_match_with_hampel():
+    module = _load_train_module()
+    window_size = 20
+    packets = []
+    runtime_rows = []
+    detector = module.MLDetector(
+        window_size=window_size,
+        enable_lowpass=module.ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=module.LOWPASS_CUTOFF,
+        enable_hampel=True,
+        hampel_window=module.HAMPEL_WINDOW,
+        hampel_threshold=module.HAMPEL_THRESHOLD,
+    )
+
+    for packet_index in range(45):
+        csi_data = [
+            ((packet_index * 11 + value_index * 7) % 181) - 90
+            for value_index in range(128)
+        ]
+        packets.append({
+            "source_file": "parity.npz",
+            "csi_data": csi_data,
+            "is_motion": packet_index >= 30,
+        })
+        detector.process_packet(csi_data, module.DEFAULT_SUBCARRIERS)
+        if detector.is_ready():
+            runtime_rows.append(list(detector._extract_features()))
+
+    training_rows, _, feature_names, _ = module.extract_features(
+        packets,
+        window_size=window_size,
+        feature_names=list(module.EXPORTED_FEATURE_NAMES),
+        return_metadata=True,
+        enable_lowpass=module.ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=module.LOWPASS_CUTOFF,
+        enable_hampel=True,
+        hampel_window=module.HAMPEL_WINDOW,
+        hampel_threshold=module.HAMPEL_THRESHOLD,
+    )
+
+    assert feature_names == list(module.EXPORTED_FEATURE_NAMES)
+    assert training_rows == pytest.approx(np.asarray(runtime_rows), abs=1e-6)
 
 
 def test_select_balanced_shap_indices_is_deterministic_and_class_balanced():
@@ -215,7 +308,7 @@ def test_packet_csi_data_accepts_packet_dicts_and_compact_rows():
 def test_feature_ablation_comparison_prints_metric_rows(capsys):
     module = _load_train_module()
 
-    def result(oof_f1, total_fp, alarms):
+    def result(oof_f1, max_fp, worst_recall):
         return {
             "cv": {
                 "oof_f1": oof_f1,
@@ -228,28 +321,22 @@ def test_feature_ablation_comparison_prints_metric_rows(capsys):
             "paired": {
                 "mean_f1": 98.0,
                 "worst_chip_f1": 97.0,
-                "max_fp_rate": 1.0,
-            },
-            "long": {
-                "mean_f1": 0.0,
-                "worst_chip_f1": 0.0,
-                "max_fp_rate": 1.0,
-                "total_fp": total_fp,
-                "total_effective_alarms": alarms,
-                "total_false_motion_evaluations": alarms * 3,
+                "max_fp_rate": max_fp,
+                "worst_chip_recall": worst_recall,
             },
         }
 
     module._print_feature_ablation_comparison(
-        result(92.4, 601, 1),
-        result(93.5, 979, 2),
+        result(92.4, 1.0, 98.0),
+        result(93.5, 0.5, 99.0),
     )
     output = capsys.readouterr().out
 
     assert "Blocked OOF F1" in output
-    assert "Long total FP" in output
-    assert "601" in output
-    assert "979" in output
+    assert "Paired max FP rate" in output
+    assert "Paired worst-chip recall" in output
+    assert "92.40%" in output
+    assert "93.50%" in output
 
 
 def _cv_metrics(*, session_recall: float, chip_recall: float, session_fp: float, oof_f1: float, f1_mean: float):
@@ -268,51 +355,22 @@ def _cv_metrics(*, session_recall: float, chip_recall: float, session_fp: float,
     }
 
 
-def _long_metrics(*, mean_f1: float, worst_f1: float, total_fp: int, mean_recall: float, pass_count: int, max_fp_rate: float):
-    return {
-        "mean_f1": mean_f1,
-        "worst_chip_f1": worst_f1,
-        "total_fp": total_fp,
-        "mean_recall": mean_recall,
-        "pass_count": pass_count,
-        "max_fp_rate": max_fp_rate,
-    }
-
-
 def test_search_candidate_key_prefers_passing_gate():
     module = _load_train_module()
     cv = _cv_metrics(session_recall=90.0, chip_recall=88.0, session_fp=8.0, oof_f1=85.0, f1_mean=84.0)
     failing_gate = module.ExportedMLGateResult(
         paired_returncode=1,
         paired_output="paired failed",
-        long_metrics=_long_metrics(
-            mean_f1=89.0,
-            worst_f1=85.0,
-            total_fp=30,
-            mean_recall=90.0,
-            pass_count=2,
-            max_fp_rate=8.0,
-        ),
-        long_output="long gate",
     )
     passing_gate = module.ExportedMLGateResult(
         paired_returncode=0,
         paired_output="",
-        long_metrics=_long_metrics(
-            mean_f1=89.0,
-            worst_f1=85.0,
-            total_fp=30,
-            mean_recall=90.0,
-            pass_count=2,
-            max_fp_rate=8.0,
-        ),
-        long_output="long gate",
     )
 
     assert module._search_candidate_key(cv, passing_gate) > module._search_candidate_key(cv, failing_gate)
 
 
-def test_seed_promotion_rejects_paired_regression_even_when_long_improves():
+def test_seed_promotion_rejects_paired_regression():
     module = _load_train_module()
     cv = _cv_metrics(
         session_recall=90.0,
@@ -321,24 +379,17 @@ def test_seed_promotion_rejects_paired_regression_even_when_long_improves():
         oof_f1=85.0,
         f1_mean=84.0,
     )
-    baseline_long = _long_metrics(
-        mean_f1=0.0,
-        worst_f1=0.0,
-        total_fp=600,
-        mean_recall=0.0,
-        pass_count=0,
-        max_fp_rate=1.0,
-    )
-    candidate_long = dict(baseline_long, total_fp=500, max_fp_rate=0.8)
     baseline_paired = {
         "pass_count": 4,
         "max_fp_rate": 0.0,
         "worst_chip_recall": 98.0,
         "worst_chip_f1": 99.0,
+        "mean_f1": 99.0,
+        "mean_recall": 98.0,
     }
     candidate_paired = dict(baseline_paired, worst_chip_recall=97.0)
-    baseline_gate = module.ExportedMLGateResult(0, "", baseline_long, "", baseline_paired)
-    candidate_gate = module.ExportedMLGateResult(0, "", candidate_long, "", candidate_paired)
+    baseline_gate = module.ExportedMLGateResult(0, "", baseline_paired)
+    candidate_gate = module.ExportedMLGateResult(0, "", candidate_paired)
 
     assert not module._candidate_beats_baseline(cv, candidate_gate, cv, baseline_gate)
 
@@ -363,55 +414,45 @@ def test_idle_runtime_policy_rejects_isolated_hits_and_counts_alarm_duration():
     }
 
 
-def test_real_gate_ranking_prefers_fewer_effective_alarms_over_f1():
+def test_paired_gate_ranking_prefers_lower_fp_before_cv():
     module = _load_train_module()
-    quieter = _long_metrics(
-        mean_f1=80.0,
-        worst_f1=75.0,
-        total_fp=20,
-        mean_recall=90.0,
-        pass_count=1,
-        max_fp_rate=2.0,
-    )
-    noisier = _long_metrics(
-        mean_f1=99.0,
-        worst_f1=98.0,
-        total_fp=10,
-        mean_recall=99.0,
-        pass_count=4,
-        max_fp_rate=1.0,
-    )
-    quieter["total_effective_alarms"] = 0
-    quieter["total_false_motion_evaluations"] = 0
-    noisier["total_effective_alarms"] = 1
-    noisier["total_false_motion_evaluations"] = 1
+    quieter = {
+        "pass_count": 4,
+        "max_fp_rate": 0.0,
+        "worst_chip_recall": 97.0,
+        "worst_chip_f1": 97.0,
+        "mean_f1": 97.0,
+        "mean_recall": 97.0,
+    }
+    noisier = {
+        "pass_count": 4,
+        "max_fp_rate": 2.0,
+        "worst_chip_recall": 99.0,
+        "worst_chip_f1": 99.0,
+        "mean_f1": 99.0,
+        "mean_recall": 99.0,
+    }
 
-    assert module._real_ml_gate_key(quieter) > module._real_ml_gate_key(noisier)
+    assert module._paired_gate_key(quieter) > module._paired_gate_key(noisier)
 
 
-def test_architecture_ranking_prefers_runtime_alarms_before_raw_fp():
+def test_architecture_ranking_prefers_paired_fp_before_cv():
     module = _load_train_module()
 
-    def result(alarms, false_motion, max_fp, total_fp, oof_f1):
+    def result(max_fp, oof_f1):
         return {
             "params": 100,
             "cv": {"oof_f1": oof_f1, "f1_mean": oof_f1},
             "paired": {
                 "pass_count": 4,
-                "max_fp_rate": 0.0,
+                "max_fp_rate": max_fp,
                 "worst_chip_recall": 98.0,
                 "worst_chip_f1": 99.0,
             },
-            "long": {
-                "total_effective_alarms": alarms,
-                "total_false_motion_evaluations": false_motion,
-                "max_fp_rate": max_fp,
-                "total_fp": total_fp,
-            },
         }
 
-    quieter = result(0, 0, 2.0, 200, 90.0)
-    noisier = result(1, 3, 0.5, 50, 95.0)
+    quieter = result(0.0, 90.0)
+    noisier = result(1.5, 95.0)
 
     assert module.architecture_campaign_rank_key(quieter) < module.architecture_campaign_rank_key(noisier)
 
@@ -427,41 +468,33 @@ def test_parse_fp_weight_sweep_validates_and_deduplicates():
 def test_deployment_candidate_requires_paired_non_regression():
     module = _load_train_module()
 
-    def result(worst_recall, alarms, total_fp):
+    def result(worst_recall, max_fp, oof_f1=93.0):
         return {
             "cv": {
-                "oof_f1": 93.0,
-                "f1_mean": 93.0,
+                "oof_f1": oof_f1,
+                "f1_mean": oof_f1,
                 "worst_session_recall": 90.0,
                 "worst_chip_recall": 95.0,
                 "worst_session_fp_rate": 5.0,
             },
             "paired": {
                 "pass_count": 4,
-                "max_fp_rate": 0.0,
+                "max_fp_rate": max_fp,
                 "worst_chip_recall": worst_recall,
                 "worst_chip_f1": 99.0,
-            },
-            "long": {
-                "total_effective_alarms": alarms,
-                "total_false_motion_evaluations": alarms * 3,
-                "max_fp_rate": 0.5,
-                "total_fp": total_fp,
-                "mean_recall": 0.0,
-                "pass_count": 0,
-                "worst_chip_f1": 0.0,
-                "mean_f1": 0.0,
+                "mean_f1": 99.0,
+                "mean_recall": worst_recall,
             },
         }
 
-    baseline = result(98.0, 1, 600)
-    lower_recall = result(97.0, 0, 100)
-    quieter = result(98.0, 0, 100)
-    raw_fp_regression = result(98.0, 0, 700)
+    baseline = result(98.0, 1.0)
+    lower_recall = result(97.0, 0.0)
+    quieter = result(98.0, 0.0, oof_f1=94.0)
+    fp_regression = result(98.0, 2.0)
 
     assert not module.deployment_candidate_beats_baseline(lower_recall, baseline)
     assert module.deployment_candidate_beats_baseline(quieter, baseline)
-    assert not module.deployment_candidate_beats_baseline(raw_fp_regression, baseline)
+    assert not module.deployment_candidate_beats_baseline(fp_regression, baseline)
 
 
 def test_fp_weight_campaign_is_multi_seed_and_non_promoting_by_default(monkeypatch, tmp_path):
@@ -479,8 +512,7 @@ def test_fp_weight_campaign_is_multi_seed_and_non_promoting_by_default(monkeypat
 
     def fake_candidate(name, layers, seed, dataset, scaler, batch_size, fp_weight):
         observed.append((fp_weight, seed))
-        alarms = 0 if fp_weight == 3.0 else 1
-        total_fp = 100 if fp_weight == 3.0 else 200
+        max_fp = 0.0 if fp_weight == 3.0 else 1.5
         return {
             "name": name,
             "seed": seed,
@@ -494,17 +526,9 @@ def test_fp_weight_campaign_is_multi_seed_and_non_promoting_by_default(monkeypat
             "cv": {"oof_f1": 92.0, "f1_mean": 92.0},
             "paired": {
                 "pass_count": 4,
-                "max_fp_rate": 0.0,
+                "max_fp_rate": max_fp,
                 "worst_chip_recall": 98.0,
                 "worst_chip_f1": 99.0,
-            },
-            "long": {
-                "total_effective_alarms": alarms,
-                "total_false_motion_evaluations": alarms * 3,
-                "max_fp_rate": float(alarms),
-                "total_fp": total_fp,
-                "pass_count": 0,
-                "worst_chip_f1": 0.0,
             },
         }
 
@@ -570,12 +594,6 @@ def test_normal_training_evaluates_deployment_without_exporting(monkeypatch):
         "max_fp_rate": 0.0,
         "worst_chip_recall": 99.0,
     }
-    long_gate = {
-        "total_effective_alarms": 0,
-        "total_false_motion_evaluations": 0,
-        "max_fp_rate": 0.0,
-        "total_fp": 0,
-    }
     cv = {"oof_f1": 90.0, "f1_mean": 90.0, "f1_std": 0.0}
 
     monkeypatch.setattr(module, "ensure_torch_available", lambda: None)
@@ -588,7 +606,6 @@ def test_normal_training_evaluates_deployment_without_exporting(monkeypatch):
     monkeypatch.setattr(module, "build_preprocessor", lambda mode: IdentityScaler())
     monkeypatch.setattr(module, "train_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(module, "evaluate_paired_gate", lambda *args, **kwargs: paired)
-    monkeypatch.setattr(module, "evaluate_long_gate", lambda *args, **kwargs: long_gate)
     monkeypatch.setattr(
         module,
         "export_micropython",
@@ -605,7 +622,7 @@ def test_normal_training_evaluates_deployment_without_exporting(monkeypatch):
     assert result == 0
     assert seed == 123
     assert summary["paired"] is paired
-    assert summary["long"] is long_gate
+    assert "long" not in summary
 
 
 def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkeypatch):
@@ -618,49 +635,44 @@ def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkey
     baseline_gate = module.ExportedMLGateResult(
         paired_returncode=1,
         paired_output="paired failed",
-        long_metrics=_long_metrics(
-            mean_f1=80.0,
-            worst_f1=78.0,
-            total_fp=120,
-            mean_recall=82.0,
-            pass_count=0,
-            max_fp_rate=12.0,
-        ),
-        long_output="long gate",
+        paired_metrics={
+            "pass_count": 2,
+            "max_fp_rate": 12.0,
+            "worst_chip_recall": 80.0,
+            "worst_chip_f1": 78.0,
+            "mean_f1": 80.0,
+            "mean_recall": 82.0,
+        },
     )
     candidate_gate_a = module.ExportedMLGateResult(
         paired_returncode=1,
         paired_output="paired failed",
-        long_metrics=_long_metrics(
-            mean_f1=81.0,
-            worst_f1=79.0,
-            total_fp=110,
-            mean_recall=83.0,
-            pass_count=0,
-            max_fp_rate=11.0,
-        ),
-        long_output="long gate",
+        paired_metrics={
+            "pass_count": 2,
+            "max_fp_rate": 11.0,
+            "worst_chip_recall": 81.0,
+            "worst_chip_f1": 79.0,
+            "mean_f1": 81.0,
+            "mean_recall": 83.0,
+        },
     )
     candidate_gate_b = module.ExportedMLGateResult(
         paired_returncode=1,
         paired_output="paired failed",
-        long_metrics=_long_metrics(
-            mean_f1=84.0,
-            worst_f1=82.0,
-            total_fp=90,
-            mean_recall=86.0,
-            pass_count=0,
-            max_fp_rate=9.0,
-        ),
-        long_output="long gate",
+        paired_metrics={
+            "pass_count": 3,
+            "max_fp_rate": 9.0,
+            "worst_chip_recall": 84.0,
+            "worst_chip_f1": 82.0,
+            "mean_f1": 84.0,
+            "mean_recall": 86.0,
+        },
     )
 
     train_calls = iter(
         [
             (0, 111, baseline_cv),
             (0, 201, candidate_cv_a),
-            (0, 201, candidate_cv_a),
-            (0, 202, candidate_cv_b),
             (0, 202, candidate_cv_b),
         ]
     )
@@ -670,7 +682,7 @@ def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkey
     monkeypatch.setattr(module, "describe_torch_device", lambda: "cpu")
     monkeypatch.setattr(module, "read_exported_seed", lambda: 111)
     monkeypatch.setattr(module, "train_all", lambda **kwargs: next(train_calls))
-    monkeypatch.setattr(module, "run_exported_ml_gates", lambda **kwargs: next(gate_calls))
+    monkeypatch.setattr(module, "run_exported_ml_gates", lambda: next(gate_calls))
 
     backup_counter = itertools.count()
     restore_calls = []

@@ -15,38 +15,8 @@ choice ESPECTRE_DETECTION_ALGORITHM
     config ESPECTRE_DETECTION_ALGORITHM_ML
         bool "ML"
         help
-            Neural-network detector with fixed threshold and no startup
-            calibration.
+            Neural-network detector with its trained startup threshold.
 endchoice
-
-choice ESPECTRE_THRESHOLD_MODE
-    prompt "Threshold mode"
-    default ESPECTRE_THRESHOLD_MODE_AUTO
-    help
-        Select how the shared sensing runtime derives the active threshold.
-
-    config ESPECTRE_THRESHOLD_MODE_AUTO
-        bool "AUTO"
-        help
-            Adaptive threshold calibrated at boot.
-
-    config ESPECTRE_THRESHOLD_MODE_MIN
-        bool "MIN"
-        help
-            Adaptive threshold with maximum sensitivity.
-
-    config ESPECTRE_THRESHOLD_MODE_MANUAL
-        bool "MANUAL"
-        help
-            Fixed manual threshold from the option below.
-endchoice
-
-config ESPECTRE_SEGMENTATION_THRESHOLD_MANUAL
-    string "Manual threshold"
-    default "1.0"
-    depends on ESPECTRE_THRESHOLD_MODE_MANUAL
-    help
-        Manual probability threshold in the 0.0-1.0 range.
 
 config ESPECTRE_SEGMENTATION_WINDOW_SIZE
     int "Segmentation window size"

@@ -33,9 +33,9 @@ const ble = new ESPectreBleClient({
 
 const movementBar = new ESPectreMovementBar({
   root: document.getElementById('movement-bar-vertical'),
-  scaleMax: 10,
+  scaleMax: 1,
   thresholdMin: 0,
-  thresholdMax: 10,
+  thresholdMax: 1,
   onThresholdCommit: async (threshold) => {
     await writeControl(`SET_THRESHOLD:${threshold.toFixed(6)}`);
   }
@@ -134,7 +134,6 @@ if (value !== 'classic' && value !== 'ml') {
   return;
 }
 el('detectorValue').value = value;
-movementBar.setScaleMax(value === 'ml' ? 1 : 10);
 }
 
 function updateTrafficDiagnostic() {

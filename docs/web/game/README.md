@@ -233,10 +233,10 @@ For the exact field set and current semantics, see
 
 The game doubles as a fun way to tune your ESPectre system. The movement bar at the bottom of the screen shows real-time motion data and the current threshold.
 
-**Drag the threshold marker** to adjust sensitivity:
+**Drag the threshold marker** to adjust sensitivity on the shared 0.0–1.0 probability scale:
 
-- Drag **left** → lower ESPectre threshold on device (more sensitive)
-- Drag **right** → higher ESPectre threshold on device (less sensitive)
+- Drag **down** → lower ESPectre threshold on device (more sensitive)
+- Drag **up** → higher ESPectre threshold on device (less sensitive)
 
 Threshold drag sends the BLE runtime-threshold control defined in
 [`ESPECTRE_PROTOCOL.md`](../../ESPECTRE_PROTOCOL.md) and updates the

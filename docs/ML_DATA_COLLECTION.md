@@ -15,6 +15,25 @@ For historical rationale behind the current dataset contract, see:
 
 - [`2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md`](adr/2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md)
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
+- [`2026-07-17-separate-dataset-admission-from-classic-diagnostics.md`](adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics.md)
+
+Use `tools/validate_dataset_quality.py` before training:
+
+```bash
+python tools/validate_dataset_quality.py
+python tools/validate_dataset_quality.py --chip C6
+python tools/validate_dataset_quality.py --no-report
+```
+
+Every run refreshes explicit `static_presence` / `motion` pair metadata in
+`data/dataset_info.json` (writes and bumps `updated_at` only on real changes)
+and writes `data/auto_generated/DATASET_QUALITY_CHECK.md` unless `--no-report`
+is set. Admission checks (integrity, empty/static sanity, ML readiness) can
+fail the run. Classic replay adds indicative 0-100 scores for review only, so
+the dataset is not filtered to "what Classic already solves". Soft `Resp`
+marks use one shared `Resp` ladder (coverage already folded into the score),
+with Empty polarity inverted.
+Tooling details live in [`tools/README.md`](../tools/README.md).
 
 ## Scope
 
@@ -173,6 +192,12 @@ All current ESPectre datasets use HT20 CSI with 64 logical subcarriers.
 - `duration_ms`
 - `num_packets`
 - `description`
+- `environment`
+- `optimal_pair_motion_file` / `optimal_pair_static_presence_file` for
+  reciprocal `static_presence` / `motion` pairing
+
+`validate_dataset_quality.py` regenerates those pair fields automatically
+before admission and Classic review.
 
 ## NPZ Contract
 
@@ -244,11 +269,14 @@ Use:
 
 ```bash
 ./espectre collect --info
+python tools/validate_dataset_quality.py
 python tools/train_ml_model.py --info
 ```
 
-The first command summarizes collected files. The second shows the dataset view
-used by the trainer.
+`collect --info` summarizes collected files.
+`validate_dataset_quality.py` refreshes pair metadata, runs admission plus
+Classic review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`.
+`train_ml_model.py --info` shows the dataset view used by the trainer.
 
 ## Contributing Data
 
@@ -264,6 +292,7 @@ Before opening a PR:
 2. keep labels homogeneous
 3. note chip, room type, and unusual environmental conditions
 4. verify the dataset with `./espectre collect --info`
+5. run `python tools/validate_dataset_quality.py` and resolve admission FAILs
 
 ## Next Steps
 

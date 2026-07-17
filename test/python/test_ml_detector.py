@@ -439,6 +439,18 @@ class TestExtractFeaturesIntegration:
         assert len(features) == 1
         assert features[0] > 0.0
 
+    def test_hampel_configuration_covers_l1_feature_stream(self, monkeypatch):
+        """The ML Hampel flag configures both turbulence and L1 streams."""
+        monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta"])
+
+        enabled = MLDetector(window_size=20, enable_hampel=True)
+        disabled = MLDetector(window_size=20, enable_hampel=False)
+
+        assert enabled._context.hampel_filter is not None
+        assert enabled._l1_tracker._hampel_filter is not None
+        assert disabled._context.hampel_filter is None
+        assert disabled._l1_tracker._hampel_filter is None
+
 
 class TestMLDetectorMotionTracking:
     """Test motion tracking with data that triggers MOTION state."""

@@ -42,6 +42,14 @@ class RuntimeMotionPolicy:
         """Reset the cadence counter after an evaluation."""
         self.packets_since_evaluation = 0
 
+    def note_evaluation_tick(self):
+        """Record one packet and return True when an evaluation is due."""
+        self.note_packet()
+        if not self.should_evaluate():
+            return False
+        self.after_evaluation()
+        return True
+
     def apply_state(self, detector_state):
         """
         Apply hit filtering to the raw detector state.
@@ -72,3 +80,8 @@ class RuntimeMotionPolicy:
             self.pending_hits = 0
 
         return self.effective_state, self.effective_state != previous_state
+
+
+def make_evaluation_cadence(evaluation_interval=25):
+    """Return a runtime policy used only for evaluation-interval cadence."""
+    return RuntimeMotionPolicy(evaluation_interval)

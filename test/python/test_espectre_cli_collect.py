@@ -186,7 +186,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
         def is_successful(self):
             return self.max_moving_variance is not None
 
-        def calculate_threshold(self, mode="auto"):
+        def calculate_threshold(self):
             return 1.5, "max x 1.3"
 
     fake_csi_utils.CSICollector = collector_cls
@@ -922,7 +922,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
             pass
 
         def update_state(self):
-            return {"probability": 0.0, "threshold": 5.0, "state": 0}
+            return {"probability": 0.0, "threshold": 0.5, "state": 0}
 
         def is_ready(self):
             return True
@@ -1066,7 +1066,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
             pass
 
         def update_state(self):
-            return {"probability": 0.0, "threshold": 5.0, "state": 0}
+            return {"probability": 0.0, "threshold": 0.5, "state": 0}
 
         def is_ready(self):
             return True
@@ -1198,7 +1198,6 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
     fake_config.EVALUATION_INTERVAL = 1
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
-    fake_config.SEG_THRESHOLD = "auto"
 
     class FakePacket:
         iq_raw = [1, 2, 3, 4]
@@ -1555,7 +1554,6 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     fake_config.EVALUATION_INTERVAL = 99
     fake_config.MOTION_ON_HITS = 1
     fake_config.MOTION_OFF_HITS = 1
-    fake_config.SEG_THRESHOLD = 0.5
 
     class FakePacket:
         def __init__(self, seq_num: int, device_id: int):
@@ -1697,7 +1695,6 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     fake_config.EVALUATION_INTERVAL = 1
     fake_config.MOTION_ON_HITS = 1
     fake_config.MOTION_OFF_HITS = 1
-    fake_config.SEG_THRESHOLD = "auto"
 
     class FakePacket:
         def __init__(self, seq_num: int, device_id: int):
@@ -1871,8 +1868,8 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
         def is_successful(self):
             return self.max_moving_variance is not None
 
-        def calculate_threshold(self, mode="auto"):
-            calibration_calls.append((float(self.max_moving_variance or 0.0), mode))
+        def calculate_threshold(self):
+            calibration_calls.append(float(self.max_moving_variance or 0.0))
             return 8.0, "max x 1.3"
 
     fake_csi_utils.CSICollector = object
@@ -1903,7 +1900,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     output = capsys.readouterr().out
     assert "Detector:" in output and "CLASSIC" in output
     assert "STATUS: CALIBRATING" in output
-    assert calibration_calls == [(7.0, "auto"), (7.0, "auto")]
+    assert calibration_calls == [7.0, 7.0]
     assert FakeClassicDetector.adaptive_thresholds == [8.0, 8.0]
     assert "thr:8.000000 | IDLE | 0 pkt/s | drop 0.0% | bp:--" in output
     assert "STATUS: COLLECTING 2/2" in output

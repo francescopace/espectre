@@ -79,6 +79,12 @@ void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(voi
   TEST_ASSERT_FALSE(runtime.is_calibrating());
   TEST_ASSERT_EQUAL(1, listener.calibration_finishes);
   TEST_ASSERT_FALSE(listener.last_calibration_success);
+
+  TEST_ASSERT_TRUE(runtime.set_threshold_runtime(0.75f));
+  TEST_ASSERT_EQUAL_FLOAT(0.75f, runtime.get_snapshot().threshold);
+  TEST_ASSERT_TRUE(runtime.trigger_recalibration());
+  TEST_ASSERT_EQUAL_FLOAT(ML_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
+  TEST_ASSERT_TRUE(listener.last_calibration_success);
 }
 
 int main(int argc, char **argv) {

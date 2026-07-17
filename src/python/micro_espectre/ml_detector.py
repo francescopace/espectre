@@ -225,6 +225,9 @@ class MLDetector(IDetector):
                 window_size=delta_window,
                 lag=L1_DELTA_LAG,
                 allocate_amplitude_buffer=False,
+                enable_hampel=enable_hampel,
+                hampel_window=hampel_window,
+                hampel_threshold=hampel_threshold,
             )
             self._l1_series_buffer = [0.0] * delta_window
         else:

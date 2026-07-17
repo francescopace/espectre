@@ -26,14 +26,18 @@ non-regression.
 
 ## Decision
 
-Keep `--sample-weight-mode none` as the default production ML baseline policy.
+Keep unweighted training as the production ML baseline policy.
 
 Concretely:
 
 - do not use detector-guided sample weighting as the default training mode
-- keep weighting hooks available for analysis and targeted experiments
-- require any future guided-weighting candidate to beat the same paired and
-  long-quiet promotion gates as an unweighted baseline
+- require any future guided-weighting candidate to beat the same paired
+  promotion gates as an unweighted baseline
+
+Follow-up (2026-07-17): `--sample-weight-mode` and the L1-guided / hard-negative
+weighting paths were removed from `tools/train_ml_model.py`. The trainer now
+always starts from uniform sample weights (optional `--positive-chip-boost`
+remains).
 
 ## Alternatives Considered
 

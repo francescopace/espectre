@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - **Streamer workflows were promoted and cleaned up**: the C++ streamer path is now the main live-streaming implementation, with collector-driven discovery and broader multi-chip CLI support.
 - **ESPectre Protocol is now a shared platform service**: BLE, MQTT, provisioning, telemetry, and command handling now form a reusable baseline across ESP-IDF frontends.
 - **Classic now uses a vote-free weighted fusion of L1-delta and turbulence autocorrelation**, with double Hampel filtering and session-adapted probability thresholds.
+- **Threshold modes were removed**: Classic now adapts automatically at startup, ML uses its trained threshold, and both accept session-only runtime adjustments.
 - **The production ML feature set is now Core-6**, improving cross-device stability and keeping the runtime compact.
 - **The roadmap now frames `v3` as the modular multi-frontend platform phase**.
 
@@ -41,8 +42,8 @@ All notable changes to this project will be documented in this file.
 
 Historical decision context for the Classic and ML promotions now lives in:
 
-- [`docs/adr/2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md`](adr/2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md)
-- [`docs/adr/2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](adr/2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
+- [`docs/adr/2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](adr/2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md) (active Classic decision, including weighted fusion and threshold-mode removal)
+- [`docs/adr/2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md`](adr/2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md) (superseded L1 gated-calibration record)
 - [`docs/adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md`](adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md)
 
 ### Fixed
@@ -51,7 +52,17 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Changed
 
-- **ML model selection now treats grouped CV as diagnostic evidence instead of the promotion gate**: normal training leaves artifacts unchanged unless `--promote` is explicit, paired validation blocks regressions, deploy-like long-recording alarms lead candidate ranking, seed search no longer discards candidates before real-data evaluation, and a gated multi-seed FP-weight campaign is available.
+- **Host paired validation, dataset-quality Classic replay, and C++/Python motion integration tests now use the production evaluation cadence**: performance report paired Classic/ML metrics, trainer paired gates, `validate_dataset_quality` Classic scores, and `test_motion_detection` sample detector state every `evaluation_interval` packets (default 25), matching long-quiet replay and deploy-time runtime policy instead of scoring every packet.
+- **ML trainer no longer exposes detector-guided sample weighting**: `--sample-weight-mode` and the L1-guided / hard-negative weighting paths were removed; training always starts from uniform sample weights (optional `--positive-chip-boost` remains), and the weight-matrix cache was dropped.
+- **Dataset quality validation defaults to writing the markdown report and refreshing pair metadata**: `validate_dataset_quality` regenerates explicit static_presence/motion pairs on every run, updates `dataset_info.json` / `updated_at` only when content changes, and writes `DATASET_QUALITY_CHECK.md` unless `--no-report` is set; `--refresh-metadata`, `--strict`, and `--report` were removed. The report leads with the summary/domains, puts Validation rule last, and Presence/Empty share one `Resp` ladder with Empty soft marks inverted.
+- **Dataset `Resp` soft marks use one score**: segment coverage is folded into `Resp`, and Presence/Empty gate on `Resp >= 50` / `Resp >= 35` only.
+- **Dataset pair Ratio uses robust p95 separation**: Motion Scores report `Ratio = p95(motion)/threshold` instead of `max(motion)/threshold`, and Presence/Empty rename respiration `Peak` to `Breath Hz`.
+- **ML trainer promotion no longer gates on long recordings**: `train_ml_model`, seed search, and experiment ranking use the paired gate plus CV tie-breakers; quiet long-recording checks stay in the performance report and `test_validation_long_recordings.py`.
+- **ML training exports by default again**: `--promote` was removed; use `--no-export` to leave runtime artifacts unchanged.
+- **Dataset respiration evidence now requires frequency consensus across segments**: `validate_dataset_quality` keeps only peaks near the median candidate (±0.10 Hz) and lightly damps wandering in-band scores, so empty-room noise is less often marked presence-like while stable breathing on `static_presence` stays strong.
+- **Home Assistant dashboards and browser tools now use the shared 0.0–1.0 probability scale**: gauge segments, Configure/Monitor/Game threshold ceilings, Theremin movement mapping, and the BLE `SET_THRESHOLD` example no longer assume the retired Classic 0–10 amplitude scale; dashboards also expose `select.espectre_detector`.
+- **ML Hampel preprocessing now covers every Core-6 feature stream**: training, host replay, and Python/C++ runtimes apply the shared Hampel configuration to both turbulence and per-packet L1 deltas, with feature-cache invalidation requiring a clean retrain.
+- **ML model selection now treats grouped CV as diagnostic evidence instead of the promotion gate**: paired validation is the real-data export gate, seed search ranks with paired metrics before CV, and a gated multi-seed FP-weight campaign is available.
 - **ML feature diagnostics now use deterministic grouped out-of-fold SHAP** with class-, chip-, and session-balanced training backgrounds and blocked held-out explanations, replacing in-sample random attribution.
 - **Host `collect` pacing is adaptive by default**: `./espectre collect` now trims send pace from RX feedback and firmware backpressure unless `--fixed` is set; `--adaptive` remains available as an explicit opt-in.
 - **Host `collect` inspects without saving unless `--label` is set**: live mode no longer needs `--no-save`; omitting `--label` runs inspection-only, and `--no-save` was removed.
@@ -80,9 +91,9 @@ Historical decision context for the Classic and ML promotions now lives in:
 - **Streamer wire and dataset metadata now use a clean-break contract**: the old dedicated streamer metadata was removed from the streamer-collector exchange, CSI stream header, host parser, and checked-in capture datasets, with repository `.npz` samples migrated to dataset format `1.2`.
 - **Host collection and serial monitoring are more resilient**: `collect` now reports requested and effective `SO_RCVBUF`, rolling status output was simplified around live session state, and `monitor` now uses the project `pyserial` path with auto-reconnect, port reuse, and raw-byte mode.
 - **Host-side analysis tooling was modularized internally**: shared helpers were split into `tools/lib/` so end-user entrypoints stay at the top level, with dataset metadata resolution, CSI I/O, plotting helpers, path helpers, and paired variance-baseline sweep logic now living in focused internal modules instead of the old monolithic helper files.
-- **The tooling support detector moved from the historical moving-variance baseline to the Classic/L1-delta path**: the legacy `optimal_threshold_gridsearch` metadata was retired, dataset pair validation and the detection-methods comparison now replay the production Classic startup calibration directly on the selected quiet capture, ML sample weighting uses l1_delta-guided modes (`l1_gridsearch`, `l1_hard_negative`), and the remaining variance-baseline research tools keep self-calibrating their thresholds instead of reading metadata.
+- **The tooling support detector moved from the historical moving-variance baseline to the Classic/L1-delta path**: the legacy `optimal_threshold_gridsearch` metadata was retired, dataset pair validation and the detection-methods comparison now replay the production Classic startup calibration directly on the selected quiet capture, and the remaining variance-baseline research tools keep self-calibrating their thresholds instead of reading metadata.
 - **The production ML feature set is now the mixed "Core-6" set** (`turb_mad_over_mean`, `turb_skewness`, `turb_autocorr`, `l1_delta`, `l1_delta_std`, `l1_delta_waveform_length`), replacing the relative-8 turbulence set.
-- **ML seed-search candidate gating became much faster and reliable again**: the long-recording gate is now evaluated in-process on cached feature streams (the per-packet replay is paid once per search instead of once per candidate), gate aggregates now cover every curated long recording instead of the last one per chip, promoted artifacts still get a final full pytest verification, and the gate subprocesses disable `pytest-xdist` so the summary table the trainer parses is emitted again.
+- **ML seed-search candidate gating was simplified around the paired gate**: long-recording checks stay in the performance report and dedicated pytest suites, while trainer promotion and seed search rank with paired validation plus CV tie-breakers.
 - **Micro-ESPectre was reorganized under src/python/micro_espectre/**: the runtime/device sources now live in a dedicated subdirectory.
 - **ESPHome baseline `2026.6.0`**; examples/QEMU now require `min_version: 2026.6.0`.
 - **The Python baseline was raised from `3.12` to `3.14`** across the main workflow and the ML training environment.

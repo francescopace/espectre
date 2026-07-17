@@ -188,21 +188,20 @@ pip install -r requirements-ml.txt
 The main repository workflow and this training stack target Python `3.14`.
 
 - Trains the MLP detector with weighted binary cross-entropy
-- Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, grouped session-level CV, and no support-detector sample weighting (`--sample-weight-mode none`; l1_delta-guided modes are available for ablations)
-- Caches derived features and base sample weights for repeated local runs; use `--no-cache` to rebuild
+- Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, and grouped session-level CV with uniform sample weights
+- Caches the derived feature matrix for repeated local runs; use `--no-cache` to rebuild
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
 - Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms only after explicit promotion
 - Supports FP-first architecture and FP-weight campaigns, gain-shift diagnostics, and feature-importance analysis
-- Ranks long-recording candidates by deploy-time effective alarms, false-MOTION
-  policy evaluations, worst-recording FP rate, and raw false positives before
-  recall, F1, and grouped CV; paired validation is a non-regression constraint
+- Ranks candidates with the paired gate first, then grouped CV; long-recording
+  checks stay in the performance report and dedicated pytest suites
 - Exports weights for both platforms:
   - `src/python/micro_espectre/ml_weights.py`
   - `src/cpp/core/ml_weights.h`
 
 ```bash
-python train_ml_model.py                # Evaluate defaults; leave artifacts unchanged
-python train_ml_model.py --promote      # Explicitly export the evaluated candidate
+python train_ml_model.py                # Train and export if the paired gate passes
+python train_ml_model.py --no-export    # Evaluate without replacing runtime artifacts
 python train_ml_model.py --info         # Show dataset and split info
 python train_ml_model.py --experiment   # Run the FP-first MLP topology campaign
 python train_ml_model.py --experiment --experiment-promote  # Promote the winner if it beats the baseline
@@ -231,11 +230,24 @@ see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md).
 ### 10. Dataset Quality Validation (`validate_dataset_quality.py`)
 
 Validates the shared Classic and ML datasets for metadata completeness, file
-integrity, signal quality, pair quality, training readiness, and long-recording
-coverage. The terminal summary and generated report group results into common
-integrity, Classic readiness, ML readiness, and long-recording coverage. The
-same entry point can also refresh the derived pairing fields in
-`data/dataset_info.json` before validation.
+integrity, signal quality, pair diagnostics, training readiness, and long-recording
+coverage. Admission FAILs stop the run; Classic replay scores stay review-only.
+See
+[2026-07-17-separate-dataset-admission-from-classic-diagnostics.md](../docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics.md).
+
+Defaults on every run:
+
+- refresh derived `static_presence` / `motion` pair fields in
+  `data/dataset_info.json`, writing the file and bumping `updated_at` only when
+  those fields actually change
+- write `data/auto_generated/DATASET_QUALITY_CHECK.md` unless `--no-report` is
+  set
+
+Report layout: Quality Check Summary and Validation Domains first, then the
+score tables, then Validation rule / computed-metric notes. `Resp` folds
+segment coverage into one score; Presence and Empty share that ladder, and
+Empty only inverts the soft marks (high `Resp` means presence-like
+contamination).
 
 **Checks performed:**
 - Metadata completeness — required dataset metadata exists, disk captures are
@@ -245,7 +257,13 @@ same entry point can also refresh the derived pairing fields in
   per-packet arrays align, and the embedded label matches the dataset directory
 - Signal quality — amplitude range, zero-packet detection, packet cadence, and stream continuity
 - Pair validation — production-aligned threshold replay on explicit `static_presence` / `motion` pairs
-- Empty sanity — overlapping `empty` vs `static_presence` groups expose IDLE-domain shift by chip and environment
+- Empty sanity — each `empty` capture is evaluated independently;
+  self-calibrated motion activation and segmented
+  respiration evidence flag motion-like, presence-like, or unstable empty files
+- Presence evidence — 30-second `static_presence` segments combine respiration-band
+  spectral prominence, temporal autocorrelation, and subcarrier support, then keep
+  only frequency-consistent peaks near the median candidate, without requiring a
+  paired `empty` capture
 - Quiet-test sanity — idle-only `test` recordings stay quiet under Classic replay
 - ML readiness — binary balance with `empty + static_presence` mapped to IDLE,
   usable windows after per-file warm-up, chip/environment coverage, and grouped
@@ -259,12 +277,9 @@ file. ML uses the same normalized base turbulence and exports the production
 Core-6 neural-detector features.
 
 ```bash
-python validate_dataset_quality.py                  # Full validation
+python validate_dataset_quality.py                  # Full validation (auto report + metadata refresh)
 python validate_dataset_quality.py --chip C6        # Validate C6 only
-python validate_dataset_quality.py --refresh-metadata  # Force-refresh pair metadata first
-python validate_dataset_quality.py --chip C6 --refresh-metadata  # Force-refresh and validate one chip
-python validate_dataset_quality.py --report         # Generate markdown report
-python validate_dataset_quality.py --strict         # Fail on warnings too
+python validate_dataset_quality.py --no-report      # Skip markdown report
 ```
 
 ---

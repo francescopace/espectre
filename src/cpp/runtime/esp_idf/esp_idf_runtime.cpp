@@ -84,7 +84,6 @@ bool EspIdfRuntime::setup() {
       ESP_LOGW(RUNTIME_TAG, "Failed to load persisted detector: %s", esp_err_to_name(err));
     } else if (has_saved_value) {
       config_.detection_algorithm = saved_algorithm;
-      config_.threshold_mode = ThresholdMode::AUTO;
       config_.segmentation_threshold = runtime_default_threshold(saved_algorithm);
       snapshot_.threshold = config_.segmentation_threshold;
     }
@@ -242,7 +241,6 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
   detector_ = std::move(next_detector);
   csi_pipeline_.set_detector(detector_.get());
   config_.detection_algorithm = algorithm;
-  config_.threshold_mode = ThresholdMode::AUTO;
   config_.segmentation_threshold = threshold;
   snapshot_.detector_name = detection_algorithm_name(algorithm);
   snapshot_.threshold = threshold;
@@ -281,15 +279,7 @@ RuntimeCapabilities EspIdfRuntime::get_capabilities() const { return capabilitie
 void EspIdfRuntime::set_listener(IRuntimeListener *listener) { listener_ = listener; }
 
 bool EspIdfRuntime::configure_detector_() {
-  if (config_.threshold_mode == ThresholdMode::MANUAL &&
-      !validate_runtime_threshold_for_algorithm(config_.segmentation_threshold, config_.detection_algorithm)) {
-    notify_fault_("Invalid manual threshold");
-    return false;
-  }
-
-  const float threshold = (config_.threshold_mode == ThresholdMode::MANUAL)
-                              ? config_.segmentation_threshold
-                              : runtime_default_threshold(config_.detection_algorithm);
+  const float threshold = runtime_default_threshold(config_.detection_algorithm);
   config_.segmentation_threshold = threshold;
   snapshot_.threshold = threshold;
   detector_ = make_detector_(config_.detection_algorithm, threshold);
@@ -398,8 +388,16 @@ bool EspIdfRuntime::start_calibration_() {
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
 
   if (config_.detection_algorithm == DetectionAlgorithm::ML) {
+    const float threshold = runtime_default_threshold(DetectionAlgorithm::ML);
+    if (detector_ != nullptr) {
+      detector_->set_threshold(threshold);
+    }
+    config_.segmentation_threshold = threshold;
+    snapshot_.threshold = threshold;
+    snapshot_.startup_threshold = threshold;
     snapshot_.calibrating = false;
     if (listener_ != nullptr) {
+      listener_->on_threshold_changed(snapshot_);
       listener_->on_calibration_finished(snapshot_, true);
     }
     return true;
@@ -490,19 +488,16 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
   snapshot_.calibrating = false;
 
   if (success && threshold_calibrator_) {
-    float adaptive_threshold = 0.0f;
-    const ThresholdMode adaptive_mode =
-        (config_.threshold_mode == ThresholdMode::MANUAL) ? ThresholdMode::AUTO : config_.threshold_mode;
-    const float auto_factor =
-        detector_ != nullptr ? detector_->get_startup_threshold_factor() : DEFAULT_ADAPTIVE_FACTOR;
-    const float factor = get_threshold_factor(adaptive_mode, auto_factor);
-    adaptive_threshold = threshold_calibrator_->threshold_metric() * factor;
+    const float auto_factor = detector_ != nullptr
+                                  ? detector_->get_startup_threshold_factor()
+                                  : DEFAULT_ADAPTIVE_FACTOR;
+    const float adaptive_threshold = threshold_calibrator_->threshold_metric() * auto_factor;
     snapshot_.startup_threshold = adaptive_threshold;
     if (detector_ != nullptr) {
       detector_->on_startup_calibration_complete();
     }
 
-    if (config_.threshold_mode != ThresholdMode::MANUAL && detector_ != nullptr) {
+    if (detector_ != nullptr) {
       detector_->set_adaptive_threshold(adaptive_threshold);
       const float applied_threshold = detector_->get_threshold();
       config_.segmentation_threshold = applied_threshold;

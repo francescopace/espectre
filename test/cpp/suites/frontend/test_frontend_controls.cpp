@@ -98,11 +98,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   ThresholdNumberProbe threshold_number;
   CalibrateSwitchProbe calibrate_switch;
 
-  component.set_segmentation_threshold(2.5f);
-  component.set_threshold_mode("min");
-  TEST_ASSERT_TRUE(component.runtime_.config().threshold_mode == ThresholdMode::MIN);
-  component.set_threshold_mode("auto");
-  TEST_ASSERT_TRUE(component.runtime_.config().threshold_mode == ThresholdMode::AUTO);
   component.set_segmentation_window_size(64);
   component.set_traffic_generator_rate(0);
   component.set_traffic_generator_mode("dns");
@@ -127,12 +122,11 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_threshold_number(&threshold_number);
   component.set_calibrate_switch(&calibrate_switch);
 
-  component.set_threshold_mode("min");
   component.set_traffic_generator_mode("dns");
   component.set_detection_algorithm("ml");
 
-  TEST_ASSERT_TRUE(component.runtime_.config().threshold_mode == ThresholdMode::MIN);
-  TEST_ASSERT_EQUAL_FLOAT(2.5f, component.runtime_.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT,
+                          component.runtime_.config().segmentation_threshold);
   TEST_ASSERT_EQUAL(64, component.runtime_.config().segmentation_window_size);
   TEST_ASSERT_EQUAL(0, component.runtime_.config().traffic_generator_rate);
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
@@ -305,7 +299,6 @@ void test_dump_config_covers_configuration_branches(void) {
   snapshot.ready_to_publish = true;
   snapshot.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
   component.runtime_.record_snapshot(snapshot);
-  component.runtime_.config().threshold_mode = ThresholdMode::MANUAL;
   component.runtime_.config().traffic_generator_rate = 25;
   component.runtime_.config().traffic_generator_mode = RuntimeTrafficMode::DNS;
   component.runtime_.config().lowpass_enabled = true;
@@ -315,7 +308,6 @@ void test_dump_config_covers_configuration_branches(void) {
   component.runtime_.config().hampel_threshold = 4.0f;
   component.dump_config();
 
-  component.runtime_.config().threshold_mode = ThresholdMode::AUTO;
   component.runtime_.config().traffic_generator_rate = 0;
   component.runtime_.config().lowpass_enabled = false;
   component.runtime_.config().hampel_enabled = false;

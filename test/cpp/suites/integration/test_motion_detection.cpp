@@ -369,28 +369,52 @@ void test_classic_fixed_subcarriers(void) {
            calibrated ? "shared calibration" : "default threshold", auto_factor);
     printf("Fusion: l1_delta + turb_autocorr (double Hampel)\n\n");
 
+    const int warmup = window_size;
+    int static_presence_eval = 0;
     int static_presence_motion = 0;
+    uint32_t packets_since_evaluation = 0;
     for (int p = 0; p < num_static_presence; p++) {
         detector.process_packet((const int8_t*)static_presence_packets[p], pkt_size,
                                 default_band, default_size);
+        packets_since_evaluation++;
+        if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
+            continue;
+        }
         detector.update_state();
+        packets_since_evaluation = 0;
+        if (p < warmup) {
+            continue;
+        }
+        static_presence_eval++;
         if (detector.get_state() == MotionState::MOTION) {
             static_presence_motion++;
         }
     }
 
+    int motion_eval = 0;
     int motion_detected = 0;
+    packets_since_evaluation = 0;
     for (int p = 0; p < num_motion; p++) {
         detector.process_packet((const int8_t*)motion_packets[p], pkt_size,
                                 default_band, default_size);
+        packets_since_evaluation++;
+        if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
+            continue;
+        }
         detector.update_state();
+        packets_since_evaluation = 0;
+        if (p < warmup) {
+            continue;
+        }
+        motion_eval++;
         if (detector.get_state() == MotionState::MOTION) {
             motion_detected++;
         }
     }
 
-    float recall = (float)motion_detected / num_motion * 100.0f;
-    float fp_rate = (float)static_presence_motion / num_static_presence * 100.0f;
+    float recall = motion_eval > 0 ? (float)motion_detected / motion_eval * 100.0f : 0.0f;
+    float fp_rate =
+        static_presence_eval > 0 ? (float)static_presence_motion / static_presence_eval * 100.0f : 0.0f;
     float precision = (motion_detected + static_presence_motion > 0) ?
         (float)motion_detected / (motion_detected + static_presence_motion) * 100.0f : 0.0f;
     float f1 = (precision + recall > 0) ?
@@ -433,40 +457,58 @@ void test_ml_detection(void) {
     
     // Warmup = window_size: detector needs full buffer before producing valid predictions
     const int warmup = DETECTOR_DEFAULT_WINDOW_SIZE;
-    
-    // Process static presence (skip first warmup packets - buffer not ready)
+
+    // Process static presence at the production evaluation cadence.
+    int static_presence_eval = 0;
     int static_presence_motion = 0;
+    uint32_t packets_since_evaluation = 0;
     for (int i = 0; i < num_static_presence; i++) {
         detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
                                DEFAULT_SUBCARRIERS, 12);
+        packets_since_evaluation++;
+        if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
+            continue;
+        }
         detector.update_state();
-        // Only count after warmup (when buffer is full)
-        if (i >= warmup && detector.get_state() == MotionState::MOTION) {
+        packets_since_evaluation = 0;
+        if (i < warmup) {
+            continue;
+        }
+        static_presence_eval++;
+        if (detector.get_state() == MotionState::MOTION) {
             static_presence_motion++;
         }
     }
-    
-    // Process motion (skip first warmup packets - transition period)
+
+    // Process motion at the production evaluation cadence.
+    int motion_eval = 0;
     int motion_detected = 0;
     int motion_idle = 0;
-    
+    packets_since_evaluation = 0;
+
     for (int i = 0; i < num_motion; i++) {
         detector.process_packet((const int8_t*)motion_packets[i], pkt_size,
                                DEFAULT_SUBCARRIERS, 12);
+        packets_since_evaluation++;
+        if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
+            continue;
+        }
         detector.update_state();
-        if (i >= warmup) {
-            if (detector.get_state() == MotionState::MOTION) {
-                motion_detected++;
-            } else {
-                motion_idle++;
-            }
+        packets_since_evaluation = 0;
+        if (i < warmup) {
+            continue;
+        }
+        motion_eval++;
+        if (detector.get_state() == MotionState::MOTION) {
+            motion_detected++;
+        } else {
+            motion_idle++;
         }
     }
-    
-    int static_presence_eval = num_static_presence - warmup;
-    int motion_eval = num_motion - warmup;
-    float recall = (float)motion_detected / motion_eval * 100.0f;
-    float fp_rate = (float)static_presence_motion / static_presence_eval * 100.0f;
+
+    float recall = motion_eval > 0 ? (float)motion_detected / motion_eval * 100.0f : 0.0f;
+    float fp_rate =
+        static_presence_eval > 0 ? (float)static_presence_motion / static_presence_eval * 100.0f : 0.0f;
     float precision = (motion_detected + static_presence_motion > 0) ?
         (float)motion_detected / (motion_detected + static_presence_motion) * 100.0f : 0.0f;
     float f1 = (precision + recall > 0) ?

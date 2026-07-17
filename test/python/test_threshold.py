@@ -40,21 +40,21 @@ def feed(tracker, detector, values):
 
 
 def test_calculate_startup_threshold_from_max_uses_auto_factor() -> None:
-    threshold, formula = calculate_startup_threshold_from_max(0.25, "auto")
+    threshold, formula = calculate_startup_threshold_from_max(0.25)
 
     assert threshold == 0.25 * 1.3
     assert formula == "max x 1.3"
 
 
 def test_calculate_adaptive_threshold_handles_empty_iterable() -> None:
-    threshold, formula = calculate_adaptive_threshold([], "auto")
+    threshold, formula = calculate_adaptive_threshold([])
 
     assert threshold == 0.0
     assert formula == "max x 1.3"
 
 
 def test_calculate_startup_threshold_from_max_supports_detector_specific_auto_factor() -> None:
-    threshold, formula = calculate_startup_threshold_from_max(0.25, "auto", auto_factor=1.1)
+    threshold, formula = calculate_startup_threshold_from_max(0.25, auto_factor=1.1)
 
     assert threshold == 0.25 * 1.1
     assert formula == "max x 1.1"
@@ -78,7 +78,7 @@ def test_startup_threshold_calibrator_tracks_generic_motion_metric() -> None:
         detector.metric = value
         tracker.observe_detector(detector)
 
-    threshold, formula = tracker.calculate_threshold("auto")
+    threshold, formula = tracker.calculate_threshold()
     assert tracker.max_motion_metric == 0.05
     assert tracker.max_moving_variance == 0.05
     assert threshold == pytest.approx(0.055)
@@ -113,8 +113,8 @@ def test_weighted_observation_matches_repeated_packet_observations() -> None:
     assert weighted.packet_count == repeated.packet_count
     assert weighted.ready_packet_count == repeated.ready_packet_count
     assert weighted.get_phase_label() == repeated.get_phase_label()
-    weighted_threshold, weighted_formula = weighted.calculate_threshold("auto")
-    repeated_threshold, repeated_formula = repeated.calculate_threshold("auto")
+    weighted_threshold, weighted_formula = weighted.calculate_threshold()
+    repeated_threshold, repeated_formula = repeated.calculate_threshold()
     assert weighted_threshold == pytest.approx(repeated_threshold)
     assert weighted_formula == repeated_formula
     assert weighted.get_floor_snapshot() == repeated.get_floor_snapshot()
@@ -142,7 +142,7 @@ def test_startup_gate_accepts_clean_startup_with_max_formula() -> None:
     assert tracker.is_complete()
     assert tracker.gate_accepted
     assert not tracker.is_extending()
-    threshold, formula = tracker.calculate_threshold("auto")
+    threshold, formula = tracker.calculate_threshold()
     assert threshold == pytest.approx(0.05 * 1.1)
     assert formula == "gated max x 1.1"
 
@@ -155,7 +155,7 @@ def test_motion_first_accepts_quiet_motion_quiet_before_budget() -> None:
 
     feed(tracker, detector, [0.05] * 50 + [0.12] * 50 + [0.05] * 50)
 
-    threshold, formula = tracker.calculate_threshold("auto")
+    threshold, formula = tracker.calculate_threshold()
     assert tracker.is_complete()
     assert tracker.packet_count == 150
     assert tracker.get_phase_label() == "COMPLETE"
@@ -172,7 +172,7 @@ def test_motion_first_short_spike_falls_back_to_quiet_first() -> None:
     # One motion-like chunk is not enough to confirm useful motion.
     feed(tracker, detector, [0.05] * 50 + [0.12] * 25 + [0.05] * 25)
 
-    threshold, formula = tracker.calculate_threshold("auto")
+    threshold, formula = tracker.calculate_threshold()
     assert tracker.is_complete()
     assert tracker.get_phase_label() == "FALLBACK"
     assert threshold == pytest.approx(0.05 * 1.1)
@@ -189,7 +189,7 @@ def test_motion_without_return_uses_fallback_inside_budget() -> None:
 
     feed(tracker, detector, [0.05] * 50 + [0.12] * 50)
 
-    threshold, formula = tracker.calculate_threshold("auto")
+    threshold, formula = tracker.calculate_threshold()
     assert tracker.is_complete()
     assert tracker.get_phase_label() == "FALLBACK"
     assert threshold == pytest.approx(0.05 * 1.5 * 1.1)
@@ -207,7 +207,7 @@ def test_motion_without_return_is_stable_at_budget_boundary(target_packets) -> N
 
     feed(tracker, detector, [0.05] * 50 + [0.12] * (target_packets - 50))
 
-    threshold, _ = tracker.calculate_threshold("auto")
+    threshold, _ = tracker.calculate_threshold()
     assert tracker.is_complete()
     assert threshold == pytest.approx(0.05 * 1.5 * 1.1)
 
@@ -237,6 +237,6 @@ def test_startup_gate_disabled_keeps_legacy_completion() -> None:
 
     assert tracker.is_complete()
     assert not tracker.is_extending()
-    threshold, formula = tracker.calculate_threshold("auto")
+    threshold, formula = tracker.calculate_threshold()
     assert threshold == pytest.approx(0.5 * 1.1)
     assert formula == "max x 1.1"

@@ -61,8 +61,7 @@ def test_run_classic_calibration_uses_shared_runtime_helper(monkeypatch) -> None
         def is_successful(self):
             return True
 
-        def calculate_threshold(self, mode):
-            calls["mode"] = mode
+        def calculate_threshold(self):
             return 1.23, "fake"
 
     monkeypatch.setattr(module, "ClassicDetector", FakeDetector)
@@ -75,7 +74,6 @@ def test_run_classic_calibration_uses_shared_runtime_helper(monkeypatch) -> None
     assert threshold == 1.23
     assert calls["detector_kwargs"]["window_size"] == 100
     assert calls["selected_band"] == (14, 17)
-    assert calls["mode"] == "auto"
 
 
 def test_run_fixed_subcarrier_calibration_uses_shared_variance_helper(monkeypatch) -> None:

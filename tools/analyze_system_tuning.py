@@ -31,15 +31,16 @@ from config import (
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
     ENABLE_LOWPASS_FILTER,
+    EVALUATION_INTERVAL,
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
     LOWPASS_CUTOFF,
-    SEG_THRESHOLD,
     SEG_WINDOW_SIZE,
 )
+from runtime_policy import make_evaluation_cadence
 
 WINDOW_SIZE = SEG_WINDOW_SIZE
-THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
+THRESHOLD = 0.5
 
 RECALL_TARGET_PCT = 95.0
 FP_RATE_TARGET_PCT = 10.0
@@ -104,6 +105,7 @@ def _evaluate_classic_configuration(static_presence_packets, motion_packets, thr
 
     This mirrors the runtime warm-buffer behavior: the quiet baseline fills the
     detector state, then the motion packets are evaluated immediately after.
+    Scoring uses the production evaluation cadence.
     """
     detector = ClassicDetector(
         window_size=window_size,
@@ -116,20 +118,34 @@ def _evaluate_classic_configuration(static_presence_packets, motion_packets, thr
     )
 
     fp = 0
-    for pkt in static_presence_packets:
+    baseline_evals = 0
+    cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
+    for i, pkt in enumerate(static_presence_packets):
         detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        if not cadence.note_evaluation_tick():
+            continue
         detector.update_state()
+        if i < window_size:
+            continue
+        baseline_evals += 1
         if _is_motion_state(detector.get_state()):
             fp += 1
 
     tp = 0
-    for pkt in motion_packets:
+    motion_evals = 0
+    cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
+    for i, pkt in enumerate(motion_packets):
         detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        if not cadence.note_evaluation_tick():
+            continue
         detector.update_state()
+        if i < window_size:
+            continue
+        motion_evals += 1
         if _is_motion_state(detector.get_state()):
             tp += 1
 
-    return fp, tp
+    return fp, tp, baseline_evals, motion_evals
 
 
 def load_dataset(chip="C6", dataset=None, interactive=False):
@@ -160,12 +176,10 @@ def load_dataset(chip="C6", dataset=None, interactive=False):
 
 def test_parameter_grid(static_presence_packets, motion_packets, quick=False):
     """Test Classic threshold/window-size combinations on fixed production subcarriers."""
-    thresholds = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0] if not quick else [1.0, 1.5, 2.0]
+    thresholds = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8] if not quick else [0.4, 0.5, 0.6]
     window_sizes = [30, 50, 75, 100] if not quick else [SEG_WINDOW_SIZE]
 
     results = []
-    static_presence_count = len(static_presence_packets)
-    motion_count = len(motion_packets)
     total_tests = len(thresholds) * len(window_sizes)
     test_count = 0
 
@@ -174,7 +188,7 @@ def test_parameter_grid(static_presence_packets, motion_packets, quick=False):
 
     for window_size in window_sizes:
         for threshold in thresholds:
-            fp, tp = _evaluate_classic_configuration(
+            fp, tp, static_presence_count, motion_count = _evaluate_classic_configuration(
                 static_presence_packets,
                 motion_packets,
                 threshold,
@@ -213,9 +227,7 @@ def print_confusion_matrix(static_presence_packets, motion_packets, threshold, w
     """
     del show_plot  # Reserved for possible future visualization.
 
-    num_baseline = len(static_presence_packets)
-    num_movement = len(motion_packets)
-    fp, tp = _evaluate_classic_configuration(
+    fp, tp, num_baseline, num_movement = _evaluate_classic_configuration(
         static_presence_packets,
         motion_packets,
         threshold,
@@ -289,7 +301,7 @@ def print_top_results(results, num_sc, top_n=20):
     print("-" * 60)
     for i, result in enumerate(ranked_results[:top_n], 1):
         print(
-            f"{i:<6} {result['window_size']:<7} {result['threshold']:<8.1f} "
+            f"{i:<6} {result['window_size']:<7} {result['threshold']:<8.2f} "
             f"{result['fp_rate']:<7.2f} {result['recall']:<9.2f} {result['f1_score']:<7.2f}"
         )
     print("-" * 60)
@@ -305,7 +317,7 @@ def print_top_results(results, num_sc, top_n=20):
     print(f"\nConfiguration for src/config.py ({num_sc} SC):")
     print(f"   DEFAULT_SUBCARRIERS = {list(DEFAULT_SUBCARRIERS)}")
     print(f"   SEG_WINDOW_SIZE = {best['window_size']}")
-    print(f"   SEG_THRESHOLD = {best['threshold']}")
+    print(f"   Runtime threshold = {best['threshold']}")
 
     same_threshold = [r for r in ranked_results if r["threshold"] == best["threshold"]]
     if len(same_threshold) > 1:

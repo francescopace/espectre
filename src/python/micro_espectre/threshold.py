@@ -13,9 +13,8 @@ fallback:
 5. If the pattern never becomes trustworthy inside the startup budget, fall
    back to the robust quiet-first calibrator on the same observed metrics.
 
-Modes:
-- "auto": threshold metric x detector_auto_factor
-- "min": threshold metric x 1.0 (maximum sensitivity, may have FP)
+Startup threshold calibration is automatic. Detectors may apply their own
+session adaptation to the shared calibration metric.
 
 Detectors with a tight quiet floor (l1_delta) still keep the quiet-first gate
 available as an internal fallback. That path groups ready-state metrics into
@@ -28,7 +27,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-# Default multiplier for "auto" mode threshold (shared fallback).
+# Default startup multiplier for detectors that use the shared metric.
 DEFAULT_ADAPTIVE_FACTOR = 1.3
 
 # Startup calibration consistency gate (benchmark-tuned on the paired
@@ -55,7 +54,7 @@ STARTUP_FLOOR_DISPERSION_CUT = 4.0
 
 
 def get_detector_auto_factor(detector):
-    """Return the detector-specific startup multiplier for `SEG_THRESHOLD='auto'`."""
+    """Return the detector-specific automatic startup multiplier."""
     return float(getattr(detector, "STARTUP_THRESHOLD_FACTOR", DEFAULT_ADAPTIVE_FACTOR))
 
 
@@ -396,15 +395,13 @@ class StartupThresholdCalibrator:
             return STARTUP_NO_MOTION_FALLBACK_MARGIN * max(self._chunk_ring)
         return _median_of(self._chunk_ring)
 
-    def calculate_threshold(self, threshold_mode="auto"):
+    def calculate_threshold(self):
         """Return the startup threshold derived from the tracked metrics."""
         threshold, formula = calculate_startup_threshold_from_max(
             self._threshold_metric(),
-            threshold_mode,
             auto_factor=self.auto_factor,
         )
-        factor = get_threshold_factor(threshold_mode, auto_factor=self.auto_factor)
-        formula = "{} x {:.1f}".format(self.statistic_name(), factor)
+        formula = "{} x {:.1f}".format(self.statistic_name(), self.auto_factor)
         return threshold, formula
 
     def statistic_name(self):
@@ -448,31 +445,8 @@ class StartupThresholdCalibrator:
         return median, vote_enabled, self._floor_count
 
 
-def get_threshold_factor(threshold_mode, auto_factor=DEFAULT_ADAPTIVE_FACTOR):
-    """
-    Get multiplier based on threshold mode.
-    
-    Args:
-        threshold_mode: "auto" (detector-specific factor) or "min" (1.0x)
-        auto_factor: Detector-specific "auto" multiplier
-    
-    Returns:
-        float: multiplier value
-    """
-    if threshold_mode == "auto":
-        return float(auto_factor)
-    else:  # "min"
-        return 1.0
-
-
-def describe_threshold_mode(threshold_mode, auto_factor=DEFAULT_ADAPTIVE_FACTOR):
-    """Return a user-facing description of the threshold mode formula."""
-    return f"max x {get_threshold_factor(threshold_mode, auto_factor=auto_factor):.1f}"
-
-
 def calculate_startup_threshold_from_max(
     max_motion_metric,
-    threshold_mode="auto",
     auto_factor=DEFAULT_ADAPTIVE_FACTOR,
 ):
     """
@@ -480,18 +454,16 @@ def calculate_startup_threshold_from_max(
 
     Args:
         max_motion_metric: Maximum motion metric seen during calibration
-        threshold_mode: "auto" (threshold_metric x auto_factor) or "min" (threshold_metric x 1.0)
-        auto_factor: Detector-specific "auto" multiplier
+        auto_factor: Detector-specific startup multiplier
 
     Returns:
         tuple: (startup_threshold, formula_description)
     """
-    factor = get_threshold_factor(threshold_mode, auto_factor=auto_factor)
-    startup_threshold = float(max(0.0, max_motion_metric)) * factor
-    return startup_threshold, describe_threshold_mode(threshold_mode, auto_factor=auto_factor)
+    startup_threshold = float(max(0.0, max_motion_metric)) * float(auto_factor)
+    return startup_threshold, f"max x {float(auto_factor):.1f}"
 
 
-def calculate_adaptive_threshold(cal_values, threshold_mode="auto", auto_factor=DEFAULT_ADAPTIVE_FACTOR):
+def calculate_adaptive_threshold(cal_values, auto_factor=DEFAULT_ADAPTIVE_FACTOR):
     """Backward-compatible alias for the startup-threshold helper."""
     if cal_values is None:
         max_motion_metric = 0.0
@@ -499,6 +471,5 @@ def calculate_adaptive_threshold(cal_values, threshold_mode="auto", auto_factor=
         max_motion_metric = max(iter(cal_values), default=0.0)
     return calculate_startup_threshold_from_max(
         max_motion_metric,
-        threshold_mode,
         auto_factor=auto_factor,
     )

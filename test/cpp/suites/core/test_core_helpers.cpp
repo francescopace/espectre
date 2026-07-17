@@ -93,10 +93,7 @@ void test_utils_spatial_turbulence_handles_invalid_inputs(void) {
     TEST_ASSERT_TRUE(compare_int8(&low, &high) < 0);
 }
 
-void test_threshold_helpers_cover_modes_and_ranges(void) {
-    TEST_ASSERT_EQUAL_FLOAT(DEFAULT_ADAPTIVE_FACTOR, get_threshold_factor(ThresholdMode::AUTO));
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, get_threshold_factor(ThresholdMode::MIN));
-
+void test_threshold_helpers_cover_ranges(void) {
     TEST_ASSERT_TRUE(is_valid_threshold(2.0f, 0.1f, 3.0f));
     TEST_ASSERT_FALSE(is_valid_threshold(NAN, 0.1f, 3.0f));
     TEST_ASSERT_FALSE(is_valid_threshold(0.0f, 0.1f, 3.0f));
@@ -320,7 +317,7 @@ int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_utils_statistical_helpers_cover_edge_cases);
     RUN_TEST(test_utils_spatial_turbulence_handles_invalid_inputs);
-    RUN_TEST(test_threshold_helpers_cover_modes_and_ranges);
+    RUN_TEST(test_threshold_helpers_cover_ranges);
     RUN_TEST(test_startup_threshold_calibrator_gate_disabled_matches_max);
     RUN_TEST(test_startup_threshold_calibrator_gate_accepts_clean_startup);
     RUN_TEST(test_startup_threshold_calibrator_weighted_observation_matches_repeated);

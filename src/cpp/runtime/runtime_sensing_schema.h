@@ -34,11 +34,6 @@ enum class RuntimeTrafficMode {
   PING,
 };
 
-constexpr const char *const RUNTIME_THRESHOLD_MODE_AUTO_NAME = "auto";
-constexpr const char *const RUNTIME_THRESHOLD_MODE_MIN_NAME = "min";
-constexpr const char *const RUNTIME_THRESHOLD_MODE_MANUAL_NAME = "manual";
-constexpr const char *const RUNTIME_THRESHOLD_MODE_DEFAULT_NAME = "auto";
-
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME = "dns";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME = "ping";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME = "ping";
@@ -48,7 +43,7 @@ constexpr const char *const RUNTIME_DETECTION_ALGORITHM_ML_NAME = "ml";
 constexpr const char *const RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME = "classic";
 
 constexpr float RUNTIME_THRESHOLD_MIN = 0.0f;
-constexpr float RUNTIME_THRESHOLD_MAX = 10.0f;
+constexpr float RUNTIME_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_ML_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT = 1.0f;
 
@@ -108,7 +103,6 @@ constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {
 }
 
 static_assert(RUNTIME_THRESHOLD_MIN == 0.0f, "Runtime threshold min must stay at zero");
-static_assert(RUNTIME_THRESHOLD_MAX == SEGMENTATION_MAX_THRESHOLD, "Runtime threshold max drifted from threshold.h");
 static_assert(RUNTIME_ML_THRESHOLD_MAX == ML_MAX_THRESHOLD, "Runtime ML threshold max drifted from ml_detector.h");
 static_assert(RUNTIME_ML_THRESHOLD_MAX == CLASSIC_MAX_THRESHOLD,
               "Classic and ML probability scales must stay aligned");

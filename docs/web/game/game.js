@@ -39,11 +39,11 @@ const EnemyTypes = [
 // Game progression constants
 const MAX_WAVE = 15;
 const SPECTRES_PER_WAVE = 3;
-const MOVEMENT_SCALE_MAX = 10.0;
+const MOVEMENT_SCALE_MAX = 1.0;
 const THRESHOLD_MIN = 0.0;
-const THRESHOLD_MAX = 10.0;
+const THRESHOLD_MAX = 1.0;
 
-// Hit strength categories based on power (movement / threshold * 0.3)
+// Hit strength categories based on power (movement / (threshold * moveMultiplier))
 const HitStrength = {
     NONE: { name: 'none', minPower: 0, damage: 0 },
     WEAK: { name: 'weak', minPower: 0.5, damage: 1 },

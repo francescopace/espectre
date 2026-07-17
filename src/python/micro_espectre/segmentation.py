@@ -54,9 +54,9 @@ class SegmentationContext:
         
         Args:
             window_size: Moving variance window size (default: 100, matches C++ DETECTOR_DEFAULT_WINDOW_SIZE)
-            threshold: Motion detection threshold value (default: 1.0)
-                       Can be set dynamically via set_adaptive_threshold() after
-                       startup calibration
+            threshold: Motion detection threshold value (default: 1.0 on the
+                       shared 0.0-1.0 probability scale). Can be set dynamically
+                       via set_adaptive_threshold() after startup calibration.
             enable_lowpass: Enable low-pass filter for noise reduction (default: False)
             lowpass_cutoff: Low-pass filter cutoff frequency in Hz (default: 11.0)
             enable_hampel: Enable Hampel filter for outlier removal (default: True)
@@ -313,13 +313,13 @@ class SegmentationContext:
         
         Formula: adaptive_threshold = max(baseline_mv) × factor
         
-        Where the current production modes use the maximum moving variance from
-        calibration and apply the mode-specific factor from threshold.py.
+        Where startup calibration derives the shared metric and applies the
+        detector-specific automatic factor from threshold.py.
         
         Args:
-            threshold: Adaptive threshold value (typically 0.5 to 5.0)
+            threshold: Adaptive threshold value (probability scale, 0.0-1.0)
         """
-        self.threshold = max(1e-6, min(10.0, threshold))
+        self.threshold = max(1e-6, min(1.0, threshold))
     
     def add_turbulence(self, turbulence):
         """

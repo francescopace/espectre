@@ -59,25 +59,12 @@ Start with threshold. If needed, then adjust window size or filters.
 
 ### Threshold
 
-Default:
+The threshold is selected automatically at startup. Classic adapts its trained
+probability threshold from quiet session logits, while ML starts from the
+threshold validated with the exported model. Both remain adjustable from the
+frontend for the current session; recalibration restores the automatic value.
 
-```yaml
-espectre:
-  segmentation_threshold: auto
-```
-
-Meaning:
-
-| Value | Effect |
-|-------|--------|
-| `auto` | best general-purpose starting point |
-| `min` | highest sensitivity, more false-positive risk |
-| number | fixed manual override |
-
-Threshold ranges by detector:
-
-- `classic`: usually `0.0-10.0`
-- `ml`: usually `0.0-1.0`
+Both detectors expose a `0.0-1.0` probability threshold.
 
 Rules of thumb:
 
@@ -343,7 +330,7 @@ traffic rate, and log level.
 
 ## Short Version
 
-1. start with `classic`, `auto`, `window_size: 100`, and no low-pass filter
+1. start with `classic`, `window_size: 100`, and no low-pass filter
 2. boot in a quiet room
 3. tune threshold first
 4. touch filters only when threshold alone is not enough

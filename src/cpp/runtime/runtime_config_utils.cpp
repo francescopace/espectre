@@ -38,30 +38,6 @@ const char *runtime_profile_name(RuntimeProfile profile) {
   return profile == RuntimeProfile::STREAM ? "stream" : "sensing";
 }
 
-const char *threshold_mode_name(ThresholdMode mode) {
-  switch (mode) {
-    case ThresholdMode::MANUAL:
-      return RUNTIME_THRESHOLD_MODE_MANUAL_NAME;
-    case ThresholdMode::MIN:
-      return RUNTIME_THRESHOLD_MODE_MIN_NAME;
-    case ThresholdMode::AUTO:
-    default:
-      return RUNTIME_THRESHOLD_MODE_AUTO_NAME;
-  }
-}
-
-const char *threshold_mode_display_name(ThresholdMode mode) {
-  switch (mode) {
-    case ThresholdMode::MANUAL:
-      return "Manual";
-    case ThresholdMode::MIN:
-      return "Min (x1.0)";
-    case ThresholdMode::AUTO:
-    default:
-      return "Auto (adaptive)";
-  }
-}
-
 const char *traffic_mode_name(RuntimeTrafficMode mode) {
   return mode == RuntimeTrafficMode::PING ? RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME
                                           : RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME;
@@ -85,16 +61,6 @@ const char *subcarrier_source_name(RuntimeSubcarrierSource source) {
   }
 }
 
-ThresholdMode parse_threshold_mode(const char *mode) {
-  if (mode != nullptr && std::strcmp(mode, RUNTIME_THRESHOLD_MODE_MANUAL_NAME) == 0) {
-    return ThresholdMode::MANUAL;
-  }
-  if (mode != nullptr && std::strcmp(mode, RUNTIME_THRESHOLD_MODE_MIN_NAME) == 0) {
-    return ThresholdMode::MIN;
-  }
-  return ThresholdMode::AUTO;
-}
-
 RuntimeTrafficMode parse_traffic_mode(const char *mode) {
   return (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME) == 0)
              ? RuntimeTrafficMode::PING
@@ -108,10 +74,5 @@ DetectionAlgorithm parse_detection_algorithm(const char *algorithm) {
 }
 
 RuntimeConfig make_runtime_sensing_config() { return RuntimeConfig{}; }
-
-void set_manual_threshold(RuntimeConfig &config, float threshold) {
-  config.segmentation_threshold = threshold;
-  config.threshold_mode = ThresholdMode::MANUAL;
-}
 
 }  // namespace espectre

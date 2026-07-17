@@ -277,7 +277,7 @@ def run_classic_calibration(static_presence_packets, selected_band, window_size)
             break
     if not calibrator.is_successful():
         return 1.0
-    threshold, _ = calibrator.calculate_threshold("auto")
+    threshold, _ = calibrator.calculate_threshold()
     return float(threshold)
 
 
@@ -473,7 +473,7 @@ class TestPerformanceMetrics:
             dataset_id=dataset_id,
         )
 
-        assert 0.0 <= adaptive_threshold <= 10.0
+        assert 0.0 <= adaptive_threshold <= 1.0
         assert 0.0 <= metrics["recall"] <= 100.0
         assert 0.0 <= metrics["precision"] <= 100.0
         assert 0.0 <= metrics["fp_rate"] <= 100.0
@@ -786,6 +786,7 @@ class TestEndToEndWithCalibration:
         calibrated = build_calibrated_classic_detector(
             static_presence_packets,
             selected_subcarriers=tuple(selected_band),
+            enable_hampel=enable_hampel,
         )
         assert calibrated is not None, "Classic startup calibration failed"
         detector, calibrated_threshold = calibrated

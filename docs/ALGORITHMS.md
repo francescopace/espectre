@@ -19,14 +19,14 @@ subcarriers, deriving gain-robust scalar signals from those amplitudes, and
 feeding those signals into either:
 
 - `ClassicDetector`, the default non-ML detector
-- `MLDetector`, the fixed-threshold neural detector
+- `MLDetector`, the neural detector with a trained probability threshold
 
 The current production detector definition is:
 
 - AGC stays active
 - the shared fixed 12-subcarrier set is used
-- the classic path uses L1-delta as the primary metric
-- moving variance remains only as a gated recovery signal inside `classic`
+- the classic path uses weighted L1-delta and turbulence-autocorrelation fusion
+- the classic runtime has no voting or variance-recovery branch
 - the ML path uses the Core-6 feature set
 
 ## Processing Pipeline
@@ -45,7 +45,7 @@ CSI packet
 At boot:
 
 - `classic` performs startup threshold calibration
-- `ml` starts as soon as CSI capture is active because its threshold is fixed
+- `ml` starts as soon as CSI capture is active from its trained default threshold
 
 With the default `window_size=100`, the `classic` startup budget is
 `10 x window_size = 1000` packets. This is a maximum, not a mandatory wait.
@@ -149,6 +149,9 @@ t_i = std(A_i) / mean(A_i)
 After Hampel filtering, Classic calculates lag-1 autocorrelation over the
 turbulence window. Both inputs are gain invariant under ideal uniform scaling.
 The shared `hampel_enabled` setting controls both Hampel filters.
+The same rule applies to ML feature extraction: all `turb_*` features use the
+filtered turbulence stream, and all `l1_delta*` features use the filtered
+per-packet L1-delta stream in training and both runtimes.
 
 ### Weighted Fusion
 
@@ -168,11 +171,11 @@ branch.
 
 ### Startup Threshold Calibration
 
-In `auto` mode, Classic begins from the validated global probability threshold
+At startup, Classic begins from the validated global probability threshold
 and shifts its logit using the session's startup `q95` relative to the training
 idle reference. This preserves the learned two-feature decision boundary while
-compensating for session-level floor movement. Keep the room quiet during the
-startup window. Manual thresholds use the same `0.0-1.0` probability scale.
+compensating for session-level floor movement. Runtime adjustments use the same
+`0.0-1.0` probability scale and remain active until recalibration or reboot.
 
 ### Implementation Status
 
@@ -286,8 +289,8 @@ The same production feature set is used by:
 
 | Detector | Threshold | Startup behavior |
 |----------|-----------|------------------|
-| `classic` | adaptive or manual | L1-delta startup bootstrap with motion-first path and internal quiet-only fallback |
-| `ml` | fixed or manual | immediate detector startup once CSI is active |
+| `classic` | automatic, session-adjustable | quiet-logit startup adaptation with motion-first completion and quiet-only fallback |
+| `ml` | trained default, session-adjustable | immediate detector startup once CSI is active |
 
 Both detectors use the same fixed subcarrier set. Only the detector metric and
 threshold behavior differ.

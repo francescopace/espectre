@@ -14,7 +14,7 @@ let client = null;
       supportsStats: false
   };
   const thresholdUiMin = 0.0;
-  const thresholdUiMax = 10.0;
+  const thresholdUiMax = 1.0;
   const thresholdDragTolerancePx = 14;
   let isThresholdDragging = false;
   let draggedThresholdValue = null;

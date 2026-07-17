@@ -104,14 +104,14 @@ espectre:
 
 Threshold behavior:
 
-- range: `classic` `0.0-10.0`, `ml` `0.0-1.0`
-- `classic` default: `auto` (shared adaptive startup calibration; motion-first with internal quiet-first fallback)
+- range: `0.0-1.0` for both detectors
+- `classic`: automatic session-adapted startup threshold
 - `ml` default: `0.5`
 
 The YAML value is the initial detector when no persisted selection exists.
 The Home Assistant `detector_select` changes it live and persists the choice
 across reboot. `ml -> classic` starts calibration automatically, and the
-`calibrate_switch` reflects automatic and manual calibration state.
+`calibrate_switch` reflects automatic and user-triggered calibration state.
 
 See [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for how the two
 detectors differ and [`TUNING.md`](../../../../docs/TUNING.md) for choosing
@@ -125,7 +125,6 @@ espectre:
   traffic_generator_rate: 100
   traffic_generator_adaptive: true
   traffic_generator_mode: ping
-  segmentation_threshold: auto
   segmentation_window_size: 100
   motion_on_hits: 3
   motion_off_hits: 3
@@ -137,9 +136,10 @@ espectre:
 
 | Sensor config | Type | Default name | Description |
 |---------------|------|--------------|-------------|
-| `movement_sensor` | sensor | `Movement Score` | Current movement score |
+| `movement_sensor` | sensor | `Movement Score` | Current movement score (0.0–1.0) |
 | `motion_sensor` | binary_sensor | `Motion Detected` | Edge-driven motion state |
-| `threshold_number` | number | `Threshold` | Runtime threshold control |
+| `threshold_number` | number | `Threshold` | Runtime probability threshold (0.0–1.0) |
+| `detector_select` | select | `Detector` | Runtime `classic` / `ml` selection |
 | `calibrate_switch` | switch | `Calibrate` | Startup recalibration trigger |
 
 All entities support standard ESPHome options such as:
@@ -372,11 +372,11 @@ The frontend itself does not require a custom partition table.
 1. Verify Wi-Fi is connected
 2. Verify traffic generation is active, or provide external traffic
 3. Wait for startup calibration to complete in `classic`
-4. Lower `segmentation_threshold` if the detector is too conservative
+4. Lower the Threshold number entity if the detector is too conservative
 
 ### False positives
 
-1. Raise `segmentation_threshold`
+1. Raise the Threshold number entity
 2. Check for fans, AC, curtains, or other interference
 3. Increase `segmentation_window_size` for more stability
 

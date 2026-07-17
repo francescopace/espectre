@@ -259,7 +259,7 @@ time.
 Check these first:
 
 1. the client writes exact ASCII commands
-2. the value passed to `SET_THRESHOLD` is finite and inside the detector range (`classic`: `0.0-10.0`, `ml`: `0.0-1.0`)
+2. the value passed to `SET_THRESHOLD` is finite and inside the shared detector range (`0.0-1.0`)
 3. the value passed to `SET_DETECTOR` is exactly `classic` or `ml`; accepted selections persist across reboot
 4. the client does not depend on sysinfo ordering
 

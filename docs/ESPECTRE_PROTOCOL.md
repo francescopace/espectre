@@ -87,7 +87,7 @@ espectre/v1/devices/{device_id}/telemetry
   "timestamp_ms": 123456,
   "motion_state": "idle",
   "movement_score": 0.18,
-  "threshold": 5.0,
+  "threshold": 0.45,
   "detector": "classic",
   "health": {
     "uptime_s": 3821
@@ -190,7 +190,7 @@ Set threshold:
   "protocol_version": "1.0",
   "command_id": "cmd-001",
   "command": "set_threshold",
-  "threshold": 4.5
+  "threshold": 0.35
 }
 ```
 
@@ -278,7 +278,7 @@ The current BLE firmware still carries setup commands as ASCII control writes:
 
 ```text
 REQ_SYSINFO
-SET_THRESHOLD:4.5
+SET_THRESHOLD:0.35
 SET_DETECTOR:ml
 SET_DEVICE_CONFIG:device_label=Living Room
 SET_MQTT_CONFIG:host=192.168.1.20&port=1883&username=mqtt&password=secret-password&topic_prefix=espectre%2Fv1%2Fdevices

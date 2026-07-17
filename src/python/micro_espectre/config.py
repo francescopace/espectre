@@ -39,7 +39,7 @@ DEFAULT_SUBCARRIERS = (14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50)
 
 # Detection Algorithm
 # "classic" (default): weighted L1-delta + turbulence-autocorrelation fusion
-# "ml": Neural Network - learned patterns, fixed threshold
+# "ml": Neural Network - learned patterns, trained default threshold
 DETECTION_ALGORITHM = "classic"
 
 # Threshold bootstrap configuration (fixed subcarriers, no disk I/O)
@@ -47,14 +47,6 @@ CALIBRATION_NUM_WINDOWS = 10   # Number of windows worth of packets to collect
 # CALIBRATION_BUFFER_SIZE calculated after SEG_WINDOW_SIZE is defined
 
 # Segmentation Parameters
-# SEG_THRESHOLD can be:
-#   - "auto" (default): startup threshold = threshold_metric x detector factor
-#       * Classic: motion-first bootstrap with internal quiet-first fallback
-#   - "min": maximum sensitivity (may have false positives)
-#   - a number: fixed manual threshold
-#       * Classic: typically 0.0-10.0
-#       * ML: 0.0-1.0 probability threshold
-SEG_THRESHOLD = "auto"
 SEG_WINDOW_SIZE = 100         # Shared detector window (packets) - used by Classic and Features
 
 # Calibration buffer size = number of windows * window size
@@ -65,8 +57,8 @@ ENABLE_LOWPASS_FILTER = False   # Recommended: reduces FP in noisy environments
 LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz (11 Hz: 2.3% FP, 92.4% Recall)
                                # Human movement is typically 0.5-10 Hz, RF noise is >15 Hz
 
-# Hampel filter (removes outliers/spikes in turbulence)
-ENABLE_HAMPEL_FILTER = True    # Enable/disable Hampel outlier filter (spikes in turbulence)
+# Hampel filter (removes outliers from turbulence and L1-delta streams)
+ENABLE_HAMPEL_FILTER = True    # Enable/disable Hampel preprocessing for all detector feature streams
 HAMPEL_WINDOW = 7             # Window size for median calculation (3-11)
 HAMPEL_THRESHOLD = 5.0        # Outlier detection threshold in MAD units (2.0-6.0 recommended)
                               # Higher values = less aggressive filtering

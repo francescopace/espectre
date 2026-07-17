@@ -39,7 +39,7 @@
       logarithmicMapping: true,
       // Fraction of the live movement scale treated as "quiet" in hybrid mode.
       hybridThreshold: 0.08,
-      maxMovement: 4.0 // Maximum movement value that maps to highest frequency
+      maxMovement: 1.0 // Maximum movement probability that maps to highest frequency
   };
 
   // Tremolo State

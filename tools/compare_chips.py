@@ -37,7 +37,6 @@ from tools.lib.dataset_metadata import DATA_DIR
 from tools.lib.ui import show_plot_window
 from config import (
     SEG_WINDOW_SIZE,
-    SEG_THRESHOLD,
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
     ENABLE_LOWPASS_FILTER,
@@ -49,7 +48,7 @@ from segmentation import SegmentationContext
 
 # Alias for backward compatibility
 WINDOW_SIZE = SEG_WINDOW_SIZE
-THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
+THRESHOLD = 1.0
 
 
 def analyze_iq_values(packets, name):
@@ -497,4 +496,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

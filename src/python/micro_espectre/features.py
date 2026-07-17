@@ -437,15 +437,18 @@ def extract_features_by_name(
     turbulence_buffer,
     buffer_count,
     feature_names=None,
-    amplitude_history=None,
     l1_series=None,
     l1_series_count=None,
     out=None,
     reuse_turbulence_buffer=False,
 ):
-    """Extract configured feature vector from turbulence buffer."""
+    """Extract configured features from explicitly preprocessed streams."""
     if feature_names is None:
         feature_names = DEFAULT_FEATURES
+
+    for name in feature_names:
+        if name not in ALL_FEATURES:
+            raise ValueError(f"Unknown feature: {name}")
 
     if out is not None and len(out) < len(feature_names):
         raise ValueError("Output feature buffer is too small")
@@ -502,13 +505,14 @@ def extract_features_by_name(
             )
     if needs_l1:
         if l1_series is None:
-            _l1_series = l1_delta_series(amplitude_history, n)
-            _l1_n = len(_l1_series)
-        else:
-            _l1_series = l1_series
-            _l1_n = len(l1_series) if l1_series_count is None else min(
-                int(l1_series_count), len(l1_series)
+            raise ValueError(
+                "l1_series is required for L1 features; pass the explicitly "
+                "preprocessed detector stream"
             )
+        _l1_series = l1_series
+        _l1_n = len(l1_series) if l1_series_count is None else min(
+            int(l1_series_count), len(l1_series)
+        )
         if _l1_n:
             total = 0.0
             for i in range(_l1_n):

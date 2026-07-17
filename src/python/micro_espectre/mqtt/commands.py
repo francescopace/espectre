@@ -13,9 +13,8 @@ import gc
 import sys
 
 # Threshold limits shared by the runtime detectors
-SEG_THRESHOLD_MIN = 0.0
-SEG_THRESHOLD_MAX = 10.0
-ML_THRESHOLD_MAX = 1.0
+THRESHOLD_MIN = 0.0
+THRESHOLD_MAX = 1.0
 
 
 def _is_ascii_alnum(char):
@@ -30,10 +29,7 @@ def _is_ascii_alnum(char):
 
 def _threshold_bounds_for_detector(detector):
     """Return the accepted threshold range for the active detector."""
-    algorithm = str(getattr(detector, "ALGORITHM", "")).lower()
-    if algorithm == "ml":
-        return SEG_THRESHOLD_MIN, ML_THRESHOLD_MAX
-    return SEG_THRESHOLD_MIN, SEG_THRESHOLD_MAX
+    return THRESHOLD_MIN, THRESHOLD_MAX
 
 
 def _normalize_chip_label(chip):

@@ -484,7 +484,7 @@ void test_native_frontend_control_commands_validate_and_update_runtime(void) {
   bindings.emit_control("SET_THRESHOLD:0.425");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL_FLOAT(0.425f, frontend_runtime_shim::state.last_threshold);
-  TEST_ASSERT_TRUE(frontend.runtime_.config().threshold_mode == ThresholdMode::MANUAL);
+  TEST_ASSERT_EQUAL_FLOAT(0.425f, frontend.runtime_.config().segmentation_threshold);
 }
 
 void test_native_frontend_wifi_provisioning_commands_forward_to_callback(void) {

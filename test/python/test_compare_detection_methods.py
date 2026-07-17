@@ -40,11 +40,10 @@ def test_compare_detection_methods_uses_runtime_thresholds_for_current_methods(m
 
     monkeypatch.setattr(module, "ML_AVAILABLE", False)
 
-    def fake_calculate_adaptive_threshold(values, threshold_mode=None, auto_factor=None):
+    def fake_calculate_adaptive_threshold(values, auto_factor=None):
         calls["adaptive_threshold_inputs"].append(
             {
                 "values": values,
-                "threshold_mode": threshold_mode,
                 "auto_factor": auto_factor,
             }
         )
@@ -65,7 +64,6 @@ def test_compare_detection_methods_uses_runtime_thresholds_for_current_methods(m
     assert method_thresholds["RSSI"] == 4.56
     assert set(method_thresholds) == {"RSSI", "Classic"}
     assert len(calls["adaptive_threshold_inputs"]) == 1
-    assert calls["adaptive_threshold_inputs"][0]["threshold_mode"] is None
     assert calls["adaptive_threshold_inputs"][0]["auto_factor"] is None
 
 
@@ -77,11 +75,10 @@ def test_compare_detection_methods_adapts_classic_threshold_only_when_missing(mo
 
     monkeypatch.setattr(module, "ML_AVAILABLE", False)
 
-    def fake_calculate_adaptive_threshold(values, threshold_mode=None, auto_factor=None):
+    def fake_calculate_adaptive_threshold(values, auto_factor=None):
         calls.append(
             {
                 "values": values,
-                "threshold_mode": threshold_mode,
                 "auto_factor": auto_factor,
             }
         )

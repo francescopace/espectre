@@ -99,7 +99,6 @@ void test_runtime_frontend_controller_threshold_runtime_updates_config_and_snaps
   TEST_ASSERT_FALSE(controller.set_threshold_runtime(-0.5f));
   TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.75f));
   TEST_ASSERT_EQUAL_FLOAT(0.75f, controller.snapshot().threshold);
-  TEST_ASSERT_TRUE(controller.config().threshold_mode == ThresholdMode::MANUAL);
 
   TEST_ASSERT_TRUE(controller.setup(&listener));
   TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.5f));
@@ -131,17 +130,15 @@ void test_runtime_frontend_controller_recalibration_requires_capability_and_runt
   TEST_ASSERT_FALSE(controller.is_calibrating());
 }
 
-void test_runtime_frontend_controller_switches_detector_and_resets_threshold_mode(void) {
+void test_runtime_frontend_controller_switches_detector_and_resets_threshold(void) {
   RuntimeFrontendController controller;
   RuntimeConfig config;
   config.runtime_detector_selection_enabled = true;
-  config.threshold_mode = ThresholdMode::MANUAL;
-  config.segmentation_threshold = 4.0f;
+  config.segmentation_threshold = 0.4f;
   controller.set_config(config);
 
   TEST_ASSERT_TRUE(controller.set_detection_algorithm_runtime(DetectionAlgorithm::ML));
   TEST_ASSERT_TRUE(controller.config().detection_algorithm == DetectionAlgorithm::ML);
-  TEST_ASSERT_TRUE(controller.config().threshold_mode == ThresholdMode::AUTO);
   TEST_ASSERT_EQUAL_FLOAT(ML_DEFAULT_THRESHOLD, controller.snapshot().threshold);
 
   frontend_runtime_shim::state.capabilities.supports_runtime_detector_selection = true;
@@ -179,7 +176,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward);
   RUN_TEST(test_runtime_frontend_controller_threshold_runtime_updates_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_recalibration_requires_capability_and_runtime);
-  RUN_TEST(test_runtime_frontend_controller_switches_detector_and_resets_threshold_mode);
+  RUN_TEST(test_runtime_frontend_controller_switches_detector_and_resets_threshold);
   RUN_TEST(test_runtime_frontend_controller_can_select_stream_runtime_profile);
   return UNITY_END();
 }

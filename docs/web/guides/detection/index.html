@@ -67,7 +67,7 @@
             <section class="guide-section">
                 <h2>Two detector paths</h2>
                 <div class="guide-grid two-column">
-                    <article class="guide-card"><i class="fas fa-sliders"></i><h3>Classic detector</h3><p>Measures the L1 change between consecutive conditioned CSI vectors. Startup calibration learns a quiet baseline and derives a threshold. This path is transparent, lightweight, and the default in published ESPHome images.</p></article>
+                    <article class="guide-card"><i class="fas fa-sliders"></i><h3>Classic detector</h3><p>Fuses profile displacement and temporal turbulence into a motion probability on a shared 0.0–1.0 scale. Startup calibration learns a quiet baseline and adapts the threshold. This path is transparent, lightweight, and the default in published ESPHome images.</p></article>
                     <article class="guide-card"><i class="fas fa-brain"></i><h3>ML detector</h3><p>Extracts a compact six-feature window and runs a small on-device model. It is useful for learned decision boundaries and remains available in supported local builds.</p></article>
                 </div>
             </section>
