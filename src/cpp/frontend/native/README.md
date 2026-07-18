@@ -75,10 +75,6 @@ workflow does not require a separate setup check before build.
 See [`CLI.md`](../../../../docs/CLI.md) for shared CLI syntax, host-side
 tools, and wrapper behavior.
 
-CI QEMU smoke currently covers `ESP32`, `ESP32-S3`, and `ESP32-C3` for the
-native frontend. `ESP32-C5` and `ESP32-C6` remain build-only because the
-current Espressif QEMU fork does not support them.
-
 Repository CLI:
 
 ```bash

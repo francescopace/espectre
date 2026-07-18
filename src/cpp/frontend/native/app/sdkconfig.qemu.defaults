@@ -1,8 +1,0 @@
-# ESPectre native QEMU smoke-test overrides
-#
-# Espressif QEMU does not emulate the BLE controller path needed by NimBLE.
-# Disable BLE only for the CI/QEMU build and use the no-op BLE bindings so the
-# frontend can still exercise the shared runtime bring-up path.
-
-CONFIG_BT_ENABLED=n
-CONFIG_BT_NIMBLE_ENABLED=n

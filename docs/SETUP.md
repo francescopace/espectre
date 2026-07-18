@@ -5,7 +5,7 @@ This document is the shared setup hub for choosing a frontend and finding the ri
 ESPectre now exposes multiple frontends, and each frontend owns its own configuration surface, integration workflow, and troubleshooting. 
 This guide covers the shared entry points and links you to the frontend-specific README for everything else.
 
-Use the `stable` channel for the latest official release, or `main` when you want the newest development snapshot.
+Use `Latest Release` for the newest official firmware, or `Release Preview` for the newest development build from `main`. A separate `Developer Preview` GitHub Release is also published from `develop` for pre-main validation, but GitHub Pages continues to expose only `Latest Release` and `Release Preview`.
 
 ## Choose Your Frontend
 
@@ -222,8 +222,9 @@ Release and snapshot publishing provide one full-flash image for each supported
 chip on the `ESPHome`, `Native`, and `Matter` frontends. GitHub Releases also
 provide application-only OTA payloads for Native. GitHub Pages stages only the
 full-flash images used by the browser flasher. The published `ESPHome` image
-uses the default `Classic` detector; subsequent ESPHome updates are compiled
-and installed through ESPHome Device Builder.
+uses the default `Classic` detector, and CI pins its `git_ref` substitution to
+the exact source commit used to build the published binary. Subsequent ESPHome
+updates are compiled and installed through ESPHome Device Builder.
 
 The `ML` detector remains available through a local ESPHome build with
 `detection_algorithm: ml`; it is not published as a separate precompiled image.

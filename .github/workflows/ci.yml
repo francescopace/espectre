@@ -258,8 +258,8 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  build:
-    name: ${{ matrix.qemu_chip && 'Smoke Test' || 'Build' }} ${{ matrix.chip }}
+  build-esphome:
+    name: Build ESPHome ${{ matrix.chip }}
     runs-on: ubuntu-latest
     needs: detect-push-origin
     if: needs.detect-push-origin.outputs.run_ci == 'true'
@@ -267,42 +267,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Standard builds (no QEMU)
-          # config: production file (GitHub component), config_dev: local component
           - chip: ESP32
             config: examples/espectre-esp32.yaml
-            config_dev: examples/espectre-esp32-dev.yaml
           - chip: ESP32-S3
             config: examples/espectre-s3.yaml
-            config_dev: examples/espectre-s3-dev.yaml
           - chip: ESP32-C3
             config: examples/espectre-c3.yaml
-            config_dev: examples/espectre-c3-dev.yaml
           - chip: ESP32-C5
             config: examples/espectre-c5.yaml
-            config_dev: examples/espectre-c5-dev.yaml
           - chip: ESP32-C6
             config: examples/espectre-c6.yaml
-            config_dev: examples/espectre-c6-dev.yaml
-          # QEMU smoke tests (.github/actions/qemu-smoke-test/configs/)
-          # Supported targets: ESP32, ESP32-S3, ESP32-C3 (official Espressif QEMU fork)
-          # WiFi PHY is not emulated by QEMU; the PHY assert is filtered in the CI action
-          # ESP32-C6 and newer chips are not supported by the Espressif QEMU fork
-          - chip: ESP32
-            config: .github/actions/qemu-smoke-test/configs/esp32.yaml
-            qemu_chip: esp32
-            qemu_arch: xtensa
-            qemu_machine: esp32
-          - chip: ESP32-S3
-            config: .github/actions/qemu-smoke-test/configs/esp32s3.yaml
-            qemu_chip: esp32s3
-            qemu_arch: xtensa
-            qemu_machine: esp32s3
-          - chip: ESP32-C3
-            config: .github/actions/qemu-smoke-test/configs/esp32c3.yaml
-            qemu_chip: esp32c3
-            qemu_arch: riscv32
-            qemu_machine: esp32c3
     
     steps:
       - uses: actions/checkout@v7
@@ -320,9 +294,9 @@ jobs:
           path: |
             ~/.platformio
             ~/.esphome/cache
-          key: pio-${{ runner.os }}-${{ matrix.qemu_chip || matrix.chip }}-${{ hashFiles('requirements.txt', 'espectre', 'src/python/espectre_cli/*.py', 'examples/*.yaml', '.github/actions/qemu-smoke-test/configs/*.yaml') }}
+          key: pio-${{ runner.os }}-${{ matrix.chip }}-${{ hashFiles('requirements.txt', 'espectre', 'src/python/espectre_cli/*.py', 'examples/*.yaml') }}
           restore-keys: |
-            pio-${{ runner.os }}-${{ matrix.qemu_chip || matrix.chip }}-
+            pio-${{ runner.os }}-${{ matrix.chip }}-
             pio-${{ runner.os }}-
       
       - name: Install ESPHome
@@ -330,46 +304,52 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: Create secrets.yaml for dev configs
-        if: github.ref != 'refs/heads/main' && !matrix.qemu_chip
+      - name: Prepare ESPHome config
+        id: esphome-config
         run: |
-          cat > examples/secrets.yaml << 'EOF'
-          wifi_ssid: CI_TEST
-          wifi_password: ci_password
-          EOF
-      
+          CONFIG_PATH="${{ matrix.config }}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CONFIG_PATH="examples/.ci-${{ matrix.chip }}.yaml"
+            MATRIX_CONFIG="${{ matrix.config }}" MATRIX_CHIP="${{ matrix.chip }}" python3 -c 'from pathlib import Path; import os; src = Path(os.environ["MATRIX_CONFIG"]); chip = os.environ["MATRIX_CHIP"]; dst = Path(f"examples/.ci-{chip}.yaml"); text = src.read_text(encoding="utf-8"); old = "external_components:\n  - source:\n      type: git\n      url: https://github.com/francescopace/espectre\n      ref: ${git_ref}\n      path: src/cpp/frontend/esphome\n    components: [ espectre ]\n    refresh: always\n"; new = "external_components:\n  - source:\n      type: local\n      path: ../src/cpp/frontend/esphome\n    components: [ espectre ]\n"; assert old in text, "expected external_components block not found"; dst.write_text(text.replace(old, new), encoding="utf-8")'
+          fi
+          echo "config_path=${CONFIG_PATH}" >> "$GITHUB_OUTPUT"
+
       - name: Compile
         run: |
-          # QEMU configs always use local component (no branch distinction)
-          # Standard configs use -dev (local component) on develop/PR, production on main
-          if [ -n "${{ matrix.qemu_chip }}" ]; then
-            ./espectre esphome build --config ${{ matrix.config }} --clean
-          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            ./espectre esphome build --config ${{ matrix.config }} --clean
+          if [ "${{ github.event_name }}" = "push" ]; then
+            esphome -s git_ref "${{ github.sha }}" -s detection_algorithm classic compile "${{ steps.esphome-config.outputs.config_path }}"
           else
-            ./espectre esphome build --config ${{ matrix.config_dev }} --clean
+            esphome -s detection_algorithm classic compile "${{ steps.esphome-config.outputs.config_path }}"
           fi
-      
-      # QEMU smoke test for UART builds
-      - name: Run QEMU smoke test
-        if: matrix.qemu_chip
-        uses: ./.github/actions/qemu-smoke-test
-        with:
-          config: ${{ matrix.config }}
-          chip: ${{ matrix.qemu_chip }}
-          arch: ${{ matrix.qemu_arch }}
-          machine: ${{ matrix.qemu_machine }}
-      
-      - name: Upload QEMU logs
-        if: matrix.qemu_chip && always()
+
+      - name: Locate ESPHome factory image
+        id: esphome-artifacts
+        run: |
+          FACTORY_BIN="$(python3 -c 'from pathlib import Path; matches = sorted(Path("examples/.esphome/build").glob("**/firmware.factory.bin")); assert matches, "firmware.factory.bin not found"; print(matches[0])')"
+          echo "factory_bin=${FACTORY_BIN}" >> "$GITHUB_OUTPUT"
+
+      - name: Rename ESPHome firmware
+        if: github.event_name == 'push'
+        run: |
+          mkdir -p output
+          CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
+          if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            PREFIX="espectre-snapshot-dev"
+          else
+            PREFIX="espectre-snapshot"
+          fi
+          cp "${{ steps.esphome-artifacts.outputs.factory_bin }}" "output/${PREFIX}-${CHIP}.bin"
+
+      - name: Upload ESPHome firmware artifact
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
         with:
-          name: qemu-logs-${{ matrix.qemu_machine }}
-          path: qemu_output.log
+          name: firmware-esphome-${{ matrix.chip }}
+          path: output/espectre-snapshot*.bin
           retention-days: 7
 
   build-matter:
-    name: ${{ matrix.qemu_machine && 'Smoke Test Matter' || 'Build Matter' }} ${{ matrix.chip }}
+    name: Build Matter ${{ matrix.chip }}
     runs-on: ubuntu-latest
     needs: detect-push-origin
     if: needs.detect-push-origin.outputs.run_ci == 'true'
@@ -379,29 +359,29 @@ jobs:
         include:
           - chip: ESP32
             target: esp32
-            qemu_arch: xtensa
-            qemu_machine: esp32
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
-            qemu_expected_log: "ESPectre Matter smoke marker: endpoint .* configured, starting Matter stack"
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.esp32.defaults
           - chip: ESP32-C3
             target: esp32c3
-            qemu_arch: riscv32
-            qemu_machine: esp32c3
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
-            qemu_expected_log: "ESPectre Matter smoke marker: endpoint .* configured, starting Matter stack"
           - chip: ESP32-C5
             target: esp32c5
           - chip: ESP32-C6
             target: esp32c6
           - chip: ESP32-S3
             target: esp32s3
-            qemu_arch: xtensa
-            qemu_machine: esp32s3
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
-            qemu_expected_log: "ESPectre Matter smoke marker: endpoint .* configured, starting Matter stack"
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Select Matter artifact names
+        id: matter-names
+        run: |
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "prefix=ci" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            echo "prefix=snapshot-dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "prefix=snapshot" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Cache Matter toolchain and components
         uses: actions/cache@v6
@@ -420,30 +400,19 @@ jobs:
           .github/scripts/build_matter_firmware.sh
         env:
           MATTER_TARGET: ${{ matrix.target }}
-          MATTER_OUTPUT: ${{ github.workspace }}/output/espectre-matter-ci-${{ matrix.target }}.bin
+          MATTER_OUTPUT: ${{ github.workspace }}/output/espectre-matter-${{ steps.matter-names.outputs.prefix }}-${{ matrix.target }}.bin
           MATTER_SDKCONFIG_DEFAULTS: ${{ matrix.sdkconfig_defaults || '' }}
 
-      - name: Run Matter QEMU smoke test
-        if: matrix.qemu_machine
-        uses: ./.github/actions/qemu-smoke-test
-        with:
-          firmware: ${{ github.workspace }}/output/espectre-matter-ci-${{ matrix.target }}.bin
-          elf: ${{ github.workspace }}/src/cpp/frontend/matter/app/build-${{ matrix.target }}/espectre-matter.elf
-          chip: ${{ matrix.target }}
-          arch: ${{ matrix.qemu_arch }}
-          machine: ${{ matrix.qemu_machine }}
-          expected_log: ${{ matrix.qemu_expected_log || '' }}
-
-      - name: Upload Matter QEMU logs
-        if: matrix.qemu_machine && always()
+      - name: Upload Matter firmware artifact
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
         with:
-          name: qemu-matter-logs-${{ matrix.qemu_machine }}
-          path: qemu_output.log
+          name: firmware-matter-${{ matrix.chip }}
+          path: output/espectre-matter-snapshot*.bin
           retention-days: 7
 
   build-native:
-    name: ${{ matrix.qemu_machine && 'Smoke Test Native' || 'Build Native' }} ${{ matrix.chip }}
+    name: Build Native ${{ matrix.chip }}
     runs-on: ubuntu-latest
     needs: detect-push-origin
     if: needs.detect-push-origin.outputs.run_ci == 'true'
@@ -453,29 +422,32 @@ jobs:
         include:
           - chip: ESP32
             target: esp32
-            qemu_arch: xtensa
-            qemu_machine: esp32
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
-            qemu_expected_log: "ESPectre native smoke marker: transport configured, starting native frontend"
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.esp32.defaults
           - chip: ESP32-C3
             target: esp32c3
-            qemu_arch: riscv32
-            qemu_machine: esp32c3
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
-            qemu_expected_log: "ESPectre native smoke marker: transport configured, starting native frontend"
           - chip: ESP32-C5
             target: esp32c5
           - chip: ESP32-C6
             target: esp32c6
           - chip: ESP32-S3
             target: esp32s3
-            qemu_arch: xtensa
-            qemu_machine: esp32s3
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
-            qemu_expected_log: "ESPectre native smoke marker: transport configured, starting native frontend"
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Select native artifact names
+        id: native-names
+        run: |
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "prefix=ci" >> "$GITHUB_OUTPUT"
+            echo "ota_snapshot=0" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            echo "prefix=snapshot-dev" >> "$GITHUB_OUTPUT"
+            echo "ota_snapshot=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "prefix=snapshot" >> "$GITHUB_OUTPUT"
+            echo "ota_snapshot=1" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Cache native toolchain
         uses: actions/cache@v6
@@ -492,37 +464,21 @@ jobs:
           bash .github/scripts/build_native_firmware.sh
         env:
           NATIVE_TARGET: ${{ matrix.target }}
-          NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-ci-${{ matrix.target }}.bin
+          NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-${{ steps.native-names.outputs.prefix }}-${{ matrix.target }}.bin
+          NATIVE_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-native-${{ steps.native-names.outputs.prefix }}-${{ matrix.target }}-ota.bin
+          NATIVE_OTA_SNAPSHOT: ${{ steps.native-names.outputs.ota_snapshot }}
           NATIVE_SDKCONFIG_DEFAULTS: ${{ matrix.sdkconfig_defaults || '' }}
 
-      - name: Run native QEMU smoke test
-        if: matrix.qemu_machine
-        uses: ./.github/actions/qemu-smoke-test
-        with:
-          firmware: ${{ github.workspace }}/output/espectre-native-ci-${{ matrix.target }}.bin
-          elf: ${{ github.workspace }}/src/cpp/frontend/native/app/build-${{ matrix.target }}/espectre-native.elf
-          chip: ${{ matrix.target }}
-          arch: ${{ matrix.qemu_arch }}
-          machine: ${{ matrix.qemu_machine }}
-          expected_log: ${{ matrix.qemu_expected_log || '' }}
-
-      - name: Upload native QEMU logs
-        if: matrix.qemu_machine && always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: qemu-native-logs-${{ matrix.qemu_machine }}
-          path: qemu_output.log
-          retention-days: 7
-
       - name: Upload native firmware artifact
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
         with:
           name: firmware-native-${{ matrix.chip }}
-          path: output/espectre-native-*.bin
+          path: output/espectre-native-snapshot*.bin
           retention-days: 7
 
   build-streamer:
-    name: ${{ matrix.qemu_machine && 'Smoke Test Streamer' || 'Build Streamer' }} ${{ matrix.chip }}
+    name: Build Streamer ${{ matrix.chip }}
     runs-on: ubuntu-latest
     needs: detect-push-origin
     if: needs.detect-push-origin.outputs.run_ci == 'true'
@@ -532,26 +488,14 @@ jobs:
         include:
           - chip: ESP32
             target: esp32
-            qemu_arch: xtensa
-            qemu_machine: esp32
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
-            qemu_expected_log: "ESPectre streamer smoke marker: transport configured, starting streamer frontend"
           - chip: ESP32-C3
             target: esp32c3
-            qemu_arch: riscv32
-            qemu_machine: esp32c3
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
-            qemu_expected_log: "ESPectre streamer smoke marker: transport configured, starting streamer frontend"
           - chip: ESP32-C5
             target: esp32c5
           - chip: ESP32-C6
             target: esp32c6
           - chip: ESP32-S3
             target: esp32s3
-            qemu_arch: xtensa
-            qemu_machine: esp32s3
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
-            qemu_expected_log: "ESPectre streamer smoke marker: transport configured, starting streamer frontend"
 
     steps:
       - uses: actions/checkout@v7
@@ -572,30 +516,3 @@ jobs:
         env:
           STREAMER_TARGET: ${{ matrix.target }}
           STREAMER_OUTPUT: ${{ github.workspace }}/output/espectre-streamer-ci-${{ matrix.target }}.bin
-          STREAMER_SDKCONFIG_DEFAULTS: ${{ matrix.sdkconfig_defaults || '' }}
-
-      - name: Run streamer QEMU smoke test
-        if: matrix.qemu_machine
-        uses: ./.github/actions/qemu-smoke-test
-        with:
-          firmware: ${{ github.workspace }}/output/espectre-streamer-ci-${{ matrix.target }}.bin
-          elf: ${{ github.workspace }}/src/cpp/frontend/streamer/app/build-${{ matrix.target }}/espectre-streamer.elf
-          chip: ${{ matrix.target }}
-          arch: ${{ matrix.qemu_arch }}
-          machine: ${{ matrix.qemu_machine }}
-          expected_log: ${{ matrix.qemu_expected_log || '' }}
-
-      - name: Upload streamer QEMU logs
-        if: matrix.qemu_machine && always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: qemu-streamer-logs-${{ matrix.qemu_machine }}
-          path: qemu_output.log
-          retention-days: 7
-
-      - name: Upload streamer firmware artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: firmware-streamer-${{ matrix.chip }}
-          path: output/espectre-streamer-*.bin
-          retention-days: 7

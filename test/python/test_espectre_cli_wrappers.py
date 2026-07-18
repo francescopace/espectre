@@ -391,7 +391,7 @@ def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatc
     (build_dir / "firmware.bin").write_text("bin", encoding="utf-8")
     calls: list[tuple[list[str], Path]] = []
 
-    monkeypatch.setenv("SDKCONFIG_DEFAULTS", "sdkconfig.defaults;sdkconfig.qemu.defaults")
+    monkeypatch.setenv("SDKCONFIG_DEFAULTS", "sdkconfig.defaults;sdkconfig.extra.defaults")
     monkeypatch.setenv("ESPECTRE_IDF_BUILD_DIR", "build-esp32c3")
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
     monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
@@ -406,8 +406,8 @@ def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatc
 
     assert not build_dir.exists()
     assert calls == [
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.qemu.defaults", "set-target", "esp32c3"], app_dir),
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.qemu.defaults", "build"], app_dir),
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.extra.defaults", "set-target", "esp32c3"], app_dir),
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.extra.defaults", "build"], app_dir),
     ]
 
 

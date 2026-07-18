@@ -34,8 +34,12 @@ docker run --rm \
       esp32s3) STREAMER_CHIP=s3 ;;
       *) echo \"Unsupported streamer target: ${STREAMER_TARGET}\" >&2; exit 1 ;;
     esac
+    # ESP-IDF activates a venv where --user installs are rejected; install into HOME instead.
+    SITE_PACKAGES=\"\${HOME}/.local/lib/python/site-packages\"
+    mkdir -p \"\${SITE_PACKAGES}\"
+    export PYTHONPATH=\"\${SITE_PACKAGES}\${PYTHONPATH:+:\${PYTHONPATH}}\"
     if ! python /work/espectre --help >/dev/null 2>&1; then
-      python -m pip install --user -r /work/requirements.txt
+      python -m pip install --target \"\${SITE_PACKAGES}\" -r /work/requirements.txt
     fi
     if [ -n \"\${SDKCONFIG_DEFAULTS:-}\" ]; then
       export SDKCONFIG_DEFAULTS
@@ -43,7 +47,7 @@ docker run --rm \
     export ESPECTRE_IDF_BUILD_DIR=${BUILD_DIR}
     cd /work
     python /work/espectre streamer build --chip \"\${STREAMER_CHIP}\" --clean
-    cd ${BUILD_DIR}
+    cd /work/src/cpp/frontend/streamer/app/${BUILD_DIR}
     if python -m esptool merge-bin -h >/dev/null 2>&1; then
       python -m esptool --chip ${STREAMER_TARGET} merge-bin --pad-to-size 4MB -o \"\${STREAMER_OUTPUT}\" @flash_args
     else

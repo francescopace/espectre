@@ -168,8 +168,6 @@ extern "C" void app_main() {
   sync_frontend_wifi_info();
   frontend.set_provisioning_command_callback(handle_wifi_provisioning_command);
   frontend.set_device_config_change_callback(handle_device_config_change);
-
-  ESP_LOGI(TAG, "ESPectre native smoke marker: transport configured, starting native frontend");
   if (!frontend.setup()) {
     ESP_LOGE(TAG, "Failed to initialize ESPectre native frontend");
     return;

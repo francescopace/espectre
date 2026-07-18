@@ -55,8 +55,8 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Changed
 
+- **Firmware CI now builds only the publishable chip matrix**: ESPHome, Native, Matter, and Streamer keep one five-chip build matrix per frontend, `develop` publishes a separate `snapshot-dev` release, and all QEMU smoke-test paths, examples, and helpers were removed because they added runtime and maintenance cost without validating Wi-Fi, BLE, or full chip coverage.
 - **Website guides are now hands-on tutorials**: setup walks through firmware choice, browser flashing, per-frontend provisioning, calibration, and troubleshooting step by step; detection, hardware, and custom-firmware focus on practical decisions; pages now include real screenshots and capture visuals, and legacy images from the retired baselines were removed.
-
 - **Paired real-data validation no longer hard-fails on per-feature Fisher separation**: univariate Core-6 Fisher gates were removed; model quality stays covered by Classic/ML paired metrics, long-quiet checks, and dataset quality admission.
 - **Default `motion_on_hits` is now 4**: IDLE→MOTION now requires four consecutive evaluation hits across Python, ESP-IDF, and ESPHome defaults.
 - **Tuning docs now explain evaluation cadence and hit-filter latency**: `TUNING.md` and `SETUP.md` document that default `IDLE -> MOTION` needs about `1 s` of sustained raw motion (`25` packets × `4` hits at `100` pps).
@@ -91,7 +91,7 @@ Historical decision context for the Classic and ML promotions now lives in:
 - **Classic detection now uses direct weighted fusion without a recovery vote**, reducing runtime branches and calibration state.
 - **Default runtime subcarriers were moved away from the DC bin**: the shared fixed 12-subcarrier set is now `[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]`, improving current Classic real-data validation while keeping one cross-chip default band.
 - **Hardware gain lock was removed completely**: ESPectre now keeps AGC active on all chips and uses one shared CV-normalized turbulence path (`std/mean`) across runtime, collection, datasets, and tooling. This avoids the forced-gain instability and Wi-Fi RX/TX problems that may lead to packet loss.
-- **Matter build and CI flows were hardened**: published targets use the standard ESP-IDF path, commissioning behavior is stricter, and QEMU smoke tests now validate real application startup markers.
+- **Matter build and CI flows were hardened**: published targets use the standard ESP-IDF path, commissioning behavior is stricter, and releases/snapshots now stay aligned with the standard firmware build path.
 - **Firmware build optimization is consistent across frontends**: native, Matter, and streamer now default to ESP-IDF size optimization, matching ESPHome's release-oriented `-Os` profile for comparable firmware size and detector timing.
 - **Shared detector timing is now continuously aggregated**: every runtime state-evaluation tick contributes to thread-safe duration, sample-count, minimum, and maximum statistics, while the firmware benchmark uses an exact sample-weighted average and excludes empty telemetry windows.
 - **Repository tooling and docs were aligned with the new platform direction**: `./me` became `./espectre`, host-side tools now live at the top level (`collect`, `ui`, `mqtt`, `monitor`), `micro` is limited to MicroPython device commands, ESP-IDF frontend namespaces focus on build/flash, serial logs use the frontend-agnostic `monitor` command, the MQTT monitor was renamed from `espectre-monitor.html` to `espectre-mqtt.html`, ESPHome packaging no longer relies on symlinks, and the main docs were rewritten around the modular multi-frontend architecture.
@@ -105,7 +105,7 @@ Historical decision context for the Classic and ML promotions now lives in:
 - **The production ML feature set is now the mixed "Core-6" set** (`turb_mad_over_mean`, `turb_skewness`, `turb_autocorr`, `l1_delta`, `l1_delta_std`, `l1_delta_waveform_length`), replacing the relative-8 turbulence set.
 - **ML seed-search candidate gating was simplified around the paired gate**: long-recording checks stay in the performance report and dedicated pytest suites, while trainer promotion and seed search rank with paired validation plus CV tie-breakers.
 - **Micro-ESPectre was reorganized under src/python/micro_espectre/**: the runtime/device sources now live in a dedicated subdirectory.
-- **ESPHome baseline `2026.6.0`**; examples/QEMU now require `min_version: 2026.6.0`.
+- **ESPHome baseline `2026.6.0`**; examples now require `min_version: 2026.6.0`.
 - **The Python baseline was raised from `3.12` to `3.14`** across the main workflow and the ML training environment.
 - **The ML training stack was migrated from TensorFlow/Keras to PyTorch**: the trainer now runs on the PyTorch MLP path, exports the same runtime weights, and no longer produces the unused TFLite/scaler artifacts.
 - **The ML runtime now exposes direct probabilities on a `0.0-1.0` scale**: Python, C++, and training-side reference inference use the raw sigmoid output, so the published movement metric is now a probability and the default binary decision threshold is `0.5`.

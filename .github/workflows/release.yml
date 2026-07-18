@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build ${{ matrix.chip }}
+  build-esphome:
+    name: Build ESPHome ${{ matrix.chip }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -44,7 +44,7 @@ jobs:
           path: |
             ~/.platformio
             ~/.esphome/cache
-          key: pio-${{ runner.os }}-${{ matrix.chip }}-${{ hashFiles('requirements.txt', 'examples/*.yaml', '.github/actions/qemu-smoke-test/configs/*.yaml') }}
+          key: pio-${{ runner.os }}-${{ matrix.chip }}-${{ hashFiles('requirements.txt', 'examples/*.yaml') }}
           restore-keys: |
             pio-${{ runner.os }}-${{ matrix.chip }}-
             pio-${{ runner.os }}-
@@ -167,7 +167,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build, build-matter, build-native]
+    needs: [build-esphome, build-matter, build-native]
     runs-on: ubuntu-latest
     permissions:
       contents: write

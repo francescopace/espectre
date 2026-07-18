@@ -115,41 +115,6 @@ Production code under test lives outside `test/`:
 
 ---
 
-## Smoke Tests (QEMU)
-
-Smoke tests run automatically in CI using the composite action `.github/actions/qemu-smoke-test/`.
-
-Current CI smoke coverage includes these firmware frontends:
-
-- `ESPHome`
-- `Matter`
-- `Native`
-- `Streamer`
-
-### What it detects
-
-- Kernel panics
-- Guru Meditation errors
-- Assertion failures
-- Stack smashing
-
-### Supported chips
-
-| Chip | Architecture | QEMU Machine |
-|------|--------------|--------------|
-| ESP32 | Xtensa | esp32 |
-| ESP32-S3 | Xtensa | esp32s3 |
-| ESP32-C3 | RISC-V | esp32c3 |
-
-Current QEMU-backed smoke coverage is limited to the supported Espressif QEMU
-targets above. `ESP32-C5` and `ESP32-C6` remain build-only in CI.
-
-> Note: WiFi PHY is not fully emulated by QEMU. The CI smoke test filters the known PHY assert so boot regressions still surface without failing on emulator limitations.
-
-> **Note**: CI job names reflect the frontend under test, for example `Smoke Test Matter ESP32-C3`, `Smoke Test Native ESP32`, or `Smoke Test Streamer ESP32-S3`.
-
----
-
 ## Adding New Tests
 
 Create `test/suites/core/test_my_feature.cpp`:

@@ -29,7 +29,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build an ESPectre firmware manifest.")
     parser.add_argument("--firmware-dir", required=True, help="Directory containing built firmware assets")
     parser.add_argument("--output", required=True, help="Output manifest path")
-    parser.add_argument("--channel", choices=("stable", "main"), required=True, help="Release channel exposed to the web UI")
+    parser.add_argument(
+        "--channel",
+        choices=("stable", "main", "develop"),
+        required=True,
+        help="Release channel exposed to the web UI or snapshot release metadata",
+    )
     parser.add_argument("--version", required=True, help="Human-readable version label")
     parser.add_argument("--release-tag", required=True, help="GitHub release tag used to download the assets")
     parser.add_argument("--commit", help="Optional source commit SHA for snapshot builds")
@@ -145,10 +150,14 @@ def build_manifest(args: argparse.Namespace) -> dict:
         esphome_prefix = f"espectre-{args.version}-"
         native_prefix = f"espectre-native-{args.version}-"
         matter_prefix = f"espectre-matter-{args.version}-"
-    else:
+    elif args.channel == "main":
         esphome_prefix = "espectre-snapshot-"
         native_prefix = "espectre-native-snapshot-"
         matter_prefix = "espectre-matter-snapshot-"
+    else:
+        esphome_prefix = "espectre-snapshot-dev-"
+        native_prefix = "espectre-native-snapshot-dev-"
+        matter_prefix = "espectre-matter-snapshot-dev-"
 
     manifest = {
         "schema_version": 1,

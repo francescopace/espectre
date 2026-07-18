@@ -82,6 +82,35 @@ def test_manifest_contains_fifteen_factory_and_five_native_ota_images(tmp_path):
     assert all(path.is_file() for path in ota_manifests)
 
 
+def test_develop_channel_uses_snapshot_dev_prefixes(tmp_path):
+    module = _load_module()
+    (tmp_path / "espectre-snapshot-dev-esp32.bin").write_bytes(b"esphome")
+    (tmp_path / "espectre-matter-snapshot-dev-esp32.bin").write_bytes(b"matter")
+    (tmp_path / "espectre-native-snapshot-dev-esp32.bin").write_bytes(b"native")
+    (tmp_path / "espectre-native-snapshot-dev-esp32-ota.bin").write_bytes(b"native-ota")
+
+    manifest = module.build_manifest(
+        argparse.Namespace(
+            firmware_dir=str(tmp_path),
+            output=str(tmp_path / "firmware-manifest-snapshot-dev.json"),
+            channel="develop",
+            version="develop",
+            release_tag="snapshot-dev",
+            commit="deadbeef",
+            url_prefix=None,
+        )
+    )
+
+    artifacts = [artifact for frontend in manifest["frontends"].values() for artifact in frontend["artifacts"]]
+    assert len(artifacts) == 4
+    assert {artifact["filename"] for artifact in artifacts} == {
+        "espectre-snapshot-dev-esp32.bin",
+        "espectre-matter-snapshot-dev-esp32.bin",
+        "espectre-native-snapshot-dev-esp32.bin",
+        "espectre-native-snapshot-dev-esp32-ota.bin",
+    }
+
+
 def test_complete_matrix_validation_rejects_missing_artifact():
     module = _load_module()
     manifest = {

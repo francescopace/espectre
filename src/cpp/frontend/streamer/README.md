@@ -339,10 +339,6 @@ The streamer firmware is intentionally narrow:
 Current repository CLI target coverage for the streamer frontend includes
 `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, and `ESP32-S3`.
 
-CI QEMU smoke currently covers `ESP32`, `ESP32-S3`, and `ESP32-C3` for the
-streamer frontend. `ESP32-C5` and `ESP32-C6` remain build-only because the
-current Espressif QEMU fork does not support them.
-
 ## Observed ESP32-C3 Throughput
 
 The table below summarizes a standalone streamer transport benchmark snapshot on

@@ -1,8 +1,8 @@
 /*
  * ESPectre - No-op BLE Bindings
  *
- * Lightweight BLE binding used by QEMU smoke builds where the BLE controller
- * path is not emulated, but frontend boot should still continue.
+ * Lightweight BLE binding for builds or test paths that need the frontend
+ * surface without an active BLE controller implementation.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3

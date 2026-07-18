@@ -197,9 +197,6 @@ Current published Matter targets:
 Validation notes:
 
 - the current recorded hardware smoke target is `ESP32-C3`
-- CI QEMU smoke currently covers `ESP32`, `ESP32-S3`, and `ESP32-C3`
-- QEMU uses a dedicated no-BLE overlay and does not represent normal hardware
-  commissioning behavior
 
 ## Dependencies and Firmware Layout
 

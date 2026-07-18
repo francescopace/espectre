@@ -209,9 +209,7 @@ extern "C" void app_main() {
   frontend.set_runtime_config(build_runtime_config());
   frontend.set_runtime_services_armed(false);
   g_frontend = &frontend;
-  ESP_LOGI(TAG, "ESPectre Matter smoke marker: endpoint %u configured, starting Matter stack",
-           g_motion_endpoint_id);
-  err = esp_event_loop_create_default();
+  esp_err_t err = esp_event_loop_create_default();
   if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
     ESP_LOGE(TAG, "Failed to create default event loop (%d)", err);
     return;

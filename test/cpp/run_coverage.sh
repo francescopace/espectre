@@ -63,16 +63,17 @@ with open(lcov_path, "r", encoding="utf-8") as handle:
         elif current is None:
             continue
         elif line.startswith("DA:"):
-            line_no, hits = line[3:].split(",")
-            line_no = int(line_no)
-            hits = int(hits)
+            # LCOV allows an optional checksum: DA:<line>,<hits>[,<checksum>]
+            parts = line[3:].split(",")
+            line_no = int(parts[0])
+            hits = int(parts[1])
             ensure_file(current)["lines"][line_no] = max(ensure_file(current)["lines"].get(line_no, 0), hits)
         elif line.startswith("FNDA:"):
             hits, name = line[5:].split(",", 1)
             hits = int(hits)
             ensure_file(current)["functions"][name] = max(ensure_file(current)["functions"].get(name, 0), hits)
         elif line.startswith("BRDA:"):
-            line_no, block_no, branch_no, hits = line[5:].split(",")
+            line_no, block_no, branch_no, hits = line[5:].split(",", 3)
             key = (int(line_no), block_no, branch_no)
             hit_value = 0 if hits == "-" else int(hits)
             ensure_file(current)["branches"][key] = max(ensure_file(current)["branches"].get(key, 0), hit_value)
@@ -195,11 +196,12 @@ def parse_lcov(text):
             entry = files[current]["fn"].setdefault(name, {"line": 0, "hits": 0})
             entry["hits"] = max(entry["hits"], int(hits))
         elif line.startswith("DA:"):
-            line_no, hits = line[3:].split(",")
-            line_no = int(line_no)
-            files[current]["da"][line_no] = max(files[current]["da"].get(line_no, 0), int(hits))
+            # LCOV allows an optional checksum: DA:<line>,<hits>[,<checksum>]
+            parts = line[3:].split(",")
+            line_no = int(parts[0])
+            files[current]["da"][line_no] = max(files[current]["da"].get(line_no, 0), int(parts[1]))
         elif line.startswith("BRDA:"):
-            line_no, block_no, branch_no, hits = line[5:].split(",")
+            line_no, block_no, branch_no, hits = line[5:].split(",", 3)
             key = (int(line_no), block_no, branch_no)
             hit_value = 0 if hits == "-" else int(hits)
             files[current]["br"][key] = max(files[current]["br"].get(key, 0), hit_value)

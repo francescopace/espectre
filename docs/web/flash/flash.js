@@ -4,8 +4,8 @@ const MANIFEST_URLS = {
 };
 
 const CHANNEL_LABELS = {
-    stable: "Stable",
-    main: "Main",
+    stable: "Latest Release",
+    main: "Release Preview",
 };
 
 const state = {

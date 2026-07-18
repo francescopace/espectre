@@ -1,0 +1,9 @@
+# ESP32-specific product overrides.
+#
+# Matter plus CHIPoBLE on classic ESP32 is close to the IRAM ceiling. Keep the
+# publishable build on the standard feature set, but trade the optional lwIP
+# IRAM optimization for fit margin and avoid selecting the USB Serial/JTAG
+# secondary console on a chip that does not provide it.
+
+CONFIG_LWIP_IRAM_OPTIMIZATION=n
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=n
