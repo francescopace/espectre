@@ -1,4 +1,4 @@
-[![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/license-GPLv3%20or%20Commercial-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSING.md)
 [![Chips ESP32 family](https://img.shields.io/badge/chips-ESP32%20family-red.svg)](https://www.espressif.com/en/products/socs)
 [![Works with ESPHome](https://img.shields.io/badge/works%20with-ESPHome-blue.svg)](https://esphome.io/)
 [![Works with Matter](https://img.shields.io/badge/works%20with-Matter-5C6BC0.svg)](https://csa-iot.org/all-solutions/matter/)
@@ -32,7 +32,7 @@ the ML workflow, training process, and model export path, see
 ESPectre started as a Home Assistant-friendly Wi-Fi motion detector. With v3, it becomes a reusable Wi-Fi sensing platform:
 
 - **Smart home ready**: ESPHome remains the production path for Home Assistant.
-- **Matter path**: production-ready Matter firmware opens the door to Apple Home, Google Home, Alexa, and other controller-based smart-home setups.
+- **Matter path**: production-ready Matter firmware opens the door to Apple Home, Google Home, Alexa, Samsung SmartThings, Home Assistant, and other controller-based smart-home setups.
 - **Native firmware**: standalone BLE, MQTT, and OTA firmware works without Home Assistant and can be driven by web clients or custom integrations.
 - **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed in custom ESP32 firmware and OEM products.
 - **Research and ML tooling**: streamer firmware, notebooks, collection tools, and training docs support CSI dataset creation and future sensing models.
@@ -73,7 +73,7 @@ Supported hardware:
 | Path | Best for | Start here |
 |------|----------|------------|
 | **ESPHome** | Home Assistant users who want the most polished production path | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
-| **Matter** | Apple Home, Google Home, Alexa, and Matter ecosystem experiments | [Matter frontend](src/cpp/frontend/matter/README.md) |
+| **Matter** | Apple Home, Google Home, Alexa, SmartThings, and other Matter controllers | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Native BLE/MQTT** | Standalone devices, web clients, custom apps, and non-Home Assistant setups | [Native frontend](src/cpp/frontend/native/README.md) |
 | **Streamer** | CSI data capture, dataset collection, live experiments, and ML workflows | [Streamer frontend](src/cpp/frontend/streamer/README.md) |
 | **Micro-ESPectre** | Python/MicroPython research and rapid algorithm prototyping | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
@@ -168,6 +168,7 @@ Use ESPectre only in spaces where you have the right to deploy it, inform affect
 | [CLI.md](docs/CLI.md) | Repository CLI command map, host tools, and interactive MQTT shell behavior |
 | [TUNING.md](docs/TUNING.md) | Placement, thresholds, filters, calibration, and troubleshooting |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Internal architecture, SDK-oriented reuse, and web orchestration direction |
+| [EMBEDDING.md](docs/EMBEDDING.md) | Embedding the sensing engine into third-party ESP32 firmware |
 | [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) | Shared BLE/MQTT protocol, payloads, commands, and privacy boundary |
 | [ALGORITHMS.md](docs/ALGORITHMS.md) | CSI theory, detectors, filters, and feature extraction |
 | [README.md](docs/performance/README.md) | Benchmarks, validation targets, resource usage, and caveats |
@@ -217,8 +218,12 @@ Frontend-specific docs:
 
 ## License
 
-ESPectre is released under the [GNU General Public License v3.0](LICENSE).  
-Contributions are submitted under GPLv3 and must include a DCO `Signed-off-by` trailer on each commit (`git commit -s`).
+ESPectre is dual-licensed:
+
+- **GPLv3** for open-source use: see [LICENSE](LICENSE).
+- **Commercial licenses** for embedding ESPectre into proprietary firmware: see [LICENSING.md](LICENSING.md).
+
+Contributions require a DCO `Signed-off-by` trailer on each commit (`git commit -s`) and a one-time [CLA](CLA.md) signature, so contributed code can be distributed under both licensing tracks.
 
 ## Author
 

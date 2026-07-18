@@ -1,0 +1,55 @@
+name: CLA
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  cla-check:
+    name: CLA Signature Check
+    runs-on: ubuntu-latest
+    if: ${{ !endsWith(github.event.pull_request.user.login, '[bot]') }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify the PR author has signed the CLA
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import sys
+
+          author = os.environ["PR_AUTHOR"]
+          ledger_path = ".github/cla-signatures.json"
+
+          with open(ledger_path, encoding="utf-8") as fh:
+              ledger = json.load(fh)
+
+          signers = {
+              str(entry.get("login", "")).lower()
+              for entry in ledger.get("signedContributors", [])
+          }
+
+          if author.lower() in signers:
+              print(f"CLA signature found for @{author}.")
+              sys.exit(0)
+
+          print(f"::error title=CLA signature required::@{author} has not signed the Contributor License Agreement (CLA.md).")
+          print()
+          print("How to sign:")
+          print("  1. Read CLA.md at the repository root.")
+          print(f"  2. In this pull request, add an entry for your GitHub login to {ledger_path}:")
+          print()
+          print('         { "login": "%s", "signedAt": "YYYY-MM-DD" }' % author)
+          print()
+          print("  3. Commit it with your usual DCO sign-off (git commit -s).")
+          print()
+          print("Adding that entry constitutes your signature of the CLA. One signature")
+          print("covers all your past and future contributions to this repository.")
+          sys.exit(1)
+          EOF

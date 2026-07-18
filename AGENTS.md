@@ -182,8 +182,11 @@ PR commits must include a valid `Signed-off-by` trailer. Prefer `git commit -s`.
 
 ## License And Dependencies
 
-- GPLv3; see `LICENSE`.
+- Dual-licensed: GPLv3 (`LICENSE`) plus separately offered commercial licenses (`LICENSING.md`).
+- Keep `core`, `runtime`, and the native/Matter/streamer frontends free of GPL-only dependencies; use permissively licensed components (Apache-2.0, MIT, BSD) so the code stays distributable under both tracks.
+- Only `src/cpp/frontend/esphome/` may depend on GPLv3 ESPHome components.
 - Do not add dependencies with licenses incompatible with GPLv3.
+- Contributions require the DCO trailer and a one-time CLA signature; do not remove the CLA workflow.
 - Add Python dependencies only when they are declared in the appropriate requirements file:
   - `requirements.txt` for the base workflow
   - `requirements-ml.txt` for ML/training extras

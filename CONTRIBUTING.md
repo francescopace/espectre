@@ -170,6 +170,15 @@ test: add unit tests for Hampel filter
 This repository enforces the Developer Certificate of Origin (DCO) in CI.
 Every commit in a pull request must include a valid `Signed-off-by` trailer.
 
+### CLA (required once)
+
+ESPectre is dual-licensed (see [LICENSING.md](LICENSING.md)), so the project
+also requires a one-time [Contributor License Agreement](CLA.md) signature.
+To sign, add your GitHub login to `.github/cla-signatures.json` in your first
+pull request, as described in [CLA.md](CLA.md); the CLA check on the pull
+request verifies the entry. One signature covers all your past and future
+contributions while you retain ownership of your work.
+
 Use:
 
 ```bash
@@ -382,7 +391,7 @@ All contributors are recognized in:
 - Release notes for significant contributions
 - Data contributors credited in dataset documentation
 
-All contributions must also be certified under the Developer Certificate of Origin (DCO) by adding the `Signed-off-by` trailer to each commit.
-This certifies that you have the right to submit the contribution under the project license.
+All contributions must also be certified under the Developer Certificate of Origin (DCO) by adding the `Signed-off-by` trailer to each commit, and covered by a one-time [CLA](CLA.md) signature.
+The DCO certifies that you have the right to submit the contribution; the CLA lets the project distribute it under both licensing tracks described in [LICENSING.md](LICENSING.md).
 
-See [LICENSE](LICENSE) for details.
+See [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for details.

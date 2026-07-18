@@ -3,8 +3,11 @@
 This directory contains the ESPectre Matter frontend.
 
 Matter is a smart-home interoperability standard that lets devices work across
-major ecosystems such as Apple Home, Google Home, Amazon Alexa, and other
-Matter-compatible controllers.
+major ecosystems such as Apple Home, Google Home, Amazon Alexa, Samsung
+SmartThings, Home Assistant's Matter integration, and other Matter-compatible
+controllers. ESPectre exposes the standard occupancy sensor device type, so any
+controller that supports Matter occupancy sensors can consume it without a
+dedicated ESPectre integration.
 
 It maps the shared ESPectre runtime to a Matter surface built on top of
 `esp_matter`, without pulling Matter-specific concepts into `core` or the

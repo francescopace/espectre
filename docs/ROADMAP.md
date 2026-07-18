@@ -60,6 +60,7 @@ ESPectre v3 success criteria:
 - [x] Run local firmware smoke tests for ESPHome, native, and Matter C3 release paths
 - [ ] Run hardware flash/monitor smoke tests for the release targets, published factory images, and Native OTA images
 - [x] Reduce long-recording false-positive caveats on C5/C6
+- [ ] Re-enable the `CLA Signature Check` as a required status check in GitHub branch protection for `develop`
 - [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
 
 ### Deferred Follow-Ups
@@ -67,6 +68,10 @@ ESPectre v3 success criteria:
 - Evaluate LAN discovery for the streamer workflow via DNS-SD/mDNS so `./espectre collect` can browse reachable streamer nodes and optionally select a subset by `device_id`, while keeping explicit `--target` as the deterministic fallback and preserving CSI demultiplexing by `device_id`
 - Explore broader PHY and band support on the v3 platform, including HT40, Wi-Fi 6 / 802.11ax capabilities, and, where supported by hardware and exposed APIs, 5 GHz operation
 - Evaluate a future Matter OTA design for a later 3.x or post-v3 release, including Requestor-plus-Provider ownership and release artifact expectations
+- Validate and document Matter commissioning across additional controllers (Samsung SmartThings, Home Assistant Matter, and the Tuya app where occupancy sensors are supported), keeping a verified-controller matrix in the Matter frontend README
+- Evaluate a Zigbee occupancy-sensor frontend on ESP32-C6 via `esp-zigbee-sdk`, starting with a coexistence spike to measure how 802.11 CSI capture behaves next to 802.15.4 time-slicing on the shared 2.4 GHz radio
+- Evaluate Matter certification readiness for manufacturer-oriented builds, mapping the gap between the current Matter firmware and a CSA-certifiable product across vendor ID allocation, device attestation certificates, factory provisioning, and certification test coverage; commercial Apple Home and SmartThings reach flows through certified Matter rather than the non-commercial HomeKit ADK
+- Evaluate a TuyaOpen reference integration that embeds the shared `core` and `runtime` into a TuyaOS application, aimed at manufacturers that already operate Tuya product pipelines, with per-device licensing and cloud coupling documented as integrator-side prerequisites
 
 ---
 

@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Dual licensing**: ESPectre is now offered under GPLv3 or a separate commercial license for proprietary integrations (`LICENSING.md`), and the CLA check returns alongside the DCO check so contributions can be distributed under both tracks.
+- **Embedding guide** (`docs/EMBEDDING.md`): how to integrate the shared `core` and `runtime` layers into third-party ESP32 firmware, with the published frontends as reference integrations.
+
 - **Four task-oriented website guides** now cover browser flashing and Wi-Fi provisioning, detection fundamentals, custom firmware and embedded sensing integration, and product use cases.
 - **Per-device Matter onboarding data** generated with the device RNG and persisted in a dedicated factory partition, with the same QR available from the web flasher, serial logs, and `./espectre matter qr`.
 - **Unified browser tools under `espectre.dev`** for firmware flashing, BLE configuration, MQTT monitoring, the motion-controlled game, and the Wi-Fi Theremin, with the same MQTT, BLE, and Theremin pages available locally through `./espectre ui`.
