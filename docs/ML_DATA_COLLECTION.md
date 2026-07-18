@@ -30,9 +30,7 @@ Every run refreshes explicit `static_presence` / `motion` pair metadata in
 and writes `data/auto_generated/DATASET_QUALITY_CHECK.md` unless `--no-report`
 is set. Admission checks (integrity, empty/static sanity, ML readiness) can
 fail the run. Classic replay adds indicative 0-100 scores for review only, so
-the dataset is not filtered to "what Classic already solves". Soft `Breath`
-marks use one shared `Breath` ladder (coverage and human-rate Hz weight already
-folded into the score), with Empty polarity inverted.
+the dataset is not filtered to "what Classic already solves".
 Tooling details live in [`tools/README.md`](../tools/README.md).
 
 ## Scope

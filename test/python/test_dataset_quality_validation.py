@@ -53,7 +53,7 @@ def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> No
         csi = empty_csi if path.name.startswith("empty") else static_csi
         return {"csi_data": csi}, "csi_data"
 
-    def fake_stats(csi_data, packet_rate_pps=100.0):
+    def fake_stats(csi_data, packet_rate_pps=100.0, *, calibration_cache=None, cache_key=None):
         assert packet_rate_pps == 100.0
         if csi_data is empty_csi:
             margins = np.array([-2.0, -1.0, -2.0, -1.0])
@@ -86,27 +86,13 @@ def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> No
     monkeypatch.setattr(module, "_resolve_dataset_entry_path", fake_resolve)
     monkeypatch.setattr(module, "_load_cached_or_npz", fake_load)
     monkeypatch.setattr(module, "_classic_self_baseline_stats", fake_stats)
-    monkeypatch.setattr(
-        module,
-        "_compute_respiration_evidence",
-        lambda csi_data, packet_rate_pps: {
-            "score": 10.0,
-            "coverage": 0.0,
-            "peak_frequency_hz": 0.25,
-            "prominence": 5.0,
-            "band_power_ratio": 0.2,
-            "autocorrelation_peak": 0.1,
-            "support_ratio": 0.2,
-            "segment_count": 2,
-        },
-    )
 
     results, empty_rows, presence_rows = module.validate_empty_sanity(
         dataset_info, npz_cache={}
     )
     empty_result = next(r for r in results if r.name == "empty_quality/empty_a.npz")
     presence_result = next(
-        r for r in results if r.name == "presence_evidence/static_a.npz"
+        r for r in results if r.name == "presence_quality/static_a.npz"
     )
 
     assert empty_result.status == "PASS"
@@ -124,7 +110,7 @@ def test_classic_baseline_score_weights_cleanliness_stability_and_bursts() -> No
 
     assert module.classic_baseline_score(0.0, 0.75, 0.0) == 100.0
     assert module.classic_baseline_score(0.10, 1.50, 5.0) == 0.0
-    assert module.classic_baseline_score(0.05, 1.125, 2.5) == 50.0
+    assert module.classic_baseline_score(0.05, 1.125, 2.5) == 53.8
 
 
 def test_active_burst_metrics_reports_duration_and_rate() -> None:
@@ -141,195 +127,24 @@ def test_active_burst_metrics_reports_duration_and_rate() -> None:
     assert metrics["bursts_per_minute"] == pytest.approx(30.0)
 
 
-def test_respiration_evidence_prefers_coherent_periodic_profiles() -> None:
-    module = _load_validator_module()
-    rng = np.random.default_rng(42)
-    sample_rate_hz = 10.0
-    seconds = 120
-    time = np.arange(int(sample_rate_hz * seconds)) / sample_rate_hz
-    weights = np.linspace(-0.12, 0.12, 12)
-    periodic = (
-        1.0
-        + np.sin(2.0 * np.pi * 0.25 * time)[:, None] * weights[None, :]
-        + rng.normal(0.0, 0.015, size=(len(time), len(weights)))
-    )
-    noise = 1.0 + rng.normal(0.0, 0.04, size=periodic.shape)
-
-    periodic_metrics = module._respiration_evidence_from_profiles(
-        periodic, packet_rate_pps=sample_rate_hz
-    )
-    noise_metrics = module._respiration_evidence_from_profiles(
-        noise, packet_rate_pps=sample_rate_hz
-    )
-
-    assert periodic_metrics is not None
-    assert noise_metrics is not None
-    assert periodic_metrics["score"] > noise_metrics["score"] + 30.0
-    assert periodic_metrics["coverage"] >= 0.75
-    assert periodic_metrics["peak_frequency_hz"] == pytest.approx(0.25, abs=0.04)
-    assert periodic_metrics["support_ratio"] >= 0.75
-    assert periodic_metrics["peak_mad_hz"] <= 0.04
-
-
-def test_respiration_evidence_downweights_wandering_in_band_peaks() -> None:
-    """Frequency-inconsistent segments must not count as sustained respiration."""
-    module = _load_validator_module()
-    rng = np.random.default_rng(7)
-    sample_rate_hz = 10.0
-    segment_seconds = 30
-    segment_samples = int(sample_rate_hz * segment_seconds)
-    weights = np.linspace(-0.12, 0.12, 12)
-
-    def _tone_block(freq_hz: float) -> np.ndarray:
-        time = np.arange(segment_samples) / sample_rate_hz
-        return (
-            1.0
-            + np.sin(2.0 * np.pi * freq_hz * time)[:, None] * weights[None, :]
-            + rng.normal(0.0, 0.015, size=(segment_samples, len(weights)))
-        )
-
-    # Four clean 30 s segments: one stable tone vs well-separated in-band tones.
-    stable = np.concatenate([_tone_block(0.25) for _ in range(4)], axis=0)
-    wandering = np.concatenate(
-        [_tone_block(freq) for freq in (0.10, 0.18, 0.42, 0.50)], axis=0
-    )
-
-    stable_metrics = module._respiration_evidence_from_profiles(
-        stable, packet_rate_pps=sample_rate_hz
-    )
-    wandering_metrics = module._respiration_evidence_from_profiles(
-        wandering, packet_rate_pps=sample_rate_hz
-    )
-
-    assert stable_metrics is not None
-    assert wandering_metrics is not None
-    assert wandering_metrics["coverage"] < 0.25
-    assert wandering_metrics["peak_mad_hz"] >= 0.10
-    assert wandering_metrics["peak_mad_hz"] > stable_metrics["peak_mad_hz"]
-    assert stable_metrics["score"] > wandering_metrics["score"] + 15.0
-
-
-def test_empty_and_presence_verdicts_separate_contamination_types() -> None:
+def test_empty_and_presence_verdicts_use_classic_baseline_only() -> None:
     module = _load_validator_module()
     baseline = {
         "fp_rate": 0.0,
         "margin_mad": 0.7,
         "longest_burst_seconds": 0.0,
     }
-    respiration = {"score": 60.0, "coverage": 0.75}
 
-    assert module._empty_quality_verdict(baseline, respiration) == "presence-like"
-    assert module._presence_evidence_verdict(baseline, respiration) == "respiration"
-    assert module._breath_severity("presence-like", inverted=True) == "fail"
-    assert module._breath_severity("respiration") is None
+    assert module._empty_quality_verdict(baseline) == "clean"
+    assert module._presence_quality_verdict(baseline) == "clean"
 
     motion_baseline = dict(baseline, fp_rate=0.08)
-    assert module._empty_quality_verdict(motion_baseline, respiration) == "motion-like"
-    assert (
-        module._presence_evidence_verdict(motion_baseline, respiration)
-        == "motion-contaminated"
-    )
+    assert module._empty_quality_verdict(motion_baseline) == "motion-like"
+    assert module._presence_quality_verdict(motion_baseline) == "motion-contaminated"
 
-
-def test_empty_and_presence_share_respiration_score_ladder() -> None:
-    module = _load_validator_module()
-    baseline = {
-        "fp_rate": 0.0,
-        "margin_mad": 0.7,
-        "longest_burst_seconds": 0.0,
-    }
-    # Soft marks use Breath alone; coverage and Hz weight are folded in.
-    partial = {"score": 40.8, "coverage": 0.0}
-    assert module._respiration_evidence_band(partial) == "partial"
-    assert module._empty_quality_verdict(baseline, partial) == "partial"
-    assert module._presence_evidence_verdict(baseline, partial) == "partial"
-    assert module._breath_severity("partial") == "warn"
-    assert module._breath_severity("partial", inverted=True) == "warn"
-
-    weak = {"score": 16.0, "coverage": 0.0}
-    assert module._respiration_evidence_band(weak) == "weak"
-    assert module._empty_quality_verdict(baseline, weak) == "clean"
-    assert module._presence_evidence_verdict(baseline, weak) == "weak"
-    assert module._breath_severity("weak") == "fail"
-    assert module._breath_severity("clean", inverted=True) is None
-
-
-def test_respiration_score_folds_segment_coverage() -> None:
-    module = _load_validator_module()
-    rng = np.random.default_rng(11)
-    sample_rate_hz = 10.0
-    segment_seconds = 30
-    segment_samples = int(sample_rate_hz * segment_seconds)
-    weights = np.linspace(-0.12, 0.12, 12)
-
-    def _tone_block(freq_hz: float) -> np.ndarray:
-        time = np.arange(segment_samples) / sample_rate_hz
-        return (
-            1.0
-            + np.sin(2.0 * np.pi * freq_hz * time)[:, None] * weights[None, :]
-            + rng.normal(0.0, 0.015, size=(segment_samples, len(weights)))
-        )
-
-    sustained = np.concatenate([_tone_block(0.25) for _ in range(4)], axis=0)
-    wandering = np.concatenate(
-        [_tone_block(freq) for freq in (0.10, 0.18, 0.42, 0.50)], axis=0
-    )
-    sustained_metrics = module._respiration_evidence_from_profiles(
-        sustained, packet_rate_pps=sample_rate_hz
-    )
-    wandering_metrics = module._respiration_evidence_from_profiles(
-        wandering, packet_rate_pps=sample_rate_hz
-    )
-
-    assert sustained_metrics is not None
-    assert wandering_metrics is not None
-    for metrics in (sustained_metrics, wandering_metrics):
-        assert metrics["score"] == pytest.approx(
-            metrics["intensity"]
-            * (0.5 + 0.5 * metrics["coverage"])
-            * metrics["hz_weight"]
-        )
-    assert sustained_metrics["coverage"] > wandering_metrics["coverage"]
-    assert sustained_metrics["hz_weight"] == module.BREATH_HZ_PASS_WEIGHT
-    assert sustained_metrics["score"] > wandering_metrics["score"] + 20.0
-
-
-def test_respiration_score_folds_human_rate_hz_weight() -> None:
-    """Consensus peaks outside quiet-adult rates must damp Breath."""
-    module = _load_validator_module()
-    rng = np.random.default_rng(19)
-    sample_rate_hz = 10.0
-    segment_seconds = 30
-    segment_samples = int(sample_rate_hz * segment_seconds)
-    weights = np.linspace(-0.12, 0.12, 12)
-
-    def _tone_block(freq_hz: float) -> np.ndarray:
-        time = np.arange(segment_samples) / sample_rate_hz
-        return (
-            1.0
-            + np.sin(2.0 * np.pi * freq_hz * time)[:, None] * weights[None, :]
-            + rng.normal(0.0, 0.015, size=(segment_samples, len(weights)))
-        )
-
-    human = np.concatenate([_tone_block(0.25) for _ in range(4)], axis=0)
-    edge = np.concatenate([_tone_block(0.45) for _ in range(4)], axis=0)
-    human_metrics = module._respiration_evidence_from_profiles(
-        human, packet_rate_pps=sample_rate_hz
-    )
-    edge_metrics = module._respiration_evidence_from_profiles(
-        edge, packet_rate_pps=sample_rate_hz
-    )
-
-    assert human_metrics is not None
-    assert edge_metrics is not None
-    assert human_metrics["hz_weight"] == module.BREATH_HZ_PASS_WEIGHT
-    assert edge_metrics["hz_weight"] == module.BREATH_HZ_FAIL_WEIGHT
-    assert human_metrics["score"] > edge_metrics["score"]
-    assert edge_metrics["score"] == pytest.approx(
-        edge_metrics["intensity"]
-        * (0.5 + 0.5 * edge_metrics["coverage"])
-        * module.BREATH_HZ_FAIL_WEIGHT
-    )
+    unstable_baseline = dict(baseline, margin_mad=1.25, longest_burst_seconds=2.0)
+    assert module._empty_quality_verdict(unstable_baseline) == "unstable"
+    assert module._presence_quality_verdict(unstable_baseline) == "unstable"
 
 
 def test_metadata_refresh_recommendation_triggers_for_missing_pair_warning() -> None:
@@ -620,16 +435,25 @@ def test_long_recording_coverage_warns_without_annotated_motion() -> None:
 
     module._resolve_dataset_entry_path = lambda entry, label: Path("/tmp/quiet.npz")
     module._load_cached_or_npz = lambda filepath, cache: (FakeNpz(), "csi_data")
-    module._evaluate_classic_quiet_fp = lambda csi: {
-        "fp_rate": 0.0,
-        "threshold": 1.0,
-        "eval_count": 100,
-    }
+    module._classic_self_baseline_stats = (
+        lambda csi, packet_rate_pps=100.0, *, calibration_cache=None, cache_key=None: {
+            "score": 100.0,
+            "fp_rate": 0.0,
+            "margin_mad": 0.5,
+            "longest_burst_seconds": 0.0,
+            "threshold": 1.0,
+            "eval_count": 100,
+            "motion_count": 0,
+        }
+    )
 
     results, quiet_scores = module.validate_quiet_test_recordings(dataset_info, {})
     coverage = next(result for result in results if result.name == "long_test_event_coverage")
-    assert quiet_scores and quiet_scores[0]["classic_score"] == 100.0
+    quiet_result = next(result for result in results if result.name == "quiet_test_idle/quiet.npz")
+    assert quiet_scores and quiet_scores[0]["baseline"]["score"] == 100.0
+    assert quiet_scores[0]["verdict"] == "clean"
     assert quiet_scores[0]["display_date"] == "2026-07-04 11:23"
+    assert quiet_result.status == "PASS"
 
     assert coverage.status == "WARN"
     assert coverage.value == 0
@@ -814,13 +638,6 @@ def test_classic_pair_score_rewards_clean_idle_and_full_motion() -> None:
     assert 49.0 <= mid <= 76.0
 
 
-def test_classic_quiet_score_scales_with_false_positives() -> None:
-    module = _load_validator_module()
-    assert module.classic_quiet_score(0.0) == 100.0
-    assert module.classic_quiet_score(0.10) == 0.0
-    assert module.classic_quiet_score(0.05) == 50.0
-
-
 def test_ratio_cells_mark_soft_warn_and_fail_thresholds() -> None:
     module = _load_validator_module()
     assert module._format_static_above_cell(0.0) == "0.0%"
@@ -833,26 +650,24 @@ def test_ratio_cells_mark_soft_warn_and_fail_thresholds() -> None:
     assert "❌" in module._format_quiet_fp_cell(0.06)
     assert "**" in module._format_static_above_cell(0.08, markdown=True)
     assert module._format_score_cell(99.0) == "99.0"
-    assert "⚠️" in module._format_score_cell(80.0, module._quiet_fp_severity(0.03))
-    assert "❌" in module._format_score_cell(40.0, module._quiet_fp_severity(0.06))
+    assert "⚠️" in module._format_score_cell(80.0, "warn")
+    assert "❌" in module._format_score_cell(40.0, "fail")
+    assert module._format_margin_mad_cell(0.90) == "0.90"
+    assert "⚠️" in module._format_margin_mad_cell(1.10)
+    assert "❌" in module._format_margin_mad_cell(1.60)
+    assert module._format_burst_cell(0.5) == "0.5s"
+    assert "⚠️" in module._format_burst_cell(1.5)
+    assert "❌" in module._format_burst_cell(5.5)
     assert module._score_value_severity(95.0) is None
-    assert module._score_value_severity(94.9) == "warn"
-    assert module._score_value_severity(90.0) == "warn"
-    assert module._score_value_severity(89.9) == "fail"
+    assert module._score_value_severity(94.9) is None
+    assert module._score_value_severity(90.0) is None
+    assert module._score_value_severity(89.9) is None
     assert module._score_value_severity(98.9) is None
     assert module._pair_ratio_severity(3.0) is None
     assert module._pair_ratio_severity(2.9) == "warn"
     assert module._pair_ratio_severity(2.0) == "warn"
     assert module._pair_ratio_severity(1.9) == "fail"
     assert "❌" in module._format_pair_ratio_cell(1.73)
-    # Quiet-adult human rates keep full Breath weight; fringe/outside damp.
-    assert module._breath_hz_weight(0.23) == module.BREATH_HZ_PASS_WEIGHT
-    assert module._breath_hz_weight(0.17) == module.BREATH_HZ_PASS_WEIGHT
-    assert module._breath_hz_weight(0.33) == module.BREATH_HZ_PASS_WEIGHT
-    assert module._breath_hz_weight(0.14) == module.BREATH_HZ_WARN_WEIGHT
-    assert module._breath_hz_weight(0.38) == module.BREATH_HZ_WARN_WEIGHT
-    assert module._breath_hz_weight(0.10) == module.BREATH_HZ_FAIL_WEIGHT
-    assert module._breath_hz_weight(0.45) == module.BREATH_HZ_FAIL_WEIGHT
     assert module._pair_ratio(
         np.array([0.55, 0.70, 0.80]),
         threshold=0.5,
@@ -863,8 +678,93 @@ def test_ratio_cells_mark_soft_warn_and_fail_thresholds() -> None:
     ) == pytest.approx(0.78)
 
 
-def test_classic_diagnostic_status_never_fails_the_run() -> None:
+def test_idle_evidence_results_never_fail_the_run() -> None:
     module = _load_validator_module()
-    assert module._classic_diagnostic_status("FAIL") == "WARN"
-    assert module._classic_diagnostic_status("WARN") == "WARN"
-    assert module._classic_diagnostic_status("PASS") == "PASS"
+
+    dirty_baseline = {
+        "score": 10.0,
+        "fp_rate": 0.5,
+        "margin_mad": 2.0,
+        "longest_burst_seconds": 30.0,
+    }
+    module._compute_idle_evidence_for_entry = (
+        lambda entry, label, npz_cache, calibration_cache=None: (dirty_baseline, None)
+    )
+
+    results, rows = module._evaluate_idle_evidence_files(
+        [{"filename": "quiet.npz", "chip": "C3", "environment": "bedroom"}],
+        label="test",
+        check_kind="quiet_test_idle",
+        kind_title="Long-test",
+        verdict_fn=module._empty_quality_verdict,
+        npz_cache={},
+    )
+
+    assert results[0].status == "WARN"
+    assert "verdict=motion-like" in results[0].message
+    assert rows[0]["baseline"] is dirty_baseline
+
+
+def test_pair_review_profile_derives_empirical_ratio_and_score_thresholds() -> None:
+    module = _load_validator_module()
+    pair_rows = [
+        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.8, "classic_score": 99.8},
+        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.4, "classic_score": 98.9},
+        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.0, "classic_score": 98.0},
+        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 3.6, "classic_score": 97.2},
+    ]
+
+    profile_map = module._table_review_profiles(pair_rows, [], [], [])
+    severity_profile = profile_map["pair"]["C3"]
+
+    assert module._pair_ratio_severity(3.7, severity_profile) == "warn"
+    assert module._score_value_severity(97.3, severity_profile) is None
+
+
+def test_idle_review_profile_derives_empirical_mad_and_burst_thresholds() -> None:
+    module = _load_validator_module()
+    idle_rows = [
+        {
+            "chip": "S3",
+            "verdict": "clean",
+            "baseline": {
+                "margin_mad": 0.60,
+                "longest_burst_seconds": 0.0,
+                "score": 100.0,
+            },
+        },
+        {
+            "chip": "S3",
+            "verdict": "clean",
+            "baseline": {
+                "margin_mad": 0.70,
+                "longest_burst_seconds": 0.1,
+                "score": 99.0,
+            },
+        },
+        {
+            "chip": "S3",
+            "verdict": "clean",
+            "baseline": {
+                "margin_mad": 0.80,
+                "longest_burst_seconds": 0.2,
+                "score": 97.0,
+            },
+        },
+        {
+            "chip": "S3",
+            "verdict": "clean",
+            "baseline": {
+                "margin_mad": 0.90,
+                "longest_burst_seconds": 0.3,
+                "score": 95.0,
+            },
+        },
+    ]
+
+    profile_map = module._table_review_profiles([], idle_rows, [], [])
+    severity_profile = profile_map["static_presence"]["S3"]
+
+    assert "⚠️" in module._format_margin_mad_cell(0.88, severity_profile=severity_profile)
+    assert "⚠️" in module._format_burst_cell(0.28, severity_profile=severity_profile)
+    assert module._score_value_severity(95.4, severity_profile) is None

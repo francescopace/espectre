@@ -242,10 +242,9 @@ Defaults on every run:
   set
 
 Report layout: Quality Check Summary and Validation Domains first, then the
-score tables, then Validation rule / computed-metric notes. `Breath` folds
-segment coverage and quiet-adult human-rate Hz weight into one score; Presence
-and Empty share that ladder, and Empty only inverts the soft marks (high
-`Breath` means presence-like contamination).
+score tables, then Validation rule / computed-metric notes. Presence and Empty
+tables show self-calibrated Classic idle FP plus the indicative 0-100 baseline
+score.
 
 **Checks performed:**
 - Metadata completeness — required dataset metadata exists, disk captures are
@@ -255,13 +254,11 @@ and Empty share that ladder, and Empty only inverts the soft marks (high
   per-packet arrays align, and the embedded label matches the dataset directory
 - Signal quality — amplitude range, zero-packet detection, packet cadence, and stream continuity
 - Pair validation — production-aligned threshold replay on explicit `static_presence` / `motion` pairs
-- Empty sanity — each `empty` capture is evaluated independently;
-  self-calibrated motion activation and segmented
-  respiration evidence flag motion-like, presence-like, or unstable empty files
-- Presence evidence — 30-second `static_presence` segments combine respiration-band
-  spectral prominence, temporal autocorrelation, and subcarrier support, then keep
-  only frequency-consistent peaks near the median candidate, without requiring a
-  paired `empty` capture
+- Empty sanity — each `empty` capture is evaluated independently; self-calibrated
+  Classic idle activation flags motion-like or unstable empty files
+- Presence quality — each `static_presence` capture uses the same self-calibrated
+  Classic idle baseline to flag motion-contaminated or unstable files, without
+  requiring a paired `empty` capture
 - Quiet-test sanity — idle-only `test` recordings stay quiet under Classic replay
 - ML readiness — binary balance with `empty + static_presence` mapped to IDLE,
   usable windows after per-file warm-up, chip/environment coverage, and grouped

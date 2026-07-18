@@ -25,7 +25,7 @@ frontend paths, and an embeddable foundation for custom firmware and OEM product
 | **Architecture** | Shared `core`, `runtime`, and `frontend` layers |
 | **Runtime contract** | Stable frontend-oriented APIs such as `IEspectreRuntime`, snapshots, events, and capabilities |
 | **ESPHome frontend** | Production Home Assistant path kept on top of the shared platform |
-| **Native frontend** | Standalone custom GATT surface for generic BLE clients and web integrations |
+| **Native frontend** | Standalone custom GATT surface for generic BLE clients and web integrations, including runtime tuning and BLE-triggered HTTPS OTA |
 | **ESPectre Protocol** | Shared BLE+MQTT Protocol baseline for provisioning, telemetry, status, info, commands, monitor integration, and reusable runtime protocol services |
 | **Matter frontend** | Matter occupancy surface proving a second ecosystem-facing frontend |
 | **Streamer frontend** | Standalone CSI UDP streamer for dataset collection, host tooling, and realtime fusion experiments |
@@ -35,11 +35,11 @@ frontend paths, and an embeddable foundation for custom firmware and OEM product
 
 ### Release Readiness
 
-The v3 platform is in a release-candidate state for the modular platform goal.
+The v3 platform is approaching release-candidate state for the modular platform goal.
 The shared architecture, protocol services, frontend paths, and host-side
 validation workflows are present and covered by automated tests.
-Remaining work is release polish, hardware smoke coverage, and clearly
-documenting current sensing characteristics.
+Remaining work is closing the Native BLE control gaps, release polish, hardware
+smoke coverage, and clearly documenting current sensing characteristics.
 
 | Area | State | Notes |
 |------|-------|-------|
@@ -49,7 +49,7 @@ documenting current sensing characteristics.
 | **Protocol baseline** | Ready | BLE+MQTT payloads, provisioning, telemetry, status, info, commands, and monitor tooling are documented in `ESPECTRE_PROTOCOL.md` |
 | **Detection validation** | Ready | Current C++ and Python real-data and long-recording suites pass across supported chips; C5/C6 long-quiet false-positive rates remain below the 5% target |
 | **Documentation** | Ready | Setup, architecture, protocol, tuning, performance, and frontend-specific READMEs describe the v3 surface |
-| **Product polish** | Remaining | Hardware flash smoke, release notes, final binary artifact checks, and user-facing wording should be completed before tagging |
+| **Product polish** | Remaining | Native BLE OTA and hit-threshold controls, hardware flash smoke, release notes, final binary artifact checks, and user-facing wording should be completed before tagging |
 
 ESPectre v3 success criteria:
 
@@ -59,14 +59,31 @@ ESPectre v3 success criteria:
 - [x] Document multi-frontend setup, architecture, and protocol boundaries
 - [x] Run local firmware smoke tests for ESPHome, native, and Matter C3 release paths
 - [ ] Run hardware flash/monitor smoke tests for the release targets, published factory images, and Native OTA images
+- [ ] Trigger Native firmware OTA from BLE, then resolve the manifest and download the update over HTTPS through the same OTA service used by MQTT
+- [ ] Set the runtime `motion_on_hits` and `motion_off_hits` thresholds through the Native BLE control surface
 - [x] Reduce long-recording false-positive caveats on C5/C6
 - [ ] Re-enable the `CLA Signature Check` as a required status check in GitHub branch protection for `develop`
 - [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
 
+### Planned v3.x Follow-Ups
+
+These items belong to the v3 series but do not all need to block `v3.0.0`; they
+may ship in later v3.x minor releases after the modular platform baseline is
+tagged.
+
+- [ ] Add Presence vs Empty detection
+- [ ] Raise the ESP32 streamer sustained capture rate beyond the current approximately 70 pps ceiling
+  - [ ] Collect ESP32 data across all dataset environments
+  - [ ] Retrain and validate the production model with the expanded ESP32 dataset
+- [ ] Optimize Micro-ESPectre to exceed its current approximately 70 pps ceiling
+- [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
+- [ ] Add and validate broader PHY and band support, including HT40, Wi-Fi 6 / 802.11ax capabilities, and, where supported by hardware and exposed APIs, 5 GHz operation
+- [ ] Use a dedicated build directory for each chip instead of reusing the same directory across targets
+- [ ] Test the new GitHub issue and pull request templates end to end
+
 ### Deferred Follow-Ups
 
 - Evaluate LAN discovery for the streamer workflow via DNS-SD/mDNS so `./espectre collect` can browse reachable streamer nodes and optionally select a subset by `device_id`, while keeping explicit `--target` as the deterministic fallback and preserving CSI demultiplexing by `device_id`
-- Explore broader PHY and band support on the v3 platform, including HT40, Wi-Fi 6 / 802.11ax capabilities, and, where supported by hardware and exposed APIs, 5 GHz operation
 - Evaluate a future Matter OTA design for a later 3.x or post-v3 release, including Requestor-plus-Provider ownership and release artifact expectations
 - Validate and document Matter commissioning across additional controllers (Samsung SmartThings, Home Assistant Matter, and the Tuya app where occupancy sensors are supported), keeping a verified-controller matrix in the Matter frontend README
 - Evaluate a Zigbee occupancy-sensor frontend on ESP32-C6 via `esp-zigbee-sdk`, starting with a coexistence spike to measure how 802.11 CSI capture behaves next to 802.15.4 time-slicing on the shared 2.4 GHz radio
@@ -152,7 +169,7 @@ When a microcontroller or embedded Wi-Fi platform exposes practical 802.11bf-sty
 
 ## Roadmap Updates
 
-Last update: **July 14, 2026**
+Last update: **July 18, 2026**
 
 For discussion and proposed changes:
 

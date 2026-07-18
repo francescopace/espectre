@@ -2,9 +2,6 @@
 
 - Status: Accepted
 - Date: 2026-07-17
-- Amended: 2026-07-17 (Classic indicative scores; drop raw L1 pair admission;
-  auto metadata refresh / report defaults; Breath folds coverage and human-rate
-  Hz weight, shared ladder with Empty inverted)
 
 ## Context
 
@@ -39,10 +36,9 @@ gates.
 Classic stays visible but non-blocking:
 
 - production `ClassicDetector` replay on pairs and quiet long recordings
-- independent self-calibration of every `empty` capture
+- independent self-calibration of every `empty` and `static_presence` capture
 - robust logit-margin, false-positive, drift, and activation-burst diagnostics
-- detector-independent respiration evidence on `empty` and `static_presence`
-- an indicative 0-100 score per pair, quiet file, empty baseline, or respiration trace
+- an indicative 0-100 score per pair, quiet file, or idle baseline
 - soft PASS/WARN against promotion-style activation targets
 - Classic results never veto dataset admission
 
@@ -56,33 +52,11 @@ is 100 at `motion_above>=95%`, and `ratio` is 100 at
 FP `>=10%`.
 
 Empty and `static_presence` are not required to be temporally paired. Each
-`empty` file is treated as a distinct idle baseline: Classic calibrates on the
-capture prefix and evaluates only its remaining tail. Its score weights self-FP
+idle file is treated as a distinct baseline: Classic calibrates on the capture
+prefix and evaluates only its remaining tail. Its score weights self-FP
 cleanliness (50%), robust logit-margin stability (30%), and absence of sustained
-activation bursts (20%).
-
-Respiration evidence is evaluated independently in 30-second segments. It
-combines spectral prominence in the 0.10-0.50 Hz candidate band, in-band power,
-temporal autocorrelation, and agreement across subcarriers. Aggregation keeps
-only segments whose peak lies near the median candidate frequency
-(±0.10 Hz) so quasi-stationary breathing outranks wandering in-band empty-room
-noise. Soft `Breath` folds segment coverage and a quiet-adult human-rate Hz
-weight into one score, then uses one shared Breath ladder for Presence and
-Empty:
-
-- Hz weight: `×1.0` in `0.17-0.33 Hz` (~10-20 bpm), `×0.75` in the
-  `0.13-0.40 Hz` fringe (~8-24 bpm), `×0.40` outside that fringe
-- strong / Presence pass (`respiration`, Empty `presence-like`): `Breath >= 50`
-- ⚠️ `partial`: `Breath >= 35`
-- otherwise `weak` (Empty stays `clean` when the Classic baseline is quiet)
-
-Presence marks ⚠️ `partial` / ❌ `weak` (higher is better). Empty inverts the
-same ladder: ⚠️ `partial`, ❌ strong/`presence-like` (lower is better). The
-report table exposes `Breath` only (no separate Hz column).
-
-Excessive Classic activation takes precedence as `motion-like` or
-`motion-contaminated`. These verdicts remain review-only because CSI cannot
-prove room occupancy.
+activation bursts (20%). Soft Presence/Empty review marks follow that baseline
+alone (`clean`, `unstable`, `motion-like`, or `motion-contaminated`).
 
 The validator CLI defaults keep operators on one entry point: every run
 refreshes reciprocal pair metadata in `data/dataset_info.json` (write /

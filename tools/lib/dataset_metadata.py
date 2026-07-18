@@ -75,10 +75,11 @@ class ResolvedPair:
     num_subcarriers: int
 
 
-def load_dataset_info() -> Dict[str, Any]:
+def load_dataset_info(path: Optional[Path] = None) -> Dict[str, Any]:
     """Load or create dataset info."""
-    if DATASET_INFO_FILE.exists():
-        with open(DATASET_INFO_FILE, "r", encoding="utf-8") as handle:
+    info_path = DATASET_INFO_FILE if path is None else Path(path)
+    if info_path.exists():
+        with open(info_path, "r", encoding="utf-8") as handle:
             return json.load(handle)
 
     now = datetime.now().isoformat()
@@ -93,11 +94,13 @@ def load_dataset_info() -> Dict[str, Any]:
     }
 
 
-def save_dataset_info(info: Dict[str, Any]) -> None:
-    """Persist dataset info to disk."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(DATASET_INFO_FILE, "w", encoding="utf-8") as handle:
+def save_dataset_info(info: Dict[str, Any], path: Optional[Path] = None) -> None:
+    """Persist dataset info to disk with stable formatting."""
+    info_path = DATASET_INFO_FILE if path is None else Path(path)
+    info_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(info_path, "w", encoding="utf-8") as handle:
         json.dump(info, handle, indent=2)
+        handle.write("\n")
 
 
 def get_dataset_stats() -> Dict[str, Any]:
@@ -148,7 +151,7 @@ def _entry_matches_filters(
     return True
 
 
-def _resolve_entry_path(label: str, entry: Dict[str, Any]) -> Path:
+def resolve_entry_path(label: str, entry: Dict[str, Any]) -> Path:
     """Resolve one dataset_info entry to its NPZ path."""
     relative_path = entry.get("relative_path")
     if relative_path:
@@ -159,48 +162,41 @@ def _resolve_entry_path(label: str, entry: Dict[str, Any]) -> Path:
     return DATA_DIR / str(label) / str(filename)
 
 
+def build_classic_detector(
+    *,
+    threshold: float = 1.0,
+    enable_hampel: Optional[bool] = None,
+) -> ClassicDetector:
+    """Build a ClassicDetector with the production runtime configuration."""
+    hampel_enabled = (
+        config.ENABLE_HAMPEL_FILTER
+        if enable_hampel is None
+        else bool(enable_hampel)
+    )
+    return ClassicDetector(
+        window_size=config.SEG_WINDOW_SIZE,
+        threshold=threshold,
+        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=config.LOWPASS_CUTOFF,
+        enable_hampel=hampel_enabled,
+        hampel_window=config.HAMPEL_WINDOW,
+        hampel_threshold=config.HAMPEL_THRESHOLD,
+    )
+
+
 def estimate_runtime_threshold(
     packets: Iterable[Dict[str, Any]],
     *,
     selected_subcarriers: Optional[Iterable[int]] = None,
 ) -> Optional[float]:
     """Replay the classic startup calibration and return a production-aligned threshold."""
-    detector = ClassicDetector(
-        window_size=config.SEG_WINDOW_SIZE,
-        threshold=1.0,
-        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=config.LOWPASS_CUTOFF,
-        enable_hampel=config.ENABLE_HAMPEL_FILTER,
-        hampel_window=config.HAMPEL_WINDOW,
-        hampel_threshold=config.HAMPEL_THRESHOLD,
+    calibrated = build_calibrated_classic_detector(
+        packets,
+        selected_subcarriers=selected_subcarriers,
     )
-    calibrator = StartupThresholdCalibrator(
-        config.CALIBRATION_BUFFER_SIZE,
-        auto_factor=get_detector_auto_factor(detector),
-        gate_enabled=get_detector_startup_gate(detector),
-    )
-    detector.on_startup_calibration_begin()
-    band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)
-    packets_since_evaluation = 0
-    for pkt in packets:
-        csi_data = pkt["csi_data"] if isinstance(pkt, dict) else pkt
-        detector.process_packet(csi_data, band)
-        packets_since_evaluation += 1
-        if packets_since_evaluation < config.EVALUATION_INTERVAL:
-            continue
-        detector.update_state()
-        calibrator.observe_detector(
-            detector,
-            packet_weight=packets_since_evaluation,
-        )
-        packets_since_evaluation = 0
-        if calibrator.is_complete():
-            break
-    if not calibrator.is_successful():
+    if calibrated is None:
         return None
-    threshold, _ = calibrator.calculate_threshold()
-    detector.set_adaptive_threshold(float(threshold))
-    return float(detector.get_threshold())
+    return calibrated[1]
 
 
 def build_calibrated_classic_detector(
@@ -217,20 +213,7 @@ def build_calibrated_classic_detector(
     ``enable_hampel`` defaults to the runtime configuration and is exposed so
     tests can exercise both branches without mutating global configuration.
     """
-    hampel_enabled = (
-        config.ENABLE_HAMPEL_FILTER
-        if enable_hampel is None
-        else bool(enable_hampel)
-    )
-    detector = ClassicDetector(
-        window_size=config.SEG_WINDOW_SIZE,
-        threshold=threshold,
-        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=config.LOWPASS_CUTOFF,
-        enable_hampel=hampel_enabled,
-        hampel_window=config.HAMPEL_WINDOW,
-        hampel_threshold=config.HAMPEL_THRESHOLD,
-    )
+    detector = build_classic_detector(threshold=threshold, enable_hampel=enable_hampel)
     calibrator = StartupThresholdCalibrator(
         config.CALIBRATION_BUFFER_SIZE,
         auto_factor=get_detector_auto_factor(detector),
@@ -324,7 +307,7 @@ def resolve_dataset_selection(
         candidates.sort(key=lambda item: _dataset_sort_key(item[1]), reverse=prefer_latest)
 
     resolved_label, entry = candidates[0]
-    resolved_path = _resolve_entry_path(resolved_label, entry)
+    resolved_path = resolve_entry_path(resolved_label, entry)
     counterpart_label = None
     counterpart_entry = None
     counterpart_path = None
@@ -341,7 +324,7 @@ def resolve_dataset_selection(
         for raw_entry in files_section.get(counterpart_label, []):
             if raw_entry.get("filename") == counterpart_name:
                 counterpart_entry = dict(raw_entry)
-                counterpart_path = _resolve_entry_path(counterpart_label, counterpart_entry)
+                counterpart_path = resolve_entry_path(counterpart_label, counterpart_entry)
                 break
 
     return ResolvedDataset(

@@ -24,14 +24,13 @@ Checks performed:
   6. ML readiness          - Label balance, minimum samples, chip diversity
 
 SOURCE CODE ALIGNMENT:
-  This script imports core functions directly from src/python/micro_espectre/ to ensure correctness:
-  - src/python/micro_espectre/utils.py: calculate_spatial_turbulence(), calculate_moving_variance()
+  This script reuses production and shared tooling code instead of local copies:
   - src/python/micro_espectre/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
   - src/python/micro_espectre/classic_detector.py: indicative Classic replay and scores
-
-  Amplitude extraction is vectorized with numpy (int8 → int16 to avoid overflow)
-  rather than looping through src/micro_espectre/utils.py:extract_amplitudes() per packet.
-  src/micro_espectre/utils.py works on Python int lists (no overflow), but NPZ stores numpy int8.
+  - tools/lib/dataset_metadata.py: dataset_info I/O, entry paths, Classic calibration
+  - tools/lib/csi_analysis.py: vectorized amplitude extraction (int8 → int16 to
+    avoid overflow; src/micro_espectre/utils.py works on Python int lists, but
+    NPZ stores numpy int8)
 
 Usage:
     python validate_dataset_quality.py              # Full validation (auto report + metadata refresh)
@@ -44,7 +43,6 @@ License: GPLv3
 """
 
 import sys
-import json
 import argparse
 import datetime
 import re
@@ -63,16 +61,15 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.lib.bootstrap import setup_paths  # noqa: F401
 from tools.lib.repo_paths import generated_data_dir  # noqa: E402
+from tools.lib import dataset_metadata  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
     build_calibrated_classic_detector,
+    build_classic_detector,
 )
+from tools.lib.csi_analysis import extract_amplitudes_matrix  # noqa: E402
 
 
 from detector_interface import MotionState  # noqa: E402
-from utils import (                                      # noqa: E402
-    calculate_spatial_turbulence as _src_spatial_turbulence,
-    calculate_moving_variance as _src_moving_variance,
-)
 from config import (  # noqa: E402
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
@@ -104,34 +101,11 @@ MAX_INTER_PACKET_GAP_FAIL_MS = 250.0
 # Self-calibrated idle-baseline review. Empty and static-presence captures may
 # come from different sessions, so each capture owns its startup calibration.
 BASELINE_BLOCK_SECONDS = 5.0
-BASELINE_MARGIN_MAD_FULL = 0.75
+BASELINE_MARGIN_MAD_FULL = 0.90
 BASELINE_MARGIN_MAD_WARN = 1.00
 BASELINE_MARGIN_MAD_ZERO = 1.50
 BASELINE_LONGEST_BURST_WARN_SECONDS = 1.0
 BASELINE_LONGEST_BURST_ZERO_SECONDS = 5.0
-RESPIRATION_TARGET_RATE_HZ = 10.0
-RESPIRATION_SEGMENT_SECONDS = 30.0
-RESPIRATION_BAND_HZ = (0.10, 0.50)
-RESPIRATION_ANALYSIS_BAND_HZ = (0.05, 2.00)
-RESPIRATION_SEGMENT_SCORE_MIN = 50.0
-RESPIRATION_EVIDENCE_SCORE_MIN = 50.0
-RESPIRATION_SUSPECT_SCORE_MIN = 35.0
-# Human breath-rate bands (Hz) folded into the Breath score. Spectral search
-# still uses the wider RESPIRATION_BAND_HZ candidate window; these nested bands
-# damp the final score when the consensus peak is outside quiet-adult rates
-# (~10-20 bpm pass, ~8-24 bpm warn fringe).
-BREATH_HZ_HUMAN_PASS_HZ = (0.17, 0.33)
-BREATH_HZ_HUMAN_WARN_HZ = (0.13, 0.40)
-BREATH_HZ_PASS_WEIGHT = 1.0
-BREATH_HZ_WARN_WEIGHT = 0.75
-BREATH_HZ_FAIL_WEIGHT = 0.40
-# Segment peaks must agree near the median candidate frequency; wandering
-# in-band noise (typical of empty rooms) is excluded from the consensus set.
-# Final Breath folds coverage and human-rate Hz weight so soft marks use one
-# number.
-RESPIRATION_FREQ_CONSENSUS_HZ = 0.10
-RESPIRATION_PEAK_MAD_FULL = 0.04
-RESPIRATION_PEAK_MAD_ZERO = 0.12
 QUIET_TEST_CLASSIC_FP_WARN_RATIO = 0.02
 QUIET_TEST_CLASSIC_FP_FAIL_RATIO = 0.05
 MAX_STATIC_ACTIVE_RATIO = 0.05
@@ -145,13 +119,17 @@ CLASSIC_SCORE_STATIC_ZERO = 0.10
 CLASSIC_SCORE_MOTION_FULL = 0.95
 CLASSIC_SCORE_RATIO_FULL = 4.0
 CLASSIC_SCORE_QUIET_ZERO = 0.10
-# Soft review marks on the Score column itself (still non-blocking).
-SCORE_WARN_BELOW = 95.0
-SCORE_FAIL_BELOW = 90.0
 # Ratio (Motion Scores) = p95(motion) / threshold. Soft marks for weak
 # separation; more robust than max(motion) / threshold.
 RATIO_WARN_BELOW = 3.0
 RATIO_FAIL_BELOW = 2.0
+EMPIRICAL_WARN_QUANTILE_ABOVE = 0.90
+EMPIRICAL_FAIL_QUANTILE_ABOVE = 0.98
+EMPIRICAL_WARN_QUANTILE_BELOW = 0.10
+EMPIRICAL_FAIL_QUANTILE_BELOW = 0.02
+EMPIRICAL_MIN_GLOBAL_ROWS = 4
+EMPIRICAL_MIN_CHIP_ROWS = 3
+EMPIRICAL_PROFILE_GLOBAL_KEY = "__all__"
 METADATA_LABELS = ('empty', 'static_presence', 'motion', 'test')
 PER_FILE_QUALITY_LABELS = METADATA_LABELS
 REQUIRED_PAIR_FIELD_BY_LABEL = {
@@ -162,322 +140,6 @@ PAIR_COUNTERPART_LABEL = {
     'static_presence': 'motion',
     'motion': 'static_presence',
 }
-
-
-# ------------------------------------------------------------------
-# Vectorized amplitude extraction (avoids per-packet Python loops)
-# ------------------------------------------------------------------
-
-def _extract_amplitudes_matrix(csi_matrix):
-    """Extract amplitudes for all packets at once using numpy.
-
-    CSI format: [Q0, I0, Q1, I1, ...] per packet (128 int8 values for 64 subcarriers).
-    Amplitude = sqrt(I^2 + Q^2).  We upcast to int16 before squaring to avoid overflow.
-
-    Args:
-        csi_matrix: numpy array of shape (num_packets, 128), dtype int8
-
-    Returns:
-        numpy array of shape (num_packets, 64), dtype float64 — amplitudes
-    """
-    data = csi_matrix.astype(np.int16)
-    Q = data[:, 0::2]  # even indices: Imaginary
-    I = data[:, 1::2]  # odd indices:  Real
-    return np.sqrt((I * I + Q * Q).astype(np.float64))
-
-
-# ------------------------------------------------------------------
-# Wrappers for src/ functions
-# ------------------------------------------------------------------
-
-def _spatial_turbulence_from_amps(amplitudes, band):
-    """Compute spatial turbulence from a pre-extracted amplitude list.
-
-    Delegates to src/utils.py:calculate_spatial_turbulence().
-    """
-    return _src_spatial_turbulence(amplitudes, band)
-
-
-def _moving_variance(values, window_size=None):
-    """Compute moving variance via src/utils.py.
-
-    Uses SEG_WINDOW_SIZE from src/config.py as default (100).
-    """
-    if window_size is None:
-        window_size = SEG_WINDOW_SIZE
-    return _src_moving_variance(values, window_size)
-
-
-def _compute_turbulence_series(csi_data):
-    """Compute gain-invariant turbulence for one CSI matrix."""
-    amps = _extract_amplitudes_matrix(csi_data)
-    if amps.size == 0:
-        return np.asarray([], dtype=np.float64)
-    band_amps = amps[:, DEFAULT_SUBCARRIERS]
-    means = band_amps.mean(axis=1)
-    stds = band_amps.std(axis=1)
-    turbulence = np.divide(
-        stds,
-        means,
-        out=np.zeros_like(stds, dtype=np.float64),
-        where=means > 0.0,
-    )
-    return np.asarray(turbulence, dtype=np.float64)
-
-
-def _clamp_unit(value):
-    """Clamp a diagnostic component into [0, 1]."""
-    return float(max(0.0, min(1.0, value)))
-
-
-def _respiration_component_metrics(component, subcarrier_series, sample_rate_hz):
-    """Measure narrow-band periodicity for one PCA time component."""
-    count = len(component)
-    window = np.hanning(count)
-    frequencies = np.fft.rfftfreq(count, d=1.0 / sample_rate_hz)
-    power = np.abs(np.fft.rfft(component * window)) ** 2
-    respiration_mask = (
-        (frequencies >= RESPIRATION_BAND_HZ[0])
-        & (frequencies <= RESPIRATION_BAND_HZ[1])
-    )
-    analysis_mask = (
-        (frequencies >= RESPIRATION_ANALYSIS_BAND_HZ[0])
-        & (frequencies <= RESPIRATION_ANALYSIS_BAND_HZ[1])
-    )
-    if not np.any(respiration_mask) or not np.any(analysis_mask):
-        return None
-
-    respiration_indices = np.flatnonzero(respiration_mask)
-    peak_index = int(respiration_indices[np.argmax(power[respiration_mask])])
-    peak_frequency = float(frequencies[peak_index])
-    noise_mask = analysis_mask & (np.abs(frequencies - peak_frequency) > 0.06)
-    noise_floor = float(np.median(power[noise_mask])) if np.any(noise_mask) else 0.0
-    prominence = float(power[peak_index] / max(noise_floor, 1e-12))
-    band_power_ratio = float(
-        power[respiration_mask].sum() / max(power[analysis_mask].sum(), 1e-12)
-    )
-
-    centered = component - float(np.mean(component))
-    variance = float(np.dot(centered, centered))
-    lag_min = max(1, int(round(sample_rate_hz / RESPIRATION_BAND_HZ[1])))
-    lag_max = min(count - 2, int(round(sample_rate_hz / RESPIRATION_BAND_HZ[0])))
-    autocorrelation_peak = 0.0
-    if variance > 1e-12 and lag_max >= lag_min:
-        autocorrelation_peak = max(
-            float(np.dot(centered[:-lag], centered[lag:]) / variance)
-            for lag in range(lag_min, lag_max + 1)
-        )
-
-    subcarrier_power = np.abs(
-        np.fft.rfft(subcarrier_series * window[:, None], axis=0)
-    ) ** 2
-    supported = 0
-    for index in range(subcarrier_power.shape[1]):
-        current = subcarrier_power[:, index]
-        current_peak_index = int(
-            respiration_indices[np.argmax(current[respiration_mask])]
-        )
-        current_noise = (
-            float(np.median(current[noise_mask])) if np.any(noise_mask) else 0.0
-        )
-        current_prominence = float(
-            current[current_peak_index] / max(current_noise, 1e-12)
-        )
-        if (
-            abs(float(frequencies[current_peak_index]) - peak_frequency) <= 0.05
-            and current_prominence >= 4.0
-        ):
-            supported += 1
-    support_ratio = supported / max(subcarrier_power.shape[1], 1)
-
-    prominence_score = _clamp_unit(
-        (np.log10(max(prominence, 1.0)) - np.log10(4.0))
-        / (np.log10(30.0) - np.log10(4.0))
-    )
-    band_score = _clamp_unit((band_power_ratio - 0.15) / 0.30)
-    autocorrelation_score = _clamp_unit((autocorrelation_peak - 0.20) / 0.50)
-    support_score = _clamp_unit((support_ratio - 0.25) / 0.50)
-    evidence_score = 100.0 * (
-        0.30 * prominence_score
-        + 0.20 * band_score
-        + 0.25 * autocorrelation_score
-        + 0.25 * support_score
-    )
-    return {
-        "score": float(evidence_score),
-        "peak_frequency_hz": peak_frequency,
-        "prominence": prominence,
-        "band_power_ratio": band_power_ratio,
-        "autocorrelation_peak": autocorrelation_peak,
-        "support_ratio": float(support_ratio),
-    }
-
-
-def _respiration_evidence_from_profiles(profiles, packet_rate_pps):
-    """Return frequency-consensus respiration evidence from amplitude profiles.
-
-    Each 30-second segment still scores narrow-band periodicity on the top PCA
-    components. Aggregation then keeps only segments whose peak frequency lies
-    near the median candidate: true respiration is quasi-stationary, while
-    empty-room in-band noise tends to jump between unrelated peaks.
-    """
-    values = np.asarray(profiles, dtype=np.float64)
-    if values.ndim != 2 or values.shape[1] < 2:
-        return None
-
-    downsample_size = max(
-        1, int(round(float(packet_rate_pps) / RESPIRATION_TARGET_RATE_HZ))
-    )
-    downsample_count = len(values) // downsample_size
-    if downsample_count == 0:
-        return None
-    values = values[:downsample_count * downsample_size].reshape(
-        downsample_count, downsample_size, values.shape[1]
-    ).mean(axis=1)
-    sample_rate_hz = float(packet_rate_pps) / downsample_size
-    segment_size = max(8, int(round(sample_rate_hz * RESPIRATION_SEGMENT_SECONDS)))
-    segment_count = len(values) // segment_size
-    if segment_count == 0:
-        return None
-
-    segment_metrics = []
-    time_axis = np.arange(segment_size, dtype=np.float64)
-    time_axis -= time_axis.mean()
-    time_energy = float(np.dot(time_axis, time_axis))
-    for segment_index in range(segment_count):
-        segment = values[
-            segment_index * segment_size:(segment_index + 1) * segment_size
-        ].copy()
-        segment -= segment.mean(axis=0, keepdims=True)
-        slopes = np.dot(time_axis, segment) / max(time_energy, 1e-12)
-        segment -= time_axis[:, None] * slopes[None, :]
-        scales = segment.std(axis=0)
-        valid = scales > 1e-6
-        if int(valid.sum()) < 2:
-            continue
-        segment = segment[:, valid] / scales[valid]
-
-        u, singular_values, _ = np.linalg.svd(segment, full_matrices=False)
-        candidates = []
-        for component_index in range(min(3, len(singular_values))):
-            component = u[:, component_index] * singular_values[component_index]
-            metrics = _respiration_component_metrics(
-                component, segment, sample_rate_hz
-            )
-            if metrics is not None:
-                candidates.append(metrics)
-        if candidates:
-            segment_metrics.append(max(candidates, key=lambda item: item["score"]))
-
-    if not segment_metrics:
-        return None
-
-    scores = np.asarray([item["score"] for item in segment_metrics], dtype=np.float64)
-    peaks = np.asarray(
-        [item["peak_frequency_hz"] for item in segment_metrics], dtype=np.float64
-    )
-    center_hz = float(np.median(peaks))
-    near = np.abs(peaks - center_hz) <= RESPIRATION_FREQ_CONSENSUS_HZ
-    strong = scores >= RESPIRATION_SEGMENT_SCORE_MIN
-    consensus_scores = scores[near] if np.any(near) else scores
-    peak_mad = float(np.median(np.abs(peaks - center_hz)))
-    mad_span = max(
-        RESPIRATION_PEAK_MAD_ZERO - RESPIRATION_PEAK_MAD_FULL, 1e-6
-    )
-    stability = _clamp_unit(
-        (RESPIRATION_PEAK_MAD_ZERO - peak_mad) / mad_span
-    )
-    # Consensus intensity, lightly damped when peaks wander, then scaled by the
-    # fraction of strong frequency-consistent segments and by how close the
-    # consensus peak is to quiet-adult human rates. Soft marks use Breath alone
-    # (coverage and hz_weight stay in the payload for diagnostics).
-    intensity = float(np.median(consensus_scores)) * (0.75 + 0.25 * stability)
-    coverage = float(np.mean(strong & near))
-    selected = [
-        item
-        for item, is_strong, is_near in zip(segment_metrics, strong, near)
-        if is_strong and is_near
-    ] or [
-        item for item, is_near in zip(segment_metrics, near) if is_near
-    ] or segment_metrics
-    peak_frequency_hz = float(np.median([
-        item["peak_frequency_hz"] for item in selected
-    ]))
-    hz_weight = _breath_hz_weight(peak_frequency_hz)
-    score = intensity * (0.5 + 0.5 * coverage) * hz_weight
-    return {
-        "score": float(score),
-        "intensity": float(intensity),
-        "coverage": coverage,
-        "hz_weight": float(hz_weight),
-        "peak_frequency_hz": peak_frequency_hz,
-        "prominence": float(np.median([item["prominence"] for item in selected])),
-        "band_power_ratio": float(np.median([
-            item["band_power_ratio"] for item in selected
-        ])),
-        "autocorrelation_peak": float(np.median([
-            item["autocorrelation_peak"] for item in selected
-        ])),
-        "support_ratio": float(np.median([
-            item["support_ratio"] for item in selected
-        ])),
-        "segment_count": len(segment_metrics),
-        "peak_mad_hz": peak_mad,
-    }
-
-
-def _compute_respiration_evidence(csi_data, packet_rate_pps):
-    """Extract gain-normalized profiles and evaluate respiration evidence."""
-    amplitudes = _extract_amplitudes_matrix(csi_data)
-    if amplitudes.size == 0:
-        return None
-    profiles = amplitudes[:, DEFAULT_SUBCARRIERS]
-    means = profiles.mean(axis=1)
-    profiles = np.divide(
-        profiles,
-        means[:, None],
-        out=np.zeros_like(profiles, dtype=np.float64),
-        where=means[:, None] > 0.0,
-    )
-    return _respiration_evidence_from_profiles(profiles, packet_rate_pps)
-
-
-def _window_mean(values, window_size=None):
-    """Compute sliding-window means aligned to the full-window region."""
-    if window_size is None:
-        window_size = SEG_WINDOW_SIZE
-    if len(values) < window_size:
-        return []
-    arr = np.asarray(values, dtype=np.float64)
-    kernel = np.ones(window_size, dtype=np.float64) / float(window_size)
-    return np.convolve(arr, kernel, mode='valid').tolist()
-
-
-def _standardize_with_empty_direction(empty_values, static_values):
-    """Standardize one feature and orient it so higher scores mean empty."""
-    empty_arr = np.asarray(empty_values, dtype=np.float64)
-    static_arr = np.asarray(static_values, dtype=np.float64)
-    combined = np.concatenate([empty_arr, static_arr])
-    mean = float(combined.mean())
-    std = float(combined.std())
-    if std <= 1e-9:
-        std = 1.0
-    sign = 1.0 if float(empty_arr.mean()) > float(static_arr.mean()) else -1.0
-    return (
-        sign * ((empty_arr - mean) / std),
-        sign * ((static_arr - mean) / std),
-    )
-
-
-def _build_empty_separation_score(
-    empty_turb_mean,
-    static_turb_mean,
-):
-    """Build the empty-separation score from supported turbulence windows."""
-    return _standardize_with_empty_direction(
-        empty_turb_mean,
-        static_turb_mean,
-    )
 
 
 # ------------------------------------------------------------------
@@ -524,14 +186,6 @@ def classic_pair_score(static_active_ratio, motion_active_ratio, pair_ratio):
         / (CLASSIC_SCORE_RATIO_FULL - 1.0)
     )
     return round(0.5 * idle_clean + 0.4 * motion_cover + 0.1 * ratio_score, 1)
-
-
-def classic_quiet_score(fp_rate):
-    """Return an indicative 0-100 Classic score for one idle-only quiet capture."""
-    return round(
-        _clamp_score(100.0 * (1.0 - float(fp_rate) / CLASSIC_SCORE_QUIET_ZERO)),
-        1,
-    )
 
 
 def classic_baseline_score(fp_rate, margin_mad, longest_burst_seconds):
@@ -643,6 +297,190 @@ def _format_quiet_fp_cell(value, *, markdown=False):
     )
 
 
+def _default_thresholds_for_metric(metric_name):
+    """Return the legacy fixed soft-review thresholds for one metric."""
+    if metric_name == "mad":
+        return {
+            "warn_above": BASELINE_MARGIN_MAD_WARN,
+            "fail_above": BASELINE_MARGIN_MAD_ZERO,
+        }
+    if metric_name == "burst":
+        return {
+            "warn_above": BASELINE_LONGEST_BURST_WARN_SECONDS,
+            "fail_above": BASELINE_LONGEST_BURST_ZERO_SECONDS,
+        }
+    if metric_name == "ratio":
+        return {
+            "warn_below": RATIO_WARN_BELOW,
+            "fail_below": RATIO_FAIL_BELOW,
+        }
+    if metric_name == "score":
+        return {}
+    raise KeyError(f"Unknown review metric: {metric_name}")
+
+
+def _metric_thresholds(metric_name, severity_profile=None):
+    """Return severity thresholds for one metric with empirical fallback."""
+    thresholds = dict(_default_thresholds_for_metric(metric_name))
+    if severity_profile:
+        thresholds.update(severity_profile.get(metric_name, {}))
+    return thresholds
+
+
+def _finite_float_values(values):
+    """Return finite float values from an iterable."""
+    finite = []
+    for value in values:
+        value = float(value)
+        if np.isfinite(value):
+            finite.append(value)
+    return finite
+
+
+def _empirical_thresholds(values, *, direction):
+    """Return empirical warn/fail thresholds for one metric direction."""
+    finite = _finite_float_values(values)
+    if len(finite) < EMPIRICAL_MIN_GLOBAL_ROWS:
+        return {}
+
+    if direction == "above":
+        warn = float(np.quantile(finite, EMPIRICAL_WARN_QUANTILE_ABOVE))
+        fail = float(np.quantile(finite, EMPIRICAL_FAIL_QUANTILE_ABOVE))
+        if fail < warn:
+            fail = warn
+        return {
+            "warn_above": warn,
+            "fail_above": fail,
+        }
+
+    if direction == "below":
+        warn = float(np.quantile(finite, EMPIRICAL_WARN_QUANTILE_BELOW))
+        fail = float(np.quantile(finite, EMPIRICAL_FAIL_QUANTILE_BELOW))
+        if fail > warn:
+            fail = warn
+        return {
+            "warn_below": warn,
+            "fail_below": fail,
+        }
+
+    raise ValueError(f"Unsupported threshold direction: {direction}")
+
+
+def _chip_review_profile(reference_rows, metric_specs):
+    """Return per-chip empirical thresholds with a global fallback."""
+    profile = {}
+
+    global_profile = {}
+    for metric_name, spec in metric_specs.items():
+        thresholds = _empirical_thresholds(
+            [spec["extract"](row) for row in reference_rows],
+            direction=spec["direction"],
+        )
+        if thresholds:
+            global_profile[metric_name] = thresholds
+    if global_profile:
+        profile[EMPIRICAL_PROFILE_GLOBAL_KEY] = global_profile
+
+    chips = sorted({
+        str(row.get("chip", "")).upper()
+        for row in reference_rows
+        if row.get("chip")
+    })
+    for chip in chips:
+        chip_rows = [
+            row for row in reference_rows
+            if str(row.get("chip", "")).upper() == chip
+        ]
+        if len(chip_rows) < EMPIRICAL_MIN_CHIP_ROWS:
+            continue
+        chip_profile = {}
+        for metric_name, spec in metric_specs.items():
+            thresholds = _empirical_thresholds(
+                [spec["extract"](row) for row in chip_rows],
+                direction=spec["direction"],
+            )
+            if thresholds:
+                chip_profile[metric_name] = thresholds
+        if chip_profile:
+            profile[chip] = chip_profile
+
+    return profile
+
+
+def _pair_review_profile(pair_rows):
+    """Return empirical Ratio review thresholds from passing pairs."""
+    reference_rows = [
+        row for row in pair_rows
+        if row.get("classic_status") == "PASS"
+    ]
+    return _chip_review_profile(reference_rows, {
+        "ratio": {
+            "extract": lambda row: row["pair_ratio"],
+            "direction": "below",
+        },
+    })
+
+
+def _idle_review_profile(rows):
+    """Return empirical MAD/Burst review thresholds from clean idle rows."""
+    reference_rows = [
+        row for row in rows
+        if row.get("verdict") == "clean"
+    ]
+    return _chip_review_profile(reference_rows, {
+        "mad": {
+            "extract": lambda row: row["baseline"]["margin_mad"],
+            "direction": "above",
+        },
+        "burst": {
+            "extract": lambda row: row["baseline"]["longest_burst_seconds"],
+            "direction": "above",
+        },
+    })
+
+
+def _table_review_profiles(
+    pair_rows,
+    presence_rows,
+    empty_rows,
+    quiet_rows,
+):
+    """Return empirical review-threshold profiles for every score table."""
+    return {
+        "pair": _pair_review_profile(pair_rows),
+        "static_presence": _idle_review_profile(presence_rows),
+        "empty": _idle_review_profile(empty_rows),
+        "test": _idle_review_profile(quiet_rows),
+    }
+
+
+def _row_severity_profile(profile_map, table_key, chip):
+    """Return the best review profile for one table row."""
+    table_profile = profile_map.get(table_key, {}) if profile_map else {}
+    chip = str(chip).upper()
+    if chip in table_profile:
+        return table_profile[chip]
+    return table_profile.get(EMPIRICAL_PROFILE_GLOBAL_KEY, {})
+
+
+def _has_empirical_metric(profile_map, table_key, metric_name):
+    """Return True when a table has any empirical thresholds for one metric."""
+    table_profile = profile_map.get(table_key, {}) if profile_map else {}
+    return any(metric_name in metric_profile for metric_profile in table_profile.values())
+
+
+def _format_margin_mad_cell(value, *, markdown=False, severity_profile=None):
+    """Format a logit-margin MAD cell and mark soft WARN/FAIL breaches."""
+    severity = _threshold_severity(value, **_metric_thresholds("mad", severity_profile))
+    return _mark_cell(f"{float(value):.2f}", severity, markdown=markdown)
+
+
+def _format_burst_cell(value, *, markdown=False, severity_profile=None):
+    """Format a longest-activation-burst cell and mark soft WARN/FAIL breaches."""
+    severity = _threshold_severity(value, **_metric_thresholds("burst", severity_profile))
+    return _mark_cell(f"{float(value):.1f}s", severity, markdown=markdown)
+
+
 def _pair_ratio(motion_scores, threshold):
     """Return p95(motion) / threshold from Classic probability series."""
     motion_scores = np.asarray(motion_scores, dtype=np.float64)
@@ -652,59 +490,28 @@ def _pair_ratio(motion_scores, threshold):
     return float(motion_p95 / float(threshold))
 
 
-def _pair_ratio_severity(pair_ratio):
+def _pair_ratio_severity(pair_ratio, severity_profile=None):
     """Return soft review severity for Ratio on Motion Scores."""
     return _threshold_severity(
         pair_ratio,
-        warn_below=RATIO_WARN_BELOW,
-        fail_below=RATIO_FAIL_BELOW,
+        **_metric_thresholds("ratio", severity_profile),
     )
 
 
-def _format_pair_ratio_cell(pair_ratio, *, markdown=False):
+def _format_pair_ratio_cell(pair_ratio, *, markdown=False, severity_profile=None):
     """Format Ratio as p95(motion)/threshold with soft marks."""
     text = f"{float(pair_ratio):.2f}x" if markdown else f"{float(pair_ratio):.1f}x"
-    return _mark_cell(text, _pair_ratio_severity(pair_ratio), markdown=markdown)
-
-
-def _breath_hz_band_position(peak_hz):
-    """Return 'pass', 'warn', or 'fail' vs nested human breath-rate bands."""
-    peak_hz = float(peak_hz)
-    pass_lo, pass_hi = BREATH_HZ_HUMAN_PASS_HZ
-    warn_lo, warn_hi = BREATH_HZ_HUMAN_WARN_HZ
-    if pass_lo <= peak_hz <= pass_hi:
-        return "pass"
-    if warn_lo <= peak_hz <= warn_hi:
-        return "warn"
-    return "fail"
-
-
-def _breath_hz_weight(peak_hz):
-    """Return the Breath-score multiplier for a consensus peak frequency."""
-    position = _breath_hz_band_position(peak_hz)
-    if position == "pass":
-        return BREATH_HZ_PASS_WEIGHT
-    if position == "warn":
-        return BREATH_HZ_WARN_WEIGHT
-    return BREATH_HZ_FAIL_WEIGHT
-
-
-def _quiet_fp_severity(fp_rate):
-    """Return soft review severity for a quiet-test false-positive rate."""
-    return _threshold_severity(
-        fp_rate,
-        warn_above=QUIET_TEST_CLASSIC_FP_WARN_RATIO,
-        fail_above=QUIET_TEST_CLASSIC_FP_FAIL_RATIO,
+    return _mark_cell(
+        text,
+        _pair_ratio_severity(pair_ratio, severity_profile),
+        markdown=markdown,
     )
 
 
-def _score_value_severity(score):
-    """Return soft review severity for an indicative 0-100 Score value."""
-    return _threshold_severity(
-        score,
-        warn_below=SCORE_WARN_BELOW,
-        fail_below=SCORE_FAIL_BELOW,
-    )
+def _score_value_severity(score, severity_profile=None):
+    """Score stays absolute; soft review marks live on component metrics only."""
+    del score, severity_profile
+    return None
 
 
 def _format_score_cell(score, severity=None, *, markdown=False):
@@ -713,124 +520,62 @@ def _format_score_cell(score, severity=None, *, markdown=False):
 
 
 # Indicative score tables share one renderer; each table keeps its own schema.
-# Presence/Empty: diagnostics first, Score last (soft-marked, sort key).
-_IDLE_EVIDENCE_SCORE_HEADER = (
-    "| Chip | Env | File | FP | Breath | Score |"
-)
-_IDLE_EVIDENCE_SCORE_SEPARATOR = "|---|---|---|---:|---:|---:|"
+# Presence/Empty/Long-test share the idle-evidence schema and expose every
+# baseline-score component (FP, MAD, Burst) next to the final Score.
+_IDLE_EVIDENCE_SCORE_HEADER = "| Chip | Env | File | FP | MAD | Burst | Score |"
+_IDLE_EVIDENCE_SCORE_SEPARATOR = "|---|---|---|---:|---:|---:|---:|"
 _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR = (
-    "  |------|-----|------|-----:|------:|------:|"
+    "  |------|-----|------|-----:|-----:|------:|------:|"
 )
-_LONG_TEST_SCORE_HEADER = "| Chip | Env | File | FP | Score |"
-_LONG_TEST_SCORE_SEPARATOR = "|---|---|---|---:|---:|"
-_LONG_TEST_SCORE_CONSOLE_SEPARATOR = "  |------|-----|------|-----:|------:|"
-
-
-def _respiration_evidence_band(respiration):
-    """Classify Breath evidence with one shared Presence/Empty ladder.
-
-    Coverage and human-rate Hz weight are already folded into
-    ``respiration["score"]``, so soft marks use that single Breath number.
-
-    Returns:
-        ``respiration`` when Breath clears the evidence floor, ``partial`` when
-        it clears the suspect floor, otherwise ``weak``.
-    """
-    score = float(respiration["score"])
-    if score >= RESPIRATION_EVIDENCE_SCORE_MIN:
-        return "respiration"
-    if score >= RESPIRATION_SUSPECT_SCORE_MIN:
-        return "partial"
-    return "weak"
-
-
-def _breath_severity(verdict, *, inverted=False):
-    """Return soft severity for Breath from the shared evidence ladder.
-
-    Presence (default): ``partial`` → warn, ``weak`` → fail.
-    Empty (inverted): ``presence-like`` / strong evidence → fail,
-    ``partial`` → warn, weak/clean → unmarked.
-    Motion/unstable verdicts stay on Score / FP.
-    """
-    band = verdict
-    if verdict == "presence-like":
-        band = "respiration"
-    elif verdict == "clean":
-        band = "weak"
-
-    if inverted:
-        if band == "respiration":
-            return "fail"
-        if band == "partial":
-            return "warn"
-        return None
-
-    if band == "weak":
-        return "fail"
-    if band == "partial":
-        return "warn"
-    return None
 
 
 def _idle_evidence_file_cell(row, label, *, markdown=False):
-    """Return the File cell for one Presence/Empty score row."""
+    """Return the File cell for one idle-evidence score row."""
     if markdown:
         return _md_file_link(row["display_date"], label, row["filename"])
     return row["display_date"]
 
 
-def _format_idle_evidence_score_row(row, *, label, markdown=False):
-    """Format one Presence/Empty score row with the shared column schema."""
+def _format_idle_evidence_score_row(
+    row,
+    *,
+    label,
+    markdown=False,
+    review_profiles=None,
+):
+    """Format one idle-evidence score row with the shared column schema.
+
+    Every baseline-score component is shown next to the final Score:
+    FP (cleanliness), MAD (stability), and Burst (sustained activation).
+    """
     file_cell = _idle_evidence_file_cell(row, label, markdown=markdown)
-    score_value = row["baseline"]["score"]
+    baseline = row["baseline"]
+    severity_profile = _row_severity_profile(review_profiles, label, row["chip"])
+    score_value = baseline["score"]
     baseline_cell = _format_score_cell(
-        score_value, _score_value_severity(score_value), markdown=markdown
-    )
-    breath_cell = _format_score_cell(
-        row["respiration"]["score"],
-        _breath_severity(row.get("verdict"), inverted=(label == "empty")),
+        score_value,
+        _score_value_severity(score_value, severity_profile),
         markdown=markdown,
     )
     if markdown:
         return (
             f"| {row['chip']} | {row.get('environment', '?')} | {file_cell} | "
-            f"{_format_quiet_fp_cell(row['baseline']['fp_rate'], markdown=True)} | "
-            f"{breath_cell} | {baseline_cell} |"
+            f"{_format_quiet_fp_cell(baseline['fp_rate'], markdown=True)} | "
+            f"{_format_margin_mad_cell(baseline['margin_mad'], markdown=True, severity_profile=severity_profile)} | "
+            f"{_format_burst_cell(baseline['longest_burst_seconds'], markdown=True, severity_profile=severity_profile)} | "
+            f"{baseline_cell} |"
         )
     return (
         f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
         f"{file_cell:<16} | "
-        f"{_format_quiet_fp_cell(row['baseline']['fp_rate']):>5} | "
-        f"{breath_cell:>8} | {baseline_cell:>8} |"
+        f"{_format_quiet_fp_cell(baseline['fp_rate']):>5} | "
+        f"{_format_margin_mad_cell(baseline['margin_mad'], severity_profile=severity_profile):>5} | "
+        f"{_format_burst_cell(baseline['longest_burst_seconds'], severity_profile=severity_profile):>6} | "
+        f"{baseline_cell:>8} |"
     )
 
 
-def _format_long_test_score_row(row, *, markdown=False):
-    """Format one idle-only long-test indicative score row."""
-    score_value = row["classic_score"]
-    score_severity = _score_value_severity(score_value)
-    file_cell = _quiet_file_cell(
-        row.get("filename", "?"),
-        row.get("display_date", "?"),
-        markdown=markdown,
-    )
-    if markdown:
-        return (
-            f"| {row.get('chip', '?')} | {row.get('environment', '?')} | "
-            f"{file_cell} | "
-            f"{_format_quiet_fp_cell(row['fp_rate'], markdown=True)} | "
-            f"{_format_score_cell(score_value, score_severity, markdown=True)} |"
-        )
-    return (
-        f"  | {str(row.get('chip', '?')):<4} | "
-        f"{str(row.get('environment', '?')):<11} | "
-        f"{file_cell:<16} | "
-        f"{_format_quiet_fp_cell(row['fp_rate']):>5} | "
-        f"{_format_score_cell(score_value, score_severity):>8} |"
-    )
-
-
-def _render_score_table(rows, table_spec, *, markdown=False):
+def _render_score_table(rows, table_spec, *, markdown=False, review_profiles=None):
     """Return lines for one indicative score table, or [] when empty."""
     if not rows:
         return []
@@ -847,42 +592,90 @@ def _render_score_table(rows, table_spec, *, markdown=False):
     else:
         if table_spec.get("console_heading", True):
             lines.append(f"  {title}:")
-        lines.append(f"  {table_spec['header']}")
+        console_header = table_spec.get("console_header", table_spec["header"])
+        lines.append(f"  {console_header}")
         lines.append(table_spec["console_separator"])
 
     format_row = table_spec["format_row"]
     for row in sorted(rows, key=table_spec["sort_key"]):
-        lines.append(format_row(row, markdown=markdown))
+        lines.append(
+            format_row(row, markdown=markdown, review_profiles=review_profiles)
+        )
     return lines
 
 
-_PRESENCE_SCORE_TABLE = {
-    "title": "Presence Scores",
-    "header": _IDLE_EVIDENCE_SCORE_HEADER,
-    "separator": _IDLE_EVIDENCE_SCORE_SEPARATOR,
-    "console_separator": _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR,
-    "sort_key": lambda item: -item["baseline"]["score"],
-    "format_row": lambda row, *, markdown=False: _format_idle_evidence_score_row(
-        row, label="static_presence", markdown=markdown
+def _idle_evidence_table_spec(title, label):
+    """Build one idle-evidence score-table spec for the shared renderer."""
+    return {
+        "title": title,
+        "table_key": label,
+        "header": _IDLE_EVIDENCE_SCORE_HEADER,
+        "separator": _IDLE_EVIDENCE_SCORE_SEPARATOR,
+        "console_separator": _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR,
+        "sort_key": lambda item: -item["baseline"]["score"],
+        "format_row": lambda row, *, markdown=False, review_profiles=None: _format_idle_evidence_score_row(
+            row,
+            label=label,
+            markdown=markdown,
+            review_profiles=review_profiles,
+        ),
+    }
+
+
+_PRESENCE_SCORE_TABLE = _idle_evidence_table_spec("Presence Scores", "static_presence")
+_EMPTY_SCORE_TABLE = _idle_evidence_table_spec("Empty Scores", "empty")
+_LONG_TEST_SCORE_TABLE = _idle_evidence_table_spec("Long-test scores", "test")
+
+
+def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
+    """Format one static_presence/motion pair score row.
+
+    The markdown report also shows the calibrated threshold column.
+    """
+    score_value = row.get("classic_score", 0.0)
+    severity_profile = _row_severity_profile(review_profiles, "pair", row["chip"])
+    severity = _score_value_severity(score_value, severity_profile)
+    files_cell = _pair_files_cell(
+        row["static_presence"],
+        row["motion"],
+        row.get("static_date", "?"),
+        row.get("motion_date", "?"),
+        markdown=markdown,
+    )
+    if markdown:
+        return (
+            f"| {row['chip']} | {row.get('environment', '?')} | {files_cell} | "
+            f"{row['threshold']:.2e} | "
+            f"{_format_static_above_cell(row['static_active_ratio'], markdown=True)} | "
+            f"{_format_motion_above_cell(row['motion_active_ratio'], markdown=True)} | "
+            f"{_format_pair_ratio_cell(row['pair_ratio'], markdown=True, severity_profile=severity_profile)} | "
+            f"{_format_score_cell(score_value, severity, markdown=True)} |"
+        )
+    return (
+        f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
+        f"{files_cell:<23} | "
+        f"{_format_static_above_cell(row['static_active_ratio']):>5} | "
+        f"{_format_motion_above_cell(row['motion_active_ratio']):>5} | "
+        f"{_format_pair_ratio_cell(row['pair_ratio'], severity_profile=severity_profile):>6} | "
+        f"{_format_score_cell(score_value, severity):>8} |"
+    )
+
+
+_PAIR_SCORE_TABLE = {
+    "title": "Motion Scores",
+    "table_key": "pair",
+    "header": (
+        "| Chip | Env | static_presence / motion | Threshold | "
+        "FP | TP | Ratio | Score |"
     ),
-}
-_EMPTY_SCORE_TABLE = {
-    "title": "Empty Scores",
-    "header": _IDLE_EVIDENCE_SCORE_HEADER,
-    "separator": _IDLE_EVIDENCE_SCORE_SEPARATOR,
-    "console_separator": _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR,
-    "sort_key": lambda item: -item["baseline"]["score"],
-    "format_row": lambda row, *, markdown=False: _format_idle_evidence_score_row(
-        row, label="empty", markdown=markdown
+    "separator": "|---|---|---|---:|---:|---:|---:|---:|",
+    "console_header": "| Chip | Env | static_presence / motion | FP | TP | Ratio | Score |",
+    "console_separator": (
+        "  |------|-----|-------------------------|-----:|-----:|------:|------:|"
     ),
-}
-_LONG_TEST_SCORE_TABLE = {
-    "title": "Long-test scores",
-    "header": _LONG_TEST_SCORE_HEADER,
-    "separator": _LONG_TEST_SCORE_SEPARATOR,
-    "console_separator": _LONG_TEST_SCORE_CONSOLE_SEPARATOR,
+    "console_heading": False,
     "sort_key": lambda item: -item.get("classic_score", 0.0),
-    "format_row": _format_long_test_score_row,
+    "format_row": _format_pair_score_row,
 }
 
 
@@ -919,23 +712,6 @@ def _pair_files_cell(
             f"{_md_file_link(motion_date, 'motion', motion_filename)}"
         )
     return f"{static_date} / {motion_date}"
-
-
-def _empty_static_files_cell(
-    empty_filename,
-    static_filename,
-    empty_date,
-    static_date,
-    *,
-    markdown=False,
-):
-    """Render cross-session empty/static_presence links."""
-    if markdown:
-        return (
-            f"{_md_file_link(empty_date, 'empty', empty_filename)} / "
-            f"{_md_file_link(static_date, 'static_presence', static_filename)}"
-        )
-    return f"{empty_date} / {static_date}"
 
 
 def _baseline_severity(fp_rate, margin_mad, longest_burst_seconds):
@@ -985,13 +761,6 @@ def _entry_display_date(entry, filename=None):
     return "?"
 
 
-def _quiet_file_cell(filename, display_date, *, markdown=False):
-    """Render the quiet-test file cell using a readable capture date."""
-    if markdown:
-        return _md_file_link(display_date, "test", filename)
-    return display_date
-
-
 class ValidationResult:
     """Single validation check result."""
 
@@ -1025,17 +794,25 @@ def _issue_results(results):
     return [result for result in results if _is_issue_result(result)]
 
 
-def _classic_diagnostic_status(status):
-    """Downgrade Classic FAIL to WARN so diagnostics never veto admission."""
-    return "WARN" if status == "FAIL" else status
-
-
 def _result_counts(results):
     """Return stable PASS/WARN/FAIL counts for a result collection."""
     return {
         status: sum(1 for result in results if result.status == status)
         for status in ('PASS', 'WARN', 'FAIL')
     }
+
+
+def _domain_summary_rows(all_results):
+    """Return (label, counts) rows for the per-domain summary tables."""
+    return [
+        (
+            VALIDATION_DOMAIN_LABELS[domain],
+            _result_counts([
+                result for result in all_results if result.domain == domain
+            ]),
+        )
+        for domain in VALIDATION_DOMAINS
+    ]
 
 
 def _is_missing_metadata_value(value):
@@ -1059,17 +836,6 @@ def _entry_matches_chip(entry, chip_filter):
     return entry_chip == chip or chip in filename
 
 
-def _coerce_positive_float(value):
-    """Coerce a metadata value to a finite positive float, or return None."""
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(numeric) or numeric <= 0:
-        return None
-    return numeric
-
-
 def _extract_motion_start_from_description(description):
     """Extract motion start packet index from free-text test metadata."""
     if not description:
@@ -1087,15 +853,12 @@ def _extract_motion_start_from_description(description):
 
 def load_dataset_info():
     """Load dataset_info.json."""
-    with open(DATASET_INFO, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return dataset_metadata.load_dataset_info(DATASET_INFO)
 
 
 def save_dataset_info(info):
     """Write dataset_info.json with stable formatting."""
-    with open(DATASET_INFO, "w", encoding="utf-8") as f:
-        json.dump(info, f, indent=2)
-        f.write("\n")
+    dataset_metadata.save_dataset_info(info, DATASET_INFO)
 
 
 def parse_iso_timestamp(value):
@@ -1366,8 +1129,27 @@ def should_recommend_dataset_metadata_refresh(results, missing_motion_pair_count
     return False
 
 
+class _MaterializedNpz(dict):
+    """Materialized NPZ contents; indexing does not re-read the archive.
+
+    ``NpzFile`` decompresses an array on every ``data[key]`` access, so caching
+    the raw handle would re-decompress CSI matrices in every validation phase.
+    Materializing once also releases the underlying file handle immediately.
+    """
+
+    @property
+    def files(self):
+        return list(self.keys())
+
+
+def _load_npz_materialized(filepath):
+    """Load one NPZ file into a fully materialized key/array mapping."""
+    with np.load(filepath, allow_pickle=True) as npz:
+        return _MaterializedNpz((key, npz[key]) for key in npz.files)
+
+
 def _get_csi_key(data):
-    """Return the key for CSI data inside an NpzFile."""
+    """Return the key for CSI data inside an NPZ mapping."""
     keys = list(data.keys())
     if 'csi_data' in keys:
         return 'csi_data'
@@ -1381,7 +1163,7 @@ def validate_file_integrity(filepath):
     results = []
 
     try:
-        data = np.load(filepath, allow_pickle=True)
+        data = _load_npz_materialized(filepath)
     except Exception as e:
         results.append(ValidationResult("file_load", "FAIL", f"Cannot load: {e}"))
         return results, None
@@ -1510,7 +1292,7 @@ def validate_signal_quality(csi_data):
 
     # Mean amplitude check (vectorized, first 100 packets)
     sample = csi_data[:min(100, num_packets)]
-    amps = _extract_amplitudes_matrix(sample)
+    amps = extract_amplitudes_matrix(sample)
     mean_amp = float(amps.mean()) if amps.size > 0 else 0.0
 
     if mean_amp < MIN_AMPLITUDE_MEAN:
@@ -1690,7 +1472,7 @@ def validate_capture_continuity(data, csi_data):
     return results
 
 
-def validate_pair(bl_csi, mv_csi):
+def validate_pair(bl_csi, mv_csi, *, calibration_cache=None, cache_key=None):
     """Classic indicative replay for a static-presence/motion pair.
 
     Results are non-blocking: soft misses become WARN and never veto admission.
@@ -1698,6 +1480,8 @@ def validate_pair(bl_csi, mv_csi):
     Args:
         bl_csi: static-presence CSI array (num_packets, 128)
         mv_csi: motion CSI array (num_packets, 128)
+        calibration_cache: optional per-run startup-threshold memo
+        cache_key: cache key identifying the static capture
     Returns:
         tuple: (
             results,
@@ -1708,11 +1492,7 @@ def validate_pair(bl_csi, mv_csi):
         )
     """
     results = []
-    calibration_packets = bl_csi[:CALIBRATION_BUFFER_SIZE]
-    calibrated = build_calibrated_classic_detector(
-        _csi_matrix_to_packets(calibration_packets),
-        selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
-    )
+    calibrated = _calibrated_classic_for(bl_csi, calibration_cache, cache_key)
     if calibrated is None:
         results.append(ValidationResult(
             "classic_pair_activation",
@@ -1898,7 +1678,7 @@ def _load_cached_or_npz(filepath, npz_cache):
     if filepath in npz_cache:
         return npz_cache[filepath]
 
-    data = np.load(filepath, allow_pickle=True)
+    data = _load_npz_materialized(filepath)
     csi_key = _get_csi_key(data)
     npz_cache[filepath] = (data, csi_key)
     return data, csi_key
@@ -1906,30 +1686,16 @@ def _load_cached_or_npz(filepath, npz_cache):
 
 def _resolve_dataset_entry_path(entry, label_group):
     """Resolve an NPZ path from label group + filename, with legacy fallback."""
-    relative_path = entry.get('relative_path')
-    if relative_path:
-        return DATA_DIR / str(relative_path)
-
-    filename = entry.get('filename')
-    if not filename:
-        raise KeyError("filename")
-    return DATA_DIR / str(label_group) / str(filename)
-def _compute_moving_variance_series(csi_data):
-    """Compute moving-variance series for one CSI array."""
-    turbulence = _compute_turbulence_series(csi_data)
-    moving_variance = np.asarray(_moving_variance(turbulence), dtype=np.float64)
-    return moving_variance
-
-
-def _compute_turbulence_and_moving_variance_series(csi_data):
-    """Compute turbulence and moving-variance series for one CSI array."""
-    turbulence = _compute_turbulence_series(csi_data)
-    moving_variance = np.asarray(_moving_variance(turbulence), dtype=np.float64)
-    return turbulence, moving_variance
+    return dataset_metadata.resolve_entry_path(str(label_group), entry)
 
 
 def _replay_classic_metrics(csi_data, detector):
-    """Replay one capture through ClassicDetector at evaluation cadence."""
+    """Replay one capture through ClassicDetector at evaluation cadence.
+
+    The detector is reset first so every replay starts from a clean window,
+    matching a production boot instead of inheriting the previous stream.
+    """
+    detector.reset()
     score_series = []
     state_series = []
     cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
@@ -1949,116 +1715,37 @@ def _replay_classic_metrics(csi_data, detector):
     }
 
 
-def _csi_matrix_to_packets(csi_data):
-    """Wrap a CSI matrix into the packet dict shape used by runtime helpers."""
-    return [{"csi_data": packet} for packet in csi_data]
+def _calibrated_classic_for(csi_data, calibration_cache=None, cache_key=None):
+    """Return a (detector, threshold) tuple calibrated on a capture's startup.
 
+    The startup calibration replays packets through the detector in Python and
+    is the expensive step, so the resulting threshold is memoized per capture;
+    cache hits rebuild an equivalent fresh detector with the threshold applied.
+    """
+    if calibration_cache is not None and cache_key in calibration_cache:
+        threshold = calibration_cache[cache_key]
+        if threshold is None:
+            return None
+        detector = build_classic_detector()
+        detector.set_threshold(threshold)
+        return detector, threshold
 
-def _evaluate_classic_quiet_fp(csi_data):
-    """Return self-calibrated quiet FP metrics for one idle-only stream."""
-    calibration_packets = csi_data[:CALIBRATION_BUFFER_SIZE]
     calibrated = build_calibrated_classic_detector(
-        _csi_matrix_to_packets(calibration_packets),
+        csi_data[:CALIBRATION_BUFFER_SIZE],
         selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
     )
-    if calibrated is None:
-        return None
-
-    detector, threshold = calibrated
-    replay = _replay_classic_metrics(csi_data, detector)
-    eval_count = int(len(replay["state_series"]))
-    motion_count = int(replay["state_series"].sum()) if eval_count > 0 else 0
-    fp_rate = motion_count / eval_count if eval_count > 0 else 0.0
-    return {
-        "threshold": float(threshold),
-        "eval_count": eval_count,
-        "motion_count": motion_count,
-        "fp_rate": float(fp_rate),
-    }
+    if calibration_cache is not None and cache_key is not None:
+        calibration_cache[cache_key] = None if calibrated is None else calibrated[1]
+    return calibrated
 
 
-def _quiet_fp_status(value, warn_ratio, fail_ratio):
-    """Return PASS/WARN/FAIL for one quiet-run FP ratio."""
-    if value > fail_ratio:
+def _severity_to_status(severity):
+    """Map a soft severity ('fail', 'warn', or None) to PASS/WARN/FAIL."""
+    if severity == 'fail':
         return "FAIL"
-    if value > warn_ratio:
+    if severity == 'warn':
         return "WARN"
     return "PASS"
-
-
-def _merge_statuses(*statuses):
-    """Return the highest-severity status across PASS/WARN/FAIL values."""
-    if any(status == "FAIL" for status in statuses):
-        return "FAIL"
-    if any(status == "WARN" for status in statuses):
-        return "WARN"
-    return "PASS"
-
-
-def _evaluate_threshold_direction(neg_values, pos_values, expect_pos_higher=True):
-    """Return best balanced-accuracy threshold for one score direction."""
-    if len(neg_values) == 0 or len(pos_values) == 0:
-        return None
-
-    values = np.unique(np.concatenate([neg_values, pos_values]))
-    step = max(1, len(values) // 2000)
-    candidates = values[::step]
-    if candidates[-1] != values[-1]:
-        candidates = np.append(candidates, values[-1])
-
-    best = None
-    for threshold in candidates:
-        if expect_pos_higher:
-            neg_correct = float((neg_values < threshold).mean())
-            pos_correct = float((pos_values >= threshold).mean())
-            direction = "higher => empty"
-        else:
-            neg_correct = float((neg_values > threshold).mean())
-            pos_correct = float((pos_values <= threshold).mean())
-            direction = "lower => empty"
-
-        balanced_acc = (neg_correct + pos_correct) / 2.0
-        accuracy = (
-            ((neg_values < threshold).sum() if expect_pos_higher else (neg_values > threshold).sum())
-            + ((pos_values >= threshold).sum() if expect_pos_higher else (pos_values <= threshold).sum())
-        ) / (len(neg_values) + len(pos_values))
-
-        candidate = (balanced_acc, accuracy, float(threshold), direction)
-        if best is None or candidate[:2] > best[:2]:
-            best = candidate
-
-    return best
-
-
-def _rank_auc(neg_values, pos_values):
-    """Compute ROC AUC using rank statistics."""
-    if len(neg_values) == 0 or len(pos_values) == 0:
-        return None
-
-    scores = np.concatenate([neg_values, pos_values])
-    labels = np.concatenate([
-        np.zeros(len(neg_values), dtype=np.int8),
-        np.ones(len(pos_values), dtype=np.int8),
-    ])
-    order = np.argsort(scores)
-    ranks = np.empty_like(order, dtype=np.float64)
-    ranks[order] = np.arange(1, len(scores) + 1, dtype=np.float64)
-
-    sorted_scores = scores[order]
-    i = 0
-    while i < len(sorted_scores):
-        j = i + 1
-        while j < len(sorted_scores) and sorted_scores[j] == sorted_scores[i]:
-            j += 1
-        if j - i > 1:
-            average_rank = (i + 1 + j) / 2.0
-            ranks[order[i:j]] = average_rank
-        i = j
-
-    n_pos = int(labels.sum())
-    n_neg = int(len(labels) - n_pos)
-    rank_sum_pos = float(ranks[labels == 1].sum())
-    return (rank_sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_neg * n_pos)
 
 
 def _probability_logit(values):
@@ -2083,17 +1770,12 @@ def _active_burst_metrics(states, packet_rate_pps):
     ``states`` are sampled at the production evaluation cadence, so durations
     use ``packet_rate_pps / EVALUATION_INTERVAL`` as the sample rate.
     """
-    burst_count = 0
-    longest = 0
-    current = 0
-    for state in np.asarray(states, dtype=np.int8):
-        if state:
-            current += 1
-            if current == 1:
-                burst_count += 1
-            longest = max(longest, current)
-        else:
-            current = 0
+    padded = np.concatenate([[0], np.asarray(states, dtype=np.int8), [0]])
+    edges = np.diff(padded)
+    burst_starts = np.flatnonzero(edges == 1)
+    burst_lengths = np.flatnonzero(edges == -1) - burst_starts
+    burst_count = int(burst_starts.size)
+    longest = int(burst_lengths.max()) if burst_count else 0
 
     eval_rate_hz = max(float(packet_rate_pps), 1e-6) / float(EVALUATION_INTERVAL)
     eval_seconds = len(states) / eval_rate_hz
@@ -2108,16 +1790,18 @@ def _active_burst_metrics(states, packet_rate_pps):
     }
 
 
-def _classic_self_baseline_stats(csi_data, packet_rate_pps=100.0):
+def _classic_self_baseline_stats(
+    csi_data,
+    packet_rate_pps=100.0,
+    *,
+    calibration_cache=None,
+    cache_key=None,
+):
     """Self-calibrate one idle capture and evaluate its post-bootstrap tail."""
     if len(csi_data) <= CALIBRATION_BUFFER_SIZE:
         return None
 
-    calibration_packets = csi_data[:CALIBRATION_BUFFER_SIZE]
-    calibrated = build_calibrated_classic_detector(
-        _csi_matrix_to_packets(calibration_packets),
-        selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
-    )
+    calibrated = _calibrated_classic_for(csi_data, calibration_cache, cache_key)
     if calibrated is None:
         return None
     detector, threshold = calibrated
@@ -2173,23 +1857,14 @@ def _classic_self_baseline_stats(csi_data, packet_rate_pps=100.0):
     }
 
 
-def _empty_quality_verdict(baseline, respiration):
-    """Classify one empty capture without turning diagnostics into admission.
-
-    Uses the same Breath ladder as Presence Scores; strong evidence maps to
-    ``presence-like``, suspect evidence to ``partial``, and weak evidence stays
-    ``clean`` when the Classic baseline is otherwise quiet.
-    """
-    if (
-        baseline["fp_rate"] > QUIET_TEST_CLASSIC_FP_FAIL_RATIO
-        or baseline["longest_burst_seconds"] > BASELINE_LONGEST_BURST_ZERO_SECONDS
-    ):
-        return "motion-like"
-    band = _respiration_evidence_band(respiration)
-    if band == "respiration":
-        return "presence-like"
-    if band == "partial":
-        return "partial"
+def _idle_quality_verdict(baseline, *, motion_verdict, gate_on_burst):
+    """Classify one idle capture from its self-calibrated Classic baseline."""
+    motion_like = baseline["fp_rate"] > QUIET_TEST_CLASSIC_FP_FAIL_RATIO or (
+        gate_on_burst
+        and baseline["longest_burst_seconds"] > BASELINE_LONGEST_BURST_ZERO_SECONDS
+    )
+    if motion_like:
+        return motion_verdict
     if _baseline_severity(
         baseline["fp_rate"],
         baseline["margin_mad"],
@@ -2199,11 +1874,18 @@ def _empty_quality_verdict(baseline, respiration):
     return "clean"
 
 
-def _presence_evidence_verdict(baseline, respiration):
-    """Classify respiration evidence for one static-presence capture."""
-    if baseline["fp_rate"] > QUIET_TEST_CLASSIC_FP_FAIL_RATIO:
-        return "motion-contaminated"
-    return _respiration_evidence_band(respiration)
+def _empty_quality_verdict(baseline):
+    """Classify one empty capture from its self-calibrated Classic baseline."""
+    return _idle_quality_verdict(
+        baseline, motion_verdict="motion-like", gate_on_burst=True
+    )
+
+
+def _presence_quality_verdict(baseline):
+    """Classify one static-presence capture from its Classic idle baseline."""
+    return _idle_quality_verdict(
+        baseline, motion_verdict="motion-contaminated", gate_on_burst=False
+    )
 
 
 def _group_entries_by_chip_env(entries):
@@ -2218,22 +1900,26 @@ def _group_entries_by_chip_env(entries):
     return group_map
 
 
-def _compute_idle_evidence_for_entry(entry, label, npz_cache):
-    """Return (baseline, respiration, error) for one empty/static_presence entry."""
+def _compute_idle_evidence_for_entry(entry, label, npz_cache, calibration_cache=None):
+    """Return (baseline, error) for one empty/static_presence entry."""
     try:
         filepath = _resolve_dataset_entry_path(entry, label)
         data, csi_key = _load_cached_or_npz(filepath, npz_cache)
         csi_data = data[csi_key]
         packet_rate_pps = _packet_rate_from_entry(entry)
-        baseline = _classic_self_baseline_stats(csi_data, packet_rate_pps)
-        respiration = _compute_respiration_evidence(csi_data, packet_rate_pps)
-        return baseline, respiration, None
-    except (OSError, ValueError, KeyError, np.linalg.LinAlgError) as exc:
-        return None, None, str(exc)
+        baseline = _classic_self_baseline_stats(
+            csi_data,
+            packet_rate_pps,
+            calibration_cache=calibration_cache,
+            cache_key=str(filepath),
+        )
+        return baseline, None
+    except (OSError, ValueError, KeyError) as exc:
+        return None, str(exc)
 
 
-def _idle_evidence_score_row(entry, baseline, respiration, verdict):
-    """Build one shared Presence/Empty score-table row."""
+def _idle_evidence_score_row(entry, baseline, verdict):
+    """Build one shared idle-evidence score-table row."""
     filename = str(entry.get("filename", "?"))
     return {
         "chip": str(entry.get("chip", "?")).upper(),
@@ -2241,26 +1927,8 @@ def _idle_evidence_score_row(entry, baseline, respiration, verdict):
         "filename": filename,
         "display_date": _entry_display_date(entry, filename),
         "baseline": baseline,
-        "respiration": respiration,
         "verdict": verdict,
     }
-
-
-def _empty_quality_detail(verdict, baseline, respiration):
-    return (
-        f"Empty quality: verdict={verdict}, baseline_score={baseline['score']:.1f}, "
-        f"self_fp={baseline['fp_rate']:.1%}, respiration_score={respiration['score']:.1f}, "
-        f"respiration_coverage={respiration['coverage']:.0%}"
-    )
-
-
-def _presence_evidence_detail(verdict, baseline, respiration):
-    return (
-        f"Presence evidence: verdict={verdict}, respiration_score={respiration['score']:.1f}, "
-        f"coverage={respiration['coverage']:.0%}, "
-        f"peak={respiration['peak_frequency_hz']:.2f} Hz, "
-        f"support={respiration['support_ratio']:.0%}, self_fp={baseline['fp_rate']:.1%}"
-    )
 
 
 def _evaluate_idle_evidence_files(
@@ -2268,58 +1936,64 @@ def _evaluate_idle_evidence_files(
     *,
     label,
     check_kind,
-    compute_error_message,
+    kind_title,
     verdict_fn,
-    pass_verdict,
-    result_value_fn,
-    detail_fn,
     npz_cache,
+    calibration_cache=None,
 ):
     """Score one empty or static_presence label set into results + table rows."""
     results = []
     score_rows = []
     for entry in entries:
         filename = str(entry.get("filename", "?"))
-        baseline, respiration, error = _compute_idle_evidence_for_entry(
-            entry, label, npz_cache
+        baseline, error = _compute_idle_evidence_for_entry(
+            entry, label, npz_cache, calibration_cache
         )
-        if baseline is None or respiration is None:
+        if baseline is None:
             results.append(ValidationResult(
                 f"{check_kind}/{filename}",
                 "WARN",
-                f"{compute_error_message}: {error or 'insufficient data'}",
+                (
+                    f"Could not compute {kind_title.lower()} quality diagnostics: "
+                    f"{error or 'insufficient data'}"
+                ),
             ))
             continue
 
-        verdict = verdict_fn(baseline, respiration)
-        status = "PASS" if verdict == pass_verdict else "WARN"
+        verdict = verdict_fn(baseline)
+        status = "PASS" if verdict == "clean" else "WARN"
         results.append(ValidationResult(
             f"{check_kind}/{filename}",
             status,
-            detail_fn(verdict, baseline, respiration),
-            result_value_fn(baseline, respiration),
+            (
+                f"{kind_title} quality: verdict={verdict}, "
+                f"baseline_score={baseline['score']:.1f}, "
+                f"self_fp={baseline['fp_rate']:.1%}"
+            ),
+            baseline["score"],
         ))
         score_rows.append(
-            _idle_evidence_score_row(entry, baseline, respiration, verdict)
+            _idle_evidence_score_row(entry, baseline, verdict)
         )
     return results, score_rows
 
 
-def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
-    """Score empty contamination and static-presence respiration evidence.
+def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None, calibration_cache=None):
+    """Score empty and static-presence captures from Classic idle baselines.
 
     Returns:
         tuple: (results, empty_score_rows, presence_score_rows)
     """
     results = []
 
-    empty_files = dataset_info.get('files', {}).get('empty', [])
-    static_presence_files = dataset_info.get('files', {}).get('static_presence', [])
-
-    if chip_filter:
-        chip_upper = chip_filter.upper()
-        empty_files = [f for f in empty_files if str(f.get('chip', '')).upper() == chip_upper]
-        static_presence_files = [f for f in static_presence_files if str(f.get('chip', '')).upper() == chip_upper]
+    empty_files = [
+        entry for entry in dataset_info.get('files', {}).get('empty', [])
+        if _entry_matches_chip(entry, chip_filter)
+    ]
+    static_presence_files = [
+        entry for entry in dataset_info.get('files', {}).get('static_presence', [])
+        if _entry_matches_chip(entry, chip_filter)
+    ]
 
     if not empty_files:
         results.append(ValidationResult(
@@ -2352,23 +2026,19 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
         empty_files,
         label="empty",
         check_kind="empty_quality",
-        compute_error_message="Could not compute empty quality diagnostics",
+        kind_title="Empty",
         verdict_fn=_empty_quality_verdict,
-        pass_verdict="clean",
-        result_value_fn=lambda baseline, _respiration: baseline["score"],
-        detail_fn=_empty_quality_detail,
         npz_cache=npz_cache,
+        calibration_cache=calibration_cache,
     )
     presence_results, presence_score_rows = _evaluate_idle_evidence_files(
         static_presence_files,
         label="static_presence",
-        check_kind="presence_evidence",
-        compute_error_message="Could not compute presence evidence",
-        verdict_fn=_presence_evidence_verdict,
-        pass_verdict="respiration",
-        result_value_fn=lambda _baseline, respiration: respiration["score"],
-        detail_fn=_presence_evidence_detail,
+        check_kind="presence_quality",
+        kind_title="Presence",
+        verdict_fn=_presence_quality_verdict,
         npz_cache=npz_cache,
+        calibration_cache=calibration_cache,
     )
     results.extend(empty_results)
     results.extend(presence_results)
@@ -2376,13 +2046,15 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
     return results, empty_score_rows, presence_score_rows
 
 
-def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
-    """Validate long-recording coverage and replay idle-only Classic gates."""
+def validate_quiet_test_recordings(
+    dataset_info, npz_cache, chip_filter=None, calibration_cache=None
+):
+    """Validate long-recording coverage and score idle-only Classic baselines."""
     results = []
-    test_entries = dataset_info.get("files", {}).get("test", [])
-    if chip_filter:
-        chip_upper = chip_filter.upper()
-        test_entries = [entry for entry in test_entries if str(entry.get("chip", "")).upper() == chip_upper]
+    test_entries = [
+        entry for entry in dataset_info.get("files", {}).get("test", [])
+        if _entry_matches_chip(entry, chip_filter)
+    ]
 
     idle_candidates = []
     mixed_candidates = []
@@ -2440,49 +2112,16 @@ def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
         len(idle_candidates),
     ))
 
-    for entry in idle_candidates:
-        filename = str(entry.get("filename", "<missing filename>"))
-        filepath = _resolve_dataset_entry_path(entry, "test")
-        data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-        csi_data = data[csi_key]
-
-        classic_metrics = _evaluate_classic_quiet_fp(csi_data)
-        if classic_metrics is None:
-            results.append(ValidationResult(
-                f"quiet_test_idle/{filename}",
-                "WARN",
-                "Could not self-calibrate ClassicDetector on the idle-only test recording",
-            ))
-            continue
-
-        classic_status = _classic_diagnostic_status(_quiet_fp_status(
-            classic_metrics["fp_rate"],
-            QUIET_TEST_CLASSIC_FP_WARN_RATIO,
-            QUIET_TEST_CLASSIC_FP_FAIL_RATIO,
-        ))
-        status = _merge_statuses(classic_status)
-        score = classic_quiet_score(classic_metrics["fp_rate"])
-        quiet_score_rows.append({
-            "fp_rate": round(classic_metrics["fp_rate"], 4),
-            "classic_score": score,
-            "chip": str(entry.get("chip", "?")).upper(),
-            "environment": _entry_environment(entry),
-            "display_date": _entry_display_date(entry, filename),
-            "filename": filename,
-        })
-
-        results.append(ValidationResult(
-            f"quiet_test_idle/{filename}",
-            status,
-            (
-                "Classic indicative idle-only long-run replay: "
-                f"score={score:.1f}/100, "
-                f"Classic self-FP={classic_metrics['fp_rate']:.1%} "
-                f"(threshold={classic_metrics['threshold']:.6f}, eval={classic_metrics['eval_count']})"
-            ),
-            score,
-        ))
-
+    idle_results, quiet_score_rows = _evaluate_idle_evidence_files(
+        idle_candidates,
+        label="test",
+        check_kind="quiet_test_idle",
+        kind_title="Long-test",
+        verdict_fn=_empty_quality_verdict,
+        npz_cache=npz_cache,
+        calibration_cache=calibration_cache,
+    )
+    results.extend(idle_results)
     return results, quiet_score_rows
 
 
@@ -2550,8 +2189,11 @@ def run_validation(chip_filter=None, generate_report=True):
     # ------------------------------------------------------------------
     # Phase 2: Load all NPZ files once, validate integrity & quality
     # ------------------------------------------------------------------
-    # Cache: path -> (NpzFile, csi_key) — avoids reloading in pair validation
+    # Cache: path -> (materialized arrays, csi_key) — avoids re-decompressing
+    # the same NPZ in later phases.  Startup thresholds are memoized separately
+    # so Classic pair and idle-baseline replays calibrate each capture once.
     npz_cache = {}
+    calibration_cache = {}
 
     for label in PER_FILE_QUALITY_LABELS:
         label_dir = DATA_DIR / label
@@ -2560,7 +2202,7 @@ def run_validation(chip_filter=None, generate_report=True):
             continue
 
         for npz_file in sorted(label_dir.glob("*.npz")):
-            if chip_filter and chip_filter.lower() not in npz_file.name.lower():
+            if not _entry_matches_chip({'filename': npz_file.name}, chip_filter):
                 continue
 
             file_results = []
@@ -2645,35 +2287,27 @@ def run_validation(chip_filter=None, generate_report=True):
             mv_file = best_mv
             motion_entry = motion_entries_by_name.get(mv_name, {})
 
-            sc_source = "DEFAULT_SUBCARRIERS"
-            cv_mode = "CV"
-
-            # Use cached NPZ data when available, otherwise load
-            if bl_file in npz_cache and mv_file in npz_cache:
-                bl_data, bl_key = npz_cache[bl_file]
-                mv_data, mv_key = npz_cache[mv_file]
-            else:
-                try:
-                    bl_data = np.load(bl_file, allow_pickle=True)
-                    mv_data = np.load(mv_file, allow_pickle=True)
-                    bl_key = _get_csi_key(bl_data)
-                    mv_key = _get_csi_key(mv_data)
-                except Exception as e:
-                    _emit_issues(
-                        _tag_results(
-                            [ValidationResult(
-                                "pair_load",
-                                "FAIL",
-                                f"Cannot load pair: {e}",
-                            )],
-                            "classic",
-                        ),
-                        heading=f"Pair {bl_file.name} ↔ {mv_file.name}",
-                    )
-                    continue
+            try:
+                bl_data, bl_key = _load_cached_or_npz(bl_file, npz_cache)
+                mv_data, mv_key = _load_cached_or_npz(mv_file, npz_cache)
+            except Exception as e:
+                _emit_issues(
+                    _tag_results(
+                        [ValidationResult(
+                            "pair_load",
+                            "FAIL",
+                            f"Cannot load pair: {e}",
+                        )],
+                        "classic",
+                    ),
+                    heading=f"Pair {bl_file.name} ↔ {mv_file.name}",
+                )
+                continue
 
             pair_res, static_active_ratio, motion_active_ratio, pair_threshold, pair_ratio = validate_pair(
                 bl_data[bl_key], mv_data[mv_key],
+                calibration_cache=calibration_cache,
+                cache_key=str(bl_file),
             )
             _tag_results(pair_res, 'classic')
             score = classic_pair_score(
@@ -2707,8 +2341,6 @@ def run_validation(chip_filter=None, generate_report=True):
                 'motion_active_ratio': motion_active_ratio,
                 'pair_ratio': pair_ratio,
                 'classic_score': score,
-                'sc_source': sc_source,
-                'cv_mode': cv_mode,
                 'classic_status': classic_status,
                 'status': classic_status,
             })
@@ -2720,6 +2352,7 @@ def run_validation(chip_filter=None, generate_report=True):
         dataset_info,
         npz_cache,
         chip_filter=chip_filter,
+        calibration_cache=calibration_cache,
     )
     for result in empty_results:
         result.domain = (
@@ -2736,6 +2369,7 @@ def run_validation(chip_filter=None, generate_report=True):
         dataset_info,
         npz_cache,
         chip_filter=chip_filter,
+        calibration_cache=calibration_cache,
     )
     for result in quiet_test_results:
         result.domain = (
@@ -2754,47 +2388,41 @@ def run_validation(chip_filter=None, generate_report=True):
     # ------------------------------------------------------------------
     # Summary
     # ------------------------------------------------------------------
-    pass_count = sum(1 for r in all_results if r.status == 'PASS')
-    warn_count = sum(1 for r in all_results if r.status == 'WARN')
-    fail_count = sum(1 for r in all_results if r.status == 'FAIL')
+    counts = _result_counts(all_results)
+    fail_count = counts['FAIL']
+    review_profiles = _table_review_profiles(
+        pair_results,
+        presence_score_rows,
+        empty_score_rows,
+        quiet_score_rows,
+    )
 
     if not printed_issues_heading:
         print("\nNo WARN/FAIL checks")
 
     print("\nSummary")
-    print(f"  PASS {pass_count}  WARN {warn_count}  FAIL {fail_count}  total {len(all_results)}")
+    print(
+        f"  PASS {counts['PASS']}  WARN {counts['WARN']}  "
+        f"FAIL {counts['FAIL']}  total {len(all_results)}"
+    )
     print("  | Domain                    | PASS | WARN | FAIL |")
     print("  |---------------------------|-----:|-----:|-----:|")
-    for domain in VALIDATION_DOMAINS:
-        domain_results = [result for result in all_results if result.domain == domain]
-        counts = _result_counts(domain_results)
+    for label, domain_counts in _domain_summary_rows(all_results):
         print(
-            f"  | {VALIDATION_DOMAIN_LABELS[domain]:<25} | "
-            f"{counts['PASS']:>4} | {counts['WARN']:>4} | {counts['FAIL']:>4} |"
+            f"  | {label:<25} | "
+            f"{domain_counts['PASS']:>4} | {domain_counts['WARN']:>4} | "
+            f"{domain_counts['FAIL']:>4} |"
         )
 
     if pair_results or quiet_score_rows or empty_score_rows or presence_score_rows:
         print("\nIndicative scores (review only)")
+        for line in _render_score_table(
+            pair_results,
+            _PAIR_SCORE_TABLE,
+            review_profiles=review_profiles,
+        ):
+            print(line)
         if pair_results:
-            print(
-                "  | Chip | Env | static_presence / motion | FP | TP | Ratio | Score |"
-            )
-            print(
-                "  |------|-----|-------------------------|-----:|-----:|------:|------:|"
-            )
-            for p in sorted(
-                pair_results,
-                key=lambda row: -row.get('classic_score', 0.0),
-            ):
-                score_severity = _score_value_severity(p['classic_score'])
-                print(
-                    f"  | {p['chip']:<4} | {p.get('environment', '?'):<11} | "
-                    f"{_pair_files_cell(p['static_presence'], p['motion'], p.get('static_date', '?'), p.get('motion_date', '?')):<23} | "
-                    f"{_format_static_above_cell(p['static_active_ratio']):>5} | "
-                    f"{_format_motion_above_cell(p['motion_active_ratio']):>5} | "
-                    f"{_format_pair_ratio_cell(p['pair_ratio']):>6} | "
-                    f"{_format_score_cell(p['classic_score'], score_severity):>8} |"
-                )
             mean_pair = float(np.mean([p['classic_score'] for p in pair_results]))
             print(f"  Pair mean score: {mean_pair:.1f}/100")
         for rows, table_spec in (
@@ -2802,7 +2430,11 @@ def run_validation(chip_filter=None, generate_report=True):
             (empty_score_rows, _EMPTY_SCORE_TABLE),
             (quiet_score_rows, _LONG_TEST_SCORE_TABLE),
         ):
-            for line in _render_score_table(rows, table_spec):
+            for line in _render_score_table(
+                rows,
+                table_spec,
+                review_profiles=review_profiles,
+            ):
                 print(line)
 
     if should_recommend_dataset_metadata_refresh(
@@ -2820,6 +2452,7 @@ def run_validation(chip_filter=None, generate_report=True):
             quiet_score_rows,
             empty_score_rows,
             presence_score_rows,
+            review_profiles,
         )
         print(f"\nReport: {REPORT_OUTPUT}")
 
@@ -2836,6 +2469,7 @@ def _generate_report(
     quiet_score_rows,
     empty_score_rows,
     presence_score_rows,
+    review_profiles,
 ):
     """Generate markdown report."""
     lines = []
@@ -2847,55 +2481,36 @@ def _generate_report(
         "Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics.md`.\n"
     )
 
-    pass_count = sum(1 for r in all_results if r.status == 'PASS')
-    warn_count = sum(1 for r in all_results if r.status == 'WARN')
-    fail_count = sum(1 for r in all_results if r.status == 'FAIL')
+    counts = _result_counts(all_results)
     lines.append("## Quality Check Summary\n")
     lines.append(f"- Total checks: {len(all_results)}")
-    lines.append(f"- ✅ PASS: {pass_count}")
-    lines.append(f"- ⚠️ WARN: {warn_count}")
-    lines.append(f"- ❌ FAIL: {fail_count}\n")
+    lines.append(f"- ✅ PASS: {counts['PASS']}")
+    lines.append(f"- ⚠️ WARN: {counts['WARN']}")
+    lines.append(f"- ❌ FAIL: {counts['FAIL']}\n")
 
     lines.append("## Validation Domains\n")
     lines.append("| Domain | PASS | WARN | FAIL |")
     lines.append("|---|---:|---:|---:|")
-    for domain in VALIDATION_DOMAINS:
-        domain_results = [result for result in all_results if result.domain == domain]
-        counts = _result_counts(domain_results)
+    for label, domain_counts in _domain_summary_rows(all_results):
         lines.append(
-            f"| {VALIDATION_DOMAIN_LABELS[domain]} | {counts['PASS']} | "
-            f"{counts['WARN']} | {counts['FAIL']} |"
-        )
-
-    lines.append("\n## Motion Scores\n")
-    lines.append(
-        "| Chip | Env | static_presence / motion | Threshold | "
-        "FP | TP | Ratio | Score |"
-    )
-    lines.append("|---|---|---|---:|---:|---:|---:|---:|")
-
-    sorted_pairs = sorted(
-        pair_results,
-        key=lambda x: -x.get('classic_score', 0.0),
-    )
-    for p in sorted_pairs:
-        score_value = p.get('classic_score', 0.0)
-        lines.append(
-            f"| {p['chip']} | {p.get('environment', '?')} | "
-            f"{_pair_files_cell(p['static_presence'], p['motion'], p.get('static_date', '?'), p.get('motion_date', '?'), markdown=True)} | "
-            f"{p['threshold']:.2e} | "
-            f"{_format_static_above_cell(p['static_active_ratio'], markdown=True)} | "
-            f"{_format_motion_above_cell(p['motion_active_ratio'], markdown=True)} | "
-            f"{_format_pair_ratio_cell(p['pair_ratio'], markdown=True)} | "
-            f"{_format_score_cell(score_value, _score_value_severity(score_value), markdown=True)} |"
+            f"| {label} | {domain_counts['PASS']} | "
+            f"{domain_counts['WARN']} | {domain_counts['FAIL']} |"
         )
 
     for rows, table_spec in (
+        (pair_results, _PAIR_SCORE_TABLE),
         (presence_score_rows, _PRESENCE_SCORE_TABLE),
         (empty_score_rows, _EMPTY_SCORE_TABLE),
         (quiet_score_rows, _LONG_TEST_SCORE_TABLE),
     ):
-        lines.extend(_render_score_table(rows, table_spec, markdown=True))
+        lines.extend(
+            _render_score_table(
+                rows,
+                table_spec,
+                markdown=True,
+                review_profiles=review_profiles,
+            )
+        )
 
     lines.append("\n## Validation rule\n")
     lines.append(
@@ -2907,41 +2522,59 @@ def _generate_report(
         f"❌ `<{FAIL_MOTION_ACTIVE_RATIO:.0%}`"
     )
     lines.append(
-        f"- `Ratio` (Motion Scores, p95(motion)/threshold): "
-        f"⚠️ `<{RATIO_WARN_BELOW:.0f}x`, "
-        f"❌ `<{RATIO_FAIL_BELOW:.0f}x`"
-    )
-    lines.append(
         f"- `FP` (Presence/Empty/Long-test): "
         f"⚠️ `>{QUIET_TEST_CLASSIC_FP_WARN_RATIO:.0%}`, "
         f"❌ `>{QUIET_TEST_CLASSIC_FP_FAIL_RATIO:.0%}`"
     )
+    if _has_empirical_metric(review_profiles, "pair", "ratio"):
+        lines.append(
+            "- `Ratio` (Motion Scores): peer-relative empirical outlier threshold "
+            "derived from passing pairs in this run, per chip when enough "
+            "references exist, otherwise global fallback"
+        )
+    else:
+        lines.append(
+            f"- `Ratio` (Motion Scores, p95(motion)/threshold): "
+            f"⚠️ `<{RATIO_WARN_BELOW:.0f}x`, "
+            f"❌ `<{RATIO_FAIL_BELOW:.0f}x`"
+        )
+    if any(
+        _has_empirical_metric(review_profiles, table_key, "mad")
+        for table_key in ("static_presence", "empty", "test")
+    ):
+        lines.append(
+            "- `MAD` (Presence/Empty/Long-test): peer-relative empirical outlier "
+            "threshold derived from clean idle captures in this run, per chip "
+            "when enough references exist, otherwise global fallback"
+        )
+    else:
+        lines.append(
+            f"- `MAD` (Presence/Empty/Long-test): ⚠️ `>{BASELINE_MARGIN_MAD_WARN:.2f}`, "
+            f"❌ `>{BASELINE_MARGIN_MAD_ZERO:.2f}`"
+        )
+    if any(
+        _has_empirical_metric(review_profiles, table_key, "burst")
+        for table_key in ("static_presence", "empty", "test")
+    ):
+        lines.append(
+            "- `Burst` (Presence/Empty/Long-test): peer-relative empirical "
+            "outlier threshold derived from clean idle captures in this run, "
+            "per chip when enough references exist, otherwise global fallback"
+        )
+    else:
+        lines.append(
+            f"- `Burst` (Presence/Empty/Long-test): "
+            f"⚠️ `>{BASELINE_LONGEST_BURST_WARN_SECONDS:.1f}s`, "
+            f"❌ `>{BASELINE_LONGEST_BURST_ZERO_SECONDS:.1f}s`"
+        )
     lines.append(
-        f"- `Score`: ⚠️ `<{SCORE_WARN_BELOW:.0f}`, ❌ `<{SCORE_FAIL_BELOW:.0f}`"
-    )
-    lines.append(
-        f"- `Breath` (shared ladder): "
-        f"strong when `Breath>={RESPIRATION_EVIDENCE_SCORE_MIN:.0f}`; "
-        f"⚠️ `partial` when `Breath>={RESPIRATION_SUSPECT_SCORE_MIN:.0f}`; "
-        f"otherwise `weak`. Score folds coverage and human-rate Hz weight "
-        f"(×{BREATH_HZ_PASS_WEIGHT:.2f} in "
-        f"`{BREATH_HZ_HUMAN_PASS_HZ[0]:.2f}-{BREATH_HZ_HUMAN_PASS_HZ[1]:.2f} Hz`, "
-        f"×{BREATH_HZ_WARN_WEIGHT:.2f} in the "
-        f"`{BREATH_HZ_HUMAN_WARN_HZ[0]:.2f}-{BREATH_HZ_HUMAN_WARN_HZ[1]:.2f} Hz` "
-        f"fringe, ×{BREATH_HZ_FAIL_WEIGHT:.2f} outside)."
-    )
-    lines.append(
-        "- `Breath` polarity: Presence Scores mark ⚠️ `partial` / ❌ `weak` "
-        "(higher is better); Empty Scores invert the same ladder "
-        "(⚠️ `partial`, ❌ strong/`presence-like`; lower is better)\n"
+        "- `Score`: absolute 0-100 ranking only; it does not carry peer-relative "
+        "soft marks\n"
     )
     lines.append("Computed metrics:\n")
     lines.append("- `Env`: capture environment from `dataset_info.json`")
     lines.append(
         "- `File` and `static_presence / motion`: capture-date links to the NPZ paths"
-    )
-    lines.append(
-        "- `File` (long-test): readable capture date linking to the test NPZ"
     )
     lines.append(
         "- `FP` (Motion Scores): share of replayed `ClassicDetector` evaluation "
@@ -2961,25 +2594,24 @@ def _generate_report(
         "probabilities"
     )
     lines.append(
-        "- `Breath`: detector-independent respiration-evidence score from "
-        "frequency-consensus segment quality, peak-stability damping, segment "
-        "coverage, and quiet-adult human-rate Hz weight "
-        f"(search window `{RESPIRATION_BAND_HZ[0]:.2f}-"
-        f"{RESPIRATION_BAND_HZ[1]:.2f} Hz`); Presence and Empty share one "
-        "Breath ladder, with Empty marks inverted (high Breath means "
-        "presence-like contamination)"
+        "- `MAD` (Presence/Empty/Long-test): robust dispersion of the logit "
+        "margin `logit(probability) - logit(threshold)` on the post-bootstrap "
+        "tail"
     )
-    lines.append("- `Margin`: `logit(probability) - logit(threshold)` on the post-bootstrap tail")
-    lines.append("- `MAD`, `q95`, `q99`, and `Drift`: robust margin dispersion, tail, and second-half minus first-half median")
-    lines.append("- `Bursts/min` and `Longest`: positive-margin activation episodes")
+    lines.append(
+        "- `Burst` (Presence/Empty/Long-test): longest sustained activation "
+        "episode in seconds"
+    )
     lines.append(
         "- `Score`: indicative 0-100 score from `ClassicDetector` replay, "
-        "tables sorted descending; on Presence/Empty it is the self-calibrated "
-        "idle score (0.5×cleanliness + 0.3×stability + 0.2×burst_clean)"
+        "tables sorted descending; on Presence/Empty/Long-test it is the "
+        "self-calibrated idle score (0.5×cleanliness from `FP` + 0.3×stability "
+        "from `MAD` + 0.2×burst_clean from `Burst`); score is shown as an "
+        "absolute ranking value without soft review icons"
     )
 
     REPORT_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    with open(REPORT_OUTPUT, 'w') as f:
+    with open(REPORT_OUTPUT, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines) + '\n')
 
 
