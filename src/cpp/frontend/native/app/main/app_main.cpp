@@ -11,7 +11,6 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
-#include <nvs_flash.h>
 
 #if CONFIG_BT_ENABLED
 #include "ble_bindings_nimble.h"
@@ -20,6 +19,7 @@
 #endif
 #include "native_frontend.h"
 #include "device_config_store.h"
+#include "nvs_helpers.h"
 #include "device_identity.h"
 #include "espectre_banner.h"
 #include "firmware_version.h"
@@ -145,12 +145,7 @@ bool handle_device_config_change(const espectre::EspectreDeviceConfig &config, b
 }  // namespace
 
 extern "C" void app_main() {
-  esp_err_t err = nvs_flash_init();
-  if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    err = nvs_flash_init();
-  }
-  ESP_ERROR_CHECK(err);
+  ESP_ERROR_CHECK(espectre::nvs_init_with_erase_fallback());
 
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
 

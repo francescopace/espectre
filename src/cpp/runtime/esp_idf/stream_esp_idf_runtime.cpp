@@ -14,7 +14,7 @@
 #include "espectre_log.h"
 #include "esp_err.h"
 #include "esp_wifi.h"
-#include "nvs_flash.h"
+#include "nvs_helpers.h"
 #include "sdkconfig.h"
 
 // Wi-Fi credentials come from the streamer/native Kconfig surface. Builds
@@ -224,14 +224,7 @@ RuntimeCapabilities StreamEspIdfRuntime::get_capabilities() const { return capab
 void StreamEspIdfRuntime::set_listener(IRuntimeListener *listener) { listener_ = listener; }
 
 bool StreamEspIdfRuntime::init_nvs_() {
-  esp_err_t err = nvs_flash_init();
-  if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    if (!check_esp(nvs_flash_erase(), "nvs_flash_erase")) {
-      return false;
-    }
-    err = nvs_flash_init();
-  }
-  return check_esp(err, "nvs_flash_init");
+  return check_esp(nvs_init_with_erase_fallback(), "nvs_flash_init");
 }
 
 bool StreamEspIdfRuntime::init_wifi_station_() {

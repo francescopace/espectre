@@ -122,6 +122,7 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 - Boundary interfaces live in the shared layer as `<name>.h`; implementations as `<name>_<variant>` in the owning layer (`mqtt_transport_esp_idf`, `ble_bindings_nimble`).
 - Suffixes: `_service` (start/stop lifecycle), `_transport` (data transport), `_bindings` (mockable boundary to an external stack), `_frontend` (runtime listener adapter), `_helpers` (free functions, domain-prefixed). Do not introduce new `_manager` files.
 - Placement: algorithms and CSI format in `core/`; platform-agnostic contracts in `runtime/`; anything including ESP-IDF/FreeRTOS/lwIP in `runtime/esp_idf/`; single-frontend code in `frontend/<name>/`.
+- Placement exception: portable shims that guard SDK includes behind `ESP_PLATFORM` or `__has_include` and degrade cleanly on host builds may live in `runtime/` (`espectre_log`, `pending_event`, `runtime_time`).
 - Headers in `core/` and `runtime/` must not include headers from `runtime/esp_idf/`.
 - Generic basenames (`utils`, `helpers`, `common`) require a domain prefix or genuinely cross-cutting, homogeneous content.
 - Core files with a Python counterpart keep the same basename (`threshold`, `csi_features`, `ml_weights`).

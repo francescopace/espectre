@@ -10,7 +10,6 @@
 #include <esp_event.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
-#include <nvs_flash.h>
 #include <sdkconfig.h>
 
 #include <cstdio>
@@ -29,6 +28,8 @@
 #include "matter_bindings_esp_matter.h"
 #include "matter_commissioning_data.h"
 #include "matter_frontend.h"
+#include "nvs_helpers.h"
+#include "runtime_config_utils.h"
 #include "runtime_sensing_kconfig.h"
 
 static const char *TAG = "espectre.matter.app";
@@ -46,16 +47,6 @@ espectre::MatterFrontend *g_frontend = nullptr;
 uint16_t g_motion_endpoint_id = 0;
 
 espectre::RuntimeConfig build_runtime_config() { return espectre::make_runtime_sensing_config_from_kconfig(); }
-
-const char *detector_name(const espectre::RuntimeConfig &config) {
-  switch (config.detection_algorithm) {
-    case espectre::DetectionAlgorithm::ML:
-      return "ML";
-    case espectre::DetectionAlgorithm::CLASSIC:
-    default:
-      return "Classic";
-  }
-}
 
 bool has_commissioned_fabric() {
   lock::ScopedChipStackLock chip_stack_lock(portMAX_DELAY);
@@ -178,12 +169,7 @@ void espectre_loop_task(void *arg) {
 }  // namespace
 
 extern "C" void app_main() {
-  esp_err_t err = nvs_flash_init();
-  if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    err = nvs_flash_init();
-  }
-  ESP_ERROR_CHECK(err);
+  ESP_ERROR_CHECK(espectre::nvs_init_with_erase_fallback());
   configure_log_levels();
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
 
@@ -242,7 +228,7 @@ extern "C" void app_main() {
     return;
   }
 
-  ESP_LOGI(TAG, "ESPectre Matter detector: %s", detector_name(frontend.runtime_config()));
+  ESP_LOGI(TAG, "ESPectre Matter detector: %s", espectre::detection_algorithm_name(frontend.runtime_config().detection_algorithm));
 
   xTaskCreate(espectre_loop_task, "espectre_loop", 8192, nullptr, 5, nullptr);
 

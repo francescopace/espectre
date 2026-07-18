@@ -1,7 +1,8 @@
 /*
  * ESPectre - Runtime Time
  *
- * Monotonic time helpers used by shared runtime components.
+ * Monotonic time helpers used by shared runtime components. Portable
+ * shim: uses esp_timer when available and degrades on host builds.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3

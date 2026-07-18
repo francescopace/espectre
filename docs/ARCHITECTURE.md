@@ -19,6 +19,7 @@ src/cpp/
 ├── core/
 ├── runtime/
 │   └── esp_idf/
+│       └── frontend_support/
 └── frontend/
     ├── esphome/
     ├── native/
