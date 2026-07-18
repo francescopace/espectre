@@ -17,7 +17,7 @@ import numpy as np
 import math
 
 from segmentation import SegmentationContext
-from features import (
+from csi_features import (
     FEATURE_NAMES as RUNTIME_FEATURE_NAMES,
 )
 from filters import HampelFilter

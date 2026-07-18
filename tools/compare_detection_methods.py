@@ -45,7 +45,7 @@ from runtime_policy import make_evaluation_cadence
 from filters import HampelFilter, LowPassFilter
 from threshold import DEFAULT_ADAPTIVE_FACTOR, calculate_startup_threshold_from_max
 from classic_detector import ClassicDetector
-from features import L1_DELTA_STARTUP_THRESHOLD_FACTOR
+from csi_features import L1_DELTA_STARTUP_THRESHOLD_FACTOR
 
 # Check if ML model is available (production implementation).
 ML_AVAILABLE = False

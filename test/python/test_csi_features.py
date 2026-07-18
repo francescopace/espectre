@@ -10,7 +10,7 @@ License: GPLv3
 import pytest
 import math
 import numpy as np
-from features import (
+from csi_features import (
     calc_skewness,
     calc_iqr,
     calc_autocorrelation,

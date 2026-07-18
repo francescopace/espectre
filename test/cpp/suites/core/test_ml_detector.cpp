@@ -19,7 +19,7 @@
 #include "ml_detector.h"
 #undef protected
 #undef private
-#include "features.h"
+#include "csi_features.h"
 #include "ml_weights.h"
 #include "esphome/core/log.h"
 #include "cnpy.h"

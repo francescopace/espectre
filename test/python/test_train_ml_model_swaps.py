@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TRAIN_SCRIPT = REPO_ROOT / "tools" / "train_ml_model.py"
 
 from config import MOTION_OFF_HITS, MOTION_ON_HITS
-from features import calc_l1_delta, l1_delta_series, extract_features_by_name
+from csi_features import calc_l1_delta, l1_delta_series, extract_features_by_name
 
 
 def _load_train_module():

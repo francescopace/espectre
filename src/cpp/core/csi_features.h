@@ -2,7 +2,7 @@
  * ESPectre - Shared Feature Support
  *
  * Shared L1-delta constants plus C++ feature extraction helpers for the
- * production Core-6 ML detector. Port of src/python/micro_espectre/features.py.
+ * production Core-6 ML detector. Port of src/python/micro_espectre/csi_features.py.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3

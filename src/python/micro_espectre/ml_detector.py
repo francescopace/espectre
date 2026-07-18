@@ -19,12 +19,12 @@ import math
 try:
     from src.detector_interface import IDetector, MotionState
     from src.segmentation import SegmentationContext
-    from src.features import L1_DELTA_LAG, L1DeltaTracker, extract_features_by_name
+    from src.csi_features import L1_DELTA_LAG, L1DeltaTracker, extract_features_by_name
     from src.config import DEFAULT_SUBCARRIERS
 except ImportError:
     from detector_interface import IDetector, MotionState
     from segmentation import SegmentationContext
-    from features import L1_DELTA_LAG, L1DeltaTracker, extract_features_by_name
+    from csi_features import L1_DELTA_LAG, L1DeltaTracker, extract_features_by_name
     from config import DEFAULT_SUBCARRIERS
 
 try:

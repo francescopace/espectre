@@ -44,7 +44,7 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "utils.py",
     "threshold.py",
     "filters.py",
-    "features.py",
+    "csi_features.py",
     "segmentation.py",
     "detector_interface.py",
     "runtime_policy.py",

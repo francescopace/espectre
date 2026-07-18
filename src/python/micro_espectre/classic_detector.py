@@ -12,11 +12,11 @@ import math
 
 try:
     from src.detector_interface import IDetector, MotionState
-    from src.features import L1_DELTA_LAG, L1DeltaTracker, calc_autocorrelation
+    from src.csi_features import L1_DELTA_LAG, L1DeltaTracker, calc_autocorrelation
     from src.segmentation import SegmentationContext
 except ImportError:
     from detector_interface import IDetector, MotionState
-    from features import L1_DELTA_LAG, L1DeltaTracker, calc_autocorrelation
+    from csi_features import L1_DELTA_LAG, L1DeltaTracker, calc_autocorrelation
     from segmentation import SegmentationContext
 
 

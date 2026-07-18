@@ -14,7 +14,7 @@
 
 #include "classic_detector.h"
 #include "ml_detector.h"
-#include "features.h"
+#include "csi_features.h"
 #include "threshold.h"
 #include "csi_format.h"
 #include "utils.h"

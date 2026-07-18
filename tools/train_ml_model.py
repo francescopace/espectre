@@ -346,7 +346,7 @@ from tools.lib.performance_report import (
     evaluate_idle_runtime_policy as evaluate_idle_runtime_policy_states,
 )
 from runtime_policy import make_evaluation_cadence
-from features import (
+from csi_features import (
     DEFAULT_FEATURES,
     L1_DELTA_LAG,
     L1DeltaTracker,
@@ -2241,7 +2241,7 @@ FEATURE_SCALE = [{scale_csv}]
 
 
 # Canonical C++ feature ids, mirroring the MLFeatureId enum in
-# src/cpp/core/features.h. Keep the numeric values in sync. Only features
+# src/cpp/core/csi_features.h. Keep the numeric values in sync. Only features
 # with a real C++ extractor entry can be exported to firmware.
 CPP_FEATURE_IDS = {
     'turb_skewness': 5,
@@ -2260,7 +2260,7 @@ def resolve_cpp_feature_ids(feature_names):
         if name not in CPP_FEATURE_IDS:
             raise ValueError(
                 f"feature {name!r} has no C++ extractor id; add it to "
-                f"CPP_FEATURE_IDS and the MLFeatureId enum in features.h "
+                f"CPP_FEATURE_IDS and the MLFeatureId enum in csi_features.h "
                 f"before exporting a model that uses it"
             )
         ids.append(CPP_FEATURE_IDS[name])
@@ -2342,7 +2342,7 @@ constexpr char ML_NORMALIZATION_MODE[] = "{scaler_mode}";
 constexpr float ML_FEATURE_MEAN[{len(center)}] = {{{center_csv}}};
 constexpr float ML_FEATURE_SCALE[{len(scale)}] = {{{scale_csv}}};
 
-// Feature identity (MLFeatureId in features.h), one per model input slot.
+// Feature identity (MLFeatureId in csi_features.h), one per model input slot.
 // Order: {feature_names_comment}
 constexpr uint8_t ML_FEATURE_IDS[{len(feature_ids)}] = {{{feature_ids_csv}}};
 
@@ -2485,7 +2485,7 @@ def calculate_correlation_importance(feature_names=None, use_cache=True):
 
 def print_correlation_table(correlations, current_features=None):
     """Print correlation results in a nice table."""
-    from features import DEFAULT_FEATURES
+    from csi_features import DEFAULT_FEATURES
     
     if current_features is None:
         current_features = DEFAULT_FEATURES

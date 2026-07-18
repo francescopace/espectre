@@ -9,6 +9,7 @@
 #include "test_harness.h"
 
 #include <memory>
+#include <mutex>
 #include <string>
 
 #define private public

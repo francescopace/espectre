@@ -281,7 +281,7 @@ CSI packet
 
 The same production feature set is used by:
 
-- `src/python/micro_espectre/features.py`
+- `src/python/micro_espectre/csi_features.py`
 - `src/cpp/core/ml_*`
 - `tools/train_ml_model.py` exports
 

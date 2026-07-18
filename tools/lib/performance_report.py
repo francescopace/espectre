@@ -32,7 +32,7 @@ from config import (
     SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
 )
 from detector_interface import MotionState
-from features import FEATURE_NAMES as RUNTIME_FEATURE_NAMES
+from csi_features import FEATURE_NAMES as RUNTIME_FEATURE_NAMES
 from runtime_policy import RuntimeMotionPolicy, make_evaluation_cadence as _make_evaluation_cadence
 from tools.lib.csi_io import load_npz_as_packets, load_npz_csi_data
 

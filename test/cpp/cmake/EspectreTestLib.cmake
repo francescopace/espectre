@@ -89,6 +89,7 @@ target_link_libraries(espectre_runtime_testlib
     PUBLIC
         espectre_core_testlib
         espectre_test_mocks
+        espectre_test_framework
 )
 
 add_library(espectre_frontend_esphome_testlib STATIC

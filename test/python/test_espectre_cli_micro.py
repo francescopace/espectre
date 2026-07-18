@@ -67,7 +67,7 @@ def _create_micro_src_tree(base_dir: Path) -> None:
         "utils.py",
         "threshold.py",
         "filters.py",
-        "features.py",
+        "csi_features.py",
         "segmentation.py",
         "detector_interface.py",
         "runtime_policy.py",
@@ -98,6 +98,11 @@ def test_calculate_sha256_matches_hashlib(tmp_path: Path) -> None:
 def test_device_sources_avoid_unsupported_future_annotations() -> None:
     for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES:
         source = micro.PYTHON_SRC_DIR / rel_path
+        if not source.exists():
+            # config_local.py only exists after local setup; check the
+            # shipped template instead.
+            source = source.with_name(source.name + ".example")
+            assert source.exists(), rel_path
         assert "from __future__ import annotations" not in source.read_text(
             encoding="utf-8"
         ), rel_path
@@ -447,7 +452,7 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
         SimpleNamespace(stdout="(1, 24, 0)\n", stderr=""),
         SimpleNamespace(
                 stdout="['__init__.py', 'branding.py', 'config.py', 'config_local.py', 'device_utils.py', 'utils.py', 'threshold.py', 'filters.py', "
-            "'features.py', 'segmentation.py', 'detector_interface.py', 'runtime_policy.py', 'classic_detector.py', "
+            "'csi_features.py', 'segmentation.py', 'detector_interface.py', 'runtime_policy.py', 'classic_detector.py', "
             "'ml_detector.py', 'ml_weights.py', 'traffic_generator.py', 'console_output.py', 'main.py', 'mqtt']\n",
             stderr="",
         ),

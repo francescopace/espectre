@@ -19,7 +19,7 @@
 
 #include "base_detector.h"
 #include "csi_format.h"
-#include "features.h"
+#include "csi_features.h"
 #include "l1_delta_tracker.h"
 #include <cstdint>
 #include <cstddef>

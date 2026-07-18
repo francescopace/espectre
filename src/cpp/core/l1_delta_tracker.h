@@ -14,7 +14,7 @@
 
 #include "csi_format.h"
 #include "detector_limits.h"
-#include "features.h"
+#include "csi_features.h"
 #include "filters.h"
 #include "utils.h"
 
