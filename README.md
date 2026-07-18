@@ -65,7 +65,7 @@ Supported hardware:
 - ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, and classic ESP32
 - a normal 2.4 GHz Wi-Fi network
 
-![ESP32-S3 DevKit boards with external antennas](docs/images/home_lab.jpg)
+![ESP32-S3 DevKit boards with external antennas](docs/web/guides/images/esp32-boards.jpg)
 *ESP32-S3 DevKit boards with external antennas*
 
 ## Build Your Own Path
@@ -82,7 +82,7 @@ Supported hardware:
 For shared prerequisites and supported targets, use [SETUP.md](docs/SETUP.md).
 For the repository CLI surface, use [CLI.md](docs/CLI.md).
 
-![ESPectre Home Assistant dashboard](docs/images/espectre-home-assistant.png)
+![ESPectre Home Assistant dashboard](docs/web/guides/images/home-assistant-dashboard.png)
 *Home Assistant dashboard with motion state, movement score, detector selection, threshold control, and recalibration*
 
 ## Platform Architecture

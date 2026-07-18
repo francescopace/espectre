@@ -128,8 +128,8 @@ python optimize_filter_params.py --all
 
 **Purpose**: Compare different motion detection algorithms
 
-- Compares RSSI, Mean Amplitude, Turbulence, Classic, the moving-variance baseline, L1-Delta, and ML detection methods
-- Classic and the historical baselines calibrate their thresholds from the selected static capture using their production startup logic
+- Compares the RSSI baseline against the production Classic and ML detectors
+- Classic calibrates its threshold from the selected static capture using its production startup logic
 - Shows separation between static presence and motion
 
 ```bash
@@ -137,8 +137,6 @@ python compare_detection_methods.py              # Use C6 dataset
 python compare_detection_methods.py --chip S3    # Use S3 dataset
 python compare_detection_methods.py --plot       # Show per-method comparison
 ```
-
-![Detection Methods Comparison](../docs/images/detection_method_comparison.png)
 
 ---
 

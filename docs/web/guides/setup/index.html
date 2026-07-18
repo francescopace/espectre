@@ -4,17 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Flash &amp; Wi-Fi Setup | ESPectre</title>
-    <meta name="description" content="Flash ESPectre firmware, provision Wi-Fi, connect Home Assistant, Matter, or MQTT, and recover from common setup problems.">
+    <meta name="description" content="Step-by-step tutorial: choose the right ESPectre firmware, flash it from the browser, configure Wi-Fi, and verify motion detection.">
     <link rel="canonical" href="https://espectre.dev/guides/setup/">
     <link rel="icon" href="/favicon.png" type="image/png">
     <meta property="og:type" content="article">
     <meta property="og:url" content="https://espectre.dev/guides/setup/">
     <meta property="og:title" content="Flash &amp; Wi-Fi Setup | ESPectre">
-    <meta property="og:description" content="The shortest path from an ESP32 board to a working ESPectre sensor.">
+    <meta property="og:description" content="From a blank ESP32 to a working motion sensor, step by step.">
     <meta property="og:image" content="https://espectre.dev/espectre.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Flash &amp; Wi-Fi Setup | ESPectre">
-    <meta name="twitter:description" content="The shortest path from an ESP32 board to a working ESPectre sensor.">
+    <meta name="twitter:description" content="From a blank ESP32 to a working motion sensor, step by step.">
     <meta name="twitter:image" content="https://espectre.dev/espectre.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -29,60 +29,118 @@
     <main class="guide-shell">
         <div class="guide-content">
             <div class="guide-header">
-                <h1>Flash firmware and configure Wi-Fi</h1>
-                <p>Install a published ESPectre image and complete the network setup for ESPHome, Native, or Matter.</p>
+                <h1>Flash and set up your device</h1>
+                <p>This tutorial takes you from a blank ESP32 board to a working motion sensor. No toolchain, no compiler: everything happens in the browser.</p>
             </div>
 
             <section class="guide-section">
-                <h2>Before you begin</h2>
-                <div class="guide-grid">
-                    <article class="guide-card"><i class="fas fa-microchip"></i><h3>Supported board</h3><p>Use an ESP32, ESP32-C3, ESP32-C5, ESP32-C6, or ESP32-S3 board with a data-capable USB cable.</p></article>
-                    <article class="guide-card"><i class="fab fa-chrome"></i><h3>Compatible browser</h3><p>Browser flashing requires a Chromium-based browser with Web Serial support.</p></article>
-                    <article class="guide-card"><i class="fas fa-wifi"></i><h3>2.4 GHz Wi-Fi</h3><p>Have the SSID and password ready. ESP32 provisioning uses a 2.4 GHz network.</p></article>
-                </div>
+                <h2>What you need</h2>
+                <ul class="guide-checklist">
+                    <li>An ESP32, ESP32-C3, ESP32-C5, ESP32-C6, or ESP32-S3 board.</li>
+                    <li>A USB cable that carries data, not only power. If in doubt, try another cable first: it is the single most common problem.</li>
+                    <li>Chrome or Edge on desktop. Browser flashing uses Web Serial, which Firefox and Safari do not support.</li>
+                    <li>The name and password of your 2.4&nbsp;GHz Wi-Fi network. ESP32 boards cannot join 5&nbsp;GHz-only networks.</li>
+                </ul>
             </section>
 
             <section class="guide-section">
-                <h2>Choose your firmware</h2>
-                <div class="guide-grid">
-                    <article class="guide-card"><h3>ESPHome</h3><p>The fastest route to Home Assistant, with automatic discovery and configurable entities.</p></article>
-                    <article class="guide-card"><h3>Native</h3><p>Standalone firmware with BLE provisioning, MQTT telemetry, and browser tools.</p></article>
-                    <article class="guide-card"><h3>Matter</h3><p>Commission an occupancy sensor into a compatible Matter ecosystem.</p></article>
+                <h2>Step 1 — Choose your firmware</h2>
+                <p>Pick the column that matches how you want to use the sensor. You can always reflash later; switching firmware takes two minutes.</p>
+                <div class="guide-table-wrap">
+                    <table class="guide-table">
+                        <thead><tr><th>If you...</th><th>Flash</th><th>You get</th></tr></thead>
+                        <tbody>
+                            <tr><td>Use Home Assistant</td><td><strong>ESPHome</strong></td><td>Auto-discovered device with motion, movement level, threshold slider, and recalibrate switch</td></tr>
+                            <tr><td>Use Apple Home, Google Home, Alexa, or SmartThings</td><td><strong>Matter</strong></td><td>A standard occupancy sensor you add by scanning a QR code</td></tr>
+                            <tr><td>Want a standalone sensor with browser tools or MQTT</td><td><strong>Native</strong></td><td>Bluetooth setup page, MQTT telemetry, live monitor, and the browser games</td></tr>
+                            <tr><td>Want raw CSI data for research</td><td><strong>Streamer</strong></td><td>Raw capture over UDP; not flashable from the browser, see the <a href="/guides/custom-firmware/">custom firmware guide</a></td></tr>
+                        </tbody>
+                    </table>
                 </div>
+                <div class="guide-note">Not sure? If you run Home Assistant, pick ESPHome. Otherwise pick Native: it works on its own and you can try everything from this website.</div>
             </section>
 
             <section class="guide-section">
-                <h2>Flash in four steps</h2>
+                <h2>Step 2 — Flash from the browser</h2>
+                <figure class="guide-figure">
+                    <img src="/guides/images/flash-connect-usb.webp" alt="A USB data cable connecting an ESP32 development board to a laptop" loading="lazy">
+                    <figcaption>Connect the board directly to the computer with a USB data cable before opening the browser flasher.</figcaption>
+                </figure>
                 <ol class="guide-steps">
-                    <li class="guide-step"><h3>Connect the board</h3><p>Plug the ESP32 into your computer over USB and close any serial monitor using the port.</p></li>
-                    <li class="guide-step"><h3>Select firmware and chip</h3><p>Open the web flasher, choose ESPHome, Native, or Matter, and select the matching ESP32 family.</p></li>
-                    <li class="guide-step"><h3>Install</h3><p>Choose the serial port, approve the browser prompt, and keep the cable connected until verification completes.</p></li>
-                    <li class="guide-step"><h3>Provision</h3><p>Continue with the frontend-specific network flow below.</p></li>
+                    <li class="guide-step"><h3>Plug the board in</h3><p>Connect the ESP32 to your computer over USB. Close anything that may be using the serial port, such as a previous flasher tab, the Arduino IDE, or a serial monitor.</p></li>
+                    <li class="guide-step"><h3>Open the flasher</h3><p>Go to the <a href="/flash/">Flash page</a>, keep the <em>stable</em> channel, and select the firmware from Step&nbsp;1 and your chip family. The chip name is usually printed on the module itself (for example <code>ESP32-C3</code>).</p></li>
+                    <li class="guide-step"><h3>Connect</h3><p>Click <em>Connect</em>. The browser shows a list of serial ports: pick the one that appears when you plug the board in (on Windows a <code>COMx</code> port, on macOS/Linux something like <code>usbserial</code>, <code>usbmodem</code>, or <code>ttyACM</code>).</p></li>
+                    <li class="guide-step"><h3>Install</h3><p>Choose <em>Install</em>, confirm, and wait. Flashing takes one to three minutes; do not unplug the cable. When it finishes, the device reboots into ESPectre.</p></li>
+                </ol>
+                <div class="guide-note">If the port never appears or the connection fails right away, hold the <strong>BOOT</strong> button on the board while plugging the cable in, then release it and click <em>Connect</em> again. That forces the chip into download mode.</div>
+            </section>
+
+            <section class="guide-section">
+                <h2>Step 3 — Connect it to your network</h2>
+                <p>This step depends on the firmware you flashed.</p>
+
+                <h3 class="guide-subheading">ESPHome</h3>
+                <ol class="guide-steps">
+                    <li class="guide-step"><h3>Configure Wi-Fi in the flasher</h3><p>Right after installation, the same dialog offers <em>Configure Wi-Fi</em>. Enter your 2.4&nbsp;GHz network name and password. On ESP32-C5 this dialog is not available yet: connect to the <code>ESPectre Fallback</code> hotspot the device creates and enter the credentials there.</p></li>
+                    <li class="guide-step"><h3>Add it in Home Assistant</h3><p>Within a minute, Home Assistant shows a notification for a discovered ESPHome device. Accept it, and you get the motion sensor, movement level, threshold control, and recalibrate switch.</p></li>
+                </ol>
+                <figure class="guide-figure">
+                    <img src="/guides/images/home-assistant-dashboard.png" alt="Home Assistant dashboard showing the ESPectre movement gauge, motion state, threshold slider, and recalibrate switch" loading="lazy">
+                    <figcaption>The device in Home Assistant: movement level on a 0.0–1.0 scale, motion state, threshold slider, and recalibrate switch.</figcaption>
+                </figure>
+
+                <h3 class="guide-subheading">Native</h3>
+                <ol class="guide-steps">
+                    <li class="guide-step"><h3>Open the Configure page</h3><p>Go to <a href="/configure/">Configure</a> in Chrome or Edge and click <em>Connect</em>. Pick the <code>ESPectre BLE</code> device from the Bluetooth list. The board must be powered but does not need Wi-Fi yet.</p></li>
+                    <li class="guide-step"><h3>Save Wi-Fi and MQTT</h3><p>Enter your network name and password. If you have an MQTT broker, add its host and port to get telemetry; if not, you can skip it and the sensor still works over Bluetooth.</p></li>
+                    <li class="guide-step"><h3>Watch it live</h3><p>Use the same Configure page to see the live movement bar, or open the <a href="/monitor/">Monitor</a> to chart MQTT telemetry from the browser.</p></li>
+                </ol>
+
+                <h3 class="guide-subheading">Matter</h3>
+                <ol class="guide-steps">
+                    <li class="guide-step"><h3>Get the QR code</h3><p>After flashing, the flasher shows the device's Matter QR code and manual pairing code. Each device has its own code, and reflashing does not change it, so you can save it.</p></li>
+                    <li class="guide-step"><h3>Add the device in your app</h3><p>In Apple Home, Google Home, Alexa, or SmartThings choose <em>Add device</em> and scan the QR code. Keep the phone near the board: commissioning starts over Bluetooth, then the device joins your Wi-Fi.</p></li>
+                    <li class="guide-step"><h3>Place it in a room</h3><p>The device appears as an occupancy sensor. Use it in automations exactly like any other motion sensor.</p></li>
                 </ol>
             </section>
 
             <section class="guide-section">
-                <h2>Provision the connection</h2>
-                <div class="guide-grid">
-                    <article class="guide-card"><i class="fas fa-house-signal"></i><h3>ESPHome</h3><p>Use the ESPHome browser provisioning flow to configure Wi-Fi. Home Assistant should discover the device after it joins the network.</p></article>
-                    <article class="guide-card"><i class="fab fa-bluetooth-b"></i><h3>Native</h3><p>Open <a href="/configure/">Configure</a>, connect over Bluetooth, and save the Wi-Fi and MQTT settings.</p></article>
-                    <article class="guide-card"><i class="fas fa-qrcode"></i><h3>Matter</h3><p>Read the device QR from the web flasher, then add it from your Matter controller. Normal reflashing preserves its onboarding identity.</p></article>
-                </div>
+                <h2>Step 4 — Let it calibrate, then test</h2>
+                <ul class="guide-checklist">
+                    <li>After joining Wi-Fi, the sensor calibrates its quiet baseline. This takes roughly ten seconds with the default settings: keep the room still, then move normally.</li>
+                    <li>Wave an arm a few meters from the board: the motion state should turn active within about a second and clear shortly after you stop.</li>
+                    <li>If you later move the device to another room or position, trigger a recalibration (Home Assistant switch, Configure page, or just power-cycle it).</li>
+                </ul>
+                <div class="guide-note">The movement level is a 0.0–1.0 score specific to your room. If the sensor is too eager or too lazy, adjust the threshold slightly instead of expecting one universal value: the <a href="/guides/detection/">detection guide</a> explains what the numbers mean.</div>
             </section>
 
             <section id="troubleshooting" class="guide-section">
-                <h2>Common setup problems</h2>
+                <h2>Troubleshooting</h2>
                 <div class="guide-grid two-column">
-                    <article class="guide-card"><h3>No serial port</h3><ul><li>Use a data-capable USB cable.</li><li>Try another USB port.</li><li>Close serial monitors and reconnect the board.</li></ul></article>
-                    <article class="guide-card"><h3>Device will not join Wi-Fi</h3><ul><li>Confirm the network is 2.4 GHz.</li><li>Move the board closer to the access point.</li><li>Repeat provisioning with the exact SSID and password.</li></ul></article>
-                    <article class="guide-card"><h3>Native is not publishing</h3><ul><li>Verify MQTT host and credentials in Configure.</li><li>Use the <a href="/monitor/">MQTT Monitor</a> to check telemetry.</li></ul></article>
-                    <article class="guide-card"><h3>Matter commissioning times out</h3><ul><li>Keep the board close to the controller.</li><li>Make sure Bluetooth is enabled.</li><li>Reopen the commissioning window and retry.</li></ul></article>
+                    <article class="guide-card"><h3>No serial port appears</h3><ul><li>Try another USB cable: charge-only cables are the top cause.</li><li>Try another USB port, ideally directly on the computer.</li><li>Hold <strong>BOOT</strong> while plugging in, then retry Connect.</li></ul></article>
+                    <article class="guide-card"><h3>Flashing starts but fails midway</h3><ul><li>Close other tabs or programs using the port and retry.</li><li>Use a rear USB port or a powered hub: unstable power interrupts flashing.</li><li>Retry with <em>Erase</em> enabled to start from a clean flash.</li></ul></article>
+                    <article class="guide-card"><h3>Device will not join Wi-Fi</h3><ul><li>Confirm the network is 2.4&nbsp;GHz; guest and 5&nbsp;GHz-only networks fail.</li><li>Re-enter the exact SSID and password: both are case-sensitive.</li><li>Move the board closer to the access point for the first join.</li></ul></article>
+                    <article class="guide-card"><h3>Matter commissioning times out</h3><ul><li>Keep the phone within a meter of the board while pairing.</li><li>Make sure the phone's Bluetooth is on and the board is powered.</li><li>Power-cycle the board to reopen the commissioning window, then retry.</li></ul></article>
+                    <article class="guide-card"><h3>Native is not publishing MQTT</h3><ul><li>Check broker host, port, and credentials in <a href="/configure/">Configure</a>.</li><li>Confirm the broker is reachable from the device's network.</li><li>Use the <a href="/monitor/">Monitor</a> to see whether telemetry arrives.</li></ul></article>
+                    <article class="guide-card"><h3>Motion triggers with nobody there</h3><ul><li>Recalibrate with the room genuinely empty and still.</li><li>Raise the threshold a little.</li><li>Check for fans, curtains moving in airflow, or pets: the sensor sees them too.</li></ul></article>
                 </div>
             </section>
 
+            <section id="cli-flashing" class="guide-section">
+                <h2>CLI flashing (fallback)</h2>
+                <p>If browser flashing does not work on your system, clone the repository and flash with the ESPectre CLI. After <code>./espectre doctor</code> succeeds, build and flash the frontend you chose in Step&nbsp;1:</p>
+                <pre class="guide-code"><code>./espectre native build --chip c3
+./espectre native flash --port /dev/cu.usbmodemXXXX</code></pre>
+                <p>Use <code>esphome</code> or <code>matter</code> instead of <code>native</code> when that is your firmware. Port names differ by OS; pass <code>--help</code> on any subcommand for current options. Full prerequisites and command reference are in the <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md">setup reference</a> and <a href="https://github.com/francescopace/espectre/blob/main/docs/CLI.md">CLI guide</a>; the <a href="/guides/custom-firmware/">custom firmware guide</a> walks through the same local workflow.</p>
+            </section>
+
             <section class="guide-section">
-                <h2>Custom builds</h2>
-                <p>For custom thresholds, ML detection, or a product-specific frontend, continue with the <a href="/guides/custom-firmware/">custom firmware guide</a>.</p>
+                <h2>Next steps</h2>
+                <ul class="guide-checklist">
+                    <li>Understand and tune the score: <a href="/guides/detection/">How detection works</a>.</li>
+                    <li>Pick a better board or antenna: <a href="/guides/hardware/">Hardware guide</a>.</li>
+                    <li>Build your own firmware or embed the engine: <a href="/guides/custom-firmware/">Custom firmware</a>.</li>
+                </ul>
             </section>
         </div>
     </main>

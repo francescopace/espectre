@@ -178,6 +178,33 @@
     border-radius: 0 10px 10px 0;
 }
 
+.guide-followup {
+    margin-top: 1.5rem;
+}
+
+.guide-subheading {
+    margin: 1.75rem 0 0.5rem;
+    color: var(--text-primary);
+}
+
+.guide-figure {
+    margin: 1.25rem 0 1.5rem;
+}
+
+.guide-figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+
+.guide-figure figcaption {
+    margin-top: 0.6rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
 .guide-table-wrap {
     overflow-x: auto;
 }

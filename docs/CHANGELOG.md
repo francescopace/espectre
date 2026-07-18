@@ -55,6 +55,8 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Changed
 
+- **Website guides are now hands-on tutorials**: setup walks through firmware choice, browser flashing, per-frontend provisioning, calibration, and troubleshooting step by step; detection, hardware, and custom-firmware focus on practical decisions; pages now include real screenshots and capture visuals, and legacy images from the retired baselines were removed.
+
 - **Paired real-data validation no longer hard-fails on per-feature Fisher separation**: univariate Core-6 Fisher gates were removed; model quality stays covered by Classic/ML paired metrics, long-quiet checks, and dataset quality admission.
 - **Default `motion_on_hits` is now 4**: IDLE→MOTION now requires four consecutive evaluation hits across Python, ESP-IDF, and ESPHome defaults.
 - **Tuning docs now explain evaluation cadence and hit-filter latency**: `TUNING.md` and `SETUP.md` document that default `IDLE -> MOTION` needs about `1 s` of sustained raw motion (`25` packets × `4` hits at `100` pps).
@@ -80,6 +82,7 @@ Historical decision context for the Classic and ML promotions now lives in:
 - **CSI Wi-Fi startup is now shared and association-safe** across frontends: the runtime applies protocol and HT20 policy at `WIFI_EVENT_STA_START`, initializes CSI after `IP_EVENT_STA_GOT_IP`, and passes the event gateway directly to the traffic generator. This avoids the ESPHome first-connect drop and removes duplicate frontend policy and netif lookups.
 - **ESPHome, native, and Matter now share the same runtime foundations**: frontend setup, diagnostics, status reporting, and standalone Wi-Fi policy were consolidated to reduce duplication and keep behavior aligned.
 - **The C++ source tree was normalized around explicit naming and layer placement**: `runtime/esp_idf/protocol/` became `frontend_support/`, `csi_manager` and `standalone_wifi_manager` became `csi_pipeline` and `standalone_wifi_service`, the streamer adapter is now `streamer_frontend`, HTTPS OTA follows the `ota_service_https` variant pattern, CSI layout constants moved from `utils.h` into `csi_format.h`, threshold validation moved into `threshold.h`, and shared `core/` and `runtime/` headers no longer include ESP-IDF-only headers.
+- **The shared feature unit is now `csi_features`**: `core/features.h` and `micro_espectre/features.py` were renamed to `csi_features.h` and `csi_features.py` because the old basename shadowed the C library's `<features.h>` on host builds, and the portable `runtime_time` helper moved from `runtime/esp_idf/` into `runtime/`.
 - **ESPectre Protocol was extracted from the native frontend into shared runtime code** so multiple ESP-IDF frontends can reuse the same telemetry, command, BLE, and provisioning helpers.
 - **Native firmware was simplified into a dedicated standalone frontend**: BLE telemetry, MQTT diagnostics, device identity, and subscription behavior were cleaned up around the shared protocol contract.
 - **Streamer workflows were modernized**: multi-chip CLI support was expanded, collection is now collector-driven, the C++ streamer protocol became the primary live-streaming path, and ESP32-C3 transport defaults were tuned for high-rate capture.
