@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, v3.0]
   pull_request:
     branches: [develop]
   workflow_dispatch:
@@ -234,13 +234,16 @@ jobs:
         with:
           python-version: '3.14'
           cache: 'pip'
-          cache-dependency-path: requirements.txt
-      
+          cache-dependency-path: |
+            requirements.txt
+            requirements-ml.txt
+
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      
+          pip install -r requirements-ml.txt
+
       - name: Run Tests with Coverage
         run: |
           pytest test/python -n auto --dist worksteal -v --cov=src/python/micro_espectre --cov=src/python/espectre_cli --cov-report=xml --cov-report=term-missing
