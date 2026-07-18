@@ -8,7 +8,6 @@ License: GPLv3
 """
 
 import pytest
-import math
 import numpy as np
 from config import SEG_WINDOW_SIZE
 from segmentation import SegmentationContext

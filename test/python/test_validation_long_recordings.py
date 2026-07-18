@@ -7,7 +7,6 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-from pathlib import Path
 
 import pytest
 

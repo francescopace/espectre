@@ -7,7 +7,6 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-import pytest
 import importlib.util
 
 from tools.lib.repo_paths import python_src_dir

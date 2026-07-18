@@ -25,6 +25,8 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.lib.bootstrap import setup_paths  # noqa: F401
+
 from tools.lib.csi_io import load_npz_as_packets, load_static_presence_and_motion
 from tools.lib.dataset_metadata import (
     DATA_DIR,
@@ -54,7 +56,7 @@ try:
     ML_AVAILABLE = True
 except ImportError:
     ProdMLDetector = None
-    ML_DEFAULT_THRESHOLD = 0.5
+    ML_DEFAULT_THRESHOLD = None
 
 # Configuration
 WINDOW_SIZE = SEG_WINDOW_SIZE
@@ -539,14 +541,14 @@ def plot_comparison(methods, classic_baseline, classic_movement,
 
 def print_comparison_summary(methods, classic_baseline, classic_movement,
                            threshold, timing,
-                           ml_baseline=None, ml_movement=None, ml_static_presence_states=0,
+                           ml_baseline=None, ml_movement=None,
                            method_thresholds=None, results=None):
     """Print comparison summary"""
     print("\n" + "="*80)
     print("  DETECTION METHODS COMPARISON SUMMARY")
     print("="*80 + "\n")
     
-    print(f"Configuration:")
+    print("Configuration:")
     print(f"  Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
     print(f"  Window Size: {WINDOW_SIZE}")
     print(f"  Classic runtime threshold: {threshold}")
@@ -558,7 +560,7 @@ def print_comparison_summary(methods, classic_baseline, classic_movement,
         if 'ML' in method_thresholds:
             print(f"    - ML: {method_thresholds['ML']:.4f} (fixed)")
     if ML_AVAILABLE:
-        print(f"  ML Model: Neural Network (9→32→16→1)")
+        print("  ML Model: Neural Network (9→32→16→1)")
     print()
     
     results = results or compute_method_results(methods, method_thresholds or {})
@@ -676,7 +678,6 @@ def run_all_chips():
             ml_res = result_by_name.get('ML', {'fp': 0, 'tp': 0})
             ml_fp = ml_res['fp']
             ml_tp = ml_res['tp']
-            ml_fn = num_movement - ml_tp
             ml_recall = ml_tp / num_movement * 100 if num_movement > 0 else 0
             ml_precision = ml_tp / (ml_tp + ml_fp) * 100 if (ml_tp + ml_fp) > 0 else 0
             ml_f1 = 2 * ml_precision * ml_recall / (ml_precision + ml_recall) if (ml_precision + ml_recall) > 0 else 0
@@ -822,7 +823,7 @@ def main():
     
     print_comparison_summary(methods, classic_baseline, classic_movement,
                             threshold, timing,
-                            ml_baseline, ml_movement, 0,
+                            ml_baseline, ml_movement,
                             method_thresholds, results)
     
     if args.plot:

@@ -16,10 +16,6 @@ from functools import lru_cache
 import numpy as np
 import math
 
-from segmentation import SegmentationContext
-from csi_features import (
-    FEATURE_NAMES as RUNTIME_FEATURE_NAMES,
-)
 from filters import HampelFilter
 from tools.lib.csi_analysis import calculate_spatial_turbulence
 from tools.lib.performance_report import (
@@ -48,7 +44,6 @@ from config import (
     HAMPEL_THRESHOLD,
     LOWPASS_CUTOFF,
 )
-from detector_interface import MotionState
 from classic_detector import ClassicDetector
 from conftest import get_classic_fp_rate_target, get_classic_recall_target, record_performance
 from threshold import StartupThresholdCalibrator, get_detector_auto_factor, get_detector_startup_gate
@@ -431,8 +426,8 @@ class TestPerformanceMetrics:
             threshold=0.5,
         )
 
-        print(f"\nML Detector initialized")
-        print(f"  Threshold: 0.5")
+        print("\nML Detector initialized")
+        print("  Threshold: 0.5")
         print(f"  Window size: {DETECTOR_DEFAULT_WINDOW_SIZE} (DETECTOR_DEFAULT_WINDOW_SIZE)")
         print(f"  Subcarriers: {ml_subcarriers} (fixed for ML)")
         print("  Turbulence: normalized runtime path")
@@ -631,8 +626,7 @@ class TestEndToEndWithCalibration:
     def test_band_calibration_produces_valid_band(self, dataset_config, num_subcarriers, calibration_algorithm, chip_type, default_subcarriers):
         """Test that startup calibration produces a valid fixed band and threshold."""
         
-        from threshold import calculate_adaptive_threshold
-        from config import GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER
+        from config import GUARD_BAND_LOW, GUARD_BAND_HIGH
         
         static_presence_path, _motion_path, _num_sc, _chip, _dataset_id = dataset_config
         

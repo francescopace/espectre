@@ -21,6 +21,8 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.lib.bootstrap import setup_paths  # noqa: F401
+
 from tools.lib.performance_report import (
     PERFORMANCE_DOC_PATH,
     compute_performance_report_data,

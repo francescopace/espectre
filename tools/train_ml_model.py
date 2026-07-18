@@ -64,19 +64,17 @@ REPO_ROOT_PATH = SCRIPT_DIR.parent
 if str(REPO_ROOT_PATH) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT_PATH))
 
+from tools.lib.bootstrap import setup_paths  # noqa: F401
+
 from tools.lib.repo_paths import (
     cpp_core_dir,
     generated_data_dir,
     python_src_dir,
-    repo_root,
 )
 from contextlib import contextmanager
 from datetime import datetime
 from time import perf_counter
 
-REPO_ROOT = repo_root()
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 try:
     import torch
@@ -352,7 +350,7 @@ from csi_features import (
     L1DeltaTracker,
     extract_features_by_name,
 )
-from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES, MLDetector
+from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES, MLDetector  # noqa: F401 (re-exported for tests)
 
 
 def _needs_l1_series(feature_names):
@@ -861,7 +859,6 @@ def load_all_data(environment_filter=None, excluded_chips=None,
     # Load dataset info for label mapping and file metadata
     dataset_info = load_dataset_info()
     file_metadata = get_file_metadata(dataset_info)
-    
     # Scan raw dataset subdirectories only. Generated artifacts such as
     # data/auto_generated/*.npz are not packet captures and should not be
     # parsed as CSI inputs.
@@ -1176,7 +1173,7 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
 
 
 def extract_features(packets, window_size=SEG_WINDOW_SIZE,
-                     feature_names=None, return_metadata=False,
+                     feature_names=None,
                      enable_lowpass=ENABLE_LOWPASS_FILTER, lowpass_cutoff=LOWPASS_CUTOFF,
                      enable_hampel=ENABLE_HAMPEL_FILTER,
                      hampel_window=HAMPEL_WINDOW, hampel_threshold=HAMPEL_THRESHOLD,
@@ -1191,7 +1188,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         packets: List of CSI packets with 'csi_data' and 'label'
         window_size: Sliding window size (default: SEG_WINDOW_SIZE from config.py)
         feature_names: List of feature names to extract (default: DEFAULT_FEATURES)
-        return_metadata: If True, return per-sample metadata
         enable_lowpass: Enable low-pass filter on turbulence (default: config.py)
         lowpass_cutoff: Low-pass cutoff frequency in Hz (default: config.py)
         enable_hampel: Enable Hampel filtering on turbulence and L1-delta streams
@@ -2876,8 +2872,6 @@ def show_info():
             print(f"    {info['description']}")
     print()
     
-    file_metadata = get_file_metadata(dataset_info)
-    
     # Load and analyze data
     _, stats = load_all_data()
     
@@ -2899,7 +2893,7 @@ def show_info():
         else:
             idle_total += count
     
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  IDLE packets:   {idle_total}")
     print(f"  MOTION packets: {motion_total}")
     print()
@@ -3233,7 +3227,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         f"\nModel trained with blocked grouped CV F1={cv_results['oof_f1']:.1f}% "
         f"(fold mean {cv_results['f1_mean']:.1f}% +/- {cv_results['f1_std']:.1f}%)"
     )
-    print(f"\nGenerated files:")
+    print("\nGenerated files:")
     print(f"  - {mp_path} (MicroPython)")
     print(f"  - {cpp_path} (C++ ESPHome)")
     print(f"  - {test_data_path} (test data for validation)")
@@ -4457,7 +4451,6 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
             f"median OOF={summary['median_oof_f1']:.1f}%"
         )
 
-    static_presence_filter = next(item for item in seed_filter if item['name'] == static_presence_name)
     challenger_summaries = [
         item for item in sorted(seed_filter, key=aggregate_architecture_rank_key)
         if item['name'] != static_presence_name

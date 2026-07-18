@@ -431,7 +431,6 @@ class TestLowPassFilterRealWorld:
         lpf = LowPassFilter(cutoff_hz=10.0, sample_rate_hz=100.0)
         
         # Simulate gradual motion onset (slow ramp)
-        samples = 100
         signal = np.concatenate([
             np.ones(30) * 2.0,     # Baseline
             np.linspace(2.0, 8.0, 20),  # Gradual increase

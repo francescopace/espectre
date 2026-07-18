@@ -15,7 +15,7 @@ import hashlib
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from urllib.error import URLError
 
 import pytest

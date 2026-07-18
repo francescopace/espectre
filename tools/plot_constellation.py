@@ -26,6 +26,8 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.lib.bootstrap import setup_paths  # noqa: F401
+
 from tools.lib.csi_io import load_static_presence_and_motion
 from tools.lib.dataset_metadata import resolve_explicit_pair, select_dataset_interactively
 from tools.lib.ui import show_plot_window
@@ -355,7 +357,7 @@ Examples:
         chip_name = pair.chip
     except FileNotFoundError as e:
         print(f"\nError: {e}")
-        print(f"\nCollect data using: ./espectre collect --label static_presence --duration 10")
+        print("\nCollect data using: ./espectre collect --label static_presence --duration 10")
         return
     
     # Always use the fixed production subcarriers.
@@ -365,7 +367,7 @@ Examples:
     print("╔═══════════════════════════════════════════════════════╗")
     print("║        I/Q Constellation Diagram Plotter              ║")
     print("╚═══════════════════════════════════════════════════════╝")
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"  Chip: {chip_name}")
     print(f"  Packets: {args.packets}")
     print(f"  Offset: {args.offset}")
@@ -373,7 +375,7 @@ Examples:
     print(f"  Layout: {'Grid' if args.grid else 'Comparison'}")
     
     # Load data
-    print(f"\nLoading data...")
+    print("\nLoading data...")
     print(f"  Static presence: {static_presence_file.name}")
     print(f"  Motion:          {motion_file.name}")
     try:
@@ -411,7 +413,7 @@ Examples:
         args.packets = available_packets
     
     # Generate plots
-    print(f"\nGenerating constellation plots...")
+    print("\nGenerating constellation plots...")
     
     if args.grid:
         plot_single_subcarrier_grid(static_presence_packets, motion_packets, 

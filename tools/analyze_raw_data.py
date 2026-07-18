@@ -24,6 +24,8 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.lib.bootstrap import setup_paths  # noqa: F401
+
 from tools.lib.csi_analysis import calculate_spatial_turbulence
 from tools.lib.csi_io import load_npz_as_packets, load_static_presence_and_motion
 from tools.lib.dataset_metadata import (
@@ -32,7 +34,6 @@ from tools.lib.dataset_metadata import (
     resolve_explicit_pair,
     select_dataset_interactively,
 )
-from config import DEFAULT_SUBCARRIERS
 
 
 def format_variance(value: float, width: int = 12) -> str:
@@ -79,7 +80,7 @@ def analyze_packets(packets, label_name):
     # Extract label from first packet
     label = packets[0].get('label', 'unknown')
     
-    print(f"\nDataset Information:")
+    print("\nDataset Information:")
     print(f"  Label: {label}")
     print(f"  Total Packets: {len(packets)}")
     
@@ -94,17 +95,17 @@ def analyze_packets(packets, label_name):
         turbulences.append(turb)
         rssi_values.append(pkt.get('rssi', 0))
     
-    print(f"\nRSSI Statistics:")
+    print("\nRSSI Statistics:")
     print(f"  Mean: {np.mean(rssi_values):.2f} dBm")
     print(f"  Std:  {np.std(rssi_values):.2f} dBm")
     
-    print(f"\nTurbulence Statistics:")
+    print("\nTurbulence Statistics:")
     print(f"  Mean: {np.mean(turbulences):.2f}")
     print(f"  Std:  {np.std(turbulences):.2f}")
     
     turb_variance = np.var(turbulences)
     print(f"\nTurbulence Variance: {format_variance(turb_variance, width=0)}")
-    print(f"  (This is what the moving-variance baseline uses to detect motion)")
+    print("  (This is what the moving-variance baseline uses to detect motion)")
     
     return {
         'label_name': label,
@@ -267,7 +268,7 @@ def analyze_chip(chip: str | None = None, *, dataset: str | None = None, interac
         static_presence_path = pair.static_presence.path
         motion_path = pair.motion.path
         chip_name = pair.chip
-        print(f"\nDataset files:")
+        print("\nDataset files:")
         print(f"  Static presence: {static_presence_path.name}")
         print(f"  Motion:          {motion_path.name}")
         

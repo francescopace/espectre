@@ -32,8 +32,10 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.lib.bootstrap import setup_paths  # noqa: F401
+
+from tools.lib.csi_analysis import calculate_spatial_turbulence
 from tools.lib.csi_io import load_static_presence_and_motion
-from tools.lib.dataset_metadata import DATA_DIR
 from tools.lib.ui import show_plot_window
 from config import (
     SEG_WINDOW_SIZE,
@@ -119,14 +121,6 @@ def analyze_amplitudes_per_subcarrier(packets, name, num_subcarriers=64):
     }
 
 
-def calculate_spatial_turbulence(csi_data):
-    """Calculate spatial turbulence using the fixed production subcarriers."""
-    return SegmentationContext.compute_spatial_turbulence(
-        csi_data,
-        DEFAULT_SUBCARRIERS,
-    )
-
-
 def calculate_runtime_variance_series(packets):
     """Replay packets through the shared moving-variance context and collect the metric."""
     detector = SegmentationContext(
@@ -182,9 +176,6 @@ def print_comparison(s3_stats, c6_stats, metric_name):
     print(f"  {'-'*56}")
     
     for key in ['mean', 'std', 'min', 'max']:
-        s3_key = f"{metric_name.lower().split()[0]}_{key}"
-        c6_key = s3_key
-        
         # Try different key patterns
         s3_val = None
         c6_val = None
@@ -305,7 +296,7 @@ def main():
             for sc in selected_scs[chip] if sc < num_sc
         ])
     
-    print(f"\n  Selected SC Average: " + ", ".join([f"{chip}={selected_means[chip]:.2f}" for chip in chips_data]))
+    print("\n  Selected SC Average: " + ", ".join([f"{chip}={selected_means[chip]:.2f}" for chip in chips_data]))
     
     # =========================================================================
     # 3. TURBULENCE AND MOVING-VARIANCE ANALYSIS
@@ -325,7 +316,7 @@ def main():
             data['motion'], f"{chip} Movement", WINDOW_SIZE
         )
     
-    print(f"\nTurbulence (Spatial Std Dev):")
+    print("\nTurbulence (Spatial Std Dev):")
     print(f"  {'Dataset':<20} {'Mean':>12} {'Std':>12} {'Min':>12} {'Max':>12}")
     print(f"  {'-'*60}")
     
@@ -378,7 +369,7 @@ def main():
     print("  5. AMPLITUDE SUMMARY")
     print("="*70)
     
-    print(f"\n  Selected SC Average per chip:")
+    print("\n  Selected SC Average per chip:")
     for chip in chips_data:
         max_amp = np.max([s['max'] for s in amp_stats[chip]['stats']])
         print(f"    {chip}: mean={selected_means[chip]:.2f}, max={max_amp:.2f}")

@@ -10,7 +10,7 @@ License: GPLv3
 import pytest
 import json
 import sys
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 # Mock MicroPython modules before importing mqtt modules
 mock_mqtt_client = MagicMock()

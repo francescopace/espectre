@@ -38,7 +38,6 @@ from config import (
     SEG_WINDOW_SIZE,
 )
 from tools.lib.variance_baseline_core import (
-    VarianceEvaluationResult,
     VarianceFilterConfig,
     baseline_tracking_variant,
     evaluate_pairs,

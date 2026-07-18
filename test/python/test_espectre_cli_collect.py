@@ -137,6 +137,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
 
     class FakeClassicDetector(FakeClassicBaseDetector):
         ALGORITHM = "classic"
+        BASE_THRESHOLD = 1.0
 
         def get_name(self):
             return "Classic"
@@ -1820,6 +1821,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
 
     class FakeClassicDetector(FakeClassicBaseDetector):
         ALGORITHM = "classic"
+        BASE_THRESHOLD = 1.0
         STARTUP_THRESHOLD_FACTOR = 1.1
         STARTUP_GATE = True
 

@@ -9,7 +9,7 @@ License: GPLv3
 
 import pytest
 import sys
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 # Mock MicroPython modules before importing
 mock_network = MagicMock()

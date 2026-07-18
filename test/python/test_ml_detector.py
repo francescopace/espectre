@@ -8,7 +8,6 @@ License: GPLv3
 """
 
 import pytest
-import math
 import numpy as np
 
 from tools.lib.repo_paths import generated_data_dir

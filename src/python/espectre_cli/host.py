@@ -526,7 +526,9 @@ def _run_live_collect(args) -> None:
     summary_evaluation_interval = effective_evaluation_interval
 
     def get_initial_threshold(kind):
-        return ML_DEFAULT_THRESHOLD if kind == "ml" else 1.0
+        if kind == "ml":
+            return ML_DEFAULT_THRESHOLD
+        return load_detector_class(kind).BASE_THRESHOLD
 
     def get_detector_threshold(detector, fallback=1.0):
         if hasattr(detector, "get_threshold"):
@@ -644,8 +646,8 @@ def _run_live_collect(args) -> None:
         detector = create_detector(kind, slot_initial_threshold)
         runtime_policy = RuntimeMotionPolicy(
             evaluation_interval=effective_evaluation_interval,
-            motion_on_hits=getattr(config, "MOTION_ON_HITS", 4),
-            motion_off_hits=getattr(config, "MOTION_OFF_HITS", 3),
+            motion_on_hits=config.MOTION_ON_HITS,
+            motion_off_hits=config.MOTION_OFF_HITS,
         )
         return {
             "kind": kind,

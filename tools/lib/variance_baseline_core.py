@@ -14,14 +14,10 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
-import sys
 
 import numpy as np
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from .bootstrap import setup_paths  # noqa: F401
 
 from tools.lib.csi_io import load_npz_as_packets
 from tools.lib.dataset_metadata import load_dataset_info
@@ -422,7 +418,6 @@ def evaluate_pair(
         nonlocal tracking_margin_block_count
         nonlocal max_idle_reference_mv
         nonlocal max_candidate_threshold
-        nonlocal ema_baseline
 
         stream_tp = stream_fn = stream_fp = stream_tn = 0
 

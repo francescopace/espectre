@@ -23,6 +23,8 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.lib.bootstrap import setup_paths  # noqa: F401
+
 from tools.lib.csi_io import load_npz_as_packets
 from tools.lib.dataset_metadata import resolve_explicit_pair, select_dataset_interactively
 from classic_detector import ClassicDetector

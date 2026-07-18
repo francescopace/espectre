@@ -14,10 +14,7 @@ import hashlib
 import pytest
 import numpy as np
 import json
-import re
 from pathlib import Path
-from collections import defaultdict
-from functools import lru_cache
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTS_PATH = Path(__file__).resolve().parent
@@ -168,7 +165,7 @@ def default_subcarriers(request):
     Matches C++ test configuration exactly (test_motion_detection.cpp).
     """
     try:
-        dataset_config = request.getfixturevalue('dataset_config')
+        request.getfixturevalue('dataset_config')
     except pytest.FixtureLookupError:
         # Unit/integration tests that do not define dataset_config still need
         # a deterministic 12-SC band. Real-data performance tests define
@@ -427,9 +424,7 @@ def tolerance():
 # Performance Results Collection (for summary table)
 # ============================================================================
 
-import json
 import tempfile
-import os
 import fcntl
 
 # Use a temp file to share results between test module and conftest hook

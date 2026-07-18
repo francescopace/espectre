@@ -7,9 +7,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-import pytest
-import math
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from config import SEG_WINDOW_SIZE
 from segmentation import SegmentationContext
