@@ -105,13 +105,15 @@ def test_render_performance_report_markdown_formats_missing_values_as_na() -> No
 
     assert markdown.startswith("<!-- Generated file. Do not edit manually. -->\n")
     assert "\n# Performance Metrics\n" in markdown
-    assert "| Recall | 98.0% | 99.9% | N/A | N/A |" in markdown
-    assert "| Recall | 99.8% | N/A | N/A | 100.0% |" in markdown
-    assert "| Effective Alarms | 1 | 0 | N/A | N/A |" in markdown
-    assert "| Effective Alarms | 0 | N/A | N/A | 2 |" in markdown
-    assert "| Avg FP Rate | 0.30% | N/A | N/A | 1.20% |" in markdown
-    assert "| Max FP Rate | 0.00% | N/A | N/A | 0.13% |" in markdown
-    assert "| Effective Alarms | 2 | N/A | N/A | 1 |" in markdown
+    assert "| Recall | 98.0% | 99.9% | N/A | N/A | N/A |" in markdown
+    assert "| Recall | 99.8% | N/A | N/A | N/A | 100.0% |" in markdown
+    assert "| Effective Alarms | 1 | 0 | N/A | N/A | N/A |" in markdown
+    assert "| Effective Alarms | 0 | N/A | N/A | N/A | 2 |" in markdown
+    assert "| Avg FP Rate | 0.30% | N/A | N/A | N/A | 1.20% |" in markdown
+    assert "| Max FP Rate | 0.00% | N/A | N/A | N/A | 0.13% |" in markdown
+    assert "| Effective Alarms | 2 | N/A | N/A | N/A | 1 |" in markdown
+    assert "| Metric | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32 | ESP32-S3 |" in markdown
+    assert "| Metric | C3 | C5 | C6 | ESP32 | S3 |" in markdown
     assert "False Motion Evals" not in markdown
     assert "Per-chip live firmware reports" in markdown
     assert "also verifies that the host-side C++ integration suites stay aligned" in markdown

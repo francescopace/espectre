@@ -78,11 +78,12 @@ def _evaluate_idle_runtime_policy_evaluations(raw_motion_states: Sequence[bool])
     }
 
 
-CHIP_ORDER = ("C3", "C5", "C6", "S3")
+CHIP_ORDER = ("C3", "C5", "C6", "ESP32", "S3")
 PAIRED_CHIP_LABELS = {
     "C3": "ESP32-C3",
     "C5": "ESP32-C5",
     "C6": "ESP32-C6",
+    "ESP32": "ESP32",
     "S3": "ESP32-S3",
 }
 
@@ -998,8 +999,10 @@ def render_performance_report_markdown(
     )
 
     def _append_long_quiet_table(algorithm):
-        lines.append("| Metric | C3 | C5 | C6 | S3 |")
-        lines.append("|--------|----|----|----|----|")
+        long_header = "| Metric | " + " | ".join(CHIP_ORDER) + " |"
+        long_divider = "|--------|" + "|".join("----" for _ in CHIP_ORDER) + "|"
+        lines.append(long_header)
+        lines.append(long_divider)
         for key, label, formatter in long_row_specs:
             values = []
             for chip in CHIP_ORDER:
