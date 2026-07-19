@@ -93,12 +93,16 @@ void cnpy::parse_npy_header(unsigned char* buffer,size_t& word_size, std::vector
     bool littleEndian = (header[loc1] == '<' || header[loc1] == '|' ? true : false);
     assert(littleEndian);
 
-    //char type = header[loc1+1];
+    const char type = header[loc1+1];
     //assert(type == map_type(T));
 
     std::string str_ws = header.substr(loc1+2);
     loc2 = str_ws.find("'");
     word_size = atoi(str_ws.substr(0,loc2).c_str());
+    // NumPy unicode (`U`) stores UCS-4 code units; descr length is in characters.
+    if (type == 'U') {
+        word_size *= 4;
+    }
 }
 
 void cnpy::parse_npy_header(FILE* fp, size_t& word_size, std::vector<size_t>& shape, bool& fortran_order) {  
@@ -144,12 +148,16 @@ void cnpy::parse_npy_header(FILE* fp, size_t& word_size, std::vector<size_t>& sh
     bool littleEndian = (header[loc1] == '<' || header[loc1] == '|' ? true : false);
     assert(littleEndian);
 
-    //char type = header[loc1+1];
+    const char type = header[loc1+1];
     //assert(type == map_type(T));
 
     std::string str_ws = header.substr(loc1+2);
     loc2 = str_ws.find("'");
     word_size = atoi(str_ws.substr(0,loc2).c_str());
+    // NumPy unicode (`U`) stores UCS-4 code units; descr length is in characters.
+    if (type == 'U') {
+        word_size *= 4;
+    }
 }
 
 void cnpy::parse_zip_footer(FILE* fp, uint16_t& nrecs, size_t& global_header_size, size_t& global_header_offset)

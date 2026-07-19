@@ -89,6 +89,9 @@ static void fill_valid_csi_info_(wifi_csi_info_t* csi_info, int8_t* csi_buf, uin
   csi_info->buf = csi_buf;
   csi_info->len = 128;
   csi_info->rx_ctrl.channel = channel;
+  // HT20 sensing contract: Classic/ML drop non-HT20 frames in the pipeline.
+  csi_info->rx_ctrl.sig_mode = 1;
+  csi_info->rx_ctrl.cwb = 0;
 }
 
 /**
@@ -306,18 +309,38 @@ void test_csi_pipeline_process_packet_valid_data(void) {
     
     // Create valid CSI data (128 bytes for HT20)
     int8_t csi_buf[128];
-    for (int i = 0; i < 128; i++) {
-        csi_buf[i] = (int8_t)(i % 64 - 32);
-    }
-    
     wifi_csi_info_t csi_info = {};
-    csi_info.buf = csi_buf;
-    csi_info.len = 128;
-    csi_info.rx_ctrl.channel = 6;
+    fill_valid_csi_info_(&csi_info, csi_buf);
     
     manager.process_packet(&csi_info);
     
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
+}
+
+void test_csi_pipeline_filters_non_ht20_phy(void) {
+    ClassicDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    csi_info.rx_ctrl.sig_mode = 0;  // legacy OFDM
+    manager.process_packet(&csi_info);
+    TEST_ASSERT_EQUAL(0, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(0U, manager.accepted_packets_total());
+
+    csi_info.rx_ctrl.sig_mode = 1;
+    csi_info.rx_ctrl.cwb = 1;  // HT40
+    manager.process_packet(&csi_info);
+    TEST_ASSERT_EQUAL(0, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(0U, manager.accepted_packets_total());
+
+    csi_info.rx_ctrl.cwb = 0;  // HT20
+    manager.process_packet(&csi_info);
+    TEST_ASSERT_EQUAL(1, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(1U, manager.accepted_packets_total());
 }
 
 void test_csi_pipeline_motion_state_callback_fires_before_periodic_publish(void) {
@@ -551,6 +574,8 @@ void test_csi_pipeline_process_stbc_256_byte_packet(void) {
     csi_info.buf = csi_buf;
     csi_info.len = 256;
     csi_info.rx_ctrl.channel = 6;
+    csi_info.rx_ctrl.sig_mode = 1;
+    csi_info.rx_ctrl.cwb = 0;
     
     manager.process_packet(&csi_info);
     
@@ -572,6 +597,8 @@ void test_csi_pipeline_process_short_ht_114_byte_packet(void) {
     csi_info.buf = csi_buf;
     csi_info.len = 114;
     csi_info.rx_ctrl.channel = 6;
+    csi_info.rx_ctrl.sig_mode = 1;
+    csi_info.rx_ctrl.cwb = 0;
 
     manager.process_packet(&csi_info);
 
@@ -594,6 +621,8 @@ void test_csi_pipeline_process_double_short_ht_228_byte_packet(void) {
     csi_info.buf = csi_buf;
     csi_info.len = 228;
     csi_info.rx_ctrl.channel = 6;
+    csi_info.rx_ctrl.sig_mode = 1;
+    csi_info.rx_ctrl.cwb = 0;
 
     manager.process_packet(&csi_info);
 
@@ -689,9 +718,7 @@ void test_csi_pipeline_callback_wrapper_triggered(void) {
     
     int8_t csi_buf[128] = {0};
     wifi_csi_info_t csi_info = {};
-    csi_info.buf = csi_buf;
-    csi_info.len = 128;
-    csi_info.rx_ctrl.channel = 6;
+    fill_valid_csi_info_(&csi_info, csi_buf);
     
     g_wifi_mock.trigger_callback(&csi_info);
     
@@ -724,9 +751,7 @@ void test_csi_pipeline_clear_detector_buffer(void) {
     // Process some packets
     int8_t csi_buf[128] = {0};
     wifi_csi_info_t csi_info = {};
-    csi_info.buf = csi_buf;
-    csi_info.len = 128;
-    csi_info.rx_ctrl.channel = 6;
+    fill_valid_csi_info_(&csi_info, csi_buf);
     
     for (int i = 0; i < 10; i++) {
         manager.process_packet(&csi_info);
@@ -822,6 +847,7 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_process_packet_short_data);
     RUN_TEST(test_csi_pipeline_counts_valid_local_packets_for_traffic_feedback);
     RUN_TEST(test_csi_pipeline_process_packet_valid_data);
+    RUN_TEST(test_csi_pipeline_filters_non_ht20_phy);
     RUN_TEST(test_csi_pipeline_motion_state_callback_fires_before_periodic_publish);
     RUN_TEST(test_csi_pipeline_motion_state_callback_does_not_repeat_without_new_edge);
     RUN_TEST(test_csi_pipeline_clear_detector_buffer_publishes_idle_edge);

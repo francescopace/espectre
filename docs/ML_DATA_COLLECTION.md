@@ -237,7 +237,7 @@ phases = np.arctan2(Q, I)
 
 ## Loading Data
 
-Minimal example:
+Minimal example (raw on-disk arrays, including any non-HT20 rows):
 
 ```python
 import numpy as np
@@ -247,7 +247,7 @@ csi_data = data["csi_data"]
 label = str(data["label"])
 ```
 
-Using the tool library:
+Using the tool library (HT20 sensing view by default):
 
 ```python
 from pathlib import Path
@@ -255,6 +255,13 @@ from tools.lib.csi_io import load_npz_as_packets
 
 packets = load_npz_as_packets(Path("data/static_presence/sample.npz"))
 ```
+
+`load_npz_as_packets` and `load_npz_csi_data` keep only HT20 packets
+(`phy_mode=ht`, `channel_width=20`) when per-record PHY metadata is present.
+Captures without PHY fields are treated as HT20. Pass `keep_all_phy=True` to
+inspect mixed-PHY rows. Dataset quality validation and the C++ test NPZ loader
+use the same filtered view, so excessive non-HT20 drops show up as stream
+continuity gaps.
 
 ## Collection Notes
 

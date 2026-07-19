@@ -110,9 +110,25 @@ Current default training settings:
 - `--scaler standard`
 - `--batch-size 1024`
 - `--device cpu`
+- seed: reused from the current exported model when `--seed` is omitted
 
 Values above `1.0` for `--fp-weight` reduce false positives at the cost of
 slightly lower recall.
+
+When `--seed` is omitted, diagnostic and training entry points reuse the seed
+embedded in `ml_weights.py` / `ml_weights.h`. Pass an explicit `--seed` to
+override that, or use `--seed-search-until-improvement` to sample fresh seeds.
+If no exported seed is available, the trainer falls back to a random seed.
+
+Use `--augment` to train with:
+feature jitter (`0.10`) plus moderate packet gain/noise/loss. Augmentation is
+train-only; paired validation and runtime inference stay on clean features.
+Combine it with seed search when promoting a new export:
+
+```bash
+python tools/train_ml_model.py --augment
+python tools/train_ml_model.py --augment --seed-search-until-improvement 10
+```
 
 CUDA and Apple MPS are available only when requested explicitly through
 `--device cuda` or `--device mps`; this small MLP usually runs fastest and most
@@ -152,8 +168,9 @@ Promoted exports:
 - `src/cpp/core/ml_weights.h`
 - `data/auto_generated/ml_test_data.npz`
 
-Use `--seed <number>` for reproducible training. The seed is saved in the
-generated weight files.
+When `--seed` is omitted, training reuses the seed saved in the current
+exported weight files. Pass `--seed <number>` to override it; promoted exports
+write the chosen seed back into those files.
 
 `ml_test_data.npz` is an inference-regression artifact, not the main
 model-selection metric. Architecture, weighting, and scaler choices should
@@ -226,25 +243,58 @@ exporting a new model:
 
 ```bash
 python tools/train_ml_model.py --cross-environment
-python tools/train_ml_model.py --cross-environment --seed 42
 python tools/train_ml_model.py --cross-chip
-python tools/train_ml_model.py --cross-chip --seed 42
+python tools/train_ml_model.py --cross-environment --seed 42
 ```
 
 `--cross-environment` holds out one named environment at a time; `--cross-chip`
-holds out one chip at a time. For each held-out group the command trains on all
-other groups and evaluates on the held-out one, then reports recall,
-false-positive rate, precision, and F1 per group plus a macro-average. Held-out
-scoring reuses the same block subsampling as grouped CV, so the numbers stay
-comparable to the trainer's own report. False positives are also broken down by
-`empty` versus `static_presence`, since an unseen group's idle windows are the
-most common cross-group false-positive source. Each fold additionally reports its
-worst sub-group (worst chip for a held-out room, worst room for a held-out chip).
+holds out one chip at a time. With no `--seed`, both reuse the exported model
+seed so the diagnostic matches the currently promoted weights. For each held-out
+group the command trains on all other groups and evaluates on the held-out one,
+then reports recall, false-positive rate, precision, and F1 per group plus a
+macro-average. Held-out scoring reuses the same block subsampling as grouped CV,
+so the numbers stay comparable to the trainer's own report. False positives are
+also broken down by `empty` versus `static_presence`, since an unseen group's
+idle windows are the most common cross-group false-positive source. Each fold
+additionally reports its worst sub-group (worst chip for a held-out room, worst
+room for a held-out chip).
 
 Neither gate trains a promotable model or exports runtime artifacts. They are
 mutually exclusive with each other and cannot be combined with `--environment`
 (which holds nothing out), experiment flows, seed search, or the diagnostic
 feature-analysis flags.
+
+## Core-6 Robustness Campaign
+
+Run the staged, non-destructive normalization and augmentation campaign with:
+
+```bash
+python tools/train_ml_model.py --experiment-robustness
+```
+
+The campaign screens the standard, robust, and session-balanced robust scalers;
+relative L1 descriptors; normalized feature noise, block jitter, and feature
+dropout; and packet-level frequency-selective gain, amplitude noise, and packet
+loss. Every candidate is evaluated with all environment and chip holdouts.
+Screening uses one seed, the shortlist uses three seeds, and the final baseline
+comparison uses five seeds. Incremental results are written to
+`data/auto_generated/ml_robustness_experiment.json`.
+
+Runtime artifacts are never exported by this command. A final candidate must
+still pass paired validation, gain stress, long recordings, and Python/C++
+feature parity before a separate production promotion.
+
+To keep the production Core-6 features and standard scaler fixed and evaluate
+only feature-space and packet-level augmentation, use:
+
+```bash
+python tools/train_ml_model.py --experiment-robustness \
+  --robustness-augmentation-only
+```
+
+The campaign winner
+(`baseline_standard__feature_jitter_010__packet_packet_combined_moderate`) is
+available for production training through `--augment`.
 
 ## Empty-Room Regression Check
 

@@ -34,6 +34,25 @@ def csi_read_frame(wlan, reuse_frame=None):
     return wlan.csi_read()
 
 
+def is_ht20_sensing_frame(frame):
+    """Return True when a CSI frame matches the HT20 sensing contract.
+
+    MicroPython ``wlan.csi_read()`` list layout:
+    index 7 = ``sig_mode`` (0=legacy, 1=HT, 3=VHT), index 9 = ``cwb``
+    (0=20 MHz, 1=40 MHz). Frames without those fields are treated as HT20 for
+    older firmware compatibility (same as host NPZ without PHY metadata).
+    """
+    if frame is None:
+        return False
+    try:
+        length = len(frame)
+    except TypeError:
+        return False
+    if length <= 9:
+        return True
+    return frame[7] == 1 and frame[9] == 0
+
+
 def normalize_ht20_csi_payload(csi_data, expected_len=128, remap_buffer=None):
     """Normalize supported CSI payload layouts to one HT20 payload."""
     raw_len = len(csi_data)

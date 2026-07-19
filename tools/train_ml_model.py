@@ -216,16 +216,37 @@ def model_torch_device(model):
         return resolve_torch_device('cpu')
 
 
-def resolve_training_seed(seed, trailing_newline=False):
-    """Resolve and print the seed used for a training/evaluation run."""
+def generate_random_training_seed():
+    """Return a fresh non-negative 31-bit training seed."""
+    from numpy.random import SeedSequence
+    return int(SeedSequence().entropy % (2**31))
+
+
+def resolve_training_seed(seed=None, trailing_newline=False, prefer_exported=True):
+    """
+    Resolve and print the seed used for a training/evaluation run.
+
+    Priority when ``seed`` is omitted:
+      1. seed embedded in the current exported model (if prefer_exported)
+      2. a freshly generated random seed
+    """
     suffix = "\n" if trailing_newline else ""
-    if seed is None:
-        from numpy.random import SeedSequence
-        ss = SeedSequence()
-        seed = int(ss.entropy % (2**31))
-        print(f"Generated random seed: {seed}{suffix}")
-    else:
+    if seed is not None:
+        seed = int(seed)
         print(f"Using provided seed: {seed}{suffix}")
+        return seed
+
+    if prefer_exported:
+        exported = read_exported_seed()
+        if exported is not None:
+            print(f"Using exported model seed: {exported}{suffix}")
+            return int(exported)
+
+    seed = generate_random_training_seed()
+    if prefer_exported:
+        print(f"No exported model seed found; generated random seed: {seed}{suffix}")
+    else:
+        print(f"Generated random seed: {seed}{suffix}")
     return seed
 
 
@@ -378,7 +399,7 @@ DEFAULT_FP_WEIGHT = 2.0
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
-TRAINING_FEATURE_CACHE_VERSION = 6
+TRAINING_FEATURE_CACHE_VERSION = 7
 # All chips included: MLDetector keeps the legacy variance-baseline CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
 DEFAULT_EXCLUDED_CHIPS = ()
@@ -391,6 +412,7 @@ DEFAULT_ARCHITECTURE_SWEEP = (
 )
 DEFAULT_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'mlp_architecture_experiment.json'
 DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'mlp_fp_weight_experiment.json'
+DEFAULT_ROBUSTNESS_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'ml_robustness_experiment.json'
 DEFAULT_FP_WEIGHT_SWEEP = (1.0, 1.5, 2.0, 2.5, 3.0)
 DEFAULT_EXPERIMENT_SCREENING_SEED = 20260519
 DEFAULT_EXPERIMENT_INITIAL_SEEDS = (20260518, 20260519, 20260520)
@@ -402,6 +424,11 @@ DEFAULT_MAX_EPOCHS = 100
 DEFAULT_EARLY_STOP_PATIENCE = 8
 DEFAULT_LR_PATIENCE = 4
 DEFAULT_CLIP_PERCENTILES = (1.0, 99.0)
+ROBUSTNESS_SCREENING_SEED = 20260519
+ROBUSTNESS_FILTER_SEEDS = (20260518, 20260519, 20260520)
+ROBUSTNESS_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 20260522)
+ROBUSTNESS_TARGET_RECALL = 95.0
+ROBUSTNESS_TARGET_FP_RATE = 5.0
 DEFAULT_PRIMARY_GROUP_KEY = 'session_group'
 DEFAULT_BLOCK_GROUP_KEY = 'source_file'
 DEFAULT_CV_FOLDS = 3
@@ -1000,7 +1027,9 @@ def _feature_cache_manifest(feature_names, environment_filter=None,
                             lowpass_cutoff=LOWPASS_CUTOFF,
                             enable_hampel=ENABLE_HAMPEL_FILTER,
                             hampel_window=HAMPEL_WINDOW,
-                            hampel_threshold=HAMPEL_THRESHOLD):
+                            hampel_threshold=HAMPEL_THRESHOLD,
+                            packet_augmentation=None,
+                            augmentation_seed=None):
     """Build a stable manifest for the cached feature matrix."""
     dataset_manifest = _training_dataset_manifest(
         environment_filter=environment_filter,
@@ -1018,6 +1047,8 @@ def _feature_cache_manifest(feature_names, environment_filter=None,
         'enable_hampel': bool(enable_hampel),
         'hampel_window': int(hampel_window),
         'hampel_threshold': float(hampel_threshold),
+        'packet_augmentation': dict(sorted((packet_augmentation or {}).items())),
+        'augmentation_seed': None if augmentation_seed is None else int(augmentation_seed),
     }
 
 
@@ -1089,8 +1120,62 @@ def _save_feature_cache(cache_path, manifest, X, y, feature_names,
         print(f"  Warning: could not write feature cache {cache_path.name}: {exc}")
 
 
+def _stable_text_seed(value):
+    digest = hashlib.sha256(str(value).encode('utf-8')).digest()
+    return int.from_bytes(digest[:4], byteorder='little') & 0x7FFFFFFF
+
+
+def augment_csi_packets(packets, config, seed):
+    """Return a deterministic packet-level augmented copy for training only."""
+    if not config:
+        return list(packets)
+    gain_sigma = float(config.get('gain_sigma', 0.0))
+    noise_sigma = float(config.get('noise_sigma', 0.0))
+    packet_loss = float(config.get('packet_loss', 0.0))
+    if min(gain_sigma, noise_sigma, packet_loss) < 0.0 or packet_loss >= 1.0:
+        raise ValueError("invalid packet augmentation parameters")
+
+    grouped = {}
+    for packet in packets:
+        grouped.setdefault(str(packet.get('source_file', '__single_stream__')), []).append(packet)
+    augmented = []
+    for source in sorted(grouped):
+        rng = np.random.default_rng(derive_seed(seed, _stable_text_seed(source)))
+        source_packets = grouped[source]
+        sample_len = len(source_packets[0].get('csi_data', ())) if source_packets else 0
+        subcarriers = max(1, sample_len // 2)
+        if gain_sigma > 0.0:
+            knots = rng.normal(0.0, gain_sigma, size=4)
+            smooth_log_gain = np.interp(
+                np.linspace(0.0, 1.0, subcarriers),
+                np.linspace(0.0, 1.0, len(knots)),
+                knots,
+            )
+            gains = np.exp(smooth_log_gain)
+            gains /= np.mean(gains)
+        else:
+            gains = np.ones(subcarriers, dtype=np.float64)
+
+        for packet in source_packets:
+            if packet_loss > 0.0 and rng.random() < packet_loss:
+                continue
+            raw = np.asarray(packet['csi_data'], dtype=np.float64).copy()
+            usable = min(len(raw) // 2, len(gains))
+            for sc in range(usable):
+                pair = slice(2 * sc, 2 * sc + 2)
+                raw[pair] *= gains[sc]
+                if noise_sigma > 0.0:
+                    magnitude = max(1.0, float(np.linalg.norm(raw[pair])))
+                    raw[pair] += rng.normal(0.0, noise_sigma * magnitude / np.sqrt(2.0), size=2)
+            copied = dict(packet)
+            copied['csi_data'] = np.clip(np.rint(raw), -128, 127).astype(np.int8)
+            augmented.append(copied)
+    return augmented
+
+
 def load_training_matrix(environment_filter=None, excluded_chips=None,
-                         feature_names=None, use_cache=True):
+                         feature_names=None, use_cache=True,
+                         packet_augmentation=None, augmentation_seed=None):
     """Load or build the cached feature matrix used by training."""
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
@@ -1101,6 +1186,8 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         allowed_labels=BINARY_TRAINING_LABELS,
+        packet_augmentation=packet_augmentation,
+        augmentation_seed=augmentation_seed,
     )
     feature_cache_path = _feature_cache_path(feature_manifest)
     feature_matrix = None
@@ -1123,6 +1210,8 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
             environment_filter=environment_filter,
             excluded_chips=excluded_chips,
         )
+        if packet_augmentation:
+            all_packets = augment_csi_packets(all_packets, packet_augmentation, augmentation_seed)
         print(f"  Load time: {format_duration(perf_counter() - load_start)}")
 
         if not stats['chips']:
@@ -1338,6 +1427,56 @@ class ClippedStandardScaler:
         return self.fit(X).transform(X)
 
 
+class SessionBalancedRobustScaler:
+    """Robust affine scaler fitted on equal-sized session/class strata."""
+
+    def __init__(self, max_samples_per_stratum=2048):
+        self.max_samples_per_stratum = int(max_samples_per_stratum)
+        self.center_ = None
+        self.scale_ = None
+        self.selected_indices_ = None
+
+    def fit(self, X, y=None, groups=None):
+        X = np.asarray(X, dtype=np.float32)
+        if y is None or groups is None:
+            raise ValueError("session_balanced_robust requires labels and session groups")
+        y = np.asarray(y)
+        groups = np.asarray(groups).astype(str)
+        if len(X) != len(y) or len(X) != len(groups):
+            raise ValueError("scaler inputs must have matching rows")
+
+        strata = {}
+        for idx, key in enumerate(zip(groups.tolist(), y.tolist())):
+            strata.setdefault((str(key[0]), int(key[1])), []).append(idx)
+        non_empty = [indices for indices in strata.values() if indices]
+        if not non_empty:
+            raise ValueError("session_balanced_robust received no samples")
+        per_stratum = min(self.max_samples_per_stratum, min(map(len, non_empty)))
+        selected = []
+        for key in sorted(strata):
+            indices = np.asarray(strata[key], dtype=np.int64)
+            if len(indices) <= per_stratum:
+                selected.extend(indices.tolist())
+            else:
+                positions = np.linspace(0, len(indices) - 1, per_stratum, dtype=np.int64)
+                selected.extend(indices[positions].tolist())
+        self.selected_indices_ = np.asarray(selected, dtype=np.int64)
+        balanced = X[self.selected_indices_]
+        self.center_ = np.median(balanced, axis=0).astype(np.float32)
+        q25, q75 = np.percentile(balanced, (25.0, 75.0), axis=0)
+        self.scale_ = np.asarray(q75 - q25, dtype=np.float32)
+        self.scale_[self.scale_ < 1e-6] = 1.0
+        return self
+
+    def transform(self, X):
+        if self.center_ is None or self.scale_ is None:
+            raise ValueError("session_balanced_robust scaler is not fitted")
+        return (np.asarray(X, dtype=np.float32) - self.center_) / self.scale_
+
+    def fit_transform(self, X, y=None, groups=None):
+        return self.fit(X, y=y, groups=groups).transform(X)
+
+
 def build_preprocessor(mode=DEFAULT_SCALER_MODE, clip_percentiles=DEFAULT_CLIP_PERCENTILES):
     """Build the feature normalization object used in CV and final training."""
     from sklearn.preprocessing import RobustScaler, StandardScaler
@@ -1346,9 +1485,103 @@ def build_preprocessor(mode=DEFAULT_SCALER_MODE, clip_percentiles=DEFAULT_CLIP_P
         return StandardScaler()
     if mode == 'robust':
         return RobustScaler()
+    if mode == 'session_balanced_robust':
+        return SessionBalancedRobustScaler()
     if mode == 'clipped_standard':
         return ClippedStandardScaler(*clip_percentiles)
     raise ValueError(f"Unsupported scaler mode: {mode}")
+
+
+def fit_preprocessor(preprocessor, X, y=None, sample_context=None):
+    """Fit a scaler with fold-local metadata when the mode requires it."""
+    if isinstance(preprocessor, SessionBalancedRobustScaler):
+        groups = None if sample_context is None else sample_context.get('session_group')
+        preprocessor.fit(X, y=y, groups=groups)
+    elif not hasattr(preprocessor, 'fit') and hasattr(preprocessor, 'fit_transform'):
+        # Preserve compatibility with lightweight test doubles and third-party
+        # preprocessors that only expose fit_transform.
+        preprocessor.fit_transform(X)
+        if not hasattr(preprocessor, 'transform'):
+            preprocessor.transform = lambda values: np.asarray(values)
+    else:
+        preprocessor.fit(X)
+    return preprocessor
+
+
+def apply_l1_feature_variant(X, feature_names, variant='core6'):
+    """Apply host-side Core-6 L1 ratio candidates without mutating input rows."""
+    X = np.asarray(X, dtype=np.float32)
+    if variant in (None, 'core6'):
+        return X.copy()
+    supported = {'l1_std_relative', 'l1_waveform_relative', 'l1_both_relative'}
+    if variant not in supported:
+        raise ValueError(f"Unsupported L1 feature variant: {variant}")
+    names = list(feature_names)
+    required = ('l1_delta', 'l1_delta_std', 'l1_delta_waveform_length')
+    missing = [name for name in required if name not in names]
+    if missing:
+        raise ValueError(f"L1 feature variant requires: {', '.join(missing)}")
+    result = X.copy()
+    mean_idx = names.index('l1_delta')
+    denom = result[:, mean_idx] + 1e-3
+    if variant in ('l1_std_relative', 'l1_both_relative'):
+        std_idx = names.index('l1_delta_std')
+        result[:, std_idx] = result[:, std_idx] / denom
+    if variant in ('l1_waveform_relative', 'l1_both_relative'):
+        waveform_idx = names.index('l1_delta_waveform_length')
+        l1_count = max(1, int(SEG_WINDOW_SIZE - L1_DELTA_LAG) - 1)
+        result[:, waveform_idx] = result[:, waveform_idx] / (l1_count * denom)
+    return result
+
+
+def normalized_feature_bounds(preprocessor, feature_names):
+    """Return normalized bounds used to keep augmented Core-6 rows valid."""
+    center, scale = get_preprocessor_arrays(preprocessor)
+    lower = np.full(len(feature_names), -np.inf, dtype=np.float32)
+    upper = np.full(len(feature_names), np.inf, dtype=np.float32)
+    for name in ('turb_mad_over_mean', 'l1_delta', 'l1_delta_std', 'l1_delta_waveform_length'):
+        if name in feature_names:
+            idx = feature_names.index(name)
+            lower[idx] = (0.0 - center[idx]) / scale[idx]
+    if 'turb_autocorr' in feature_names:
+        idx = feature_names.index('turb_autocorr')
+        lower[idx] = (-1.0 - center[idx]) / scale[idx]
+        upper[idx] = (1.0 - center[idx]) / scale[idx]
+    return lower, upper
+
+
+def augment_normalized_features(X, config, seed, bounds=None, apply_fraction=0.5):
+    """Deterministically augment normalized training rows only."""
+    X = np.asarray(X, dtype=np.float32)
+    if not config:
+        return X.copy()
+    rng = np.random.default_rng(seed)
+    result = X.copy()
+    selected = rng.random(len(result)) < float(apply_fraction)
+    if not np.any(selected):
+        return result
+    row_count, feature_count = int(np.sum(selected)), result.shape[1]
+    noise_sigma = float(config.get('noise_sigma', 0.0))
+    if noise_sigma > 0.0:
+        result[selected] += rng.normal(0.0, noise_sigma, size=(row_count, feature_count)).astype(np.float32)
+    jitter_sigma = float(config.get('jitter_sigma', 0.0))
+    if jitter_sigma > 0.0:
+        jitter = np.empty((row_count, feature_count), dtype=np.float32)
+        jitter[:, :min(3, feature_count)] = rng.normal(0.0, jitter_sigma, size=(row_count, 1))
+        if feature_count > 3:
+            jitter[:, 3:] = rng.normal(0.0, jitter_sigma, size=(row_count, 1))
+        result[selected] += jitter
+    dropout_probability = float(config.get('dropout_probability', 0.0))
+    if dropout_probability > 0.0:
+        dropout = rng.random((row_count, feature_count)) < dropout_probability
+        selected_rows = result[selected]
+        selected_rows[dropout] = 0.0
+        result[selected] = selected_rows
+    if bounds is not None:
+        lower, upper = bounds
+        result = np.maximum(result, np.asarray(lower, dtype=np.float32))
+        result = np.minimum(result, np.asarray(upper, dtype=np.float32))
+    return result
 
 
 def get_preprocessor_arrays(preprocessor):
@@ -1755,7 +1988,8 @@ def _compute_weighted_bce(logits, targets, sample_weights=None):
 
 def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dropout=True,
                 class_weight=None, fp_weight=DEFAULT_FP_WEIGHT, sample_weight=None,
-                batch_size=DEFAULT_BATCH_SIZE, verbose=0, seed=None):
+                batch_size=DEFAULT_BATCH_SIZE, verbose=0, seed=None,
+                feature_augmentation=None, feature_bounds=None):
     """
     Train a neural network model with best practices.
     
@@ -1775,6 +2009,8 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
         batch_size: Mini-batch size for SGD/Adam updates
         verbose: Training verbosity
         seed: Optional base seed for deterministic training
+        feature_augmentation: Optional normalized feature-space perturbation policy.
+        feature_bounds: Optional normalized lower/upper bounds for augmented rows.
     
     Returns:
         Trained TorchMLP model
@@ -1867,7 +2103,16 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
         model.train()
         for start in range(0, len(X_t_tensor), batch_size):
             stop = start + batch_size
-            batch_x = X_t_tensor[start:stop]
+            if feature_augmentation:
+                augmented = augment_normalized_features(
+                    X_t[start:stop],
+                    feature_augmentation,
+                    derive_seed(seed, epoch, start),
+                    bounds=feature_bounds,
+                )
+                batch_x = torch.from_numpy(augmented).to(device)
+            else:
+                batch_x = X_t_tensor[start:stop]
             batch_y = y_t_tensor[start:stop]
             batch_weights = None
             if sw_t_tensor is not None:
@@ -1945,7 +2190,8 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
                    batch_size=DEFAULT_BATCH_SIZE, block_stride=1,
                    block_group_key=DEFAULT_BLOCK_GROUP_KEY,
                    report_group_keys=DEFAULT_REPORT_GROUP_KEYS, seed=None,
-                   shap_samples=0, shap_feature_names=None, shap_seed=None):
+                   shap_samples=0, shap_feature_names=None, shap_seed=None,
+                   feature_augmentation=None, X_aug=None, y_aug=None, groups_aug=None):
     """
     Perform grouped cross-validation with de-overlapped scoring.
 
@@ -1968,12 +2214,18 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
         shap_samples: Total held-out samples to explain across all folds
         shap_feature_names: Feature names aligned with the columns in X
         shap_seed: Optional deterministic seed for SHAP sampling
+        feature_augmentation: Optional train-time normalized feature perturbation
+        X_aug: Optional packet-augmented feature matrix (train-only)
+        y_aug: Labels aligned with X_aug
+        groups_aug: Split-group labels aligned with X_aug
 
     Returns:
         dict: Mean and std of each metric across folds
     """
     if hidden_layers is None:
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+    feature_augmentation = dict(feature_augmentation or {})
+    feature_names = list(shap_feature_names) if shap_feature_names else None
 
     if groups is not None:
         from sklearn.model_selection import StratifiedGroupKFold
@@ -2011,8 +2263,28 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
         # Fit normalization only on the training fold
         preprocess_start = perf_counter()
         scaler = build_preprocessor(scaler_mode)
-        X_train_scaled = scaler.fit_transform(X_train_fold)
+        train_context = slice_sample_context(sample_context, train_idx)
+        fit_preprocessor(
+            scaler, X_train_fold, y=y_train_fold, sample_context=train_context)
+        X_train_scaled = scaler.transform(X_train_fold)
         X_val_scaled = scaler.transform(X_val_fold)
+        if groups is not None:
+            train_groups = np.asarray(groups)[train_idx]
+        else:
+            train_groups = np.arange(len(train_idx))
+        X_train_scaled, y_train_fold, sw_train_fold = _append_augmented_training_rows(
+            X_train_scaled,
+            y_train_fold,
+            scaler,
+            X_aug,
+            y_aug,
+            groups_aug,
+            train_groups,
+            sample_weight=sw_train_fold,
+        )
+        feature_bounds = None
+        if feature_augmentation and feature_names is not None:
+            feature_bounds = normalized_feature_bounds(scaler, feature_names)
         preprocess_elapsed = perf_counter() - preprocess_start
 
         train_predict_start = perf_counter()
@@ -2021,7 +2293,9 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
             model = train_model(X_train_scaled, y_train_fold,
                                 hidden_layers=hidden_layers, max_epochs=max_epochs,
                                 fp_weight=fp_weight, sample_weight=sw_train_fold,
-                                batch_size=batch_size, seed=fold_seed)
+                                batch_size=batch_size, seed=fold_seed,
+                                feature_augmentation=feature_augmentation or None,
+                                feature_bounds=feature_bounds)
             val_prob = predict_probabilities(model, X_val_scaled)
         train_predict_elapsed = perf_counter() - train_predict_start
 
@@ -2136,7 +2410,7 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
                                    scaler_mode=DEFAULT_SCALER_MODE,
                                    batch_size=DEFAULT_BATCH_SIZE,
                                    excluded_chips=None, block_stride=SEG_WINDOW_SIZE,
-                                   use_cache=True):
+                                   use_cache=True, augment=False):
     """Leave-one-group-out generalization check over a sample-context grouping.
 
     For each value of ``group_key`` (a room, a chip, ...), train on all other
@@ -2153,6 +2427,7 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
         detail_group_key: Secondary sample-context key reported as the worst
             sub-group inside each held-out fold (e.g. ``chip`` for rooms).
         skip_values: Group values treated as missing metadata and ignored.
+        augment: If True, apply the robustness-winner train-time augmentation.
 
     This is a diagnostic only: it never trains a promotable model or exports
     runtime artifacts. Held-out scoring reuses the same block subsampling as
@@ -2165,6 +2440,7 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
     feature_names = list(feature_names)
     excluded_chips = parse_chip_filter(excluded_chips)
     skip_values = {str(v) for v in skip_values}
+    feature_augmentation, packet_augmentation = resolve_training_augmentation(augment)
 
     try:
         ensure_torch_available()
@@ -2186,6 +2462,10 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
     print(f"Scaler: {scaler_mode}")
     print(f"Batch size: {batch_size}")
     print(f"Architecture: {' -> '.join(map(str, [len(feature_names)] + hidden_layers + [1]))}")
+    print(
+        "Augmentation: "
+        f"{format_augmentation_config(feature_augmentation, packet_augmentation)}"
+    )
     print(f"Torch device: {torch_device_label}")
     if excluded_chips is not None:
         print(f"Excluded chips: {', '.join(sorted(excluded_chips))}")
@@ -2200,6 +2480,20 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
     X = matrix['X']
     y = matrix['y']
     sample_context = matrix['sample_context']
+    X_aug = y_aug = groups_aug = None
+    if packet_augmentation:
+        print("Loading packet-augmented training matrix...")
+        aug_matrix, _ = load_training_matrix(
+            environment_filter=None,
+            excluded_chips=excluded_chips,
+            feature_names=feature_names,
+            use_cache=use_cache,
+            packet_augmentation=packet_augmentation,
+            augmentation_seed=seed,
+        )
+        X_aug = aug_matrix['X']
+        y_aug = aug_matrix['y']
+        groups_aug = aug_matrix['sample_context'].get(group_key)
 
     group_values = sample_context.get(group_key)
     if group_values is None or len(group_values) == 0:
@@ -2250,17 +2544,34 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
             continue
 
         scaler = build_preprocessor(scaler_mode)
-        X_train_scaled = scaler.fit_transform(X[train_mask])
+        train_context = slice_sample_context(sample_context, np.flatnonzero(train_mask))
+        fit_preprocessor(
+            scaler, X[train_mask], y=y[train_mask], sample_context=train_context)
+        X_train_scaled = scaler.transform(X[train_mask])
         X_test_scaled = scaler.transform(X[test_mask])
+        X_train_scaled, y_train_fold, _ = _append_augmented_training_rows(
+            X_train_scaled,
+            y[train_mask],
+            scaler,
+            X_aug,
+            y_aug,
+            groups_aug,
+            train_groups,
+        )
+        feature_bounds = None
+        if feature_augmentation:
+            feature_bounds = normalized_feature_bounds(scaler, feature_names)
 
-        fold_seed = derive_seed(seed, hash(held_out) & 0xFFFF)
+        fold_seed = derive_seed(seed, _stable_text_seed(held_out))
         with suppress_stderr():
             model = train_model(
-                X_train_scaled, y[train_mask],
+                X_train_scaled, y_train_fold,
                 hidden_layers=hidden_layers,
                 fp_weight=fp_weight,
                 batch_size=batch_size,
                 seed=fold_seed,
+                feature_augmentation=feature_augmentation or None,
+                feature_bounds=feature_bounds,
             )
             test_prob = predict_probabilities(model, X_test_scaled)
 
@@ -2367,6 +2678,294 @@ def cross_chip_validation(**kwargs):
         skip_values=('', 'unknown', 'UNKNOWN', 'unknown-chip'),
         **kwargs,
     )
+
+
+ROBUSTNESS_FEATURE_AUGMENTATIONS = (
+    ('noise_002', {'noise_sigma': 0.02}),
+    ('noise_005', {'noise_sigma': 0.05}),
+    ('noise_010', {'noise_sigma': 0.10}),
+    ('jitter_005', {'jitter_sigma': 0.05}),
+    ('jitter_010', {'jitter_sigma': 0.10}),
+    ('dropout_002', {'dropout_probability': 0.02}),
+    ('dropout_005', {'dropout_probability': 0.05}),
+    ('combined_moderate', {
+        'noise_sigma': 0.05,
+        'jitter_sigma': 0.05,
+        'dropout_probability': 0.02,
+    }),
+)
+ROBUSTNESS_PACKET_AUGMENTATIONS = (
+    ('gain_005', {'gain_sigma': 0.05}),
+    ('gain_010', {'gain_sigma': 0.10}),
+    ('amplitude_noise_001', {'noise_sigma': 0.01}),
+    ('amplitude_noise_003', {'noise_sigma': 0.03}),
+    ('packet_loss_005', {'packet_loss': 0.05}),
+    ('packet_loss_010', {'packet_loss': 0.10}),
+    ('packet_combined_moderate', {
+        'gain_sigma': 0.05,
+        'noise_sigma': 0.01,
+        'packet_loss': 0.05,
+    }),
+)
+# Production shortcut for --augment: Core-6 robustness campaign winner
+# (feature jitter 0.10 + moderate packet combined augmentation).
+ROBUSTNESS_WINNER_NAME = (
+    'baseline_standard__feature_jitter_010__packet_packet_combined_moderate'
+)
+ROBUSTNESS_WINNER_FEATURE_AUGMENTATION = {'jitter_sigma': 0.10}
+ROBUSTNESS_WINNER_PACKET_AUGMENTATION = {
+    'gain_sigma': 0.05,
+    'noise_sigma': 0.01,
+    'packet_loss': 0.05,
+}
+
+
+def resolve_training_augmentation(augment):
+    """Return (feature_augmentation, packet_augmentation) for production training."""
+    if not augment:
+        return {}, {}
+    return (
+        dict(ROBUSTNESS_WINNER_FEATURE_AUGMENTATION),
+        dict(ROBUSTNESS_WINNER_PACKET_AUGMENTATION),
+    )
+
+
+def format_augmentation_config(feature_augmentation=None, packet_augmentation=None):
+    """Compact one-line description of an active training augmentation recipe."""
+    feature_augmentation = dict(feature_augmentation or {})
+    packet_augmentation = dict(packet_augmentation or {})
+    if not feature_augmentation and not packet_augmentation:
+        return 'none'
+    parts = [f"recipe={ROBUSTNESS_WINNER_NAME}"]
+    if feature_augmentation:
+        parts.append(
+            'feature={'
+            + ', '.join(f'{key}={value}' for key, value in sorted(feature_augmentation.items()))
+            + '}'
+        )
+    if packet_augmentation:
+        parts.append(
+            'packet={'
+            + ', '.join(f'{key}={value}' for key, value in sorted(packet_augmentation.items()))
+            + '}'
+        )
+    return '; '.join(parts)
+
+
+def _append_augmented_training_rows(X_train_scaled, y_train, scaler, X_aug, y_aug,
+                                    groups_aug, train_groups, sample_weight=None):
+    """Append packet-augmented rows whose groups belong to the train split."""
+    if X_aug is None or y_aug is None or groups_aug is None:
+        return X_train_scaled, y_train, sample_weight
+    train_group_set = {str(group) for group in train_groups}
+    if not train_group_set:
+        return X_train_scaled, y_train, sample_weight
+    aug_mask = np.isin(np.asarray(groups_aug).astype(str), list(train_group_set))
+    if not np.any(aug_mask):
+        return X_train_scaled, y_train, sample_weight
+    X_extra = scaler.transform(np.asarray(X_aug)[aug_mask])
+    y_extra = np.asarray(y_aug)[aug_mask]
+    X_out = np.concatenate((np.asarray(X_train_scaled), X_extra), axis=0)
+    y_out = np.concatenate((np.asarray(y_train), y_extra), axis=0)
+    if sample_weight is None:
+        return X_out, y_out, None
+    sw_out = np.concatenate((
+        np.asarray(sample_weight, dtype=np.float32),
+        np.ones(int(np.sum(aug_mask)), dtype=np.float32),
+    ))
+    return X_out, y_out, sw_out
+
+
+def _robustness_candidate(name, scaler='standard', l1_variant='core6',
+                          feature_augmentation=None, packet_augmentation=None):
+    return {
+        'name': str(name),
+        'scaler': str(scaler),
+        'l1_variant': str(l1_variant),
+        'feature_augmentation': dict(feature_augmentation or {}),
+        'packet_augmentation': dict(packet_augmentation or {}),
+    }
+
+
+def robustness_run_rank_key(run):
+    """Rank one complete robustness run; lower is better."""
+    folds = run['folds']
+    pass_count = sum(
+        row['recall'] > ROBUSTNESS_TARGET_RECALL
+        and row['fp_rate'] < ROBUSTNESS_TARGET_FP_RATE
+        for row in folds
+    )
+    return (
+        -pass_count,
+        max(row['fp_rate'] for row in folds),
+        -min(row['recall'] for row in folds),
+        -float(np.mean([row['f1'] for row in folds])),
+        run['candidate']['name'],
+    )
+
+
+def aggregate_robustness_runs(candidate, runs):
+    """Aggregate fold metrics across seeds for one robustness candidate."""
+    by_fold = {}
+    for run in runs:
+        for row in run['folds']:
+            by_fold.setdefault(row['fold'], []).append(row)
+    fold_summaries = []
+    for fold_name in sorted(by_fold):
+        rows = by_fold[fold_name]
+        median_recall = float(np.median([row['recall'] for row in rows]))
+        median_fp = float(np.median([row['fp_rate'] for row in rows]))
+        median_f1 = float(np.median([row['f1'] for row in rows]))
+        seed_passes = sum(
+            row['recall'] > ROBUSTNESS_TARGET_RECALL
+            and row['fp_rate'] < ROBUSTNESS_TARGET_FP_RATE
+            for row in rows
+        )
+        fold_summaries.append({
+            'fold': fold_name,
+            'median_recall': median_recall,
+            'median_fp_rate': median_fp,
+            'median_f1': median_f1,
+            'seed_passes': int(seed_passes),
+            'seed_count': len(rows),
+            'median_pass': bool(
+                median_recall > ROBUSTNESS_TARGET_RECALL
+                and median_fp < ROBUSTNESS_TARGET_FP_RATE
+            ),
+        })
+    return {
+        'candidate': candidate,
+        'seeds': [int(run['seed']) for run in runs],
+        'folds': fold_summaries,
+        'holdout_count': len(fold_summaries),
+        'median_pass_count': sum(row['median_pass'] for row in fold_summaries),
+        'worst_median_fp_rate': max(row['median_fp_rate'] for row in fold_summaries),
+        'worst_median_recall': min(row['median_recall'] for row in fold_summaries),
+        'macro_median_f1': float(np.mean([row['median_f1'] for row in fold_summaries])),
+        'runs': runs,
+    }
+
+
+def robustness_summary_rank_key(summary):
+    return (
+        -summary['median_pass_count'],
+        summary['worst_median_fp_rate'],
+        -summary['worst_median_recall'],
+        -summary['macro_median_f1'],
+        summary['candidate']['name'],
+    )
+
+
+def evaluate_robustness_candidate(candidate, seed, matrix, augmented_matrix=None,
+                                  hidden_layers=None, fp_weight=DEFAULT_FP_WEIGHT,
+                                  batch_size=DEFAULT_BATCH_SIZE):
+    """Evaluate one candidate across every environment and chip holdout."""
+    hidden_layers = list(hidden_layers or DEFAULT_HIDDEN_LAYERS)
+    feature_names = list(matrix['feature_names'])
+    X = apply_l1_feature_variant(matrix['X'], feature_names, candidate['l1_variant'])
+    y = np.asarray(matrix['y'])
+    context = matrix['sample_context']
+    X_aug = y_aug = context_aug = None
+    if augmented_matrix is not None:
+        X_aug = apply_l1_feature_variant(
+            augmented_matrix['X'], feature_names, candidate['l1_variant'])
+        y_aug = np.asarray(augmented_matrix['y'])
+        context_aug = augmented_matrix['sample_context']
+
+    dimensions = (
+        ('environment_group', 'environment', {'unknown-environment'}, 'chip'),
+        ('chip', 'chip', {'', 'unknown', 'UNKNOWN', 'unknown-chip'}, 'environment_group'),
+    )
+    folds = []
+    expected_folds = []
+    run_started = perf_counter()
+    for group_key, unit, skipped, detail_key in dimensions:
+        group_values = np.asarray(context[group_key]).astype(str)
+        groups = sorted(set(group_values.tolist()) - skipped)
+        for held_out in groups:
+            expected_folds.append(f'{unit}:{held_out}')
+            fold_started = perf_counter()
+            test_mask = group_values == held_out
+            train_mask = np.isin(group_values, groups) & ~test_mask
+            if not np.any(train_mask) or len(set(y[test_mask].tolist())) < 2:
+                continue
+            train_context = slice_sample_context(context, np.flatnonzero(train_mask))
+            scaler = build_preprocessor(candidate['scaler'])
+            fit_preprocessor(scaler, X[train_mask], y=y[train_mask], sample_context=train_context)
+            X_train = scaler.transform(X[train_mask])
+            y_train = y[train_mask]
+            if X_aug is not None:
+                aug_groups = np.asarray(context_aug[group_key]).astype(str)
+                aug_mask = np.isin(aug_groups, groups) & (aug_groups != held_out)
+                if np.any(aug_mask):
+                    X_train = np.concatenate((X_train, scaler.transform(X_aug[aug_mask])), axis=0)
+                    y_train = np.concatenate((y_train, y_aug[aug_mask]), axis=0)
+            X_test = scaler.transform(X[test_mask])
+            bounds = normalized_feature_bounds(scaler, feature_names)
+            fold_seed = derive_seed(seed, _stable_text_seed(f'{group_key}:{held_out}'))
+            with suppress_stderr():
+                model = train_model(
+                    X_train,
+                    y_train,
+                    hidden_layers=hidden_layers,
+                    fp_weight=fp_weight,
+                    batch_size=batch_size,
+                    seed=fold_seed,
+                    feature_augmentation=candidate['feature_augmentation'],
+                    feature_bounds=bounds,
+                )
+                probabilities = predict_probabilities(model, X_test)
+
+            test_context = slice_sample_context(context, np.flatnonzero(test_mask))
+            block_mask = build_block_mask(
+                test_context, stride=SEG_WINDOW_SIZE, group_key=DEFAULT_BLOCK_GROUP_KEY)
+            if block_mask is None:
+                block_mask = np.ones(int(np.sum(test_mask)), dtype=bool)
+            y_test = y[test_mask][block_mask]
+            scored_prob = probabilities[block_mask]
+            metrics = evaluate_probabilities(y_test, scored_prob)
+            detail_values = np.asarray(test_context[detail_key])[block_mask]
+            detail_report = build_group_report(y_test, scored_prob, detail_values)
+            labels = np.asarray(test_context['label_name'])[block_mask]
+            idle_breakdown = {}
+            for label in ('empty', 'static_presence'):
+                label_mask = labels == label
+                if np.any(label_mask):
+                    label_metrics = evaluate_probabilities(
+                        y_test[label_mask], scored_prob[label_mask])
+                    idle_breakdown[label] = {
+                        'samples': int(np.sum(label_mask)),
+                        'fp_rate': float(label_metrics['fp_rate']),
+                    }
+            folds.append({
+                'fold': f'{unit}:{held_out}',
+                'dimension': unit,
+                'group': held_out,
+                'train_windows': int(len(y_train)),
+                'test_windows': int(np.sum(block_mask)),
+                **{key: float(value) if isinstance(value, (float, np.floating)) else int(value)
+                   for key, value in metrics.items()},
+                'idle_breakdown': idle_breakdown,
+                'worst_detail_recall': None if detail_report is None else detail_report['worst_recall'],
+                'worst_detail_fp_rate': None if detail_report is None else detail_report['worst_fp_rate'],
+                'seconds': float(perf_counter() - fold_started),
+            })
+    completed_folds = sorted(row['fold'] for row in folds)
+    if completed_folds != sorted(expected_folds):
+        missing = sorted(set(expected_folds) - set(completed_folds))
+        raise RuntimeError(
+            f"robustness candidate completed {len(folds)}/{len(expected_folds)} holdouts; "
+            f"missing: {', '.join(missing) or 'none'}"
+        )
+    result = {
+        'candidate': candidate,
+        'seed': int(seed),
+        'folds': folds,
+        'holdout_count': len(folds),
+        'seconds': float(perf_counter() - run_started),
+    }
+    result['rank_key'] = list(robustness_run_rank_key(result))
+    return result
 
 
 def get_model_architecture(model):
@@ -3158,7 +3757,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
               evaluate_deployment=False,
               environment_filter=None, excluded_chips=None,
               positive_chip_boost=None,
-              use_cache=True):
+              use_cache=True, augment=False):
     """
     Train models with all available data.
     
@@ -3181,6 +3780,8 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         positive_chip_boost: Optional {CHIP: factor} boost applied to motion
                              samples after feature extraction.
         use_cache: If True, reuse the cached feature matrix.
+        augment: If True, apply the Core-6 robustness-winner train-time
+                 augmentation recipe (feature jitter + packet combined).
 
     Returns:
         tuple[int, int | None, dict | None]:
@@ -3193,6 +3794,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
+    feature_augmentation, packet_augmentation = resolve_training_augmentation(augment)
     if hidden_layers is None:
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
     if feature_names is None:
@@ -3232,6 +3834,20 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     sample_context = matrix['sample_context']
     sample_weights = matrix['sample_weights']
     stats = matrix['stats']
+    X_aug = y_aug = groups_aug = None
+    if packet_augmentation:
+        print("Loading packet-augmented training matrix...")
+        aug_matrix, _ = load_training_matrix(
+            environment_filter=environment_filter,
+            excluded_chips=excluded_chips,
+            feature_names=feature_names,
+            use_cache=use_cache,
+            packet_augmentation=packet_augmentation,
+            augmentation_seed=seed,
+        )
+        X_aug = aug_matrix['X']
+        y_aug = aug_matrix['y']
+        groups_aug = aug_matrix['sample_context'].get(DEFAULT_PRIMARY_GROUP_KEY)
     
     if not stats['chips']:
         print("Error: No datasets found in data/")
@@ -3254,7 +3870,11 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     
     print(f"Architecture: {' -> '.join(map(str, [len(feature_names)] + hidden_layers + [1]))}")
     print(f"Scaler: {scaler_mode}")
-    print(f"Batch size: {batch_size}\n")
+    print(f"Batch size: {batch_size}")
+    print(
+        "Augmentation: "
+        f"{format_augmentation_config(feature_augmentation, packet_augmentation)}"
+    )
     print(f"Torch device: {torch_device_label}\n")
     
     print(f"  Samples: {len(X)}")
@@ -3266,6 +3886,8 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     if n_idle > 0 and n_motion > 0:
         ratio = max(n_idle, n_motion) / min(n_idle, n_motion)
         print(f"  Imbalance ratio: {ratio:.1f}:1")
+    if X_aug is not None:
+        print(f"  Packet-augmented samples: {len(X_aug)} (train-only)")
 
     eval_groups = sample_context[DEFAULT_PRIMARY_GROUP_KEY]
     unique_eval_groups = len(set(eval_groups))
@@ -3339,6 +3961,10 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             shap_samples=shap_samples if feature_importance else 0,
             shap_feature_names=actual_feature_names,
             shap_seed=derive_seed(seed, 20_000),
+            feature_augmentation=feature_augmentation or None,
+            X_aug=X_aug,
+            y_aug=y_aug,
+            groups_aug=groups_aug,
         )
     cv_elapsed = perf_counter() - cv_start
     print(f"\nCV total time: {format_duration(cv_elapsed)}")
@@ -3361,17 +3987,35 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     print("\nTraining final model on full dataset...")
     final_train_start = perf_counter()
     scaler = build_preprocessor(scaler_mode)
-    X_scaled = scaler.fit_transform(X)
-    
+    fit_preprocessor(scaler, X, y=y, sample_context=sample_context)
+    X_scaled = scaler.transform(X)
+    y_final = y
+    sw_final = sample_weights
+    X_scaled, y_final, sw_final = _append_augmented_training_rows(
+        X_scaled,
+        y_final,
+        scaler,
+        X_aug,
+        y_aug,
+        groups_aug,
+        eval_groups,
+        sample_weight=sw_final,
+    )
+    feature_bounds = None
+    if feature_augmentation:
+        feature_bounds = normalized_feature_bounds(scaler, actual_feature_names)
+
     with suppress_stderr():
         model = train_model(
-            X_scaled, y,
+            X_scaled, y_final,
             hidden_layers=hidden_layers,
             max_epochs=DEFAULT_MAX_EPOCHS,
             fp_weight=fp_weight,
-            sample_weight=sample_weights,
+            sample_weight=sw_final,
             batch_size=batch_size,
             seed=derive_seed(seed, 10_000),
+            feature_augmentation=feature_augmentation or None,
+            feature_bounds=feature_bounds,
         )
     print(f"  Final training time: {format_duration(perf_counter() - final_train_start)}")
 
@@ -3941,7 +4585,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                             hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
                             batch_size=DEFAULT_BATCH_SIZE, environment_filter=None,
                             excluded_chips=None, positive_chip_boost=None,
-                            use_cache=True):
+                            use_cache=True, augment=False):
     """
     Train repeatedly with auto-generated seeds until the promoted candidate improves.
 
@@ -3964,6 +4608,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
+    feature_augmentation, packet_augmentation = resolve_training_augmentation(augment)
     try:
         ensure_torch_available()
         torch_device_label = describe_torch_device()
@@ -3981,6 +4626,10 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     print(f"FP weight: {fp_weight}")
     print(f"Scaler: {scaler_mode}")
     print(f"Batch size: {batch_size}")
+    print(
+        "Augmentation: "
+        f"{format_augmentation_config(feature_augmentation, packet_augmentation)}"
+    )
     print(f"Torch device: {torch_device_label}")
     if environment_filter is not None:
         print(f"Environment filter: {', '.join(sorted(parse_environment_filter(environment_filter)))}")
@@ -4009,6 +4658,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         'excluded_chips': excluded_chips,
         'positive_chip_boost': positive_chip_boost,
         'use_cache': use_cache,
+        'augment': bool(augment),
     }
 
     print(f"\nEvaluating current model baseline with seed {static_presence_seed}...")
@@ -4050,10 +4700,13 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     best_search_key = _search_candidate_key(static_presence_metrics, static_presence_gate)
 
     for idx in range(1, max_trials + 1):
-        print(f"\n[{idx}/{max_trials}] Training with auto-generated seed")
+        trial_seed = generate_random_training_seed()
+        print(f"\n[{idx}/{max_trials}] Training with auto-generated seed {trial_seed}")
         # One train_all per trial: CV once, then final fit + export for the paired gate.
+        # Pass an explicit random seed so resolve_training_seed does not reuse the
+        # currently exported model seed on every trial.
         export_rc, used_seed, final_metrics = train_all(
-            seed=None,
+            seed=trial_seed,
             export_artifacts=True,
             **train_kwargs,
         )
@@ -4150,7 +4803,219 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
 def write_json_results(path, payload):
     """Write a JSON experiment payload."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2))
+    path.write_text(json.dumps(payload, indent=2, default=_json_value))
+
+
+def _json_value(value):
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def run_robustness_experiment(output_path=DEFAULT_ROBUSTNESS_EXPERIMENT_OUTPUT,
+                              use_cache=True, hidden_layers=None,
+                              fp_weight=DEFAULT_FP_WEIGHT,
+                              batch_size=DEFAULT_BATCH_SIZE,
+                              augmentation_only=False):
+    """Run the non-destructive staged Core-6 robustness campaign."""
+    ensure_torch_available()
+    hidden_layers = list(hidden_layers or DEFAULT_HIDDEN_LAYERS)
+    print("\n" + "=" * 70)
+    print("  CORE-6 ROBUSTNESS CAMPAIGN")
+    print("=" * 70)
+    print("Artifacts: unchanged")
+    print(f"Output: {output_path}")
+    print(f"Architecture: {' -> '.join(map(str, [len(TRAINING_FEATURES)] + hidden_layers + [1]))}")
+
+    matrix, _ = load_training_matrix(
+        feature_names=TRAINING_FEATURES,
+        use_cache=use_cache,
+    )
+    payload = {
+        'config': {
+            'screening_seed': ROBUSTNESS_SCREENING_SEED,
+            'filter_seeds': list(ROBUSTNESS_FILTER_SEEDS),
+            'final_seeds': list(ROBUSTNESS_FINAL_SEEDS),
+            'target_recall': ROBUSTNESS_TARGET_RECALL,
+            'target_fp_rate': ROBUSTNESS_TARGET_FP_RATE,
+            'hidden_layers': hidden_layers,
+            'batch_size': int(batch_size),
+            'fp_weight': float(fp_weight),
+            'feature_names': list(TRAINING_FEATURES),
+            'promote': False,
+            'augmentation_only': bool(augmentation_only),
+        },
+        'stages': [],
+        'filter': [],
+        'final': [],
+        'decision': None,
+    }
+    run_cache = {}
+
+    def candidate_key(candidate):
+        return json.dumps(candidate, sort_keys=True, separators=(',', ':'))
+
+    def evaluate(candidate, seed):
+        key = (candidate_key(candidate), int(seed))
+        if key in run_cache:
+            return run_cache[key]
+        print(f"\n== {candidate['name']} | seed {seed} ==")
+        augmented = None
+        if candidate['packet_augmentation']:
+            augmented, _ = load_training_matrix(
+                feature_names=TRAINING_FEATURES,
+                use_cache=use_cache,
+                packet_augmentation=candidate['packet_augmentation'],
+                augmentation_seed=seed,
+            )
+        run = evaluate_robustness_candidate(
+            candidate,
+            seed,
+            matrix,
+            augmented_matrix=augmented,
+            hidden_layers=hidden_layers,
+            fp_weight=fp_weight,
+            batch_size=batch_size,
+        )
+        run_cache[key] = run
+        rank = run['rank_key']
+        print(
+            f"  holdout passes={-rank[0]}/{run['holdout_count']} | worst FP={rank[1]:.1f}% | "
+            f"worst recall={-rank[2]:.1f}%"
+        )
+        return run
+
+    def screen_stage(name, candidates):
+        stage = {'name': name, 'runs': []}
+        payload['stages'].append(stage)
+        for candidate in candidates:
+            stage['runs'].append(evaluate(candidate, ROBUSTNESS_SCREENING_SEED))
+            write_json_results(output_path, payload)
+        return sorted(stage['runs'], key=robustness_run_rank_key)
+
+    baseline = _robustness_candidate('baseline_standard')
+    if augmentation_only:
+        scaler_runs = screen_stage('baseline', [baseline])
+        l1_runs = []
+        best_pre_augmentation = baseline
+    else:
+        scaler_candidates = [
+            baseline,
+            _robustness_candidate('scaler_robust', scaler='robust'),
+            _robustness_candidate(
+                'scaler_session_balanced_robust', scaler='session_balanced_robust'),
+        ]
+        scaler_runs = screen_stage('scalers', scaler_candidates)
+        best_scaler = scaler_runs[0]['candidate']
+
+        l1_candidates = []
+        for variant in ('l1_std_relative', 'l1_waveform_relative', 'l1_both_relative'):
+            l1_candidates.append(_robustness_candidate(
+                f"{best_scaler['name']}__{variant}",
+                scaler=best_scaler['scaler'],
+                l1_variant=variant,
+            ))
+        l1_runs = screen_stage('l1_normalization', l1_candidates)
+        best_pre_augmentation = min(
+            [next(run for run in scaler_runs if run['candidate'] == best_scaler)] + l1_runs,
+            key=robustness_run_rank_key,
+        )['candidate']
+
+    feature_candidates = [
+        _robustness_candidate(
+            f"{best_pre_augmentation['name']}__feature_{suffix}",
+            scaler=best_pre_augmentation['scaler'],
+            l1_variant=best_pre_augmentation['l1_variant'],
+            feature_augmentation=config,
+        )
+        for suffix, config in ROBUSTNESS_FEATURE_AUGMENTATIONS
+    ]
+    feature_runs = screen_stage('feature_augmentation', feature_candidates)
+    pre_packet_run = evaluate(best_pre_augmentation, ROBUSTNESS_SCREENING_SEED)
+    top_feature_candidates = [
+        run['candidate']
+        for run in sorted([pre_packet_run] + feature_runs, key=robustness_run_rank_key)[:2]
+    ]
+
+    packet_candidates = []
+    for parent in top_feature_candidates:
+        for suffix, config in ROBUSTNESS_PACKET_AUGMENTATIONS:
+            packet_candidates.append(_robustness_candidate(
+                f"{parent['name']}__packet_{suffix}",
+                scaler=parent['scaler'],
+                l1_variant=parent['l1_variant'],
+                feature_augmentation=parent['feature_augmentation'],
+                packet_augmentation=config,
+            ))
+    packet_runs = screen_stage('packet_augmentation', packet_candidates)
+
+    all_screening = scaler_runs + l1_runs + feature_runs + packet_runs
+    unique_screening = {}
+    for run in all_screening:
+        unique_screening[candidate_key(run['candidate'])] = run
+    challengers = [
+        run for run in sorted(unique_screening.values(), key=robustness_run_rank_key)
+        if run['candidate']['name'] != baseline['name']
+    ][:2]
+    filter_candidates = [baseline] + [run['candidate'] for run in challengers]
+    filter_summaries = []
+    for candidate in filter_candidates:
+        runs = [evaluate(candidate, seed) for seed in ROBUSTNESS_FILTER_SEEDS]
+        summary = aggregate_robustness_runs(candidate, runs)
+        filter_summaries.append(summary)
+        payload['filter'] = filter_summaries
+        write_json_results(output_path, payload)
+
+    baseline_filter = next(
+        item for item in filter_summaries if item['candidate']['name'] == baseline['name'])
+    best_challenger = min(
+        (item for item in filter_summaries if item['candidate']['name'] != baseline['name']),
+        key=robustness_summary_rank_key,
+    )
+    final_candidates = [baseline, best_challenger['candidate']]
+    final_summaries = []
+    for candidate in final_candidates:
+        runs = [evaluate(candidate, seed) for seed in ROBUSTNESS_FINAL_SEEDS]
+        summary = aggregate_robustness_runs(candidate, runs)
+        final_summaries.append(summary)
+        payload['final'] = final_summaries
+        write_json_results(output_path, payload)
+
+    baseline_final = next(
+        item for item in final_summaries if item['candidate']['name'] == baseline['name'])
+    challenger_final = next(
+        item for item in final_summaries if item['candidate']['name'] != baseline['name'])
+    all_medians_pass = (
+        challenger_final['median_pass_count'] == challenger_final['holdout_count'])
+    four_of_five_pass = all(row['seed_passes'] >= 4 for row in challenger_final['folds'])
+    non_regression = (
+        challenger_final['median_pass_count'] >= baseline_final['median_pass_count'])
+    generalization_qualified = bool(all_medians_pass and four_of_five_pass and non_regression)
+    payload['decision'] = {
+        'winner': challenger_final['candidate']['name']
+            if robustness_summary_rank_key(challenger_final) < robustness_summary_rank_key(baseline_final)
+            else baseline_final['candidate']['name'],
+        'generalization_qualified': generalization_qualified,
+        'all_holdout_medians_pass': bool(all_medians_pass),
+        'four_of_five_per_holdout': bool(four_of_five_pass),
+        'baseline_non_regression': bool(non_regression),
+        'deployment_validation': 'required',
+        'required_checks': ['paired_gate', 'gain_stress_gate', 'long_recordings', 'python_cpp_parity'],
+        'artifacts_changed': False,
+    }
+    payload['completed_at'] = datetime.now().astimezone().isoformat()
+    write_json_results(output_path, payload)
+    print("\n" + "=" * 70)
+    print("  ROBUSTNESS CAMPAIGN DECISION")
+    print("=" * 70)
+    print(f"Winner: {payload['decision']['winner']}")
+    print(f"Generalization qualified: {generalization_qualified}")
+    print("Deployment gates remain required; runtime artifacts unchanged.")
+    return payload
 
 
 def slim_cv_result(cv_results):
@@ -4285,7 +5150,13 @@ def evaluate_architecture_candidate(name, hidden_layers, seed, dataset, scaler_m
         )
 
     scaler = build_preprocessor(scaler_mode)
-    X_scaled = scaler.fit_transform(dataset['X'])
+    fit_preprocessor(
+        scaler,
+        dataset['X'],
+        y=dataset['y'],
+        sample_context=dataset['sample_context'],
+    )
+    X_scaled = scaler.transform(dataset['X'])
     with suppress_stderr():
         model = train_model(
             X_scaled,
@@ -4440,7 +5311,7 @@ def experiment_feature_ablation(feature_name, seed=None,
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
     try:
         ensure_torch_available()
-        seed = resolve_training_seed(seed if seed is not None else read_exported_seed())
+        seed = resolve_training_seed(seed, trailing_newline=True)
         set_global_determinism(seed, torch_module=torch)
     except (ImportError, RuntimeError, ValueError) as exc:
         print(f"Error: {exc}")
@@ -5009,6 +5880,9 @@ Examples:
                                            # Bias training slightly toward ESP32 motion recall
   python tools/train_ml_model.py --seed-search-until-improvement 20
                                            # Stop at first improvement (max 20 trials)
+  python tools/train_ml_model.py --augment # Train with the robustness-winner augmentation recipe
+  python tools/train_ml_model.py --augment --seed-search-until-improvement 10
+                                           # Seed-search using the same train-time augmentation
   python tools/train_ml_model.py --gain-stress-gate --environment bedroom
                                            # Diagnose exported model robustness to feature gain shifts
   python tools/train_ml_model.py --shap --no-export  # Grouped OOF SHAP (200 samples)
@@ -5039,12 +5913,28 @@ To compare ML with the moving-variance baseline, use:
     parser.add_argument('--experiment-fp-weights', type=parse_fp_weight_sweep, default=None,
                        metavar='WEIGHTS',
                        help='Run a gated multi-seed campaign over comma-separated FP weights')
+    parser.add_argument('--experiment-robustness', action='store_true',
+                       help='Run the non-destructive staged Core-6 robustness campaign')
+    parser.add_argument('--robustness-augmentation-only', action='store_true',
+                       help='With --experiment-robustness, keep standard Core-6 '
+                            'normalization and evaluate only augmentation candidates')
+    parser.add_argument('--robustness-experiment-output', type=Path,
+                       default=DEFAULT_ROBUSTNESS_EXPERIMENT_OUTPUT,
+                       help='JSON output path for --experiment-robustness '
+                            f'(default: {DEFAULT_ROBUSTNESS_EXPERIMENT_OUTPUT})')
     parser.add_argument('--fp-weight-experiment-output', type=Path,
                        default=DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT,
                        help='JSON output path for --experiment-fp-weights '
                             f'(default: {DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT})')
     parser.add_argument('--seed', type=int, default=None,
-                       help='Use specific random seed for reproducible training')
+                       help='Training seed. When omitted, reuse the seed embedded '
+                            'in the current exported model when available; '
+                            'otherwise generate a random seed. '
+                            '--seed-search-until-improvement always samples fresh seeds')
+    parser.add_argument('--augment', action='store_true',
+                       help='Apply the Core-6 robustness-winner train-time '
+                            'augmentation recipe (feature jitter 0.10 + moderate '
+                            'packet gain/noise/loss). Inference stays unaugmented')
     parser.add_argument('--seed-search-until-improvement', type=int, default=0, metavar='MAX_TRIALS',
                        help='Train with auto-generated seeds until first '
                             'improvement over current ML performance, with '
@@ -5062,7 +5952,8 @@ To compare ML with the moving-variance baseline, use:
     parser.add_argument('--fp-weight', type=float, default=DEFAULT_FP_WEIGHT,
                        help='Multiplier for IDLE class weight to penalize false positives. '
                             f'Values >1.0 make the model more conservative (default: {DEFAULT_FP_WEIGHT:.1f})')
-    parser.add_argument('--scaler', choices=['standard', 'robust', 'clipped_standard'],
+    parser.add_argument('--scaler', choices=[
+                           'standard', 'robust', 'session_balanced_robust', 'clipped_standard'],
                        default=DEFAULT_SCALER_MODE,
                        help='Feature normalization mode for training/evaluation')
     parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
@@ -5122,12 +6013,60 @@ To compare ML with the moving-variance baseline, use:
     ):
         print("Error: --experiment-promote requires an experiment campaign")
         return 1
-    if args.experiment and args.experiment_fp_weights is not None:
-        print("Error: --experiment and --experiment-fp-weights are mutually exclusive")
+    experiment_count = sum((
+        bool(args.experiment),
+        args.experiment_fp_weights is not None,
+        bool(args.experiment_robustness),
+    ))
+    if experiment_count > 1:
+        print("Error: experiment campaigns are mutually exclusive")
         return 1
 
+    if args.robustness_augmentation_only and not args.experiment_robustness:
+        print("Error: --robustness-augmentation-only requires --experiment-robustness")
+        return 1
+    if args.augment and (
+        args.experiment
+        or args.experiment_fp_weights is not None
+        or args.experiment_robustness
+        or args.gain_stress_gate
+        or args.ablation_feature
+        or args.ablation
+        or args.shap is not None
+        or args.correlation
+    ):
+        print(
+            "Error: --augment applies only to production training, seed search, "
+            "and cross-environment/cross-chip diagnostics"
+        )
+        return 1
+
+    if args.experiment_robustness:
+        if args.experiment_promote:
+            print("Error: --experiment-robustness never promotes artifacts")
+            return 1
+        if args.seed is not None or args.seed_search_until_improvement > 0:
+            print("Error: --experiment-robustness uses its fixed 1/3/5-seed schedule")
+            return 1
+        if args.environment is not None or parse_chip_filter(args.exclude_chip) is not None:
+            print("Error: --experiment-robustness requires all environments and chips")
+            return 1
+        if args.positive_chip_boost is not None:
+            print("Error: --experiment-robustness keeps sample weighting fixed")
+            return 1
+        run_robustness_experiment(
+            output_path=args.robustness_experiment_output,
+            use_cache=not args.no_cache,
+            hidden_layers=args.hidden_layers,
+            fp_weight=args.fp_weight,
+            batch_size=args.batch_size,
+            augmentation_only=args.robustness_augmentation_only,
+        )
+        return 0
+
     if args.gain_stress_gate:
-        if args.experiment or args.experiment_fp_weights is not None or args.experiment_promote:
+        if (args.experiment or args.experiment_fp_weights is not None
+                or args.experiment_robustness or args.experiment_promote):
             print("Error: --gain-stress-gate cannot be combined with experiment flows")
             return 1
         if args.seed_search_until_improvement > 0 or args.seed is not None:
@@ -5152,7 +6091,8 @@ To compare ML with the moving-variance baseline, use:
         if args.cross_environment and args.cross_chip:
             print("Error: --cross-environment and --cross-chip are mutually exclusive")
             return 1
-        if args.experiment or args.experiment_fp_weights is not None or args.experiment_promote:
+        if (args.experiment or args.experiment_fp_weights is not None
+                or args.experiment_robustness or args.experiment_promote):
             print(f"Error: {mode} cannot be combined with experiment flows")
             return 1
         if args.shap is not None or args.ablation or args.ablation_feature or args.correlation:
@@ -5177,6 +6117,7 @@ To compare ML with the moving-variance baseline, use:
             batch_size=args.batch_size,
             excluded_chips=args.exclude_chip,
             use_cache=not args.no_cache,
+            augment=args.augment,
         )
 
     if args.experiment:
@@ -5250,6 +6191,7 @@ To compare ML with the moving-variance baseline, use:
             excluded_chips=args.exclude_chip,
             positive_chip_boost=args.positive_chip_boost,
             use_cache=not args.no_cache,
+            augment=args.augment,
         )
 
     train_rc, _, _ = train_all(
@@ -5266,6 +6208,7 @@ To compare ML with the moving-variance baseline, use:
         excluded_chips=args.exclude_chip,
         positive_chip_boost=args.positive_chip_boost,
         use_cache=not args.no_cache,
+        augment=args.augment,
         export_artifacts=(
             not args.no_export
             and args.shap is None

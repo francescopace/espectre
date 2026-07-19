@@ -15,6 +15,7 @@ from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN
 from src.device_utils import (
     normalize_ht20_csi_payload,
     csi_read_frame,
+    is_ht20_sensing_frame,
 )
 from src.branding import ASCII_BANNER
 from src.console_output import format_calibration_status_line, format_detection_publish_line
@@ -286,6 +287,18 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                 filtered_count += 1
                 if filtered_count % 100 == 1:
                     print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {raw_len} bytes, expected {EXPECTED_CSI_LEN})")
+                del frame
+                time.sleep_us(100)
+                if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
+                    print(f"Timeout waiting for valid CSI packets (collected {calibration_progress}/{config.CALIBRATION_BUFFER_SIZE})")
+                    print("Startup calibration aborted")
+                    detector.reset()
+                    g_state.calibration_mode = False
+                    return False
+                continue
+
+            if not is_ht20_sensing_frame(frame):
+                filtered_count += 1
                 del frame
                 time.sleep_us(100)
                 if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
@@ -597,6 +610,21 @@ def main():
                     filtered_count += 1
                     if filtered_count % 100 == 1:
                         print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {raw_len} bytes, expected {EXPECTED_CSI_LEN})")
+                    del frame
+                    _maintain_traffic_and_csi_health(
+                        traffic_gen,
+                        csi_health,
+                        wlan,
+                        accepted_csi_total=processed_packet_count,
+                        callback_total=callback_packet_count,
+                        now_us=loop_start,
+                    )
+                    g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    time.sleep_us(100)
+                    continue
+
+                if not is_ht20_sensing_frame(frame):
+                    filtered_count += 1
                     del frame
                     _maintain_traffic_and_csi_health(
                         traffic_gen,

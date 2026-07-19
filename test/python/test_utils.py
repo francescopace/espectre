@@ -13,6 +13,7 @@ import numpy as np
 from utils import (
     to_signed_int8,
     normalize_ht20_csi_payload,
+    is_ht20_sensing_frame,
     calculate_median,
     insertion_sort,
     calculate_percentile,
@@ -78,6 +79,31 @@ class TestNormalizeHt20CsiPayload:
         assert normalized is None
         assert raw_len == 64
         assert tag is None
+
+
+class TestIsHt20SensingFrame:
+    """Test MicroPython CSI frame HT20 PHY gating."""
+
+    def test_ht20_accepted(self):
+        frame = [0] * 10
+        frame[7] = 1  # HT
+        frame[9] = 0  # 20 MHz
+        assert is_ht20_sensing_frame(frame) is True
+
+    def test_legacy_rejected(self):
+        frame = [0] * 10
+        frame[7] = 0
+        frame[9] = 0
+        assert is_ht20_sensing_frame(frame) is False
+
+    def test_ht40_rejected(self):
+        frame = [0] * 10
+        frame[7] = 1
+        frame[9] = 1
+        assert is_ht20_sensing_frame(frame) is False
+
+    def test_short_frame_defaults_to_ht20(self):
+        assert is_ht20_sensing_frame([0] * 6) is True
 
 
 # ============================================================================

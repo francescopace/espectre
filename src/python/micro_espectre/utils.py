@@ -14,6 +14,7 @@ try:
         calculate_variance,
         csi_read_frame as csi_read_frame,
         insertion_sort as insertion_sort,
+        is_ht20_sensing_frame as is_ht20_sensing_frame,
         normalize_ht20_csi_payload as normalize_ht20_csi_payload,
         to_signed_int8,
     )
@@ -22,6 +23,7 @@ except ImportError:
         calculate_variance,
         csi_read_frame as csi_read_frame,
         insertion_sort as insertion_sort,
+        is_ht20_sensing_frame as is_ht20_sensing_frame,
         normalize_ht20_csi_payload as normalize_ht20_csi_payload,
         to_signed_int8,
     )

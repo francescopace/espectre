@@ -67,6 +67,7 @@ from tools.lib.dataset_metadata import (  # noqa: E402
     build_classic_detector,
 )
 from tools.lib.csi_analysis import extract_amplitudes_matrix  # noqa: E402
+from tools.lib.csi_io import filter_npz_arrays_ht20  # noqa: E402
 
 
 from detector_interface import MotionState  # noqa: E402
@@ -1148,6 +1149,17 @@ def _load_npz_materialized(filepath):
         return _MaterializedNpz((key, npz[key]) for key in npz.files)
 
 
+def _sensing_view_npz(data):
+    """Return the HT20 sensing view used by continuity and Classic/ML quality."""
+    filtered = filter_npz_arrays_ht20(dict(data))
+    if filtered is data or (
+        len(filtered) == len(data)
+        and all(filtered[key] is data[key] for key in data)
+    ):
+        return data
+    return _MaterializedNpz(filtered.items())
+
+
 def _get_csi_key(data):
     """Return the key for CSI data inside an NPZ mapping."""
     keys = list(data.keys())
@@ -1159,23 +1171,28 @@ def _get_csi_key(data):
 
 
 def validate_file_integrity(filepath):
-    """Check file can be loaded and has expected structure."""
+    """Check file can be loaded and has expected structure.
+
+    Structural checks use the on-disk arrays. The returned mapping is the HT20
+    sensing view (non-HT20 packets dropped) so continuity and later quality
+    phases see the same filtered stream as training and host tooling.
+    """
     results = []
 
     try:
-        data = _load_npz_materialized(filepath)
+        raw_data = _load_npz_materialized(filepath)
     except Exception as e:
         results.append(ValidationResult("file_load", "FAIL", f"Cannot load: {e}"))
         return results, None
 
     results.append(ValidationResult("file_load", "PASS", "File loads successfully"))
 
-    csi_key = _get_csi_key(data)
+    csi_key = _get_csi_key(raw_data)
     if csi_key is None:
         results.append(ValidationResult("csi_key", "FAIL", "No data keys found"))
         return results, None
 
-    csi = data[csi_key]
+    csi = raw_data[csi_key]
     if csi_key == 'csi_data':
         results.append(ValidationResult("csi_key", "PASS",
             f"CSI data found (key: {csi_key})", f"shape={csi.shape}"))
@@ -1200,7 +1217,7 @@ def validate_file_integrity(filepath):
         return results, None
 
     actual_subcarriers = csi.shape[1] // 2
-    declared_subcarriers = _read_scalar_metadata(data, 'num_subcarriers')
+    declared_subcarriers = _read_scalar_metadata(raw_data, 'num_subcarriers')
     if declared_subcarriers is not None:
         try:
             declared_subcarriers = int(declared_subcarriers)
@@ -1232,8 +1249,8 @@ def validate_file_integrity(filepath):
     )
     mismatched = [
         key for key in packet_metadata_keys
-        if key in data.files and np.asarray(data[key]).ndim > 0
-        and len(data[key]) != csi.shape[0]
+        if key in raw_data.files and np.asarray(raw_data[key]).ndim > 0
+        and len(raw_data[key]) != csi.shape[0]
     ]
     if mismatched:
         results.append(ValidationResult(
@@ -1246,7 +1263,7 @@ def validate_file_integrity(filepath):
             "packet_metadata_shape", "PASS", "Per-packet metadata lengths are coherent"
         ))
 
-    embedded_label = _read_scalar_metadata(data, 'label')
+    embedded_label = _read_scalar_metadata(raw_data, 'label')
     directory_label = filepath.parent.name
     if embedded_label is None:
         results.append(ValidationResult(
@@ -1263,7 +1280,7 @@ def validate_file_integrity(filepath):
             "embedded_label", "PASS", f"Embedded label is {embedded_label!r}"
         ))
 
-    return results, data
+    return results, _sensing_view_npz(raw_data)
 
 
 def validate_signal_quality(csi_data):
@@ -1674,11 +1691,11 @@ def validate_ml_readiness(dataset_info, chip_filter=None):
 
 
 def _load_cached_or_npz(filepath, npz_cache):
-    """Return cached NPZ data and CSI key, loading from disk only if needed."""
+    """Return cached HT20 sensing-view NPZ data and CSI key."""
     if filepath in npz_cache:
         return npz_cache[filepath]
 
-    data = _load_npz_materialized(filepath)
+    data = _sensing_view_npz(_load_npz_materialized(filepath))
     csi_key = _get_csi_key(data)
     npz_cache[filepath] = (data, csi_key)
     return data, csi_key

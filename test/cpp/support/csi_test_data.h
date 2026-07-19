@@ -61,7 +61,49 @@ struct CsiData {
 };
 
 /**
- * Load CSI data from NPZ file
+ * Read one fixed-width NumPy string (bytes or UTF-32 code units) from an NPZ array.
+ */
+inline std::string npy_string_at(const cnpy::NpyArray& arr, size_t index) {
+    if (arr.num_vals == 0 || arr.word_size == 0) {
+        return {};
+    }
+    if (index >= arr.num_vals) {
+        return {};
+    }
+
+    const char* base = arr.data<char>() + index * arr.word_size;
+    std::string out;
+    if ((arr.word_size % 4U) == 0U) {
+        // NumPy unicode arrays (`<U*` / `>U*`) store UCS-4 code points.
+        const size_t nchars = arr.word_size / 4U;
+        const auto* codepoints = reinterpret_cast<const uint32_t*>(base);
+        out.reserve(nchars);
+        for (size_t i = 0; i < nchars; ++i) {
+            const uint32_t cp = codepoints[i];
+            if (cp == 0U) {
+                break;
+            }
+            if (cp < 128U) {
+                out.push_back(static_cast<char>(cp));
+            }
+        }
+        return out;
+    }
+
+    const size_t len = ::strnlen(base, arr.word_size);
+    return std::string(base, len);
+}
+
+inline bool is_ht20_phy(const std::string& phy_mode, const std::string& channel_width) {
+    return phy_mode == "ht" && channel_width == "20";
+}
+
+/**
+ * Load CSI data from NPZ file.
+ *
+ * When per-record PHY metadata is present, keep only HT20 packets
+ * (`phy_mode=ht`, `channel_width=20`) so C++ tests match the Python loaders.
+ * Captures without PHY metadata are treated as already-HT20.
  */
 inline CsiData load_npz(const std::string& filepath) {
     CsiData result;
@@ -78,7 +120,7 @@ inline CsiData load_npz(const std::string& filepath) {
         throw std::runtime_error("csi_data should be 2D array");
     }
     
-    result.num_packets = static_cast<int>(csi_arr.shape[0]);
+    const int raw_num_packets = static_cast<int>(csi_arr.shape[0]);
     result.packet_size = static_cast<int>(csi_arr.shape[1]);
     result.num_subcarriers = result.packet_size / 2;
     
@@ -92,14 +134,41 @@ inline CsiData load_npz(const std::string& filepath) {
         }
     }
 
-    // Copy data into packets vector
+    const bool has_phy_mode = npz.find("phy_mode") != npz.end();
+    const bool has_channel_width = npz.find("channel_width") != npz.end();
+    const cnpy::NpyArray* phy_modes = has_phy_mode ? &npz["phy_mode"] : nullptr;
+    const cnpy::NpyArray* channel_widths =
+        has_channel_width ? &npz["channel_width"] : nullptr;
+
+    std::vector<int> keep_indices;
+    keep_indices.reserve(static_cast<size_t>(raw_num_packets));
+    if (!has_phy_mode && !has_channel_width) {
+        for (int i = 0; i < raw_num_packets; ++i) {
+            keep_indices.push_back(i);
+        }
+    } else {
+        for (int i = 0; i < raw_num_packets; ++i) {
+            const std::string phy_mode =
+                has_phy_mode ? npy_string_at(*phy_modes, static_cast<size_t>(i)) : "ht";
+            const std::string channel_width =
+                has_channel_width ? npy_string_at(*channel_widths, static_cast<size_t>(i))
+                                  : "20";
+            if (is_ht20_phy(phy_mode, channel_width)) {
+                keep_indices.push_back(i);
+            }
+        }
+    }
+
+    result.num_packets = static_cast<int>(keep_indices.size());
     const int8_t* data = csi_arr.data<int8_t>();
-    result.packets.resize(result.num_packets);
+    result.packets.resize(static_cast<size_t>(result.num_packets));
     
-    for (int i = 0; i < result.num_packets; i++) {
-        result.packets[i].resize(result.packet_size);
-        for (int j = 0; j < result.packet_size; j++) {
-            result.packets[i][j] = data[i * result.packet_size + j];
+    for (int out_i = 0; out_i < result.num_packets; ++out_i) {
+        const int src_i = keep_indices[static_cast<size_t>(out_i)];
+        result.packets[static_cast<size_t>(out_i)].resize(static_cast<size_t>(result.packet_size));
+        for (int j = 0; j < result.packet_size; ++j) {
+            result.packets[static_cast<size_t>(out_i)][static_cast<size_t>(j)] =
+                data[src_i * result.packet_size + j];
         }
     }
     

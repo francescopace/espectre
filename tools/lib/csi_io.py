@@ -1609,8 +1609,95 @@ class CSICollector:
         return saved_files
 
 
-def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
-    """Load a ``.npz`` file and convert it to packet dictionaries."""
+def is_ht20_phy(phy_mode: Any, channel_width: Any) -> bool:
+    """Return True when a packet matches the HT20 sensing contract."""
+    return str(phy_mode) == "ht" and str(channel_width) == "20"
+
+
+def ht20_packet_mask(
+    phy_modes: Optional[np.ndarray],
+    channel_widths: Optional[np.ndarray],
+    num_packets: int,
+) -> Optional[np.ndarray]:
+    """Build a boolean HT20 keep-mask, or ``None`` when PHY fields are absent.
+
+    Captures without per-record PHY metadata are treated as already-HT20 and are
+    left unfiltered. When either field exists, missing per-packet values default
+    to ``ht`` / ``20`` (same as :func:`load_npz_as_packets`).
+    """
+    if num_packets <= 0:
+        return None
+    if phy_modes is None and channel_widths is None:
+        return None
+
+    def _value_at(array: Optional[np.ndarray], index: int, default: str) -> str:
+        if array is None:
+            return default
+        arr = np.asarray(array)
+        if arr.ndim == 0:
+            return str(arr.item())
+        if index >= len(arr):
+            return default
+        return str(arr[index])
+
+    mask = np.empty(num_packets, dtype=bool)
+    for index in range(num_packets):
+        mask[index] = is_ht20_phy(
+            _value_at(phy_modes, index, "ht"),
+            _value_at(channel_widths, index, "20"),
+        )
+    return mask
+
+
+def filter_npz_arrays_ht20(arrays: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a shallow copy of NPZ arrays with non-HT20 packets removed.
+
+    Scalar metadata is preserved. Per-packet vectors whose leading axis matches
+    ``csi_data`` / ``csi`` length are sliced with the HT20 mask. When PHY
+    metadata is absent, the input mapping is returned unchanged.
+    """
+    if "csi_data" in arrays:
+        csi_key = "csi_data"
+    elif "csi" in arrays:
+        csi_key = "csi"
+    else:
+        return arrays
+
+    csi = np.asarray(arrays[csi_key])
+    if csi.ndim == 0:
+        return arrays
+    num_packets = int(csi.shape[0])
+    mask = ht20_packet_mask(
+        arrays.get("phy_mode"),
+        arrays.get("channel_width"),
+        num_packets,
+    )
+    if mask is None or bool(np.all(mask)):
+        return arrays
+
+    filtered: Dict[str, Any] = {}
+    for key, value in arrays.items():
+        arr = np.asarray(value)
+        if arr.ndim >= 1 and arr.shape[0] == num_packets:
+            filtered[key] = arr[mask]
+        else:
+            filtered[key] = value
+    return filtered
+
+
+def load_npz_as_packets(
+    filepath: Path,
+    *,
+    keep_all_phy: bool = False,
+) -> List[Dict[str, Any]]:
+    """Load a ``.npz`` file and convert it to packet dictionaries.
+
+    By default only HT20 packets (``phy_mode=ht``, ``channel_width=20``) are
+    returned. Captures without PHY metadata are treated as HT20. Pass
+    ``keep_all_phy=True`` to inspect mixed-PHY captures. Gaps left by dropped
+    non-HT20 packets are intentional for sensing consumers; dataset quality
+    validation uses the same filtered view so excessive drops fail continuity.
+    """
     data = np.load(filepath, allow_pickle=True)
     if "csi_data" not in data.files:
         raise ValueError(f"No CSI data found in {filepath}")
@@ -1640,10 +1727,15 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
             return None
         return cast(array[index])
 
+    keep_mask = None
+    if not keep_all_phy:
+        keep_mask = ht20_packet_mask(phy_modes, channel_widths, len(csi_array))
+
     packets = []
     for index in range(len(csi_array)):
-        # All checked-in training and validation captures predate per-record
-        # PHY metadata and are explicitly documented as HT20 datasets.
+        if keep_mask is not None and not bool(keep_mask[index]):
+            continue
+        # Captures without per-record PHY metadata are documented as HT20.
         phy_mode = optional_scalar(phy_modes, index, str) or "ht"
         ltf_type = optional_scalar(ltf_types, index, str) or "ht-ltf"
         channel_width = optional_scalar(channel_widths, index, str) or "20"
@@ -1671,17 +1763,32 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     return packets
 
 
-def load_npz_csi_data(filepath: Path) -> np.ndarray:
+def load_npz_csi_data(
+    filepath: Path,
+    *,
+    keep_all_phy: bool = False,
+) -> np.ndarray:
     """Load only the signed CSI matrix from a ``.npz`` recording.
 
     Long-recording replays do not consume per-packet transport metadata.  Keep
     that hot path on the compact NumPy matrix instead of expanding every row
-    into a metadata dictionary.
+    into a metadata dictionary. Non-HT20 rows are dropped by default when PHY
+    metadata is present; pass ``keep_all_phy=True`` to keep every row.
     """
     with np.load(filepath, allow_pickle=False) as data:
         if "csi_data" not in data.files:
             raise ValueError(f"No CSI data found in {filepath}")
-        return np.asarray(data["csi_data"], dtype=np.int8)
+        csi = np.asarray(data["csi_data"], dtype=np.int8)
+        if keep_all_phy:
+            return csi
+        mask = ht20_packet_mask(
+            data["phy_mode"] if "phy_mode" in data.files else None,
+            data["channel_width"] if "channel_width" in data.files else None,
+            len(csi),
+        )
+        if mask is None:
+            return csi
+        return csi[mask]
 
 
 def get_dataset_stats() -> Dict[str, Any]:

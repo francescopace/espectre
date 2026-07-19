@@ -412,6 +412,57 @@ def test_file_integrity_rejects_subcarrier_shape_mismatch(tmp_path) -> None:
     assert "implies 64 subcarriers" in shape.message
 
 
+def test_file_integrity_returns_ht20_sensing_view(tmp_path) -> None:
+    module = _load_validator_module()
+    path = tmp_path / "mixed_phy.npz"
+    np.savez(
+        path,
+        csi_data=np.zeros((5, 128), dtype=np.int8),
+        num_subcarriers=np.array(64),
+        label=np.array("motion"),
+        phy_mode=np.array(["ht", "legacy", "ht", "legacy", "ht"]),
+        channel_width=np.array(["20", "20", "20", "20", "20"]),
+        stream_seq_num=np.array([1, 2, 3, 4, 5], dtype=np.uint32),
+    )
+
+    results, data = module.validate_file_integrity(path)
+    by_name = {result.name: result for result in results}
+
+    assert by_name["file_load"].status == "PASS"
+    assert data is not None
+    assert data["csi_data"].shape[0] == 3
+    np.testing.assert_array_equal(data["stream_seq_num"], np.array([1, 3, 5], dtype=np.uint32))
+    np.testing.assert_array_equal(data["phy_mode"], np.array(["ht", "ht", "ht"]))
+
+
+def test_capture_continuity_sees_gaps_after_ht20_filter(tmp_path) -> None:
+    module = _load_validator_module()
+    path = tmp_path / "legacy_heavy.npz"
+    # Alternate HT/legacy so the HT20 view has a gap on every other seq number.
+    phy_mode = np.array(["ht", "legacy"] * 20)
+    stream_seq = np.arange(1, 41, dtype=np.uint32)
+    np.savez(
+        path,
+        csi_data=np.zeros((40, 128), dtype=np.int8),
+        num_subcarriers=np.array(64),
+        label=np.array("static_presence"),
+        duration_ms=np.array(1000.0),
+        phy_mode=phy_mode,
+        channel_width=np.array(["20"] * 40),
+        stream_seq_num=stream_seq,
+    )
+
+    _, data = module.validate_file_integrity(path)
+    assert data is not None
+    assert data["csi_data"].shape[0] == 20
+
+    results = module.validate_capture_continuity(data, data["csi_data"])
+    by_name = {result.name: result for result in results}
+
+    assert by_name["stream_seq_gaps"].status in {"WARN", "FAIL"}
+    assert by_name["stream_seq_gaps"].value > 0.0
+
+
 def test_long_recording_coverage_warns_without_annotated_motion() -> None:
     module = _load_validator_module()
     dataset_info = {

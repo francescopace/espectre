@@ -12,6 +12,7 @@
 #include "espectre_log.h"
 #include "esp_timer.h"
 #include "csi_frame_identity.h"
+#include "csi_phy_filter.h"
 
 namespace espectre {
 
@@ -149,6 +150,11 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     return;
   }
   if (!csi_frame_matches_local_identity(data, local_ip_addr_, local_mac_addr_.data())) {
+    return;
+  }
+  // Keep capture open for legacy/HT fallback health on original ESP32, but feed
+  // Classic/ML only HT20 samples so runtime matches the host training contract.
+  if (!csi_info_is_ht20_sensing(data)) {
     return;
   }
 

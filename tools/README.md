@@ -188,6 +188,10 @@ The main repository workflow and this training stack target Python `3.14`.
 - Trains the MLP detector with weighted binary cross-entropy
 - Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, and grouped session-level CV with uniform sample weights
 - Caches the derived feature matrix for repeated local runs; use `--no-cache` to rebuild
+- Reuses the seed embedded in the current exported weights when `--seed` is omitted
+  (`--seed-search-until-improvement` still samples fresh seeds)
+- Optional `--augment` applies the Core-6 robustness-winner train-time recipe
+  (feature jitter + moderate packet augmentation; inference stays clean)
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
 - Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms only after explicit promotion
 - Supports FP-first architecture and FP-weight campaigns, gain-shift diagnostics, and feature-importance analysis
@@ -213,6 +217,10 @@ python train_ml_model.py --device mps     # Force Apple GPU when available
 python train_ml_model.py --no-cache       # Rebuild cached training matrix
 python train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python train_ml_model.py --seed-search-until-improvement 20  # Stop at first better seed
+python train_ml_model.py --augment            # Robustness-winner train-time augmentation
+python train_ml_model.py --augment --seed-search-until-improvement 10
+python train_ml_model.py --cross-environment  # LOEO using the exported model seed by default
+python train_ml_model.py --cross-chip         # LOCO using the exported model seed by default
 python train_ml_model.py --gain-stress-gate  # Stress exported model with artificial feature gain shifts
 python train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25  # Custom stress multipliers
 python train_ml_model.py --shap         # Grouped OOF SHAP (200 samples)

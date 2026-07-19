@@ -805,12 +805,70 @@ def test_load_dataset_preserves_explicit_phy_metadata(tmp_path):
         channel_width=np.array(['20']),
     )
 
-    packet = load_npz_as_packets(filepath)[0]
+    packet = load_npz_as_packets(filepath, keep_all_phy=True)[0]
 
     assert packet['phy_format'] == 'legacy20'
     assert packet['phy_mode'] == 'legacy'
     assert packet['ltf_type'] == 'lltf'
     assert packet['channel_width'] == '20'
+
+
+def test_load_npz_filters_non_ht20_packets_by_default(tmp_path):
+    filepath = tmp_path / 'mixed_phy.npz'
+    np.savez_compressed(
+        filepath,
+        csi_data=np.array(
+            [
+                [1, 2, 3, 4],
+                [5, 6, 7, 8],
+                [9, 10, 11, 12],
+            ],
+            dtype=np.int8,
+        ),
+        num_subcarriers=2,
+        label='motion',
+        chip='esp32',
+        phy_mode=np.array(['ht', 'legacy', 'ht']),
+        ltf_type=np.array(['ht-ltf', 'lltf', 'ht-ltf']),
+        channel_width=np.array(['20', '20', '20']),
+        stream_seq_num=np.array([10, 11, 12], dtype=np.uint32),
+    )
+
+    packets = load_npz_as_packets(filepath)
+    assert len(packets) == 2
+    assert [packet['phy_mode'] for packet in packets] == ['ht', 'ht']
+    assert [packet['stream_seq_num'] for packet in packets] == [10, 12]
+    np.testing.assert_array_equal(packets[0]['csi_data'], np.array([1, 2, 3, 4], dtype=np.int8))
+    np.testing.assert_array_equal(packets[1]['csi_data'], np.array([9, 10, 11, 12], dtype=np.int8))
+
+    all_packets = load_npz_as_packets(filepath, keep_all_phy=True)
+    assert len(all_packets) == 3
+    assert [packet['phy_mode'] for packet in all_packets] == ['ht', 'legacy', 'ht']
+
+
+def test_load_npz_csi_data_filters_non_ht20_rows(tmp_path):
+    from tools.lib.csi_io import load_npz_csi_data
+
+    filepath = tmp_path / 'mixed_phy_matrix.npz'
+    np.savez_compressed(
+        filepath,
+        csi_data=np.array(
+            [
+                [1, 2, 3, 4],
+                [5, 6, 7, 8],
+            ],
+            dtype=np.int8,
+        ),
+        phy_mode=np.array(['legacy', 'ht']),
+        channel_width=np.array(['20', '20']),
+    )
+
+    filtered = load_npz_csi_data(filepath)
+    assert filtered.shape == (1, 4)
+    np.testing.assert_array_equal(filtered[0], np.array([5, 6, 7, 8], dtype=np.int8))
+
+    raw = load_npz_csi_data(filepath, keep_all_phy=True)
+    assert raw.shape == (2, 4)
 
 
 def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):
