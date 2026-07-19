@@ -214,31 +214,37 @@ flat at `1.00x`, `1.25x`, and `1.50x`. The remaining worst-session weakness is
 nominal dataset difficulty, not gain-shift sensitivity. Treat this gate as the
 primary diagnostic before promoting future retrains.
 
-## Cross-Environment Generalization Check
+## Cross-Environment And Cross-Chip Generalization Checks
 
 Grouped CV splits by paired capture and session, so windows from the same room
-can land in both the training and the held-out fold. That makes grouped CV
-optimistic about how well the detector transfers to a room it has never seen.
+or the same chip can land in both the training and the held-out fold. That makes
+grouped CV optimistic about how well the detector transfers to a room or a chip
+it has never seen.
 
-Use the leave-one-environment-out gate to measure true cross-room
-generalization without exporting a new model:
+Use the leave-one-group-out gates to measure true generalization without
+exporting a new model:
 
 ```bash
 python tools/train_ml_model.py --cross-environment
 python tools/train_ml_model.py --cross-environment --seed 42
+python tools/train_ml_model.py --cross-chip
+python tools/train_ml_model.py --cross-chip --seed 42
 ```
 
-For each named environment in `data/dataset_info.json`, the command trains on
-all other environments and evaluates on the held-out room, then reports recall,
-false-positive rate, precision, and F1 per room plus a macro-average. Held-out
+`--cross-environment` holds out one named environment at a time; `--cross-chip`
+holds out one chip at a time. For each held-out group the command trains on all
+other groups and evaluates on the held-out one, then reports recall,
+false-positive rate, precision, and F1 per group plus a macro-average. Held-out
 scoring reuses the same block subsampling as grouped CV, so the numbers stay
 comparable to the trainer's own report. False positives are also broken down by
-`empty` versus `static_presence`, since an unseen room's static presence is the
-most common cross-environment false-positive source.
+`empty` versus `static_presence`, since an unseen group's idle windows are the
+most common cross-group false-positive source. Each fold additionally reports its
+worst sub-group (worst chip for a held-out room, worst room for a held-out chip).
 
-`--cross-environment` does not train a promotable model or export runtime
-artifacts. It cannot be combined with `--environment` (which holds nothing out),
-experiment flows, seed search, or the diagnostic feature-analysis flags.
+Neither gate trains a promotable model or exports runtime artifacts. They are
+mutually exclusive with each other and cannot be combined with `--environment`
+(which holds nothing out), experiment flows, seed search, or the diagnostic
+feature-analysis flags.
 
 ## Empty-Room Regression Check
 

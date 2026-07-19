@@ -2130,19 +2130,29 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
     return result
 
 
-def cross_environment_validation(fp_weight=DEFAULT_FP_WEIGHT, seed=None,
-                                 feature_names=None, hidden_layers=None,
-                                 scaler_mode=DEFAULT_SCALER_MODE,
-                                 batch_size=DEFAULT_BATCH_SIZE,
-                                 excluded_chips=None, block_stride=SEG_WINDOW_SIZE,
-                                 use_cache=True):
-    """Leave-one-environment-out generalization check.
+def leave_one_group_out_validation(group_key, unit, detail_group_key,
+                                   skip_values=(), fp_weight=DEFAULT_FP_WEIGHT,
+                                   seed=None, feature_names=None, hidden_layers=None,
+                                   scaler_mode=DEFAULT_SCALER_MODE,
+                                   batch_size=DEFAULT_BATCH_SIZE,
+                                   excluded_chips=None, block_stride=SEG_WINDOW_SIZE,
+                                   use_cache=True):
+    """Leave-one-group-out generalization check over a sample-context grouping.
 
-    For each named environment, train on all other environments and evaluate on
-    the held-out one. This measures how well the detector transfers to a room it
-    never saw during training. Grouped CV can still mix rooms across folds, so it
-    tends to be optimistic about cross-environment generalization; this routine
-    removes that leakage by making the room the split boundary.
+    For each value of ``group_key`` (a room, a chip, ...), train on all other
+    values and evaluate on the held-out one. This measures how well the detector
+    transfers to a group it never saw during training. Grouped CV can still mix
+    groups across folds, so it tends to be optimistic about cross-group
+    generalization; this routine removes that leakage by making the group the
+    split boundary.
+
+    Args:
+        group_key: Sample-context key defining the held-out unit (e.g.
+            ``environment_group`` or ``chip``).
+        unit: Human-readable singular noun for the group (e.g. ``environment``).
+        detail_group_key: Secondary sample-context key reported as the worst
+            sub-group inside each held-out fold (e.g. ``chip`` for rooms).
+        skip_values: Group values treated as missing metadata and ignored.
 
     This is a diagnostic only: it never trains a promotable model or exports
     runtime artifacts. Held-out scoring reuses the same block subsampling as
@@ -2154,6 +2164,7 @@ def cross_environment_validation(fp_weight=DEFAULT_FP_WEIGHT, seed=None,
         feature_names = DEFAULT_FEATURES.copy()
     feature_names = list(feature_names)
     excluded_chips = parse_chip_filter(excluded_chips)
+    skip_values = {str(v) for v in skip_values}
 
     try:
         ensure_torch_available()
@@ -2169,7 +2180,7 @@ def cross_environment_validation(fp_weight=DEFAULT_FP_WEIGHT, seed=None,
         return 1
 
     print("\n" + "=" * 70)
-    print("  LEAVE-ONE-ENVIRONMENT-OUT GENERALIZATION CHECK")
+    print(f"  LEAVE-ONE-{unit.upper()}-OUT GENERALIZATION CHECK")
     print("=" * 70)
     print(f"FP weight: {fp_weight}")
     print(f"Scaler: {scaler_mode}")
@@ -2190,51 +2201,52 @@ def cross_environment_validation(fp_weight=DEFAULT_FP_WEIGHT, seed=None,
     y = matrix['y']
     sample_context = matrix['sample_context']
 
-    env_values = np.asarray(sample_context.get('environment_group'))
-    if env_values is None or env_values.size == 0:
-        print("Error: no environment metadata available for cross-environment CV")
+    group_values = sample_context.get(group_key)
+    if group_values is None or len(group_values) == 0:
+        print(f"Error: no {unit} metadata available for cross-{unit} CV")
         return 1
+    group_values = np.asarray([str(v) for v in group_values])
 
-    environments = sorted(
-        name for name in {str(v) for v in env_values}
-        if name and name != 'unknown-environment'
+    groups = sorted(
+        name for name in set(group_values.tolist())
+        if name and name not in skip_values
     )
-    if len(environments) < 2:
+    if len(groups) < 2:
         print(
-            f"Error: need at least 2 named environments, found {len(environments)}: "
-            f"{', '.join(environments) or 'none'}"
+            f"Error: need at least 2 named {unit} groups, found {len(groups)}: "
+            f"{', '.join(groups) or 'none'}"
         )
         return 1
 
-    unknown_count = int(np.sum(env_values == 'unknown-environment'))
-    print(f"  Named environments: {', '.join(environments)}")
-    if unknown_count:
-        print(f"  Windows without environment metadata (ignored): {unknown_count}")
+    skipped_count = int(np.sum(np.isin(group_values, list(skip_values)))) if skip_values else 0
+    print(f"  Named {unit} groups: {', '.join(groups)}")
+    if skipped_count:
+        print(f"  Windows without {unit} metadata (ignored): {skipped_count}")
 
     label_values = np.asarray(sample_context.get(
         'label_name', np.full(len(y), 'unknown')))
 
     fold_rows = []
-    for held_out in environments:
-        test_mask = env_values == held_out
-        train_mask = np.isin(env_values, environments) & ~test_mask
+    for held_out in groups:
+        test_mask = group_values == held_out
+        train_mask = np.isin(group_values, groups) & ~test_mask
 
         n_train = int(np.sum(train_mask))
         n_test = int(np.sum(test_mask))
         test_pos = int(np.sum(y[test_mask] == 1))
         test_neg = n_test - test_pos
-        train_envs = [name for name in environments if name != held_out]
+        train_groups = [name for name in groups if name != held_out]
 
         print("\n" + "-" * 70)
-        print(f"Held-out environment: {held_out}")
-        print(f"  Train on: {', '.join(train_envs)} ({n_train} windows)")
+        print(f"Held-out {unit}: {held_out}")
+        print(f"  Train on: {', '.join(train_groups)} ({n_train} windows)")
         print(f"  Test on:  {held_out} ({n_test} windows: {test_pos} motion, {test_neg} idle)")
 
         if test_pos == 0 or test_neg == 0:
-            print("  Skipped: held-out environment lacks both motion and idle windows")
+            print(f"  Skipped: held-out {unit} lacks both motion and idle windows")
             continue
         if n_train == 0:
-            print("  Skipped: no training windows for the remaining environments")
+            print(f"  Skipped: no training windows for the remaining {unit} groups")
             continue
 
         scaler = build_preprocessor(scaler_mode)
@@ -2260,13 +2272,13 @@ def cross_environment_validation(fp_weight=DEFAULT_FP_WEIGHT, seed=None,
 
         y_test = y[test_mask]
         metrics = evaluate_probabilities(y_test[block_mask], test_prob[block_mask])
-        chip_report = build_group_report(
+        detail_values = test_context.get(detail_group_key)
+        detail_report = build_group_report(
             y_test[block_mask], test_prob[block_mask],
-            np.asarray(test_context.get('chip'))[block_mask]
-            if test_context.get('chip') is not None else None,
+            np.asarray(detail_values)[block_mask] if detail_values is not None else None,
         )
 
-        # False-positive breakdown by idle sub-type on the held-out room.
+        # False-positive breakdown by idle sub-type on the held-out group.
         test_labels = label_values[test_mask][block_mask]
         idle_breakdown = {}
         for idle_label in ('empty', 'static_presence'):
@@ -2278,7 +2290,8 @@ def cross_environment_validation(fp_weight=DEFAULT_FP_WEIGHT, seed=None,
                 y_test[block_mask][idle_mask], test_prob[block_mask][idle_mask])
             idle_breakdown[idle_label] = (n_idle, idle_metrics['fp_rate'])
 
-        worst_chip = chip_report.get('worst_recall') if chip_report else None
+        worst_detail = detail_report.get('worst_recall') if detail_report else None
+        detail_noun = detail_group_key.replace('_group', '')
         print(
             f"  Recall={metrics['recall']:.1f}%  FP={metrics['fp_rate']:.1f}%  "
             f"Precision={metrics['precision']:.1f}%  F1={metrics['f1']:.1f}%  "
@@ -2286,36 +2299,36 @@ def cross_environment_validation(fp_weight=DEFAULT_FP_WEIGHT, seed=None,
         )
         for idle_label, (n_idle, fp_rate) in idle_breakdown.items():
             print(f"    {idle_label} FP: {fp_rate:.1f}% ({n_idle} windows)")
-        if worst_chip:
+        if worst_detail:
             print(
-                f"    worst chip recall: {worst_chip['group']} "
-                f"{worst_chip['recall']:.1f}% (FP {worst_chip['fp_rate']:.1f}%)"
+                f"    worst {detail_noun} recall: {worst_detail['group']} "
+                f"{worst_detail['recall']:.1f}% (FP {worst_detail['fp_rate']:.1f}%)"
             )
 
         fold_rows.append({
-            'environment': held_out,
+            'group': held_out,
             'train_windows': n_train,
             'test_windows': int(np.sum(block_mask)),
             'test_motion': test_pos,
             'test_idle': test_neg,
             **metrics,
             'idle_breakdown': idle_breakdown,
-            'worst_chip': worst_chip,
+            'worst_detail': worst_detail,
         })
 
     if not fold_rows:
-        print("\nNo environment could be evaluated as a held-out fold.")
+        print(f"\nNo {unit} could be evaluated as a held-out fold.")
         return 1
 
     print("\n" + "=" * 70)
-    print("  SUMMARY (each row: model never saw that room during training)")
+    print(f"  SUMMARY (each row: model never saw that {unit} during training)")
     print("=" * 70)
-    header = f"{'environment':<16}{'recall':>9}{'fp':>8}{'prec':>8}{'f1':>8}{'test_win':>10}"
+    header = f"{unit:<16}{'recall':>9}{'fp':>8}{'prec':>8}{'f1':>8}{'test_win':>10}"
     print(header)
     print("-" * len(header))
     for row in fold_rows:
         print(
-            f"{row['environment']:<16}{row['recall']:>8.1f}%{row['fp_rate']:>7.1f}%"
+            f"{row['group']:<16}{row['recall']:>8.1f}%{row['fp_rate']:>7.1f}%"
             f"{row['precision']:>7.1f}%{row['f1']:>7.1f}%{row['test_windows']:>10}"
         )
     macro_recall = float(np.mean([r['recall'] for r in fold_rows]))
@@ -2328,16 +2341,32 @@ def cross_environment_validation(fp_weight=DEFAULT_FP_WEIGHT, seed=None,
         f"{'macro-average':<16}{macro_recall:>8.1f}%{macro_fp:>7.1f}%"
         f"{'':>7}{macro_f1:>7.1f}%"
     )
-    print(
-        f"\nWorst held-out recall: {worst_recall['environment']} "
-        f"{worst_recall['recall']:.1f}%"
-    )
-    print(
-        f"Worst held-out FP rate: {worst_fp['environment']} "
-        f"{worst_fp['fp_rate']:.1f}%"
-    )
+    print(f"\nWorst held-out recall: {worst_recall['group']} {worst_recall['recall']:.1f}%")
+    print(f"Worst held-out FP rate: {worst_fp['group']} {worst_fp['fp_rate']:.1f}%")
     print("\nRuntime artifacts unchanged (diagnostic run).")
     return 0
+
+
+def cross_environment_validation(**kwargs):
+    """Leave-one-environment-out generalization check (train on other rooms)."""
+    return leave_one_group_out_validation(
+        group_key='environment_group',
+        unit='environment',
+        detail_group_key='chip',
+        skip_values=('unknown-environment',),
+        **kwargs,
+    )
+
+
+def cross_chip_validation(**kwargs):
+    """Leave-one-chip-out generalization check (train on other chips)."""
+    return leave_one_group_out_validation(
+        group_key='chip',
+        unit='chip',
+        detail_group_key='environment_group',
+        skip_values=('', 'unknown', 'UNKNOWN', 'unknown-chip'),
+        **kwargs,
+    )
 
 
 def get_model_architecture(model):
@@ -5076,6 +5105,10 @@ To compare ML with the moving-variance baseline, use:
                        help='Leave-one-environment-out generalization check: train on all '
                             'other named environments and evaluate on the held-out room. '
                             'Diagnostic only; does not train a promotable model or export artifacts')
+    parser.add_argument('--cross-chip', action='store_true',
+                       help='Leave-one-chip-out generalization check: train on all other chips '
+                            'and evaluate on the held-out chip. '
+                            'Diagnostic only; does not train a promotable model or export artifacts')
     args = parser.parse_args()
     set_active_torch_device(args.device)
     selected_training_features = list(DEFAULT_FEATURES)
@@ -5114,21 +5147,28 @@ To compare ML with the moving-variance baseline, use:
         print_gain_stress_summary(results)
         return 0
 
-    if args.cross_environment:
+    if args.cross_environment or args.cross_chip:
+        mode = '--cross-environment' if args.cross_environment else '--cross-chip'
+        if args.cross_environment and args.cross_chip:
+            print("Error: --cross-environment and --cross-chip are mutually exclusive")
+            return 1
         if args.experiment or args.experiment_fp_weights is not None or args.experiment_promote:
-            print("Error: --cross-environment cannot be combined with experiment flows")
+            print(f"Error: {mode} cannot be combined with experiment flows")
             return 1
         if args.shap is not None or args.ablation or args.ablation_feature or args.correlation:
-            print("Error: --cross-environment cannot be combined with --shap, --ablation, or --correlation")
+            print(f"Error: {mode} cannot be combined with --shap, --ablation, or --correlation")
             return 1
         if args.seed_search_until_improvement > 0:
-            print("Error: --cross-environment cannot be combined with seed search")
+            print(f"Error: {mode} cannot be combined with seed search")
             return 1
         if args.environment is not None:
-            print("Error: --cross-environment holds out one environment at a time and "
+            print(f"Error: {mode} holds out one group at a time and "
                   "cannot be combined with --environment")
             return 1
-        return cross_environment_validation(
+        cross_validation = (
+            cross_environment_validation if args.cross_environment else cross_chip_validation
+        )
+        return cross_validation(
             fp_weight=args.fp_weight,
             seed=args.seed,
             feature_names=selected_training_features,
