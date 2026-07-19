@@ -147,7 +147,7 @@ Common flags:
 | `--label` | Dataset label for saved collections; omit for live inspection without saving |
 | `--samples` | Timed dataset mode: sample count |
 | `--pps` | Target UDP packet rate sent from the collector to the target device |
-| `--adaptive` | Hold the requested receive rate by trimming send pace from RX feedback and backpressure (default) |
+| `--adaptive` | Back off on sustained streamer TX backpressure, then recover toward `--pps` (default) |
 | `--fixed` | Keep `--pps` as a constant send rate without adaptive backpressure feedback |
 | `--detector` | Detector used by the ready gate: `classic` or `ml`; a comma-separated list is available only for live comparison |
 
@@ -156,10 +156,11 @@ target device. The device learns the collector IP from the source address of
 those packets and sends one CSI stream packet back for each received CSI callback.
 Without `--label`, live mode inspects the stream and does not write dataset
 files. Pass `--label` when you want to save captures.
-By default, pacing is adaptive: the collector keeps the observed receive rate
-near the requested `--pps`, while still backing off immediately on
-firmware-reported TX backpressure. Use `--fixed` when you want a constant
-send rate instead.
+By default, pacing is adaptive: the collector ignores isolated TX pressure,
+backs off when firmware-reported backpressure reaches 5% of a control window,
+and then recovers additively toward the requested `--pps`. CSI freshness is
+reported as telemetry but does not control pacing. Use `--fixed` when you want
+a constant send rate instead.
 
 `--detector` always selects the production detector used for collection
 readiness. `classic` performs its normal startup calibration before it can

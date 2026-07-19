@@ -75,12 +75,14 @@ instead of repeating its historical rationale.
 - [`2025-11-01-adopt-standalone-esp-idf-mqtt-firmware-as-the-initial-product-shape.md`](2025-11-01-adopt-standalone-esp-idf-mqtt-firmware-as-the-initial-product-shape.md)
 - [`2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md`](2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md)
 - [`2026-07-15-persist-per-device-matter-onboarding-data.md`](2026-07-15-persist-per-device-matter-onboarding-data.md)
+- [`2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md`](2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md)
 
 ### Data Collection And Dataset Contract
 
 - [`2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md`](2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md)
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
 - [`2026-07-17-separate-dataset-admission-from-classic-diagnostics.md`](2026-07-17-separate-dataset-admission-from-classic-diagnostics.md)
+- [`2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md`](2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md)
 
 ## How To Name ADR Files
 

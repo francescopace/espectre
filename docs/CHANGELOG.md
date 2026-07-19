@@ -39,7 +39,8 @@ All notable changes to this project will be documented in this file.
 - **Parallel multi-detector live collect** through `./espectre collect --detector classic,ml`.
 - **Timed dataset collection now uses the selected production Classic or ML detector for its ready gate**, replacing the retired host-only moving-variance adapter.
 - **BLE-assisted Wi-Fi provisioning for the streamer firmware** via the unified Configure page
-- **Uplink CSI record batching in the streamer transport**: up to 8 records per UDP datagram via `ESPECTRE_STREAM_TX_BATCH_RECORDS` (default 4), cutting uplink packet rate and airtime pressure.
+- **Uplink CSI record batching in the streamer transport**: up to 7 records per UDP datagram via `ESPECTRE_STREAM_TX_BATCH_RECORDS` (default 4), cutting uplink packet rate and airtime pressure.
+- **Per-record streamer PHY metadata**: stream V7 identifies the received PHY mode, exported LTF type, and normalized channel width; collected `.npz` files preserve these fields, and historical ML datasets are explicitly treated as HT20.
 - **ESP32-specific streamer `sdkconfig` profile** with shallower Wi-Fi TX/RX buffer caps and lwIP IPv6 disabled to fit the original ESP32 resource budget.
 - **Updated architecture documentation** in `docs/ARCHITECTURE.md`
 
@@ -51,6 +52,8 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Fixed
 
+- **Original ESP32 streamer stability under sustained collection**: CSI capture now covers both legacy and HT frames while preserving HT-LTF samples for 802.11n traffic, and automatically rearms after a sustained callback deficit under active pacing.
+- **Shared CSI Wi-Fi protocol policy**: all published ESP-IDF targets now configure the supported 2.4 GHz BGN bitmap directly instead of first attempting the unsupported `WIFI_PROTOCOL_11N`-only combination.
 - **Native Wi-Fi association after CSI STA_START policy**: standalone station connect now applies the CSI radio policy before `esp_wifi_connect()` when it does not own the lifecycle handlers, and clears the connect latch on `WIFI_EVENT_STA_STOP` so BLE coexistence or protocol renegotiation can reassociate instead of leaving the radio idle.
 
 ### Changed
@@ -71,7 +74,7 @@ Historical decision context for the Classic and ML promotions now lives in:
 - **ML Hampel preprocessing now covers every Core-6 feature stream**: training, host replay, and Python/C++ runtimes apply the shared Hampel configuration to both turbulence and per-packet L1 deltas, with feature-cache invalidation requiring a clean retrain.
 - **ML model selection now treats grouped CV as diagnostic evidence instead of the promotion gate**: paired validation is the real-data export gate, seed search ranks with paired metrics before CV, and a gated multi-seed FP-weight campaign is available.
 - **ML feature diagnostics now use deterministic grouped out-of-fold SHAP** with class-, chip-, and session-balanced training backgrounds and blocked held-out explanations, replacing in-sample random attribution.
-- **Host `collect` pacing is adaptive by default**: `./espectre collect` now trims send pace from RX feedback and firmware backpressure unless `--fixed` is set; `--adaptive` remains available as an explicit opt-in.
+- **Host `collect` pacing is adaptive by default**: `./espectre collect` now applies one chip-independent AIMD policy from sustained firmware TX backpressure, ignores isolated pressure and CSI callback deficits, and recovers toward the requested target unless `--fixed` is set.
 - **Host `collect` inspects without saving unless `--label` is set**: live mode no longer needs `--no-save`; omitting `--label` runs inspection-only, and `--no-save` was removed.
 - **Serial monitor reset is now opt-in**: `espectre monitor` attaches without resetting by default, while benchmark workflows pass `--reset` explicitly when they need boot-time markers or a clean restart.
 - **Browser tools share a vertical movement bar**: The Game and Configure reuse `docs/web/movement-bar.js` and `movement-bar.css` for live movement and draggable threshold. Configure removes the old state/motion/threshold metric cards and uses a flatter settings layout with a slim detector/telemetry toolbar.

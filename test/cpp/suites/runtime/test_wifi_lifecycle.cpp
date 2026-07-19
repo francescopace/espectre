@@ -35,7 +35,8 @@ void test_wifi_lifecycle_init_configures_protocol_bandwidth_and_promiscuous(void
   esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
   TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
-  TEST_ASSERT_EQUAL(WIFI_PROTOCOL_11N, g_esp_wifi_mock.last_protocol_bitmap);
+  TEST_ASSERT_EQUAL(WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N,
+                    g_esp_wifi_mock.last_protocol_bitmap);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_bandwidth_call_count);
   TEST_ASSERT_TRUE(g_esp_wifi_mock.last_bandwidth == WIFI_BW_HT20);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_promiscuous_call_count);
@@ -44,11 +45,10 @@ void test_wifi_lifecycle_init_configures_protocol_bandwidth_and_promiscuous(void
   TEST_ASSERT_EQUAL(WIFI_PS_NONE, g_esp_wifi_mock.last_set_ps_type);
 }
 
-void test_wifi_lifecycle_init_falls_back_when_11n_only_is_rejected(void) {
+void test_wifi_lifecycle_init_reports_bgn_configuration_failure(void) {
   WiFiLifecycleManager manager;
-  g_esp_wifi_mock.set_protocol_results[0] = ESP_ERR_INVALID_ARG;
-  g_esp_wifi_mock.set_protocol_results[1] = ESP_OK;
-  g_esp_wifi_mock.set_protocol_result_count = 2;
+  g_esp_wifi_mock.set_protocol_results[0] = ESP_FAIL;
+  g_esp_wifi_mock.set_protocol_result_count = 1;
 
   TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {}));
   esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
@@ -56,8 +56,8 @@ void test_wifi_lifecycle_init_falls_back_when_11n_only_is_rejected(void) {
   ip_event_got_ip_t event{};
   event.ip_info.ip.addr = 0x0101A8C0U;
   esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
-  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
-  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(ESP_FAIL, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
   TEST_ASSERT_EQUAL(WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N,
                     g_esp_wifi_mock.last_protocol_bitmap);
 }
@@ -164,7 +164,8 @@ void test_standalone_wifi_service_applies_policy_and_connects_on_start(void) {
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_ps_call_count);
   TEST_ASSERT_EQUAL(WIFI_PS_NONE, g_esp_wifi_mock.last_set_ps_type);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
-  TEST_ASSERT_EQUAL(WIFI_PROTOCOL_11N, g_esp_wifi_mock.last_protocol_bitmap);
+  TEST_ASSERT_EQUAL(WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N,
+                    g_esp_wifi_mock.last_protocol_bitmap);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_bandwidth_call_count);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
 
@@ -367,7 +368,7 @@ void test_standalone_wifi_service_apply_started_policy_and_reconnect_logic(void)
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_wifi_lifecycle_init_configures_protocol_bandwidth_and_promiscuous);
-  RUN_TEST(test_wifi_lifecycle_init_falls_back_when_11n_only_is_rejected);
+  RUN_TEST(test_wifi_lifecycle_init_reports_bgn_configuration_failure);
   RUN_TEST(test_wifi_lifecycle_started_policy_skips_matching_radio_settings);
   RUN_TEST(test_wifi_lifecycle_register_handlers_dispatches_and_unregisters);
   RUN_TEST(test_wifi_lifecycle_register_handlers_cleans_up_when_second_registration_fails);

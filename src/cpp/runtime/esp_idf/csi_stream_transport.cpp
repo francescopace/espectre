@@ -40,7 +40,7 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.stream";
-constexpr size_t kStreamRecordMaxBytes = sizeof(CsiStreamHeaderV6) + HT20_CSI_LEN;
+constexpr size_t kStreamRecordMaxBytes = sizeof(CsiStreamHeaderV7) + HT20_CSI_LEN;
 // Upper bound on how long a partial batch may wait for more pacing slots
 // before it is flushed, so low pacing rates keep bounded record latency.
 constexpr uint64_t kStreamBatchFlushMs = 100U;
@@ -229,7 +229,79 @@ static_assert(sizeof(wifi_pkt_rx_ctrl_time_t) == sizeof(wifi_pkt_rx_ctrl_t),
               "timestamp overlay must match wifi_pkt_rx_ctrl_t");
 #endif
 
-bool fill_rx_timestamp_metadata(const wifi_pkt_rx_ctrl_t &rx_ctrl, CsiStreamHeaderV6 *header) {
+struct StreamPhyMetadata {
+  StreamPhyMode mode{StreamPhyMode::UNKNOWN};
+  StreamLtfType ltf_type{StreamLtfType::UNKNOWN};
+  StreamChannelWidth channel_width{StreamChannelWidth::UNKNOWN};
+};
+
+StreamPhyMetadata extract_phy_metadata(const wifi_pkt_rx_ctrl_t &rx_ctrl) {
+  StreamPhyMetadata metadata;
+
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+  switch (rx_ctrl.cur_bb_format) {
+    case RX_BB_FORMAT_11B:
+    case RX_BB_FORMAT_11G:
+      metadata.mode = StreamPhyMode::LEGACY;
+      metadata.ltf_type = StreamLtfType::LLTF;
+      metadata.channel_width = StreamChannelWidth::MHZ_20;
+      break;
+    case RX_BB_FORMAT_HT:
+      metadata.mode = StreamPhyMode::HT;
+      metadata.ltf_type = StreamLtfType::HT_LTF;
+      metadata.channel_width =
+          rx_ctrl.second == 0U ? StreamChannelWidth::MHZ_20 : StreamChannelWidth::MHZ_40;
+      break;
+    case RX_BB_FORMAT_VHT:
+    case RX_BB_FORMAT_VHT_MU:
+      metadata.mode = StreamPhyMode::VHT;
+      metadata.ltf_type = StreamLtfType::VHT_LTF;
+      break;
+    case RX_BB_FORMAT_HE_SU:
+      metadata.mode = StreamPhyMode::HE_SU;
+      metadata.ltf_type = StreamLtfType::HE_LTF;
+      break;
+    case RX_BB_FORMAT_HE_MU:
+      metadata.mode = StreamPhyMode::HE_MU;
+      metadata.ltf_type = StreamLtfType::HE_LTF;
+      break;
+    case RX_BB_FORMAT_HE_ERSU:
+      metadata.mode = StreamPhyMode::HE_ERSU;
+      metadata.ltf_type = StreamLtfType::HE_LTF;
+      break;
+    case RX_BB_FORMAT_HE_TB:
+      metadata.mode = StreamPhyMode::HE_TB;
+      metadata.ltf_type = StreamLtfType::HE_LTF;
+      break;
+    default:
+      break;
+  }
+#else
+  switch (rx_ctrl.sig_mode) {
+    case 0U:
+      metadata.mode = StreamPhyMode::LEGACY;
+      metadata.ltf_type = StreamLtfType::LLTF;
+      metadata.channel_width = StreamChannelWidth::MHZ_20;
+      break;
+    case 1U:
+      metadata.mode = StreamPhyMode::HT;
+      metadata.ltf_type = StreamLtfType::HT_LTF;
+      metadata.channel_width =
+          rx_ctrl.cwb == 0U ? StreamChannelWidth::MHZ_20 : StreamChannelWidth::MHZ_40;
+      break;
+    case 3U:
+      metadata.mode = StreamPhyMode::VHT;
+      metadata.ltf_type = StreamLtfType::VHT_LTF;
+      break;
+    default:
+      break;
+  }
+#endif
+
+  return metadata;
+}
+
+bool fill_rx_timestamp_metadata(const wifi_pkt_rx_ctrl_t &rx_ctrl, CsiStreamHeaderV7 *header) {
   if (header == nullptr) {
     return false;
   }
@@ -550,8 +622,8 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
     return 0U;
   }
 
-  auto *header = reinterpret_cast<CsiStreamHeaderV6 *>(buffer);
-  *header = CsiStreamHeaderV6{};
+  auto *header = reinterpret_cast<CsiStreamHeaderV7 *>(buffer);
+  *header = CsiStreamHeaderV7{};
   header->magic = STREAM_MAGIC;
   header->version = STREAM_VERSION;
   header->header_len = static_cast<uint8_t>(sizeof(*header));
@@ -574,6 +646,10 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
   header->stream_fresh_total =
       static_cast<uint32_t>(stream_fresh_total_.load(std::memory_order_relaxed) + 1U);
   header->pacing_rx_total = latest_pacing_rx_total_;
+  const StreamPhyMetadata phy = extract_phy_metadata(sample.rx_ctrl);
+  header->phy_mode = static_cast<uint8_t>(phy.mode);
+  header->ltf_type = static_cast<uint8_t>(phy.ltf_type);
+  header->channel_width = static_cast<uint8_t>(phy.channel_width);
 
   if (sample.first_word_invalid) {
     header->flags |= STREAM_FLAG_FIRST_WORD_INVALID;

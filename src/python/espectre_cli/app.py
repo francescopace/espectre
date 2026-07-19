@@ -98,7 +98,7 @@ def _add_collect_parser(
         "--adaptive",
         dest="adaptive",
         action="store_true",
-        help="Enable adaptive pacing from firmware backpressure feedback (default)",
+        help="Enable adaptive pacing from firmware stream-health feedback (default)",
     )
     pacing_mode.add_argument(
         "--fixed",

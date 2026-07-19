@@ -10,6 +10,7 @@ License: GPLv3
 from __future__ import annotations
 
 import ipaddress
+import math
 import socket
 import struct
 import subprocess
@@ -60,13 +61,13 @@ except ImportError:
     )
 
 MAGIC_STREAM = 0x4353
-STREAM_VERSION = 6
+STREAM_VERSION = 7
 DEFAULT_PORT = 5001
 STREAM_FLAG_FIRST_WORD_INVALID = 1 << 0
 STREAM_FLAG_WIFI_RX_TS_VALID = 1 << 1
 STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1 << 2
 STREAM_FLAG_CSI_FRESH = 1 << 3
-CSI_HEADER_FORMAT = "<HBBBBIHHQQIQBbbQII"
+CSI_HEADER_FORMAT = "<HBBBBIHHQQIQBbbQIIBBB"
 CSI_HEADER_STRUCT = struct.Struct(CSI_HEADER_FORMAT)
 MAX_STREAM_DATAGRAM_BYTES = 2048
 DEFAULT_SOCKET_RCVBUF_BYTES = 1024 * 1024
@@ -83,6 +84,33 @@ CHIP_CODES = {
     5: "C5",
     6: "C6",
 }
+PHY_MODE_CODES = {
+    0: "unknown",
+    1: "legacy",
+    2: "ht",
+    3: "vht",
+    4: "he-su",
+    5: "he-mu",
+    6: "he-ersu",
+    7: "he-tb",
+}
+LTF_TYPE_CODES = {
+    0: "unknown",
+    1: "lltf",
+    2: "ht-ltf",
+    3: "vht-ltf",
+    4: "he-ltf",
+}
+CHANNEL_WIDTH_CODES = {
+    0: "unknown",
+    1: "20",
+    2: "40",
+    3: "80",
+    4: "160",
+    5: "80+80",
+}
+
+
 def get_default_bind_host() -> str:
     """Determine a safe default bind interface."""
     import os
@@ -128,6 +156,9 @@ class CSIPacket:
     tx_backpressure_total: Optional[int] = None
     stream_fresh_total: Optional[int] = None
     pacing_rx_total: Optional[int] = None
+    phy_mode: str = "unknown"
+    ltf_type: str = "unknown"
+    channel_width: str = "unknown"
     # False for older captures where the device could re-send its latest CSI
     # sample. Current streamer firmware emits only fresh CSI records.
     csi_fresh: bool = True
@@ -280,14 +311,11 @@ class AdaptivePacingController:
         initial_pps: float,
         enabled: bool = False,
         min_pps: Optional[float] = None,
-        max_pps: Optional[float] = None,
         additive_step_pps: Optional[float] = None,
         control_window_s: float = 1.0,
-        receive_tolerance_ratio: float = 0.05,
     ):
         initial_pps = float(initial_pps)
         min_pps = max(5.0, min(initial_pps, 10.0)) if min_pps is None else max(0.1, float(min_pps))
-        max_pps = max(initial_pps * 1.25, min_pps) if max_pps is None else max(float(max_pps), min_pps)
         additive_step_pps = (
             max(1.0, initial_pps * 0.02) if additive_step_pps is None else max(0.1, float(additive_step_pps))
         )
@@ -295,15 +323,14 @@ class AdaptivePacingController:
         self.current_pps = initial_pps
         self.target_pps = initial_pps
         self.min_pps = min_pps
-        self.max_pps = max_pps
         self.additive_step_pps = additive_step_pps
         self.control_window_s = max(0.1, float(control_window_s))
-        self.receive_tolerance_ratio = max(0.0, min(0.5, float(receive_tolerance_ratio)))
         self.last_control_at: Optional[float] = None
-        self.backpressure_windows = 0
+        self.backpressure_adjust_at: Optional[float] = None
         self.last_window_backpressure_delta = 0
         self.last_window_backpressure_source: Optional[str] = None
         self.last_window_receive_ratio: Optional[float] = None
+        self.last_window_fresh_ratio: Optional[float] = None
         self.last_action = "hold"
 
     def observe_device(
@@ -341,7 +368,7 @@ class AdaptivePacingController:
             device_state["pacing_rx_total"] = rx_total
 
     def _apply_pacing_rate(self, new_pps: float, *, action: str, pacing_sender: Any) -> None:
-        clamped_pps = max(self.min_pps, min(self.max_pps, float(new_pps)))
+        clamped_pps = max(self.min_pps, min(self.target_pps, float(new_pps)))
         if abs(clamped_pps - self.current_pps) < 1e-9:
             self.last_action = action
             return
@@ -366,8 +393,8 @@ class AdaptivePacingController:
         tracked_devices = 0
         worst_sources: List[str] = []
         target_packets = max(self.target_pps * elapsed_window_s, 1.0)
-        highest_receive_ratio: Optional[float] = None
         lowest_receive_ratio: Optional[float] = None
+        lowest_fresh_ratio: Optional[float] = None
         for device_state in device_states.values():
             window_delta = int(device_state.get("tx_backpressure_window_delta", 0) or 0)
             device_state["tx_backpressure_last_delta"] = window_delta
@@ -388,6 +415,10 @@ class AdaptivePacingController:
             device_state["stream_fresh_window_delta"] = 0
             device_state["pacing_rx_window_delta"] = 0
             tracked_devices += 1
+            if pacing_delta > 0:
+                fresh_ratio = min(1.0, fresh_delta / pacing_delta)
+                if lowest_fresh_ratio is None or fresh_ratio < lowest_fresh_ratio:
+                    lowest_fresh_ratio = fresh_ratio
             if window_delta > worst_delta:
                 worst_delta = window_delta
                 worst_sources = [str(device_state.get("source_ip") or "?")]
@@ -401,11 +432,10 @@ class AdaptivePacingController:
             for device_state in device_states.values():
                 receive_delta = int(device_state.get("receive_window_last_delta", 0) or 0)
                 receive_ratio = receive_delta / target_packets
-                if highest_receive_ratio is None or receive_ratio > highest_receive_ratio:
-                    highest_receive_ratio = receive_ratio
                 if lowest_receive_ratio is None or receive_ratio < lowest_receive_ratio:
                     lowest_receive_ratio = receive_ratio
         self.last_window_receive_ratio = lowest_receive_ratio
+        self.last_window_fresh_ratio = lowest_fresh_ratio
         if tracked_devices == 0:
             self.last_action = "hold"
             return
@@ -413,26 +443,34 @@ class AdaptivePacingController:
             self.last_action = "hold"
             return
 
-        if worst_delta > 0:
-            self.backpressure_windows += 1
-            reduce_factor = 0.85 if self.backpressure_windows == 1 else 0.70
-            self._apply_pacing_rate(self.current_pps * reduce_factor, action="slowdown", pacing_sender=pacing_sender)
-            return
-
-        self.backpressure_windows = 0
-        lower_receive_bound = 1.0 - self.receive_tolerance_ratio
-        upper_receive_bound = 1.0 + self.receive_tolerance_ratio
-        if lowest_receive_ratio is not None and lowest_receive_ratio < lower_receive_bound:
+        backpressure_threshold = max(3, math.ceil(target_packets * 0.05))
+        significant_backpressure = worst_delta >= backpressure_threshold
+        if significant_backpressure:
+            settle_time_s = self.control_window_s * 3.0
+            if self.backpressure_adjust_at is not None and now - self.backpressure_adjust_at < settle_time_s:
+                self.last_action = "backpressure_hold"
+                return
+            pacing_floor_pps = max(self.min_pps, self.target_pps * 0.70)
+            if self.current_pps <= pacing_floor_pps:
+                self.last_action = "backpressure_floor"
+                self.backpressure_adjust_at = now
+                return
             self._apply_pacing_rate(
-                self.current_pps + self.additive_step_pps,
-                action="speedup",
+                max(pacing_floor_pps, self.current_pps * 0.85),
+                action="slowdown",
                 pacing_sender=pacing_sender,
             )
+            self.backpressure_adjust_at = now
             return
-        if highest_receive_ratio is not None and highest_receive_ratio > upper_receive_bound:
+
+        if self.current_pps < self.target_pps:
+            settle_time_s = self.control_window_s * 3.0
+            if self.backpressure_adjust_at is not None and now - self.backpressure_adjust_at < settle_time_s:
+                self.last_action = "recovery_hold"
+                return
             self._apply_pacing_rate(
-                self.current_pps - self.additive_step_pps,
-                action="trim",
+                min(self.current_pps + self.additive_step_pps, self.target_pps),
+                action="speedup",
                 pacing_sender=pacing_sender,
             )
             return
@@ -505,6 +543,9 @@ class CSIReceiver:
             tx_backpressure_total,
             stream_fresh_total,
             pacing_rx_total,
+            phy_mode_code,
+            ltf_type_code,
+            channel_width_code,
         ) = CSI_HEADER_STRUCT.unpack_from(data, offset)
 
         if magic != MAGIC_STREAM or version != STREAM_VERSION:
@@ -544,6 +585,9 @@ class CSIReceiver:
             tx_backpressure_total=int(tx_backpressure_total),
             stream_fresh_total=int(stream_fresh_total),
             pacing_rx_total=int(pacing_rx_total),
+            phy_mode=PHY_MODE_CODES.get(phy_mode_code, "unknown"),
+            ltf_type=LTF_TYPE_CODES.get(ltf_type_code, "unknown"),
+            channel_width=CHANNEL_WIDTH_CODES.get(channel_width_code, "unknown"),
             csi_fresh=bool(flags & STREAM_FLAG_CSI_FRESH),
             _iq_complex=iq_complex,
             _amplitudes=amplitudes,
@@ -896,6 +940,9 @@ class CSICollector:
             "duration_ms": duration_ms,
             "format_version": self.FORMAT_VERSION,
             "stream_seq_num": np.array([packet.seq_num for packet in packets], dtype=np.uint32),
+            "phy_mode": np.array([packet.phy_mode for packet in packets]),
+            "ltf_type": np.array([packet.ltf_type for packet in packets]),
+            "channel_width": np.array([packet.channel_width for packet in packets]),
             "device_id": np.uint64(device_id),
         }
 
@@ -903,9 +950,12 @@ class CSICollector:
         if all(value is not None for value in device_ticks):
             sample["device_ticks_us"] = np.array(device_ticks, dtype=np.uint64)
 
-        def add_optional_array(key: str, values, dtype) -> None:
+        def add_optional_array(key: str, values, dtype, missing_value=0) -> None:
             if any(value is not None for value in values):
-                sample[key] = np.array([0 if value is None else value for value in values], dtype=dtype)
+                sample[key] = np.array(
+                    [missing_value if value is None else value for value in values],
+                    dtype=dtype,
+                )
 
         add_optional_array("wifi_rx_ts_us", [packet.wifi_rx_ts_us for packet in packets], np.uint32)
         add_optional_array("wifi_rx_start_ts_ns", [packet.wifi_rx_start_ts_ns for packet in packets], np.uint64)
@@ -1577,6 +1627,9 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     channels = data["channel"] if "channel" in data.files else None
     rssi_dbm = data["rssi_dbm"] if "rssi_dbm" in data.files else None
     noise_floor_dbm = data["noise_floor_dbm"] if "noise_floor_dbm" in data.files else None
+    phy_modes = data["phy_mode"] if "phy_mode" in data.files else None
+    ltf_types = data["ltf_type"] if "ltf_type" in data.files else None
+    channel_widths = data["channel_width"] if "channel_width" in data.files else None
 
     def optional_scalar(array, index, cast):
         if array is None:
@@ -1589,6 +1642,12 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
 
     packets = []
     for index in range(len(csi_array)):
+        # All checked-in training and validation captures predate per-record
+        # PHY metadata and are explicitly documented as HT20 datasets.
+        phy_mode = optional_scalar(phy_modes, index, str) or "ht"
+        ltf_type = optional_scalar(ltf_types, index, str) or "ht-ltf"
+        channel_width = optional_scalar(channel_widths, index, str) or "20"
+        phy_format = f"{phy_mode}{channel_width}" if channel_width != "unknown" else phy_mode
         packets.append(
             {
                 "csi_data": np.array(csi_array[index], dtype=np.int8),
@@ -1603,6 +1662,10 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
                 "channel": optional_scalar(channels, index, int),
                 "rssi_dbm": optional_scalar(rssi_dbm, index, int),
                 "noise_floor_dbm": optional_scalar(noise_floor_dbm, index, int),
+                "phy_format": phy_format,
+                "phy_mode": phy_mode,
+                "ltf_type": ltf_type,
+                "channel_width": channel_width,
             }
         )
     return packets

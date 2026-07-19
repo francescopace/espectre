@@ -15,6 +15,7 @@
 #include "esp_err.h"
 #include "esp_wifi.h"
 #include "nvs_helpers.h"
+#include "runtime_time.h"
 #include "sdkconfig.h"
 
 // Wi-Fi credentials come from the streamer/native Kconfig surface. Builds
@@ -178,6 +179,13 @@ void StreamEspIdfRuntime::loop() {
   }
 
   const bool streaming_ready = state_.load(std::memory_order_relaxed) == WorkflowState::STREAMING;
+  if (streaming_ready) {
+    const CsiCaptureService::HealthAction health_action = capture_service_.maintain_pacing_health(
+        csi_traffic_service_.get_packets_received(), monotonic_now_ms());
+    if (health_action == CsiCaptureService::HealthAction::REARM_FAILED) {
+      notify_fault_("Failed to recover stalled CSI capture");
+    }
+  }
   stream_transport_.update_from_traffic(csi_traffic_service_, streaming_ready);
   stream_transport_.log_runtime_telemetry(capture_service_, csi_traffic_service_, streaming_ready,
                                           workflow_state_name_(state_.load(std::memory_order_relaxed)));

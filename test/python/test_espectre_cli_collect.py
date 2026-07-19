@@ -18,6 +18,7 @@ import builtins
 import pytest
 from espectre_cli.app import build_parser
 from espectre_cli import host
+from tools.lib.csi_io import AdaptivePacingController
 
 
 def _make_collect_args(**overrides) -> argparse.Namespace:
@@ -193,6 +194,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
     fake_csi_utils.CSICollector = collector_cls
     fake_csi_utils.CSIReceiver = receiver_cls
     fake_csi_utils.UdpPacingSender = pacing_cls
+    fake_csi_utils.AdaptivePacingController = AdaptivePacingController
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
@@ -762,10 +764,10 @@ def test_collect_timed_adaptive_adjusts_legacy_pacing(monkeypatch) -> None:
 
     packets_by_token = {
         b"ready": [FakePacket(1, 0)],
-        b"rec1": [FakePacket(2, 5)],
-        b"rec2": [FakePacket(3, 9)],
-        b"rec3": [FakePacket(4, 9)],
-        b"rec4": [FakePacket(5, 9)],
+        b"rec1": [FakePacket(2, 6)],
+        b"rec2": [FakePacket(3, 12)],
+        b"rec3": [FakePacket(4, 12)],
+        b"rec4": [FakePacket(5, 12)],
     }
 
     class FakeSocket:
@@ -956,6 +958,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     fake_csi_utils.CSIReceiver = FakeReceiver
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
+    fake_csi_utils.AdaptivePacingController = AdaptivePacingController
     fake_ml_detector.FEATURE_NAMES = ["a", "b"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
     fake_ml_detector.ML_METRIC_SCALE = 1.0
@@ -1100,6 +1103,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
     fake_csi_utils.CSIReceiver = FakeReceiver
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
+    fake_csi_utils.AdaptivePacingController = AdaptivePacingController
     fake_ml_detector.FEATURE_NAMES = ["a", "b"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
     fake_ml_detector.ML_METRIC_SCALE = 1.0
@@ -1293,6 +1297,7 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
     fake_csi_utils.CSIReceiver = FakeReceiver
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
+    fake_csi_utils.AdaptivePacingController = AdaptivePacingController
     fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
     fake_ml_detector.ML_METRIC_SCALE = 1.0
@@ -1419,11 +1424,11 @@ def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, caps
         def run(self, timeout: float = 0, quiet: bool = False):
             packet_schedule = [
                 (0.0, FakePacket(1, 0)),
-                (1.2, FakePacket(2, 5)),
-                (2.4, FakePacket(3, 9)),
-                (3.6, FakePacket(4, 9)),
-                (4.8, FakePacket(5, 9)),
-                (6.0, FakePacket(6, 9)),
+                (1.2, FakePacket(2, 6)),
+                (2.4, FakePacket(3, 12)),
+                (3.6, FakePacket(4, 12)),
+                (4.8, FakePacket(5, 12)),
+                (6.0, FakePacket(6, 12)),
             ]
             for current_time, packet in packet_schedule:
                 clock["now"] = current_time
@@ -1462,8 +1467,8 @@ def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, caps
 
     output = capsys.readouterr().out
     assert FakePacingSender.last_instance is not None
-    assert FakePacingSender.last_instance.rate_updates == pytest.approx([85.0, 59.5, 61.5, 63.5, 65.5])
-    assert "bp:active(+4)" in output
+    assert FakePacingSender.last_instance.rate_updates == pytest.approx([85.0, 87.0, 89.0])
+    assert "bp:active(+6)" in output
     assert "Pps:" in output and "(adaptive)" in output
 
 
@@ -1655,6 +1660,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     fake_csi_utils.CSIReceiver = FakeReceiver
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
+    fake_csi_utils.AdaptivePacingController = AdaptivePacingController
     fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
     fake_ml_detector.ML_METRIC_SCALE = 1.0
@@ -1883,6 +1889,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     fake_csi_utils.CSIReceiver = FakeReceiver
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
+    fake_csi_utils.AdaptivePacingController = AdaptivePacingController
     fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
     fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
     fake_ml_detector.ML_METRIC_SCALE = 1.0

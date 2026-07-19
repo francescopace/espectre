@@ -103,8 +103,8 @@ Current behavior:
 Current version:
 
 - magic: `0x4353`
-- version: `5`
-- header size: `53` bytes
+- version: `7`
+- header size: `64` bytes
 
 Header layout:
 
@@ -126,6 +126,11 @@ Header layout:
 | `rssi_dbm` | `int8` | RSSI |
 | `noise_floor_dbm` | `int8` | Noise floor |
 | `tx_backpressure_total` | `uint64` | Cumulative TX backpressure events |
+| `stream_fresh_total` | `uint32` | Cumulative fresh CSI records |
+| `pacing_rx_total` | `uint32` | Cumulative received pacing packets |
+| `phy_mode` | `uint8` | Normalized PHY mode enum |
+| `ltf_type` | `uint8` | LTF represented by the CSI payload |
+| `channel_width` | `uint8` | Normalized channel-width enum |
 
 Flags:
 
@@ -136,12 +141,22 @@ Flags:
 | 2 | `STREAM_FLAG_WIFI_RX_START_TS_NS_VALID` | `wifi_rx_start_ts_ns` valid |
 | 3 | `STREAM_FLAG_CSI_FRESH` | fresh CSI sample record |
 
+PHY modes are `unknown`, `legacy`, `HT`, `VHT`, `HE-SU`, `HE-MU`,
+`HE-ERSU`, and `HE-TB`. LTF types are `unknown`, `LLTF`, `HT-LTF`,
+`VHT-LTF`, and `HE-LTF`. The original ESP32 therefore reports `LLTF` for
+legacy frames and `HT-LTF` for HT frames, including when capture receives both
+training fields and exports only the HT-LTF half.
+
+Channel-width values are `unknown`, `20`, `40`, `80`, `160`, and `80+80` MHz.
+The existing `channel` field distinguishes 2.4 GHz from 5 GHz channels, while
+the normalized width enum leaves the protocol ready for wider future captures.
+
 Payload:
 
 - raw I/Q values in Espressif ordering
-- typical HT20 record: `53 + 128 = 181 bytes`
+- typical HT20 record: `64 + 128 = 192 bytes`
 - the sender concatenates up to `ESPECTRE_STREAM_TX_BATCH_RECORDS` complete
-  records (default 4, maximum 8) into one UDP datagram; the receiver parses
+  records (default 4, maximum 7) into one UDP datagram; the receiver parses
   records back-to-back until the datagram is exhausted
 - partial batches are flushed after `100 ms` so low pacing rates keep bounded
   record latency
@@ -229,12 +244,22 @@ Runtime behavior notes:
 - the streamer no longer uses the shared internal traffic generator to emit the
   CSI stream; the collector controls pacing directly by sending UDP pacing
   packets to `ESPECTRE_TRAFFIC_RX_PORT`
-- the collector should treat `tx_backpressure_total` as the authoritative
-  pacing feedback signal and adapt more slowly upward than downward
+- the collector treats `tx_backpressure_total` as the only adaptive pacing
+  control signal; the `stream_fresh_total / pacing_rx_total` delta ratio reports
+  CSI supply as telemetry but does not change the pacing rate
+- adaptive collection uses the same chip-independent policy for every target:
+  it holds the requested rate during CSI-only deficits, spaces reductions
+  caused by actual TX backpressure across three control windows, and does not
+  fall below 70% of the requested target
 - the collector address is learned from the source IP of the latest valid UDP
   pacing packet
 - CSI capture excludes 802.11 ACK frames (`dump_ack_en=0`) and keeps only
   frames transmitted by the associated AP (source MAC equals the BSSID)
+- the original ESP32 captures legacy LLTF as a fallback when AP rate control
+  leaves HT, while 802.11n frames continue to export their HT-LTF sample
+- the original ESP32 rearms CSI capture after two sustained two-second windows
+  where callback supply remains below half of active pacing traffic; recovery
+  attempts are separated by a ten-second cooldown
 - the CSI callback keeps a single latest-wins sample; the stream sender emits
   a record only when a fresh sample is available and marks emitted records with
   `STREAM_FLAG_CSI_FRESH`

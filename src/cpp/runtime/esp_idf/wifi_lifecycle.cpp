@@ -21,12 +21,10 @@ static const char *WIFI_LIFECYCLE_TAG = "WiFiLifecycle";
 
 namespace {
 
-// HT20-only CSI policy on 2.4 GHz:
-// - Prefer 11n-only for deterministic HT20 behavior when supported.
-// - Some targets/IDF builds reject 11n-only with ESP_ERR_INVALID_ARG; in that
-//   case we fallback to b/g/n to keep the component operational.
-constexpr uint16_t WIFI_PROTOCOL_CSI_2G_PREFERRED = WIFI_PROTOCOL_11N;
-constexpr uint16_t WIFI_PROTOCOL_CSI_2G_FALLBACK = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+// ESP-IDF exposes 802.11n on 2.4 GHz through the supported b/g/n protocol
+// combination. WIFI_PROTOCOL_11N alone is not a valid station mode on the
+// published ESPectre targets.
+constexpr uint16_t WIFI_PROTOCOL_CSI_2G = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
 constexpr wifi_bandwidth_t WIFI_BANDWIDTH_CSI = WIFI_BW_HT20;
 
 const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
@@ -54,22 +52,10 @@ const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
 
 esp_err_t set_wifi_protocol_for_csi_() {
   uint8_t current_protocol = 0U;
-  if (esp_wifi_get_protocol(WIFI_IF_STA, &current_protocol) == ESP_OK &&
-      (current_protocol == WIFI_PROTOCOL_CSI_2G_PREFERRED ||
-       current_protocol == WIFI_PROTOCOL_CSI_2G_FALLBACK)) {
+  if (esp_wifi_get_protocol(WIFI_IF_STA, &current_protocol) == ESP_OK && current_protocol == WIFI_PROTOCOL_CSI_2G) {
     return ESP_OK;
   }
-
-  esp_err_t ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G_PREFERRED);
-  if (ret == ESP_OK) {
-    return ESP_OK;
-  }
-
-  ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G_FALLBACK);
-  if (ret == ESP_OK) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "11n-only protocol not accepted, using 11b/g/n fallback");
-  }
-  return ret;
+  return esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G);
 }
 
 esp_err_t get_wifi_protocol_for_log_(uint16_t *protocol) {
@@ -123,7 +109,7 @@ esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy() {
     ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set WiFi protocol: 0x%x", ret);
     return ret;
   }
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi protocol: 802.11n HT20 target (802.11ax disabled)");
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi protocol: 802.11b/g/n with HT20 (802.11ax disabled)");
   // HT20 bandwidth for 64 subcarriers
   ret = set_wifi_bandwidth_for_csi_();
   if (ret != ESP_OK) {

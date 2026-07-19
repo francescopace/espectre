@@ -25,6 +25,12 @@ using csi_capture_packet_callback_t = void (*)(void *, const wifi_csi_info_t *, 
 
 class CsiCaptureService {
  public:
+  enum class HealthAction : uint8_t {
+    NONE = 0,
+    REARMED,
+    REARM_FAILED,
+  };
+
   void init(IWiFiCSI *wifi_csi = nullptr);
   void reset_session();
 
@@ -32,6 +38,7 @@ class CsiCaptureService {
   esp_err_t disable();
   void loop();
   void process_packet(wifi_csi_info_t *data);
+  HealthAction maintain_pacing_health(uint64_t pacing_total, uint32_t now_ms);
 
   bool is_enabled() const { return enabled_; }
   uint32_t filtered_packets() const { return filtered_packets_.load(std::memory_order_relaxed); }
@@ -81,6 +88,12 @@ class CsiCaptureService {
   std::atomic<bool> remap_seen_{false};
   PendingEvent<> collapse_log_event_;
   PendingEvent<> remap_log_event_;
+  uint64_t health_prev_pacing_total_{0U};
+  uint32_t health_prev_callback_total_{0U};
+  uint32_t health_last_sample_ms_{0U};
+  uint32_t health_last_rearm_ms_{0U};
+  uint8_t health_low_supply_windows_{0U};
+  bool health_baseline_valid_{false};
 };
 
 }  // namespace espectre

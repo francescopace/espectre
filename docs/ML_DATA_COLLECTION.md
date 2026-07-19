@@ -176,6 +176,9 @@ Typical filename:
 ```
 
 All current ESPectre datasets use HT20 CSI with 64 logical subcarriers.
+Training and validation loaders therefore label captures without per-record PHY
+metadata as `ht20`; new streamer captures preserve their explicit PHY and LTF
+metadata instead.
 
 ## Metadata
 
