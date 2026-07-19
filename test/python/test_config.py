@@ -126,6 +126,7 @@ class TestConfigDefaultValues:
         
         # Should be between 10 and 1000 Hz
         assert 10 <= config.TRAFFIC_GENERATOR_RATE <= 1000
+        assert config.TRAFFIC_GENERATOR_ADAPTIVE is True
         assert 1 <= config.PUBLISH_INTERVAL <= 1000
         assert 1 <= config.EVALUATION_INTERVAL <= 1000
         assert config.MOTION_ON_HITS >= 1

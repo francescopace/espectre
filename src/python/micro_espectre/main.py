@@ -25,6 +25,7 @@ from src.detector_interface import (
     load_detector_class,
     normalize_detector_algorithm,
 )
+from src.traffic_rate_controller import CsiPacingHealthMonitor
 
 ML_DEFAULT_THRESHOLD = 0.5
 
@@ -398,6 +399,33 @@ def get_chip_type():
     return machine
 
 
+def _traffic_adaptive_enabled():
+    """Return the configured adaptive-pacing flag."""
+    return bool(getattr(config, "TRAFFIC_GENERATOR_ADAPTIVE", True))
+
+
+def _maintain_traffic_and_csi_health(
+    traffic_gen,
+    csi_health,
+    wlan,
+    *,
+    accepted_csi_total,
+    callback_total,
+    now_us,
+):
+    """Adapt send pacing and rearm original ESP32 CSI when callbacks stall."""
+    if traffic_gen is None or not traffic_gen.is_running():
+        return
+    traffic_gen.observe_accepted_csi(accepted_csi_total, now_us=now_us)
+    csi_health.maintain(
+        wlan,
+        traffic_gen.get_packet_count(),
+        callback_total,
+        time.ticks_ms(),
+        buffer_size=config.CSI_BUFFER_SIZE,
+    )
+
+
 def restart_traffic_generator(traffic_gen):
     """Restart the traffic generator after calibration-sensitive work completes."""
     if not traffic_gen or not config.TRAFFIC_GENERATOR_RATE:
@@ -405,11 +433,12 @@ def restart_traffic_generator(traffic_gen):
 
     time.sleep(1)  # Give WiFi/MQTT stack time to settle before reopening raw socket.
     gc.collect()
-    if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE):
+    adaptive = _traffic_adaptive_enabled()
+    if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE, adaptive=adaptive):
         print("Warning: Failed to restart traffic generator, retrying...")
         time.sleep(2)
         gc.collect()
-        traffic_gen.start(config.TRAFFIC_GENERATOR_RATE)
+        traffic_gen.start(config.TRAFFIC_GENERATOR_RATE, adaptive=adaptive)
 
 
 def main():
@@ -432,21 +461,25 @@ def main():
     detector = create_detector(detection_algorithm)
     print_heap('after_detector_init')
     
-    # Initialize and start traffic generator (rate is static from config.py)
+    # Initialize and start traffic generator (target CSI rate from config.py)
     gc.collect()  # Free memory before creating socket
     traffic_mode = getattr(config, 'TRAFFIC_GENERATOR_MODE', 'ping')
+    traffic_adaptive = _traffic_adaptive_enabled()
     from src.traffic_generator import TrafficGenerator
-    traffic_gen = TrafficGenerator(mode=traffic_mode)
+    traffic_gen = TrafficGenerator(mode=traffic_mode, adaptive=traffic_adaptive)
     print_heap('after_traffic_gen_init')
     if config.TRAFFIC_GENERATOR_RATE > 0:
-        if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE):
+        if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE, adaptive=traffic_adaptive):
             print("FATAL: Traffic generator failed to start - CSI will not work")
             print("Check WiFi connection and gateway availability")
             import machine
             time.sleep(5)
             machine.reset()  # Reboot and retry
         
-        print(f'Traffic generator started ({traffic_mode}, {config.TRAFFIC_GENERATOR_RATE} pps)')
+        print(
+            f'Traffic generator started ({traffic_mode}, target={config.TRAFFIC_GENERATOR_RATE} CSI pps, '
+            f'adaptive={"on" if traffic_adaptive else "off"})'
+        )
         print_heap('after_traffic_gen_start')
         
         # Verify CSI packets are flowing with retry logic
@@ -473,7 +506,7 @@ def main():
                 print(f'WARNING: Only {csi_received} CSI packets - restarting TG (attempt {tg_attempt + 2}/{max_tg_retries})')
                 traffic_gen.stop()
                 time.sleep(1)
-                traffic_gen.start(config.TRAFFIC_GENERATOR_RATE)
+                traffic_gen.start(config.TRAFFIC_GENERATOR_RATE, adaptive=traffic_adaptive)
             else:
                 print(f'FATAL: No CSI packets after {max_tg_retries} attempts - cannot operate without traffic')
                 print('Please check WiFi connection and retry')
@@ -520,6 +553,7 @@ def main():
     # Main CSI processing loop with integrated MQTT publishing
     publish_counter = 0
     processed_packet_count = 0
+    callback_packet_count = 0
     mqtt_poll_counter = 0
     mqtt_poll_interval = max(1, int(getattr(config, 'EVALUATION_INTERVAL', 25)))
     filtered_count = 0  # Packets with wrong SC count
@@ -529,10 +563,11 @@ def main():
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
     frame_result = None
     dropped_at_main_loop_start = wlan.csi_dropped()
+    csi_health = CsiPacingHealthMonitor(enabled=(g_state.chip_type == 'ESP32'))
     
     publish_rate = getattr(config, 'PUBLISH_INTERVAL', None)
     if publish_rate is None:
-        publish_rate = traffic_gen.get_rate() if traffic_gen.is_running() else 100
+        publish_rate = traffic_gen.get_target_rate() if traffic_gen.is_running() else 100
     from src.runtime_policy import RuntimeMotionPolicy
     runtime_policy = RuntimeMotionPolicy(
         evaluation_interval=getattr(config, 'EVALUATION_INTERVAL', 25),
@@ -553,6 +588,7 @@ def main():
             
             if frame:
                 frame_result = frame
+                callback_packet_count += 1
                 csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
                     frame[5], EXPECTED_CSI_LEN, remap_buffer=ht57_remap_buffer
                 )
@@ -562,6 +598,14 @@ def main():
                     if filtered_count % 100 == 1:
                         print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {raw_len} bytes, expected {EXPECTED_CSI_LEN})")
                     del frame
+                    _maintain_traffic_and_csi_health(
+                        traffic_gen,
+                        csi_health,
+                        wlan,
+                        accepted_csi_total=processed_packet_count,
+                        callback_total=callback_packet_count,
+                        now_us=loop_start,
+                    )
                     g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                     time.sleep_us(100)
                     continue
@@ -579,6 +623,14 @@ def main():
                 # Process packet through detector interface
                 detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
                 processed_packet_count += 1
+                _maintain_traffic_and_csi_health(
+                    traffic_gen,
+                    csi_health,
+                    wlan,
+                    accepted_csi_total=processed_packet_count,
+                    callback_total=callback_packet_count,
+                    now_us=loop_start,
+                )
 
                 # Poll MQTT on the same cadence as detector evaluation. This keeps
                 # command latency below 250 ms at 100 pps without adding socket
@@ -645,6 +697,14 @@ def main():
                 
                 time.sleep_us(100)
             else:
+                _maintain_traffic_and_csi_health(
+                    traffic_gen,
+                    csi_health,
+                    wlan,
+                    accepted_csi_total=processed_packet_count,
+                    callback_total=callback_packet_count,
+                    now_us=loop_start,
+                )
                 # Update loop time metric (idle iteration)
                 g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                 

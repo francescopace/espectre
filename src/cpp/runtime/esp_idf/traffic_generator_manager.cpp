@@ -245,7 +245,10 @@ void TrafficGeneratorManager::loop() {
   }
 
   const int64_t now = esp_timer_get_time();
-  if (rate_controller_.observe(accepted_csi_total_.load(std::memory_order_relaxed), now)) {
+  if (rate_controller_.observe(accepted_csi_total_.load(std::memory_order_relaxed),
+                               send_success_count(),
+                               send_error_count(),
+                               now)) {
     current_rate_pps_.store(rate_controller_.current_pps(), std::memory_order_relaxed);
     ESP_LOGI(TAG,
              "Adaptive traffic: observed=%" PRIu32 " CSI pps, target=%" PRIu32

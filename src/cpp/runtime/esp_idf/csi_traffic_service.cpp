@@ -84,6 +84,12 @@ bool CsiTrafficService::get_last_sender(sockaddr_in *out_addr) const { return ud
 
 uint64_t CsiTrafficService::get_packets_received() const { return udp_listener_.get_packets_received(); }
 
+uint64_t CsiTrafficService::get_pacing_total() const {
+  return mode_ == CsiTrafficMode::INTERNAL
+             ? static_cast<uint64_t>(traffic_generator_.send_success_count())
+             : udp_listener_.get_packets_received();
+}
+
 void CsiTrafficService::observe_accepted_csi(uint64_t accepted_csi_total) {
   if (mode_ == CsiTrafficMode::INTERNAL) {
     traffic_generator_.observe_accepted_csi(accepted_csi_total);

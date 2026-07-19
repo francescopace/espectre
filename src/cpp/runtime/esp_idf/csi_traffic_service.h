@@ -37,6 +37,7 @@ class CsiTrafficService {
   bool is_running() const;
   bool get_last_sender(sockaddr_in *out_addr) const;
   uint64_t get_packets_received() const;
+  uint64_t get_pacing_total() const;
   void observe_accepted_csi(uint64_t accepted_csi_total);
 
  private:

@@ -312,7 +312,7 @@ Support in this phase:
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; adjustable from the frontend during the session |
 | `segmentation_window_size` | int | `100` | `10-200` packets |
 | `traffic_generator_rate` | int | `100` | Target valid local CSI rate, `0-1000`; `0` disables internal traffic generation |
-| `traffic_generator_adaptive` | bool | `true` | Adjusts DNS or ICMP send pacing from valid local CSI callbacks |
+| `traffic_generator_adaptive` | bool | `true` | Adjusts DNS or ICMP send pacing from CSI feedback and local socket backpressure; floor at `70%` of target, overshoot up to about `125%` |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
 | `publish_interval` | int | `100` | `1-1000` packets between periodic updates |
 | `evaluation_interval` | int | `25` | `1-1000` packets between detector evaluations |

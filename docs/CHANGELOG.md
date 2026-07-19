@@ -53,6 +53,8 @@ Historical decision context for the Classic and ML promotions now lives in:
 ### Fixed
 
 - **Original ESP32 streamer stability under sustained collection**: CSI capture now covers both legacy and HT frames while preserving HT-LTF samples for 802.11n traffic, and automatically rearms after a sustained callback deficit under active pacing.
+- **Embedded traffic-generator pacing no longer over-cuts under CSI surplus**: shared C++ and Micro-ESPectre adaptive pacing now react to local socket backpressure, keep a `70%` floor of the CSI target, settle between reductions, and avoid the previous proportional slash that could drop send rate from `100` toward below `50` pps.
+- **Original ESP32 CSI rearm is now shared across sensing runtimes**: ESPHome, native, and Matter use the same pacing-health watchdog as the streamer, and Micro-ESPectre rearms with `csi_disable()` / `csi_enable()` when callbacks stall under active traffic.
 - **Shared CSI Wi-Fi protocol policy**: all published ESP-IDF targets now configure the supported 2.4 GHz BGN bitmap directly instead of first attempting the unsupported `WIFI_PROTOCOL_11N`-only combination.
 - **Native Wi-Fi association after CSI STA_START policy**: standalone station connect now applies the CSI radio policy before `esp_wifi_connect()` when it does not own the lifecycle handlers, and clears the connect latch on `WIFI_EVENT_STA_STOP` so BLE coexistence or protocol renegotiation can reassociate instead of leaving the radio idle.
 

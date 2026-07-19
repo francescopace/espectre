@@ -24,7 +24,8 @@ MQTT_PASSWORD = "mqtt"
 
 # Traffic Generator Configuration
 # Generates WiFi traffic to ensure continuous CSI data
-TRAFFIC_GENERATOR_RATE = 100  # Default CSI stimulus rate (packets per second)
+TRAFFIC_GENERATOR_RATE = 100  # Target valid CSI rate (packets per second)
+TRAFFIC_GENERATOR_ADAPTIVE = True  # Adjust send pacing from CSI feedback and socket errors
 TRAFFIC_GENERATOR_MODE = "ping"  # Default mode: "ping" or "dns"
 PUBLISH_INTERVAL = 100        # Packets between periodic MQTT/log updates
 EVALUATION_INTERVAL = 25      # Packets between internal detector evaluations

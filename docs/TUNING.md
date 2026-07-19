@@ -112,10 +112,16 @@ espectre:
   traffic_generator_adaptive: true
 ```
 
-The rate is the target for valid local CSI callbacks. By default, the shared
-runtime adjusts the DNS or ICMP send pace every control window to hold that
-target. Set `traffic_generator_adaptive: false` only when you need a fixed
-network send rate for an experiment.
+The rate is the target for valid local CSI callbacks, not a fixed network send
+rate. By default, the shared C++ runtime and Micro-ESPectre use the same adaptive
+policy: send pacing can rise toward about `125%` of the target when CSI is short,
+backs off by `15%` on sustained socket send errors or sustained CSI oversupply,
+never drops below `70%` of the target, and waits three control windows between
+reductions. A severe CSI deficit below `50%` holds the current send rate rather
+than cutting it; on the original ESP32 the runtime also rearms CSI capture after
+two low-supply windows under active pacing. Set
+`traffic_generator_adaptive: false` (or `TRAFFIC_GENERATOR_ADAPTIVE = False` in
+Micro-ESPectre) only when you need a fixed network send rate for an experiment.
 
 Rules of thumb:
 

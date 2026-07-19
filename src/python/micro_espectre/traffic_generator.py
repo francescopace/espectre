@@ -12,6 +12,11 @@ import time
 import _thread
 import network
 
+try:
+    from traffic_rate_controller import TrafficRateController
+except ImportError:
+    from src.traffic_rate_controller import TrafficRateController
+
 # Note: No thread lock needed for simple integer operations on MicroPython/ESP32
 # Integer reads/writes are atomic on 32-bit systems
 
@@ -45,15 +50,18 @@ DNS_QUERY = bytes([
 class TrafficGenerator:
     """WiFi traffic generator using DNS queries or ICMP ping."""
     
-    def __init__(self, mode=MODE_PING):
+    def __init__(self, mode=MODE_PING, adaptive=True):
         """Initialize traffic generator."""
         self.running = False
         self.rate_pps = 0
+        self.target_pps = 0
         self.packet_count = 0
         self.error_count = 0
         self.gateway_ip = None
         self.sock = None
         self.mode = self._normalize_mode(mode)
+        self.adaptive_enabled = bool(adaptive)
+        self.rate_controller = TrafficRateController()
         self.start_time = 0  # Time when generator started (ticks_ms)
         self.avg_loop_time_ms = 0  # Average loop time for diagnostics
         self.actual_pps = 0  # Actual packets per second (moving window)
@@ -199,14 +207,22 @@ class TrafficGenerator:
         loop_time_sum_us = 0
         window_start_time = ticks_us()
         window_packet_count = 0
-        interval_us = 1000000 // self.rate_pps
-        remainder_us = 1000000 % self.rate_pps
+        paced_rate = max(1, int(self.rate_pps))
+        interval_us = 1000000 // paced_rate
+        remainder_us = 1000000 % paced_rate
         accumulator = 0
         next_send_time = ticks_us()
 
         while self.running:
             try:
                 loop_start = ticks_us()
+                current_rate = max(1, int(self.rate_pps))
+                if current_rate != paced_rate:
+                    paced_rate = current_rate
+                    interval_us = 1000000 // paced_rate
+                    remainder_us = 1000000 % paced_rate
+                    accumulator = 0
+                    next_send_time = ticks_us()
                 try:
                     packet = build_packet() if is_ping else DNS_QUERY
                     if use_connected_send:
@@ -237,9 +253,9 @@ class TrafficGenerator:
                     consecutive_enomem = 0
 
                 accumulator += remainder_us
-                if accumulator >= self.rate_pps:
+                if accumulator >= paced_rate:
                     extra_us = 1
-                    accumulator -= self.rate_pps
+                    accumulator -= paced_rate
                 else:
                     extra_us = 0
                 next_send_time += interval_us + extra_us
@@ -285,15 +301,16 @@ class TrafficGenerator:
         """Background task that sends ICMP echo requests."""
         self._run_sender_task(MODE_PING)
     
-    def start(self, rate_pps, max_retries=3, retry_delay=2, mode=None):
+    def start(self, rate_pps, max_retries=3, retry_delay=2, mode=None, adaptive=None):
         """
         Start traffic generator
         
         Args:
-            rate_pps: Packets per second (0-1000, recommended: 100)
+            rate_pps: Target valid CSI rate (0-1000, recommended: 100)
             max_retries: Number of retries to get gateway IP (default: 3)
             retry_delay: Seconds between retries (default: 2)
             mode: Optional traffic mode override ('dns' or 'ping')
+            adaptive: Optional adaptive-pacing override (default: constructor value)
             
         Returns:
             bool: True if started successfully
@@ -304,10 +321,13 @@ class TrafficGenerator:
 
         if rate_pps == 0:
             self.rate_pps = 0
+            self.target_pps = 0
             return False
 
         if mode is not None:
             self.mode = self._normalize_mode(mode)
+        if adaptive is not None:
+            self.adaptive_enabled = bool(adaptive)
         
         if rate_pps < TRAFFIC_RATE_MIN or rate_pps > TRAFFIC_RATE_MAX:
             print(f"Invalid rate: {rate_pps} (must be {TRAFFIC_RATE_MIN}-{TRAFFIC_RATE_MAX} packets/sec)")
@@ -331,7 +351,9 @@ class TrafficGenerator:
         self.error_count = 0
         self.actual_pps = 0
         self.avg_loop_time_ms = 0
+        self.target_pps = rate_pps
         self.rate_pps = rate_pps
+        self.rate_controller.init(rate_pps, self.adaptive_enabled)
         self.start_time = time.ticks_ms()
         self.running = True
         self.ping_sequence = 0
@@ -358,22 +380,55 @@ class TrafficGenerator:
         #print(f"📡 Traffic generator stopped ({self.packet_count} packets sent, {self.error_count} errors)")
         
         self.rate_pps = 0
+        self.target_pps = 0
+
+    def observe_accepted_csi(self, accepted_csi_total, now_us=None):
+        """Adapt send pacing from accepted CSI totals and local send errors."""
+        if not self.running or self.target_pps <= 0:
+            return False
+        if now_us is None:
+            now_us = time.ticks_us()
+        if not self.rate_controller.observe(
+            accepted_csi_total,
+            self.packet_count,
+            self.error_count,
+            now_us,
+        ):
+            return False
+        self.rate_pps = self.rate_controller.current_pps
+        print(
+            "Adaptive traffic: observed=%d CSI pps, target=%d, send=%d pps"
+            % (
+                self.rate_controller.observed_pps,
+                self.rate_controller.target_pps,
+                self.rate_controller.current_pps,
+            )
+        )
+        return True
     
     def is_running(self):
         """Check if traffic generator is running"""
         return self.running
     
     def get_packet_count(self):
-        """Get number of packets sent"""
+        """Get number of successful sends"""
         return self.packet_count
     
     def get_rate(self):
-        """Get current rate in packets per second"""
+        """Get current send rate in packets per second"""
         return self.rate_pps
+
+    def get_target_rate(self):
+        """Get configured valid-CSI target rate."""
+        return self.target_pps
 
     def get_mode(self):
         """Get current traffic generation mode."""
         return self.mode
+
+    def is_adaptive(self):
+        """Return whether adaptive pacing is enabled."""
+        return self.adaptive_enabled
     
     def get_actual_pps(self):
         """Get actual packets per second (moving window)"""
