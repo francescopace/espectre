@@ -8,18 +8,18 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 
 ## Quality Check Summary
 
-- Total checks: 681
-- ✅ PASS: 637
-- ⚠️ WARN: 44
+- Total checks: 709
+- ✅ PASS: 663
+- ⚠️ WARN: 46
 - ❌ FAIL: 0
 
 ## Validation Domains
 
 | Domain | PASS | WARN | FAIL |
 |---|---:|---:|---:|
-| Common integrity | 591 | 33 | 0 |
-| Empty/static presence | 12 | 2 | 0 |
-| ClassicDetector indicative scores | 29 | 7 | 0 |
+| Common integrity | 615 | 35 | 0 |
+| Empty/static presence | 13 | 2 | 0 |
+| ClassicDetector indicative scores | 30 | 7 | 0 |
 | ML readiness | 4 | 1 | 0 |
 | Long-recording coverage | 1 | 1 | 0 |
 
@@ -39,6 +39,7 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 | C5 | bedroom | [2026-07-12 19:04](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz) / [2026-07-12 19:26](../motion/motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz) | 4.50e-01 | 0.0% | 100.0% | 2.22x | 94.1 |
 | S3 | hobby_room | [2026-07-15 23:39](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz) / [2026-07-15 23:47](../motion/motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001.npz) | 4.44e-01 | 0.0% | **94.9% ⚠️** | 2.25x | 94.1 |
 | S3 | bedroom | [2026-07-11 19:57](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz) / [2026-07-11 20:04](../motion/motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz) | 4.60e-01 | 0.0% | 100.0% | **2.17x ❌** | 93.9 |
+| C3 | living_room | [2026-07-19 22:41](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz) / [2026-07-19 22:48](../motion/motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001.npz) | 4.00e-01 | 0.3% | 98.5% | 2.50x | 93.5 |
 
 ## Presence Scores
 
@@ -52,6 +53,7 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 | C5 | hobby_room | [2026-07-16 00:52](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz) | 0.0% | 0.68 | 0.0s | 100.0 |
 | C5 | living_room | [2026-07-16 10:43](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001.npz) | 0.0% | 0.55 | 0.0s | 100.0 |
 | C6 | living_room | [2026-07-16 10:43](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz) | 0.0% | 0.65 | 0.0s | 100.0 |
+| C3 | living_room | [2026-07-19 22:41](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz) | 0.3% | 0.87 | 0.3s | 97.4 |
 | S3 | hobby_room | [2026-07-15 23:39](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz) | 0.0% | **0.95 ❌** | 0.0s | 97.3 |
 | ESP32 | bedroom | [2026-07-19 17:13](../static_presence/static_presence_esp32_64sc_dev00004c11aeb86eb8_20260719_171301_344381_0001.npz) | 0.3% | 0.74 | **0.5s ❌** | 96.5 |
 | S3 | living_room | [2026-07-16 10:10](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz) | 0.0% | **1.03 ❌** | 0.0s | 93.7 |
