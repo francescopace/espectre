@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-17T14:55:36.127080",
+  "updated_at": "2026-07-19T17:15:48.848972",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -306,6 +306,19 @@
         "environment": "living_room",
         "device_id": "0x00007c2c6742bbac",
         "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260716_104800_358109_0002.npz"
+      },
+      {
+        "filename": "static_presence_esp32_64sc_dev00004c11aeb86eb8_20260719_171301_344381_0001.npz",
+        "chip": "ESP32",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-19T17:13:01.330447",
+        "duration_ms": 179989,
+        "num_packets": 17922,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x00004c11aeb86eb8",
+        "optimal_pair_motion_file": "motion_esp32_64sc_dev00004c11aeb86eb8_20260719_171516_472716_0001.npz"
       }
     ],
     "motion": [
@@ -451,6 +464,19 @@
         "environment": "living_room",
         "device_id": "0x00007c2c6742bbac",
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz"
+      },
+      {
+        "filename": "motion_esp32_64sc_dev00004c11aeb86eb8_20260719_171516_472716_0001.npz",
+        "chip": "ESP32",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-19T17:15:16.464628",
+        "duration_ms": 89972,
+        "num_packets": 8967,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x00004c11aeb86eb8",
+        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_dev00004c11aeb86eb8_20260719_171301_344381_0001.npz"
       }
     ],
     "test": [
