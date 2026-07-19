@@ -21,6 +21,11 @@ feeding those signals into either:
 - `ClassicDetector`, the default non-ML detector
 - `MLDetector`, the neural detector with a trained probability threshold
 
+Representative raw CSI amplitude windows for empty room, static presence, and
+motion:
+
+![CSI amplitude heatmaps for empty, static presence, and motion](web/guides/images/csi-amplitude-heatmap.webp)
+
 The current production detector definition is:
 
 - AGC stays active

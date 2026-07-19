@@ -43,6 +43,7 @@ All notable changes to this project will be documented in this file.
 - **Per-record streamer PHY metadata**: stream V7 identifies the received PHY mode, exported LTF type, and normalized channel width; collected `.npz` files preserve these fields, and historical ML datasets are explicitly treated as HT20.
 - **ESP32-specific streamer `sdkconfig` profile** with shallower Wi-Fi TX/RX buffer caps and lwIP IPv6 disabled to fit the original ESP32 resource budget.
 - **Updated architecture documentation** in `docs/ARCHITECTURE.md`
+- **CSI amplitude heatmap plotter** (`tools/plot_heatmap.py`) for paper-style time × subcarrier views of dataset samples, with a publication export used in the detection guide and algorithm docs
 
 Historical decision context for the Classic and ML promotions now lives in:
 

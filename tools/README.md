@@ -158,7 +158,28 @@ python plot_constellation.py --grid       # One subplot per subcarrier
 
 ---
 
-### 8. ESP32 Variant Comparison (`compare_chips.py`)
+### 8. CSI Amplitude Heatmaps (`plot_heatmap.py`)
+
+**Purpose**: Plot paper-style CSI amplitude heatmaps (time × subcarrier)
+
+- Selects representative `empty` / `static_presence` / `motion` samples from `dataset_info.json`
+- Renders amplitude as a viridis heatmap with packet index on x and subcarrier index on y
+- Supports chip/environment filters, explicit NPZ paths, optional per-subcarrier detrending, and PNG export
+
+```bash
+python plot_heatmap.py
+python plot_heatmap.py --chip S3 --environment bedroom
+python plot_heatmap.py --labels empty,static_presence,motion,test
+python plot_heatmap.py --files data/empty/foo.npz data/motion/bar.npz
+python plot_heatmap.py --packets 400 --offset 100 --detrend
+python plot_heatmap.py --output /tmp/csi_heatmaps.png --no-show
+python plot_heatmap.py --chip C5 --environment living_room --detrend --shared-scale \
+    --publication --output docs/web/guides/images/csi-amplitude-heatmap.webp --no-show
+```
+
+---
+
+### 9. ESP32 Variant Comparison (`compare_chips.py`)
 
 **Purpose**: Compare CSI characteristics between ESP32 variants
 
@@ -173,7 +194,7 @@ python compare_chips.py --plot
 
 ---
 
-### 9. ML Model Training (`train_ml_model.py`)
+### 10. ML Model Training (`train_ml_model.py`)
 
 **Purpose**: Train, evaluate, and export the production ML model
 
@@ -233,7 +254,7 @@ diagnostics, and post-training regressions, see
 [ML_TRAINING.md](../docs/ML_TRAINING.md). For dataset preparation and labeling,
 see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md).
 
-### 10. Dataset Quality Validation (`validate_dataset_quality.py`)
+### 11. Dataset Quality Validation (`validate_dataset_quality.py`)
 
 Validates the shared Classic and ML datasets for metadata completeness, file
 integrity, signal quality, pair diagnostics, training readiness, and long-recording
@@ -287,7 +308,7 @@ python validate_dataset_quality.py --no-report      # Skip markdown report
 
 ---
 
-### 11. Performance Report Generation (`generate_performance_report.py`)
+### 12. Performance Report Generation (`generate_performance_report.py`)
 
 **Purpose**: Regenerate `docs/performance/README.md` from the current validation
 datasets
@@ -310,7 +331,7 @@ python generate_performance_report.py --output /tmp/PERFORMANCE.md
 
 ---
 
-### 12. Firmware Benchmark (`benchmark_firmware.py`)
+### 13. Firmware Benchmark (`benchmark_firmware.py`)
 
 **Purpose**: Run the live ESPHome and Native firmware benchmark for one
 connected chip and write its generated report under `docs/performance/`
@@ -388,6 +409,9 @@ python compare_detection_methods.py --plot
 
 # Plot I/Q constellations (auto-finds most recent dataset)
 python plot_constellation.py --chip S3 --packets 1000 --grid
+
+# Paper-style CSI amplitude heatmaps (time × subcarrier)
+python plot_heatmap.py --chip S3 --environment bedroom --detrend
 
 # Compare ESP32 variants (auto-finds most recent datasets for available chips)
 python compare_chips.py --plot
