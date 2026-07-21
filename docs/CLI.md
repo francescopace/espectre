@@ -146,9 +146,8 @@ Common flags:
 | `--duration` | Stop after N seconds in live mode, or duration per sample in timed mode |
 | `--label` | Dataset label for saved collections; omit for live inspection without saving |
 | `--samples` | Timed dataset mode: sample count |
-| `--pps` | Target UDP packet rate sent from the collector to the target device |
-| `--adaptive` | Back off on sustained streamer TX backpressure, then recover toward `--pps` (default) |
-| `--fixed` | Keep `--pps` as a constant send rate without adaptive backpressure feedback |
+| `--pps` | Target delivered record rate; adaptive pacing may send above it to compensate path loss |
+| `--fixed` | Keep `--pps` as a constant send rate instead of the default adaptive pacing |
 | `--detector` | Detector used by the ready gate: `classic` or `ml`; a comma-separated list is available only for live comparison |
 
 In live streamer mode, `collect` sends ordinary UDP traffic to the
@@ -158,9 +157,19 @@ Without `--label`, live mode inspects the stream and does not write dataset
 files. Pass `--label` when you want to save captures.
 By default, pacing is adaptive: the collector ignores isolated TX pressure,
 backs off when firmware-reported backpressure reaches 5% of a control window,
-and then recovers additively toward the requested `--pps`. CSI freshness is
-reported as telemetry but does not control pacing. Use `--fixed` when you want
-a constant send rate instead.
+and then recovers additively toward the requested `--pps`. For broadcast and multicast targets, when delivered
+records fall below the target while the device converts received pacing into
+fresh CSI cleanly (retry-less path loss),
+the collector also boosts the send rate above `--pps` in proportional steps,
+up to 1.5x, trims back once delivery overshoots, and drops straight back to
+`--pps` if the CSI freshness ratio degrades while boosted, since above-target
+pacing can itself starve CSI conversion. Unicast pacing never boosts above
+`--pps`: unicast delivery is MAC-retransmitted, so a delivery deficit there is
+device-side rather than path loss. Boost and trim act on a
+smoothed delivery measurement, so the send rate settles at the loss-adjusted
+level instead of chasing per-second RF variance. A low CSI freshness
+ratio never triggers a boost or a slowdown on its own. Use `--fixed` when you
+want a constant send rate instead.
 
 `--detector` always selects the production detector used for collection
 readiness. `classic` performs its normal startup calibration before it can

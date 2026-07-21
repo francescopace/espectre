@@ -8,6 +8,8 @@
  */
 #include "runtime_time.h"
 
+#include <chrono>
+
 #if __has_include("esp_timer.h")
 #include "esp_timer.h"
 #define ESPECTRE_HAVE_ESP_TIMER 1
@@ -19,7 +21,8 @@ uint64_t monotonic_now_us() {
 #ifdef ESPECTRE_HAVE_ESP_TIMER
   return static_cast<uint64_t>(esp_timer_get_time());
 #else
-  return 0U;
+  const auto now = std::chrono::steady_clock::now().time_since_epoch();
+  return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(now).count());
 #endif
 }
 

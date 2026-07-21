@@ -118,6 +118,7 @@ bool StreamEspIdfRuntime::setup() {
   capture_service_.set_packet_callback(&StreamEspIdfRuntime::capture_packet_callback_, this);
 
   csi_traffic_service_.init(to_csi_traffic_config(config_));
+  csi_traffic_service_.set_packet_callback(&StreamEspIdfRuntime::pacing_packet_callback_, this);
   stream_transport_.configure(config_.device_id,
                               config_.collector_port,
                               config_.stream_log_interval_ms,
@@ -179,13 +180,6 @@ void StreamEspIdfRuntime::loop() {
   }
 
   const bool streaming_ready = state_.load(std::memory_order_relaxed) == WorkflowState::STREAMING;
-  if (streaming_ready) {
-    const CsiCaptureService::HealthAction health_action = capture_service_.maintain_pacing_health(
-        csi_traffic_service_.get_packets_received(), monotonic_now_ms());
-    if (health_action == CsiCaptureService::HealthAction::REARM_FAILED) {
-      notify_fault_("Failed to recover stalled CSI capture");
-    }
-  }
   stream_transport_.update_from_traffic(csi_traffic_service_, streaming_ready);
   stream_transport_.log_runtime_telemetry(capture_service_, csi_traffic_service_, streaming_ready,
                                           workflow_state_name_(state_.load(std::memory_order_relaxed)));
@@ -327,12 +321,28 @@ void StreamEspIdfRuntime::handle_csi_packet_(const wifi_csi_info_t *info, const 
   stream_transport_.handle_csi_packet(info, normalized, state_.load(std::memory_order_relaxed) == WorkflowState::STREAMING);
 }
 
+void StreamEspIdfRuntime::handle_pacing_packet_(const sockaddr_in &sender_addr, uint64_t pacing_total) {
+  stream_transport_.handle_pacing_packet(
+      sender_addr,
+      state_.load(std::memory_order_relaxed) == WorkflowState::STREAMING,
+      static_cast<uint32_t>(pacing_total));
+}
+
 void StreamEspIdfRuntime::capture_packet_callback_(void *context,
                                                    const wifi_csi_info_t *info,
                                                    const NormalizedCSIPayload &normalized) {
   auto *runtime = static_cast<StreamEspIdfRuntime *>(context);
   if (runtime != nullptr) {
     runtime->handle_csi_packet_(info, normalized);
+  }
+}
+
+void StreamEspIdfRuntime::pacing_packet_callback_(void *context,
+                                                  const sockaddr_in &sender_addr,
+                                                  uint64_t pacing_total) {
+  auto *runtime = static_cast<StreamEspIdfRuntime *>(context);
+  if (runtime != nullptr) {
+    runtime->handle_pacing_packet_(sender_addr, pacing_total);
   }
 }
 

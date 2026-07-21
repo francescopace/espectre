@@ -255,6 +255,7 @@ def _collect_dataset_csi_data(args) -> None:
             num_samples=args.samples,
             pacing_sender=pacing_sender,
             adaptive=bool(getattr(args, "adaptive", True)),
+            boost_allowed=target_mode in ("broadcast", "multicast"),
         )
         if saved:
             print(f"{Fore.GREEN}✅ Collected {len(saved)} device file(s) for label '{args.label}'{Style.RESET_ALL}")
@@ -443,14 +444,19 @@ def _run_live_collect(args) -> None:
         rssi_text = "---" if rssi_dbm is None else str(int(rssi_dbm))
         return f"ip={source_ip} chip={chip_label} ch={channel_text} rssi={rssi_text}"
 
+    def format_pacing_text():
+        if not adaptive_enabled or abs(adaptive_pacing.current_pps - adaptive_pacing.target_pps) < 0.5:
+            return ""
+        return f" | pace:{adaptive_pacing.current_pps:.0f}pps({adaptive_pacing.last_action})"
+
     def format_backpressure_text(device_state):
         total = device_state.get("tx_backpressure_total")
         if total is None:
-            return " | bp:--"
+            return " | bp:--" + format_pacing_text()
         recent_delta = int(device_state.get("tx_backpressure_last_delta", 0) or 0)
         if recent_delta > 0:
-            return f" | bp:active(+{recent_delta})"
-        return " | bp:no"
+            return f" | bp:active(+{recent_delta})" + format_pacing_text()
+        return " | bp:no" + format_pacing_text()
 
     def compute_sequence_gap(previous_seq, current_seq):
         expected = (previous_seq + 1) & 0xFFFFFFFF
@@ -902,7 +908,11 @@ def _run_live_collect(args) -> None:
         source_host=resolved_bind_ip,
         interval_s=1.0 / pacing_pps,
     )
-    adaptive_pacing = AdaptivePacingController(initial_pps=pacing_pps, enabled=adaptive_enabled)
+    adaptive_pacing = AdaptivePacingController(
+        initial_pps=pacing_pps,
+        enabled=adaptive_enabled,
+        boost_allowed=target_mode in ("broadcast", "multicast"),
+    )
     capture_writer = None
     if save_enabled:
         capture_writer = CSICollector(

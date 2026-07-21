@@ -240,12 +240,6 @@ StreamPhyMetadata extract_phy_metadata(const wifi_pkt_rx_ctrl_t &rx_ctrl) {
 
 #if CONFIG_SOC_WIFI_HE_SUPPORT
   switch (rx_ctrl.cur_bb_format) {
-    case RX_BB_FORMAT_11B:
-    case RX_BB_FORMAT_11G:
-      metadata.mode = StreamPhyMode::LEGACY;
-      metadata.ltf_type = StreamLtfType::LLTF;
-      metadata.channel_width = StreamChannelWidth::MHZ_20;
-      break;
     case RX_BB_FORMAT_HT:
       metadata.mode = StreamPhyMode::HT;
       metadata.ltf_type = StreamLtfType::HT_LTF;
@@ -278,11 +272,6 @@ StreamPhyMetadata extract_phy_metadata(const wifi_pkt_rx_ctrl_t &rx_ctrl) {
   }
 #else
   switch (rx_ctrl.sig_mode) {
-    case 0U:
-      metadata.mode = StreamPhyMode::LEGACY;
-      metadata.ltf_type = StreamLtfType::LLTF;
-      metadata.channel_width = StreamChannelWidth::MHZ_20;
-      break;
     case 1U:
       metadata.mode = StreamPhyMode::HT;
       metadata.ltf_type = StreamLtfType::HT_LTF;
@@ -345,7 +334,14 @@ void CsiStreamTransport::configure(uint64_t device_id,
   device_id_ = device_id;
   collector_port_ = collector_port;
   log_interval_ms_ = log_interval_ms;
+#if CONFIG_IDF_TARGET_ESP32
+  tx_batch_records_ = 1U;
+  if (tx_batch_records > 1U) {
+    ESP_LOGI(TAG, "Original ESP32 forces 1-record stream datagrams to avoid stale CSI batching");
+  }
+#else
   tx_batch_records_ = std::clamp<uint8_t>(tx_batch_records, 1U, STREAM_MAX_TX_BATCH_RECORDS);
+#endif
   batch_capacity_ = static_cast<size_t>(tx_batch_records_) * kStreamRecordMaxBytes;
   batch_buffer_.reset(new (std::nothrow) uint8_t[batch_capacity_]);
   if (!batch_buffer_) {
@@ -357,7 +353,7 @@ void CsiStreamTransport::configure(uint64_t device_id,
 void CsiStreamTransport::reset_session() {
   close_stream_socket_();
   drop_stream_batch_();
-  collector_ip_addr_ = 0U;
+  collector_ip_addr_.store(0U, std::memory_order_relaxed);
   stream_seq_.store(0U, std::memory_order_relaxed);
   last_pacing_streamed_total_ = 0U;
   last_csi_ms_.store(0U, std::memory_order_relaxed);
@@ -366,12 +362,17 @@ void CsiStreamTransport::reset_session() {
   csi_filtered_total_.store(0U, std::memory_order_relaxed);
   stream_fresh_total_.store(0U, std::memory_order_relaxed);
   stream_repeat_total_.store(0U, std::memory_order_relaxed);
-  stream_tx_total_ = 0U;
-  stream_tx_error_total_ = 0U;
-  stream_tx_backpressure_total_ = 0U;
-  latest_pacing_rx_total_ = 0U;
+  stream_tx_total_.store(0U, std::memory_order_relaxed);
+  stream_tx_error_total_.store(0U, std::memory_order_relaxed);
+  stream_tx_backpressure_total_.store(0U, std::memory_order_relaxed);
+  pending_pacing_credits_.store(0U, std::memory_order_relaxed);
+  latest_pacing_rx_total_.store(0U, std::memory_order_relaxed);
+  last_pacing_credit_total_ = 0U;
   last_log_ms_ = 0U;
   prev_log_sample_ms_ = 0U;
+  prev_capture_callback_total_ = 0U;
+  prev_capture_valid_total_ = 0U;
+  prev_capture_invalid_total_ = 0U;
   prev_csi_callback_total_ = 0U;
   prev_csi_accepted_total_ = 0U;
   prev_csi_filtered_total_ = 0U;
@@ -388,6 +389,8 @@ void CsiStreamTransport::reset_session() {
   latest_csi_ = LatestCsiSample{};
   latest_csi_sent_total_ = 0U;
   portEXIT_CRITICAL(&latch_lock_);
+
+  reset_direct_tx_queue_();
 }
 
 void CsiStreamTransport::clear_ap_bssid() { ap_bssid_.fill(0U); }
@@ -419,6 +422,69 @@ void CsiStreamTransport::handle_csi_packet(const wifi_csi_info_t *info,
     return;
   }
 
+  csi_accepted_total_.fetch_add(1U, std::memory_order_relaxed);
+  last_csi_ms_.store(monotonic_now_ms(), std::memory_order_relaxed);
+
+  if (direct_credit_streaming_enabled_()) {
+    if (!consume_pending_pacing_credit_()) {
+      return;
+    }
+
+#if defined(ESP_PLATFORM)
+    if (!ensure_direct_tx_worker_()) {
+      stream_tx_error_total_.fetch_add(1U, std::memory_order_relaxed);
+      return;
+    }
+
+    uint8_t slot_idx = 0U;
+    if (xQueueReceive(direct_tx_free_slots_, &slot_idx, 0) != pdTRUE) {
+      stream_tx_error_total_.fetch_add(1U, std::memory_order_relaxed);
+      stream_tx_backpressure_total_.fetch_add(1U, std::memory_order_relaxed);
+      return;
+    }
+
+    DirectTxSlot &slot = direct_tx_slots_[slot_idx];
+    const size_t record_len =
+        build_stream_packet_from_live_csi_(info->rx_ctrl,
+                                           info->first_word_invalid,
+                                           normalized.data,
+                                           static_cast<uint16_t>(normalized.len),
+                                           latest_pacing_rx_total_.load(std::memory_order_relaxed),
+                                           slot.packet.data(),
+                                           slot.packet.size());
+    if (record_len == 0U) {
+      (void)xQueueSend(direct_tx_free_slots_, &slot_idx, 0);
+      return;
+    }
+    slot.packet_len = record_len;
+    if (xQueueSend(direct_tx_ready_slots_, &slot_idx, 0) != pdTRUE) {
+      stream_tx_error_total_.fetch_add(1U, std::memory_order_relaxed);
+      stream_tx_backpressure_total_.fetch_add(1U, std::memory_order_relaxed);
+      (void)xQueueSend(direct_tx_free_slots_, &slot_idx, 0);
+    }
+    return;
+#else
+    if (!ensure_stream_socket_() || !batch_buffer_) {
+      stream_tx_error_total_.fetch_add(1U, std::memory_order_relaxed);
+      return;
+    }
+
+    const size_t record_len =
+        build_stream_packet_from_live_csi_(info->rx_ctrl,
+                                           info->first_word_invalid,
+                                           normalized.data,
+                                           static_cast<uint16_t>(normalized.len),
+                                           latest_pacing_rx_total_.load(std::memory_order_relaxed),
+                                           batch_buffer_.get(),
+                                           batch_capacity_);
+    if (record_len == 0U) {
+      return;
+    }
+    (void)send_datagram_(batch_buffer_.get(), record_len);
+    return;
+#endif
+  }
+
   portENTER_CRITICAL(&latch_lock_);
   latest_csi_.rx_ctrl = info->rx_ctrl;
   std::memcpy(latest_csi_.csi.data(), normalized.data, normalized.len);
@@ -426,20 +492,71 @@ void CsiStreamTransport::handle_csi_packet(const wifi_csi_info_t *info,
   latest_csi_.first_word_invalid = info->first_word_invalid;
   latest_csi_.valid = true;
   latest_csi_.update_total++;
+  latest_csi_.captured_at_us = monotonic_now_us();
   portEXIT_CRITICAL(&latch_lock_);
+}
 
-  csi_accepted_total_.fetch_add(1U, std::memory_order_relaxed);
-  last_csi_ms_.store(monotonic_now_ms(), std::memory_order_relaxed);
+void CsiStreamTransport::handle_pacing_packet(const sockaddr_in &sender_addr,
+                                              bool streaming_ready,
+                                              uint32_t pacing_total) {
+  if (sender_addr.sin_addr.s_addr != 0U &&
+      sender_addr.sin_addr.s_addr != collector_ip_addr_.load(std::memory_order_relaxed)) {
+    collector_ip_addr_.store(sender_addr.sin_addr.s_addr, std::memory_order_relaxed);
+
+    char addr_text[16];
+    format_ipv4_addr(collector_ip_addr_.load(std::memory_order_relaxed), addr_text, sizeof(addr_text));
+    ESP_LOGI(TAG,
+             "Collector learned from UDP pacing: address=%s pacing_port=%u stream_port=%u",
+             addr_text,
+             static_cast<unsigned>(ntohs(sender_addr.sin_port)),
+             static_cast<unsigned>(collector_port_));
+  }
+
+  latest_pacing_rx_total_.store(pacing_total, std::memory_order_relaxed);
+  if (direct_credit_streaming_enabled_()) {
+    const uint32_t credit_delta = pacing_total >= last_pacing_credit_total_
+                                      ? (pacing_total - last_pacing_credit_total_)
+                                      : pacing_total;
+    pending_pacing_credits_.fetch_add(credit_delta, std::memory_order_relaxed);
+    last_pacing_credit_total_ = pacing_total;
+    if (!streaming_ready || collector_ip_addr_.load(std::memory_order_relaxed) == 0U) {
+      pending_pacing_credits_.store(0U, std::memory_order_relaxed);
+    }
+    return;
+  }
+
+  const bool should_stream = collector_ip_addr_.load(std::memory_order_relaxed) != 0U && streaming_ready;
+  if (!should_stream) {
+    drop_stream_batch_();
+    last_pacing_streamed_total_ = pacing_total;
+    return;
+  }
+  if (!ensure_stream_socket_()) {
+    stream_tx_error_total_.fetch_add(1U, std::memory_order_relaxed);
+    last_pacing_streamed_total_ = pacing_total;
+    return;
+  }
+  (void)send_stream_datagram_();
+  last_pacing_streamed_total_ = pacing_total;
 }
 
 void CsiStreamTransport::update_from_traffic(const CsiTrafficService &traffic_service, bool streaming_ready) {
+  if (direct_credit_streaming_enabled_()) {
+    (void)traffic_service;
+    (void)streaming_ready;
+    if (batch_records_pending_ > 0U) {
+      drop_stream_batch_();
+    }
+    return;
+  }
+
   sockaddr_in sender_addr{};
   if (traffic_service.get_last_sender(&sender_addr) && sender_addr.sin_addr.s_addr != 0U &&
-      sender_addr.sin_addr.s_addr != collector_ip_addr_) {
-    collector_ip_addr_ = sender_addr.sin_addr.s_addr;
+      sender_addr.sin_addr.s_addr != collector_ip_addr_.load(std::memory_order_relaxed)) {
+    collector_ip_addr_.store(sender_addr.sin_addr.s_addr, std::memory_order_relaxed);
 
     char addr_text[16];
-    format_ipv4_addr(collector_ip_addr_, addr_text, sizeof(addr_text));
+    format_ipv4_addr(collector_ip_addr_.load(std::memory_order_relaxed), addr_text, sizeof(addr_text));
     ESP_LOGI(TAG,
              "Collector learned from UDP pacing: address=%s pacing_port=%u stream_port=%u",
              addr_text,
@@ -448,8 +565,8 @@ void CsiStreamTransport::update_from_traffic(const CsiTrafficService &traffic_se
   }
 
   const uint64_t pacing_rx_total = traffic_service.get_packets_received();
-  latest_pacing_rx_total_ = static_cast<uint32_t>(pacing_rx_total);
-  const bool should_stream = collector_ip_addr_ != 0U && streaming_ready;
+  latest_pacing_rx_total_.store(static_cast<uint32_t>(pacing_rx_total), std::memory_order_relaxed);
+  const bool should_stream = collector_ip_addr_.load(std::memory_order_relaxed) != 0U && streaming_ready;
   if (!should_stream) {
     drop_stream_batch_();
     last_pacing_streamed_total_ = pacing_rx_total;
@@ -461,7 +578,7 @@ void CsiStreamTransport::update_from_traffic(const CsiTrafficService &traffic_se
                                        : pacing_rx_total;
   if (pending_packets > 0U) {
     if (!ensure_stream_socket_()) {
-      stream_tx_error_total_ += pending_packets;
+      stream_tx_error_total_.fetch_add(pending_packets, std::memory_order_relaxed);
     } else {
       for (uint64_t idx = 0U; idx < pending_packets; idx++) {
         if (send_stream_datagram_()) {
@@ -469,8 +586,8 @@ void CsiStreamTransport::update_from_traffic(const CsiTrafficService &traffic_se
         }
         if (last_tx_backpressure_) {
           const uint64_t unsent_packets = pending_packets - idx - 1U;
-          stream_tx_error_total_ += unsent_packets;
-          stream_tx_backpressure_total_ += unsent_packets;
+          stream_tx_error_total_.fetch_add(unsent_packets, std::memory_order_relaxed);
+          stream_tx_backpressure_total_.fetch_add(unsent_packets, std::memory_order_relaxed);
           break;
         }
       }
@@ -498,11 +615,14 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
     return;
   }
   if (prev_log_sample_ms_ == 0U) {
-    reset_runtime_telemetry_baseline_(traffic_service);
+    reset_runtime_telemetry_baseline_(capture_service, traffic_service);
     prev_log_sample_ms_ = now_ms;
   }
 
   const uint64_t dt_ms = std::max<uint64_t>(1U, now_ms - prev_log_sample_ms_);
+  const uint64_t capture_callback_total = capture_service.callback_invocations();
+  const uint64_t capture_valid_total = capture_service.valid_packets();
+  const uint64_t capture_invalid_total = capture_service.normalized_invalid_packets();
   const uint64_t csi_callback_total = csi_callback_total_.load(std::memory_order_relaxed);
   const uint64_t csi_accepted_total = csi_accepted_total_.load(std::memory_order_relaxed);
   const uint64_t csi_filtered_total = csi_filtered_total_.load(std::memory_order_relaxed);
@@ -510,9 +630,9 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
   const uint64_t stream_repeat_total = stream_repeat_total_.load(std::memory_order_relaxed);
   const uint64_t traffic_valid_total = traffic_service.get_packets_received();
   const uint64_t traffic_rx_delta = counter_delta(traffic_valid_total, prev_traffic_rx_total_);
-  const uint64_t tx_success_total = stream_tx_total_;
-  const uint64_t tx_error_total = stream_tx_error_total_;
-  const uint64_t tx_backpressure_total = stream_tx_backpressure_total_;
+  const uint64_t tx_success_total = stream_tx_total_.load(std::memory_order_relaxed);
+  const uint64_t tx_error_total = stream_tx_error_total_.load(std::memory_order_relaxed);
+  const uint64_t tx_backpressure_total = stream_tx_backpressure_total_.load(std::memory_order_relaxed);
   const uint64_t tx_error_delta = counter_delta(tx_error_total, prev_tx_error_total_);
   const uint64_t tx_backpressure_delta = counter_delta(tx_backpressure_total, prev_tx_backpressure_total_);
 
@@ -521,7 +641,7 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
       ESP_LOGI(TAG, "UDP pacing idle, suspending periodic stream telemetry");
       telemetry_paused_no_traffic_ = true;
     }
-    reset_runtime_telemetry_baseline_(traffic_service);
+    reset_runtime_telemetry_baseline_(capture_service, traffic_service);
     last_log_ms_ = now_ms;
     return;
   }
@@ -531,6 +651,9 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
   }
 
   const auto to_pps = [dt_ms](uint64_t delta) { return static_cast<float>(delta) * 1000.0F / static_cast<float>(dt_ms); };
+  const float capture_callback_pps = to_pps(counter_delta(capture_callback_total, prev_capture_callback_total_));
+  const float capture_valid_pps = to_pps(counter_delta(capture_valid_total, prev_capture_valid_total_));
+  const float capture_invalid_pps = to_pps(counter_delta(capture_invalid_total, prev_capture_invalid_total_));
   const float csi_callback_pps = to_pps(counter_delta(csi_callback_total, prev_csi_callback_total_));
   const float csi_accepted_pps = to_pps(counter_delta(csi_accepted_total, prev_csi_accepted_total_));
   const float csi_filtered_pps = to_pps(counter_delta(csi_filtered_total, prev_csi_filtered_total_));
@@ -544,8 +667,8 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
   const uint32_t last_csi_ms = last_csi_ms_.load(std::memory_order_relaxed);
   const uint32_t csi_age_ms =
       (last_csi_ms > 0U && now_ms >= last_csi_ms) ? static_cast<uint32_t>(now_ms - last_csi_ms) : 0U;
-  const uint32_t csi_capture_bad_sc = capture_service.normalized_invalid_packets();
-  const uint32_t csi_capture_valid = capture_service.valid_packets();
+  const uint32_t csi_capture_bad_sc = static_cast<uint32_t>(capture_invalid_total);
+  const uint32_t csi_capture_valid = static_cast<uint32_t>(capture_valid_total);
 
   const bool csi_enabled = capture_service.is_enabled();
   const char *csi_health = !csi_enabled                  ? "not_armed"
@@ -556,7 +679,9 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
 
   if (std::strcmp(csi_health, "ok") == 0 && tx_error_delta == 0U && tx_backpressure_delta == 0U) {
     ESP_LOGI(TAG,
-             "csi_ap=%.0f udp_rx=%.1f udp_tx=%.0f fresh=%.0f age_ms=%" PRIu32,
+             "drv_cb=%.0f cap_valid=%.0f csi_ap=%.0f udp_rx=%.1f udp_tx=%.0f fresh=%.0f age_ms=%" PRIu32,
+             static_cast<double>(capture_callback_pps),
+             static_cast<double>(capture_valid_pps),
              static_cast<double>(csi_accepted_pps),
              static_cast<double>(traffic_rx_pps),
              static_cast<double>(tx_pps),
@@ -564,11 +689,14 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
              csi_age_ms);
   } else {
     ESP_LOGI(TAG,
-             "csi_ap=%.0f csi_filt=%.0f valid=%" PRIu32
+             "drv_cb=%.0f cap_valid=%.0f cap_bad=%.0f csi_ap=%.0f csi_filt=%.0f valid=%" PRIu32
              " bad_sc=%" PRIu32
-             " udp_rx=%.1f udp_tx=%.0f fresh=%.0f"
+             " udp_rx=%.1f udp_tx=%.0f fresh=%.0f repeat=%.0f"
              " tx_err=%.0f/%" PRIu64 " tx_bp=%.0f/%" PRIu64
              " age_ms=%" PRIu32 " heap=%.1f min=%.1f",
+             static_cast<double>(capture_callback_pps),
+             static_cast<double>(capture_valid_pps),
+             static_cast<double>(capture_invalid_pps),
              static_cast<double>(csi_accepted_pps),
              static_cast<double>(csi_filtered_pps),
              csi_capture_valid,
@@ -576,6 +704,7 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
              static_cast<double>(traffic_rx_pps),
              static_cast<double>(tx_pps),
              static_cast<double>(stream_fresh_pps),
+             static_cast<double>(stream_repeat_pps),
              static_cast<double>(tx_error_pps),
              tx_error_total,
              static_cast<double>(tx_backpressure_pps),
@@ -585,6 +714,9 @@ void CsiStreamTransport::log_runtime_telemetry(const CsiCaptureService &capture_
              static_cast<double>(minimum_free_memory_kb()));
   }
 
+  prev_capture_callback_total_ = capture_callback_total;
+  prev_capture_valid_total_ = capture_valid_total;
+  prev_capture_invalid_total_ = capture_invalid_total;
   prev_csi_callback_total_ = csi_callback_total;
   prev_csi_accepted_total_ = csi_accepted_total;
   prev_csi_filtered_total_ = csi_filtered_total;
@@ -605,6 +737,7 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
 
   LatestCsiSample sample;
   bool fresh = false;
+  const uint64_t now_us = monotonic_now_us();
   portENTER_CRITICAL(&latch_lock_);
   const bool valid = latest_csi_.valid;
   if (valid) {
@@ -618,7 +751,32 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
     return 0U;
   }
   if (!fresh) {
-    stream_repeat_total_.fetch_add(1U, std::memory_order_relaxed);
+    if (csi_accepted_total_.load(std::memory_order_relaxed) != 0U) {
+      stream_repeat_total_.fetch_add(1U, std::memory_order_relaxed);
+    }
+    return 0U;
+  }
+  if (sample.captured_at_us == 0U || now_us < sample.captured_at_us ||
+      (now_us - sample.captured_at_us) > kFreshSampleMaxAgeUs) {
+    if (csi_accepted_total_.load(std::memory_order_relaxed) != 0U) {
+      stream_repeat_total_.fetch_add(1U, std::memory_order_relaxed);
+    }
+    return 0U;
+  }
+
+  return build_stream_packet_from_sample_(sample, latest_pacing_rx_total_.load(std::memory_order_relaxed), buffer,
+                                          buffer_len);
+}
+
+size_t CsiStreamTransport::build_stream_packet_from_live_csi_(const wifi_pkt_rx_ctrl_t &rx_ctrl,
+                                                              bool first_word_invalid,
+                                                              const int8_t *normalized_csi,
+                                                              uint16_t normalized_len,
+                                                              uint32_t pacing_rx_total,
+                                                              uint8_t *buffer,
+                                                              size_t buffer_len) {
+  if (buffer == nullptr || buffer_len < kStreamRecordMaxBytes || normalized_csi == nullptr || normalized_len == 0U ||
+      normalized_len > HT20_CSI_LEN) {
     return 0U;
   }
 
@@ -631,7 +789,65 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
   header->flags = 0U;
   header->seq_num = stream_seq_.fetch_add(1U, std::memory_order_relaxed);
   header->device_id = device_id_;
-  header->device_ticks_us = static_cast<uint64_t>(esp_timer_get_time());
+  header->device_ticks_us = monotonic_now_us();
+  header->wifi_rx_ts_us = rx_ctrl.timestamp;
+  header->wifi_rx_start_ts_ns = 0U;
+  header->channel = rx_ctrl.channel;
+  header->rssi_dbm = rx_ctrl.rssi;
+#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || \
+    CONFIG_IDF_TARGET_ESP32C2
+  header->noise_floor_dbm = rx_ctrl.noise_floor;
+#else
+  header->noise_floor_dbm = -128;
+#endif
+  header->tx_backpressure_total = static_cast<uint32_t>(stream_tx_backpressure_total_.load(std::memory_order_relaxed));
+  header->stream_fresh_total =
+      static_cast<uint32_t>(stream_fresh_total_.load(std::memory_order_relaxed) + 1U);
+  header->pacing_rx_total = pacing_rx_total;
+  const StreamPhyMetadata phy = extract_phy_metadata(rx_ctrl);
+  header->phy_mode = static_cast<uint8_t>(phy.mode);
+  header->ltf_type = static_cast<uint8_t>(phy.ltf_type);
+  header->channel_width = static_cast<uint8_t>(phy.channel_width);
+
+  if (first_word_invalid) {
+    header->flags |= STREAM_FLAG_FIRST_WORD_INVALID;
+  }
+  if (header->wifi_rx_ts_us != 0U) {
+    header->flags |= STREAM_FLAG_WIFI_RX_TS_VALID;
+  }
+  if (fill_rx_timestamp_metadata(rx_ctrl, header)) {
+    header->flags |= STREAM_FLAG_WIFI_RX_START_TS_NS_VALID;
+  }
+  header->flags |= STREAM_FLAG_CSI_FRESH;
+  stream_fresh_total_.fetch_add(1U, std::memory_order_relaxed);
+
+  header->csi_len_bytes = static_cast<uint16_t>(
+      build_transport_csi_payload_(normalized_csi, normalized_len, buffer + sizeof(*header), &header->num_subcarriers));
+  if (header->csi_len_bytes == 0U || header->num_subcarriers == 0U) {
+    return 0U;
+  }
+  return sizeof(*header) + header->csi_len_bytes;
+}
+
+size_t CsiStreamTransport::build_stream_packet_from_sample_(const LatestCsiSample &sample,
+                                                            uint32_t pacing_rx_total,
+                                                            uint8_t *buffer,
+                                                            size_t buffer_len) {
+  if (buffer == nullptr || buffer_len < kStreamRecordMaxBytes || !sample.valid || sample.len == 0U ||
+      sample.len > HT20_CSI_LEN) {
+    return 0U;
+  }
+
+  auto *header = reinterpret_cast<CsiStreamHeaderV7 *>(buffer);
+  *header = CsiStreamHeaderV7{};
+  header->magic = STREAM_MAGIC;
+  header->version = STREAM_VERSION;
+  header->header_len = static_cast<uint8_t>(sizeof(*header));
+  header->chip = static_cast<uint8_t>(detect_chip_code());
+  header->flags = 0U;
+  header->seq_num = stream_seq_.fetch_add(1U, std::memory_order_relaxed);
+  header->device_id = device_id_;
+  header->device_ticks_us = monotonic_now_us();
   header->wifi_rx_ts_us = sample.rx_ctrl.timestamp;
   header->wifi_rx_start_ts_ns = 0U;
   header->channel = sample.rx_ctrl.channel;
@@ -642,10 +858,10 @@ size_t CsiStreamTransport::build_stream_packet_(uint8_t *buffer, size_t buffer_l
 #else
   header->noise_floor_dbm = -128;
 #endif
-  header->tx_backpressure_total = stream_tx_backpressure_total_;
+  header->tx_backpressure_total = static_cast<uint32_t>(stream_tx_backpressure_total_.load(std::memory_order_relaxed));
   header->stream_fresh_total =
       static_cast<uint32_t>(stream_fresh_total_.load(std::memory_order_relaxed) + 1U);
-  header->pacing_rx_total = latest_pacing_rx_total_;
+  header->pacing_rx_total = pacing_rx_total;
   const StreamPhyMetadata phy = extract_phy_metadata(sample.rx_ctrl);
   header->phy_mode = static_cast<uint8_t>(phy.mode);
   header->ltf_type = static_cast<uint8_t>(phy.ltf_type);
@@ -689,11 +905,11 @@ void CsiStreamTransport::close_stream_socket_() {
 
 bool CsiStreamTransport::send_stream_datagram_() {
   last_tx_backpressure_ = false;
-  if (collector_ip_addr_ == 0U || !batch_buffer_) {
+  if (collector_ip_addr_.load(std::memory_order_relaxed) == 0U || !batch_buffer_) {
     return false;
   }
   if (!ensure_stream_socket_()) {
-    stream_tx_error_total_++;
+    stream_tx_error_total_.fetch_add(1U, std::memory_order_relaxed);
     return false;
   }
 
@@ -731,22 +947,22 @@ void CsiStreamTransport::drop_stream_batch_() {
 bool CsiStreamTransport::send_datagram_(const void *payload, size_t payload_len) {
   sockaddr_in collector_addr{};
   collector_addr.sin_family = AF_INET;
-  collector_addr.sin_addr.s_addr = collector_ip_addr_;
+  collector_addr.sin_addr.s_addr = collector_ip_addr_.load(std::memory_order_relaxed);
   collector_addr.sin_port = htons(collector_port_);
   const ssize_t sent =
       sendto(stream_sock_, payload, payload_len, 0, reinterpret_cast<const sockaddr *>(&collector_addr), sizeof(collector_addr));
   if (sent == static_cast<ssize_t>(payload_len)) {
-    stream_tx_total_++;
+    stream_tx_total_.fetch_add(1U, std::memory_order_relaxed);
     return true;
   }
 
   const int send_errno = errno;
-  stream_tx_error_total_++;
+  stream_tx_error_total_.fetch_add(1U, std::memory_order_relaxed);
   const bool backpressure =
       send_errno == ENOMEM || send_errno == ENOBUFS || send_errno == EAGAIN || send_errno == EWOULDBLOCK;
   if (backpressure) {
     last_tx_backpressure_ = true;
-    stream_tx_backpressure_total_++;
+    stream_tx_backpressure_total_.fetch_add(1U, std::memory_order_relaxed);
     return false;
   }
 
@@ -754,16 +970,152 @@ bool CsiStreamTransport::send_datagram_(const void *payload, size_t payload_len)
   return false;
 }
 
-void CsiStreamTransport::reset_runtime_telemetry_baseline_(const CsiTrafficService &traffic_service) {
+bool CsiStreamTransport::direct_credit_streaming_enabled_() const {
+#if CONFIG_IDF_TARGET_ESP32C3
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool CsiStreamTransport::consume_pending_pacing_credit_() {
+  uint32_t available = pending_pacing_credits_.load(std::memory_order_relaxed);
+  while (available > 0U) {
+    if (pending_pacing_credits_.compare_exchange_weak(available, available - 1U, std::memory_order_relaxed)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool CsiStreamTransport::ensure_direct_tx_worker_() {
+#if defined(ESP_PLATFORM)
+  if (!direct_credit_streaming_enabled_()) {
+    return false;
+  }
+  if (direct_tx_task_running_.load(std::memory_order_relaxed)) {
+    return true;
+  }
+
+  direct_tx_free_slots_ = xQueueCreate(kDirectTxQueueSlots, sizeof(uint8_t));
+  direct_tx_ready_slots_ = xQueueCreate(kDirectTxQueueSlots, sizeof(uint8_t));
+  if (direct_tx_free_slots_ == nullptr || direct_tx_ready_slots_ == nullptr) {
+    return false;
+  }
+  for (uint8_t idx = 0U; idx < kDirectTxQueueSlots; idx++) {
+    if (xQueueSend(direct_tx_free_slots_, &idx, 0) != pdTRUE) {
+      return false;
+    }
+  }
+
+  direct_tx_task_running_.store(true, std::memory_order_relaxed);
+  if (xTaskCreate(&CsiStreamTransport::direct_tx_task_entry_,
+                  "espectre_stream_tx",
+                  4096,
+                  this,
+                  7,
+                  &direct_tx_task_handle_) != pdPASS) {
+    direct_tx_task_running_.store(false, std::memory_order_relaxed);
+    return false;
+  }
+  return true;
+#else
+  return false;
+#endif
+}
+
+void CsiStreamTransport::reset_direct_tx_queue_() {
+#if defined(ESP_PLATFORM)
+  if (direct_tx_free_slots_ == nullptr || direct_tx_ready_slots_ == nullptr) {
+    return;
+  }
+
+  uint8_t slot_idx = 0U;
+  while (xQueueReceive(direct_tx_ready_slots_, &slot_idx, 0) == pdTRUE) {
+    (void)xQueueSend(direct_tx_free_slots_, &slot_idx, 0);
+  }
+#endif
+}
+
+void CsiStreamTransport::direct_tx_task_entry_(void *context) {
+#if defined(ESP_PLATFORM)
+  auto *transport = static_cast<CsiStreamTransport *>(context);
+  if (transport != nullptr) {
+    transport->run_direct_tx_task_();
+  }
+  vTaskDelete(nullptr);
+#else
+  (void)context;
+#endif
+}
+
+void CsiStreamTransport::run_direct_tx_task_() {
+#if defined(ESP_PLATFORM)
+  int sock = -1;
+  while (direct_tx_task_running_.load(std::memory_order_relaxed)) {
+    uint8_t slot_idx = 0U;
+    if (xQueueReceive(direct_tx_ready_slots_, &slot_idx, pdMS_TO_TICKS(250)) != pdTRUE) {
+      continue;
+    }
+
+    DirectTxSlot &slot = direct_tx_slots_[slot_idx];
+    const uint32_t collector_ip = collector_ip_addr_.load(std::memory_order_relaxed);
+    if (collector_ip == 0U) {
+      (void)xQueueSend(direct_tx_free_slots_, &slot_idx, 0);
+      continue;
+    }
+
+    if (sock < 0) {
+      sock = create_stream_socket();
+    }
+
+    if (sock >= 0) {
+      sockaddr_in collector_addr{};
+      collector_addr.sin_family = AF_INET;
+      collector_addr.sin_addr.s_addr = collector_ip;
+      collector_addr.sin_port = htons(collector_port_);
+      const ssize_t sent =
+          sendto(sock, slot.packet.data(), slot.packet_len, 0, reinterpret_cast<const sockaddr *>(&collector_addr),
+                 sizeof(collector_addr));
+      if (sent == static_cast<ssize_t>(slot.packet_len)) {
+        stream_tx_total_.fetch_add(1U, std::memory_order_relaxed);
+      } else {
+        stream_tx_error_total_.fetch_add(1U, std::memory_order_relaxed);
+        const int send_errno = errno;
+        if (send_errno == ENOMEM || send_errno == ENOBUFS || send_errno == EAGAIN || send_errno == EWOULDBLOCK) {
+          stream_tx_backpressure_total_.fetch_add(1U, std::memory_order_relaxed);
+        } else {
+          close(sock);
+          sock = -1;
+        }
+      }
+    } else {
+      stream_tx_error_total_.fetch_add(1U, std::memory_order_relaxed);
+    }
+
+    (void)xQueueSend(direct_tx_free_slots_, &slot_idx, 0);
+  }
+
+  if (sock >= 0) {
+    close(sock);
+  }
+#endif
+}
+
+void CsiStreamTransport::reset_runtime_telemetry_baseline_(const CsiCaptureService &capture_service,
+                                                           const CsiTrafficService &traffic_service) {
+  prev_capture_callback_total_ = capture_service.callback_invocations();
+  prev_capture_valid_total_ = capture_service.valid_packets();
+  prev_capture_invalid_total_ = capture_service.normalized_invalid_packets();
   prev_csi_callback_total_ = csi_callback_total_.load(std::memory_order_relaxed);
   prev_csi_accepted_total_ = csi_accepted_total_.load(std::memory_order_relaxed);
   prev_csi_filtered_total_ = csi_filtered_total_.load(std::memory_order_relaxed);
   prev_stream_fresh_total_ = stream_fresh_total_.load(std::memory_order_relaxed);
   prev_stream_repeat_total_ = stream_repeat_total_.load(std::memory_order_relaxed);
   prev_traffic_rx_total_ = traffic_service.get_packets_received();
-  prev_tx_success_total_ = stream_tx_total_;
-  prev_tx_error_total_ = stream_tx_error_total_;
-  prev_tx_backpressure_total_ = stream_tx_backpressure_total_;
+  prev_tx_success_total_ = stream_tx_total_.load(std::memory_order_relaxed);
+  prev_tx_error_total_ = stream_tx_error_total_.load(std::memory_order_relaxed);
+  prev_tx_backpressure_total_ = stream_tx_backpressure_total_.load(std::memory_order_relaxed);
   prev_log_sample_ms_ = static_cast<uint64_t>(monotonic_now_ms());
 }
 

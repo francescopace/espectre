@@ -14,6 +14,7 @@
 #include "runtime_config_utils.h"
 #include "mqtt_payload_assembler.h"
 #include "runtime_diagnostics.h"
+#include "runtime_time.h"
 #include "wifi_csi_interface.h"
 
 #include <algorithm>
@@ -91,64 +92,12 @@ void test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi(void) {
     TEST_ASSERT_EQUAL(ESP_OK, wifi.set_csi(false));
 }
 
-void test_original_esp32_csi_config_captures_legacy_and_ht_ltf(void) {
+void test_original_esp32_csi_config_captures_ht_ltf_only(void) {
     const wifi_csi_config_t config = build_ht20_csi_config();
 
-    TEST_ASSERT_TRUE(config.lltf_en);
+    TEST_ASSERT_FALSE(config.lltf_en);
     TEST_ASSERT_TRUE(config.htltf_en);
     TEST_ASSERT_FALSE(config.stbc_htltf2_en);
-}
-
-void test_original_esp32_csi_capture_preserves_ht_ltf_from_combined_payload(void) {
-    CsiCaptureService capture_service;
-    CapturedCsiPacket captured;
-    capture_service.init();
-    capture_service.set_packet_callback(capture_csi_packet, &captured);
-
-    int8_t csi_buf[HT20_CSI_LEN_DOUBLE];
-    std::fill_n(csi_buf, HT20_CSI_LEN, static_cast<int8_t>(11));
-    std::fill_n(csi_buf + HT20_CSI_LEN, HT20_CSI_LEN, static_cast<int8_t>(22));
-    wifi_csi_info_t csi_info{};
-    csi_info.buf = csi_buf;
-    csi_info.len = HT20_CSI_LEN_DOUBLE;
-    csi_info.first_word_invalid = true;
-    csi_info.rx_ctrl.sig_mode = 1U;
-
-    capture_service.process_packet(&csi_info);
-
-    TEST_ASSERT_EQUAL_INT8(22, captured.first_value);
-    TEST_ASSERT_EQUAL(HT20_CSI_LEN, captured.info_len);
-    TEST_ASSERT_EQUAL(HT20_CSI_LEN, captured.normalized_len);
-    TEST_ASSERT_FALSE(captured.first_word_invalid);
-    TEST_ASSERT_EQUAL(1, capture_service.valid_packets());
-}
-
-void test_original_esp32_csi_capture_rearms_after_sustained_pacing_deficit(void) {
-    CaptureWiFiMock wifi;
-    CsiCaptureService capture_service;
-    capture_service.init(&wifi);
-    TEST_ASSERT_EQUAL(ESP_OK, capture_service.enable());
-
-    TEST_ASSERT_TRUE(capture_service.maintain_pacing_health(0U, 1000U) ==
-                     CsiCaptureService::HealthAction::NONE);
-    TEST_ASSERT_TRUE(capture_service.maintain_pacing_health(200U, 3000U) ==
-                     CsiCaptureService::HealthAction::NONE);
-    TEST_ASSERT_TRUE(capture_service.maintain_pacing_health(400U, 5000U) ==
-                     CsiCaptureService::HealthAction::REARMED);
-
-    TEST_ASSERT_TRUE(wifi.enabled);
-    TEST_ASSERT_EQUAL(2, wifi.configure_calls);
-    TEST_ASSERT_EQUAL(2, wifi.enable_calls);
-    TEST_ASSERT_EQUAL(1, wifi.disable_calls);
-
-    TEST_ASSERT_TRUE(capture_service.maintain_pacing_health(600U, 7000U) ==
-                     CsiCaptureService::HealthAction::NONE);
-    TEST_ASSERT_TRUE(capture_service.maintain_pacing_health(800U, 9000U) ==
-                     CsiCaptureService::HealthAction::NONE);
-    TEST_ASSERT_TRUE(capture_service.maintain_pacing_health(1000U, 15000U) ==
-                     CsiCaptureService::HealthAction::REARMED);
-    TEST_ASSERT_EQUAL(3, wifi.enable_calls);
-    TEST_ASSERT_EQUAL(2, wifi.disable_calls);
 }
 
 void test_csi_stream_transport_serializes_v7_phy_metadata(void) {
@@ -165,29 +114,73 @@ void test_csi_stream_transport_serializes_v7_phy_metadata(void) {
     const NormalizedCSIPayload normalized{csi.data(), csi.size(), NormalizedCSIPayloadTag::NONE};
     std::array<uint8_t, sizeof(CsiStreamHeaderV7) + HT20_CSI_LEN> record{};
 
-    csi_info.rx_ctrl.sig_mode = 0U;
+    csi_info.rx_ctrl.sig_mode = 1U;
+    csi_info.rx_ctrl.cwb = 0U;
     transport.handle_csi_packet(&csi_info, normalized, true);
+    transport.latest_csi_.captured_at_us = monotonic_now_us();
     size_t record_len = transport.build_stream_packet_(record.data(), record.size());
     const auto *header = reinterpret_cast<const CsiStreamHeaderV7 *>(record.data());
 
     TEST_ASSERT_EQUAL(sizeof(record), record_len);
     TEST_ASSERT_EQUAL(STREAM_VERSION, header->version);
     TEST_ASSERT_EQUAL(sizeof(CsiStreamHeaderV7), header->header_len);
-    TEST_ASSERT_EQUAL(static_cast<uint8_t>(StreamPhyMode::LEGACY), header->phy_mode);
-    TEST_ASSERT_EQUAL(static_cast<uint8_t>(StreamLtfType::LLTF), header->ltf_type);
-    TEST_ASSERT_EQUAL(static_cast<uint8_t>(StreamChannelWidth::MHZ_20), header->channel_width);
-    TEST_ASSERT_EQUAL_INT8(17, static_cast<int8_t>(record[sizeof(CsiStreamHeaderV7)]));
-
-    csi_info.rx_ctrl.sig_mode = 1U;
-    csi_info.rx_ctrl.cwb = 0U;
-    transport.handle_csi_packet(&csi_info, normalized, true);
-    record_len = transport.build_stream_packet_(record.data(), record.size());
-    header = reinterpret_cast<const CsiStreamHeaderV7 *>(record.data());
-
-    TEST_ASSERT_EQUAL(sizeof(record), record_len);
     TEST_ASSERT_EQUAL(static_cast<uint8_t>(StreamPhyMode::HT), header->phy_mode);
     TEST_ASSERT_EQUAL(static_cast<uint8_t>(StreamLtfType::HT_LTF), header->ltf_type);
     TEST_ASSERT_EQUAL(static_cast<uint8_t>(StreamChannelWidth::MHZ_20), header->channel_width);
+    TEST_ASSERT_EQUAL_INT8(17, static_cast<int8_t>(record[sizeof(CsiStreamHeaderV7)]));
+}
+
+void test_csi_stream_transport_prefers_latest_fresh_sample(void) {
+    CsiStreamTransport transport;
+    transport.configure(0x1122334455667788ULL, 5001U, 1000U, 1U);
+    transport.reset_session();
+
+    std::array<int8_t, HT20_CSI_LEN> csi_a{};
+    std::array<int8_t, HT20_CSI_LEN> csi_b{};
+    csi_a[0] = 11;
+    csi_b[0] = 22;
+
+    wifi_csi_info_t csi_info{};
+    csi_info.len = HT20_CSI_LEN;
+    const NormalizedCSIPayload normalized_a{csi_a.data(), csi_a.size(), NormalizedCSIPayloadTag::NONE};
+    const NormalizedCSIPayload normalized_b{csi_b.data(), csi_b.size(), NormalizedCSIPayloadTag::NONE};
+
+    csi_info.buf = csi_a.data();
+    transport.handle_csi_packet(&csi_info, normalized_a, true);
+    csi_info.buf = csi_b.data();
+    transport.handle_csi_packet(&csi_info, normalized_b, true);
+    transport.latest_csi_.captured_at_us = monotonic_now_us();
+
+    std::array<uint8_t, sizeof(CsiStreamHeaderV7) + HT20_CSI_LEN> record{};
+    const size_t record_len = transport.build_stream_packet_(record.data(), record.size());
+
+    TEST_ASSERT_EQUAL(sizeof(record), record_len);
+    TEST_ASSERT_EQUAL_INT8(22, static_cast<int8_t>(record[sizeof(CsiStreamHeaderV7)]));
+    TEST_ASSERT_EQUAL(2U, transport.latest_csi_sent_total_);
+}
+
+void test_csi_stream_transport_drops_stale_latest_sample(void) {
+    CsiStreamTransport transport;
+    transport.configure(0x1122334455667788ULL, 5001U, 1000U, 1U);
+    transport.reset_session();
+
+    std::array<int8_t, HT20_CSI_LEN> csi{};
+    csi[0] = 33;
+    wifi_csi_info_t csi_info{};
+    csi_info.buf = csi.data();
+    csi_info.len = HT20_CSI_LEN;
+    const NormalizedCSIPayload normalized{csi.data(), csi.size(), NormalizedCSIPayloadTag::NONE};
+
+    transport.handle_csi_packet(&csi_info, normalized, true);
+    TEST_ASSERT_TRUE(transport.latest_csi_.valid);
+    transport.latest_csi_.captured_at_us = 0U;
+
+    std::array<uint8_t, sizeof(CsiStreamHeaderV7) + HT20_CSI_LEN> record{};
+    const size_t record_len = transport.build_stream_packet_(record.data(), record.size());
+
+    TEST_ASSERT_EQUAL(0U, record_len);
+    TEST_ASSERT_EQUAL(1U, transport.latest_csi_sent_total_);
+    TEST_ASSERT_EQUAL(1ULL, transport.stream_repeat_total_.load(std::memory_order_relaxed));
 }
 
 void test_runtime_config_utils_validate_and_name_values(void) {
@@ -254,10 +247,10 @@ void test_mqtt_payload_assembler_rejects_invalid_fragments(void) {
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi);
-    RUN_TEST(test_original_esp32_csi_config_captures_legacy_and_ht_ltf);
-    RUN_TEST(test_original_esp32_csi_capture_preserves_ht_ltf_from_combined_payload);
-    RUN_TEST(test_original_esp32_csi_capture_rearms_after_sustained_pacing_deficit);
+    RUN_TEST(test_original_esp32_csi_config_captures_ht_ltf_only);
     RUN_TEST(test_csi_stream_transport_serializes_v7_phy_metadata);
+    RUN_TEST(test_csi_stream_transport_prefers_latest_fresh_sample);
+    RUN_TEST(test_csi_stream_transport_drops_stale_latest_sample);
     RUN_TEST(test_runtime_config_utils_validate_and_name_values);
     RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);
     RUN_TEST(test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads);

@@ -67,6 +67,10 @@ void CsiTrafficService::loop() {
   }
 }
 
+void CsiTrafficService::set_packet_callback(udp_listener_packet_callback_t callback, void *context) {
+  udp_listener_.set_packet_callback(callback, context);
+}
+
 bool CsiTrafficService::is_running() const {
   switch (mode_) {
     case CsiTrafficMode::INTERNAL:

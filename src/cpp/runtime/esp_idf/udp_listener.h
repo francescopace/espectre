@@ -19,6 +19,8 @@
 
 namespace espectre {
 
+using udp_listener_packet_callback_t = void (*)(void *, const sockaddr_in &, uint64_t);
+
 /**
  * UDP Listener for External Traffic Mode
  * 
@@ -36,6 +38,10 @@ class UDPListener {
   void init(uint16_t port = 5555);
   void set_multicast_group(const char *group);
   void set_expected_payload(const uint8_t *payload, size_t len);
+  void set_packet_callback(udp_listener_packet_callback_t callback, void *context = nullptr) {
+    packet_callback_ = callback;
+    packet_callback_context_ = context;
+  }
   
   /**
    * Start listening for UDP packets
@@ -82,6 +88,8 @@ class UDPListener {
   size_t expected_payload_len_{0U};
   std::atomic<uint32_t> last_sender_ipv4_{0U};
   std::atomic<uint16_t> last_sender_port_{0U};
+  udp_listener_packet_callback_t packet_callback_{nullptr};
+  void *packet_callback_context_{nullptr};
 };
 
 }  // namespace espectre

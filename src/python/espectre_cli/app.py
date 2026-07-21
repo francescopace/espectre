@@ -91,20 +91,13 @@ def _add_collect_parser(
         "--pps",
         type=int,
         default=100,
-        help="UDP pacing rate in packets per second (adaptive target by default, default: 100)",
+        help="Target delivered records per second; adaptive pacing may send up to 1.5x to compensate path loss (default: 100)",
     )
-    pacing_mode = collect_parser.add_mutually_exclusive_group()
-    pacing_mode.add_argument(
-        "--adaptive",
-        dest="adaptive",
-        action="store_true",
-        help="Enable adaptive pacing from firmware stream-health feedback (default)",
-    )
-    pacing_mode.add_argument(
+    collect_parser.add_argument(
         "--fixed",
         dest="adaptive",
         action="store_false",
-        help="Use a fixed UDP pacing rate without adaptive backpressure feedback",
+        help="Use a fixed UDP pacing rate instead of the default adaptive pacing (slows on TX backpressure, boosts above target on path loss)",
     )
     collect_parser.add_argument(
         "--detector",

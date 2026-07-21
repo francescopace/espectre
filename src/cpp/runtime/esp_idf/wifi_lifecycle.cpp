@@ -9,6 +9,7 @@
 #include "wifi_lifecycle.h"
 #include "espectre_log.h"
 #include "esp_wifi.h"
+#include "sdkconfig.h"
 
 #if defined(CONFIG_ESP_COEX_SW_COEXIST_ENABLE) && __has_include("esp_coexist.h")
 #include "esp_coexist.h"
@@ -23,7 +24,7 @@ namespace {
 
 // ESP-IDF exposes 802.11n on 2.4 GHz through the supported b/g/n protocol
 // combination. WIFI_PROTOCOL_11N alone is not a valid station mode on the
-// published ESPectre targets.
+// published ESPectre targets, so we prefer it first and fall back to b/g/n.
 constexpr uint16_t WIFI_PROTOCOL_CSI_2G = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
 constexpr wifi_bandwidth_t WIFI_BANDWIDTH_CSI = WIFI_BW_HT20;
 
@@ -55,7 +56,16 @@ esp_err_t set_wifi_protocol_for_csi_() {
   if (esp_wifi_get_protocol(WIFI_IF_STA, &current_protocol) == ESP_OK && current_protocol == WIFI_PROTOCOL_CSI_2G) {
     return ESP_OK;
   }
-  return esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G);
+  esp_err_t ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11N);
+  if (ret == ESP_OK) {
+    return ESP_OK;
+  }
+
+  ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G);
+  if (ret == ESP_OK) {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "11n-only protocol not accepted, using 11b/g/n fallback");
+  }
+  return ret;
 }
 
 esp_err_t get_wifi_protocol_for_log_(uint16_t *protocol) {
@@ -121,12 +131,6 @@ esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy() {
 }
 
 esp_err_t WiFiLifecycleManager::apply_started_csi_policy() {
-  const esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
-  if (ps_err != ESP_OK) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to apply Wi-Fi power save profile for CSI: %s",
-             esp_err_to_name(ps_err));
-  }
-
 #ifdef ESPECTRE_HAVE_ESP_COEXIST
   const esp_err_t coex_err = esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
   if (coex_err != ESP_OK) {
@@ -143,7 +147,7 @@ esp_err_t WiFiLifecycleManager::apply_started_csi_policy() {
   }
   log_csi_runtime_state(WIFI_LIFECYCLE_TAG);
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "Started Wi-Fi CSI policy applied");
-  return ps_err;
+  return ESP_OK;
 }
 
 // Configure WiFi for optimal CSI capture
@@ -160,24 +164,7 @@ esp_err_t WiFiLifecycleManager::init() {
     return policy_err;
   }
 
-  // ESPHome may restore its configured power-save mode after STA_START.
-  // Reasserting WIFI_PS_NONE after GOT_IP is safe and does not renegotiate
-  // protocol or bandwidth, unlike applying the complete radio policy here.
-  const esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
-  if (ps_err != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to disable Wi-Fi power save: %s",
-             esp_err_to_name(ps_err));
-    return ps_err;
-  }
-
-  // IMPORTANT: Promiscuous mode MUST be called BEFORE configuring CSI
-  // This initializes internal WiFi structures required for CSI, even when set to false
-  const esp_err_t ret = esp_wifi_set_promiscuous(false);
-  if (ret != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set promiscuous mode: 0x%x", ret);
-    return ret;
-  }
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi CSI lifecycle ready: promiscuous=disabled");
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi CSI lifecycle ready");
   log_csi_runtime_state(WIFI_LIFECYCLE_TAG);
   ready_ = true;
 

@@ -190,6 +190,9 @@ void UDPListener::loop() {
     packets_received_++;
     last_sender_ipv4_.store(src_addr.sin_addr.s_addr, std::memory_order_relaxed);
     last_sender_port_.store(src_addr.sin_port, std::memory_order_relaxed);
+    if (packet_callback_ != nullptr) {
+      packet_callback_(packet_callback_context_, src_addr, packets_received_);
+    }
   }
 }
 

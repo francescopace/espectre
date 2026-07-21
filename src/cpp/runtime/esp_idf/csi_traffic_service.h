@@ -33,6 +33,7 @@ class CsiTrafficService {
   bool start(uint32_t gateway_addr = 0U);
   void stop();
   void loop();
+  void set_packet_callback(udp_listener_packet_callback_t callback, void *context = nullptr);
 
   bool is_running() const;
   bool get_last_sender(sockaddr_in *out_addr) const;

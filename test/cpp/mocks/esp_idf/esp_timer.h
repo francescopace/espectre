@@ -65,7 +65,7 @@ static inline esp_err_t esp_timer_delete(esp_timer_handle_t timer) {
 
 static inline int64_t esp_timer_get_time(void) {
   static int64_t mock_time_us = 0;
-  mock_time_us += 100000;  // Advance 100 ms on each call.
+  mock_time_us += 1000;  // Advance 1 ms on each call for freshness-sensitive tests.
   return mock_time_us;
 }
 

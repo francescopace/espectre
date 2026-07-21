@@ -123,6 +123,20 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
     return err;
   }
 
+  err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "esp_wifi_set_ps failed: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  // Keep the CSI bootstrap closer to the historical streamer path: initialize
+  // the internal Wi-Fi CSI structures before the station starts associating.
+  err = esp_wifi_set_promiscuous(false);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "esp_wifi_set_promiscuous failed: %s", esp_err_to_name(err));
+    return err;
+  }
+
   if (config_.manage_csi_lifecycle) {
     err = wifi_lifecycle_.register_handlers([this](const esp_netif_ip_info_t &) {
                                               handle_lifecycle_connected_();

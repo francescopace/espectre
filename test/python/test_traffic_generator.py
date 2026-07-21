@@ -367,25 +367,39 @@ class TestTrafficRateControllerParity:
 
 
 class TestCsiPacingHealthMonitor:
-    """Original ESP32 CSI rearm after sustained pacing deficit."""
+    """Passive stall telemetry for original ESP32 CSI pacing deficits."""
 
-    def test_rearms_after_two_low_supply_windows(self):
-        wlan = MagicMock()
+    def test_reports_stall_after_two_low_supply_windows(self, capsys):
         monitor = CsiPacingHealthMonitor(enabled=True)
 
-        assert monitor.maintain(wlan, 0, 0, 0) == CsiPacingHealthMonitor.ACTION_NONE
-        assert monitor.maintain(wlan, 40, 10, 2000) == CsiPacingHealthMonitor.ACTION_NONE
-        assert monitor.maintain(wlan, 80, 20, 4000) == CsiPacingHealthMonitor.ACTION_REARMED
-        wlan.csi_disable.assert_called_once()
-        wlan.csi_enable.assert_called_once()
+        assert monitor.maintain(0, 0, 0) == CsiPacingHealthMonitor.ACTION_NONE
+        assert monitor.maintain(40, 10, 2000) == CsiPacingHealthMonitor.ACTION_NONE
+        assert monitor.maintain(80, 20, 4000) == CsiPacingHealthMonitor.ACTION_STALL_REPORTED
+        assert "CSI callback supply stalled" in capsys.readouterr().out
+
+    def test_stall_report_respects_log_cooldown(self):
+        monitor = CsiPacingHealthMonitor(enabled=True)
+
+        monitor.maintain(0, 0, 0)
+        monitor.maintain(40, 10, 2000)
+        assert monitor.maintain(80, 20, 4000) == CsiPacingHealthMonitor.ACTION_STALL_REPORTED
+        assert monitor.maintain(120, 30, 6000) == CsiPacingHealthMonitor.ACTION_NONE
+        assert monitor.maintain(160, 40, 8000) == CsiPacingHealthMonitor.ACTION_NONE
+        assert monitor.maintain(200, 50, 14000) == CsiPacingHealthMonitor.ACTION_STALL_REPORTED
+
+    def test_healthy_supply_resets_low_windows(self):
+        monitor = CsiPacingHealthMonitor(enabled=True)
+
+        monitor.maintain(0, 0, 0)
+        assert monitor.maintain(40, 10, 2000) == CsiPacingHealthMonitor.ACTION_NONE
+        assert monitor.maintain(80, 50, 4000) == CsiPacingHealthMonitor.ACTION_NONE
+        assert monitor.maintain(120, 60, 6000) == CsiPacingHealthMonitor.ACTION_NONE
 
     def test_disabled_monitor_is_noop(self):
-        wlan = MagicMock()
         monitor = CsiPacingHealthMonitor(enabled=False)
 
-        assert monitor.maintain(wlan, 0, 0, 0) == CsiPacingHealthMonitor.ACTION_NONE
-        assert monitor.maintain(wlan, 40, 10, 2000) == CsiPacingHealthMonitor.ACTION_NONE
-        wlan.csi_disable.assert_not_called()
+        assert monitor.maintain(0, 0, 0) == CsiPacingHealthMonitor.ACTION_NONE
+        assert monitor.maintain(40, 10, 2000) == CsiPacingHealthMonitor.ACTION_NONE
 
 
 class TestTrafficGeneratorDnsTask:

@@ -420,22 +420,19 @@ def _traffic_adaptive_enabled():
 def _maintain_traffic_and_csi_health(
     traffic_gen,
     csi_health,
-    wlan,
     *,
     accepted_csi_total,
     callback_total,
     now_us,
 ):
-    """Adapt send pacing and rearm original ESP32 CSI when callbacks stall."""
+    """Adapt send pacing and report sustained original ESP32 CSI stalls."""
     if traffic_gen is None or not traffic_gen.is_running():
         return
     traffic_gen.observe_accepted_csi(accepted_csi_total, now_us=now_us)
     csi_health.maintain(
-        wlan,
         traffic_gen.get_packet_count(),
         callback_total,
         time.ticks_ms(),
-        buffer_size=config.CSI_BUFFER_SIZE,
     )
 
 
@@ -614,7 +611,6 @@ def main():
                     _maintain_traffic_and_csi_health(
                         traffic_gen,
                         csi_health,
-                        wlan,
                         accepted_csi_total=processed_packet_count,
                         callback_total=callback_packet_count,
                         now_us=loop_start,
@@ -629,7 +625,6 @@ def main():
                     _maintain_traffic_and_csi_health(
                         traffic_gen,
                         csi_health,
-                        wlan,
                         accepted_csi_total=processed_packet_count,
                         callback_total=callback_packet_count,
                         now_us=loop_start,
@@ -654,7 +649,6 @@ def main():
                 _maintain_traffic_and_csi_health(
                     traffic_gen,
                     csi_health,
-                    wlan,
                     accepted_csi_total=processed_packet_count,
                     callback_total=callback_packet_count,
                     now_us=loop_start,
@@ -728,7 +722,6 @@ def main():
                 _maintain_traffic_and_csi_health(
                     traffic_gen,
                     csi_health,
-                    wlan,
                     accepted_csi_total=processed_packet_count,
                     callback_total=callback_packet_count,
                     now_us=loop_start,

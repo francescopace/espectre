@@ -354,14 +354,6 @@ def test_collect_parser_defaults_to_adaptive() -> None:
     assert args.adaptive is True
 
 
-def test_collect_parser_accepts_adaptive() -> None:
-    parser = build_parser()
-
-    args = parser.parse_args(["collect", "--target", "192.168.1.15", "--adaptive"])
-
-    assert args.adaptive is True
-
-
 def test_collect_parser_accepts_fixed() -> None:
     parser = build_parser()
 
@@ -370,11 +362,11 @@ def test_collect_parser_accepts_fixed() -> None:
     assert args.adaptive is False
 
 
-def test_collect_parser_rejects_adaptive_and_fixed_together() -> None:
+def test_collect_parser_rejects_removed_adaptive_option() -> None:
     parser = build_parser()
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["collect", "--target", "192.168.1.15", "--adaptive", "--fixed"])
+        parser.parse_args(["collect", "--target", "192.168.1.15", "--adaptive"])
 
 
 def test_collect_parser_accepts_detector_choice() -> None:

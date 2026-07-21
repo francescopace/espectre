@@ -60,9 +60,11 @@ class StreamEspIdfRuntime : public IEspectreRuntime {
   void transition_to_(WorkflowState next, const char *reason);
   void notify_fault_(const char *message);
   void handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized);
+  void handle_pacing_packet_(const sockaddr_in &sender_addr, uint64_t pacing_total);
   static void capture_packet_callback_(void *context,
                                        const wifi_csi_info_t *info,
                                        const NormalizedCSIPayload &normalized);
+  static void pacing_packet_callback_(void *context, const sockaddr_in &sender_addr, uint64_t pacing_total);
 
   RuntimeConfig config_{};
   RuntimeSnapshot snapshot_{};

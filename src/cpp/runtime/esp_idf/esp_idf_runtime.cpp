@@ -152,11 +152,6 @@ void EspIdfRuntime::loop() {
                                              detection_timing.maximum_us);
   }
   csi_traffic_service_.loop();
-  const CsiCaptureService::HealthAction health_action = csi_pipeline_.maintain_capture_health(
-      csi_traffic_service_.get_pacing_total(), monotonic_now_ms());
-  if (health_action == CsiCaptureService::HealthAction::REARM_FAILED) {
-    notify_fault_("Failed to recover stalled CSI capture");
-  }
 }
 
 void EspIdfRuntime::log_calibration_progress_(uint8_t percent, uint32_t packets, uint16_t target_packets) {

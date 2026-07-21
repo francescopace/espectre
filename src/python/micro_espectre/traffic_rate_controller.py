@@ -151,24 +151,29 @@ class TrafficRateController:
 
 
 class CsiPacingHealthMonitor:
-    """Rearm original ESP32 CSI capture after sustained callback deficit under pacing."""
+    """Report sustained CSI callback deficits under pacing on the original ESP32.
+
+    Passive telemetry only: instrumented runs showed capture is never wedged
+    when callbacks stall (every collapse was AP-side), so the rearm action was
+    removed per the 2026-07-20 broadcast-pacing ADR. Stalls are logged so the
+    condition stays observable.
+    """
 
     SAMPLE_INTERVAL_MS = 2000
-    REARM_COOLDOWN_MS = 10000
+    STALL_LOG_COOLDOWN_MS = 10000
     MIN_PACING_PACKETS = 20
     MIN_CALLBACK_PERCENT = 50
-    LOW_SUPPLY_WINDOWS_BEFORE_REARM = 2
+    LOW_SUPPLY_WINDOWS_BEFORE_REPORT = 2
 
     ACTION_NONE = "none"
-    ACTION_REARMED = "rearmed"
-    ACTION_REARM_FAILED = "rearm_failed"
+    ACTION_STALL_REPORTED = "stall_reported"
 
     def __init__(self, enabled=False):
         self.enabled = bool(enabled)
         self.prev_pacing_total = 0
         self.prev_callback_total = 0
         self.last_sample_ms = 0
-        self.last_rearm_ms = 0
+        self.last_stall_log_ms = 0
         self.low_supply_windows = 0
         self.baseline_valid = False
 
@@ -176,12 +181,12 @@ class CsiPacingHealthMonitor:
         self.prev_pacing_total = 0
         self.prev_callback_total = 0
         self.last_sample_ms = 0
-        self.last_rearm_ms = 0
+        self.last_stall_log_ms = 0
         self.low_supply_windows = 0
         self.baseline_valid = False
 
-    def maintain(self, wlan, pacing_total, callback_total, now_ms, buffer_size=8):
-        if not self.enabled or wlan is None:
+    def maintain(self, pacing_total, callback_total, now_ms):
+        if not self.enabled:
             return self.ACTION_NONE
 
         pacing_total = int(pacing_total)
@@ -219,28 +224,20 @@ class CsiPacingHealthMonitor:
             self.low_supply_windows = 0
             return self.ACTION_NONE
 
-        if self.low_supply_windows < self.LOW_SUPPLY_WINDOWS_BEFORE_REARM:
+        if self.low_supply_windows < self.LOW_SUPPLY_WINDOWS_BEFORE_REPORT:
             self.low_supply_windows += 1
-        if self.low_supply_windows < self.LOW_SUPPLY_WINDOWS_BEFORE_REARM:
+        if self.low_supply_windows < self.LOW_SUPPLY_WINDOWS_BEFORE_REPORT:
             return self.ACTION_NONE
         if (
-            self.last_rearm_ms != 0
-            and now_ms - self.last_rearm_ms < self.REARM_COOLDOWN_MS
+            self.last_stall_log_ms != 0
+            and now_ms - self.last_stall_log_ms < self.STALL_LOG_COOLDOWN_MS
         ):
             return self.ACTION_NONE
 
         print(
-            "CSI callback supply stalled: callbacks=%d pacing=%d; rearming CSI"
+            "CSI callback supply stalled: callbacks=%d pacing=%d"
             % (callback_delta, pacing_delta)
         )
-        self.last_rearm_ms = now_ms
+        self.last_stall_log_ms = now_ms
         self.low_supply_windows = 0
-        try:
-            wlan.csi_disable()
-            wlan.csi_enable(buffer_size=buffer_size)
-        except Exception as exc:
-            print("CSI rearm failed: %s" % exc)
-            return self.ACTION_REARM_FAILED
-
-        print("CSI rearmed after sustained callback deficit")
-        return self.ACTION_REARMED
+        return self.ACTION_STALL_REPORTED
