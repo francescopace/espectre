@@ -1,0 +1,1289 @@
+/*
+ * ESPectre - Website app shell
+ *
+ * Hash routing, theme toggle, and a persistent device connection shared by
+ * every page. The connection is real Web Bluetooth (espectre-ble.js) when
+ * available, with a simulated demo mode as fallback for unsupported
+ * browsers or when no hardware is around.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
+
+(function () {
+    'use strict';
+
+    const NAV_GROUPS = {
+        tools: ['flash', 'configure', 'monitor', 'theremin', 'game'],
+        guides: ['guide-hardware', 'guide-setup', 'guide-detection', 'guide-firmware'],
+        docs: ['docs-api', 'docs-examples', 'docs-architecture']
+    };
+    const ROUTES = ['home', 'tools', 'guides', 'docs']
+        .concat(NAV_GROUPS.tools, NAV_GROUPS.guides, NAV_GROUPS.docs);
+
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+    // analytics.js is optional: the app must work with it blocked or absent.
+    const track = (name, params) => window.trackEvent && window.trackEvent(name, params);
+    const errorType = (error) => (error && error.name) || 'Error';
+
+    /* ==================================================== shared connection */
+
+    const conn = {
+        mode: null,             // 'ble' | 'demo'
+        status: 'disconnected', // disconnected | connecting | connected
+        movement: 0,
+        threshold: 0.5,
+        motion: false,
+        deviceName: '',
+        deviceSub: '—',
+        detector: '—',
+        connectedAt: 0
+    };
+
+    let bleClient = null;
+    let demoTimer = null;
+    let demoBurstEnergy = 0;
+    let uptimeTimer = null;
+    let route = 'home';
+    let lastTrackedProfile = null;
+
+    /*
+     * Classic and ML both emit a probability on an absolute 0..1 scale, so
+     * the display maps the value directly. Scaling against the threshold
+     * would saturate well before 1 and hide how far past it a reading is.
+     */
+    function energyFraction() {
+        return Math.min(1, Math.max(0, conn.movement));
+    }
+
+    function setStatus(status) {
+        conn.status = status;
+        renderConnection();
+    }
+
+    /* ------------------------------------------------------------ BLE mode */
+
+    function makeBleClient() {
+        return new window.ESPectreBleClient({
+            onTelemetry(t) {
+                conn.movement = t.movement;
+                if (t.threshold > 0) conn.threshold = t.threshold;
+                conn.motion = t.motionState !== null
+                    ? t.motionState === 1
+                    : t.movement >= conn.threshold;
+                renderTelemetry();
+                gameOnTelemetry();
+            },
+            onSysinfoSnapshot(snapshot) {
+                applySysinfo(snapshot);
+            },
+            onDisconnected() {
+                teardownConnection();
+                toast('Device disconnected.');
+            }
+        });
+    }
+
+    async function connectBle() {
+        if (conn.status !== 'disconnected') return;
+        if (!window.ESPectreBleClient || !window.ESPectreBleClient.supported) {
+            track('tool_connection', {
+                tool_name: route, transport: 'bluetooth', result: 'unsupported'
+            });
+            toast('Web Bluetooth is not available in this browser — starting demo mode.');
+            connectDemo();
+            return;
+        }
+        setStatus('connecting');
+        track('tool_connection', { tool_name: route, transport: 'bluetooth', result: 'attempt' });
+        try {
+            bleClient = makeBleClient();
+            await bleClient.connect();
+            conn.mode = 'ble';
+            conn.deviceName = bleClient.name || 'ESPectre';
+            conn.deviceSub = 'reading device info…';
+            conn.connectedAt = Date.now();
+            setStatus('connected');
+            startUptime();
+            track('tool_connection', { tool_name: route, transport: 'bluetooth', result: 'success' });
+            try {
+                await bleClient.writeControl('REQ_SYSINFO');
+            } catch (error) {
+                console.warn('REQ_SYSINFO failed:', error);
+            }
+        } catch (error) {
+            bleClient = null;
+            setStatus('disconnected');
+            // The chooser being dismissed is a user choice, not a failure.
+            const cancelled = error && error.name === 'NotFoundError';
+            track('tool_connection', {
+                tool_name: route,
+                transport: 'bluetooth',
+                result: cancelled ? 'cancelled' : 'failure',
+                error_type: errorType(error)
+            });
+            if (cancelled) return;
+            toast(error && error.message ? error.message : 'Bluetooth connection failed.');
+        }
+    }
+
+    function applySysinfo(snapshot) {
+        const chip = (snapshot.chip || '').toUpperCase();
+        const frontend = snapshot.frontend || '';
+        const proto = snapshot.proto_version || snapshot.espectre_protocol_version || '';
+        conn.deviceSub = [chip, frontend, proto && ('proto ' + proto)]
+            .filter(Boolean).join(' · ') || '—';
+        conn.detector = snapshot.detector || '—';
+        if (snapshot.threshold) {
+            const parsed = parseFloat(snapshot.threshold);
+            if (Number.isFinite(parsed) && parsed > 0) conn.threshold = parsed;
+        }
+
+        const set = (id, value) => {
+            const el = document.getElementById(id);
+            if (el && value !== undefined && value !== '') {
+                if (el.tagName === 'INPUT') el.value = value;
+                else el.textContent = value;
+            }
+        };
+        set('cfg-ssid', snapshot.wifi_ssid);
+        set('cfg-bssid', snapshot.wifi_bssid);
+        set('cfg-channel', snapshot.wifi_channel);
+        set('cfg-mqtt-host', snapshot.mqtt_host);
+        set('cfg-mqtt-port', snapshot.mqtt_port);
+        set('cfg-mqtt-user', snapshot.mqtt_username);
+        set('cfg-topic-prefix', snapshot.topic_prefix);
+        set('cfg-device-id', snapshot.device_id);
+        set('cfg-device-name', snapshot.device_name);
+        set('cfg-label', snapshot.device_label);
+        set('diag-protocol', proto || '—');
+        set('diag-chip', chip || '—');
+        set('diag-detector', snapshot.detector);
+        set('diag-window', snapshot.window);
+        set('diag-traffic', snapshot.traffic_rate
+            ? snapshot.traffic_rate + ' pkt/s'
+            : snapshot.traffic_mode);
+        set('diag-publish', snapshot.publish_interval && 'every ' + snapshot.publish_interval + ' pkts');
+        const boolLabel = (v) => (v === 'true' || v === '1' ? 'connected' : 'disconnected');
+        if (snapshot.wifi_connected !== undefined) set('diag-wifi', boolLabel(snapshot.wifi_connected));
+        if (snapshot.mqtt_connected !== undefined) set('diag-mqtt', boolLabel(snapshot.mqtt_connected));
+
+        // Real hardware only: demo values would pollute the adoption report.
+        if (conn.mode === 'ble' && snapshot.frontend && snapshot.chip) {
+            const profile = snapshot.frontend + ':' + snapshot.chip;
+            if (profile !== lastTrackedProfile) {
+                lastTrackedProfile = profile;
+                track('device_profile', {
+                    tool_name: route,
+                    frontend: snapshot.frontend.toLowerCase(),
+                    chip: snapshot.chip.toLowerCase()
+                });
+            }
+        }
+        renderConnection();
+    }
+
+    /* ----------------------------------------------------------- demo mode */
+
+    function connectDemo() {
+        if (conn.status !== 'disconnected') return;
+        setStatus('connecting');
+        setTimeout(() => {
+            conn.mode = 'demo';
+            conn.deviceName = 'ESPectre-DEMO';
+            conn.deviceSub = 'simulated telemetry';
+            conn.detector = 'classic';
+            conn.threshold = 0.5;
+            conn.movement = 0.04;
+            conn.connectedAt = Date.now();
+            setStatus('connected');
+            startUptime();
+            applySysinfo({
+                chip: 'esp32-s3',
+                frontend: 'native',
+                proto_version: '1.4',
+                detector: 'classic',
+                window: '64',
+                traffic_rate: '98',
+                publish_interval: '10',
+                wifi_connected: 'true',
+                mqtt_connected: 'true',
+                wifi_ssid: 'HomeNet-5G',
+                mqtt_host: '192.168.1.20',
+                mqtt_port: '1883',
+                mqtt_username: 'mqtt',
+                topic_prefix: 'espectre/v1/devices',
+                device_id: '0x00007c2c6742bbac',
+                device_name: 'ESPectre-DEMO',
+                device_label: 'Living Room'
+            });
+            let t = 0;
+            demoTimer = setInterval(() => {
+                t += 0.16;
+                let m = conn.movement + (Math.random() - 0.5) * 0.05;
+                if (Math.random() < 0.008) demoBurstEnergy += 0.55 + Math.random() * 0.35;
+                if (demoBurstEnergy > 0) {
+                    m += demoBurstEnergy;
+                    demoBurstEnergy *= 0.55;
+                    if (demoBurstEnergy < 0.02) demoBurstEnergy = 0;
+                }
+                m += Math.sin(t * 0.7) * 0.006;
+                conn.movement = Math.max(0.01, Math.min(1, m * 0.9));
+                conn.motion = conn.movement >= conn.threshold;
+                renderTelemetry();
+                gameOnTelemetry();
+            }, 160);
+        }, 600);
+    }
+
+    function demoBurst() {
+        if (conn.mode === 'demo') demoBurstEnergy += 0.5 + Math.random() * 0.2;
+    }
+
+    /* ----------------------------------------------------- shared teardown */
+
+    function disconnect() {
+        if (bleClient) {
+            const client = bleClient;
+            bleClient = null;
+            client.disconnect().catch((error) => console.warn(error));
+        }
+        teardownConnection();
+    }
+
+    function teardownConnection() {
+        clearInterval(demoTimer);
+        clearInterval(uptimeTimer);
+        demoTimer = null;
+        bleClient = null;
+        demoBurstEnergy = 0;
+        conn.mode = null;
+        conn.movement = 0;
+        conn.motion = false;
+        conn.deviceSub = '—';
+        conn.detector = '—';
+        gameReset();
+        thereminStop();
+        setStatus('disconnected');
+    }
+
+    function startUptime() {
+        clearInterval(uptimeTimer);
+        uptimeTimer = setInterval(() => {
+            const up = Math.floor((Date.now() - conn.connectedAt) / 1000);
+            const label = up >= 60 ? Math.floor(up / 60) + 'm ' + (up % 60) + 's' : up + 's';
+            $$('.js-uptime').forEach((el) => { el.textContent = label; });
+        }, 1000);
+    }
+
+    /* ----------------------------------------------------------- rendering */
+
+    let dropdownOpen = false;
+
+    function renderConnection() {
+        const connected = conn.status === 'connected';
+
+        $('.js-conn-disconnected').hidden = conn.status !== 'disconnected';
+        $('.js-conn-connecting').hidden = conn.status !== 'connecting';
+        $('.js-conn-connected').hidden = !connected;
+        $('.js-dropdown').hidden = !(connected && dropdownOpen);
+        $('.js-demo-tag').hidden = conn.mode !== 'demo';
+
+        $('.js-demo-connected').hidden = !connected;
+        $('.js-demo-disconnected').hidden = connected;
+        $$('.js-needs-conn').forEach((el) => { el.hidden = connected; });
+        $$('.js-has-conn').forEach((el) => { el.hidden = !connected; });
+
+        $$('.js-device-name').forEach((el) => { el.textContent = conn.deviceName || 'ESPectre'; });
+        $$('.js-device-sub').forEach((el) => { el.textContent = conn.deviceSub; });
+        $$('.js-detector').forEach((el) => { el.textContent = conn.detector; });
+
+        $$('.js-ble-chip').forEach((chip) => {
+            chip.classList.toggle('ready', connected);
+            chip.textContent = connected ? 'BLE · READY' : 'BLE';
+        });
+
+        $('.js-game-wave').hidden = conn.mode !== 'demo';
+
+        syncHeroWave();
+        renderTelemetry();
+    }
+
+    function renderTelemetry() {
+        const pct = Math.round(energyFraction() * 100) + '%';
+        $$('.js-energy-fill').forEach((el) => { el.style.width = pct; });
+        $$('.js-energy-val').forEach((el) => { el.textContent = conn.movement.toFixed(2); });
+        $$('.js-motion-label').forEach((el) => {
+            el.textContent = conn.motion ? 'MOTION' : 'quiet';
+            el.classList.toggle('motion', conn.motion);
+        });
+        // Same absolute scale as the bar, so the marker sits where it belongs.
+        const thresholdPct = Math.min(100, Math.max(0, conn.threshold * 100));
+        $$('.threshold-mark').forEach((el) => {
+            el.style.left = thresholdPct + '%';
+            el.title = 'Motion threshold: ' + conn.threshold.toFixed(2);
+        });
+    }
+
+    /* ============================================================= routing */
+
+    function applyRoute() {
+        $$('.js-page').forEach((page) => {
+            page.hidden = page.dataset.page !== route;
+        });
+        $$('[data-route-link]').forEach((link) => {
+            const target = link.dataset.routeLink;
+            const active = target === route
+                || (NAV_GROUPS[target] || []).includes(route);
+            link.classList.toggle('active', active);
+        });
+        window.scrollTo(0, 0);
+        if (route !== 'theremin') thereminStop();
+        if (route === 'monitor') monitorResizeChart();
+        syncHeroWave();
+        // The router owns navigation, so it reports it.
+        if (window.trackRouteView) window.trackRouteView(route);
+    }
+
+    /**
+     * Single entry point for navigation. `force` applies the current route on
+     * startup; without it a repeated route is ignored so one navigation never
+     * reports two page views.
+     */
+    function setRoute(next, { force = false } = {}) {
+        const target = ROUTES.includes(next) ? next : 'home';
+        if (!force && target === route) return;
+        route = target;
+        dropdownOpen = false;
+        applyRoute();
+        renderConnection();
+    }
+
+    function onHashChange() {
+        setRoute((location.hash || '#home').slice(1));
+    }
+
+    /* =============================================================== theme */
+
+    function toggleTheme() {
+        const html = document.documentElement;
+        const theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
+        html.dataset.theme = theme;
+        $('.js-theme-toggle').textContent = theme === 'dark' ? '☾' : '☀';
+    }
+
+    /* =============================================================== toast */
+
+    let toastTimer = null;
+
+    function toast(message) {
+        const el = $('.js-toast');
+        el.textContent = message;
+        el.hidden = false;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
+    }
+
+    /* =========================================================== hero wave */
+
+    const heroWave = { group: null, raf: null, smoothed: 0 };
+
+    // Drawn in a 0..120 viewBox, so the centre line sits at 60.
+    const WAVE_CENTRE = 60;
+    const WAVE_LAYERS = [
+        { phase: 0, amp: 26, opacity: 0.7, dur: 7 },
+        { phase: 2.1, amp: 16, opacity: 0.35, dur: 11 },
+        { phase: 4.2, amp: 34, opacity: 0.18, dur: 17 }
+    ];
+    const WAVE_MIN_SCALE = 0.45;
+    /*
+     * Ceiling that keeps the widest layer inside the viewBox: scaling past it
+     * would clip the peaks flat and read as a rendering bug rather than
+     * strong motion.
+     */
+    const WAVE_MAX_SCALE = (WAVE_CENTRE - 2) /
+        Math.max(...WAVE_LAYERS.map((layer) => layer.amp));
+
+    function buildHeroWave() {
+        const NS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 1200 120');
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', '120');
+        svg.setAttribute('aria-hidden', 'true');
+        // The group carries the live amplitude; each path keeps its own drift.
+        const group = document.createElementNS(NS, 'g');
+        for (const { phase, amp, opacity, dur } of WAVE_LAYERS) {
+            let d = 'M0 ' + WAVE_CENTRE;
+            for (let x = 0; x <= 1500; x += 6) {
+                const y = WAVE_CENTRE + Math.sin((x / 150) * Math.PI * 2 + phase) * amp;
+                d += ' L' + x + ' ' + y.toFixed(1);
+            }
+            const path = document.createElementNS(NS, 'path');
+            path.setAttribute('d', d);
+            path.setAttribute('fill', 'none');
+            path.setAttribute('stroke', 'var(--accent)');
+            path.setAttribute('stroke-width', '1.6');
+            path.setAttribute('opacity', String(opacity));
+            path.style.animation = 'espWave ' + dur + 's linear infinite';
+            group.appendChild(path);
+        }
+        svg.appendChild(group);
+        heroWave.group = group;
+        $('.js-hero-wave').appendChild(svg);
+    }
+
+    /**
+     * Drives the hero wave from live motion energy while a device is
+     * connected and the home page is visible. Idle keeps the flat baseline
+     * animation, so the wave reads as a resting signal rather than a broken one.
+     */
+    function syncHeroWave() {
+        const live = conn.status === 'connected' && route === 'home';
+        if (live === Boolean(heroWave.raf)) return;
+
+        if (!live) {
+            cancelAnimationFrame(heroWave.raf);
+            heroWave.raf = null;
+            heroWave.smoothed = 0;
+            if (heroWave.group) heroWave.group.removeAttribute('transform');
+            $('.js-hero-wave').classList.remove('is-live');
+            return;
+        }
+
+        $('.js-hero-wave').classList.add('is-live');
+        const loop = () => {
+            heroWave.smoothed += (energyFraction() - heroWave.smoothed) * 0.12;
+            /*
+             * Scale around the centre line so the wave grows both ways. The
+             * widest layer has amplitude 34 in a viewBox half-height of 60,
+             * so the ceiling keeps it inside the box instead of clipping flat.
+             */
+            const k = (WAVE_MIN_SCALE + heroWave.smoothed * (WAVE_MAX_SCALE - WAVE_MIN_SCALE)).toFixed(3);
+            heroWave.group.setAttribute('transform',
+                `translate(0 ${WAVE_CENTRE}) scale(1 ${k}) translate(0 -${WAVE_CENTRE})`);
+            heroWave.raf = requestAnimationFrame(loop);
+        };
+        loop();
+    }
+
+    /* =============================================================== flash */
+
+    const flash = { manifests: {}, installUrl: null };
+
+    /*
+     * Presentation order for the Flash selectors. Anything not listed keeps
+     * its manifest order and lands after the listed entries, so a new
+     * frontend or chip still shows up without touching this code.
+     */
+    const FRONTEND_ORDER = ['native', 'esphome', 'matter'];
+    const CHIP_ORDER = ['esp32', 'esp32s3'];
+
+    function byPreferredOrder(order, a, b) {
+        const ia = order.indexOf(a);
+        const ib = order.indexOf(b);
+        if (ia === -1 && ib === -1) return 0;
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+    }
+
+    function flashResolveUrl(url) {
+        return url;
+    }
+
+    async function flashLoadManifest(channel) {
+        if (flash.manifests[channel]) return flash.manifests[channel];
+        const response = await fetch(
+            'flash/firmware/' + channel + '/firmware-manifest-' + channel + '.json',
+            { cache: 'no-store' }
+        );
+        if (!response.ok) throw new Error('Unable to load the ' + channel + ' firmware manifest.');
+        const manifest = await response.json();
+        flash.manifests[channel] = manifest;
+        return manifest;
+    }
+
+    function flashStatus(message, kind) {
+        const el = $('.js-flash-status');
+        el.textContent = message;
+        el.className = 'flash-status js-flash-status' + (kind ? ' ' + kind : '');
+    }
+
+    async function flashRefresh() {
+        const frontendSel = document.getElementById('flash-frontend');
+        const channelSel = document.getElementById('flash-channel');
+        const chipSel = document.getElementById('flash-chip');
+        const summary = $('.js-flash-summary');
+        const download = $('.js-flash-download');
+        const installButton = $('.js-flash-install');
+
+        try {
+            const manifest = await flashLoadManifest(channelSel.value);
+
+            const frontends = Object.entries(manifest.frontends || {})
+                .sort(([a], [b]) => byPreferredOrder(FRONTEND_ORDER, a, b));
+            const previousFrontend = frontendSel.value;
+            frontendSel.innerHTML = '';
+            for (const [key, value] of frontends) {
+                const option = document.createElement('option');
+                option.value = key;
+                option.textContent = value.label || key;
+                frontendSel.appendChild(option);
+            }
+            if (frontends.some(([key]) => key === previousFrontend)) frontendSel.value = previousFrontend;
+
+            $('.js-matter-panel').hidden = frontendSel.value !== 'matter';
+
+            const artifacts = ((manifest.frontends[frontendSel.value] || {}).artifacts || [])
+                .filter((a) => a.build_type === 'factory')
+                .sort((a, b) => byPreferredOrder(CHIP_ORDER, a.chip, b.chip));
+            const previousChip = chipSel.value;
+            chipSel.innerHTML = '';
+            for (const artifact of artifacts) {
+                const option = document.createElement('option');
+                option.value = artifact.chip;
+                option.textContent = artifact.chip_label;
+                chipSel.appendChild(option);
+            }
+            if (artifacts.some((a) => a.chip === previousChip)) chipSel.value = previousChip;
+
+            const artifact = artifacts.find((a) => a.chip === chipSel.value);
+            if (flash.installUrl) {
+                URL.revokeObjectURL(flash.installUrl);
+                flash.installUrl = null;
+            }
+            if (!artifact) {
+                summary.textContent = 'No matching firmware was found for the selected combination.';
+                flashStatus('Change the selection or use the manual download.', 'is-error');
+                download.href = 'https://github.com/francescopace/espectre/releases';
+                return;
+            }
+
+            const installManifest = {
+                name: 'ESPectre ' + (manifest.frontends[frontendSel.value].label || frontendSel.value) + ' ' + artifact.chip_label,
+                version: manifest.version,
+                builds: [{
+                    chipFamily: artifact.chip_family,
+                    parts: [{ path: flashResolveUrl(artifact.url), offset: 0 }]
+                }]
+            };
+            flash.installUrl = URL.createObjectURL(
+                new Blob([JSON.stringify(installManifest)], { type: 'application/json' })
+            );
+            installButton.setAttribute('manifest', flash.installUrl);
+
+            summary.innerHTML =
+                '<strong>' + artifact.chip_label + '</strong><br>' +
+                manifest.frontends[frontendSel.value].label + ' · ' + manifest.release_tag +
+                ' <span class="mono-sub">(' + manifest.channel + ')</span>';
+            download.href = flashResolveUrl(artifact.url);
+            download.textContent = 'Download binary';
+
+            if (!('serial' in navigator)) {
+                flashStatus('This browser does not expose Web Serial. Download the binary and flash manually.', 'is-error');
+            } else {
+                flashStatus('Ready. Connect the board over USB, then install.', 'is-ready');
+            }
+        } catch (error) {
+            summary.textContent = 'Firmware metadata is currently unavailable.';
+            flashStatus(error.message, 'is-error');
+            track('firmware_catalog', {
+                channel: channelSel.value, result: 'failure', error_type: errorType(error)
+            });
+        }
+    }
+
+    /* ------------------------------------------------ Matter QR over USB */
+
+    function matterDelay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function matterResetDevice(port) {
+        await port.setSignals({ dataTerminalReady: false, requestToSend: true });
+        await matterDelay(100);
+        await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+    }
+
+    async function matterReadCodes(port, timeoutMs = 20000) {
+        const reader = port.readable.getReader();
+        const decoder = new TextDecoder();
+        const deadline = Date.now() + timeoutMs;
+        let input = '';
+        try {
+            while (Date.now() < deadline) {
+                const result = await Promise.race([
+                    reader.read(),
+                    matterDelay(deadline - Date.now()).then(() => ({ timedOut: true }))
+                ]);
+                if (result.timedOut || result.done) break;
+                input += decoder.decode(result.value, { stream: true });
+                if (input.length > 16384) input = input.slice(-8192);
+                const qr = input.match(/MATTER_QR=(MT:[A-Z0-9.\-]+)/);
+                const manual = input.match(/MATTER_MANUAL_CODE=([0-9]+)/);
+                if (qr && manual) return { qr: qr[1], manual: manual[1] };
+            }
+        } finally {
+            await reader.cancel().catch(() => {});
+            reader.releaseLock();
+        }
+        throw new Error('Matter codes were not received. Press reset on the board, then try again.');
+    }
+
+    async function matterReadQr() {
+        const status = $('.js-matter-status');
+        const button = $('.js-matter-read');
+        const result = $('.js-matter-result');
+        if (!('serial' in navigator)) {
+            status.textContent = 'Web Serial is not available in this browser.';
+            track('matter_qr_read', { result: 'unsupported' });
+            return;
+        }
+        if (typeof window.QRCode !== 'function') {
+            status.textContent = 'The local QR renderer could not be loaded.';
+            track('matter_qr_read', { result: 'failure', error_type: 'QrRendererMissing' });
+            return;
+        }
+        let port;
+        button.disabled = true;
+        result.hidden = true;
+        status.textContent = 'Choose the ESPectre serial port, then wait for the device to restart.';
+        try {
+            port = await navigator.serial.requestPort();
+            await port.open({ baudRate: 115200 });
+            await matterResetDevice(port);
+            const codes = await matterReadCodes(port);
+            const canvas = $('.js-matter-canvas');
+            canvas.innerHTML = '';
+            new window.QRCode(canvas, {
+                text: codes.qr,
+                width: 220,
+                height: 220,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: window.QRCode.CorrectLevel.M
+            });
+            $('.js-matter-payload').textContent = codes.qr;
+            $('.js-matter-manual').textContent = codes.manual;
+            result.hidden = false;
+            status.textContent = 'This QR is stored on the device and remains the same after normal updates.';
+            track('matter_qr_read', { result: 'success' });
+        } catch (error) {
+            status.textContent = error.message || 'Unable to read the Matter QR code.';
+            track('matter_qr_read', { result: 'failure', error_type: errorType(error) });
+        } finally {
+            if (port && (port.readable || port.writable)) {
+                await port.close().catch(() => {});
+            }
+            button.disabled = false;
+        }
+    }
+
+    /**
+     * Shows the latest published release in the hero badge. The stable
+     * manifest is staged by CI from the GitHub release tag, so it is already
+     * the newest version and needs no API call. The badge is decorative:
+     * it stays hidden when the manifest is unavailable.
+     */
+    async function updateReleaseBadge() {
+        try {
+            const manifest = await flashLoadManifest('stable');
+            const version = String(manifest.release_tag || manifest.version || '').replace(/^v/, '');
+            if (!version) return;
+            $('.js-release-text').textContent = 'v' + version + ' available';
+            $('.js-release-badge').hidden = false;
+        } catch (error) {
+            console.warn('Release badge unavailable:', error);
+        }
+    }
+
+    function flashInit() {
+        const selectionType = {
+            'flash-frontend': 'frontend', 'flash-channel': 'channel', 'flash-chip': 'chip'
+        };
+        Object.keys(selectionType).forEach((id) => {
+            document.getElementById(id).addEventListener('change', () => {
+                track('firmware_selection', {
+                    selection_type: selectionType[id],
+                    frontend: document.getElementById('flash-frontend').value,
+                    channel: document.getElementById('flash-channel').value,
+                    chip: document.getElementById('flash-chip').value
+                });
+                flashRefresh();
+            });
+        });
+        const flashParams = () => ({
+            frontend: document.getElementById('flash-frontend').value,
+            channel: document.getElementById('flash-channel').value,
+            chip: document.getElementById('flash-chip').value
+        });
+        $('.js-flash-install').addEventListener('click', () => {
+            track('firmware_install_start', flashParams());
+        });
+        $('.js-flash-download').addEventListener('click', () => {
+            track('firmware_download', flashParams());
+        });
+        $('.js-matter-read').addEventListener('click', matterReadQr);
+        flashRefresh();
+    }
+
+    /* ============================================================= monitor */
+
+    const monitor = {
+        client: null,
+        demoTimer: null,
+        demoT: 0,
+        demoMove: 0.05,
+        points: [],
+        maxPoints: 120
+    };
+
+    function monitorStatus(message) {
+        $('.js-mon-status').textContent = message;
+    }
+
+    function monitorFeed(movement, threshold, state, deviceId) {
+        monitor.points.push({ m: movement, t: threshold });
+        if (monitor.points.length > monitor.maxPoints) monitor.points.shift();
+        const motion = state === 'motion';
+        const stateEl = $('.js-mon-state');
+        stateEl.textContent = motion ? 'MOTION' : 'IDLE';
+        stateEl.classList.toggle('motion', motion);
+        $('.js-mon-move').textContent = movement.toFixed(3);
+        $('.js-mon-thr').textContent = threshold.toFixed(3);
+        if (deviceId) $('.js-mon-dev').textContent = deviceId;
+        monitorDrawChart();
+    }
+
+    function monitorDrawChart() {
+        const canvas = $('.js-mon-chart');
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        ctx.clearRect(0, 0, width, height);
+        if (monitor.points.length < 2) return;
+
+        const styles = getComputedStyle(document.documentElement);
+        const accent = styles.getPropertyValue('--accent').trim() || '#4f6bff';
+        const dim = styles.getPropertyValue('--dim').trim() || '#888';
+        const maxValue = Math.max(
+            0.1,
+            ...monitor.points.map((p) => Math.max(p.m, p.t))
+        ) * 1.15;
+        const stepX = width / (monitor.maxPoints - 1);
+        const y = (v) => height - (v / maxValue) * (height - 8) - 4;
+        const x0 = width - (monitor.points.length - 1) * stepX;
+
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = dim;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        monitor.points.forEach((p, i) => {
+            const px = x0 + i * stepX;
+            i === 0 ? ctx.moveTo(px, y(p.t)) : ctx.lineTo(px, y(p.t));
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = accent;
+        ctx.beginPath();
+        monitor.points.forEach((p, i) => {
+            const px = x0 + i * stepX;
+            i === 0 ? ctx.moveTo(px, y(p.m)) : ctx.lineTo(px, y(p.m));
+        });
+        ctx.stroke();
+    }
+
+    function monitorResizeChart() {
+        const canvas = $('.js-mon-chart');
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width > 0 && canvas.width !== Math.round(rect.width)) {
+            canvas.width = Math.round(rect.width);
+            monitorDrawChart();
+        }
+    }
+
+    function monitorStopAll() {
+        if (monitor.client) {
+            monitor.client.end(true);
+            monitor.client = null;
+        }
+        clearInterval(monitor.demoTimer);
+        monitor.demoTimer = null;
+    }
+
+    function monitorConnect() {
+        if (typeof window.mqtt === 'undefined') {
+            monitorStatus('MQTT library not loaded yet — try again in a moment.');
+            track('tool_connection', {
+                tool_name: 'monitor', transport: 'mqtt_websocket', result: 'unsupported'
+            });
+            return;
+        }
+        const host = document.getElementById('mon-host').value.trim();
+        const port = document.getElementById('mon-port').value.trim() || '9001';
+        const path = document.getElementById('mon-path').value.trim() || '/mqtt';
+        const tls = document.getElementById('mon-tls').checked;
+        const base = document.getElementById('mon-topic').value.trim().replace(/\/+$/, '');
+        if (!host || !base) {
+            monitorStatus('Set the broker host and a device base topic first.');
+            track('tool_connection', {
+                tool_name: 'monitor', transport: 'mqtt_websocket', result: 'validation_failure'
+            });
+            return;
+        }
+        monitorStopAll();
+        monitor.points = [];
+        const url = (tls ? 'wss://' : 'ws://') + host + ':' + port + path;
+        monitorStatus('Connecting to ' + url + ' …');
+        // The URL is not tracked: it would carry the user's broker address.
+        track('tool_connection', {
+            tool_name: 'monitor', transport: 'mqtt_websocket', result: 'attempt'
+        });
+        const client = window.mqtt.connect(url, {
+            username: document.getElementById('mon-user').value || undefined,
+            password: document.getElementById('mon-pass').value || undefined,
+            clientId: 'espectre-mockup-' + Math.random().toString(16).slice(2, 8),
+            connectTimeout: 8000,
+            reconnectPeriod: 0
+        });
+        monitor.client = client;
+        client.on('connect', () => {
+            client.subscribe(base + '/telemetry', (error) => {
+                monitorStatus(error
+                    ? 'Subscribe failed: ' + error.message
+                    : 'Live — subscribed to ' + base + '/telemetry');
+                track('tool_connection', {
+                    tool_name: 'monitor',
+                    transport: 'mqtt_websocket',
+                    result: error ? 'subscription_failure' : 'success',
+                    ...(error ? { error_type: errorType(error) } : {})
+                });
+            });
+        });
+        client.on('message', (topic, payload) => {
+            try {
+                const data = JSON.parse(payload.toString());
+                monitorFeed(
+                    Number(data.movement_score ?? data.movement) || 0,
+                    Number(data.threshold) || 0,
+                    data.motion_state || data.state,
+                    data.device_id
+                );
+            } catch (error) { /* ignore malformed payloads */ }
+        });
+        client.on('error', (error) => {
+            monitorStatus('Connection failed: ' + error.message);
+            track('tool_connection', {
+                tool_name: 'monitor',
+                transport: 'mqtt_websocket',
+                result: 'failure',
+                error_type: errorType(error)
+            });
+            monitorStopAll();
+        });
+        client.on('close', () => {
+            if (monitor.client === client) monitorStatus('Disconnected from broker.');
+        });
+    }
+
+    function monitorDemo() {
+        monitorStopAll();
+        monitor.points = [];
+        monitorStatus('Demo feed — simulated node, no broker involved.');
+        monitor.demoTimer = setInterval(() => {
+            monitor.demoT += 0.5;
+            let m = monitor.demoMove + (Math.random() - 0.5) * 0.04;
+            if (Math.random() < 0.05) m += 0.5 + Math.random() * 0.35;
+            m += Math.sin(monitor.demoT * 0.4) * 0.01;
+            monitor.demoMove = Math.max(0.01, Math.min(1, m * 0.85));
+            monitorFeed(
+                monitor.demoMove,
+                0.5,
+                monitor.demoMove >= 0.5 ? 'motion' : 'idle',
+                '0x00007c2c6742bbac'
+            );
+        }, 500);
+    }
+
+    function monitorInit() {
+        $('.js-mon-connect').addEventListener('click', monitorConnect);
+        $('.js-mon-demo').addEventListener('click', monitorDemo);
+        window.addEventListener('resize', monitorResizeChart);
+    }
+
+    /* ============================================================ theremin */
+
+    const theremin = { ctx: null, osc: null, gain: null, raf: null, smoothed: 0 };
+
+    function thereminStart() {
+        if (theremin.ctx) return;
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) {
+            toast('Web Audio is not available in this browser.');
+            return;
+        }
+        theremin.ctx = new AudioCtx();
+        theremin.osc = theremin.ctx.createOscillator();
+        theremin.gain = theremin.ctx.createGain();
+        theremin.osc.type = document.getElementById('th-wave').value;
+        theremin.osc.frequency.value = 140;
+        theremin.gain.gain.value = 0;
+        theremin.osc.connect(theremin.gain).connect(theremin.ctx.destination);
+        theremin.osc.start();
+        $('.js-th-toggle').textContent = '⏹ Stop sound';
+        const loop = () => {
+            const f = energyFraction();
+            theremin.smoothed += (f - theremin.smoothed) * 0.12;
+            const freq = 140 * Math.pow(2, theremin.smoothed * 2.6);
+            const now = theremin.ctx.currentTime;
+            theremin.osc.frequency.setTargetAtTime(freq, now, 0.05);
+            theremin.gain.gain.setTargetAtTime(0.02 + theremin.smoothed * 0.35, now, 0.08);
+            $('.js-th-freq').textContent = Math.round(freq);
+            theremin.raf = requestAnimationFrame(loop);
+        };
+        loop();
+    }
+
+    function thereminStop() {
+        if (!theremin.ctx) return;
+        cancelAnimationFrame(theremin.raf);
+        theremin.osc.stop();
+        theremin.ctx.close();
+        theremin.ctx = null;
+        theremin.osc = null;
+        theremin.gain = null;
+        theremin.smoothed = 0;
+        const toggle = $('.js-th-toggle');
+        if (toggle) toggle.textContent = '▶ Start sound';
+        const freq = $('.js-th-freq');
+        if (freq) freq.textContent = '—';
+    }
+
+    function thereminInit() {
+        $('.js-th-toggle').addEventListener('click', () => {
+            const starting = !theremin.ctx;
+            starting ? thereminStart() : thereminStop();
+            track('theremin_configuration', {
+                control: 'playback', setting_value: starting ? 'start' : 'stop'
+            });
+        });
+        document.getElementById('th-wave').addEventListener('change', (event) => {
+            if (theremin.osc) theremin.osc.type = event.target.value;
+            track('theremin_configuration', {
+                control: 'waveform', setting_value: event.target.value
+            });
+        });
+    }
+
+    /* =========================================================== configure */
+
+    function cfgValue(id) {
+        return document.getElementById(id).value;
+    }
+
+    function cfgEncodedCommand(prefix, fields) {
+        const payload = Object.entries(fields)
+            .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')))
+            .join('&');
+        return prefix + payload;
+    }
+
+    /**
+     * Writes a control command and reports the outcome as configure_change.
+     * `action` is the analytics label; demo mode reports nothing because
+     * nothing reaches a device.
+     */
+    async function cfgWriteControl(command, successMessage, action) {
+        if (conn.mode === 'demo') {
+            toast(successMessage + ' (demo — nothing written)');
+            return true;
+        }
+        if (!bleClient) {
+            toast('ESPectre is not connected.');
+            track('configure_change', { action, result: 'failure', error_type: 'NotConnected' });
+            return false;
+        }
+        try {
+            await bleClient.writeControl(command);
+            toast(successMessage);
+            track('configure_change', { action, result: 'success' });
+            return true;
+        } catch (error) {
+            toast('Write failed: ' + (error.message || error));
+            track('configure_change', { action, result: 'failure', error_type: errorType(error) });
+            return false;
+        }
+    }
+
+    function cfgValidationFailed(action, message) {
+        toast(message);
+        track('configure_change', { action, result: 'validation_failure' });
+    }
+
+    async function cfgRefreshSysinfo() {
+        if (conn.mode === 'ble' && bleClient) {
+            try {
+                await bleClient.writeControl('REQ_SYSINFO');
+            } catch (error) {
+                console.warn('REQ_SYSINFO failed:', error);
+            }
+        }
+    }
+
+    async function cfgSaveWifi() {
+        const ssid = cfgValue('cfg-ssid').trim();
+        const password = cfgValue('cfg-wifi-pass');
+        const channel = Number(cfgValue('cfg-channel') || 0);
+        const bssid = cfgValue('cfg-bssid').trim();
+        if (!ssid || !password) {
+            cfgValidationFailed('set_wifi', 'Wi-Fi needs both SSID and password.');
+            return;
+        }
+        if (!Number.isInteger(channel) || channel < 0 || channel > 14) {
+            cfgValidationFailed('set_wifi', 'Channel must be 0..14 (0 = auto).');
+            return;
+        }
+        if (bssid && !/^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/.test(bssid)) {
+            cfgValidationFailed('set_wifi', 'BSSID must match aa:bb:cc:dd:ee:ff.');
+            return;
+        }
+        const ok = await cfgWriteControl(
+            cfgEncodedCommand('SET_WIFI_CONFIG:', { ssid, password, bssid, channel }),
+            'Wi-Fi credentials saved; station reconnecting.',
+            'set_wifi'
+        );
+        if (ok) document.getElementById('cfg-wifi-pass').value = '';
+    }
+
+    async function cfgClearWifi() {
+        const ok = await cfgWriteControl('CLEAR_WIFI', 'Wi-Fi credentials cleared.', 'clear_wifi');
+        if (ok) {
+            ['cfg-ssid', 'cfg-wifi-pass', 'cfg-bssid', 'cfg-channel'].forEach((id) => {
+                document.getElementById(id).value = '';
+            });
+        }
+    }
+
+    async function cfgSaveMqtt() {
+        const host = cfgValue('cfg-mqtt-host').trim();
+        const port = Number(cfgValue('cfg-mqtt-port'));
+        const username = cfgValue('cfg-mqtt-user').trim();
+        const password = cfgValue('cfg-mqtt-pass');
+        const topicPrefix = cfgValue('cfg-topic-prefix').trim() || 'espectre/v1/devices';
+        if (!host || !username || !password || !cfgValue('cfg-mqtt-port')) {
+            cfgValidationFailed('set_mqtt', 'MQTT needs host, port, username, and password.');
+            return;
+        }
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+            cfgValidationFailed('set_mqtt', 'MQTT port must be 1..65535.');
+            return;
+        }
+        const ok = await cfgWriteControl(
+            cfgEncodedCommand('SET_MQTT_CONFIG:', {
+                host, port, username, password, topic_prefix: topicPrefix
+            }),
+            'MQTT settings saved.',
+            'set_mqtt'
+        );
+        if (ok) document.getElementById('cfg-mqtt-pass').value = '';
+    }
+
+    async function cfgClearMqtt() {
+        const ok = await cfgWriteControl('CLEAR_MQTT_CONFIG', 'MQTT settings cleared.', 'clear_mqtt');
+        if (ok) document.getElementById('cfg-mqtt-pass').value = '';
+    }
+
+    async function cfgSaveDevice() {
+        const label = cfgValue('cfg-label').trim();
+        const ok = await cfgWriteControl(
+            'SET_DEVICE_CONFIG:device_label=' + label,
+            'Device label saved.',
+            'set_device'
+        );
+        if (ok) cfgRefreshSysinfo();
+    }
+
+    async function cfgClearDevice() {
+        const ok = await cfgWriteControl('CLEAR_DEVICE_CONFIG', 'Device config reset.', 'clear_device');
+        if (ok) {
+            document.getElementById('cfg-label').value = '';
+            cfgRefreshSysinfo();
+        }
+    }
+
+    function configureInit() {
+        $('.js-wifi-save').addEventListener('click', cfgSaveWifi);
+        $('.js-wifi-clear').addEventListener('click', cfgClearWifi);
+        $('.js-mqtt-save').addEventListener('click', cfgSaveMqtt);
+        $('.js-mqtt-clear').addEventListener('click', cfgClearMqtt);
+        $('.js-dev-save').addEventListener('click', cfgSaveDevice);
+        $('.js-dev-clear').addEventListener('click', cfgClearDevice);
+    }
+
+    /* ================================================================ game */
+
+    const TOTAL_ROUNDS = 5;
+    const game = {
+        phase: 'idle',   // idle | hold | strike | done
+        round: 0,
+        score: 0,
+        best: null,
+        holdTimer: null,
+        strikeAt: 0,
+        strikeTimeout: null
+    };
+
+    function gameSet(selector, value) {
+        const el = $(selector);
+        if (el) el.textContent = value;
+    }
+
+    function gameOrb(state) {
+        const orb = $('.js-game-orb');
+        if (orb) orb.className = 'game-orb js-game-orb' + (state ? ' is-' + state : '');
+    }
+
+    function gameMsg(message) {
+        gameSet('.js-game-msg', message);
+    }
+
+    function gameReset() {
+        clearTimeout(game.holdTimer);
+        clearTimeout(game.strikeTimeout);
+        game.phase = 'idle';
+        game.round = 0;
+        game.score = 0;
+        gameOrb('');
+        gameMsg('Stand still. Move fast. React to survive.');
+        gameSet('.js-game-round', '—');
+        gameSet('.js-game-ms', '—');
+        gameSet('.js-game-score', '0');
+        const start = $('.js-game-start');
+        if (start) start.textContent = 'Start game';
+    }
+
+    function gameNextRound() {
+        game.round += 1;
+        if (game.round > TOTAL_ROUNDS) {
+            game.phase = 'done';
+            gameOrb('');
+            gameMsg('Game over — final score ' + game.score + '. Play again?');
+            $('.js-game-start').textContent = 'Play again';
+            track('game_over', {
+                input_mode: conn.mode === 'demo' ? 'demo' : 'bluetooth',
+                score: game.score,
+                rounds: TOTAL_ROUNDS,
+                ...(game.best !== null ? { best_time: game.best } : {})
+            });
+            return;
+        }
+        game.phase = 'hold';
+        gameSet('.js-game-round', game.round + ' / ' + TOTAL_ROUNDS);
+        gameOrb('hold');
+        gameMsg('Round ' + game.round + ' — stand perfectly still…');
+        $('.js-game-hint').textContent = conn.mode === 'demo'
+            ? 'Demo mode: press Space or the Wave button when the Spectre strikes.'
+            : 'Freeze. Any motion now counts as a false start.';
+        game.holdTimer = setTimeout(() => {
+            game.phase = 'strike';
+            game.strikeAt = performance.now();
+            gameOrb('strike');
+            gameMsg('⚡ MOVE! The Spectre strikes!');
+            game.strikeTimeout = setTimeout(() => {
+                if (game.phase !== 'strike') return;
+                gameOrb('fail');
+                gameMsg('Too slow — the Spectre got you.');
+                gameSet('.js-game-ms', 'miss');
+                gameEndRound();
+            }, 2500);
+        }, 1800 + Math.random() * 2600);
+    }
+
+    function gameEndRound() {
+        game.phase = 'cooldown';
+        clearTimeout(game.holdTimer);
+        clearTimeout(game.strikeTimeout);
+        setTimeout(gameNextRound, 1700);
+    }
+
+    function gameOnTelemetry() {
+        if (route !== 'game') return;
+        if (game.phase === 'hold' && conn.motion) {
+            gameOrb('fail');
+            gameMsg('False start! The Spectre saw you twitch.');
+            gameSet('.js-game-ms', 'false start');
+            gameEndRound();
+        } else if (game.phase === 'strike' && conn.motion) {
+            const ms = Math.round(performance.now() - game.strikeAt);
+            const points = Math.max(0, 1500 - ms);
+            game.score += points;
+            if (game.best === null || ms < game.best) {
+                game.best = ms;
+                gameSet('.js-game-best', game.best + ' ms');
+            }
+            gameOrb('win');
+            gameMsg('Hit! ' + ms + ' ms → +' + points + ' points');
+            gameSet('.js-game-ms', ms + ' ms');
+            gameSet('.js-game-score', String(game.score));
+            gameEndRound();
+        }
+    }
+
+    function gameInit() {
+        $('.js-game-start').addEventListener('click', () => {
+            clearTimeout(game.holdTimer);
+            clearTimeout(game.strikeTimeout);
+            game.round = 0;
+            game.score = 0;
+            gameSet('.js-game-score', '0');
+            $('.js-game-start').textContent = 'Restart';
+            track('game_start', { input_mode: conn.mode === 'demo' ? 'demo' : 'bluetooth' });
+            gameNextRound();
+        });
+        $('.js-game-wave').addEventListener('click', demoBurst);
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'Space' && route === 'game' && conn.mode === 'demo') {
+                event.preventDefault();
+                demoBurst();
+            }
+        });
+    }
+
+    /* ================================================================ init */
+
+    function init() {
+        buildHeroWave();
+
+        $$('.js-connect').forEach((btn) => btn.addEventListener('click', connectBle));
+        $$('.js-demo').forEach((btn) => btn.addEventListener('click', connectDemo));
+        $('.js-disconnect').addEventListener('click', disconnect);
+        $('.js-theme-toggle').addEventListener('click', toggleTheme);
+        $('.js-dropdown-toggle').addEventListener('click', (event) => {
+            event.stopPropagation();
+            dropdownOpen = !dropdownOpen;
+            renderConnection();
+        });
+        document.addEventListener('click', (event) => {
+            if (dropdownOpen && !event.target.closest('.conn')) {
+                dropdownOpen = false;
+                renderConnection();
+            }
+        });
+        configureInit();
+        flashInit();
+        updateReleaseBadge();
+        monitorInit();
+        thereminInit();
+        gameInit();
+
+        window.addEventListener('hashchange', onHashChange);
+        setRoute((location.hash || '#home').slice(1), { force: true });
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+})();

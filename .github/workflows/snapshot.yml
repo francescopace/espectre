@@ -188,13 +188,19 @@ jobs:
       - name: Verify Build
         run: |
           test -f docs/web/sitemap.xml
-          test -f docs/web/configure/index.html
-          test -f docs/web/monitor/index.html
-          test -f docs/web/theremin/index.html
-          test -f docs/web/guides/setup/index.html
-          test -f docs/web/guides/detection/index.html
-          test -f docs/web/guides/custom-firmware/index.html
-          test -f docs/web/guides/hardware/index.html
+          test -f docs/web/index.html
+          test -f docs/web/app.js
+          test -f docs/web/styles.css
+          test -f docs/web/espectre-ble.js
+          for route in flash configure monitor theremin game guides \
+              guide-hardware guide-setup guide-detection guide-firmware \
+              docs docs-api docs-examples docs-architecture; do
+            grep -q "data-page=\"$route\"" docs/web/index.html \
+              || { echo "Missing SPA route: $route"; exit 1; }
+          done
+          # Retired URLs fall through to this catch-all, served by Pages on 404.
+          test -f docs/web/404.html \
+            || { echo "Missing 404.html catch-all"; exit 1; }
           test -f docs/web/flash/firmware/main/firmware-manifest-main.json
           test "$(find docs/web/flash/firmware/main -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
           echo "Website build verified!"

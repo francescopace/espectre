@@ -1,249 +1,1026 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="en" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESPectre</title>
-    <meta name="description" content="Open source, privacy-first Wi-Fi sensing platform for ESP32 devices, with ESPHome, Matter, native BLE/MQTT, streamer tooling, and reusable firmware layers.">
-    <meta name="keywords" content="ESP32, WiFi sensing, CSI, motion detection, Home Assistant, ESPHome, Matter, MQTT, IoT">
-    <meta name="author" content="Francesco Pace">
-
-    <!-- Canonical URL -->
-    <link rel="canonical" href="https://espectre.dev/">
-    <link rel="icon" href="/favicon.png" type="image/png">
-
-    <!-- Open Graph / Facebook -->
-    <meta property="og:url" content="https://espectre.dev/">
-    <meta property="og:type" content="website">
-    <meta property="og:title" content="ESPectre | Privacy-First Wi-Fi Sensing Platform">
-    <meta property="og:description" content="Open source, privacy-first Wi-Fi sensing platform for ESP32 devices, with ESPHome, Matter, native BLE/MQTT, streamer tooling, and reusable firmware layers.">
-    <meta property="og:image" content="https://espectre.dev/espectre.png">
-
-    <!-- Twitter -->
-    <meta name="twitter:card" content="summary_large_image">
-    <meta property="twitter:domain" content="espectre.dev">
-    <meta property="twitter:url" content="https://espectre.dev/">
-    <meta name="twitter:title" content="ESPectre | Privacy-First Wi-Fi Sensing Platform">
-    <meta name="twitter:description" content="Open source, privacy-first Wi-Fi sensing platform for ESP32 devices, with ESPHome, Matter, native BLE/MQTT, streamer tooling, and reusable firmware layers.">
-    <meta name="twitter:image" content="https://espectre.dev/espectre.png">
-
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap"
-        rel="stylesheet">
-
-    <!-- Font Awesome (loaded async: icons are decorative accents) -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
-    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"></noscript>
-
-    <!-- Styles -->
-    <link rel="stylesheet" href="styles.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESPectre — Wi-Fi motion sensing</title>
+<meta name="description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor: no cameras, no extra hardware, just the router you already own. Flash from the browser, or embed the C++ SDK into your own firmware.">
+<link rel="canonical" href="https://espectre.dev/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://espectre.dev/">
+<meta property="og:title" content="ESPectre — Wi-Fi motion sensing">
+<meta property="og:description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor. No cameras, no extra hardware.">
+<meta property="og:image" content="https://espectre.dev/espectre.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ESPectre — Wi-Fi motion sensing">
+<meta name="twitter:description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor. No cameras, no extra hardware.">
+<meta name="twitter:image" content="https://espectre.dev/espectre.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=3.1.1">
+<script src="espectre-ble.js?v=3.1.1"></script>
+<script src="qrcode.js?v=3.1.1" defer></script>
+<script src="analytics.js?v=3.1.1" defer></script>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<script src="https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js" defer></script>
 </head>
-
 <body>
-    <canvas id="cosmic-bg"></canvas>
 
-    <header id="site-header">
-        <noscript>
-            <a href="/" class="logo">ESPectre</a>
-            <nav>
-                <a href="/flash/">Flash</a>
-                <a href="/configure/">Configure</a>
-                <a href="/guides/setup/">Guides</a>
-                <a href="/game/">The Game</a>
-                <a href="https://github.com/francescopace/espectre">GitHub</a>
-            </nav>
-        </noscript>
-    </header>
+<header class="site-header">
+  <div class="site-header-inner">
+    <a href="#home" class="brand" data-route-link="home">
+      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="var(--accent)"/><circle cx="12.2" cy="13.5" r="1.9" fill="var(--bg)"/><circle cx="19.8" cy="13.5" r="1.9" fill="var(--bg)"/></svg>
+      ESPectre
+    </a>
+    <nav class="main-nav" aria-label="Main">
+      <a href="#home" class="nav-link" data-route-link="home">Home</a>
+      <a href="#tools" class="nav-link" data-route-link="tools">Tools</a>
+      <a href="#guides" class="nav-link" data-route-link="guides">Guides</a>
+      <a href="#docs" class="nav-link" data-route-link="docs">Docs</a>
+      <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
+    </nav>
+    <button class="theme-toggle js-theme-toggle" title="Toggle theme">☀</button>
 
-    <main id="main-content">
-        <section class="hero">
-            <div class="hero-badge">
-                <span class="dot"></span>
-                <span>Open Source · GPLv3</span>
-            </div>
-            <h1>ESPectre</h1>
-            <p class="hero-subtitle">
-                Turn ordinary ESP32 devices into privacy-first Wi-Fi sensing nodes.<br>
-                Detect motion without cameras or microphones, then use ESPHome, Matter,
-                native BLE/MQTT, or reusable sensing layers in your own firmware.
-            </p>
-            <div class="hero-buttons">
-                <a href="/flash/" class="btn btn-primary">
-                    Flash Firmware
-                </a>
-                <a href="/guides/setup/" class="btn btn-secondary">
-                    Setup Guide
-                </a>
-            </div>
-        </section>
+    <div class="conn">
+      <span class="conn-idle-group js-conn-disconnected">
+        <button class="conn-pill conn-disconnected js-connect">
+          <span class="dot dot-idle"></span>
+          Connect device
+        </button>
+        <button class="conn-demo js-demo" title="Simulated device — no hardware needed">Demo</button>
+      </span>
+      <div class="conn-pill conn-connecting js-conn-connecting" hidden>
+        <span class="spinner"></span>
+        Connecting…
+      </div>
+      <button class="conn-pill conn-connected js-conn-connected js-dropdown-toggle" hidden>
+        <span class="dot dot-ok pulse"></span>
+        <span class="js-device-name">ESPectre</span>
+        <span class="demo-tag js-demo-tag" hidden>DEMO</span>
+        <span class="mini-meter"><span class="js-energy-fill"></span></span>
+        <span class="caret">▾</span>
+      </button>
+      <div class="conn-dropdown js-dropdown" hidden>
+        <div class="conn-dropdown-head">
+          <span class="dot dot-ok pulse"></span>
+          <div>
+            <div class="conn-dropdown-name js-device-name">ESPectre</div>
+            <div class="mono-sub js-device-sub">—</div>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-label">Detector</div><div class="stat-value js-detector">—</div></div>
+          <div class="stat"><div class="stat-label">Session</div><div class="stat-value js-uptime">0s</div></div>
+        </div>
+        <div class="energy-block">
+          <div class="energy-head"><span class="energy-title">Motion energy</span><span class="mono js-motion-label">quiet</span></div>
+          <div class="meter"><span class="js-energy-fill"></span></div>
+        </div>
+        <button class="btn-disconnect js-disconnect">Disconnect</button>
+      </div>
+    </div>
+  </div>
+</header>
 
-        <section class="how-it-works">
-            <div class="section-title">
-                <h2>How It Works</h2>
-                <p>
-                    Wi-Fi signals bounce around a room. When someone moves, those reflections change.
-                    ESPectre reads Channel State Information (CSI) from an ESP32 and turns those
-                    tiny radio-channel changes into motion and movement-score signals.
-                </p>
-            </div>
-        </section>
+<!-- ============================== Home ============================== -->
+<main class="js-page" data-page="home">
+  <section class="hero">
+    <a href="#flash" class="hero-badge js-release-badge" hidden>
+      <span class="dot dot-ok"></span>
+      <span class="js-release-text"></span>
+    </a>
+    <h1>Your Wi-Fi already<br>senses motion.</h1>
+    <p class="hero-sub">ESPectre reads the Wi-Fi channel itself to detect people moving — no cameras, no microphones, no extra hardware. Just one tiny ESP32 and the router you already own.</p>
+    <div class="hero-wave js-hero-wave"></div>
+  </section>
 
-        <section id="get-started" class="get-started">
-            <div class="section-title">
-                <h2>Get Started</h2>
-                <p>The fastest path is the browser flasher. No local toolchain required.</p>
-            </div>
-            <div class="features-grid steps-grid">
-                <div class="feature-card step-item">
-                    <div class="feature-icon step-number">1</div>
-                    <h3>Flash</h3>
-                    <p>Open <a href="/flash/">Flash Firmware</a> in a Chromium-based browser and pick ESPHome, Native, or Matter for your ESP32 board.</p>
-                </div>
-                <div class="feature-card step-item">
-                    <div class="feature-icon step-number">2</div>
-                    <h3>Configure</h3>
-                    <p>Follow the on-screen Wi-Fi setup. For Native, use <a href="/configure/">Configure</a> over BLE to provision Wi-Fi and MQTT.</p>
-                </div>
-                <div class="feature-card step-item">
-                    <div class="feature-icon step-number">3</div>
-                    <h3>Use it</h3>
-                    <p>ESPHome joins Home Assistant automatically. Matter pairs with your controller. Native works with <a href="/monitor/">MQTT Monitor</a> and custom clients.</p>
-                </div>
-                <div class="feature-card step-item">
-                    <div class="feature-icon step-number">4</div>
-                    <h3>Go deeper</h3>
-                    <p>Follow the <a href="/guides/setup/">setup guide</a>, learn <a href="/guides/detection/">how detection works</a>, or explore the interactive demos below.</p>
-                </div>
-            </div>
-        </section>
+  <section class="audience">
+    <div class="audience-grid">
+      <div class="audience-card">
+        <div class="eyebrow">For your home</div>
+        <h2>A €3 device is all you need.</h2>
+        <p>Flash the firmware from your browser and you have a Wi-Fi motion sensor in minutes. One device, your existing router — no mesh of nodes like other solutions.</p>
+        <div class="spec-line"><span>1 × ESP32</span><span>·</span><span>your router</span><span>·</span><span>~5 minutes</span></div>
+        <div class="card-cta">
+          <a href="#flash" class="btn-primary">Flash it now →</a>
+        </div>
+      </div>
+      <div class="audience-card audience-card-inverse">
+        <div class="eyebrow">For your product</div>
+        <h2>Your firmware + ESPectre SDK = a motion sensor.</h2>
+        <p>Embed ESPectre into any Wi-Fi product — even a smart blender becomes a presence sensor. C++ SDK, examples and docs included.</p>
+        <div class="spec-line">GPLv3 · commercial licensing available</div>
+        <div class="card-cta">
+          <a href="#docs" class="btn-outline-inverse">Explore the SDK →</a>
+        </div>
+      </div>
+    </div>
+  </section>
 
-        <section class="features">
-            <div class="section-title">
-                <h2>Why ESPectre?</h2>
-                <p>Motion sensing without cameras, microphones, or dedicated radar hardware.</p>
-            </div>
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-wifi"></i></div>
-                    <h3>Beyond Line of Sight</h3>
-                    <p>Radio-channel changes can reveal motion around furniture and across some interior boundaries, where cameras cannot see.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-shield-halved"></i></div>
-                    <h3>Privacy First</h3>
-                    <p>Derived radio-channel measurements are processed on-device, without recording images or audio.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-house-signal"></i></div>
-                    <h3>Home Assistant Ready</h3>
-                    <p>Flash ESPHome from the browser, then adopt the device in Home Assistant.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-network-wired"></i></div>
-                    <h3>Matter Path</h3>
-                    <p>Published Matter firmware opens the door to Apple Home, Google Home, Alexa, SmartThings, and other controllers.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fab fa-bluetooth-b"></i></div>
-                    <h3>Native BLE / MQTT</h3>
-                    <p>Standalone firmware with web tools for provisioning, telemetry, and OTA, without Home Assistant.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-code-branch"></i></div>
-                    <h3>Built to Be Reused</h3>
-                    <p>Shared sensing, runtime, and frontend layers support custom firmware and device integrations. Everything is open source under GPLv3.</p>
-                </div>
-            </div>
-        </section>
+  <section class="band band-surface">
+    <div class="band-inner">
+      <h2 class="section-title">How it works</h2>
+      <p class="section-sub">Wi-Fi signals bounce around a room. When someone moves, the reflections change. ESPectre measures that.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">01</div>
+          <h3>Flash from the browser</h3>
+          <p>Plug an ESP32 into USB and flash the firmware right here — no toolchain, no downloads.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">02</div>
+          <h3>It watches the channel</h3>
+          <p>The device reads Channel State Information (CSI) and turns tiny radio changes into a motion score — on-device.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">03</div>
+          <h3>Automate anything</h3>
+          <p>Lights, climate, alerts — through Home Assistant, Matter, or MQTT. Motion in, automation out.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 
-        <section id="platform" class="features platform-vision">
-            <div class="section-title">
-                <h2>From One Sensor to a Sensing Platform</h2>
-                <p>
-                    ESPectre is useful today as a standalone motion sensor. Its roadmap grows the same
-                    privacy-first foundation into a modular, multi-device sensing system.
-                </p>
-            </div>
-            <div class="features-grid vision-grid">
-                <div class="feature-card vision-card">
-                    <span class="phase-label phase-current">Release candidate · v3</span>
-                    <div class="feature-icon"><i class="fas fa-cubes"></i></div>
-                    <h3>Modular Sensing</h3>
-                    <p>A shared core and runtime power ESPHome, Matter, Native, and Streamer frontends for smart homes, research, and custom products.</p>
-                </div>
-                <div class="feature-card vision-card">
-                    <span class="phase-label">Planned · v4</span>
-                    <div class="feature-icon"><i class="fas fa-house-laptop"></i></div>
-                    <h3>Web Orchestration</h3>
-                    <p>An optional web layer will coordinate multiple nodes with secure onboarding, room views, history, alerts, and remote management.</p>
-                </div>
-                <div class="feature-card vision-card">
-                    <span class="phase-label">Exploratory · v5</span>
-                    <div class="feature-icon"><i class="fas fa-tower-broadcast"></i></div>
-                    <h3>Standards-Ready</h3>
-                    <p>The platform is designed to adopt practical IEEE 802.11bf Wi-Fi Sensing hardware while keeping its frontends, protocol, and tooling stable.</p>
-                </div>
-            </div>
-            <p class="roadmap-link">
-                The planned web layer remains local-first and is intended to support local,
-                self-hosted, and future managed deployments.
-                <a href="https://github.com/francescopace/espectre/blob/main/docs/ROADMAP.md">Explore the roadmap on GitHub</a>.
-            </p>
-        </section>
+  <section class="band">
+    <div class="band-inner integrations">
+      <div class="integrations-title">Works with your home</div>
+      <div class="integration-chips">
+        <span class="integration-chip">Home Assistant <span class="proto proto-accent">NATIVE</span></span>
+        <span class="integration-chip">Apple Home <span class="proto">MATTER</span></span>
+        <span class="integration-chip">Google Home <span class="proto">MATTER</span></span>
+        <span class="integration-chip">Alexa <span class="proto">MATTER</span></span>
+        <span class="integration-chip">Native app <span class="proto">BLE / MQTT</span></span>
+      </div>
+    </div>
+  </section>
 
-        <section id="examples" class="features">
-            <div class="section-title">
-                <h2>What Can You Build?</h2>
-                <p>
-                    Use motion and movement-score signals in practical automations,
-                    interactive experiences, and radio-channel experiments.
-                </p>
-            </div>
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-lightbulb"></i></div>
-                    <h3>Motion-Triggered Lighting</h3>
-                    <p>Turn on a light when movement is detected, then switch it off after the room has been quiet for a chosen period.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-temperature-three-quarters"></i></div>
-                    <h3>Room-Aware Climate</h3>
-                    <p>Use sustained inactivity as one input for reducing heating or cooling in an unused room.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-bell"></i></div>
-                    <h3>Home Motion Alerts</h3>
-                    <p>Send a Home Assistant or MQTT notification when movement is detected while nobody is expected at home.</p>
-                </div>
-                <a class="feature-card" href="/game/">
-                    <div class="feature-icon"><i class="fas fa-gamepad"></i></div>
-                    <h3>The Game</h3>
-                    <p>Use real Wi-Fi motion sensing as the controller for a reaction game.</p>
-                </a>
-                <a class="feature-card" href="/theremin/">
-                    <div class="feature-icon"><i class="fas fa-music"></i></div>
-                    <h3>Theremin</h3>
-                    <p>Turn live Bluetooth movement telemetry into an interactive instrument.</p>
-                </a>
-                <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-wave-square"></i></div>
-                    <h3>Radio Environment Research</h3>
-                    <p>Inspect CSI and signal-quality changes to explore how nearby devices, activity, and interference affect the Wi-Fi channel.</p>
-                </div>
-            </div>
-        </section>
-    </main>
+  <section class="band band-surface">
+    <div class="band-inner values">
+      <div>
+        <h2>Private by physics</h2>
+        <p>ESPectre senses motion through radio signals. There is no camera to cover, no microphone to mute — nothing is recorded, and everything is processed on the device itself.</p>
+      </div>
+      <div>
+        <h2>Open source, all the way down</h2>
+        <p>Firmware, SDK, and tools are GPLv3 on <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener">GitHub</a>. Building a commercial product? A commercial license is available.</p>
+      </div>
+    </div>
+  </section>
 
-    <footer id="site-footer"></footer>
+  <section class="band">
+    <div class="band-inner">
+      <div class="demo-card">
+        <div class="demo-copy">
+          <h2>See it sense you — right now</h2>
+          <p>Connect your ESPectre over Bluetooth once, and the connection follows you across every tool on this site. Wave a hand: the bar moves.</p>
+        </div>
+        <div class="demo-live">
+          <div class="js-demo-connected" hidden>
+            <div class="demo-meter-head"><span class="mono js-device-name">ESPectre</span><span class="mono js-motion-label">quiet</span></div>
+            <div class="meter meter-lg"><span class="js-energy-fill"></span></div>
+            <div class="demo-try">Try the <a href="#theremin">Theremin</a> or the <a href="#game">Game →</a></div>
+          </div>
+          <button class="demo-connect js-connect js-demo-disconnected">Connect a device to try the live demo</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
 
-    <script src="components.js"></script>
-    <script>loadHeader({ page: 'home' }); loadFooter();</script>
-    <script src="cosmic-bg.js"></script>
-    <script src="/analytics.js"></script>
+<!-- ============================== Tools ============================== -->
+<main class="js-page page-narrow" data-page="tools" hidden>
+  <h1 class="page-title">Tools</h1>
+  <p class="page-sub">Everything runs in your browser. Connect your device once — every tool picks up the connection instantly.</p>
+  <div class="tools-grid">
+    <a href="#flash" class="tool-card tool-card-link">
+      <div class="tool-head"><h2>Flash</h2><span class="chip">WEB SERIAL</span></div>
+      <p>Install ESPHome, Native or Matter firmware over USB, from the browser.</p>
+      <span class="tool-open">Open →</span>
+    </a>
+    <a href="#configure" class="tool-card tool-card-link">
+      <div class="tool-head"><h2>Configure</h2><span class="chip js-ble-chip">BLE</span></div>
+      <p>Provision Wi-Fi, MQTT and device settings over Bluetooth.</p>
+      <span class="tool-open">Open →</span>
+    </a>
+    <a href="#monitor" class="tool-card tool-card-link">
+      <div class="tool-head"><h2>Monitor</h2><span class="chip">MQTT</span></div>
+      <p>Live telemetry from every ESPectre node on your broker.</p>
+      <span class="tool-open">Open →</span>
+    </a>
+    <a href="#theremin" class="tool-card tool-card-link">
+      <div class="tool-head"><h2>Theremin</h2><span class="chip js-ble-chip">BLE</span></div>
+      <p>Your movement becomes sound. A motion-controlled instrument.</p>
+      <span class="tool-open">Open →</span>
+    </a>
+    <a href="#game" class="tool-card tool-card-link">
+      <div class="tool-head"><h2>Game</h2><span class="chip js-ble-chip">BLE</span></div>
+      <p>A reaction game where Wi-Fi motion sensing is the controller.</p>
+      <span class="tool-open">Open →</span>
+    </a>
+  </div>
+</main>
+
+<!-- ============================== Flash ============================== -->
+<main class="js-page page-narrow page-tool" data-page="flash" hidden>
+  <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash</span></div>
+  <h1 class="page-title">Flash firmware</h1>
+  <p class="page-sub">Pick a firmware, plug the board into USB, and install straight from the browser.</p>
+  <div class="config-grid">
+    <section class="panel">
+      <h2>Firmware</h2>
+      <div class="fields">
+        <div class="field"><label>Frontend</label><select id="flash-frontend"></select></div>
+        <div class="field"><label>Channel</label>
+          <select id="flash-channel">
+            <option value="stable">Latest Release</option>
+            <option value="main">Release Preview</option>
+          </select>
+        </div>
+        <div class="field"><label>Chip</label><select id="flash-chip"></select></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Install</h2>
+      <div class="flash-summary js-flash-summary">Loading firmware metadata…</div>
+      <div class="flash-status js-flash-status"></div>
+      <div class="panel-actions">
+        <esp-web-install-button class="js-flash-install">
+          <button slot="activate" class="btn-primary btn-sm">Install via USB</button>
+        </esp-web-install-button>
+        <a class="btn-ghost btn-sm js-flash-download" href="https://github.com/francescopace/espectre/releases" target="_blank" rel="noopener">Download binary</a>
+      </div>
+      <p class="tool-note">Flashing needs a Chromium-based browser with Web Serial. After flashing, provision Wi-Fi from <a href="#configure">Configure</a> over Bluetooth.</p>
+    </section>
+    <section class="panel js-matter-panel" hidden>
+      <h2>Matter commissioning</h2>
+      <p class="matter-intro">After flashing Matter firmware, read the device's commissioning QR code over the same USB port. The code is stored on the device and survives normal updates.</p>
+      <div class="panel-actions">
+        <button class="btn-primary btn-sm js-matter-read">Read Matter QR via USB</button>
+      </div>
+      <div class="tool-note js-matter-status" role="status">Select the same USB port used for flashing. If no data appears, press the board reset button once.</div>
+      <div class="matter-result js-matter-result" hidden>
+        <div class="matter-qr js-matter-canvas" role="img" aria-label="Matter commissioning QR code"></div>
+        <dl class="matter-codes">
+          <div><dt>QR payload</dt><dd><code class="js-matter-payload"></code></dd></div>
+          <div><dt>Manual code</dt><dd><code class="js-matter-manual"></code></dd></div>
+        </dl>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- ============================== Configure ============================== -->
+<main class="js-page page-narrow page-tool" data-page="configure" hidden>
+  <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Configure</span></div>
+
+  <div class="empty-state js-needs-conn">
+    <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
+    <h1>No device connected</h1>
+    <p>Connect your ESPectre over Bluetooth to configure it. The connection stays alive across every tool and page.</p>
+    <button class="btn-primary js-connect">Connect device</button>
+    <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
+  </div>
+
+  <div class="js-has-conn" hidden>
+    <div class="device-banner">
+      <div class="device-banner-id">
+        <span class="dot dot-ok pulse"></span>
+        <div>
+          <h1 class="js-device-name">ESPectre</h1>
+          <div class="mono-sub js-device-sub">—</div>
+        </div>
+      </div>
+      <div class="device-banner-meter">
+        <div class="energy-head"><span class="energy-title">Live motion energy</span><span class="mono"><span class="js-motion-label">quiet</span> · <span class="js-energy-val">0.00</span></span></div>
+        <div class="meter meter-threshold">
+          <span class="js-energy-fill"></span>
+          <i class="threshold-mark" title="Motion threshold"></i>
+        </div>
+      </div>
+    </div>
+
+    <div class="config-grid">
+      <section class="panel">
+        <h2>Wi-Fi</h2>
+        <div class="fields">
+          <div class="field"><label>SSID</label><input type="text" id="cfg-ssid" placeholder="HomeNet-5G"></div>
+          <div class="field"><label>Password</label><input type="password" id="cfg-wifi-pass" placeholder="••••••••"></div>
+          <div class="field-row field-row-2-1">
+            <div class="field"><label>BSSID <span class="opt">(optional)</span></label><input type="text" id="cfg-bssid" class="mono-input" placeholder="aa:bb:cc:dd:ee:ff"></div>
+            <div class="field"><label>Channel</label><input type="number" id="cfg-channel" placeholder="auto"></div>
+          </div>
+        </div>
+        <div class="panel-actions">
+          <button class="btn-primary btn-sm js-wifi-save">Save</button>
+          <button class="btn-ghost btn-sm js-wifi-clear">Clear</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>MQTT</h2>
+        <div class="fields">
+          <div class="field-row field-row-2-1">
+            <div class="field"><label>Broker host</label><input type="text" id="cfg-mqtt-host" class="mono-input" placeholder="192.168.1.20"></div>
+            <div class="field"><label>Port</label><input type="number" id="cfg-mqtt-port" placeholder="1883"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Username</label><input type="text" id="cfg-mqtt-user" placeholder="mqtt"></div>
+            <div class="field"><label>Password</label><input type="password" id="cfg-mqtt-pass" placeholder="••••••••"></div>
+          </div>
+          <div class="field"><label>Topic prefix</label><input type="text" id="cfg-topic-prefix" class="mono-input" placeholder="espectre/v1/devices"></div>
+        </div>
+        <div class="panel-actions">
+          <button class="btn-primary btn-sm js-mqtt-save">Save</button>
+          <button class="btn-ghost btn-sm js-mqtt-clear">Clear</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Device</h2>
+        <div class="fields">
+          <div class="field"><label>Device ID</label><div class="readonly-value" id="cfg-device-id">—</div></div>
+          <div class="field"><label>Device name</label><div class="readonly-value" id="cfg-device-name">—</div></div>
+          <div class="field"><label>Label</label><input type="text" id="cfg-label" placeholder="Living Room"></div>
+        </div>
+        <div class="panel-actions">
+          <button class="btn-primary btn-sm js-dev-save">Save</button>
+          <button class="btn-ghost btn-sm js-dev-clear">Clear</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Diagnostics</h2>
+        <div class="diag-grid">
+          <div class="stat"><div class="stat-label">Protocol</div><div class="stat-value" id="diag-protocol">—</div></div>
+          <div class="stat"><div class="stat-label">Chip</div><div class="stat-value" id="diag-chip">—</div></div>
+          <div class="stat"><div class="stat-label">Detector</div><div class="stat-value" id="diag-detector">—</div></div>
+          <div class="stat"><div class="stat-label">Window</div><div class="stat-value" id="diag-window">—</div></div>
+          <div class="stat"><div class="stat-label">Traffic</div><div class="stat-value" id="diag-traffic">—</div></div>
+          <div class="stat"><div class="stat-label">Publish</div><div class="stat-value" id="diag-publish">—</div></div>
+          <div class="stat"><div class="stat-label">Wi-Fi</div><div class="stat-value" id="diag-wifi">—</div></div>
+          <div class="stat"><div class="stat-label">MQTT</div><div class="stat-value" id="diag-mqtt">—</div></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<!-- ============================== Monitor ============================== -->
+<main class="js-page page-narrow page-tool" data-page="monitor" hidden>
+  <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Monitor</span></div>
+  <h1 class="page-title">MQTT Monitor</h1>
+  <p class="page-sub">Live movement telemetry from an ESPectre node on your broker, over MQTT WebSockets.</p>
+
+  <div class="config-grid">
+    <section class="panel">
+      <h2>Broker</h2>
+      <div class="fields">
+        <div class="field-row field-row-2-1">
+          <div class="field"><label>Host</label><input type="text" id="mon-host" class="mono-input" placeholder="192.168.1.20"></div>
+          <div class="field"><label>Port</label><input type="number" id="mon-port" placeholder="9001"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>WebSocket path</label><input type="text" id="mon-path" class="mono-input" value="/mqtt"></div>
+          <div class="field field-check"><label>&nbsp;</label><label class="check"><input type="checkbox" id="mon-tls"> TLS (wss)</label></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Username</label><input type="text" id="mon-user" placeholder="mqtt"></div>
+          <div class="field"><label>Password</label><input type="password" id="mon-pass" placeholder="••••••••"></div>
+        </div>
+        <div class="field"><label>Device base topic</label><input type="text" id="mon-topic" class="mono-input" placeholder="espectre/v1/devices/0x00007c2c6742bbac"></div>
+      </div>
+      <div class="panel-actions">
+        <button class="btn-primary btn-sm js-mon-connect">Connect broker</button>
+        <button class="btn-ghost btn-sm js-mon-demo">Demo feed</button>
+      </div>
+      <div class="tool-note js-mon-status">Not connected.</div>
+    </section>
+
+    <section class="panel">
+      <h2>Live telemetry</h2>
+      <div class="diag-grid mon-tiles">
+        <div class="stat"><div class="stat-label">State</div><div class="stat-value js-mon-state">—</div></div>
+        <div class="stat"><div class="stat-label">Movement</div><div class="stat-value js-mon-move">—</div></div>
+        <div class="stat"><div class="stat-label">Threshold</div><div class="stat-value js-mon-thr">—</div></div>
+        <div class="stat"><div class="stat-label">Device</div><div class="stat-value js-mon-dev">—</div></div>
+      </div>
+      <canvas class="mon-chart js-mon-chart" height="180"></canvas>
+      <p class="tool-note">Movement score vs. threshold, last 60 seconds.</p>
+    </section>
+  </div>
+</main>
+
+<!-- ============================== Theremin ============================== -->
+<main class="js-page page-narrow page-tool" data-page="theremin" hidden>
+  <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Theremin</span></div>
+
+  <div class="empty-state js-needs-conn">
+    <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
+    <h1>No device connected</h1>
+    <p>The theremin turns live motion energy into sound. Connect your ESPectre — or run the demo — and start playing.</p>
+    <button class="btn-primary js-connect">Connect device</button>
+    <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
+  </div>
+
+  <div class="js-has-conn" hidden>
+    <div class="theremin-stage panel">
+      <div class="theremin-readout">
+        <div class="theremin-freq"><span class="js-th-freq">—</span><span class="theremin-unit">Hz</span></div>
+        <div class="mono-sub">move to raise the pitch · stay still for silence</div>
+      </div>
+      <div class="meter meter-lg"><span class="js-energy-fill"></span></div>
+      <div class="theremin-controls">
+        <button class="btn-primary js-th-toggle">▶ Start sound</button>
+        <div class="field field-inline">
+          <label>Waveform</label>
+          <select id="th-wave">
+            <option value="sine">Sine</option>
+            <option value="triangle">Triangle</option>
+            <option value="sawtooth">Sawtooth</option>
+          </select>
+        </div>
+      </div>
+      <p class="tool-note">Audio starts only after you press play — browsers require a gesture to unlock sound.</p>
+    </div>
+  </div>
+</main>
+
+<!-- ============================== Game ============================== -->
+<main class="js-page page-narrow page-tool" data-page="game" hidden>
+  <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Game</span></div>
+
+  <div class="empty-state js-needs-conn">
+    <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
+    <h1>No device connected</h1>
+    <p>Your body is the controller: stand still, then move fast when the Spectre strikes. Connect your ESPectre — or run the demo.</p>
+    <button class="btn-primary js-connect">Connect device</button>
+    <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
+  </div>
+
+  <div class="js-has-conn" hidden>
+    <div class="game-stage panel">
+      <div class="game-orb js-game-orb"></div>
+      <div class="game-msg js-game-msg">Stand still. Move fast. React to survive.</div>
+      <div class="game-stats">
+        <div class="stat"><div class="stat-label">Round</div><div class="stat-value js-game-round">—</div></div>
+        <div class="stat"><div class="stat-label">Reaction</div><div class="stat-value js-game-ms">—</div></div>
+        <div class="stat"><div class="stat-label">Score</div><div class="stat-value js-game-score">0</div></div>
+        <div class="stat"><div class="stat-label">Best</div><div class="stat-value js-game-best">—</div></div>
+      </div>
+      <div class="meter meter-lg game-meter"><span class="js-energy-fill"></span></div>
+      <div class="theremin-controls">
+        <button class="btn-primary js-game-start">Start game</button>
+        <button class="btn-ghost js-game-wave" hidden>Wave 👋 (or press Space)</button>
+      </div>
+      <p class="tool-note js-game-hint"></p>
+    </div>
+  </div>
+</main>
+
+<!-- ============================== Guides ============================== -->
+<main class="js-page page-narrow" data-page="guides" hidden>
+  <h1 class="page-title">Guides</h1>
+  <p class="page-sub">From picking a board to writing your own detection firmware.</p>
+  <div class="guides-grid">
+    <a href="#guide-hardware" class="guide-card">
+      <img src="guides/images/esp32-boards.jpg" alt="ESP32 boards">
+      <div class="guide-body">
+        <span class="guide-tag">HARDWARE</span>
+        <h2>Choosing an ESP32 board</h2>
+        <p>Which €3 board to buy, antennas, and placement in the room.</p>
+        <span class="guide-meta">6 min read</span>
+      </div>
+    </a>
+    <a href="#guide-setup" class="guide-card">
+      <img src="guides/images/home-assistant-dashboard.png" alt="Home Assistant dashboard">
+      <div class="guide-body">
+        <span class="guide-tag">SETUP</span>
+        <h2>Flash &amp; Wi-Fi setup</h2>
+        <p>Browser flashing, provisioning, and adopting the device in Home Assistant.</p>
+        <span class="guide-meta">8 min read</span>
+      </div>
+    </a>
+    <a href="#guide-detection" class="guide-card">
+      <img src="guides/images/csi-quiet-vs-movement.jpg" alt="CSI: quiet vs movement">
+      <div class="guide-body">
+        <span class="guide-tag">THEORY</span>
+        <h2>How detection works</h2>
+        <p>CSI, multipath, and how a still room differs from a moving one.</p>
+        <span class="guide-meta">12 min read</span>
+      </div>
+    </a>
+    <a href="#guide-firmware" class="guide-card">
+      <img src="guides/images/custom-firmware-build.webp" alt="Custom firmware build">
+      <div class="guide-body">
+        <span class="guide-tag">SDK</span>
+        <h2>Build custom firmware</h2>
+        <p>Use the C++ SDK to embed sensing into your own product firmware.</p>
+        <span class="guide-meta">15 min read</span>
+      </div>
+    </a>
+  </div>
+</main>
+
+<!-- ============================== Docs ============================== -->
+<main class="js-page page-narrow" data-page="docs" hidden>
+  <h1 class="page-title">Build with the SDK</h1>
+  <p class="page-sub page-sub-wide">ESPectre's sensing core is a reusable C++ layer. Link it into any ESP-IDF firmware and your product gains motion sensing — the Wi-Fi radio it already has is the sensor.</p>
+  <div class="docs-grid">
+    <div class="code-block"><pre><span class="c">// your_firmware.cpp</span>
+<span class="k">#include</span> <span class="s">&lt;espectre/sensing.h&gt;</span>
+
+espectre::Sensor sensor;
+
+<span class="k">void</span> app_main() {
+  sensor.begin();  <span class="c">// uses the existing Wi-Fi stack</span>
+  sensor.on_motion([](<span class="k">float</span> score) {
+    <span class="c">// blender detects a person → wake the UI</span>
+    display.wake();
+  });
+}</pre></div>
+    <div class="doc-links">
+      <a href="#docs-api" class="doc-link"><div class="doc-link-title">API reference →</div><div class="doc-link-sub">Sensor lifecycle, detectors, filters, telemetry.</div></a>
+      <a href="#docs-examples" class="doc-link"><div class="doc-link-title">Examples →</div><div class="doc-link-sub">Minimal sensor, Matter device, MQTT node, custom detector.</div></a>
+      <a href="#docs-architecture" class="doc-link"><div class="doc-link-title">Architecture →</div><div class="doc-link-sub">Sensing core, runtime, and frontend layers explained.</div></a>
+      <div class="doc-license">GPLv3 for open projects · <a href="#docs">commercial licensing</a> for closed-source products.</div>
+    </div>
+  </div>
+</main>
+
+<!-- ============================== Guide: Hardware ============================== -->
+<main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
+  <div class="breadcrumb"><a href="#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
+  <article class="article">
+    <span class="guide-tag">HARDWARE · 6 MIN READ</span>
+    <h1>Choose your hardware</h1>
+    <p class="article-lead">Any supported ESP32 works. This guide helps you pick a board that senses well, and explains what actually affects detection quality.</p>
+
+    <h2>Supported chips</h2>
+    <p>All chips below run every published firmware (ESPHome, Native, and Matter) and use the same detection pipeline. Differences are practical, not functional.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Chip</th><th>Practical notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>ESP32-C3</strong></td><td>Small, inexpensive, and everywhere. The easiest starting point: a C3 devkit or super-mini board costs a few euros.</td></tr>
+        <tr><td><strong>ESP32-C6</strong></td><td>The most recent radio generation. A good default if you are buying new hardware today.</td></tr>
+        <tr><td><strong>ESP32-S3</strong></td><td>The most compute headroom, useful if the board will also do other work. Many S3 devkits expose an external antenna connector.</td></tr>
+        <tr><td><strong>ESP32</strong> (classic)</td><td>Widely available and well supported. Fine for reusing boards you already own.</td></tr>
+        <tr><td><strong>ESP32-C5</strong></td><td>Dual-band capable; ESPectre senses on 2.4&nbsp;GHz. Note: USB Wi-Fi provisioning in the flasher is not available yet on C5.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>What actually matters</h2>
+    <ul class="checklist">
+      <li><strong>The antenna.</strong> Boards with an external antenna connector (U.FL/IPEX) give a cleaner, more stable signal than tiny PCB antennas, especially at longer range. It is the single most effective hardware upgrade.</li>
+      <li><strong>The power supply.</strong> A stable 5&nbsp;V USB supply matters: cheap noisy chargers show up as radio noise. If readings look erratic on a good placement, try another power adapter first.</li>
+      <li><strong>Placement beats hardware.</strong> A mediocre board placed well outperforms a great board inside a metal cabinet. Keep the sensor 3–8&nbsp;m from the access point, in the room you want to monitor. The <a href="#guide-detection">detection guide</a> covers placement in detail.</li>
+      <li><strong>The USB cable.</strong> For flashing you need a data cable; for permanent installs any power-only cable is fine.</li>
+    </ul>
+    <figure>
+      <img src="guides/images/esp32-boards.jpg" alt="Several ESP32 development boards with external antennas mounted on a test bench" loading="lazy">
+      <figcaption>ESP32 devkits with external antennas: the kind of setup used to collect the project's validation datasets.</figcaption>
+    </figure>
+
+    <h2>Shopping checklist</h2>
+    <ul class="checklist">
+      <li>A devkit-style board with native USB for one of the chips above (search for "<em>chip name</em> devkit").</li>
+      <li>Optionally, a version with an external antenna connector plus a 2.4&nbsp;GHz antenna.</li>
+      <li>A known-good USB data cable and a decent 5&nbsp;V power supply.</li>
+      <li>No other sensors, shields, or modules: the Wi-Fi radio is the sensor.</li>
+    </ul>
+    <div class="note">One board covers one area, typically a room. For multiple rooms, use one sensor per room; every published firmware handles multiple devices side by side.</div>
+
+    <h2>Building ESPectre into a product?</h2>
+    <p>If your device already contains a supported ESP32, its radio can double as a motion sensor without adding hardware: the sensing engine embeds into existing ESP-IDF firmware, and the published firmwares serve as reference integrations. Start from the <a href="#guide-firmware">custom firmware guide</a> and the <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">embedding guide</a>; licensing options are described in the <a href="https://github.com/francescopace/espectre/blob/main/LICENSING.md" target="_blank" rel="noopener">licensing overview</a>.</p>
+
+    <div class="article-nav">
+      <a href="#guide-setup" class="doc-link"><div class="doc-link-title">Next: Flash &amp; Wi-Fi setup →</div><div class="doc-link-sub">From blank board to working sensor, in the browser.</div></a>
+    </div>
+  </article>
+</main>
+
+<!-- ============================== Guide: Setup ============================== -->
+<main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
+  <div class="breadcrumb"><a href="#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
+  <article class="article">
+    <span class="guide-tag">SETUP · 8 MIN READ</span>
+    <h1>Flash and set up your device</h1>
+    <p class="article-lead">This tutorial takes you from a blank ESP32 board to a working motion sensor. No toolchain, no compiler: everything happens in the browser.</p>
+
+    <h2>What you need</h2>
+    <ul class="checklist">
+      <li>An ESP32, ESP32-C3, ESP32-C5, ESP32-C6, or ESP32-S3 board.</li>
+      <li>A USB cable that carries data, not only power. If in doubt, try another cable first: it is the single most common problem.</li>
+      <li>Chrome or Edge on desktop. Browser flashing uses Web Serial, which Firefox and Safari do not support.</li>
+      <li>The name and password of your 2.4&nbsp;GHz Wi-Fi network. ESP32 boards cannot join 5&nbsp;GHz-only networks.</li>
+    </ul>
+
+    <h2>Step 1 — Choose your firmware</h2>
+    <p>Pick the row that matches how you want to use the sensor. You can always reflash later; switching firmware takes two minutes.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>If you...</th><th>Flash</th><th>You get</th></tr></thead>
+      <tbody>
+        <tr><td>Want a standalone sensor with browser tools or MQTT</td><td><strong>Native</strong></td><td>Bluetooth setup page, MQTT telemetry, live monitor, and the browser games</td></tr>
+        <tr><td>Use Home Assistant</td><td><strong>ESPHome</strong></td><td>Auto-discovered device with motion, movement level, threshold slider, and recalibrate switch</td></tr>
+        <tr><td>Use Apple Home, Google Home, Alexa, or SmartThings</td><td><strong>Matter</strong></td><td>A standard occupancy sensor you add by scanning a QR code</td></tr>
+        <tr><td>Want raw CSI data for research</td><td><strong>Streamer</strong></td><td>Raw capture over UDP; not flashable from the browser, see the <a href="#guide-firmware">custom firmware guide</a></td></tr>
+      </tbody>
+    </table></div>
+    <div class="note">Not sure? Pick Native, the default in the flasher: it works on its own and you can try every tool on this website. If you run Home Assistant, pick ESPHome instead.</div>
+
+    <h2>Step 2 — Flash from the browser</h2>
+    <figure>
+      <img src="guides/images/flash-connect-usb.webp" alt="A USB data cable connecting an ESP32 development board to a laptop" loading="lazy">
+      <figcaption>Connect the board directly to the computer with a USB data cable before opening the browser flasher.</figcaption>
+    </figure>
+    <ol class="steps-list">
+      <li><h3>Plug the board in</h3><p>Connect the ESP32 to your computer over USB. Close anything that may be using the serial port, such as a previous flasher tab, the Arduino IDE, or a serial monitor.</p></li>
+      <li><h3>Open the flasher</h3><p>Go to the <a href="#flash">Flash page</a>, keep <em>Latest Release</em> selected, and choose the firmware from Step&nbsp;1 and your chip family. The chip name is usually printed on the module itself (for example <code>ESP32-C3</code>).</p></li>
+      <li><h3>Connect</h3><p>Click <em>Connect</em>. The browser shows a list of serial ports: pick the one that appears when you plug the board in (on Windows a <code>COMx</code> port, on macOS/Linux something like <code>usbserial</code>, <code>usbmodem</code>, or <code>ttyACM</code>).</p></li>
+      <li><h3>Install</h3><p>Choose <em>Install</em>, confirm, and wait. Flashing takes one to three minutes; do not unplug the cable. When it finishes, the device reboots into ESPectre.</p></li>
+    </ol>
+    <div class="note">If the port never appears or the connection fails right away, hold the <strong>BOOT</strong> button on the board while plugging the cable in, then release it and click <em>Connect</em> again. That forces the chip into download mode.</div>
+
+    <h2>Step 3 — Connect it to your network</h2>
+    <p>This step depends on the firmware you flashed.</p>
+
+    <h3 class="subheading">Native</h3>
+    <ol class="steps-list">
+      <li><h3>Open the Configure page</h3><p>Go to <a href="#configure">Configure</a> in Chrome or Edge and click <em>Connect</em>. Pick the <code>ESPectre BLE</code> device from the Bluetooth list. The board must be powered but does not need Wi-Fi yet.</p></li>
+      <li><h3>Save Wi-Fi and MQTT</h3><p>Enter your network name and password. If you have an MQTT broker, add its host and port to get telemetry; if not, you can skip it and the sensor still works over Bluetooth.</p></li>
+      <li><h3>Watch it live</h3><p>Use the same Configure page to see the live movement bar, or open the <a href="#monitor">Monitor</a> to chart MQTT telemetry from the browser.</p></li>
+    </ol>
+
+    <h3 class="subheading">ESPHome</h3>
+    <ol class="steps-list">
+      <li><h3>Configure Wi-Fi in the flasher</h3><p>Right after installation, the same dialog offers <em>Configure Wi-Fi</em>. Enter your 2.4&nbsp;GHz network name and password. On ESP32-C5 this dialog is not available yet: connect to the <code>ESPectre Fallback</code> hotspot the device creates and enter the credentials there.</p></li>
+      <li><h3>Add it in Home Assistant</h3><p>Within a minute, Home Assistant shows a notification for a discovered ESPHome device. Accept it, and you get the motion sensor, movement level, threshold control, and recalibrate switch.</p></li>
+    </ol>
+    <figure>
+      <img src="guides/images/home-assistant-dashboard.png" alt="Home Assistant dashboard showing the ESPectre movement gauge, motion state, threshold slider, and recalibrate switch" loading="lazy">
+      <figcaption>The device in Home Assistant: movement level on a 0.0–1.0 scale, motion state, threshold slider, and recalibrate switch.</figcaption>
+    </figure>
+
+    <h3 class="subheading">Matter</h3>
+    <ol class="steps-list">
+      <li><h3>Get the QR code</h3><p>After flashing, the flasher shows the device's Matter QR code and manual pairing code. Each device has its own code, and reflashing does not change it, so you can save it.</p></li>
+      <li><h3>Add the device in your app</h3><p>In Apple Home, Google Home, Alexa, or SmartThings choose <em>Add device</em> and scan the QR code. Keep the phone near the board: commissioning starts over Bluetooth, then the device joins your Wi-Fi.</p></li>
+      <li><h3>Place it in a room</h3><p>The device appears as an occupancy sensor. Use it in automations exactly like any other motion sensor.</p></li>
+    </ol>
+
+    <h2>Step 4 — Let it calibrate, then test</h2>
+    <ul class="checklist">
+      <li>After joining Wi-Fi, the sensor calibrates its quiet baseline. This takes roughly ten seconds with the default settings: keep the room still, then move normally.</li>
+      <li>Wave an arm a few meters from the board: the motion state should turn active within about a second and clear shortly after you stop.</li>
+      <li>If you later move the device to another room or position, trigger a recalibration (Home Assistant switch, Configure page, or just power-cycle it).</li>
+    </ul>
+    <div class="note">The movement level is a 0.0–1.0 score specific to your room. If the sensor is too eager or too lazy, adjust the threshold slightly instead of expecting one universal value: the <a href="#guide-detection">detection guide</a> explains what the numbers mean.</div>
+
+    <h2>Troubleshooting</h2>
+    <div class="mini-cards">
+      <article><h3>No serial port appears</h3><ul><li>Try another USB cable: charge-only cables are the top cause.</li><li>Try another USB port, ideally directly on the computer.</li><li>Hold <strong>BOOT</strong> while plugging in, then retry Connect.</li></ul></article>
+      <article><h3>Flashing starts but fails midway</h3><ul><li>Close other tabs or programs using the port and retry.</li><li>Use a rear USB port or a powered hub: unstable power interrupts flashing.</li><li>Retry with <em>Erase</em> enabled to start from a clean flash.</li></ul></article>
+      <article><h3>Device will not join Wi-Fi</h3><ul><li>Confirm the network is 2.4&nbsp;GHz; guest and 5&nbsp;GHz-only networks fail.</li><li>Re-enter the exact SSID and password: both are case-sensitive.</li><li>Move the board closer to the access point for the first join.</li></ul></article>
+      <article><h3>Matter commissioning times out</h3><ul><li>Keep the phone within a meter of the board while pairing.</li><li>Make sure the phone's Bluetooth is on and the board is powered.</li><li>Power-cycle the board to reopen the commissioning window, then retry.</li></ul></article>
+      <article><h3>Native is not publishing MQTT</h3><ul><li>Check broker host, port, and credentials in <a href="#configure">Configure</a>.</li><li>Confirm the broker is reachable from the device's network.</li><li>Use the <a href="#monitor">Monitor</a> to see whether telemetry arrives.</li></ul></article>
+      <article><h3>Motion triggers with nobody there</h3><ul><li>Recalibrate with the room genuinely empty and still.</li><li>Raise the threshold a little.</li><li>Check for fans, curtains moving in airflow, or pets: the sensor sees them too.</li></ul></article>
+    </div>
+
+    <h2>CLI flashing (fallback)</h2>
+    <p>If browser flashing does not work on your system, clone the repository and flash with the ESPectre CLI. After <code>./espectre doctor</code> succeeds, build and flash the frontend you chose in Step&nbsp;1:</p>
+    <pre class="code"><code>./espectre native build --chip c3
+./espectre native flash --port /dev/cu.usbmodemXXXX</code></pre>
+    <p>Use <code>esphome</code> or <code>matter</code> instead of <code>native</code> when that is your firmware. Full prerequisites and command reference are in the <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">setup reference</a>; the <a href="#guide-firmware">custom firmware guide</a> walks through the same local workflow.</p>
+
+    <h2>Next steps</h2>
+    <ul class="checklist">
+      <li>Understand and tune the score: <a href="#guide-detection">How detection works</a>.</li>
+      <li>Pick a better board or antenna: <a href="#guide-hardware">Hardware guide</a>.</li>
+      <li>Build your own firmware or embed the engine: <a href="#guide-firmware">Custom firmware</a>.</li>
+    </ul>
+  </article>
+</main>
+
+<!-- ============================== Guide: Detection ============================== -->
+<main class="js-page page-narrow page-article" data-page="guide-detection" hidden>
+  <div class="breadcrumb"><a href="#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How detection works</span></div>
+  <article class="article">
+    <span class="guide-tag">THEORY · 12 MIN READ</span>
+    <h1>How motion detection works</h1>
+    <p class="article-lead">What the movement score actually measures, what happens during calibration, and how to place and tune the sensor so it behaves well in your room.</p>
+
+    <h2>The idea in one minute</h2>
+    <p>Wi-Fi signals reach the ESP32 over many paths at once: direct, bounced off walls, furniture, and people. Each received packet carries Channel State Information (CSI), a per-subcarrier measurement of how the radio channel looked at that instant. When nobody moves, those measurements are remarkably stable. When a person moves, the reflected paths change and the measurements start to scatter. ESPectre measures that scatter, on the device, packet by packet.</p>
+    <figure>
+      <img src="guides/images/csi-multipath-motion.webp" alt="Wi-Fi signals traveling directly and reflecting around a person before reaching an ESP32" loading="lazy">
+      <figcaption>The ESP32 receives the same Wi-Fi packet over several paths. Movement changes the reflected paths, making the measured channel vary over time.</figcaption>
+    </figure>
+    <figure>
+      <img src="guides/images/csi-amplitude-heatmap.webp" alt="Three CSI amplitude heatmaps comparing empty room, static presence, and motion" loading="lazy">
+      <figcaption>What that looks like in CSI: empty and static presence stay mostly grainy and stable, while walking produces broad vertical bands of change across subcarriers.</figcaption>
+    </figure>
+
+    <h2>The signal path</h2>
+    <p>Everything below runs on the ESP32. No raw radio data leaves the device; only the derived score and motion state are published.</p>
+    <div class="pipeline">
+      <div><strong>Wi-Fi packets</strong><span>2.4 GHz traffic</span></div>
+      <div><strong>CSI capture</strong><span>Subcarrier samples</span></div>
+      <div><strong>Conditioning</strong><span>Normalize and filter</span></div>
+      <div><strong>Detection</strong><span>Classic or ML</span></div>
+      <div><strong>Output</strong><span>Score and motion</span></div>
+    </div>
+    <p>Conditioning matters because raw CSI is noisy: gain normalization compensates for the receiver's automatic gain control, a Hampel filter drops isolated outliers, and an optional low-pass filter removes fast noise while keeping the slower variations caused by human movement.</p>
+
+    <h2>What the numbers mean</h2>
+    <ul class="checklist">
+      <li><strong>Movement score (0.0–1.0)</strong>: how strongly the channel is changing right now. It is a room-specific signal, not a physical unit: 0.3 in your living room and 0.3 in your office are not the same thing.</li>
+      <li><strong>Threshold</strong>: the score level that counts as motion. Classic adapts it during calibration; you can adjust it at runtime from Home Assistant, the Configure page, or MQTT.</li>
+      <li><strong>Motion state</strong>: turns on after the score stays above the threshold for a few consecutive evaluations (about one second at default settings) and off after it stays below (slightly faster). This hit filter is why a single spike does not trigger a false alarm.</li>
+      <li><strong>Calibration</strong>: at startup the detector learns the quiet baseline of your room, which takes roughly ten seconds at the default packet rate. Keep the room still while it runs, and recalibrate whenever you move the device.</li>
+    </ul>
+
+    <h2>Classic or ML?</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>Classic (default)</th><th>ML</th></tr></thead>
+      <tbody>
+        <tr><td>How it decides</td><td>Fuses two channel features into a motion probability</td><td>Small neural network over a six-feature window</td></tr>
+        <tr><td>Training data</td><td>None needed</td><td>Ships with a pre-trained model</td></tr>
+        <tr><td>Threshold</td><td>Self-calibrated per session, adjustable</td><td>Fixed default (0.5), adjustable</td></tr>
+        <tr><td>Best for</td><td>Most rooms; transparent and lightweight</td><td>Experiments with learned decision boundaries</td></tr>
+      </tbody>
+    </table></div>
+    <p>Both run entirely on the ESP32, use the same 0.0–1.0 scale, and can be switched at runtime on ESPHome and Native firmware. Start with Classic; try ML if you are curious or your room proves difficult.</p>
+
+    <h2>Placement that works</h2>
+    <ul class="checklist">
+      <li>Keep the sensor roughly 3–8 meters from your Wi-Fi access point. Too close risks receiver saturation; too far means a weaker, noisier signal.</li>
+      <li>Put it in the room you want to monitor, where people cross the space between the router and the sensor or move near the device.</li>
+      <li>Do not enclose it in a metal cabinet or press the antenna against a large metal surface.</li>
+      <li>Keep the room still during the ten-second startup calibration.</li>
+      <li>Moved the device? Recalibrate. Placement changes the baseline more than any parameter does.</li>
+    </ul>
+
+    <h2>Quick tuning recipe</h2>
+    <div class="mini-cards">
+      <article><h3>Triggers with nobody there</h3><ul><li>Raise the threshold a little.</li><li>Recalibrate with the room genuinely empty.</li><li>Look for fans, curtains in airflow, or pets: the sensor sees them too.</li></ul></article>
+      <article><h3>Misses real motion</h3><ul><li>Lower the threshold a little.</li><li>Check placement: distance from the AP and obstacles matter most.</li><li>Verify the device receives steady traffic (the built-in traffic generator keeps ~100 packets/s by default).</li></ul></article>
+    </div>
+    <div class="note">Wi-Fi sensing detects changes in the radio environment. It does not identify people, count them, or replace a safety-certified presence sensor.</div>
+
+    <h2>Going deeper</h2>
+    <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md" target="_blank" rel="noopener">algorithm reference</a> covers the math, the feature definitions, and calibration in detail; the <a href="https://github.com/francescopace/espectre/blob/main/docs/TUNING.md" target="_blank" rel="noopener">tuning guide</a> covers every parameter with recommended ranges.</p>
+  </article>
+</main>
+
+<!-- ============================== Guide: Custom firmware ============================== -->
+<main class="js-page page-narrow page-article" data-page="guide-firmware" hidden>
+  <div class="breadcrumb"><a href="#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Build custom firmware</span></div>
+  <article class="article">
+    <span class="guide-tag">SDK · 15 MIN READ</span>
+    <h1>Build or embed ESPectre firmware</h1>
+    <p class="article-lead">For developers: build a frontend from source when the published images are not enough, or bring the sensing layers into your own ESP-IDF application.</p>
+
+    <h2>Which path do you need?</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>You want to...</th><th>Do this</th></tr></thead>
+      <tbody>
+        <tr><td>Use the sensor as published</td><td>You do not need this guide: <a href="#guide-setup">flash from the browser</a></td></tr>
+        <tr><td>Change configuration baked into the firmware, add entities, or build the Streamer</td><td>Build a frontend from source (below)</td></tr>
+        <tr><td>Add motion sensing to firmware you already ship</td><td>Embed the sensing layers (bottom of this page)</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>The four frontends</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Frontend</th><th>Use it when</th><th>Toolchain</th></tr></thead>
+      <tbody>
+        <tr><td>ESPHome</td><td>You want Home Assistant entities and YAML configuration.</td><td>ESPHome / PlatformIO</td></tr>
+        <tr><td>Native</td><td>You want standalone BLE provisioning, MQTT, and HTTPS OTA.</td><td>ESP-IDF</td></tr>
+        <tr><td>Matter</td><td>You want an occupancy sensor for Matter controllers.</td><td>ESP-IDF + esp-matter</td></tr>
+        <tr><td>Streamer</td><td>You need raw CSI over UDP for research or data collection.</td><td>ESP-IDF</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>Build a frontend from source</h2>
+    <figure>
+      <img src="guides/images/custom-firmware-build.webp" alt="Source code on a laptop being built into a firmware image and flashed over USB to an ESP32 board" loading="lazy">
+      <figcaption>The shared wrapper turns the selected frontend and chip configuration into a firmware image, then flashes it to the board over USB.</figcaption>
+    </figure>
+    <ol class="steps-list">
+      <li><h3>Clone and check the environment</h3><p>Clone the repository, create the virtual environment, and run the doctor command: it verifies Python, ESP-IDF, and the serial tooling before your first build. Native, Matter, and Streamer need a working ESP-IDF installation; ESPHome installs its own toolchain.</p></li>
+      <li><h3>Build for your chip</h3><p>Every frontend builds through the same wrapper; pick the chip explicitly.</p></li>
+      <li><h3>Flash and watch the logs</h3><p>Each build command has a matching flash/monitor flow; use <code>--help</code> on any subcommand for current options and port naming.</p></li>
+    </ol>
+    <pre class="code"><code>git clone https://github.com/francescopace/espectre.git
+cd espectre
+./espectre doctor
+
+./espectre esphome build --chip c3
+./espectre native build --chip c3
+./espectre matter build --chip c3
+./espectre streamer build --chip c3 --clean
+
+./espectre native flash --port /dev/cu.usbmodemXXXX
+./espectre monitor --port /dev/cu.usbmodemXXXX</code></pre>
+    <p>Full prerequisites and command reference: <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">SETUP.md</a> and <a href="https://github.com/francescopace/espectre/blob/main/docs/CLI.md" target="_blank" rel="noopener">CLI.md</a>.</p>
+    <div class="note">Streamer credentials are supplied at build time and Streamer binaries are not published by the browser flasher. Never commit local Wi-Fi or MQTT secrets.</div>
+
+    <h2>Where to change things</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>You want to change...</th><th>Look in</th></tr></thead>
+      <tbody>
+        <tr><td>Detection algorithms, features, filters</td><td><code>src/cpp/core/</code> — keep C++ and Python behavior aligned</td></tr>
+        <tr><td>Capture, calibration, lifecycle, transports</td><td><code>src/cpp/runtime/</code> and <code>runtime/esp_idf/</code></td></tr>
+        <tr><td>Entities, YAML schema, Matter surface, MQTT topics</td><td><code>src/cpp/frontend/&lt;name&gt;/</code></td></tr>
+        <tr><td>Defaults, ranges, and tuning parameters</td><td>The <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">setup reference</a> and <a href="https://github.com/francescopace/espectre/blob/main/docs/TUNING.md" target="_blank" rel="noopener">tuning guide</a></td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>Embed ESPectre in an existing firmware</h2>
+    <p>The reusable C++ layers let an ESP-IDF product own boot, networking, storage, OTA, and UI while ESPectre supplies the sensing path. The <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">embedding guide</a> documents the layers, the runtime contracts, and the build integration in detail.</p>
+    <figure>
+      <img src="guides/images/embedded-firmware-layers.webp" alt="Wi-Fi CSI entering reusable sensing and runtime layers embedded inside product firmware" loading="lazy">
+      <figcaption>CSI enters the reusable sensing layers; the surrounding product firmware keeps control of the platform and consumes only the score, state, and diagnostics it needs.</figcaption>
+    </figure>
+    <ol class="steps-list">
+      <li><h3>Connect CSI capture</h3><p>Feed compatible ESP32 CSI frames into the shared capture and processing boundary, or let the ESPectre runtime own capture entirely.</p></li>
+      <li><h3>Select the reusable layers</h3><p>Use the core directly for the smallest integration, or reuse the runtime services when you also want lifecycle and orchestration.</p></li>
+      <li><h3>Map product events</h3><p>Translate movement score, motion state, calibration state, and diagnostics into the product's existing event system.</p></li>
+      <li><h3>Validate in context</h3><p>Measure CPU, memory, packet flow, reconnect behavior, and detection quality inside the complete product firmware.</p></li>
+    </ol>
+    <div class="note">ESPectre exposes reusable source layers rather than a precompiled binary SDK, and it is dual-licensed: GPLv3 for open-source firmware, with <a href="https://github.com/francescopace/espectre/blob/main/LICENSING.md" target="_blank" rel="noopener">commercial licenses</a> available for embedding into proprietary products.</div>
+
+    <h2>Before you ship</h2>
+    <ul class="checklist">
+      <li>Build the exact chip and frontend combination you will deploy.</li>
+      <li>Run the shared C++ detection tests after changing core algorithms.</li>
+      <li>Verify first boot, provisioning, reconnect, and recovery on physical hardware.</li>
+      <li>Measure motion behavior in the intended room, not only on the bench.</li>
+    </ul>
+
+    <div class="article-nav">
+      <a href="#docs" class="doc-link"><div class="doc-link-title">Continue: Build with the SDK →</div><div class="doc-link-sub">API surface, examples, and architecture.</div></a>
+    </div>
+  </article>
+</main>
+
+<!-- ============================== Docs: API ============================== -->
+<main class="js-page page-narrow page-article" data-page="docs-api" hidden>
+  <div class="breadcrumb"><a href="#docs">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">API reference</span></div>
+  <article class="article">
+    <span class="guide-tag">SDK · API</span>
+    <h1>API reference</h1>
+    <p class="article-lead">The sensing surface an embedding firmware talks to. One sensor object, a callback, and a handful of runtime controls — the layers below (capture, conditioning, detection) are reusable source, not a binary blob.</p>
+
+    <h2>Lifecycle</h2>
+    <pre class="code"><code><span class="k">#include</span> <span class="s">&lt;espectre/sensing.h&gt;</span>
+
+espectre::Sensor sensor;
+
+<span class="k">void</span> app_main() {
+  sensor.begin();          <span class="c">// attach to the existing Wi-Fi stack</span>
+  <span class="c">// ... your firmware keeps running as usual</span>
+  sensor.stop();           <span class="c">// detach cleanly when needed</span>
+}</code></pre>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>begin()</code></td><td>Starts CSI capture on the already-initialized Wi-Fi stack and runs startup calibration (~10 s of quiet baseline).</td></tr>
+        <tr><td><code>stop()</code></td><td>Stops capture and releases the CSI callback. Safe to call from your shutdown path.</td></tr>
+        <tr><td><code>recalibrate()</code></td><td>Re-learns the quiet baseline. Call it when the device is moved or the room changes.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>Events</h2>
+    <pre class="code"><code>sensor.on_motion([](<span class="k">float</span> score) {
+  <span class="c">// fired when motion state turns on</span>
+});
+
+sensor.on_telemetry([](<span class="k">const</span> espectre::Telemetry&amp; t) {
+  <span class="c">// t.movement, t.threshold, t.motion — every evaluation</span>
+});</code></pre>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>movement</code></td><td><code>float</code></td><td>Movement score, 0.0–1.0, room-specific.</td></tr>
+        <tr><td><code>threshold</code></td><td><code>float</code></td><td>Current motion threshold on the same scale.</td></tr>
+        <tr><td><code>motion</code></td><td><code>bool</code></td><td>Debounced motion state after the hit filter.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>Runtime controls</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>set_threshold(float)</code></td><td>Overrides the motion threshold at runtime (0.0–1.0).</td></tr>
+        <tr><td><code>set_detector(Detector)</code></td><td>Switches between <code>Classic</code> and <code>Ml</code> at runtime.</td></tr>
+        <tr><td><code>diagnostics()</code></td><td>Returns capture rate, calibration state, and filter configuration for your own health reporting.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note">This page is a mockup of the intended SDK surface. Today the equivalent functionality lives in the reusable <code>core</code> and <code>runtime</code> layers documented in the <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">embedding guide</a>.</div>
+
+    <div class="article-nav">
+      <a href="#docs-examples" class="doc-link"><div class="doc-link-title">Next: Examples →</div><div class="doc-link-sub">Four integrations, from minimal to Matter.</div></a>
+    </div>
+  </article>
+</main>
+
+<!-- ============================== Docs: Examples ============================== -->
+<main class="js-page page-narrow page-article" data-page="docs-examples" hidden>
+  <div class="breadcrumb"><a href="#docs">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
+  <article class="article">
+    <span class="guide-tag">SDK · EXAMPLES</span>
+    <h1>Examples</h1>
+    <p class="article-lead">Each published frontend doubles as a reference integration. Start from the one closest to your product.</p>
+
+    <h2>Minimal sensor</h2>
+    <p>The smallest useful integration: begin, react to motion, done. This is the pattern for products that just need a wake-up or presence signal.</p>
+    <pre class="code"><code>sensor.begin();
+sensor.on_motion([](<span class="k">float</span> score) {
+  display.wake();          <span class="c">// your product logic here</span>
+});</code></pre>
+
+    <h2>MQTT node</h2>
+    <p>Publish telemetry into an existing MQTT stack using the shared protocol shape, so tools like the <a href="#monitor">Monitor</a> work out of the box. Reference: the Native frontend (<code>src/cpp/frontend/native/</code>).</p>
+    <pre class="code"><code>sensor.on_telemetry([](<span class="k">const</span> espectre::Telemetry&amp; t) {
+  mqtt.publish(topic + <span class="s">"/telemetry"</span>, to_json(t));
+});</code></pre>
+
+    <h2>Matter occupancy sensor</h2>
+    <p>Map the debounced motion state onto a Matter occupancy cluster, and the device shows up in Apple Home, Google Home, Alexa, and SmartThings. Reference: the Matter frontend (<code>src/cpp/frontend/matter/</code>).</p>
+    <pre class="code"><code>sensor.on_motion([](<span class="k">float</span>) {
+  occupancy_cluster.set(<span class="k">true</span>);
+});</code></pre>
+
+    <h2>Custom detector experiments</h2>
+    <p>The detection layer is swappable: the Streamer frontend exports raw CSI over UDP so you can prototype features and detectors in Python before porting them to C++. Reference: <code>src/cpp/frontend/streamer/</code> and the <a href="https://github.com/francescopace/espectre/blob/main/docs/ML_TRAINING.md" target="_blank" rel="noopener">ML training workflow</a>.</p>
+
+    <div class="article-nav">
+      <a href="#docs-architecture" class="doc-link"><div class="doc-link-title">Next: Architecture →</div><div class="doc-link-sub">How core, runtime, and frontends fit together.</div></a>
+    </div>
+  </article>
+</main>
+
+<!-- ============================== Docs: Architecture ============================== -->
+<main class="js-page page-narrow page-article" data-page="docs-architecture" hidden>
+  <div class="breadcrumb"><a href="#docs">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
+  <article class="article">
+    <span class="guide-tag">SDK · ARCHITECTURE</span>
+    <h1>Architecture</h1>
+    <p class="article-lead">Three layers, one rule: everything below the frontend is reusable and platform-clean. Your product replaces the frontend; the sensing stays the same.</p>
+
+    <h2>The layers</h2>
+    <div class="arch-stack">
+      <div class="arch-layer">
+        <div class="arch-name">Frontends <span class="mono-sub">src/cpp/frontend/</span></div>
+        <div class="arch-desc">ESPHome · Native · Matter · Streamer — or your product firmware. Owns boot, networking, UI, and integration surface.</div>
+      </div>
+      <div class="arch-layer arch-layer-mid">
+        <div class="arch-name">Runtime <span class="mono-sub">src/cpp/runtime/</span></div>
+        <div class="arch-desc">Platform-agnostic contracts: capture lifecycle, calibration, telemetry, transports. ESP-IDF specifics live in <code>runtime/esp_idf/</code>.</div>
+      </div>
+      <div class="arch-layer arch-layer-core">
+        <div class="arch-name">Core <span class="mono-sub">src/cpp/core/</span></div>
+        <div class="arch-desc">The algorithms: CSI conditioning, features, Classic and ML detectors. Pure C++17, no SDK includes, mirrored by the Python R&amp;D implementation.</div>
+      </div>
+    </div>
+
+    <h2>Why it is shaped this way</h2>
+    <ul class="checklist">
+      <li><strong>Core is header-clean.</strong> Nothing in <code>core/</code> or <code>runtime/</code> includes ESP-IDF: the same code runs in firmware and in host-side tests.</li>
+      <li><strong>Python first, C++ to ship.</strong> Algorithms are prototyped and validated in Python (<code>src/python/</code>), then ported to the shared C++ layers with matched behavior and shared test baselines.</li>
+      <li><strong>Frontends are thin.</strong> Each one maps the same sensing pipeline onto a different integration surface — Home Assistant entities, Matter clusters, MQTT topics, or raw UDP.</li>
+      <li><strong>License boundary.</strong> Core, runtime, and the native/Matter/streamer frontends stay free of GPL-only dependencies so the dual-licensing model works; only the ESPHome frontend depends on ESPHome's GPL components.</li>
+    </ul>
+
+    <h2>Data flow</h2>
+    <div class="pipeline">
+      <div><strong>Wi-Fi stack</strong><span>your firmware</span></div>
+      <div><strong>CSI capture</strong><span>runtime/esp_idf</span></div>
+      <div><strong>Conditioning</strong><span>core</span></div>
+      <div><strong>Detector</strong><span>core</span></div>
+      <div><strong>Your events</strong><span>frontend</span></div>
+    </div>
+    <p>The full internal architecture, orchestration direction, and decision records live in <a href="https://github.com/francescopace/espectre/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">ARCHITECTURE.md</a> and <a href="https://github.com/francescopace/espectre/tree/main/docs/adr" target="_blank" rel="noopener">docs/adr/</a>.</p>
+  </article>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <div class="footer-brand">
+      <svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="var(--dim)"/></svg>
+      ESPectre © 2026 · Open source Wi-Fi sensing platform · GPLv3 + commercial licensing
+    </div>
+    <div class="footer-links">
+      <a href="mailto:contact@espectre.dev">Contact</a>
+      <a href="mailto:security@espectre.dev">Security</a>
+    </div>
+  </div>
+</footer>
+
+<div class="toast js-toast" hidden></div>
+
+<script src="app.js?v=3.1.1"></script>
 </body>
-
 </html>
