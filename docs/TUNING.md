@@ -118,8 +118,9 @@ policy: send pacing can rise toward about `125%` of the target when CSI is short
 backs off by `15%` on sustained socket send errors or sustained CSI oversupply,
 never drops below `70%` of the target, and waits three control windows between
 reductions. A severe CSI deficit below `50%` holds the current send rate rather
-than cutting it; on the original ESP32 the runtime also rearms CSI capture after
-two low-supply windows under active pacing. Set
+than cutting it; on the original ESP32 the runtime now reports sustained
+low-supply windows as passive telemetry instead of trying to rearm CSI capture.
+Set
 `traffic_generator_adaptive: false` (or `TRAFFIC_GENERATOR_ADAPTIVE = False` in
 Micro-ESPectre) only when you need a fixed network send rate for an experiment.
 

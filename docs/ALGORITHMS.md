@@ -11,6 +11,7 @@ decision context now live in ADRs, especially:
 - [`2026-07-07-use-core-6-as-the-production-ml-feature-set.md`](adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md)
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
 - [`2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md`](adr/2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md)
+- [`2026-07-20-keep-the-12-tone-ht20-classic-band.md`](adr/2026-07-20-keep-the-12-tone-ht20-classic-band.md)
 
 ## Overview
 
@@ -87,6 +88,42 @@ Both detectors use the same fixed 12-subcarrier set:
 
 The active runtime no longer performs per-session runtime subcarrier selection.
 This set is part of the detector definition for the current project surface.
+It was kept intentionally after a locked real-data `N=10..16` sweep and an
+iso-FP pair-averaging follow-up showed no durable production gain from changing
+either the count or the adjacent-tone policy. For the full rationale behind
+keeping exactly 12 HT20 tones, and exactly these indices, see
+[`2026-07-20-keep-the-12-tone-ht20-classic-band.md`](adr/2026-07-20-keep-the-12-tone-ht20-classic-band.md).
+
+Why HT20 stays the preferred active contract:
+
+- it gives the project one centered, already validated 64-subcarrier sensing
+  view shared by runtime detection, offline validation, and ML training
+- in normal modern 2.4 GHz deployments, `802.11n` support is effectively
+  ubiquitous, so standardizing on `HT20` is usually a practical constraint
+  rather than a deployment blocker
+- the fixed 12-tone band sits inside the HT-LTF data-bearing region with
+  explicit guard-band and DC-null margins
+- newer VHT and HE layouts matter for PHY provenance, but they do not by
+  themselves justify switching production Classic or ML onto grouped or
+  virtual-subcarrier assumptions
+
+![Legacy, HT, VHT, and HE LTF placement compared on the same 20 MHz slice](web/guides/images/ht20-ltf-layout-preferred.png)
+*HT20 is the stable, validated sensing view ESPectre standardizes on today: it
+matches the current detector contract directly, is broadly available on modern
+2.4 GHz networks, and keeps the active sensing surface simple. Wider or newer
+PHY layouts are still recorded through per-record provenance, but they need
+separate evidence before they become the production baseline.*
+
+Non-HT20 payloads are normalized onto the same internal 64-subcarrier HT20
+index grid before fixed-subcarrier extraction. Short layouts are centered so
+the HT20 midpoint remains aligned.
+
+| Input case | Raw layout | Mapping to HT20 | Output |
+|------------|------------|-----------------|--------|
+| Native HT20 | `128 B = 64 SC` | pass-through | `64 SC / 128 B` |
+| Short HT estimate | `114 B = 57 SC` | zero-pad `4` SC left, copy `57` SC, zero-pad `3` SC right | `64 SC / 128 B` |
+| Double HT20 payload | `256 B = 2 x 64 SC` | collapse to one `128 B` half | `64 SC / 128 B` |
+| Double short HT estimate | `228 B = 2 x 57 SC` | collapse to one `57 SC` half, then pad `4` left and `3` right | `64 SC / 128 B` |
 
 ## Signal Conditioning
 

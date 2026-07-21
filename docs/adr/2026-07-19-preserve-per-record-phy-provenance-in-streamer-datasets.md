@@ -5,16 +5,22 @@
 
 ## Context
 
-The original ESP32 can associate with an access point in 802.11b/g/n mode while
-the access point selects legacy or HT rates independently for each frame. An
-HT-LTF-only capture configuration can therefore appear to stall when rate
-control temporarily leaves HT, even though the Wi-Fi link and UDP pacing remain
-healthy.
+The streamer protocol exports normalized CSI records that the host later stores
+as datasets and reuses for offline validation, training, and regression tests.
+That data path benefits from keeping not only the normalized amplitudes, but
+also the PHY context that produced them.
 
-Filtering legacy callbacks would keep datasets homogeneous but would also hide
-the actual CSI supply available from the link. Treating every normalized
-64-subcarrier record as HT20 would preserve packet count while losing the PHY
-origin needed to separate legacy LLTF from HT-LTF during analysis.
+Even when the current sensing contract is HT20-only, treating every normalized
+64-subcarrier record as generic HT20 would erase information that can matter
+later:
+
+- historical captures may need to be interpreted against the PHY/LTF that
+  produced them
+- future collection work may enable HT40, HE20, or other 5 GHz sensing modes
+- training and test tooling may need to stratify, filter, or compare captures
+  by PHY family, LTF type, or channel width
+- the protocol should not need another record-format change just to preserve
+  metadata that the firmware already knows at capture time
 
 The host also needs a stable pacing signal. A CSI callback deficit describes
 sample supply, not necessarily uplink congestion, so using it to reduce pacing
@@ -29,10 +35,8 @@ Concretely:
 
 - stream protocol V7 carries `phy_mode`, `ltf_type`, and `channel_width` for
   every record
-- the original ESP32 captures both legacy LLTF and HT-LTF; HT frames that
-  contain both fields continue to export only the HT-LTF portion
-- the collector stores the three normalized fields in each generated `.npz`
-  dataset instead of filtering legacy records
+- the collector stores those normalized fields in each generated `.npz`
+  dataset
 - known historical datasets without these fields are interpreted as HT,
   HT-LTF, and 20 MHz because they were collected by the earlier HT20-only path
 - adaptive host pacing uses sustained firmware TX backpressure as its control
@@ -54,8 +58,10 @@ rate control affects collection.
 
 ### Store every normalized record as HT20
 
-Rejected. A common 64-subcarrier representation does not imply a common PHY or
-LTF. Removing that provenance would mix distinct measurements silently.
+Rejected. A common normalized representation does not imply a common PHY or
+LTF. Removing that provenance would silently discard metadata that can become
+useful for future HT40, HE20, or 5 GHz captures, and for training or test
+stratification.
 
 ### Control pacing from callback freshness
 
@@ -67,14 +73,19 @@ without addressing the callback source.
 
 Benefits:
 
-- mixed-rate collections remain usable and can be stratified by PHY and LTF
+- datasets keep enough metadata to stratify or audit captures by PHY, LTF, and
+  channel width when needed
 - the collector does not reduce pacing solely because CSI callbacks fluctuate
 - historical datasets keep an explicit, documented HT20 interpretation
-- protocol fields are available for future HT40 or 5 GHz collection work
+- protocol fields are already in place for future HT40, HE20, or 5 GHz
+  collection work without another schema change
+- training and regression tooling can use the extra provenance when a future
+  corpus needs per-PHY filtering, comparison, or diagnostics
 
 Trade-offs:
 
-- analyses that require homogeneous input must select the desired PHY metadata
+- analyses that require homogeneous input must still select the desired PHY
+  metadata explicitly
 - streamer firmware and collector must move together when the record header
   changes
 - wider-width enum values do not by themselves provide wideband collection

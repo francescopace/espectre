@@ -97,6 +97,10 @@ its ranking for feature promotion until the finalist passes
 The latest diagnostic snapshot and interpretation live in
 [ALGORITHMS.md](ALGORITHMS.md). Recompute the values after changing the dataset,
 feature set, preprocessing, model architecture, or training policy.
+The production ML path also stays aligned with the same fixed 12-tone HT20 band
+used by Classic. For why the project keeps exactly that band, instead of
+switching count or adopting adjacent-tone averaging, see
+[`2026-07-20-keep-the-12-tone-ht20-classic-band.md`](adr/2026-07-20-keep-the-12-tone-ht20-classic-band.md).
 
 ## Default Behavior
 
@@ -146,6 +150,8 @@ The training pipeline:
    default is the Core-6 set. When Hampel is enabled, the trainer filters both
    base streams before feature extraction: turbulence for all `turb_*`
    features and per-packet L1 deltas for all `l1_delta*` features.
+   Feature extraction uses the same fixed HT20 subcarrier band as the runtime,
+   rather than re-optimizing the band independently for ML.
 4. Runs grouped cross-validation by paired capture/session, with blocked
    scoring to reduce overlap optimism.
 5. Optionally computes balanced SHAP explanations on the held-out blocked

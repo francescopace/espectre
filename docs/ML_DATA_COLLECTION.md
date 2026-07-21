@@ -256,12 +256,13 @@ from tools.lib.csi_io import load_npz_as_packets
 packets = load_npz_as_packets(Path("data/static_presence/sample.npz"))
 ```
 
-`load_npz_as_packets` and `load_npz_csi_data` keep only HT20 packets
+`load_npz_as_packets` and `load_npz_csi_data` prefer HT20 packets
 (`phy_mode=ht`, `channel_width=20`) when per-record PHY metadata is present.
-Captures without PHY fields are treated as HT20. Pass `keep_all_phy=True` to
-inspect mixed-PHY rows. Dataset quality validation and the C++ test NPZ loader
-use the same filtered view, so excessive non-HT20 drops show up as stream
-continuity gaps.
+Captures without PHY fields are treated as HT20. Original-ESP32 files fall back
+to `legacy` + `20` rows only when no HT20 packets remain. Pass
+`keep_all_phy=True` to inspect mixed-PHY rows. Dataset quality validation and
+the C++ test NPZ loader use the same filtered view, so excessive non-sensing
+drops show up as stream continuity gaps.
 
 ## Collection Notes
 

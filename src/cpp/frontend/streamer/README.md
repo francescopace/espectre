@@ -142,10 +142,9 @@ Flags:
 | 3 | `STREAM_FLAG_CSI_FRESH` | fresh CSI sample record |
 
 PHY modes are `unknown`, `legacy`, `HT`, `VHT`, `HE-SU`, `HE-MU`,
-`HE-ERSU`, and `HE-TB`. LTF types are `unknown`, `LLTF`, `HT-LTF`,
-`VHT-LTF`, and `HE-LTF`. The original ESP32 therefore reports `LLTF` for
-legacy frames and `HT-LTF` for HT frames, including when capture receives both
-training fields and exports only the HT-LTF half.
+`HE-ERSU`, and `HE-TB`. LTF types emitted by the current streamer sensing
+contract are `unknown`, `HT-LTF`, `VHT-LTF`, and `HE-LTF`. The current streamer sensing contract emits HT20
+records with `phy_mode=HT`, `ltf_type=HT-LTF`, and `channel_width=20`.
 
 Channel-width values are `unknown`, `20`, `40`, `80`, `160`, and `80+80` MHz.
 The existing `channel` field distinguishes 2.4 GHz from 5 GHz channels, while
@@ -228,7 +227,6 @@ Key knobs in the frontend surface:
 - `ESPECTRE_WIFI_PASSWORD`
 - `ESPECTRE_WIFI_BSSID`
 - `ESPECTRE_WIFI_CHANNEL`
-
 Shared runtime traffic ingress:
 
 - `ESPECTRE_TRAFFIC_RX_PORT`
@@ -244,25 +242,34 @@ Runtime behavior notes:
 - the streamer no longer uses the shared internal traffic generator to emit the
   CSI stream; the collector controls pacing directly by sending UDP pacing
   packets to `ESPECTRE_TRAFFIC_RX_PORT`
-- the collector treats `tx_backpressure_total` as the only adaptive pacing
-  control signal; the `stream_fresh_total / pacing_rx_total` delta ratio reports
-  CSI supply as telemetry but does not change the pacing rate
+- the collector uses two adaptive pacing signals: `tx_backpressure_total`
+  drives protective slowdowns, and the delivered-record rate drives delivery
+  targeting; the `stream_fresh_total / pacing_rx_total` delta ratio gates the
+  latter and still never triggers a slowdown on its own
 - adaptive collection uses the same chip-independent policy for every target:
   it holds the requested rate during CSI-only deficits, spaces reductions
   caused by actual TX backpressure across three control windows, and does not
   fall below 70% of the requested target
+- delivery targeting treats `--pps` as the delivered-record goal for
+  group-addressed (broadcast or multicast) pacing, whose loss is retry-less by
+  design: when delivered records fall below ~95% of the target while the
+  device converts received pacing into fresh CSI cleanly (fresh ratio at least
+  0.90) with zero TX backpressure in the window, pacing rises above the target
+  in proportional steps up to 1.5x to compensate path loss, and trims back
+  toward the target once delivery overshoots; unicast pacing never boosts,
+  because its delivery is MAC-retransmitted and a deficit there is device-side;
+  both act on a smoothed delivery measurement so the rate settles instead of
+  chasing per-window RF variance, and the boost is revoked outright when the
+  fresh ratio degrades while above target, because excess pacing can itself
+  starve CSI conversion
 - the collector address is learned from the source IP of the latest valid UDP
   pacing packet
 - CSI capture excludes 802.11 ACK frames (`dump_ack_en=0`) and keeps only
   frames transmitted by the associated AP (source MAC equals the BSSID)
-- the original ESP32 captures legacy LLTF as a fallback when AP rate control
-  leaves HT, while 802.11n frames continue to export their HT-LTF sample
-- the original ESP32 rearms CSI capture after two sustained two-second windows
-  where callback supply remains below half of active pacing traffic; recovery
-  attempts are separated by a ten-second cooldown
-- the CSI callback keeps a single latest-wins sample; the stream sender emits
-  a record only when a fresh sample is available and marks emitted records with
-  `STREAM_FLAG_CSI_FRESH`
+- the CSI callback pushes samples into a short FIFO (16 slots, oldest dropped
+  on overflow) so bursty arrivals such as DTIM-released broadcast pacing keep
+  every sample; each pacing slot drains one queued sample and emitted records
+  carry `STREAM_FLAG_CSI_FRESH`
 - the stream always carries the full normalized CSI payload
 - the stream socket uses the default best-effort access category (TID 0,
   AC_BE), which supports AMPDU and avoids routing sustained CSI traffic
