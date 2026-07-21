@@ -106,7 +106,6 @@ void sync_post_start_state_on_chip_thread(intptr_t arg) {
     lock::ScopedChipStackLock chip_stack_lock(portMAX_DELAY);
     commissioned = has_commissioned_fabric();
     log_onboarding_codes();
-    PrintOnboardingCodes(chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));
   }
 
   if (g_frontend != nullptr) {

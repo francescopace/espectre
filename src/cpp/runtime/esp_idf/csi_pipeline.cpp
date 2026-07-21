@@ -79,7 +79,7 @@ void CsiPipeline::loop() {
   uint8_t previous_channel = 0U;
   uint8_t current_channel = 0U;
   if (channel_change_event_.take(previous_channel, current_channel)) {
-    ESP_LOGW(TAG, "WiFi channel changed: %u -> %u, resetting detection buffer",
+    ESP_LOGW(TAG, "Wi-Fi channel changed: %u -> %u, resetting detection buffer",
              static_cast<unsigned>(previous_channel), static_cast<unsigned>(current_channel));
   }
   MotionState motion_state = MotionState::IDLE;
@@ -227,7 +227,6 @@ void CsiPipeline::capture_packet_callback_(void *context,
 
 esp_err_t CsiPipeline::enable(csi_processed_callback_t packet_callback) {
   if (enabled_) {
-    ESP_LOGW(TAG, "CSI already enabled");
     return ESP_OK;
   }
   

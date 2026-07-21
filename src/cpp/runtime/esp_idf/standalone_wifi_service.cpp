@@ -139,7 +139,7 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
                                             },
                                             [this]() { handle_lifecycle_disconnected_(); });
     if (err != ESP_OK) {
-      ESP_LOGE(TAG, "WiFi lifecycle handler registration failed: %s", esp_err_to_name(err));
+      ESP_LOGE(TAG, "Wi-Fi lifecycle handler registration failed: %s", esp_err_to_name(err));
       return err;
     }
   }
@@ -150,7 +150,7 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
                                             this,
                                             &wifi_event_instance_);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "WiFi event handler registration failed: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Wi-Fi event handler registration failed: %s", esp_err_to_name(err));
     if (config_.manage_csi_lifecycle) {
       wifi_lifecycle_.unregister_handlers();
     }

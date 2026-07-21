@@ -100,8 +100,11 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
 void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                    const uint8_t* selected_subcarriers,
                                    uint8_t num_subcarriers) {
-    if (!csi_data || !turbulence_buffer_) {
-        ESP_LOGE(TAG, "process_packet: NULL pointer");
+    if (!csi_data) {
+        ESP_LOGE(TAG, "process_packet: null CSI data");
+        return;
+    }
+    if (!turbulence_buffer_) {
         return;
     }
     

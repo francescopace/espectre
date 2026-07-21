@@ -214,9 +214,6 @@ void NativeFrontend::on_live_telemetry(float movement, float threshold) {
 }
 
 void NativeFrontend::on_runtime_fault(const char *message) {
-  if (message != nullptr) {
-    ESP_LOGW(TAG, "Runtime fault: %s", message);
-  }
   if (bindings_ != nullptr) {
     bindings_->report_fault(message);
   }

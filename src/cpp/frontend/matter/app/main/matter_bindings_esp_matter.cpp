@@ -23,9 +23,7 @@ void MatterEspBindings::publish_motion(uint16_t endpoint_id, bool motion_detecte
 }
 
 void MatterEspBindings::report_fault(const char *message) {
-  if (message != nullptr) {
-    ESP_LOGW("espectre.matter", "Runtime fault reported to Matter: %s", message);
-  }
+  (void)message;
 }
 
 }  // namespace espectre

@@ -132,7 +132,7 @@ bool StreamEspIdfRuntime::setup() {
   setup_complete_ = true;
   debug_telemetry_.reset();
   ESP_LOGI(TAG,
-           "Stream runtime ready: collector=learned:%u traffic_rx_port=%u",
+           "Stream runtime ready: collector_source=udp_pacing stream_port=%u traffic_rx_port=%u",
            static_cast<unsigned>(config_.collector_port),
            static_cast<unsigned>(config_.csi_traffic_udp_port));
   return true;
@@ -311,7 +311,7 @@ void StreamEspIdfRuntime::transition_to_(WorkflowState next, const char *reason)
 
 void StreamEspIdfRuntime::notify_fault_(const char *message) {
   last_fault_ = message != nullptr ? message : "Unknown stream runtime fault";
-  ESP_LOGE(TAG, "%s", last_fault_.c_str());
+  ESP_LOGE(TAG, "Runtime fault: %s", last_fault_.c_str());
   if (listener_ != nullptr) {
     listener_->on_runtime_fault(last_fault_.c_str());
   }

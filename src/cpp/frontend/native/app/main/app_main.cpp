@@ -150,7 +150,6 @@ extern "C" void app_main() {
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
 
   if (!init_wifi_station()) {
-    ESP_LOGE(TAG, "Failed to initialize Wi-Fi station");
     return;
   }
 

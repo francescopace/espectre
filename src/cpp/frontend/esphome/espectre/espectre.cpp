@@ -131,9 +131,7 @@ void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot,
 }
 
 void ESpectreComponent::on_runtime_fault(const char *message) {
-  if (message != nullptr) {
-    ESP_LOGW(TAG, "Runtime fault: %s", message);
-  }
+  (void)message;
 }
 
 void ESpectreComponent::dump_config() {

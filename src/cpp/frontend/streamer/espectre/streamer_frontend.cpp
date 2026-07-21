@@ -93,9 +93,7 @@ void StreamerFrontend::on_live_telemetry(float movement, float threshold) {
 }
 
 void StreamerFrontend::on_runtime_fault(const char *message) {
-  if (message != nullptr) {
-    ESP_LOGW(TAG, "Runtime fault: %s", message);
-  }
+  (void)message;
 }
 
 }  // namespace espectre

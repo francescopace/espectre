@@ -81,13 +81,13 @@ void MLDetector::update_state() {
 
 bool MLDetector::set_threshold(float threshold) {
     if (!is_valid_threshold(threshold, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD)) {
-        ESP_LOGE(TAG, "Invalid threshold: %.2f (must be %.1f-%.1f)",
+        ESP_LOGE(TAG, "Invalid threshold: %.6f (must be %.1f-%.1f)",
                  threshold, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
         return false;
     }
     
     threshold_ = threshold;
-    ESP_LOGI(TAG, "Threshold updated: %.2f", threshold);
+    ESP_LOGI(TAG, "Threshold updated: %.6f", threshold);
     return true;
 }
 
@@ -135,7 +135,7 @@ void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                 const uint8_t* selected_subcarriers,
                                 uint8_t num_subcarriers) {
     if (csi_data == nullptr) {
-        ESP_LOGE(TAG, "process_packet: NULL CSI data");
+        ESP_LOGE(TAG, "process_packet: null CSI data");
         return;
     }
 

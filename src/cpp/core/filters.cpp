@@ -44,7 +44,6 @@ void lowpass_filter_init(lowpass_filter_state_t *state, float cutoff_hz, float s
     state->b0 = wc / k;
     state->a1 = (wc - 1.0f) / k;
     
-    ESP_LOGD(TAG, "LowPass filter initialized: cutoff=%.1f Hz, enabled=%d", cutoff_hz, enabled);
 }
 
 float lowpass_filter_apply(lowpass_filter_state_t *state, float value) {

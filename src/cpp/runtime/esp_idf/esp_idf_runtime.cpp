@@ -106,7 +106,7 @@ bool EspIdfRuntime::setup() {
                                           on_wifi_connected_(ip_info);
                                         },
                                         [this]() { on_wifi_disconnected_(); }) != ESP_OK) {
-    notify_fault_("Failed to register WiFi handlers");
+    notify_fault_("Failed to register Wi-Fi handlers");
     return false;
   }
 
@@ -130,7 +130,7 @@ void EspIdfRuntime::shutdown() {
 void EspIdfRuntime::loop() {
   RuntimeDebugLoopScope debug_scope(debug_telemetry_, RUNTIME_TAG);
   if (wifi_lifecycle_.process_pending_events() != ESP_OK) {
-    notify_fault_("WiFi lifecycle init failed");
+    notify_fault_("Wi-Fi lifecycle init failed");
   }
   uint8_t calibration_percent = 0U;
   uint32_t calibration_packets = 0U;
@@ -186,7 +186,7 @@ void EspIdfRuntime::set_services_armed(bool armed) {
     ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, starting CSI services");
     on_wifi_connected_(wifi_ip_info_);
   } else {
-    ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, waiting for WiFi IP");
+    ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, waiting for Wi-Fi IP");
   }
 }
 
@@ -331,7 +331,7 @@ void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
   wifi_ready_ = true;
   wifi_ip_info_ = ip_info;
   if (!services_armed_) {
-    ESP_LOGI(RUNTIME_TAG, "WiFi connected, waiting for Matter commissioning before starting CSI services");
+    ESP_LOGI(RUNTIME_TAG, "Wi-Fi connected, waiting for Matter commissioning before starting CSI services");
     return;
   }
 
@@ -357,7 +357,9 @@ void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
       }
     });
     if (err != ESP_OK) {
-      notify_fault_("Failed to enable CSI");
+      char message[96];
+      std::snprintf(message, sizeof(message), "Failed to enable CSI: %s", esp_err_to_name(err));
+      notify_fault_(message);
       return;
     }
   }
@@ -522,7 +524,7 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
 
 void EspIdfRuntime::notify_fault_(const char *message) {
   last_fault_ = message != nullptr ? message : "Unknown runtime fault";
-  ESP_LOGE(RUNTIME_TAG, "%s", last_fault_.c_str());
+  ESP_LOGE(RUNTIME_TAG, "Runtime fault: %s", last_fault_.c_str());
   if (listener_ != nullptr) {
     listener_->on_runtime_fault(last_fault_.c_str());
   }

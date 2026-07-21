@@ -47,7 +47,7 @@ void ClassicDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                      const uint8_t* selected_subcarriers,
                                      uint8_t num_subcarriers) {
   if (csi_data == nullptr) {
-    ESP_LOGE(TAG, "process_packet: NULL CSI data");
+    ESP_LOGE(TAG, "process_packet: null CSI data");
     return;
   }
 
@@ -162,10 +162,12 @@ bool ClassicDetector::set_adaptive_threshold(float) {
 
 bool ClassicDetector::set_threshold(float threshold) {
   if (!is_valid_threshold(threshold, CLASSIC_MIN_THRESHOLD, CLASSIC_MAX_THRESHOLD)) {
-    ESP_LOGE(TAG, "Invalid threshold: %.3f (must be 0.0-1.0)", threshold);
+    ESP_LOGE(TAG, "Invalid threshold: %.6f (must be %.1f-%.1f)",
+             threshold, CLASSIC_MIN_THRESHOLD, CLASSIC_MAX_THRESHOLD);
     return false;
   }
   threshold_ = threshold;
+  ESP_LOGI(TAG, "Threshold updated: %.6f", threshold);
   return true;
 }
 

@@ -30,7 +30,7 @@ void UDPListener::init(uint16_t port) {
   expected_payload_.fill(0U);
   last_sender_ipv4_.store(0U, std::memory_order_relaxed);
   last_sender_port_.store(0U, std::memory_order_relaxed);
-  ESP_LOGD(UDP_LISTENER_TAG, "UDP Listener initialized (port: %u)", port_);
+  ESP_LOGD(UDP_LISTENER_TAG, "UDP listener initialized: port=%u", port_);
 }
 
 void UDPListener::set_multicast_group(const char *group) {
@@ -59,7 +59,7 @@ void UDPListener::set_expected_payload(const uint8_t *payload, size_t len) {
 
 bool UDPListener::start() {
   if (running_) {
-    ESP_LOGW(UDP_LISTENER_TAG, "UDP Listener already running");
+    ESP_LOGW(UDP_LISTENER_TAG, "UDP listener already running");
     return true;
   }
   
@@ -116,7 +116,7 @@ bool UDPListener::start() {
   
   running_ = true;
   ESP_LOGI(UDP_LISTENER_TAG,
-           "UDP Listener started on port %u%s%s",
+           "UDP listener started: port=%u%s%s",
            port_,
            multicast_group_[0] != '\0' ? " mcast=" : "",
            multicast_group_[0] != '\0' ? multicast_group_ : "");
@@ -135,7 +135,7 @@ void UDPListener::stop() {
   }
   
   running_ = false;
-  ESP_LOGI(UDP_LISTENER_TAG, "UDP Listener stopped");
+  ESP_LOGI(UDP_LISTENER_TAG, "UDP listener stopped");
 }
 
 bool UDPListener::get_last_sender(sockaddr_in *out_addr) const {

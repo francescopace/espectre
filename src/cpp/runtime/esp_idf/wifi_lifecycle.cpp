@@ -119,10 +119,10 @@ esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy() {
   // this lets esp_wifi_set_protocol() remove 802.11ax cleanly for HT20 CSI.
   ret = esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY);
   if (ret != ESP_OK) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to force 2.4 GHz band mode: 0x%x", ret);
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to force 2.4 GHz band mode: %s", esp_err_to_name(ret));
     // Non-fatal: continue, but runtime may still associate on 5 GHz in AUTO mode.
   } else {
-    ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi band mode: 2.4 GHz only");
+    ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi band mode: 2.4 GHz only");
   }
 #endif
 
@@ -133,17 +133,16 @@ esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy() {
   const WiFiProtocolPolicyResult protocol_result = set_wifi_protocol_for_csi_();
   ret = protocol_result.err;
   if (ret != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set WiFi protocol: 0x%x", ret);
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set Wi-Fi protocol: %s", esp_err_to_name(ret));
     return ret;
   }
   ESP_LOGI(WIFI_LIFECYCLE_TAG,
-           "WiFi protocol policy: %s",
+           "Wi-Fi CSI protocol policy: path=%s target=2.4 GHz HT20 (802.11ax disabled)",
            protocol_policy_path_to_str_(protocol_result.path));
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi protocol target: 2.4 GHz HT20 CSI (802.11ax disabled)");
   // HT20 bandwidth for 64 subcarriers
   ret = set_wifi_bandwidth_for_csi_();
   if (ret != ESP_OK) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to set bandwidth: 0x%x", ret);
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to set bandwidth: %s", esp_err_to_name(ret));
     // Non-fatal: continue anyway
   }
 
@@ -166,7 +165,6 @@ esp_err_t WiFiLifecycleManager::apply_started_csi_policy() {
     return policy_err;
   }
   log_csi_runtime_state(WIFI_LIFECYCLE_TAG);
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Started Wi-Fi CSI policy applied");
   return ESP_OK;
 }
 
@@ -176,7 +174,7 @@ esp_err_t WiFiLifecycleManager::init() {
     return ESP_OK;
   }
 
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Initializing WiFi CSI lifecycle");
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Initializing Wi-Fi CSI lifecycle");
   const esp_err_t policy_err = started_policy_err_.load(std::memory_order_relaxed);
   if (policy_err != ESP_OK) {
     ESP_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI policy was not applied at STA start: %s",
@@ -194,7 +192,7 @@ esp_err_t WiFiLifecycleManager::init() {
     return ps_err;
   }
 
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi CSI lifecycle ready");
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI lifecycle ready");
   log_csi_runtime_state(WIFI_LIFECYCLE_TAG);
   ready_ = true;
 
@@ -259,7 +257,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
     return err;
   }
   
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi event handlers registered");
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers registered");
   return ESP_OK;
 }
 
@@ -283,13 +281,12 @@ void WiFiLifecycleManager::unregister_handlers() {
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
   started_policy_applied_.store(false, std::memory_order_relaxed);
   ready_ = false;
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi event handlers unregistered");
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers unregistered");
 }
 
 esp_err_t WiFiLifecycleManager::process_pending_events() {
   if (disconnected_event_.take()) {
     ready_ = false;
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi disconnected");
     if (disconnected_callback_) {
       disconnected_callback_();
     }
@@ -297,7 +294,7 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
 
   esp_netif_ip_info_t ip_info{};
   if (connected_event_.take(ip_info)) {
-    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi connected");
+    ESP_LOGD(WIFI_LIFECYCLE_TAG, "Wi-Fi connected event received");
     const esp_err_t err = init();
     if (err != ESP_OK) {
       return err;
@@ -313,16 +310,16 @@ void WiFiLifecycleManager::log_csi_runtime_state(const char *tag) {
   const char *log_tag = tag != nullptr ? tag : WIFI_LIFECYCLE_TAG;
   bool promiscuous = false;
   esp_wifi_get_promiscuous(&promiscuous);
-  ESP_LOGD(log_tag, "WiFi Promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
+  ESP_LOGD(log_tag, "Wi-Fi promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
 
   wifi_ps_type_t ps_type;
   esp_err_t ps_err = esp_wifi_get_ps(&ps_type);
   if (ps_err == ESP_OK) {
     const char* ps_str = (ps_type == WIFI_PS_NONE) ? "NONE" :
                          (ps_type == WIFI_PS_MIN_MODEM) ? "MIN_MODEM" : "MAX_MODEM";
-    ESP_LOGD(log_tag, "WiFi Power Save: %s", ps_str);
+    ESP_LOGD(log_tag, "Wi-Fi power save: %s", ps_str);
   } else {
-    ESP_LOGW(log_tag, "WiFi Power Save: unavailable (%s)", esp_err_to_name(ps_err));
+    ESP_LOGW(log_tag, "Wi-Fi power save: unavailable (%s)", esp_err_to_name(ps_err));
   }
 
   uint16_t protocol = 0;
@@ -336,21 +333,21 @@ void WiFiLifecycleManager::log_csi_runtime_state(const char *tag) {
 #else
     const int has_11ax = 0;
 #endif
-    ESP_LOGD(log_tag, "WiFi Protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
+    ESP_LOGD(log_tag, "Wi-Fi protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
              protocol, has_11b, has_11g, has_11n, has_11ax);
     if ((protocol & WIFI_PROTOCOL_11N) == 0) {
-      ESP_LOGW(log_tag, "WiFi protocol does not include 11n support: 0x%04X", protocol);
+      ESP_LOGW(log_tag, "Wi-Fi protocol does not include 11n support: 0x%04X", protocol);
     }
   } else {
-    ESP_LOGW(log_tag, "WiFi Protocol: unavailable (%s)", esp_err_to_name(protocol_err));
+    ESP_LOGW(log_tag, "Wi-Fi protocol: unavailable (%s)", esp_err_to_name(protocol_err));
   }
 
   wifi_bandwidth_t bw = WIFI_BW_HT20;
   esp_err_t bw_err = get_wifi_bandwidth_for_log_(&bw);
   if (bw_err == ESP_OK) {
-    ESP_LOGD(log_tag, "WiFi Bandwidth: %s", bandwidth_to_str_(bw));
+    ESP_LOGD(log_tag, "Wi-Fi bandwidth: %s", bandwidth_to_str_(bw));
   } else {
-    ESP_LOGW(log_tag, "WiFi Bandwidth: unavailable (%s)", esp_err_to_name(bw_err));
+    ESP_LOGW(log_tag, "Wi-Fi bandwidth: unavailable (%s)", esp_err_to_name(bw_err));
   }
 }
 

@@ -89,8 +89,7 @@ void MatterFrontend::on_live_telemetry(float movement, float threshold) {
 }
 
 void MatterFrontend::on_runtime_fault(const char *message) {
-  if (message != nullptr) {
-    ESP_LOGW(TAG, "Runtime fault: %s", message);
+  if (message != nullptr && bindings_ != nullptr) {
     bindings_->report_fault(message);
   }
 }
