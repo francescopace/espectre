@@ -155,10 +155,6 @@ class CsiPipeline {
   uint64_t accepted_packets_total() const {
     return accepted_packets_total_.load(std::memory_order_relaxed);
   }
-  CsiCaptureService::HealthAction maintain_capture_health(uint64_t pacing_total, uint32_t now_ms) {
-    return capture_service_.maintain_pacing_health(pacing_total, now_ms);
-  }
-  
   /**
    * Set callback for live telemetry updates.
    */

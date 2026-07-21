@@ -101,7 +101,7 @@ inline bool is_ht20_phy(const std::string& phy_mode, const std::string& channel_
 /**
  * Load CSI data from NPZ file.
  *
- * When per-record PHY metadata is present, keep only HT20 packets
+ * When per-record PHY metadata is present, prefer HT20 packets
  * (`phy_mode=ht`, `channel_width=20`) so C++ tests match the Python loaders.
  * Captures without PHY metadata are treated as already-HT20.
  */
@@ -133,7 +133,6 @@ inline CsiData load_npz(const std::string& filepath) {
             result.num_subcarriers = static_cast<int>(*ns_arr.data<int32_t>());
         }
     }
-
     const bool has_phy_mode = npz.find("phy_mode") != npz.end();
     const bool has_channel_width = npz.find("channel_width") != npz.end();
     const cnpy::NpyArray* phy_modes = has_phy_mode ? &npz["phy_mode"] : nullptr;

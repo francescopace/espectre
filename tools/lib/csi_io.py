@@ -96,7 +96,6 @@ PHY_MODE_CODES = {
 }
 LTF_TYPE_CODES = {
     0: "unknown",
-    1: "lltf",
     2: "ht-ltf",
     3: "vht-ltf",
     4: "he-ltf",
@@ -303,7 +302,27 @@ class UdpPacingSender:
 
 
 class AdaptivePacingController:
-    """Track firmware backpressure telemetry and optionally adjust pacing."""
+    """Track firmware stream telemetry and optionally adjust pacing.
+
+    Two chip-independent control behaviors on top of the requested target:
+
+    - backpressure: significant device TX backpressure lowers pacing in spaced
+      multiplicative steps with a floor at 70% of the target, then recovers.
+    - delivery targeting: when records delivered to the collector fall short of
+      the target while the device converts received pacing into fresh CSI
+      cleanly (path loss, e.g. broadcast pacing without retries), pacing rises
+      above the target up to ``max_boost_ratio`` to compensate, trims back
+      once delivery overshoots, and is revoked outright when the fresh ratio
+      degrades while above target. A low fresh ratio means the deficit is on
+      the device/AP side (aggregation, rate downshift), where extra pacing
+      would not help, so the controller holds instead. Callers enable this
+      behavior only for group-addressed pacing via ``boost_allowed``.
+    """
+
+    # Single-window delivery ratios carry the binomial noise of a lossy,
+    # unacknowledged path; delivery targeting acts on an EMA of the ratio so
+    # the pacing rate settles instead of chasing per-window RF variance.
+    DEFAULT_RECEIVE_RATIO_EMA_ALPHA = 0.5
 
     def __init__(
         self,
@@ -313,23 +332,37 @@ class AdaptivePacingController:
         min_pps: Optional[float] = None,
         additive_step_pps: Optional[float] = None,
         control_window_s: float = 1.0,
+        max_boost_ratio: float = 1.5,
+        boost_allowed: bool = True,
+        receive_ratio_ema_alpha: float = DEFAULT_RECEIVE_RATIO_EMA_ALPHA,
     ):
         initial_pps = float(initial_pps)
         min_pps = max(5.0, min(initial_pps, 10.0)) if min_pps is None else max(0.1, float(min_pps))
         additive_step_pps = (
             max(1.0, initial_pps * 0.02) if additive_step_pps is None else max(0.1, float(additive_step_pps))
         )
+        receive_ratio_ema_alpha = float(receive_ratio_ema_alpha)
+        if not 0.0 < receive_ratio_ema_alpha <= 1.0:
+            raise ValueError(f"receive_ratio_ema_alpha must be in the (0, 1] range, got {receive_ratio_ema_alpha}")
         self.enabled = bool(enabled)
+        # Unicast pacing is MAC-retransmitted, so a delivery deficit there is
+        # almost always device-side (aggregation, rate downshift), where extra
+        # pacing does not help; callers enable boosting only for group-addressed
+        # (broadcast/multicast) pacing, whose loss is retry-less by design.
+        self.boost_allowed = bool(boost_allowed)
         self.current_pps = initial_pps
         self.target_pps = initial_pps
+        self.max_pps = initial_pps * max(1.0, float(max_boost_ratio))
         self.min_pps = min_pps
         self.additive_step_pps = additive_step_pps
         self.control_window_s = max(0.1, float(control_window_s))
+        self.receive_ratio_ema_alpha = receive_ratio_ema_alpha
         self.last_control_at: Optional[float] = None
         self.backpressure_adjust_at: Optional[float] = None
         self.last_window_backpressure_delta = 0
         self.last_window_backpressure_source: Optional[str] = None
         self.last_window_receive_ratio: Optional[float] = None
+        self.smoothed_receive_ratio: Optional[float] = None
         self.last_window_fresh_ratio: Optional[float] = None
         self.last_action = "hold"
 
@@ -368,7 +401,7 @@ class AdaptivePacingController:
             device_state["pacing_rx_total"] = rx_total
 
     def _apply_pacing_rate(self, new_pps: float, *, action: str, pacing_sender: Any) -> None:
-        clamped_pps = max(self.min_pps, min(self.target_pps, float(new_pps)))
+        clamped_pps = max(self.min_pps, min(self.max_pps, float(new_pps)))
         if abs(clamped_pps - self.current_pps) < 1e-9:
             self.last_action = action
             return
@@ -435,6 +468,12 @@ class AdaptivePacingController:
                 if lowest_receive_ratio is None or receive_ratio < lowest_receive_ratio:
                     lowest_receive_ratio = receive_ratio
         self.last_window_receive_ratio = lowest_receive_ratio
+        if lowest_receive_ratio is not None:
+            if self.smoothed_receive_ratio is None:
+                self.smoothed_receive_ratio = lowest_receive_ratio
+            else:
+                alpha = self.receive_ratio_ema_alpha
+                self.smoothed_receive_ratio = alpha * lowest_receive_ratio + (1.0 - alpha) * self.smoothed_receive_ratio
         self.last_window_fresh_ratio = lowest_fresh_ratio
         if tracked_devices == 0:
             self.last_action = "hold"
@@ -474,6 +513,48 @@ class AdaptivePacingController:
                 pacing_sender=pacing_sender,
             )
             return
+
+        # Delivery targeting: only with a fully healthy device (zero
+        # backpressure this window, fresh ratio near 1) and outside the
+        # post-backpressure settle window, so it can never fight the
+        # protective slowdown or chase device-side CSI deficits.
+        if self.boost_allowed and worst_delta == 0 and self.smoothed_receive_ratio is not None:
+            settle_time_s = self.control_window_s * 3.0
+            settled = self.backpressure_adjust_at is None or now - self.backpressure_adjust_at >= settle_time_s
+            fresh_healthy = lowest_fresh_ratio is not None and lowest_fresh_ratio >= 0.90
+            fresh_degraded = lowest_fresh_ratio is not None and lowest_fresh_ratio < 0.85
+            if settled and fresh_degraded and self.current_pps > self.target_pps:
+                # The boost premise no longer holds: above-target pacing can
+                # itself starve CSI conversion (for example HT frame
+                # aggregation), so fall straight back to the requested target
+                # instead of holding the harmful rate. The 0.85/0.90 gap keeps
+                # boost and revoke from flapping on one noisy window.
+                self._apply_pacing_rate(
+                    self.target_pps,
+                    action="boost_revoke",
+                    pacing_sender=pacing_sender,
+                )
+                return
+            if settled and fresh_healthy:
+                receive_ratio = self.smoothed_receive_ratio
+                if receive_ratio < 0.95 and self.current_pps < self.max_pps:
+                    deficit_pps = (1.0 - receive_ratio) * self.target_pps
+                    step_pps = min(max(self.additive_step_pps, deficit_pps * 0.5), self.target_pps * 0.10)
+                    self._apply_pacing_rate(
+                        self.current_pps + step_pps,
+                        action="boost",
+                        pacing_sender=pacing_sender,
+                    )
+                    return
+                if receive_ratio > 1.05 and self.current_pps > self.target_pps:
+                    surplus_pps = (receive_ratio - 1.0) * self.target_pps
+                    step_pps = min(max(self.additive_step_pps, surplus_pps * 0.5), self.target_pps * 0.10)
+                    self._apply_pacing_rate(
+                        max(self.current_pps - step_pps, self.target_pps),
+                        action="trim",
+                        pacing_sender=pacing_sender,
+                    )
+                    return
         self.last_action = "hold"
 
 
@@ -1504,6 +1585,7 @@ class CSICollector:
         *,
         pacing_sender: Any = None,
         adaptive: bool = False,
+        adaptive_controller_kwargs: Optional[Dict[str, Any]] = None,
     ) -> List[Path]:
         saved_files: List[Path] = []
         initial_pacing_pps = 0.0
@@ -1512,7 +1594,12 @@ class CSICollector:
                 initial_pacing_pps = float(pacing_sender.get_rate_pps())
             except (TypeError, ValueError):
                 initial_pacing_pps = 0.0
-        pacing_controller = AdaptivePacingController(initial_pps=max(1.0, initial_pacing_pps), enabled=adaptive)
+        controller_kwargs = dict(adaptive_controller_kwargs or {})
+        pacing_controller = AdaptivePacingController(
+            initial_pps=max(1.0, initial_pacing_pps),
+            enabled=adaptive,
+            **controller_kwargs,
+        )
         if not quiet:
             print(f'\n{"=" * 60}')
             print(f"  CSI Data Collection: {self.label}")
@@ -1614,17 +1701,14 @@ def is_ht20_phy(phy_mode: Any, channel_width: Any) -> bool:
     return str(phy_mode) == "ht" and str(channel_width) == "20"
 
 
-def ht20_packet_mask(
+def _packet_phy_mask(
     phy_modes: Optional[np.ndarray],
     channel_widths: Optional[np.ndarray],
     num_packets: int,
+    *,
+    predicate,
 ) -> Optional[np.ndarray]:
-    """Build a boolean HT20 keep-mask, or ``None`` when PHY fields are absent.
-
-    Captures without per-record PHY metadata are treated as already-HT20 and are
-    left unfiltered. When either field exists, missing per-packet values default
-    to ``ht`` / ``20`` (same as :func:`load_npz_as_packets`).
-    """
+    """Build a boolean keep-mask for one per-packet PHY predicate."""
     if num_packets <= 0:
         return None
     if phy_modes is None and channel_widths is None:
@@ -1642,11 +1726,30 @@ def ht20_packet_mask(
 
     mask = np.empty(num_packets, dtype=bool)
     for index in range(num_packets):
-        mask[index] = is_ht20_phy(
+        mask[index] = predicate(
             _value_at(phy_modes, index, "ht"),
             _value_at(channel_widths, index, "20"),
         )
     return mask
+
+
+def ht20_packet_mask(
+    phy_modes: Optional[np.ndarray],
+    channel_widths: Optional[np.ndarray],
+    num_packets: int,
+) -> Optional[np.ndarray]:
+    """Build a boolean HT20 keep-mask, or ``None`` when PHY fields are absent.
+
+    Captures without per-record PHY metadata are treated as already-HT20 and are
+    left unfiltered. When either field exists, missing per-packet values default
+    to ``ht`` / ``20`` (same as :func:`load_npz_as_packets`).
+    """
+    return _packet_phy_mask(
+        phy_modes,
+        channel_widths,
+        num_packets,
+        predicate=is_ht20_phy,
+    )
 
 
 def filter_npz_arrays_ht20(arrays: Dict[str, Any]) -> Dict[str, Any]:
@@ -1685,6 +1788,33 @@ def filter_npz_arrays_ht20(arrays: Dict[str, Any]) -> Dict[str, Any]:
     return filtered
 
 
+def filter_npz_arrays_sensing(arrays: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the sensing-view slice, keeping only HT20 packets."""
+    if "csi_data" in arrays:
+        csi_key = "csi_data"
+    elif "csi" in arrays:
+        csi_key = "csi"
+    else:
+        return arrays
+
+    csi = np.asarray(arrays[csi_key])
+    if csi.ndim == 0:
+        return arrays
+    num_packets = int(csi.shape[0])
+    mask = ht20_packet_mask(arrays.get("phy_mode"), arrays.get("channel_width"), num_packets)
+    if mask is None or bool(np.all(mask)):
+        return arrays
+
+    filtered: Dict[str, Any] = {}
+    for key, value in arrays.items():
+        arr = np.asarray(value)
+        if arr.ndim >= 1 and arr.shape[0] == num_packets:
+            filtered[key] = arr[mask]
+        else:
+            filtered[key] = value
+    return filtered
+
+
 def load_npz_as_packets(
     filepath: Path,
     *,
@@ -1692,11 +1822,12 @@ def load_npz_as_packets(
 ) -> List[Dict[str, Any]]:
     """Load a ``.npz`` file and convert it to packet dictionaries.
 
-    By default only HT20 packets (``phy_mode=ht``, ``channel_width=20``) are
-    returned. Captures without PHY metadata are treated as HT20. Pass
-    ``keep_all_phy=True`` to inspect mixed-PHY captures. Gaps left by dropped
-    non-HT20 packets are intentional for sensing consumers; dataset quality
-    validation uses the same filtered view so excessive drops fail continuity.
+    By default the sensing view keeps HT20 packets (``phy_mode=ht``,
+    ``channel_width=20``). Captures without PHY metadata are treated as HT20.
+    Pass ``keep_all_phy=True`` to inspect mixed-PHY captures. Gaps left
+    by dropped non-sensing packets are intentional for sensing consumers;
+    dataset quality validation uses the same filtered view so excessive drops
+    fail continuity.
     """
     data = np.load(filepath, allow_pickle=True)
     if "csi_data" not in data.files:
@@ -1772,8 +1903,8 @@ def load_npz_csi_data(
 
     Long-recording replays do not consume per-packet transport metadata.  Keep
     that hot path on the compact NumPy matrix instead of expanding every row
-    into a metadata dictionary. Non-HT20 rows are dropped by default when PHY
-    metadata is present; pass ``keep_all_phy=True`` to keep every row.
+    into a metadata dictionary. Non-sensing rows are dropped by default when
+    PHY metadata is present. Pass ``keep_all_phy=True`` to keep every row.
     """
     with np.load(filepath, allow_pickle=False) as data:
         if "csi_data" not in data.files:

@@ -43,20 +43,6 @@ wifi_csi_config_t build_ht20_csi_config() {
       .val_scale_cfg = 0,
       .dump_ack_en = 0,
   };
-#elif CONFIG_IDF_TARGET_ESP32
-  // The original ESP32 can associate in BGN mode but its AP may select either
-  // legacy OFDM or HT rates per frame. Capture both LTF types so rate-control
-  // changes do not make the CSI callback appear to stall.
-  return wifi_csi_config_t{
-      .lltf_en = true,
-      .htltf_en = true,
-      .stbc_htltf2_en = false,
-      .ltf_merge_en = false,
-      .channel_filter_en = false,
-      .manu_scale = false,
-      .shift = 0,
-      .dump_ack_en = false,
-  };
 #else
   return wifi_csi_config_t{
       .lltf_en = false,

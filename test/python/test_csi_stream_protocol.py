@@ -353,7 +353,7 @@ def test_adaptive_pacing_controller_holds_when_receive_rate_matches_target():
     assert controller.last_action == "hold"
 
 
-def test_adaptive_pacing_controller_holds_target_when_receive_rate_is_below_target():
+def test_adaptive_pacing_controller_boosts_pacing_when_delivery_falls_short():
     class FakePacingSender:
         def __init__(self):
             self.rate_updates = []
@@ -370,9 +370,143 @@ def test_adaptive_pacing_controller_holds_target_when_receive_rate_is_below_targ
 
     device_state["packet_count"] = 80
     controller.observe_device(device_state, 0, 80, 80)
-    controller.maybe_adjust({1: device_state}, now=1.1, pacing_sender=sender)
+    controller.maybe_adjust({1: device_state}, now=1.0, pacing_sender=sender)
+
+    assert sender.rate_updates == pytest.approx([110.0])
+    assert controller.current_pps == pytest.approx(110.0)
+    assert controller.last_action == "boost"
+
+
+def test_adaptive_pacing_controller_does_not_boost_when_boost_not_allowed():
+    class FakePacingSender:
+        def __init__(self):
+            self.rate_updates = []
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    controller = AdaptivePacingController(
+        initial_pps=100.0, enabled=True, control_window_s=1.0, boost_allowed=False
+    )
+    sender = FakePacingSender()
+    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
+
+    controller.observe_device(device_state, 0, 0, 0)
+    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
+
+    device_state["packet_count"] = 80
+    controller.observe_device(device_state, 0, 80, 80)
+    controller.maybe_adjust({1: device_state}, now=1.0, pacing_sender=sender)
 
     assert sender.rate_updates == []
+    assert controller.current_pps == pytest.approx(100.0)
+    assert controller.last_action == "hold"
+
+
+def test_adaptive_pacing_controller_does_not_boost_on_csi_conversion_deficit():
+    class FakePacingSender:
+        def __init__(self):
+            self.rate_updates = []
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
+    sender = FakePacingSender()
+    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
+
+    controller.observe_device(device_state, 0, 0, 0)
+    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
+
+    device_state["packet_count"] = 80
+    controller.observe_device(device_state, 0, 40, 80)
+    controller.maybe_adjust({1: device_state}, now=1.0, pacing_sender=sender)
+
+    assert sender.rate_updates == []
+    assert controller.last_action == "hold"
+
+
+def test_adaptive_pacing_controller_ignores_noisy_delivery_jitter():
+    class FakePacingSender:
+        def __init__(self):
+            self.rate_updates = []
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
+    sender = FakePacingSender()
+    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
+
+    controller.observe_device(device_state, 0, 0, 0)
+    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
+
+    for window, delta in enumerate([108, 92, 108, 92], start=1):
+        device_state["packet_count"] += delta
+        total = device_state["packet_count"]
+        controller.observe_device(device_state, 0, total, total)
+        controller.maybe_adjust({1: device_state}, now=float(window), pacing_sender=sender)
+
+    assert sender.rate_updates == []
+    assert controller.current_pps == pytest.approx(100.0)
+    assert controller.last_action == "hold"
+
+
+def test_adaptive_pacing_controller_revokes_boost_when_csi_conversion_degrades():
+    class FakePacingSender:
+        def __init__(self):
+            self.rate_updates = []
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
+    sender = FakePacingSender()
+    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
+
+    controller.observe_device(device_state, 0, 0, 0)
+    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
+
+    device_state["packet_count"] = 80
+    controller.observe_device(device_state, 0, 80, 80)
+    controller.maybe_adjust({1: device_state}, now=1.0, pacing_sender=sender)
+
+    device_state["packet_count"] = 110
+    controller.observe_device(device_state, 0, 110, 180)
+    controller.maybe_adjust({1: device_state}, now=2.0, pacing_sender=sender)
+
+    assert sender.rate_updates == pytest.approx([110.0, 100.0])
+    assert controller.current_pps == pytest.approx(100.0)
+    assert controller.last_action == "boost_revoke"
+
+
+def test_adaptive_pacing_controller_trims_boost_when_delivery_overshoots():
+    class FakePacingSender:
+        def __init__(self):
+            self.rate_updates = []
+
+        def set_rate_pps(self, rate_pps):
+            self.rate_updates.append(float(rate_pps))
+
+    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
+    sender = FakePacingSender()
+    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
+
+    controller.observe_device(device_state, 0, 0, 0)
+    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
+
+    device_state["packet_count"] = 80
+    controller.observe_device(device_state, 0, 80, 80)
+    controller.maybe_adjust({1: device_state}, now=1.0, pacing_sender=sender)
+
+    for window in range(2, 6):
+        device_state["packet_count"] = 80 + (window - 1) * 120
+        total = device_state["packet_count"]
+        controller.observe_device(device_state, 0, total, total)
+        controller.maybe_adjust({1: device_state}, now=float(window), pacing_sender=sender)
+
+    assert sender.rate_updates == pytest.approx([110.0, 105.0, 100.0])
+    assert controller.current_pps == pytest.approx(100.0)
     assert controller.last_action == "hold"
 
 
@@ -455,7 +589,7 @@ def test_adaptive_pacing_controller_ignores_persistent_freshness_deficit():
     assert controller.current_pps == pytest.approx(100.0)
 
 
-def test_adaptive_pacing_controller_does_not_overshoot_target():
+def test_adaptive_pacing_controller_does_not_overshoot_boost_cap():
     class FakePacingSender:
         def __init__(self):
             self.rate_updates = []
@@ -474,11 +608,13 @@ def test_adaptive_pacing_controller_does_not_overshoot_target():
     controller.observe_device(device_state, 0, 0, 0)
     controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
 
-    device_state["packet_count"] = 80
-    controller.observe_device(device_state, 0, 80, 80)
-    controller.maybe_adjust({1: device_state}, now=1.0, pacing_sender=sender)
+    for window in range(1, 9):
+        device_state["packet_count"] = window * 60
+        controller.observe_device(device_state, 0, window * 60, window * 60)
+        controller.maybe_adjust({1: device_state}, now=float(window), pacing_sender=sender)
 
-    assert sender.rate_updates == []
+    assert sender.rate_updates == pytest.approx([110.0, 120.0, 130.0, 140.0, 150.0])
+    assert controller.current_pps == pytest.approx(150.0)
     assert controller.last_action == "hold"
 
 
@@ -792,7 +928,7 @@ def test_load_historical_dataset_labels_missing_phy_as_ht20(tmp_path):
     assert packet['channel_width'] == '20'
 
 
-def test_load_dataset_preserves_explicit_phy_metadata(tmp_path):
+def test_load_dataset_preserves_explicit_ht20_phy_metadata(tmp_path):
     filepath = tmp_path / 'explicit_phy.npz'
     np.savez_compressed(
         filepath,
@@ -800,16 +936,16 @@ def test_load_dataset_preserves_explicit_phy_metadata(tmp_path):
         num_subcarriers=2,
         label='motion',
         chip='esp32',
-        phy_mode=np.array(['legacy']),
-        ltf_type=np.array(['lltf']),
+        phy_mode=np.array(['ht']),
+        ltf_type=np.array(['ht-ltf']),
         channel_width=np.array(['20']),
     )
 
     packet = load_npz_as_packets(filepath, keep_all_phy=True)[0]
 
-    assert packet['phy_format'] == 'legacy20'
-    assert packet['phy_mode'] == 'legacy'
-    assert packet['ltf_type'] == 'lltf'
+    assert packet['phy_format'] == 'ht20'
+    assert packet['phy_mode'] == 'ht'
+    assert packet['ltf_type'] == 'ht-ltf'
     assert packet['channel_width'] == '20'
 
 
@@ -829,7 +965,7 @@ def test_load_npz_filters_non_ht20_packets_by_default(tmp_path):
         label='motion',
         chip='esp32',
         phy_mode=np.array(['ht', 'legacy', 'ht']),
-        ltf_type=np.array(['ht-ltf', 'lltf', 'ht-ltf']),
+        ltf_type=np.array(['ht-ltf', 'unknown', 'ht-ltf']),
         channel_width=np.array(['20', '20', '20']),
         stream_seq_num=np.array([10, 11, 12], dtype=np.uint32),
     )
@@ -869,6 +1005,28 @@ def test_load_npz_csi_data_filters_non_ht20_rows(tmp_path):
 
     raw = load_npz_csi_data(filepath, keep_all_phy=True)
     assert raw.shape == (2, 4)
+
+
+def test_load_npz_csi_data_drops_legacy20_rows_even_for_original_esp32(tmp_path):
+    from tools.lib.csi_io import load_npz_csi_data
+
+    filepath = tmp_path / 'esp32_legacy_only_matrix.npz'
+    np.savez_compressed(
+        filepath,
+        csi_data=np.array(
+            [
+                [1, 2, 3, 4],
+                [5, 6, 7, 8],
+            ],
+            dtype=np.int8,
+        ),
+        chip=np.array('esp32'),
+        phy_mode=np.array(['legacy', 'legacy']),
+        channel_width=np.array(['20', '20']),
+    )
+
+    filtered = load_npz_csi_data(filepath)
+    assert filtered.shape == (0, 4)
 
 
 def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):

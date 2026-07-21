@@ -67,7 +67,7 @@ from tools.lib.dataset_metadata import (  # noqa: E402
     build_classic_detector,
 )
 from tools.lib.csi_analysis import extract_amplitudes_matrix  # noqa: E402
-from tools.lib.csi_io import filter_npz_arrays_ht20  # noqa: E402
+from tools.lib.csi_io import filter_npz_arrays_sensing  # noqa: E402
 
 
 from detector_interface import MotionState  # noqa: E402
@@ -1150,8 +1150,8 @@ def _load_npz_materialized(filepath):
 
 
 def _sensing_view_npz(data):
-    """Return the HT20 sensing view used by continuity and Classic/ML quality."""
-    filtered = filter_npz_arrays_ht20(dict(data))
+    """Return the sensing view used by continuity and Classic/ML quality."""
+    filtered = filter_npz_arrays_sensing(dict(data))
     if filtered is data or (
         len(filtered) == len(data)
         and all(filtered[key] is data[key] for key in data)
