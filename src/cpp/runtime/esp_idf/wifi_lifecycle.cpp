@@ -22,6 +22,16 @@ static const char *WIFI_LIFECYCLE_TAG = "WiFiLifecycle";
 
 namespace {
 
+enum class WiFiProtocolPolicyPath : uint8_t {
+  ALREADY_BGN,
+  SET_BGN,
+};
+
+struct WiFiProtocolPolicyResult {
+  esp_err_t err;
+  WiFiProtocolPolicyPath path;
+};
+
 // ESP-IDF exposes 802.11n on 2.4 GHz through the supported b/g/n protocol
 // combination. WIFI_PROTOCOL_11N alone is not a valid station mode on the
 // published ESPectre targets, so we prefer it first and fall back to b/g/n.
@@ -51,21 +61,26 @@ const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
   }
 }
 
-esp_err_t set_wifi_protocol_for_csi_() {
-  uint8_t current_protocol = 0U;
-  if (esp_wifi_get_protocol(WIFI_IF_STA, &current_protocol) == ESP_OK && current_protocol == WIFI_PROTOCOL_CSI_2G) {
-    return ESP_OK;
+const char *protocol_policy_path_to_str_(WiFiProtocolPolicyPath path) {
+  switch (path) {
+    case WiFiProtocolPolicyPath::ALREADY_BGN:
+      return "11b/g/n already active";
+    case WiFiProtocolPolicyPath::SET_BGN:
+      return "set 11b/g/n explicitly";
+    default:
+      return "unknown";
   }
-  esp_err_t ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11N);
-  if (ret == ESP_OK) {
-    return ESP_OK;
-  }
+}
 
-  ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G);
-  if (ret == ESP_OK) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "11n-only protocol not accepted, using 11b/g/n fallback");
+WiFiProtocolPolicyResult set_wifi_protocol_for_csi_() {
+  uint8_t current_protocol = 0U;
+  if (esp_wifi_get_protocol(WIFI_IF_STA, &current_protocol) == ESP_OK) {
+    if (current_protocol == WIFI_PROTOCOL_CSI_2G) {
+      return WiFiProtocolPolicyResult{ESP_OK, WiFiProtocolPolicyPath::ALREADY_BGN};
+    }
   }
-  return ret;
+  const esp_err_t ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G);
+  return WiFiProtocolPolicyResult{ret, WiFiProtocolPolicyPath::SET_BGN};
 }
 
 esp_err_t get_wifi_protocol_for_log_(uint16_t *protocol) {
@@ -113,13 +128,18 @@ esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy() {
 
   // Configure WiFi protocol mode (MUST be done before CSI configuration)
   // This initializes internal WiFi structures required for CSI
-  // HT20 only: 802.11b/g/n for stable 64 subcarriers
-  ret = set_wifi_protocol_for_csi_();
+  // HT20 only: configure the documented 2.4 GHz b/g/n bitmap for stable
+  // 64-subcarrier CSI across the published ESPectre targets.
+  const WiFiProtocolPolicyResult protocol_result = set_wifi_protocol_for_csi_();
+  ret = protocol_result.err;
   if (ret != ESP_OK) {
     ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set WiFi protocol: 0x%x", ret);
     return ret;
   }
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi protocol: 802.11b/g/n with HT20 (802.11ax disabled)");
+  ESP_LOGI(WIFI_LIFECYCLE_TAG,
+           "WiFi protocol policy: %s",
+           protocol_policy_path_to_str_(protocol_result.path));
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi protocol target: 2.4 GHz HT20 CSI (802.11ax disabled)");
   // HT20 bandwidth for 64 subcarriers
   ret = set_wifi_bandwidth_for_csi_();
   if (ret != ESP_OK) {
@@ -164,6 +184,16 @@ esp_err_t WiFiLifecycleManager::init() {
     return policy_err;
   }
 
+  // Reassert the runtime power-save policy only after the station is up.
+  // This matches the older CSI lifecycle that behaved correctly on ESP32 and
+  // avoids toggling the PS mode during the early STA bootstrap.
+  const esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
+  if (ps_err != ESP_OK) {
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to disable Wi-Fi power save: %s",
+             esp_err_to_name(ps_err));
+    return ps_err;
+  }
+
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi CSI lifecycle ready");
   log_csi_runtime_state(WIFI_LIFECYCLE_TAG);
   ready_ = true;
@@ -177,6 +207,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   disconnected_callback_ = disconnected_cb;
   
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
+  started_policy_applied_.store(false, std::memory_order_relaxed);
   esp_err_t err = esp_event_handler_instance_register(
       WIFI_EVENT,
       WIFI_EVENT_STA_START,
@@ -250,6 +281,7 @@ void WiFiLifecycleManager::unregister_handlers() {
   connected_event_.clear();
   disconnected_event_.clear();
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
+  started_policy_applied_.store(false, std::memory_order_relaxed);
   ready_ = false;
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi event handlers unregistered");
 }
@@ -348,7 +380,13 @@ void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event
     return;
   }
   if (event_id == WIFI_EVENT_STA_START) {
-    manager->started_policy_err_.store(apply_started_csi_policy(), std::memory_order_relaxed);
+    if (!manager->started_policy_applied_.load(std::memory_order_relaxed)) {
+      const esp_err_t err = apply_started_csi_policy();
+      manager->started_policy_err_.store(err, std::memory_order_relaxed);
+      if (err == ESP_OK) {
+        manager->started_policy_applied_.store(true, std::memory_order_relaxed);
+      }
+    }
   } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
     manager->disconnected_event_.post();
   }

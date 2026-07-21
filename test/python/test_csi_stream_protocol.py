@@ -1121,6 +1121,7 @@ def test_summarize_ready_devices_waits_for_all_expected_devices():
     now = 100.0
     warmup_target = 10
     threshold = 1.0
+    ready_stable_seconds = 3.0
 
     summary = CSICollector._summarize_ready_devices(
         {
@@ -1130,6 +1131,7 @@ def test_summarize_ready_devices_waits_for_all_expected_devices():
         warmup_target=warmup_target,
         threshold=threshold,
         now=now,
+        ready_stable_seconds=ready_stable_seconds,
     )
     assert summary['ready'] is False
     assert summary['status'] == 'DEVICES 1/2'
@@ -1143,6 +1145,7 @@ def test_summarize_ready_devices_waits_for_all_expected_devices():
         warmup_target=warmup_target,
         threshold=threshold,
         now=now,
+        ready_stable_seconds=ready_stable_seconds,
     )
     assert summary['ready'] is False
     assert summary['status'] == 'STABLE 2/2'
@@ -1157,6 +1160,7 @@ def test_summarize_ready_devices_waits_for_all_expected_devices():
         warmup_target=warmup_target,
         threshold=threshold,
         now=now,
+        ready_stable_seconds=ready_stable_seconds,
     )
     assert summary['ready'] is True
     assert summary['status'] == 'READY 2/2'
@@ -1164,6 +1168,7 @@ def test_summarize_ready_devices_waits_for_all_expected_devices():
 
 def test_format_ready_device_lines_includes_waiting_ip_and_device_details():
     now = 100.0
+    ready_stable_seconds = 3.0
     lines = CSICollector._format_ready_device_lines(
         {
             0x1: {
@@ -1191,6 +1196,7 @@ def test_format_ready_device_lines_includes_waiting_ip_and_device_details():
         warmup_target=10,
         threshold=1.0,
         now=now,
+        ready_stable_seconds=ready_stable_seconds,
     )
 
     assert any(
@@ -1232,6 +1238,7 @@ def test_summarize_ready_devices_does_not_expose_global_detector_metrics():
     now = 100.0
     warmup_target = 10
     threshold = 1.0
+    ready_stable_seconds = 3.0
 
     summary = CSICollector._summarize_ready_devices(
         {
@@ -1242,6 +1249,7 @@ def test_summarize_ready_devices_does_not_expose_global_detector_metrics():
         warmup_target=warmup_target,
         threshold=threshold,
         now=now,
+        ready_stable_seconds=ready_stable_seconds,
     )
 
     assert summary['status'] == 'UNSTABLE 1/2'

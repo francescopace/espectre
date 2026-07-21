@@ -834,7 +834,7 @@ def test_collect_timed_adaptive_adjusts_legacy_pacing(monkeypatch) -> None:
     )
 
     assert saved_files == [Path("sample_1.npz")]
-    assert pacing_sender.rate_updates == pytest.approx([85.0])
+    assert pacing_sender.rate_updates == pytest.approx([85.0, 87.0])
 
 
 def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> None:

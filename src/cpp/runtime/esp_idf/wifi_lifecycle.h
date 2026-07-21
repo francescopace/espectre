@@ -91,6 +91,7 @@ class WiFiLifecycleManager {
   PendingEvent<esp_netif_ip_info_t> connected_event_;
   PendingEvent<> disconnected_event_;
   std::atomic<esp_err_t> started_policy_err_{ESP_ERR_INVALID_STATE};
+  std::atomic<bool> started_policy_applied_{false};
   bool ready_{false};
 };
 

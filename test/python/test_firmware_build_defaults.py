@@ -22,9 +22,17 @@ def test_idf_frontend_defaults_optimize_for_size(frontend):
         REPO_ROOT / "src" / "cpp" / "frontend" / frontend / "app" / "sdkconfig.defaults"
     ).read_text(encoding="utf-8")
 
-    assert "CONFIG_COMPILER_OPTIMIZATION_SIZE=y" in defaults
+    expected_setting = (
+        "CONFIG_COMPILER_OPTIMIZATION_PERF=y"
+        if frontend == "streamer"
+        else "CONFIG_COMPILER_OPTIMIZATION_SIZE=y"
+    )
+    assert expected_setting in defaults
     assert "CONFIG_COMPILER_OPTIMIZATION_DEBUG=y" not in defaults
-    assert "CONFIG_COMPILER_OPTIMIZATION_PERF=y" not in defaults
+    if frontend == "streamer":
+        assert "CONFIG_COMPILER_OPTIMIZATION_SIZE=y" not in defaults
+    else:
+        assert "CONFIG_COMPILER_OPTIMIZATION_PERF=y" not in defaults
 
 
 def test_native_frontend_defaults_enable_nimble_peripheral_only():

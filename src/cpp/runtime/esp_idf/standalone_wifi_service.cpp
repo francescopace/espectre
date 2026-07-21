@@ -17,12 +17,14 @@
 #include "esp_netif.h"
 #include "esp_netif_ip_addr.h"
 #include "esp_wifi.h"
+#include "runtime_time.h"
 
 namespace espectre {
 
 namespace {
 
 static const char *const TAG = "StandaloneWiFi";
+constexpr uint64_t DEFERRED_CONNECT_FALLBACK_DELAY_US = 1500000ULL;
 
 bool parse_bssid(const char *text, uint8_t out[6]) {
   if (text == nullptr || out == nullptr || text[0] == '\0') {
@@ -120,12 +122,6 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
   err = esp_wifi_set_mode(WIFI_MODE_STA);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(err));
-    return err;
-  }
-
-  err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_wifi_set_ps failed: %s", esp_err_to_name(err));
     return err;
   }
 
@@ -277,6 +273,9 @@ esp_err_t StandaloneWifiService::configure_station_() {
 esp_err_t StandaloneWifiService::start() {
   clear_cached_ip_info_();
   wifi_connect_requested_ = false;
+  defer_connect_once_after_start_ = true;
+  deferred_connect_fallback_pending_ = false;
+  deferred_connect_fallback_deadline_us_ = 0U;
   wifi_retry_count_ = 0;
   const esp_err_t err = esp_wifi_start();
   wifi_started_ = err == ESP_OK;
@@ -284,6 +283,7 @@ esp_err_t StandaloneWifiService::start() {
 }
 
 void StandaloneWifiService::loop() {
+  maybe_run_deferred_connect_fallback_();
   if (config_.manage_csi_lifecycle) {
     (void)wifi_lifecycle_.process_pending_events();
   }
@@ -299,6 +299,8 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
   clear_cached_ip_info_();
   wifi_retry_count_ = 0;
   wifi_connect_requested_ = false;
+  deferred_connect_fallback_pending_ = false;
+  deferred_connect_fallback_deadline_us_ = 0U;
 
   if (wifi_started_) {
     const esp_err_t disconnect_err = esp_wifi_disconnect();
@@ -353,6 +355,9 @@ void StandaloneWifiService::shutdown() {
   }
   setup_complete_ = false;
   wifi_connect_requested_ = false;
+  defer_connect_once_after_start_ = false;
+  deferred_connect_fallback_pending_ = false;
+  deferred_connect_fallback_deadline_us_ = 0U;
   clear_cached_ip_info_();
 }
 
@@ -374,6 +379,15 @@ void StandaloneWifiService::handle_wifi_started_() {
 
   if (!wifi_connect_requested_) {
     wifi_connect_requested_ = true;
+    if (defer_connect_once_after_start_) {
+      defer_connect_once_after_start_ = false;
+      deferred_connect_fallback_pending_ = true;
+      deferred_connect_fallback_deadline_us_ = monotonic_now_us() + DEFERRED_CONNECT_FALLBACK_DELAY_US;
+      ESP_LOGI(TAG, "STA start observed; deferring first explicit connect request");
+      return;
+    }
+    deferred_connect_fallback_pending_ = false;
+    deferred_connect_fallback_deadline_us_ = 0U;
     (void)esp_wifi_connect();
   }
 }
@@ -383,6 +397,8 @@ void StandaloneWifiService::handle_wifi_stopped_() {
   // after an earlier connect request. Clear the latch so the next STA_START
   // associates again instead of leaving the radio idle.
   wifi_connect_requested_ = false;
+  deferred_connect_fallback_pending_ = false;
+  deferred_connect_fallback_deadline_us_ = 0U;
   clear_cached_ip_info_();
 }
 
@@ -395,6 +411,8 @@ void StandaloneWifiService::handle_wifi_disconnected_(void *event_data) {
            wifi_disconnect_reason_to_str(reason));
   clear_cached_ip_info_();
   wifi_connect_requested_ = false;
+  deferred_connect_fallback_pending_ = false;
+  deferred_connect_fallback_deadline_us_ = 0U;
   if (has_text(config_.ssid) && wifi_retry_count_ < config_.max_retry) {
     wifi_retry_count_++;
     wifi_connect_requested_ = true;
@@ -412,6 +430,31 @@ void StandaloneWifiService::handle_lifecycle_connected_() {
 void StandaloneWifiService::handle_lifecycle_disconnected_() {
   if (disconnected_cb_) {
     disconnected_cb_();
+  }
+}
+
+void StandaloneWifiService::maybe_run_deferred_connect_fallback_() {
+  if (!deferred_connect_fallback_pending_ || !wifi_started_ || !has_text(config_.ssid)) {
+    return;
+  }
+  if (cached_ip_info_.ip.addr != 0U) {
+    deferred_connect_fallback_pending_ = false;
+    deferred_connect_fallback_deadline_us_ = 0U;
+    return;
+  }
+
+  const uint64_t now_us = monotonic_now_us();
+  if (now_us < deferred_connect_fallback_deadline_us_) {
+    return;
+  }
+
+  deferred_connect_fallback_pending_ = false;
+  deferred_connect_fallback_deadline_us_ = 0U;
+  ESP_LOGI(TAG, "Deferred STA-start connect fallback expired; issuing one explicit connect");
+  const esp_err_t err = esp_wifi_connect();
+  if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
+    ESP_LOGE(TAG, "Deferred esp_wifi_connect fallback failed: %s", esp_err_to_name(err));
+    wifi_connect_requested_ = false;
   }
 }
 
@@ -443,6 +486,8 @@ void StandaloneWifiService::wifi_event_handler_(void *arg, esp_event_base_t even
     if (event != nullptr) {
       manager->cached_ip_info_ = event->ip_info;
     }
+    manager->deferred_connect_fallback_pending_ = false;
+    manager->deferred_connect_fallback_deadline_us_ = 0U;
     manager->wifi_retry_count_ = 0;
     if (!manager->config_.manage_csi_lifecycle && manager->connected_cb_) {
       manager->connected_cb_();
