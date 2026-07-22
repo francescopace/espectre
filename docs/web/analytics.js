@@ -7,6 +7,9 @@
  * owns routing and calls trackRouteView on every navigation; routes are
  * reported under their real URL (`/#flash`), grouped by content_group.
  *
+ * GA4 property coupling: keep Enhanced Measurement's "Page changes based on
+ * browser history events" OFF, or every navigation is counted twice.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */

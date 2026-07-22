@@ -118,6 +118,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
       
+      - name: Test Web Client
+        run: node --test 'test/web/*.mjs'
+
       - name: Verify Website
         run: |
           test -f docs/web/sitemap.xml

@@ -66,24 +66,22 @@
     /* ------------------------------------------------------------ BLE mode */
 
     function makeBleClient() {
-        return new window.ESPectreBleClient({
-            onTelemetry(t) {
-                conn.movement = t.movement;
-                if (t.threshold > 0) conn.threshold = t.threshold;
-                conn.motion = t.motionState !== null
-                    ? t.motionState === 1
-                    : t.movement >= conn.threshold;
-                renderTelemetry();
-                gameOnTelemetry();
-            },
-            onSysinfoSnapshot(snapshot) {
-                applySysinfo(snapshot);
-            },
-            onDisconnected() {
-                teardownConnection();
-                toast('Device disconnected.');
-            }
+        const client = new window.ESPectreBleClient();
+        client.on('telemetry', (t) => {
+            conn.movement = t.movement;
+            if (t.threshold > 0) conn.threshold = t.threshold;
+            conn.motion = t.motionState !== null
+                ? t.motionState === 1
+                : t.movement >= conn.threshold;
+            renderTelemetry();
+            gameOnTelemetry();
         });
+        client.on('sysinfo', (snapshot) => applySysinfo(snapshot));
+        client.on('disconnect', () => {
+            teardownConnection();
+            toast('Device disconnected.');
+        });
+        return client;
     }
 
     async function connectBle() {
@@ -109,9 +107,9 @@
             startUptime();
             track('tool_connection', { tool_name: route, transport: 'bluetooth', result: 'success' });
             try {
-                await bleClient.writeControl('REQ_SYSINFO');
+                await bleClient.requestSysinfo();
             } catch (error) {
-                console.warn('REQ_SYSINFO failed:', error);
+                console.warn('Sysinfo request failed:', error);
             }
         } catch (error) {
             bleClient = null;
@@ -986,19 +984,24 @@
         return document.getElementById(id).value;
     }
 
-    function cfgEncodedCommand(prefix, fields) {
-        const payload = Object.entries(fields)
-            .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')))
-            .join('&');
-        return prefix + payload;
-    }
-
     /**
-     * Writes a control command and reports the outcome as configure_change.
-     * `action` is the analytics label; demo mode reports nothing because
-     * nothing reaches a device.
+     * Builds and writes a control command, reporting the outcome as
+     * configure_change. `buildCommand` runs even in demo mode so the
+     * library's validation gives the same feedback with or without a
+     * device; nothing is written and nothing is tracked in demo, because
+     * no device is involved.
      */
-    async function cfgWriteControl(command, successMessage, action) {
+    async function cfgApply(action, successMessage, buildCommand) {
+        let command;
+        try {
+            command = buildCommand();
+        } catch (error) {
+            if (error && error.name === 'ESPectreValidationError') {
+                cfgValidationFailed(action, error.message);
+                return false;
+            }
+            throw error;
+        }
         if (conn.mode === 'demo') {
             toast(successMessage + ' (demo — nothing written)');
             return true;
@@ -1028,9 +1031,9 @@
     async function cfgRefreshSysinfo() {
         if (conn.mode === 'ble' && bleClient) {
             try {
-                await bleClient.writeControl('REQ_SYSINFO');
+                await bleClient.requestSysinfo();
             } catch (error) {
-                console.warn('REQ_SYSINFO failed:', error);
+                console.warn('Sysinfo request failed:', error);
             }
         }
     }
@@ -1038,30 +1041,24 @@
     async function cfgSaveWifi() {
         const ssid = cfgValue('cfg-ssid').trim();
         const password = cfgValue('cfg-wifi-pass');
-        const channel = Number(cfgValue('cfg-channel') || 0);
-        const bssid = cfgValue('cfg-bssid').trim();
+        // Site policy: the form requires a password even though the protocol
+        // allows open networks; format validation belongs to the library.
         if (!ssid || !password) {
             cfgValidationFailed('set_wifi', 'Wi-Fi needs both SSID and password.');
             return;
         }
-        if (!Number.isInteger(channel) || channel < 0 || channel > 14) {
-            cfgValidationFailed('set_wifi', 'Channel must be 0..14 (0 = auto).');
-            return;
-        }
-        if (bssid && !/^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/.test(bssid)) {
-            cfgValidationFailed('set_wifi', 'BSSID must match aa:bb:cc:dd:ee:ff.');
-            return;
-        }
-        const ok = await cfgWriteControl(
-            cfgEncodedCommand('SET_WIFI_CONFIG:', { ssid, password, bssid, channel }),
-            'Wi-Fi credentials saved; station reconnecting.',
-            'set_wifi'
-        );
+        const ok = await cfgApply('set_wifi', 'Wi-Fi credentials saved; station reconnecting.',
+            () => window.ESPectreBleClient.buildWifiConfigCommand({
+                ssid,
+                password,
+                bssid: cfgValue('cfg-bssid').trim(),
+                channel: Number(cfgValue('cfg-channel') || 0)
+            }));
         if (ok) document.getElementById('cfg-wifi-pass').value = '';
     }
 
     async function cfgClearWifi() {
-        const ok = await cfgWriteControl('CLEAR_WIFI', 'Wi-Fi credentials cleared.', 'clear_wifi');
+        const ok = await cfgApply('clear_wifi', 'Wi-Fi credentials cleared.', () => 'CLEAR_WIFI');
         if (ok) {
             ['cfg-ssid', 'cfg-wifi-pass', 'cfg-bssid', 'cfg-channel'].forEach((id) => {
                 document.getElementById(id).value = '';
@@ -1071,45 +1068,38 @@
 
     async function cfgSaveMqtt() {
         const host = cfgValue('cfg-mqtt-host').trim();
-        const port = Number(cfgValue('cfg-mqtt-port'));
         const username = cfgValue('cfg-mqtt-user').trim();
         const password = cfgValue('cfg-mqtt-pass');
-        const topicPrefix = cfgValue('cfg-topic-prefix').trim() || 'espectre/v1/devices';
+        // Site policy: credentials are required here; the library accepts
+        // anonymous brokers.
         if (!host || !username || !password || !cfgValue('cfg-mqtt-port')) {
             cfgValidationFailed('set_mqtt', 'MQTT needs host, port, username, and password.');
             return;
         }
-        if (!Number.isInteger(port) || port < 1 || port > 65535) {
-            cfgValidationFailed('set_mqtt', 'MQTT port must be 1..65535.');
-            return;
-        }
-        const ok = await cfgWriteControl(
-            cfgEncodedCommand('SET_MQTT_CONFIG:', {
-                host, port, username, password, topic_prefix: topicPrefix
-            }),
-            'MQTT settings saved.',
-            'set_mqtt'
-        );
+        const ok = await cfgApply('set_mqtt', 'MQTT settings saved.',
+            () => window.ESPectreBleClient.buildMqttConfigCommand({
+                host,
+                port: Number(cfgValue('cfg-mqtt-port')),
+                username,
+                password,
+                topicPrefix: cfgValue('cfg-topic-prefix').trim() || undefined
+            }));
         if (ok) document.getElementById('cfg-mqtt-pass').value = '';
     }
 
     async function cfgClearMqtt() {
-        const ok = await cfgWriteControl('CLEAR_MQTT_CONFIG', 'MQTT settings cleared.', 'clear_mqtt');
+        const ok = await cfgApply('clear_mqtt', 'MQTT settings cleared.', () => 'CLEAR_MQTT_CONFIG');
         if (ok) document.getElementById('cfg-mqtt-pass').value = '';
     }
 
     async function cfgSaveDevice() {
-        const label = cfgValue('cfg-label').trim();
-        const ok = await cfgWriteControl(
-            'SET_DEVICE_CONFIG:device_label=' + label,
-            'Device label saved.',
-            'set_device'
-        );
+        const ok = await cfgApply('set_device', 'Device label saved.',
+            () => window.ESPectreBleClient.buildDeviceLabelCommand(cfgValue('cfg-label').trim()));
         if (ok) cfgRefreshSysinfo();
     }
 
     async function cfgClearDevice() {
-        const ok = await cfgWriteControl('CLEAR_DEVICE_CONFIG', 'Device config reset.', 'clear_device');
+        const ok = await cfgApply('clear_device', 'Device config reset.', () => 'CLEAR_DEVICE_CONFIG');
         if (ok) {
             document.getElementById('cfg-label').value = '';
             cfgRefreshSysinfo();

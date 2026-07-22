@@ -6,11 +6,25 @@ product.
 
 ## GPLv3 (open source)
 
-All source code in this repository is released under the
+Except for the Apache-2.0 files listed below, all source code in this
+repository is released under the
 [GNU General Public License v3.0](LICENSE). You are free to use, study,
 modify, and redistribute ESPectre, provided that firmware and applications
 distributed with ESPectre inside comply with GPLv3, including making the
 corresponding source available.
+
+## Apache-2.0 files
+
+The web integration client is licensed under the
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) so any web
+application, including proprietary ones, can embed it to talk to ESPectre
+devices over the documented BLE protocol:
+
+- `docs/web/espectre-ble.js` — the client
+- `test/web/test_espectre_ble.mjs` — its unit tests
+
+Each file carries its own license header. Apache-2.0 is GPLv3-compatible, so
+the GPLv3 website in this repository consumes the client without restriction.
 
 ## Commercial license
 
