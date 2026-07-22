@@ -27,7 +27,14 @@ function currentRoute() {
  * Maps a route to the standard content_group dimension. Guides and SDK docs
  * share one `documentation` group so they can be compared as a whole.
  */
+/*
+ * The generated guide pages carry data-static-page on <html>; they have no
+ * hash route, so every event they emit belongs to the documentation group.
+ */
+const IS_STATIC_PAGE = document.documentElement.hasAttribute('data-static-page');
+
 function getSiteSection(route = currentRoute()) {
+    if (IS_STATIC_PAGE) return 'documentation';
     if (route === 'home') return 'home';
     if (TOOL_ROUTES.includes(route)) return route;
     if (route === 'guides' || route.startsWith('guide-')) return 'documentation';
@@ -56,6 +63,16 @@ function initializeAnalytics() {
 }
 
 initializeAnalytics();
+
+// Static pages have no router, so they report their own page_view here.
+if (IS_STATIC_PAGE) {
+    window.gtag('event', 'page_view', {
+        page_location: window.location.href,
+        page_path: window.location.pathname,
+        page_title: document.title,
+        content_group: 'documentation'
+    });
+}
 
 // ==================== ANALYTICS HELPERS ====================
 
@@ -114,20 +131,35 @@ document.addEventListener('DOMContentLoaded', function () {
         return (heading || link).textContent.trim().replace(/\s+/g, ' ').substring(0, 100);
     };
 
-    // Internal navigation is hash-based, so classify clicks by destination.
+    // Guide links use their canonical static URLs; custom-firmware keeps the
+    // historical guide_name "firmware".
+    const GUIDE_NAME_BY_PATH = {
+        '/guides/hardware/': 'hardware',
+        '/guides/setup/': 'setup',
+        '/guides/detection/': 'detection',
+        '/guides/custom-firmware/': 'firmware'
+    };
+
+    // Internal navigation is hash- or canonical-URL-based; classify clicks
+    // by destination.
     document.addEventListener('click', function (event) {
-        const link = event.target.closest('a[href^="#"]');
+        const link = event.target.closest('a[href]');
         if (!link) return;
-        const route = link.getAttribute('href').slice(1);
-        if (!route) return;
+        const href = link.getAttribute('href');
+
+        if (GUIDE_NAME_BY_PATH[href]) {
+            trackEvent('select_guide', {
+                guide_name: GUIDE_NAME_BY_PATH[href],
+                link_text: linkText(link)
+            });
+            return;
+        }
+
+        const route = href.replace(/^\/?#/, '');
+        if (route === href || !route) return;
 
         if (TOOL_ROUTES.includes(route)) {
             trackEvent('select_tool', { tool_name: route, link_text: linkText(link) });
-        } else if (route.startsWith('guide-')) {
-            trackEvent('select_guide', {
-                guide_name: route.replace(/^guide-/, ''),
-                link_text: linkText(link)
-            });
         } else if (route.startsWith('docs-')) {
             trackEvent('select_documentation', {
                 document_name: route.replace(/^docs-/, ''),

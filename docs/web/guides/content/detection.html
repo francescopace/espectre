@@ -1,0 +1,66 @@
+<article class="article">
+    <span class="guide-tag">THEORY · 12 MIN READ</span>
+    <h1>How motion detection works</h1>
+    <p class="article-lead">What the movement score actually measures, what happens during calibration, and how to place and tune the sensor so it behaves well in your room.</p>
+
+    <h2>The idea in one minute</h2>
+    <p>Wi-Fi signals reach the ESP32 over many paths at once: direct, bounced off walls, furniture, and people. Each received packet carries Channel State Information (CSI), a per-subcarrier measurement of how the radio channel looked at that instant. When nobody moves, those measurements are remarkably stable. When a person moves, the reflected paths change and the measurements start to scatter. ESPectre measures that scatter, on the device, packet by packet.</p>
+    <figure>
+      <img src="/guides/images/csi-multipath-motion.webp" alt="Wi-Fi signals traveling directly and reflecting around a person before reaching an ESP32" loading="lazy">
+      <figcaption>The ESP32 receives the same Wi-Fi packet over several paths. Movement changes the reflected paths, making the measured channel vary over time.</figcaption>
+    </figure>
+    <figure>
+      <img src="/guides/images/csi-amplitude-heatmap.webp" alt="Three CSI amplitude heatmaps comparing empty room, static presence, and motion" loading="lazy">
+      <figcaption>What that looks like in CSI: empty and static presence stay mostly grainy and stable, while walking produces broad vertical bands of change across subcarriers.</figcaption>
+    </figure>
+
+    <h2>The signal path</h2>
+    <p>Everything below runs on the ESP32. No raw radio data leaves the device; only the derived score and motion state are published.</p>
+    <div class="pipeline">
+      <div><strong>Wi-Fi packets</strong><span>2.4 GHz traffic</span></div>
+      <div><strong>CSI capture</strong><span>Subcarrier samples</span></div>
+      <div><strong>Conditioning</strong><span>Normalize and filter</span></div>
+      <div><strong>Detection</strong><span>Classic or ML</span></div>
+      <div><strong>Output</strong><span>Score and motion</span></div>
+    </div>
+    <p>Conditioning matters because raw CSI is noisy: gain normalization compensates for the receiver's automatic gain control, a Hampel filter drops isolated outliers, and an optional low-pass filter removes fast noise while keeping the slower variations caused by human movement.</p>
+
+    <h2>What the numbers mean</h2>
+    <ul class="checklist">
+      <li><strong>Movement score (0.0–1.0)</strong>: how strongly the channel is changing right now. It is a room-specific signal, not a physical unit: 0.3 in your living room and 0.3 in your office are not the same thing.</li>
+      <li><strong>Threshold</strong>: the score level that counts as motion. Classic adapts it during calibration; you can adjust it at runtime from Home Assistant, the Configure page, or MQTT.</li>
+      <li><strong>Motion state</strong>: turns on after the score stays above the threshold for a few consecutive evaluations (about one second at default settings) and off after it stays below (slightly faster). This hit filter is why a single spike does not trigger a false alarm.</li>
+      <li><strong>Calibration</strong>: at startup the detector learns the quiet baseline of your room, which takes roughly ten seconds at the default packet rate. Keep the room still while it runs, and recalibrate whenever you move the device.</li>
+    </ul>
+
+    <h2>Classic or ML?</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>Classic (default)</th><th>ML</th></tr></thead>
+      <tbody>
+        <tr><td>How it decides</td><td>Fuses two channel features into a motion probability</td><td>Small neural network over a six-feature window</td></tr>
+        <tr><td>Training data</td><td>None needed</td><td>Ships with a pre-trained model</td></tr>
+        <tr><td>Threshold</td><td>Self-calibrated per session, adjustable</td><td>Fixed default (0.5), adjustable</td></tr>
+        <tr><td>Best for</td><td>Most rooms; transparent and lightweight</td><td>Experiments with learned decision boundaries</td></tr>
+      </tbody>
+    </table></div>
+    <p>Both run entirely on the ESP32, use the same 0.0–1.0 scale, and can be switched at runtime on ESPHome and Native firmware. Start with Classic; try ML if you are curious or your room proves difficult.</p>
+
+    <h2>Placement that works</h2>
+    <ul class="checklist">
+      <li>Keep the sensor roughly 3–8 meters from your Wi-Fi access point. Too close risks receiver saturation; too far means a weaker, noisier signal.</li>
+      <li>Put it in the room you want to monitor, where people cross the space between the router and the sensor or move near the device.</li>
+      <li>Do not enclose it in a metal cabinet or press the antenna against a large metal surface.</li>
+      <li>Keep the room still during the ten-second startup calibration.</li>
+      <li>Moved the device? Recalibrate. Placement changes the baseline more than any parameter does.</li>
+    </ul>
+
+    <h2>Quick tuning recipe</h2>
+    <div class="mini-cards">
+      <article><h3>Triggers with nobody there</h3><ul><li>Raise the threshold a little.</li><li>Recalibrate with the room genuinely empty.</li><li>Look for fans, curtains in airflow, or pets: the sensor sees them too.</li></ul></article>
+      <article><h3>Misses real motion</h3><ul><li>Lower the threshold a little.</li><li>Check placement: distance from the AP and obstacles matter most.</li><li>Verify the device receives steady traffic (the built-in traffic generator keeps ~100 packets/s by default).</li></ul></article>
+    </div>
+    <div class="note">Wi-Fi sensing detects changes in the radio environment. It does not identify people, count them, or replace a safety-certified presence sensor.</div>
+
+    <h2>Going deeper</h2>
+    <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md" target="_blank" rel="noopener">algorithm reference</a> covers the math, the feature definitions, and calibration in detail; the <a href="https://github.com/francescopace/espectre/blob/main/docs/TUNING.md" target="_blank" rel="noopener">tuning guide</a> covers every parameter with recommended ranges.</p>
+  </article>

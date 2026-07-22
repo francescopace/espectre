@@ -121,6 +121,9 @@ jobs:
       - name: Test Web Client
         run: node --test 'test/web/*.mjs'
 
+      - name: Build Guide Pages
+        run: python3 .github/scripts/build_guide_pages.py
+
       - name: Verify Website
         run: |
           test -f docs/web/sitemap.xml
@@ -137,6 +140,11 @@ jobs:
           # Retired URLs fall through to this catch-all, served by Pages on 404.
           test -f docs/web/404.html \
             || { echo "Missing 404.html catch-all"; exit 1; }
+          # Guide pages and the sitemap are generated, not committed.
+          for guide in hardware setup detection custom-firmware; do
+            test -f "docs/web/guides/$guide/index.html" \
+              || { echo "Missing generated guide page: $guide"; exit 1; }
+          done
           if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
             test -f docs/web/flash/firmware/stable/firmware-manifest-stable.json
             test "$(find docs/web/flash/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
@@ -183,6 +191,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       
+      - name: Build sitemap
+        run: python3 .github/scripts/build_guide_pages.py
+
       - name: Extract URLs and notify IndexNow
         run: |
           # Extract URLs from sitemap

@@ -340,6 +340,7 @@
         window.scrollTo(0, 0);
         if (route !== 'theremin') thereminStop();
         if (route === 'monitor') monitorResizeChart();
+        if (route.startsWith('guide-')) loadGuide(route);
         syncHeroWave();
         // The router owns navigation, so it reports it.
         if (window.trackRouteView) window.trackRouteView(route);
@@ -361,6 +362,63 @@
 
     function onHashChange() {
         setRoute((location.hash || '#home').slice(1));
+    }
+
+    /* ============================================================== guides */
+
+    /*
+     * Guide articles live in guides/content/*.html, the same fragments the
+     * generated static pages are built from. The SPA fetches them on first
+     * visit so guide text is not duplicated inside this document and the
+     * device connection survives reading a guide.
+     */
+    const GUIDE_STATIC_ROUTES = {
+        '/guides/hardware/': 'guide-hardware',
+        '/guides/setup/': 'guide-setup',
+        '/guides/detection/': 'guide-detection',
+        '/guides/custom-firmware/': 'guide-firmware'
+    };
+    const guideCache = new Map();
+
+    async function loadGuide(route) {
+        const container = $(`[data-page="${route}"] .js-guide-content`);
+        if (!container || container.dataset.loaded === 'true') return;
+        const name = container.dataset.guide;
+        try {
+            if (!guideCache.has(name)) {
+                const response = await fetch('guides/content/' + name + '.html');
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                guideCache.set(name, await response.text());
+            }
+            container.innerHTML = guideCache.get(name);
+            container.dataset.loaded = 'true';
+        } catch (error) {
+            console.warn('Guide fetch failed:', error);
+            container.innerHTML = '<p class="guide-loading">This guide could not be loaded. '
+                + '<a href="' + container.dataset.staticUrl + '">Open the standalone page</a>.</p>';
+        }
+    }
+
+    /*
+     * Fragments and guide cards link to the canonical static URLs. Inside
+     * the app those clicks become hash navigation, so the page never reloads
+     * and an active connection survives; modified clicks (new tab) are left
+     * to the browser. Root-anchored hash links are normalized for the same
+     * reason: from /index.html they would otherwise reload onto /.
+     */
+    function interceptCanonicalLinks(event) {
+        if (event.defaultPrevented || event.button !== 0) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        const link = event.target.closest('a[href]');
+        if (!link) return;
+        const href = link.getAttribute('href');
+        if (GUIDE_STATIC_ROUTES[href]) {
+            event.preventDefault();
+            location.hash = '#' + GUIDE_STATIC_ROUTES[href];
+        } else if (href.startsWith('/#')) {
+            event.preventDefault();
+            location.hash = href.slice(1);
+        }
     }
 
     /* =============================================================== theme */
@@ -1271,6 +1329,7 @@
         thereminInit();
         gameInit();
 
+        document.addEventListener('click', interceptCanonicalLinks);
         window.addEventListener('hashchange', onHashChange);
         setRoute((location.hash || '#home').slice(1), { force: true });
     }

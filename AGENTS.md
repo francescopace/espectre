@@ -141,6 +141,7 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 - For internal Markdown links that point to files, use only the filename as the link text rather than the full relative path.
 - Emoji should be rare and purposeful, not ornamental.
 - Update `docs/CHANGELOG.md` only in the latest active section; do not rewrite historical release entries except to fix factual errors the user explicitly asked to correct.
+- Do not edit `docs/web/sitemap.xml` or the generated guide pages under `docs/web/guides/` (`hardware/`, `setup/`, `detection/`, `custom-firmware/`); they are gitignored output of `.github/scripts/build_guide_pages.py`, and direct edits evaporate at the next generation. Edit the fragments in `docs/web/guides/content/` instead, then re-run the script to preview.
 
 ## GitHub And CI Rules
 

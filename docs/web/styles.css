@@ -616,6 +616,9 @@ a.hero-badge:hover {
 
 /* Guides */
 
+.guide-loading { color: var(--dim); font-size: 14px; padding: 24px 0; }
+
+
 .guides-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
