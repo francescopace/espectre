@@ -27,6 +27,7 @@ def _make_collect_args(**overrides) -> argparse.Namespace:
         "label": "static_presence",
         "samples": 2,
         "duration": 10.0,
+        "ready_stable_seconds": 3.0,
         "start_delay": 5.0,
         "udp_port": 5001,
         "bind_ip": None,
@@ -47,6 +48,7 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
         "label": "test",
         "samples": 1,
         "duration": None,
+        "ready_stable_seconds": 3.0,
         "start_delay": 0.0,
         "udp_port": 5001,
         "bind_ip": None,
@@ -236,6 +238,25 @@ def test_collect_parser_accepts_count_alias() -> None:
     assert args.namespace == "collect"
     assert args.samples == 3
     assert args.start_delay == 15.0
+
+
+def test_collect_parser_accepts_ready_gate_override() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "collect",
+            "--label",
+            "low_rssi",
+            "--ready-stable-seconds",
+            "0",
+            "--target",
+            "192.168.1.15",
+        ]
+    )
+
+    assert args.namespace == "collect"
+    assert args.ready_stable_seconds == 0.0
 
 
 def test_micro_collect_alias_is_rejected() -> None:
@@ -719,6 +740,7 @@ def test_collect_applies_start_delay_before_starting_pacing(monkeypatch) -> None
     assert collect_event[2] == 2
     assert collect_event[3]["adaptive"] is True
     assert collect_event[3]["pacing_sender"] is FakePacingSender.last_instance
+    assert collect_event[3]["ready_stable_seconds"] == 3.0
     assert FakePacingSender.last_instance.rate_updates == []
     assert ("collector_init", "static_presence", "127.0.0.1", 3, "classic") in events
     assert events.index(("delay", 5.0)) < events.index("start")
@@ -835,6 +857,54 @@ def test_collect_timed_adaptive_adjusts_legacy_pacing(monkeypatch) -> None:
 
     assert saved_files == [Path("sample_1.npz")]
     assert pacing_sender.rate_updates == pytest.approx([85.0, 87.0])
+
+
+def test_collect_timed_zero_ready_gate_skips_wait(monkeypatch) -> None:
+    import importlib
+
+    csi_io = importlib.import_module("tools.lib.csi_io")
+
+    class FakeSocket:
+        def bind(self, addr):
+            pass
+
+        def settimeout(self, value):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(csi_io.socket, "socket", lambda *args, **kwargs: FakeSocket())
+
+    collector = csi_io.CSICollector(
+        label="motion",
+        port=5001,
+        bind_host="127.0.0.1",
+        expected_device_count=1,
+        expected_source_hosts=["192.168.1.29"],
+    )
+
+    waited = {"called": False}
+
+    def fake_wait(*args, **kwargs):
+        waited["called"] = True
+        return {}
+
+    monkeypatch.setattr(collector, "_wait_for_ready_state_with_pacing", fake_wait)
+    monkeypatch.setattr(collector, "_drain_udp_backlog", lambda: None)
+    monkeypatch.setattr(collector, "_reset_live_status_block", lambda: None)
+    monkeypatch.setattr(collector, "_collect_with_live_status", lambda *args, **kwargs: [])
+    monkeypatch.setattr(collector, "save_samples_by_device", lambda packets: [Path("sample_1.npz")])
+
+    saved_files = collector.collect_timed(
+        duration=1.0,
+        num_samples=1,
+        quiet=True,
+        ready_stable_seconds=0.0,
+    )
+
+    assert saved_files == [Path("sample_1.npz")]
+    assert waited["called"] is False
 
 
 def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> None:
@@ -980,6 +1050,147 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     assert "recording until Ctrl+C" in output
     assert "stop" in events
     assert "receiver_stop" in events
+
+
+def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, capsys) -> None:
+    events: list[object] = []
+    clock = {"now": 0.0}
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
+    fake_config = ModuleType("config")
+    fake_ml_detector = ModuleType("ml_detector")
+    fake_runtime_policy = ModuleType("runtime_policy")
+
+    fake_config.DEFAULT_SUBCARRIERS = [12, 14]
+    fake_config.SEG_WINDOW_SIZE = 2
+    fake_config.ENABLE_LOWPASS_FILTER = False
+    fake_config.LOWPASS_CUTOFF = 11.0
+    fake_config.ENABLE_HAMPEL_FILTER = True
+    fake_config.HAMPEL_WINDOW = 7
+    fake_config.HAMPEL_THRESHOLD = 5.0
+    fake_config.PUBLISH_INTERVAL = 1
+    fake_config.EVALUATION_INTERVAL = 1
+    fake_config.MOTION_ON_HITS = 3
+    fake_config.MOTION_OFF_HITS = 3
+
+    class FakePacket:
+        def __init__(self, seq_num: int):
+            self.seq_num = seq_num
+            self.device_id = 0xABC123
+            self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
+            self.source_ip = "192.168.1.29"
+            self.channel = 8
+            self.rssi_dbm = -47
+            self.chip = "s3"
+
+    class FakeCollector:
+        def __init__(self, **kwargs):
+            events.append(("collector_init", kwargs["label"]))
+
+        def save_samples_by_device(self, packets):
+            events.append(("save_sample", [p.seq_num for p in packets]))
+            return [Path("test_c3_64sc_dev0000000000abc123_20260630_120000_000001_0001.npz")]
+
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            self._callbacks = []
+            self.dropped_count = 0
+            self.pps = 100
+
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
+            packet_times = [
+                (0.0, FakePacket(1)),
+                (1.0, FakePacket(2)),
+                (2.0, FakePacket(3)),
+                (3.1, FakePacket(4)),
+                (4.1, FakePacket(5)),
+            ]
+            for current_time, packet in packet_times:
+                clock["now"] = current_time
+                for callback in self._callbacks:
+                    callback(packet)
+            raise KeyboardInterrupt
+
+        def stop(self):
+            events.append("receiver_stop")
+
+    class FakePacingSender:
+        def __init__(self, **kwargs):
+            events.append(("sender_init", kwargs["target_host"]))
+
+        def start(self):
+            events.append("start")
+
+        def stop(self):
+            events.append("stop")
+
+    class FakeContext:
+        last_turbulence = 0.0
+
+    class FakeMLDetector:
+        def __init__(self, **kwargs):
+            self._context = FakeContext()
+
+        def process_packet(self, csi_data, subcarriers):
+            pass
+
+        def update_state(self):
+            return {"probability": 0.0, "threshold": 0.5, "state": 0}
+
+        def is_ready(self):
+            return True
+
+        def _extract_features(self):
+            return [0.0, 0.0]
+
+    class FakeRuntimeMotionPolicy:
+        def __init__(self, **kwargs):
+            pass
+
+        def note_packet(self):
+            pass
+
+        def should_evaluate(self, should_publish):
+            return True
+
+        def apply_state(self, state):
+            return state, None
+
+        def after_evaluation(self):
+            pass
+
+    fake_csi_utils.CSICollector = FakeCollector
+    fake_csi_utils.CSIReceiver = FakeReceiver
+    fake_csi_utils.UdpPacingSender = FakePacingSender
+    fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
+    fake_csi_utils.AdaptivePacingController = AdaptivePacingController
+    fake_ml_detector.FEATURE_NAMES = ["a", "b"]
+    fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
+    fake_ml_detector.ML_METRIC_SCALE = 1.0
+    fake_ml_detector.MLDetector = FakeMLDetector
+    fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
+
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
+    monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
+    monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
+
+    host.collect_csi_data(
+        _make_live_collect_args(
+            target="192.168.1.29",
+            label="test",
+            detector="ml",
+            ready_stable_seconds=0.0,
+        )
+    )
+
+    output = capsys.readouterr().out
+    assert ("save_sample", [1, 2, 3, 4, 5]) in events
+    assert "Ready gate:" in output and "disabled" in output
+    assert "STATUS: STABILIZING" not in output
 
 
 def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, capsys) -> None:

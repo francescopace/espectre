@@ -1,11 +1,11 @@
-[![License](https://img.shields.io/badge/license-GPLv3%20or%20Commercial-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSING.md)
-[![Chips ESP32 family](https://img.shields.io/badge/chips-ESP32%20family-red.svg)](https://www.espressif.com/en/products/socs)
-[![Works with ESPHome](https://img.shields.io/badge/works%20with-ESPHome-blue.svg)](https://esphome.io/)
-[![Works with Matter](https://img.shields.io/badge/works%20with-Matter-5C6BC0.svg)](https://csa-iot.org/all-solutions/matter/)
-[![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
-[![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
+[License](https://github.com/francescopace/espectre/blob/main/LICENSING.md)
+[Chips ESP32 family](https://www.espressif.com/en/products/socs)
+[Works with ESPHome](https://esphome.io/)
+[Works with Matter](https://csa-iot.org/all-solutions/matter/)
+[CI](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
+[codecov](https://codecov.io/gh/francescopace/espectre)
 
-# 🛜 ESPectre 👻
+# ESPectre
 
 **ESPectre turns low-cost ESP32 devices into privacy-first Wi-Fi sensing nodes.**
 
@@ -65,24 +65,26 @@ Supported hardware:
 - ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, and classic ESP32
 - a normal 2.4 GHz Wi-Fi network
 
-![ESP32-S3 DevKit boards with external antennas](docs/web/guides/images/esp32-boards.jpg)
+ESP32-S3 DevKit boards with external antennas
 *ESP32-S3 DevKit boards with external antennas*
 
 ## Build Your Own Path
 
-| Path | Best for | Start here |
-|------|----------|------------|
-| **ESPHome** | Home Assistant users who want the most polished production path | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
-| **Matter** | Apple Home, Google Home, Alexa, SmartThings, and other Matter controllers | [Matter frontend](src/cpp/frontend/matter/README.md) |
-| **Native BLE/MQTT** | Standalone devices, web clients, custom apps, and non-Home Assistant setups | [Native frontend](src/cpp/frontend/native/README.md) |
-| **Streamer** | CSI data capture, dataset collection, live experiments, and ML workflows | [Streamer frontend](src/cpp/frontend/streamer/README.md) |
-| **Micro-ESPectre** | Python/MicroPython research and rapid algorithm prototyping | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
-| **SDK-oriented reuse** | Custom firmware, smart-device makers, and OEM exploration | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+
+| Path                   | Best for                                                                    | Start here                                                   |
+| ---------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| **ESPHome**            | Home Assistant users who want the most polished production path             | [ESPHome frontend](src/cpp/frontend/esphome/README.md)       |
+| **Matter**             | Apple Home, Google Home, Alexa, SmartThings, and other Matter controllers   | [Matter frontend](src/cpp/frontend/matter/README.md)         |
+| **Native BLE/MQTT**    | Standalone devices, web clients, custom apps, and non-Home Assistant setups | [Native frontend](src/cpp/frontend/native/README.md)         |
+| **Streamer**           | CSI data capture, dataset collection, live experiments, and ML workflows    | [Streamer frontend](src/cpp/frontend/streamer/README.md)     |
+| **Micro-ESPectre**     | Python/MicroPython research and rapid algorithm prototyping                 | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
+| **SDK-oriented reuse** | Custom firmware, smart-device makers, and OEM exploration                   | [ARCHITECTURE.md](docs/ARCHITECTURE.md)                      |
+
 
 For shared prerequisites and supported targets, use [SETUP.md](docs/SETUP.md).
 For the repository CLI surface, use [CLI.md](docs/CLI.md).
 
-![ESPectre Home Assistant dashboard](docs/web/guides/images/home-assistant-dashboard.png)
+ESPectre Home Assistant dashboard
 *Home Assistant dashboard with motion state, movement score, detector selection, threshold control, and recalibration*
 
 ## Platform Architecture
@@ -107,6 +109,7 @@ Use:
 - [ADR Guide](docs/adr/README.md) for the historical decision record
 
 
+
 ## For Device Makers
 
 ESPectre v3 is designed to be more than a reference firmware.  
@@ -120,6 +123,8 @@ Useful starting points:
 - keep telemetry derived and minimal through ESPectre Protocol
 - discuss OEM-style integration needs in [GitHub Discussions](https://github.com/francescopace/espectre/discussions)
 
+
+
 ## Why Wi-Fi Sensing Now
 
 ESPectre is built on today's ESP32 CSI APIs, but the broader industry is moving in the same direction.  
@@ -130,12 +135,14 @@ That matters for ESPectre: the project already has reusable sensing logic, runti
 
 ## Roadmap
 
-| Version | Direction |
-|---------|-----------|
-| **v1.x** | Proved Wi-Fi motion detection on ESP32 |
-| **v2.x** | Made ESPectre useful for Home Assistant through ESPHome and Micro-ESPectre |
-| **v3.x** | Turns ESPectre into a modular Wi-Fi sensing platform with Matter, native firmware, streamer tooling, and SDK-oriented reuse |
+
+| Version  | Direction                                                                                                                      |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **v1.x** | Proved Wi-Fi motion detection on ESP32                                                                                         |
+| **v2.x** | Made ESPectre useful for Home Assistant through ESPHome and Micro-ESPectre                                                     |
+| **v3.x** | Turns ESPectre into a modular Wi-Fi sensing platform with Matter, native firmware, streamer tooling, and SDK-oriented reuse    |
 | **v4.x** | Adds a privacy-first web orchestration layer for multi-node sensing, device management, history, alerts, and remote visibility |
+
 
 The v4 web layer is intended to support local, self-hosted, and future managed
 service deployments while keeping ESPectre local-first by default.
@@ -162,22 +169,24 @@ Use ESPectre only in spaces where you have the right to deploy it, inform affect
 
 ## Documentation
 
-| Document | Purpose |
-|----------|---------|
-| [SETUP.md](docs/SETUP.md) | Shared setup hub, frontend chooser, and supported targets |
-| [CLI.md](docs/CLI.md) | Repository CLI command map, host tools, and interactive MQTT shell behavior |
-| [TUNING.md](docs/TUNING.md) | Placement, thresholds, filters, calibration, and troubleshooting |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Internal architecture, SDK-oriented reuse, and web orchestration direction |
-| [EMBEDDING.md](docs/EMBEDDING.md) | Embedding the sensing engine into third-party ESP32 firmware |
-| [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) | Shared BLE/MQTT protocol, payloads, commands, and privacy boundary |
-| [ALGORITHMS.md](docs/ALGORITHMS.md) | CSI theory, detectors, filters, and feature extraction |
-| [README.md](docs/performance/README.md) | Benchmarks, validation targets, resource usage, and caveats |
-| [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md) | Dataset collection workflow for contributors |
-| [ML_TRAINING.md](docs/ML_TRAINING.md) | Training, validation, and model export workflow |
-| [ROADMAP.md](docs/ROADMAP.md) | Release direction from v3 platform work to v4 web orchestration |
-| [README.md](docs/web/README.md) | Website structure, shared palette, and visual testing workflow |
-| [README.md (ADR)](docs/adr/README.md) | ADR index, conventions, and historical project decisions |
-| [CHANGELOG.md](docs/CHANGELOG.md) | Release notes and version history |
+
+| Document                                            | Purpose                                                                     |
+| --------------------------------------------------- | --------------------------------------------------------------------------- |
+| [SETUP.md](docs/SETUP.md)                           | Shared setup hub, frontend chooser, and supported targets                   |
+| [CLI.md](docs/CLI.md)                               | Repository CLI command map, host tools, and interactive MQTT shell behavior |
+| [TUNING.md](docs/TUNING.md)                         | Placement, thresholds, filters, calibration, and troubleshooting            |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md)             | Internal architecture, SDK-oriented reuse, and web orchestration direction  |
+| [EMBEDDING.md](docs/EMBEDDING.md)                   | Embedding the sensing engine into third-party ESP32 firmware                |
+| [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md)   | Shared BLE/MQTT protocol, payloads, commands, and privacy boundary          |
+| [ALGORITHMS.md](docs/ALGORITHMS.md)                 | CSI theory, detectors, filters, and feature extraction                      |
+| [README.md](docs/performance/README.md)             | Benchmarks, validation targets, resource usage, and caveats                 |
+| [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md) | Dataset collection workflow for contributors                                |
+| [ML_TRAINING.md](docs/ML_TRAINING.md)               | Training, validation, and model export workflow                             |
+| [ROADMAP.md](docs/ROADMAP.md)                       | Release direction from v3 platform work to v4 web orchestration             |
+| [README.md](docs/web/README.md)                     | Website structure, shared palette, and visual testing workflow              |
+| [README.md (ADR)](docs/adr/README.md)               | ADR index, conventions, and historical project decisions                    |
+| [CHANGELOG.md](docs/CHANGELOG.md)                   | Release notes and version history                                           |
+
 
 Frontend-specific docs:
 
@@ -186,35 +195,43 @@ Frontend-specific docs:
 - [Matter frontend](src/cpp/frontend/matter/README.md)
 - [Streamer frontend](src/cpp/frontend/streamer/README.md)
 
+
+
 ## Media
 
-| Source | Title |
-|--------|-------|
-| Medium | [How I Turned My Wi-Fi Into a Motion Sensor - Part 1](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-61a631a9b4ec?sk=c7f79130d78b0545fce4a228a6a79af3&utm_source=github&utm_medium=readme&utm_campaign=espectre) |
-| Medium | [How I Turned My Wi-Fi Into a Motion Sensor - Part 2](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-part-2-62038130e530?sk=7c8b6f11cf3fcb8d279648016ebff72a&utm_source=github&utm_medium=readme&utm_campaign=espectre) |
-| IoT For All | [How I Turned My Wi-Fi Into a Motion Sensor](https://www.iotforall.com/wifi-motion-sensor-iot) |
-| Hackaday | [Make Your Own ESP32-Based Person Sensor, No Special Hardware Needed](https://hackaday.com/2026/01/28/make-your-own-esp32-based-person-sensor-no-special-hardware-needed/) |
-| Adafruit Learn | [ESPectre Human Detector for Feather](https://learn.adafruit.com/espectre-human-detector-for-feather) |
-| Seeed Studio Wiki | [Deploying Espectre on Seeed Studio XIAO ESP32 Series with ESPHome](https://wiki.seeedstudio.com/xiao-esp32--series-espresense/) |
-| Gigazine | [ESPectre turns your home Wi-Fi into a motion sensor without machine learning and integrates it with Home Assistant](https://gigazine.net/gsc_news/en/20251118-turned-wi-fi-motion-sensor/) |
-| Home Assistant | [ESPectre - Wi-Fi Motion Detection for Home Assistant](https://community.home-assistant.io/t/espectre-wi-fi-motion-detection-for-home-assistant/961251) |
-| Hacker News | [Show HN: ESPectre - Motion detection based on Wi-Fi spectre analysis](https://news.ycombinator.com/item?id=45953977) |
-| Hackaday Podcast | [Podcast Episode 355](https://hackaday.com/2026/01/30/hackaday-podcast-episode-355-person-detectors-walkie-talkies-open-smartphones-and-a-wifi-traffic-light/) |
+
+| Source            | Title                                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Medium            | [How I Turned My Wi-Fi Into a Motion Sensor - Part 1](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-61a631a9b4ec?sk=c7f79130d78b0545fce4a228a6a79af3&utm_source=github&utm_medium=readme&utm_campaign=espectre)        |
+| Medium            | [How I Turned My Wi-Fi Into a Motion Sensor - Part 2](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-part-2-62038130e530?sk=7c8b6f11cf3fcb8d279648016ebff72a&utm_source=github&utm_medium=readme&utm_campaign=espectre) |
+| IoT For All       | [How I Turned My Wi-Fi Into a Motion Sensor](https://www.iotforall.com/wifi-motion-sensor-iot)                                                                                                                                                         |
+| Hackaday          | [Make Your Own ESP32-Based Person Sensor, No Special Hardware Needed](https://hackaday.com/2026/01/28/make-your-own-esp32-based-person-sensor-no-special-hardware-needed/)                                                                             |
+| Adafruit Learn    | [ESPectre Human Detector for Feather](https://learn.adafruit.com/espectre-human-detector-for-feather)                                                                                                                                                  |
+| Seeed Studio Wiki | [Deploying Espectre on Seeed Studio XIAO ESP32 Series with ESPHome](https://wiki.seeedstudio.com/xiao-esp32--series-espresense/)                                                                                                                       |
+| Gigazine          | [ESPectre turns your home Wi-Fi into a motion sensor without machine learning and integrates it with Home Assistant](https://gigazine.net/gsc_news/en/20251118-turned-wi-fi-motion-sensor/)                                                            |
+| Home Assistant    | [ESPectre - Wi-Fi Motion Detection for Home Assistant](https://community.home-assistant.io/t/espectre-wi-fi-motion-detection-for-home-assistant/961251)                                                                                                |
+| Hacker News       | [Show HN: ESPectre - Motion detection based on Wi-Fi spectre analysis](https://news.ycombinator.com/item?id=45953977)                                                                                                                                  |
+| Hackaday Podcast  | [Podcast Episode 355](https://hackaday.com/2026/01/30/hackaday-podcast-episode-355-person-detectors-walkie-talkies-open-smartphones-and-a-wifi-traffic-light/)                                                                                         |
+
+
+
 
 ## Related Projects
 
 - [radio-presence-scanner](https://github.com/francescopace/radio-presence-scanner):
-  complementary BLE radio presence sensing from host devices, with an optional HTTP dashboard.
+complementary BLE radio presence sensing from host devices, with an optional HTTP dashboard.
 - [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi):
-  MicroPython firmware distribution used by the Micro-ESPectre workflow.
+MicroPython firmware distribution used by the Micro-ESPectre workflow.
+
+
 
 ## Acknowledgments
 
 - Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in ESP-IDF and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in [esp-csi](https://github.com/espressif/esp-csi).
-
 - Thanks to the TOMMY team for the constructive public discussion around Wi-Fi sensing approaches, including their [TOMMY vs ESPectre](https://www.tommysense.com/docs/comparisons/espectre-comparison) comparison page.
-
 - Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging our [PR](https://github.com/micropython/micropython/pull/18460), which extended the ESP32 `network.WLAN` implementation in mainline MicroPython with direct Wi-Fi CSI access methods. That merge matters well beyond ESPectre: it opened public MicroPython access to ESP32 CSI data for the wider community, where that support did not previously exist, and turned a key part of our sensing stack into upstream open-source infrastructure.
+
+
 
 ## License
 

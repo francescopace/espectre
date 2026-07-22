@@ -64,6 +64,9 @@ src/cpp/frontend/*/app/dependencies.lock
 *.log
 .log.
 
+# Local benchmark config
+tools/benchmark_firmware.local.env
+
 # MicroPython firmware cache
 .firmware/
 

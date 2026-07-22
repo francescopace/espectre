@@ -37,6 +37,7 @@
       "+<runtime/esp_idf/csi_pipeline.cpp>",
       "+<runtime/esp_idf/csi_payload_normalizer.cpp>",
       "+<runtime/esp_idf/csi_platform_config.cpp>",
+      "+<runtime/esp_idf/debug_telemetry_log_helpers.cpp>",
       "+<runtime/esp_idf/device_identity.cpp>",
       "+<runtime/esp_idf/esp_idf_runtime.cpp>",
       "+<runtime/esp_idf/nvs_helpers.cpp>",

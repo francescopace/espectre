@@ -10,9 +10,11 @@ License: GPLv3
 from __future__ import annotations
 
 import argparse
+import json
 import shlex
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -982,7 +984,10 @@ def test_mqtt_shell_initialization_and_connect_callbacks(monkeypatch, capsys) ->
     shell, client, _rendered = _build_shell(monkeypatch)
 
     assert shell.topic_cmd == "espectre/v1/devices/0x0000000000000001/commands/request"
-    assert shell.topic_responses == "espectre/v1/devices/0x0000000000000001/commands/+"
+    assert shell.topic_responses == [
+        "espectre/v1/devices/0x0000000000000001/commands/accepted",
+        "espectre/v1/devices/0x0000000000000001/commands/rejected",
+    ]
     assert client.username == "user"
     assert client.password == "pass"
 
@@ -990,7 +995,10 @@ def test_mqtt_shell_initialization_and_connect_callbacks(monkeypatch, capsys) ->
     shell.on_connect(client, None, None, 5)
     captured = capsys.readouterr().out
 
-    assert client.subscriptions == ["espectre/v1/devices/0x0000000000000001/commands/+"]
+    assert client.subscriptions == [
+        "espectre/v1/devices/0x0000000000000001/commands/accepted",
+        "espectre/v1/devices/0x0000000000000001/commands/rejected",
+    ]
     assert "Connected to: broker.local:1883" in captured
     assert "Failed to connect, return code 5" in captured
 
@@ -1028,7 +1036,8 @@ def test_mqtt_shell_discovers_and_selects_device(monkeypatch, capsys) -> None:
     assert client.subscriptions == [
         "espectre/v1/devices/+/info",
         "espectre/v1/devices/+/status",
-        "espectre/v1/devices/0x00000000000000aa/commands/+",
+        "espectre/v1/devices/0x00000000000000aa/commands/accepted",
+        "espectre/v1/devices/0x00000000000000aa/commands/rejected",
     ]
     assert client.unsubscriptions == [
         "espectre/v1/devices/+/info",
@@ -1102,6 +1111,208 @@ def test_mqtt_shell_start_handles_prompt_loop_and_shutdown(monkeypatch, capsys) 
     assert "Type 'help' for commands" in captured
     assert "Exiting..." in captured
     assert client.published == [(shell.topic_cmd, '{"command": "info"}')]
+
+
+def test_send_mqtt_command_and_wait_waits_for_suback(monkeypatch) -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.on_connect = None
+            self.on_message = None
+            self.on_subscribe = None
+            self.suback_received = False
+            self.next_mid = 1
+
+        def connect(self, host: str, port: int, keepalive: int) -> None:
+            assert (host, port, keepalive) == ("broker.local", 1883, 60)
+
+        def loop_start(self) -> None:
+            assert self.on_connect is not None
+            self.on_connect(self, None, None, 0)
+
+        def loop_stop(self) -> None:
+            return None
+
+        def disconnect(self) -> None:
+            return None
+
+        def subscribe(self, topic: str):
+            mid = self.next_mid
+            self.next_mid += 1
+            threading.Timer(0.01, lambda: self._ack_subscribe(mid)).start()
+            return (mqtt_shell.mqtt.MQTT_ERR_SUCCESS, mid)
+
+        def _ack_subscribe(self, mid: int) -> None:
+            self.suback_received = True
+            assert self.on_subscribe is not None
+            self.on_subscribe(self, None, mid, [0])
+
+        def publish(self, topic: str, payload: str):
+            assert self.suback_received is True
+            data = json.loads(payload)
+            assert topic.endswith("/commands/request")
+            assert self.on_message is not None
+            self.on_message(
+                self,
+                None,
+                SimpleNamespace(
+                    topic=topic.replace("/request", "/accepted"),
+                    payload=json.dumps({"command_id": data["command_id"], "accepted": True}).encode(),
+                ),
+            )
+            return SimpleNamespace(rc=mqtt_shell.mqtt.MQTT_ERR_SUCCESS)
+
+    monkeypatch.setattr(mqtt_shell, "_make_mqtt_client", lambda *_args, **_kwargs: FakeClient())
+
+    response = mqtt_shell.send_mqtt_command_and_wait(
+        argparse.Namespace(
+            broker="broker.local",
+            port=1883,
+            topic_prefix="espectre/v1/devices",
+            device_id="0x1234",
+            username="",
+            password="",
+        ),
+        {"command": "set_detector", "detector": "ml"},
+        timeout_s=0.5,
+    )
+
+    assert response["accepted"] is True
+
+
+def test_request_mqtt_info_and_wait_waits_for_all_subacks(monkeypatch) -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.on_connect = None
+            self.on_message = None
+            self.on_subscribe = None
+            self.suback_count = 0
+            self.next_mid = 1
+
+        def connect(self, host: str, port: int, keepalive: int) -> None:
+            assert (host, port, keepalive) == ("broker.local", 1883, 60)
+
+        def loop_start(self) -> None:
+            assert self.on_connect is not None
+            self.on_connect(self, None, None, 0)
+
+        def loop_stop(self) -> None:
+            return None
+
+        def disconnect(self) -> None:
+            return None
+
+        def subscribe(self, topic: str):
+            mid = self.next_mid
+            self.next_mid += 1
+            threading.Timer(0.01, lambda: self._ack_subscribe(mid)).start()
+            return (mqtt_shell.mqtt.MQTT_ERR_SUCCESS, mid)
+
+        def _ack_subscribe(self, mid: int) -> None:
+            self.suback_count += 1
+            assert self.on_subscribe is not None
+            self.on_subscribe(self, None, mid, [0])
+
+        def publish(self, topic: str, payload: str):
+            assert self.suback_count == 3
+            data = json.loads(payload)
+            base = topic.removesuffix("/commands/request")
+            assert self.on_message is not None
+            self.on_message(
+                self,
+                None,
+                SimpleNamespace(
+                    topic=f"{base}/commands/accepted",
+                    payload=json.dumps({"command_id": data["command_id"], "accepted": True}).encode(),
+                ),
+            )
+            self.on_message(
+                self,
+                None,
+                SimpleNamespace(
+                    topic=f"{base}/info",
+                    payload=json.dumps({"device_id": "0x1234", "supports_runtime_detector": True}).encode(),
+                ),
+            )
+            return SimpleNamespace(rc=mqtt_shell.mqtt.MQTT_ERR_SUCCESS)
+
+    monkeypatch.setattr(mqtt_shell, "_make_mqtt_client", lambda *_args, **_kwargs: FakeClient())
+
+    command_response, info_response = mqtt_shell.request_mqtt_info_and_wait(
+        argparse.Namespace(
+            broker="broker.local",
+            port=1883,
+            topic_prefix="espectre/v1/devices",
+            device_id="0x1234",
+            username="",
+            password="",
+        ),
+        timeout_s=0.5,
+    )
+
+    assert command_response["accepted"] is True
+    assert info_response["supports_runtime_detector"] is True
+
+
+def test_send_mqtt_command_and_wait_reports_request_echo_on_timeout(monkeypatch) -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.on_connect = None
+            self.on_message = None
+            self.on_subscribe = None
+            self.next_mid = 1
+
+        def connect(self, host: str, port: int, keepalive: int) -> None:
+            assert (host, port, keepalive) == ("broker.local", 1883, 60)
+
+        def loop_start(self) -> None:
+            assert self.on_connect is not None
+            self.on_connect(self, None, None, 0)
+
+        def loop_stop(self) -> None:
+            return None
+
+        def disconnect(self) -> None:
+            return None
+
+        def subscribe(self, topic: str):
+            mid = self.next_mid
+            self.next_mid += 1
+            threading.Timer(0.01, lambda: self._ack_subscribe(mid)).start()
+            return (mqtt_shell.mqtt.MQTT_ERR_SUCCESS, mid)
+
+        def _ack_subscribe(self, mid: int) -> None:
+            assert self.on_subscribe is not None
+            self.on_subscribe(self, None, mid, [0])
+
+        def publish(self, topic: str, payload: str):
+            data = json.loads(payload)
+            assert self.on_message is not None
+            self.on_message(
+                self,
+                None,
+                SimpleNamespace(
+                    topic=topic,
+                    payload=json.dumps(data).encode(),
+                ),
+            )
+            return SimpleNamespace(rc=mqtt_shell.mqtt.MQTT_ERR_SUCCESS)
+
+    monkeypatch.setattr(mqtt_shell, "_make_mqtt_client", lambda *_args, **_kwargs: FakeClient())
+
+    with pytest.raises(RuntimeError, match=r"request_echo=yes"):
+        mqtt_shell.send_mqtt_command_and_wait(
+            argparse.Namespace(
+                broker="broker.local",
+                port=1883,
+                topic_prefix="espectre/v1/devices",
+                device_id="0x1234",
+                username="",
+                password="",
+            ),
+            {"command": "set_detector", "detector": "ml"},
+            timeout_s=0.1,
+            observe_request_echo=True,
+        )
 
 
 def test_run_mqtt_shell_and_main_dispatch(monkeypatch) -> None:

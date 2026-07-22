@@ -17,6 +17,7 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
 
+#include "debug_telemetry_log_helpers.h"
 #include "espectre_banner.h"
 #include "runtime_listener_utils.h"
 #include "sdkconfig.h"
@@ -26,6 +27,7 @@ namespace espectre_component {
 
 void ESpectreComponent::setup() {
   ESP_LOGI(TAG, "Initializing ESPectre component...");
+  espectre::configure_debug_telemetry_log_levels();
 
   if (!this->runtime_.setup(this)) {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");

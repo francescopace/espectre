@@ -6,7 +6,9 @@ labeled CSI datasets.
 Use [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) first to build and validate
 the `empty`, `static_presence`, and `motion` datasets. This guide covers the
 next step: training `tools/train_ml_model.py`, interpreting its outputs, and
-running the key regressions before promoting new artifacts.
+running the key regressions before promoting new artifacts. For the host CLI
+entry points that drive collection and related workflows, see
+[CLI.md](CLI.md).
 
 ## Prerequisites
 
@@ -236,6 +238,19 @@ Current finding for the exported Core-6 model: all-environment gain stress is
 flat at `1.00x`, `1.25x`, and `1.50x`. The remaining worst-session weakness is
 nominal dataset difficulty, not gain-shift sensitivity. Treat this gate as the
 primary diagnostic before promoting future retrains.
+
+When you want a synthetic weak-link proxy instead of a pure amplitude-gain
+stress, use `tools/analyze_low_rssi_degradation.py`. That tool can attenuate
+CSI I/Q payloads, lower reported RSSI independently, inject bounded additive
+noise, perturb per-packet subcarrier profiles, and drop packets before
+replaying the current Classic and ML detectors on the degraded streams. Treat
+it as an exploratory robustness study, not as a substitute for real low-RSSI
+captures. Keep the tool-specific scenario catalog, real-capture notes, and CLI
+examples in [README.md](../tools/README.md).
+
+```bash
+python tools/analyze_low_rssi_degradation.py --chip ESP32 --scenario clean low_rssi_proxy_medium
+```
 
 ## Cross-Environment And Cross-Chip Generalization Checks
 

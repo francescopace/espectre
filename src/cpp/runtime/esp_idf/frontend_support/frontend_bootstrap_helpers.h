@@ -23,6 +23,8 @@ struct FrontendDeviceConfigDefaults {
   const char *device_label{ESPECTRE_DEFAULT_DEVICE_LABEL};
   const char *mqtt_host{""};
   uint16_t mqtt_port{1883};
+  const char *mqtt_username{""};
+  const char *mqtt_password{""};
   const char *topic_prefix{ESPECTRE_TOPIC_PREFIX};
   uint64_t runtime_device_id{0U};
 };

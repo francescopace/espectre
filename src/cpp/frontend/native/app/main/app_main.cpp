@@ -28,6 +28,7 @@
 #include "mqtt_transport_esp_idf.h"
 #include "runtime_sensing_kconfig.h"
 #include "standalone_wifi_service.h"
+#include "debug_telemetry_log_helpers.h"
 #include "wifi_provisioning_service.h"
 
 static const char *TAG = "espectre.native.app";
@@ -80,6 +81,8 @@ espectre::EspectreDeviceConfig make_device_config() {
                                                             CONFIG_ESPECTRE_DEVICE_LABEL,
                                                             CONFIG_ESPECTRE_MQTT_HOST,
                                                             CONFIG_ESPECTRE_MQTT_PORT,
+                                                            CONFIG_ESPECTRE_MQTT_USERNAME,
+                                                            CONFIG_ESPECTRE_MQTT_PASSWORD,
                                                             CONFIG_ESPECTRE_TOPIC_PREFIX,
                                                             espectre::derive_runtime_device_id(),
                                                         },
@@ -145,6 +148,7 @@ bool handle_device_config_change(const espectre::EspectreDeviceConfig &config, b
 }  // namespace
 
 extern "C" void app_main() {
+  espectre::configure_debug_telemetry_log_levels();
   ESP_ERROR_CHECK(espectre::nvs_init_with_erase_fallback());
 
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });

@@ -11,6 +11,7 @@
 #include <esp_log.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "debug_telemetry_log_helpers.h"
 #include "espectre_banner.h"
 
 static const char *TAG = "espectre.streamer.app";
@@ -23,6 +24,7 @@ TickType_t clamp_delay_to_tick_(uint32_t delay_ms) {
 }  // namespace
 
 extern "C" void app_main() {
+  espectre::configure_debug_telemetry_log_levels();
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
   static espectre::StreamerFrontend frontend;
   if (!frontend.setup()) {

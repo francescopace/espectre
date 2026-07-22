@@ -67,6 +67,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_pipeline.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/debug_telemetry_log_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/esp_idf_runtime.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/nvs_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"

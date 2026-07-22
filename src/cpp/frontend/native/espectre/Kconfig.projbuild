@@ -1,3 +1,5 @@
+rsource "../../../runtime/esp_idf/espectre_config/Kconfig.projbuild"
+
 menu "ESPectre Native Frontend"
 
     config ESPECTRE_WIFI_SSID
@@ -33,6 +35,14 @@ menu "ESPectre Native Frontend"
         int "MQTT broker port"
         range 1 65535
         default 1883
+
+    config ESPECTRE_MQTT_USERNAME
+        string "MQTT username"
+        default ""
+
+    config ESPECTRE_MQTT_PASSWORD
+        string "MQTT password"
+        default ""
 
     config ESPECTRE_TOPIC_PREFIX
         string "MQTT topic prefix"

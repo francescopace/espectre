@@ -304,18 +304,13 @@ def evaluate_detector_packets(
     }
 
 
-@lru_cache(maxsize=None)
-def compute_classic_dataset_result(
-    static_presence_path: str | Path,
-    motion_path: str | Path,
-    selected_band: tuple[int, ...],
+def compute_classic_packet_result(
+    static_presence_packets: Sequence[dict[str, Any]],
+    motion_packets: Sequence[dict[str, Any]],
+    selected_band: Sequence[int],
     window_size: int,
 ) -> Optional[tuple[float, Dict[str, float]]]:
-    """Run the Classic replay once per dataset and cache the resulting metrics."""
-    static_presence_packets, motion_packets = load_real_data_cached(
-        static_presence_path,
-        motion_path,
-    )
+    """Replay the Classic detector on explicit packet streams."""
     calibrated = build_calibrated_classic_detector(
         static_presence_packets,
         selected_subcarriers=selected_band,
@@ -335,23 +330,38 @@ def compute_classic_dataset_result(
 
 
 @lru_cache(maxsize=None)
-def compute_ml_dataset_result(
+def compute_classic_dataset_result(
     static_presence_path: str | Path,
     motion_path: str | Path,
-    selected_subcarriers: tuple[int, ...],
+    selected_band: tuple[int, ...],
     window_size: int,
-    threshold: float,
-    feature_names: tuple[str, ...] = (),
-) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
-    """Run the ML replay once per dataset and cache metrics plus optional features."""
-    from ml_detector import MLDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES, predict
-
-    assert tuple(EXPORTED_FEATURE_NAMES) == tuple(RUNTIME_FEATURE_NAMES)
-
+) -> Optional[tuple[float, Dict[str, float]]]:
+    """Run the Classic replay once per dataset and cache the resulting metrics."""
     static_presence_packets, motion_packets = load_real_data_cached(
         static_presence_path,
         motion_path,
     )
+    return compute_classic_packet_result(
+        static_presence_packets,
+        motion_packets,
+        selected_band,
+        window_size,
+    )
+
+
+def compute_ml_packet_result(
+    static_presence_packets: Sequence[dict[str, Any]],
+    motion_packets: Sequence[dict[str, Any]],
+    selected_subcarriers: Sequence[int],
+    window_size: int,
+    threshold: float,
+    feature_names: Sequence[str] = (),
+) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
+    """Replay the ML detector on explicit packet streams."""
+    from ml_detector import MLDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES, predict
+
+    assert tuple(EXPORTED_FEATURE_NAMES) == tuple(RUNTIME_FEATURE_NAMES)
+
     detector = MLDetector(window_size=window_size, threshold=threshold)
 
     feature_indices = {
@@ -444,6 +454,30 @@ def compute_ml_dataset_result(
         "motion": {name: tuple(values) for name, values in motion_series.items()},
     }
     return metrics, feature_payload
+
+
+@lru_cache(maxsize=None)
+def compute_ml_dataset_result(
+    static_presence_path: str | Path,
+    motion_path: str | Path,
+    selected_subcarriers: tuple[int, ...],
+    window_size: int,
+    threshold: float,
+    feature_names: tuple[str, ...] = (),
+) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
+    """Run the ML replay once per dataset and cache metrics plus optional features."""
+    static_presence_packets, motion_packets = load_real_data_cached(
+        static_presence_path,
+        motion_path,
+    )
+    return compute_ml_packet_result(
+        static_presence_packets,
+        motion_packets,
+        selected_subcarriers,
+        window_size,
+        threshold,
+        feature_names,
+    )
 
 
 @lru_cache(maxsize=None)

@@ -149,6 +149,7 @@ Common flags:
 | `--pps` | Target delivered record rate; adaptive pacing may send above it to compensate path loss |
 | `--fixed` | Keep `--pps` as a constant send rate instead of the default adaptive pacing |
 | `--detector` | Detector used by the ready gate: `classic` or `ml`; a comma-separated list is available only for live comparison |
+| `--ready-stable-seconds` | Seconds below threshold before saved collection starts; set `0` to disable the ready gate |
 
 In live streamer mode, `collect` sends ordinary UDP traffic to the
 target device. The device learns the collector IP from the source address of
@@ -176,6 +177,10 @@ readiness. `classic` performs its normal startup calibration before it can
 become ready. `ml` does not use startup calibration, but still needs its feature
 window to fill. Live inspection can compare `classic,ml` in parallel; timed
 dataset collection accepts exactly one detector.
+
+When `--label` is set, saved collection waits for the detector to stay below
+threshold for `--ready-stable-seconds` before packets are recorded. Set
+`--ready-stable-seconds 0` to bypass that gate explicitly.
 
 Examples:
 

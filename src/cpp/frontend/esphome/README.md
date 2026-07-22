@@ -218,7 +218,6 @@ Examples live in:
 | File | Description |
 |------|-------------|
 | [`home-assistant-dashboard.yaml`](../../../../examples/home-assistant-dashboard.yaml) | Production dashboard with motion entities |
-| [`home-assistant-dashboard-dev.yaml`](../../../../examples/home-assistant-dashboard-dev.yaml) | Development dashboard with debug entities |
 
 To import a dashboard:
 

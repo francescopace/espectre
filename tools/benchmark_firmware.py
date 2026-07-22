@@ -11,6 +11,7 @@ License: GPLv3
 from __future__ import annotations
 
 import argparse
+import csv
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -26,6 +27,8 @@ import threading
 import time
 from typing import Callable, Iterator, Sequence
 
+from dotenv import dotenv_values
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
@@ -33,18 +36,27 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.python.espectre_cli.common import detect_chip_type, get_serial_port
+from src.python.espectre_cli.mqtt_shell import send_mqtt_command_and_wait
 from src.python.espectre_cli.targets import ESPHOME_CONFIGS, IDF_FRONTENDS
 
 
-MONITOR_DURATION_SECONDS = 180
-STREAMER_COLLECT_DURATION_SECONDS = 120
+BENCHMARK_LOCAL_ENV_PATH = SCRIPT_DIR / "benchmark_firmware.local.env"
+BENCHMARK_LOCAL_ENV = dotenv_values(BENCHMARK_LOCAL_ENV_PATH) if BENCHMARK_LOCAL_ENV_PATH.is_file() else {}
+MONITOR_DURATION_SECONDS = 60
+STREAMER_COLLECT_DURATION_SECONDS = 60
 STREAMER_IP_WAIT_SECONDS = 45
+NATIVE_MQTT_READY_TIMEOUT_SECONDS = 45
 EXPECTED_PPS_MIN = 90
 EXPECTED_PPS_MAX = 110
-MIN_STATUS_SAMPLES = 120
-MIN_TELEMETRY_SAMPLES = 12
+STARTUP_GRACE_SECONDS = 10
+STATUS_SAMPLE_INTERVAL_SECONDS = 1
+TELEMETRY_SAMPLE_INTERVAL_SECONDS = 10
+ACTIVE_MONITOR_SECONDS = 50
+MIN_TELEMETRY_SAMPLES = 5
 MIN_STREAMER_COLLECT_SAMPLES = 60
 MOTION_WARMUP_SAMPLES = 3
+DEFAULT_MQTT_COMMAND_TIMEOUT_SECONDS = 8.0
+RUNTIME_STATUS_GAP_TOLERANCE_MS = 500
 
 SUPPORTED_CHIPS = tuple(sorted(set(ESPHOME_CONFIGS) & set(IDF_FRONTENDS["native"]["targets"])))
 CHIP_LABELS = {
@@ -57,8 +69,22 @@ CHIP_LABELS = {
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 STATUS_RE = re.compile(r"\b(?P<state>MOTION|IDLE)\s*\|\s*(?P<pps>\d+)\s+pkt/s\b")
+LOG_TIMESTAMP_RE = re.compile(r"\((?P<timestamp_ms>\d+)\)")
 TELEMETRY_RE = re.compile(r"\[telemetry\]\s+(?P<fields>[^\r\n]+)")
 KEY_VALUE_RE = re.compile(r"(?P<key>[a-z_]+)=(?P<value>-?[0-9]+(?:\.[0-9]+)?)(?:%|\b)")
+REPORT_DURATION_RE = re.compile(r"(?:(?P<minutes>\d+)m\s+)?(?P<seconds>\d+(?:\.\d+)?)s$")
+REPORT_COUNT_RE = re.compile(r"(?P<count>\d+)(?:/(?P<expected>\d+)\s+expected)?$")
+REPORT_STATUS_CADENCE_RE = re.compile(
+    r"(?P<mean>\d+(?:\.\d+)?)\s+s mean,\s+(?P<max>\d+(?:\.\d+)?)\s+s max gap$"
+)
+REPORT_PACKET_RATE_RE = re.compile(
+    r"(?P<mean>-?\d+(?:\.\d+)?)\s+pps mean,\s+"
+    r"(?P<min>-?\d+)\s+min,\s+"
+    r"(?P<max>-?\d+)\s+max,\s+"
+    r"(?P<stddev>-?\d+(?:\.\d+)?)\s+standard deviation$"
+)
+REPORT_TRAILING_MEAN_RE = re.compile(r"(?P<value>-?\d+(?:\.\d+)?)(?P<suffix>%| us)? mean$")
+REPORT_PLAIN_NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 FATAL_PATTERNS = (
     "Guru Meditation Error",
     "abort() was called",
@@ -70,6 +96,8 @@ MATTER_STARTUP_STATE_RE = re.compile(r"ESPectre Matter CSI services:\s*(?P<state
 MATTER_VALID_STARTUP_STATES = {"armed", "waiting for commissioning"}
 STREAMER_IP_RE = re.compile(r"Wi-Fi connected: ip=(?P<ip>\d+\.\d+\.\d+\.\d+)")
 STREAMER_STATE_RE = re.compile(r"\[STATE\]\s+\S+\s+->\s+(?P<state>\S+)\s+\(")
+FLASH_MAC_ADDRESS_RE = re.compile(r"\bMAC:\s*(?P<mac>(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})\b")
+WIFI_STA_MAC_RE = re.compile(r"\bwifi:mode\s*:\s*sta\s*\((?P<mac>(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})\)")
 STREAMER_TELEMETRY_RE = re.compile(
     r"csi_ap=(?P<csi_ap>\d+(?:\.\d+)?)"
     r"(?:\s+csi_filt=(?P<csi_filt>\d+(?:\.\d+)?))?"
@@ -123,7 +151,14 @@ class BuildMetrics:
 @dataclass
 class RuntimeMetrics:
     status_samples: int = 0
+    packet_rate_samples: int = 0
+    status_expected_samples: int = 0
+    status_first_timestamp_ms: int | None = None
+    status_last_timestamp_ms: int | None = None
+    status_interval_mean_ms: float | None = None
+    status_interval_max_ms: int | None = None
     telemetry_samples: int = 0
+    telemetry_expected_samples: int = 0
     startup_state: str | None = None
     boot_marker_seen: bool = False
     device_ip: str | None = None
@@ -170,10 +205,25 @@ class BenchmarkResult:
     runtime_metrics: RuntimeMetrics = field(default_factory=RuntimeMetrics)
 
 
+@dataclass(frozen=True)
+class RuntimeStatusSample:
+    state: str
+    pps: int
+    timestamp_ms: int | None = None
+
+
+@dataclass(frozen=True)
+class RuntimeTelemetrySample:
+    fields: dict[str, float]
+    timestamp_ms: int | None = None
+
+
 CASES = tuple(
     [
-        *(BenchmarkCase(frontend, detector) for frontend in ("esphome", "native") for detector in ("classic", "ml")),
-        BenchmarkCase("matter", "classic", benchmark_mode="smoke"),
+        BenchmarkCase("native", "classic"),
+        BenchmarkCase("native", "ml"),
+        BenchmarkCase("esphome", "classic"),
+        BenchmarkCase("matter", "default", benchmark_mode="smoke"),
         BenchmarkCase("streamer", "collect", benchmark_mode="stream"),
     ]
 )
@@ -212,6 +262,155 @@ def format_number(value: float | int | None, suffix: str = "") -> str:
     if isinstance(value, float):
         return f"{value:.2f}{suffix}"
     return f"{value}{suffix}"
+
+
+def benchmark_setting(name: str, default: str | None = None) -> str | None:
+    if name in os.environ:
+        return os.environ[name]
+    value = BENCHMARK_LOCAL_ENV.get(name)
+    if value is None:
+        return default
+    return str(value)
+
+
+def benchmark_setting_int(name: str, default: int) -> int:
+    value = benchmark_setting(name)
+    if value is None or value == "":
+        return default
+    return int(value)
+
+
+def benchmark_setting_float(name: str, default: float) -> float:
+    value = benchmark_setting(name)
+    if value is None or value == "":
+        return default
+    return float(value)
+
+
+def quote_kconfig_string(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def quote_yaml_string(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def format_benchmark_device_id_from_mac(mac_text: str) -> str:
+    octets = [part.strip() for part in mac_text.split(":")]
+    if len(octets) != 6 or any(len(part) != 2 for part in octets):
+        raise ValueError(f"invalid MAC address: {mac_text}")
+    value = 0
+    for octet in octets:
+        value = (value << 8) | int(octet, 16)
+    return f"0x{value:016x}"
+
+
+def detect_benchmark_mqtt_device_id_from_text(text: str) -> str | None:
+    match = WIFI_STA_MAC_RE.search(text)
+    if match is None:
+        match = FLASH_MAC_ADDRESS_RE.search(text)
+    if match is None:
+        return None
+    return format_benchmark_device_id_from_mac(match.group("mac"))
+
+
+def benchmark_mqtt_namespace(device_id_source_text: str | None) -> argparse.Namespace | None:
+    broker = benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")
+    device_id = detect_benchmark_mqtt_device_id_from_text(device_id_source_text or "")
+    if not broker or not device_id:
+        return None
+    return argparse.Namespace(
+        broker=broker,
+        port=benchmark_setting_int("ESPECTRE_BENCHMARK_MQTT_PORT", 1883),
+        topic_prefix=benchmark_setting("ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX", "espectre/v1/devices"),
+        device_id=device_id,
+        username=benchmark_setting("ESPECTRE_BENCHMARK_MQTT_USERNAME", ""),
+        password=benchmark_setting("ESPECTRE_BENCHMARK_MQTT_PASSWORD", ""),
+    )
+
+
+def require_benchmark_setting(name: str) -> str:
+    value = benchmark_setting(name)
+    if value is None or value == "":
+        raise RuntimeError(
+            f"missing required benchmark setting {name}; "
+            f"configure {BENCHMARK_LOCAL_ENV_PATH.relative_to(REPO_ROOT)} or export the variable"
+        )
+    return value
+
+
+def require_benchmark_prerequisites() -> None:
+    require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
+    require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
+    require_benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")
+
+
+def append_benchmark_frontend_defaults(frontend: str, override_lines: list[str]) -> None:
+    if frontend in {"native", "streamer"}:
+        ssid = require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
+        password = require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
+        bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")
+        channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
+        override_lines.extend(
+            [
+                f"CONFIG_ESPECTRE_WIFI_SSID={quote_kconfig_string(ssid)}",
+                f"CONFIG_ESPECTRE_WIFI_PASSWORD={quote_kconfig_string(password)}",
+                f"CONFIG_ESPECTRE_WIFI_BSSID={quote_kconfig_string(bssid)}",
+                f"CONFIG_ESPECTRE_WIFI_CHANNEL={channel}",
+            ]
+        )
+
+    if frontend == "native":
+        mqtt_host = require_benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")
+        override_lines.extend(
+            [
+                "CONFIG_ESPECTRE_MQTT_ENABLED=y",
+                f"CONFIG_ESPECTRE_MQTT_HOST={quote_kconfig_string(mqtt_host)}",
+                f"CONFIG_ESPECTRE_MQTT_PORT={benchmark_setting_int('ESPECTRE_BENCHMARK_MQTT_PORT', 1883)}",
+                f"CONFIG_ESPECTRE_MQTT_USERNAME={quote_kconfig_string(benchmark_setting('ESPECTRE_BENCHMARK_MQTT_USERNAME', ''))}",
+                f"CONFIG_ESPECTRE_MQTT_PASSWORD={quote_kconfig_string(benchmark_setting('ESPECTRE_BENCHMARK_MQTT_PASSWORD', ''))}",
+                f"CONFIG_ESPECTRE_TOPIC_PREFIX={quote_kconfig_string(benchmark_setting('ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX', 'espectre/v1/devices'))}",
+            ]
+        )
+
+
+def set_native_detector_via_mqtt(detector: str, device_id_source_text: str | None) -> None:
+    mqtt_args = benchmark_mqtt_namespace(device_id_source_text)
+    if mqtt_args is None:
+        raise RuntimeError(
+            "native runtime detector switching requires ESPECTRE_BENCHMARK_MQTT_HOST "
+            "and a device id derived from the current native runtime logs"
+        )
+
+    deadline = time.monotonic() + NATIVE_MQTT_READY_TIMEOUT_SECONDS
+    timeout_seconds = benchmark_setting_float("ESPECTRE_BENCHMARK_MQTT_TIMEOUT_SECONDS", DEFAULT_MQTT_COMMAND_TIMEOUT_SECONDS)
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        attempt_timeout = min(timeout_seconds, max(1.0, deadline - time.monotonic()))
+        try:
+            response = send_mqtt_command_and_wait(
+                mqtt_args,
+                {"command": "set_detector", "detector": detector},
+                timeout_s=attempt_timeout,
+            )
+            if not response.get("accepted"):
+                raise RuntimeError(f"detector change to {detector} was rejected: {response}")
+            time.sleep(1.0)
+            return
+        except (OSError, RuntimeError, ValueError) as exc:
+            last_error = exc
+            time.sleep(2.0)
+    raise RuntimeError(f"failed to switch native detector to {detector} over MQTT: {last_error}")
+
+
+def clone_prebuilt_result(case: BenchmarkCase, source: BenchmarkResult) -> BenchmarkResult:
+    return BenchmarkResult(
+        case=case,
+        build=source.build,
+        build_metrics=BuildMetrics(**vars(source.build_metrics)),
+    )
 
 
 def _terminate_process(process: subprocess.Popen[str]) -> None:
@@ -342,15 +541,24 @@ def parse_build_metrics(output: str, firmware_path: Path | None = None) -> Build
     return metrics
 
 
-def _parse_telemetry_samples(text: str) -> list[dict[str, float]]:
-    samples: list[dict[str, float]] = []
-    for match in TELEMETRY_RE.finditer(strip_ansi(text)):
+def _parse_telemetry_samples(text: str) -> list[RuntimeTelemetrySample]:
+    samples: list[RuntimeTelemetrySample] = []
+    for line in strip_ansi(text).splitlines():
+        match = TELEMETRY_RE.search(line)
+        if match is None:
+            continue
         fields = {
             item.group("key"): float(item.group("value"))
             for item in KEY_VALUE_RE.finditer(match.group("fields"))
         }
         if fields:
-            samples.append(fields)
+            timestamp_match = LOG_TIMESTAMP_RE.search(line[: match.start()])
+            samples.append(
+                RuntimeTelemetrySample(
+                    fields=fields,
+                    timestamp_ms=int(timestamp_match.group("timestamp_ms")) if timestamp_match else None,
+                )
+            )
     return samples
 
 
@@ -360,8 +568,15 @@ def _append_common_monitor_reasons(
     reasons: list[str],
     *,
     require_detection_timing: bool,
+    expected_telemetry_samples: int | None = None,
 ) -> None:
-    if len(telemetry) < MIN_TELEMETRY_SAMPLES:
+    if expected_telemetry_samples is not None:
+        if len(telemetry) < expected_telemetry_samples:
+            reasons.append(
+                f"only {len(telemetry)} of {expected_telemetry_samples} expected shared debug telemetry "
+                "samples were logged"
+            )
+    elif len(telemetry) < MIN_TELEMETRY_SAMPLES:
         reasons.append(f"only {len(telemetry)} shared debug telemetry samples were logged")
     if metrics.heap_free_last is not None and telemetry:
         heap_free_first = telemetry[0].get("heap_free")
@@ -393,6 +608,37 @@ def _apply_state_series(
     metrics.status_samples = len(states)
     metrics.dominant_motion_state = dominant_state
     metrics.dominant_state_share_percent = dominant_share_percent
+
+
+def _parse_runtime_status_samples(text: str) -> list[RuntimeStatusSample]:
+    samples: list[RuntimeStatusSample] = []
+    for line in strip_ansi(text).splitlines():
+        match = STATUS_RE.search(line)
+        if match is None:
+            continue
+        timestamp_match = LOG_TIMESTAMP_RE.search(line[: match.start()])
+        samples.append(
+            RuntimeStatusSample(
+                state=match.group("state"),
+                pps=int(match.group("pps")),
+                timestamp_ms=int(timestamp_match.group("timestamp_ms")) if timestamp_match else None,
+            )
+        )
+    return samples
+
+
+def _expected_runtime_status_samples(first_timestamp_ms: int) -> int:
+    remaining_ms = MONITOR_DURATION_SECONDS * 1000 - first_timestamp_ms
+    if remaining_ms < 0:
+        return 0
+    return 1 + (remaining_ms // (STATUS_SAMPLE_INTERVAL_SECONDS * 1000))
+
+
+def _expected_runtime_telemetry_samples(first_timestamp_ms: int) -> int:
+    remaining_ms = MONITOR_DURATION_SECONDS * 1000 - first_timestamp_ms
+    if remaining_ms < 0:
+        return 0
+    return 1 + (remaining_ms // (TELEMETRY_SAMPLE_INTERVAL_SECONDS * 1000))
 
 
 def _parse_streamer_telemetry_samples(text: str) -> list[dict[str, float]]:
@@ -456,17 +702,51 @@ def _parse_collect_output(text: str) -> RuntimeMetrics:
 
 def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tuple[RuntimeMetrics, list[str]]:
     text = strip_ansi(output)
-    status_matches = list(STATUS_RE.finditer(text))
-    pps_values = [int(match.group("pps")) for match in status_matches if int(match.group("pps")) > 0]
-    states = [match.group("state") for match in status_matches if int(match.group("pps")) > 0]
+    status_samples = _parse_runtime_status_samples(text)
+    pps_values = [sample.pps for sample in status_samples if sample.pps > 0]
+    states = [sample.state for sample in status_samples]
     observed_states = states[MOTION_WARMUP_SAMPLES:]
-    telemetry = _parse_telemetry_samples(text)
+    parsed_telemetry = _parse_telemetry_samples(text)
 
     metrics = RuntimeMetrics(
-        status_samples=len(pps_values),
-        telemetry_samples=len(telemetry),
+        status_samples=len(status_samples),
+        packet_rate_samples=len(pps_values),
+        telemetry_samples=len(parsed_telemetry),
     )
     reasons: list[str] = []
+    has_status_timestamps = bool(status_samples) and all(sample.timestamp_ms is not None for sample in status_samples)
+
+    if has_status_timestamps:
+        timestamps = [sample.timestamp_ms for sample in status_samples if sample.timestamp_ms is not None]
+        metrics.status_first_timestamp_ms = timestamps[0]
+        metrics.status_last_timestamp_ms = timestamps[-1]
+        metrics.status_expected_samples = _expected_runtime_status_samples(timestamps[0])
+        if len(timestamps) > 1:
+            intervals = [current - previous for previous, current in zip(timestamps, timestamps[1:])]
+            metrics.status_interval_mean_ms = statistics.fmean(intervals)
+            metrics.status_interval_max_ms = max(intervals)
+
+    telemetry = [sample.fields for sample in parsed_telemetry]
+    telemetry_expected_samples: int | None = None
+    if benchmark_mode == "runtime" and metrics.status_first_timestamp_ms is not None:
+        telemetry = []
+        metrics.telemetry_samples = 0
+        runtime_telemetry = [
+            sample
+            for sample in parsed_telemetry
+            if sample.timestamp_ms is not None and sample.timestamp_ms >= metrics.status_first_timestamp_ms
+        ]
+        if runtime_telemetry:
+            parsed_telemetry = runtime_telemetry
+            telemetry = [sample.fields for sample in parsed_telemetry]
+            metrics.telemetry_samples = len(telemetry)
+            metrics.telemetry_expected_samples = _expected_runtime_telemetry_samples(
+                runtime_telemetry[0].timestamp_ms or 0
+            )
+            telemetry_expected_samples = metrics.telemetry_expected_samples
+        elif MONITOR_DURATION_SECONDS * 1000 - metrics.status_first_timestamp_ms >= TELEMETRY_SAMPLE_INTERVAL_SECONDS * 1000:
+            metrics.telemetry_expected_samples = 1
+            telemetry_expected_samples = 1
 
     if pps_values:
         metrics.pps_mean = statistics.fmean(pps_values)
@@ -511,14 +791,39 @@ def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tupl
     )
 
     if benchmark_mode == "runtime":
-        if len(pps_values) < MIN_STATUS_SAMPLES:
-            reasons.append(f"only {len(pps_values)} motion/packet-rate samples were logged")
-        elif metrics.pps_mean is None or not EXPECTED_PPS_MIN <= metrics.pps_mean <= EXPECTED_PPS_MAX:
+        if metrics.status_samples == 0:
+            reasons.append("detector status was not logged")
+        elif has_status_timestamps:
+            if metrics.status_expected_samples and metrics.status_samples < metrics.status_expected_samples:
+                reasons.append(
+                    f"only {metrics.status_samples} of {metrics.status_expected_samples} expected detector "
+                    "status logs were captured"
+                )
+            max_expected_gap_ms = STATUS_SAMPLE_INTERVAL_SECONDS * 1000 + RUNTIME_STATUS_GAP_TOLERANCE_MS
+            if metrics.status_interval_max_ms is not None and metrics.status_interval_max_ms > max_expected_gap_ms:
+                reasons.append(
+                    f"detector status logging gap reached {metrics.status_interval_max_ms / 1000.0:.2f}s"
+                )
+
+        if metrics.packet_rate_samples == 0:
+            reasons.append("detector packet rate was not logged")
+        elif metrics.status_samples > 0 and metrics.packet_rate_samples < max(0, metrics.status_samples - 1):
+            reasons.append(
+                f"only {metrics.packet_rate_samples} of {metrics.status_samples} detector status logs "
+                "had non-zero packet rates"
+            )
+        elif not EXPECTED_PPS_MIN <= metrics.pps_mean <= EXPECTED_PPS_MAX:
             reasons.append(
                 f"mean packet rate {metrics.pps_mean:.2f} pps is outside "
                 f"{EXPECTED_PPS_MIN}-{EXPECTED_PPS_MAX} pps"
             )
-        _append_common_monitor_reasons(metrics, telemetry, reasons, require_detection_timing=True)
+        _append_common_monitor_reasons(
+            metrics,
+            telemetry,
+            reasons,
+            require_detection_timing=True,
+            expected_telemetry_samples=telemetry_expected_samples,
+        )
     elif benchmark_mode == "smoke":
         startup_state_match = MATTER_STARTUP_STATE_RE.search(text)
         metrics.startup_state = startup_state_match.group("state").strip() if startup_state_match else None
@@ -583,6 +888,115 @@ def _latest_firmware_artifact(frontend: str) -> Path | None:
     return max(existing, key=lambda path: (path.stat().st_size, path.stat().st_mtime)) if existing else None
 
 
+def apply_esphome_benchmark_wifi(content: str) -> str:
+    ssid = require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
+    password = require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
+    bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
+    channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
+
+    lines = content.splitlines()
+    wifi_index = next((index for index, line in enumerate(lines) if re.match(r"^\s*wifi:\s*$", line)), None)
+    if wifi_index is None:
+        raise RuntimeError("could not find wifi block in ESPHome benchmark config")
+
+    networks_index = next(
+        (index for index in range(wifi_index + 1, len(lines)) if re.match(r"^\s*networks:\s*$", lines[index])),
+        None,
+    )
+    if networks_index is None:
+        raise RuntimeError("could not find wifi.networks block in ESPHome benchmark config")
+
+    entry_start = next(
+        (index for index in range(networks_index + 1, len(lines)) if re.match(r"^(\s*)-\s+ssid:\s*", lines[index])),
+        None,
+    )
+    if entry_start is None:
+        raise RuntimeError("could not find first wifi network entry in ESPHome benchmark config")
+
+    entry_match = re.match(r"^(\s*)-\s+ssid:\s*", lines[entry_start])
+    assert entry_match is not None
+    entry_indent = entry_match.group(1)
+    field_indent = f"{entry_indent}  "
+
+    entry_end = len(lines)
+    for index in range(entry_start + 1, len(lines)):
+        stripped = lines[index].strip()
+        current_indent = len(lines[index]) - len(lines[index].lstrip(" "))
+        if stripped and current_indent <= len(entry_indent):
+            entry_end = index
+            break
+
+    preserved_lines: list[str] = []
+    for line in lines[entry_start + 1 : entry_end]:
+        if re.match(rf"^{re.escape(field_indent)}(?:password|bssid|channel):\s*", line):
+            continue
+        if re.match(rf"^{re.escape(field_indent)}#\s*(?:bssid|channel):\s*", line):
+            continue
+        preserved_lines.append(line)
+
+    replacement_lines = [
+        f"{entry_indent}- ssid: {quote_yaml_string(ssid)}",
+        f"{field_indent}password: {quote_yaml_string(password)}",
+    ]
+    if bssid:
+        replacement_lines.append(f"{field_indent}bssid: {quote_yaml_string(bssid)}")
+    if channel > 0:
+        replacement_lines.append(f"{field_indent}channel: {channel}")
+    replacement_lines.extend(preserved_lines)
+
+    return "\n".join([*lines[:entry_start], *replacement_lines, *lines[entry_end:]]) + ("\n" if content.endswith("\n") else "")
+
+
+def apply_esphome_benchmark_logger(content: str, chip: str) -> str:
+    lines = content.splitlines()
+    logger_index = next((index for index, line in enumerate(lines) if re.match(r"^\s*logger:\s*$", line)), None)
+    if logger_index is None:
+        insert_at = next(
+            (index for index, line in enumerate(lines) if re.match(r"^\s*(?:api|ota):\s*$", line)),
+            None,
+        )
+        if insert_at is None:
+            insert_at = next((index for index, line in enumerate(lines) if re.match(r"^\s*wifi:\s*$", line)), len(lines))
+        inserted_lines = [
+            *lines[:insert_at],
+            "logger:",
+            "  level: DEBUG",
+            *(['  hardware_uart: UART0'] if chip == "c5" else []),
+            *lines[insert_at:],
+        ]
+        return "\n".join(inserted_lines) + ("\n" if content.endswith("\n") else "")
+
+    logger_indent = re.match(r"^(\s*)logger:\s*$", lines[logger_index]).group(1)
+    field_indent = f"{logger_indent}  "
+    logger_end = len(lines)
+    for index in range(logger_index + 1, len(lines)):
+        stripped = lines[index].strip()
+        current_indent = len(lines[index]) - len(lines[index].lstrip(" "))
+        if stripped and current_indent <= len(logger_indent):
+            logger_end = index
+            break
+
+    preserved_lines: list[str] = []
+    for line in lines[logger_index + 1 : logger_end]:
+        if re.match(rf"^{re.escape(field_indent)}level:\s*", line):
+            continue
+        if chip == "c5" and re.match(rf"^{re.escape(field_indent)}hardware_uart:\s*", line):
+            continue
+        preserved_lines.append(line)
+
+    replacement_lines = [
+        lines[logger_index],
+        f"{field_indent}level: DEBUG",
+    ]
+    if chip == "c5":
+        replacement_lines.append(f"{field_indent}hardware_uart: UART0")
+    replacement_lines.extend(preserved_lines)
+
+    return "\n".join([*lines[:logger_index], *replacement_lines, *lines[logger_end:]]) + (
+        "\n" if content.endswith("\n") else ""
+    )
+
+
 @contextmanager
 def esphome_case_config(chip: str, detector: str) -> Iterator[Path]:
     source_path = Path(ESPHOME_CONFIGS[chip]["dev"])
@@ -596,6 +1010,25 @@ def esphome_case_config(chip: str, detector: str) -> Iterator[Path]:
     )
     if replacements != 1:
         raise RuntimeError(f"could not set detector in {source_path}")
+    updated, telemetry_replacements = re.subn(
+        r"^(?P<indent>\s*)debug_telemetry:\s*(?:true|false)(\s*(?:#.*)?)$",
+        r"\g<indent>debug_telemetry: true\2",
+        updated,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if telemetry_replacements != 1:
+        updated, telemetry_insertions = re.subn(
+            r"^(?P<indent>\s*)detection_algorithm:\s*[^\r\n]+$",
+            r"\g<0>\n\g<indent>debug_telemetry: true",
+            updated,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if telemetry_insertions != 1:
+            raise RuntimeError(f"could not enable debug telemetry in {source_path}")
+    updated = apply_esphome_benchmark_wifi(updated)
+    updated = apply_esphome_benchmark_logger(updated, chip)
 
     temporary_path = source_path.parent / f".espectre-benchmark-{chip}-{detector}.yaml"
     if temporary_path.exists():
@@ -616,25 +1049,15 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
     if target_defaults.is_file():
         defaults.append(target_defaults)
 
-    if frontend == "native":
-        native_wifi = app_dir / "sdkconfig.wifi"
-        streamer_wifi = REPO_ROOT / "src" / "cpp" / "frontend" / "streamer" / "app" / "sdkconfig.wifi"
-        wifi_defaults = native_wifi if native_wifi.is_file() else streamer_wifi
-        if not wifi_defaults.is_file():
-            raise RuntimeError("native Wi-Fi defaults are missing (expected native or streamer sdkconfig.wifi)")
-        defaults.append(wifi_defaults)
-    elif frontend == "streamer":
-        streamer_wifi = app_dir / "sdkconfig.wifi"
-        if streamer_wifi.is_file():
-            defaults.append(streamer_wifi)
-
     classic_enabled = detector == "classic"
     override_lines = [
         "# Generated temporary firmware benchmark overrides.",
-        "CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y",
+        "CONFIG_LOG_DEFAULT_LEVEL_INFO=y",
         "CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y",
+        "CONFIG_ESPECTRE_DEBUG_TELEMETRY=y",
     ]
-    if frontend in {"native", "matter"}:
+    append_benchmark_frontend_defaults(frontend, override_lines)
+    if frontend == "native":
         override_lines.extend(
             [
                 (
@@ -662,43 +1085,6 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
         yield env
     finally:
         temporary_path.unlink(missing_ok=True)
-
-
-def update_native_sdkconfig_detector(detector: str) -> None:
-    """Select a detector in the generated sdkconfig for an incremental build."""
-    sdkconfig = Path(IDF_FRONTENDS["native"]["app_dir"]) / "sdkconfig"
-    if not sdkconfig.is_file():
-        raise RuntimeError(f"incremental Native build requires {sdkconfig}")
-
-    selections = {
-        "classic": (
-            "CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC=y",
-            "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML is not set",
-        ),
-        "ml": (
-            "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC is not set",
-            "CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML=y",
-        ),
-    }
-    classic_line, ml_line = selections[detector]
-    content = sdkconfig.read_text(encoding="utf-8")
-    content, classic_replacements = re.subn(
-        r"^(?:# )?CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC(?:=y| is not set)$",
-        classic_line,
-        content,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    content, ml_replacements = re.subn(
-        r"^(?:# )?CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML(?:=y| is not set)$",
-        ml_line,
-        content,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    if classic_replacements != 1 or ml_replacements != 1:
-        raise RuntimeError(f"could not select {detector} detector in {sdkconfig}")
-    sdkconfig.write_text(content, encoding="utf-8")
 
 
 def _commands_for_case(
@@ -734,6 +1120,39 @@ def _commands_for_case(
     )
 
 
+def _partition_region_from_csv(partition_table: Path, label: str) -> tuple[str, str]:
+    try:
+        with partition_table.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle)
+            for row in reader:
+                if not row:
+                    continue
+                name = row[0].strip()
+                if not name or name.startswith("#"):
+                    continue
+                if name != label:
+                    continue
+                if len(row) < 5:
+                    break
+                offset = row[3].strip()
+                size = row[4].strip()
+                if offset and size:
+                    return offset, size
+                break
+    except OSError as exc:
+        raise RuntimeError(f"failed to read partition table {partition_table}: {exc}") from exc
+    raise RuntimeError(f"partition {label!r} not found in {partition_table}")
+
+
+def _pre_flash_command_for_case(case: BenchmarkCase, port: str) -> list[str] | None:
+    if case.frontend != "native":
+        return None
+
+    partition_table = REPO_ROOT / "src/cpp/frontend/native/app/partitions.csv"
+    offset, size = _partition_region_from_csv(partition_table, "nvs")
+    return [sys.executable, "-m", "esptool", "--port", port, "erase-region", offset, size]
+
+
 @contextmanager
 def case_context(
     case: BenchmarkCase,
@@ -746,8 +1165,6 @@ def case_context(
             yield None, config
     else:
         with idf_case_environment(case.frontend, chip, case.detector) as env:
-            if case.frontend == "native" and not clean:
-                update_native_sdkconfig_detector(case.detector)
             yield env, None
 
 
@@ -862,6 +1279,14 @@ def run_streamer_case(
                 config,
                 clean=clean,
             )
+            pre_flash_command = _pre_flash_command_for_case(case, port)
+            if pre_flash_command is not None:
+                nvs_reset = run_command(pre_flash_command, env=env)
+                if nvs_reset.returncode != 0:
+                    result.flash = nvs_reset
+                    result.status = "FAIL"
+                    result.reasons.append(f"NVS erase exited with status {nvs_reset.returncode}")
+                    return result
             result.flash = run_command(flash_command, env=env)
             if result.flash.returncode != 0:
                 result.status = "FAIL"
@@ -909,6 +1334,7 @@ def run_streamer_case(
                     "collect",
                     "--duration",
                     str(STREAMER_COLLECT_DURATION_SECONDS),
+                    "--fixed",
                     "--target",
                     str(device_ip),
                     "--detector",
@@ -988,6 +1414,7 @@ def run_case(
     clean: bool,
     prebuilt: BenchmarkResult | None = None,
     overlap_build: BenchmarkCase | None = None,
+    before_monitor: Callable[[], None] | None = None,
 ) -> tuple[BenchmarkResult, BenchmarkResult | None]:
     print(f"\n{'=' * 72}\n{case.label}\n{'=' * 72}", flush=True)
     result = prebuilt or build_case(case, chip, port, clean=clean)
@@ -1005,12 +1432,19 @@ def run_case(
                 config,
                 clean=clean,
             )
+            pre_flash_command = _pre_flash_command_for_case(case, port)
+            if pre_flash_command is not None:
+                nvs_reset = run_command(pre_flash_command, env=env)
+                if nvs_reset.returncode != 0:
+                    result.flash = nvs_reset
+                    result.status = "FAIL"
+                    result.reasons.append(f"NVS erase exited with status {nvs_reset.returncode}")
+                    return result, None
             result.flash = run_command(flash_command, env=env)
             if result.flash.returncode != 0:
                 result.status = "FAIL"
                 result.reasons.append(f"flash exited with status {result.flash.returncode}")
                 return result, None
-
             executor: ThreadPoolExecutor | None = None
             build_future = None
             if overlap_build is not None:
@@ -1025,6 +1459,8 @@ def run_case(
                     output_prefix="[ML build] ",
                 )
             try:
+                if before_monitor is not None:
+                    before_monitor()
                 result.monitor = run_command(
                     monitor_command,
                     env=env,
@@ -1051,6 +1487,55 @@ def run_case(
         result.status = "FAIL"
         result.reasons.append(str(exc))
     return result, overlapped_result
+
+
+def run_native_monitor_only_case(
+    case: BenchmarkCase,
+    port: str,
+    *,
+    prebuilt: BenchmarkResult,
+    before_monitor: Callable[[], None] | None = None,
+) -> BenchmarkResult:
+    print(f"\n{'=' * 72}\n{case.label}\n{'=' * 72}", flush=True)
+    result = prebuilt
+    launcher = str(REPO_ROOT / "espectre")
+    monitor_command = [launcher, "monitor", "--port", port]
+    try:
+        monitor_process, monitor_output, relay_thread, monitor_started = _run_background_command(monitor_command)
+        try:
+            time.sleep(1.0)
+            if before_monitor is not None:
+                before_monitor()
+            try:
+                monitor_process.wait(timeout=MONITOR_DURATION_SECONDS)
+            except subprocess.TimeoutExpired:
+                _terminate_process(monitor_process)
+                monitor_process.wait(timeout=5)
+        finally:
+            if monitor_process.poll() is None:
+                _terminate_process(monitor_process)
+                monitor_process.wait(timeout=5)
+            result.monitor = _finalize_background_command(
+                monitor_process,
+                monitor_output,
+                relay_thread,
+                monitor_started,
+                monitor_command,
+            )
+        if result.monitor.returncode != 0:
+            result.status = "FAIL"
+            result.reasons.append(f"monitor exited with status {result.monitor.returncode}")
+            return result
+        result.runtime_metrics, analysis_reasons = analyze_monitor_output(
+            result.monitor.output,
+            benchmark_mode=case.benchmark_mode,
+        )
+        result.reasons.extend(analysis_reasons)
+        result.status = "PASS" if not result.reasons else "FAIL"
+    except (OSError, RuntimeError) as exc:
+        result.status = "FAIL"
+        result.reasons.append(str(exc))
+    return result
 
 
 def _git_revision() -> str:
@@ -1158,7 +1643,27 @@ def render_report(
         if runtime.startup_state is not None:
             detail_rows.append(f"| Startup state | {runtime.startup_state} |")
 
-        if result.case.benchmark_mode in {"runtime", "stream"} and runtime.status_samples > 0:
+        if result.case.benchmark_mode == "runtime" and runtime.status_samples > 0:
+            samples_value = str(runtime.status_samples)
+            if runtime.status_expected_samples > 0:
+                samples_value = f"{runtime.status_samples}/{runtime.status_expected_samples} expected"
+            detail_rows.append(f"| Status samples | {samples_value} |")
+            if runtime.status_interval_mean_ms is not None:
+                max_gap_seconds = (
+                    runtime.status_interval_max_ms / 1000.0 if runtime.status_interval_max_ms is not None else None
+                )
+                detail_rows.append(
+                    f"| Status cadence | {format_number(runtime.status_interval_mean_ms / 1000.0, ' s')} mean, "
+                    f"{format_number(max_gap_seconds, ' s')} max gap |"
+                )
+            if runtime.packet_rate_samples > 0:
+                detail_rows.append(f"| Packet-rate samples | {runtime.packet_rate_samples} |")
+            detail_rows.append(
+                f"| Packet rate | {format_number(runtime.pps_mean, ' pps')} mean, "
+                f"{format_number(runtime.pps_min)} min, {format_number(runtime.pps_max)} max, "
+                f"{format_number(runtime.pps_stddev)} standard deviation |"
+            )
+        elif result.case.benchmark_mode == "stream" and runtime.status_samples > 0:
             detail_rows.append(f"| Packet-rate samples | {runtime.status_samples} |")
             detail_rows.append(
                 f"| Packet rate | {format_number(runtime.pps_mean, ' pps')} mean, "
@@ -1166,8 +1671,13 @@ def render_report(
                 f"{format_number(runtime.pps_stddev)} standard deviation |"
             )
 
-        if runtime.telemetry_samples > 0:
-            detail_rows.append(f"| Telemetry samples | {runtime.telemetry_samples} |")
+        if runtime.telemetry_samples > 0 or (
+            result.case.benchmark_mode == "runtime" and runtime.telemetry_expected_samples > 0
+        ):
+            telemetry_value = str(runtime.telemetry_samples)
+            if result.case.benchmark_mode == "runtime" and runtime.telemetry_expected_samples > 0:
+                telemetry_value = f"{runtime.telemetry_samples}/{runtime.telemetry_expected_samples} expected"
+            detail_rows.append(f"| Telemetry samples | {telemetry_value} |")
         if runtime.heap_free_last is not None:
             detail_rows.append(f"| Last free heap | {format_bytes(runtime.heap_free_last)} |")
         if runtime.heap_min is not None:
@@ -1227,12 +1737,16 @@ def render_report(
             "## Pass Criteria",
             "",
             "- all builds and flashes complete successfully",
-            f"- at least {MIN_TELEMETRY_SAMPLES} shared debug telemetry samples are logged",
+            "- Native Classic, Native ML, and ESPHome Classic runtime benchmarks log shared debug telemetry "
+            "throughout the runtime window",
+            f"- non-runtime benchmarks log at least {MIN_TELEMETRY_SAMPLES} shared debug telemetry samples",
             "- free heap does not decline by more than 5% during monitoring",
-            "- ESPHome and Native runtime benchmarks log at least "
-            f"{MIN_STATUS_SAMPLES} valid motion states with non-zero packet rates",
-            f"- ESPHome and Native mean packet rate remains between {EXPECTED_PPS_MIN} and {EXPECTED_PPS_MAX} pps",
-            "- ESPHome and Native detector timing is present",
+            "- Native Classic, Native ML, and ESPHome Classic runtime benchmarks log detector status "
+            "once per second after the first detector status line",
+            "- Native Classic, Native ML, and ESPHome Classic runtime benchmarks report non-zero "
+            "packet rates on all but the first detector status line",
+            f"- Native Classic, Native ML, and ESPHome Classic mean packet rate remains between {EXPECTED_PPS_MIN} and {EXPECTED_PPS_MAX} pps",
+            "- Native Classic, Native ML, and ESPHome Classic detector timing is present",
             "- Matter smoke benchmarks log a boot marker and the commissioning startup state",
             "- Streamer benchmarks log the device IP, reach STREAMING, and sustain host collect around the target packet rate",
             f"- Streamer host collect logs at least {MIN_STREAMER_COLLECT_SAMPLES} classic and ML samples",
@@ -1241,6 +1755,221 @@ def render_report(
         ]
     )
     return "\n".join(lines)
+
+
+def parse_report_duration(text: str) -> float:
+    match = REPORT_DURATION_RE.fullmatch(text.strip())
+    if match is None:
+        raise ValueError(f"invalid duration: {text!r}")
+    minutes = int(match.group("minutes") or 0)
+    seconds = float(match.group("seconds"))
+    return (minutes * 60.0) + seconds
+
+
+def parse_report_count(text: str) -> tuple[int, int]:
+    match = REPORT_COUNT_RE.fullmatch(text.strip())
+    if match is None:
+        raise ValueError(f"invalid count: {text!r}")
+    return int(match.group("count")), int(match.group("expected") or 0)
+
+
+def parse_report_bytes(text: str) -> int | None:
+    if text.strip() == "N/A":
+        return None
+    match = re.search(r"(?P<value>\d[\d,]*)\s+bytes\b", text)
+    if match is None:
+        raise ValueError(f"invalid byte field: {text!r}")
+    return int(match.group("value").replace(",", ""))
+
+
+def parse_report_metric_value(text: str) -> int | float | None:
+    value = text.strip()
+    if value == "N/A":
+        return None
+    if not REPORT_PLAIN_NUMBER_RE.fullmatch(value):
+        raise ValueError(f"invalid numeric field: {text!r}")
+    return float(value) if "." in value else int(value)
+
+
+def parse_report_results(text: str) -> list[BenchmarkResult]:
+    case_by_label = {case.label: case for case in CASES}
+    results: list[BenchmarkResult] = []
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if not line.startswith("### "):
+            index += 1
+            continue
+
+        label = line[4:].strip()
+        case = case_by_label.get(label)
+        if case is None:
+            raise ValueError(f"unknown benchmark case label in report: {label!r}")
+        index += 1
+        while index < len(lines) and lines[index] == "":
+            index += 1
+        if index >= len(lines) or not lines[index].startswith("Result: **") or not lines[index].endswith("**"):
+            raise ValueError(f"missing result status for report section {label!r}")
+        status = lines[index][10:-2]
+        index += 1
+        while index < len(lines) and lines[index] == "":
+            index += 1
+        if index + 1 >= len(lines) or lines[index] != "| Metric | Value |" or lines[index + 1] != "|---|---:|":
+            raise ValueError(f"missing metrics table for report section {label!r}")
+        index += 2
+
+        metric_rows: dict[str, str] = {}
+        while index < len(lines) and lines[index].startswith("|"):
+            row = lines[index].strip()
+            parts = [part.strip() for part in row.strip("|").split("|")]
+            if len(parts) != 2:
+                raise ValueError(f"invalid metric row in report section {label!r}: {row!r}")
+            metric_rows[parts[0]] = parts[1]
+            index += 1
+
+        while index < len(lines) and lines[index] == "":
+            index += 1
+
+        reasons: list[str] = []
+        if index < len(lines) and lines[index] == "Failure reasons:":
+            index += 1
+            while index < len(lines) and lines[index] == "":
+                index += 1
+            while index < len(lines) and lines[index].startswith("- "):
+                reasons.append(lines[index][2:])
+                index += 1
+            while index < len(lines) and lines[index] == "":
+                index += 1
+
+        result = BenchmarkResult(case=case, status=status, reasons=reasons)
+        build = result.build_metrics
+        runtime = result.runtime_metrics
+
+        metric = metric_rows.get
+        if "Build duration" in metric_rows:
+            result.build = CommandResult(["report"], 0, parse_report_duration(metric("Build duration")), "")
+        if "Flash duration" in metric_rows:
+            result.flash = CommandResult(["report"], 0, parse_report_duration(metric("Flash duration")), "")
+        if "Monitor duration" in metric_rows:
+            result.monitor = CommandResult(["report"], 0, parse_report_duration(metric("Monitor duration")), "")
+        if "Collect duration" in metric_rows:
+            result.collect = CommandResult(["report"], 0, parse_report_duration(metric("Collect duration")), "")
+
+        build.firmware_size_bytes = parse_report_bytes(metric("Firmware binary", "N/A"))
+        build.partition_used_bytes = parse_report_bytes(metric("Application partition used", "N/A"))
+        build.partition_free_bytes = parse_report_bytes(metric("Application partition free", "N/A"))
+        build.ram_used_bytes = parse_report_bytes(metric("Build RAM used", "N/A"))
+        if build.partition_used_bytes is not None and build.partition_free_bytes is not None:
+            build.partition_total_bytes = build.partition_used_bytes + build.partition_free_bytes
+            if build.partition_total_bytes > 0:
+                build.partition_free_percent = (
+                    build.partition_free_bytes * 100.0
+                ) / build.partition_total_bytes
+
+        if "Startup state" in metric_rows:
+            runtime.startup_state = metric("Startup state")
+        if "Status samples" in metric_rows:
+            runtime.status_samples, runtime.status_expected_samples = parse_report_count(metric("Status samples"))
+        if "Status cadence" in metric_rows:
+            match = REPORT_STATUS_CADENCE_RE.fullmatch(metric("Status cadence"))
+            if match is None:
+                raise ValueError(f"invalid status cadence field: {metric('Status cadence')!r}")
+            runtime.status_interval_mean_ms = float(match.group("mean")) * 1000.0
+            runtime.status_interval_max_ms = int(round(float(match.group("max")) * 1000.0))
+        if "Packet-rate samples" in metric_rows:
+            runtime.packet_rate_samples = int(metric("Packet-rate samples"))
+            if case.benchmark_mode == "stream":
+                runtime.status_samples = runtime.packet_rate_samples
+        if "Packet rate" in metric_rows:
+            match = REPORT_PACKET_RATE_RE.fullmatch(metric("Packet rate"))
+            if match is None:
+                raise ValueError(f"invalid packet-rate field: {metric('Packet rate')!r}")
+            runtime.pps_mean = float(match.group("mean"))
+            runtime.pps_min = int(match.group("min"))
+            runtime.pps_max = int(match.group("max"))
+            runtime.pps_stddev = float(match.group("stddev"))
+        if "Telemetry samples" in metric_rows:
+            runtime.telemetry_samples, runtime.telemetry_expected_samples = parse_report_count(
+                metric("Telemetry samples")
+            )
+        if "Last free heap" in metric_rows:
+            runtime.heap_free_last = parse_report_bytes(metric("Last free heap"))
+        if "Minimum free heap" in metric_rows:
+            runtime.heap_min = parse_report_bytes(metric("Minimum free heap"))
+        if "Last largest heap block" in metric_rows:
+            runtime.heap_largest_last = parse_report_bytes(metric("Last largest heap block"))
+        if "Runtime load" in metric_rows:
+            match = REPORT_TRAILING_MEAN_RE.fullmatch(metric("Runtime load"))
+            if match is None:
+                raise ValueError(f"invalid runtime load field: {metric('Runtime load')!r}")
+            runtime.runtime_load_mean = float(match.group("value"))
+        if "Loop average" in metric_rows:
+            runtime.loop_avg_us_mean = float(str(parse_report_metric_value(metric("Loop average").removesuffix(" us"))))
+        if "Loop maximum" in metric_rows:
+            runtime.loop_max_us_max = int(parse_report_metric_value(metric("Loop maximum").removesuffix(" us")) or 0)
+        if "Detection samples" in metric_rows:
+            runtime.detection_samples = int(metric("Detection samples"))
+        if "Detection average" in metric_rows:
+            runtime.detection_avg_us_mean = float(
+                str(parse_report_metric_value(metric("Detection average").removesuffix(" us")))
+            )
+        if "Detection minimum" in metric_rows:
+            runtime.detection_min_us = int(
+                parse_report_metric_value(metric("Detection minimum").removesuffix(" us")) or 0
+            )
+        if "Detection maximum" in metric_rows:
+            runtime.detection_max_us = int(
+                parse_report_metric_value(metric("Detection maximum").removesuffix(" us")) or 0
+            )
+        if "Stream telemetry samples" in metric_rows:
+            runtime.stream_telemetry_samples = int(metric("Stream telemetry samples"))
+        if "Stream CSI accepted" in metric_rows:
+            runtime.stream_csi_ap_mean = float(
+                str(parse_report_metric_value(metric("Stream CSI accepted").removesuffix(" pps")))
+            )
+        if "Stream UDP RX" in metric_rows:
+            runtime.stream_udp_rx_mean = float(
+                str(parse_report_metric_value(metric("Stream UDP RX").removesuffix(" pps")))
+            )
+        if "Stream UDP TX" in metric_rows:
+            runtime.stream_udp_tx_mean = float(
+                str(parse_report_metric_value(metric("Stream UDP TX").removesuffix(" pps")))
+            )
+        if "Stream fresh records" in metric_rows:
+            runtime.stream_fresh_mean = float(
+                str(parse_report_metric_value(metric("Stream fresh records").removesuffix(" pps")))
+            )
+        if "Stream TX backpressure total" in metric_rows:
+            backpressure_total = parse_report_metric_value(metric("Stream TX backpressure total"))
+            runtime.stream_tx_backpressure_total = None if backpressure_total is None else int(backpressure_total)
+        if "Host collect devices" in metric_rows:
+            runtime.collect_devices_observed = int(metric("Host collect devices"))
+        if "Host collect packets" in metric_rows:
+            runtime.collect_packets_seen = int(metric("Host collect packets"))
+
+        results.append(result)
+
+    return results
+
+
+def load_report_results(path: Path) -> list[BenchmarkResult]:
+    if not path.is_file():
+        return []
+    try:
+        return parse_report_results(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"failed to load benchmark report {path}: {exc}") from exc
+
+
+def merge_report_results(
+    existing_results: Sequence[BenchmarkResult],
+    updated_results: Sequence[BenchmarkResult],
+) -> list[BenchmarkResult]:
+    merged_by_case = {result.case: result for result in existing_results}
+    for result in updated_results:
+        merged_by_case[result.case] = result
+    return [merged_by_case[case] for case in CASES if case in merged_by_case]
 
 
 def report_path_for_chip(chip: str) -> Path:
@@ -1265,7 +1994,7 @@ def write_report(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build, flash, and benchmark ESPHome/Native runtime variants, Matter smoke, and Streamer host collect for one chip.",
+        description="Build, flash, and benchmark Native Classic/ML, ESPHome Classic, Matter smoke, and Streamer host collect for one chip.",
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
     parser.add_argument(
@@ -1275,8 +2004,13 @@ def main() -> int:
     )
     parser.add_argument(
         "--detector",
-        choices=("classic", "ml", "collect"),
+        choices=("classic", "ml", "default", "collect"),
         help="Run only cases for one detector or the streamer collect workflow",
+    )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Preserve existing report cases and replace only rerun results",
     )
     args = parser.parse_args()
 
@@ -1294,60 +2028,105 @@ def main() -> int:
     started_at = datetime.now().astimezone()
     results: list[BenchmarkResult] = []
     report_path = report_path_for_chip(args.chip)
+    existing_results = load_report_results(report_path) if args.update else []
     print(f"Chip:     {CHIP_LABELS[args.chip]}")
     print(f"Port:     {port}")
     print(f"Report:   {report_path.relative_to(REPO_ROOT)}")
     print(f"Matrix:   {', '.join(case.label for case in selected_cases)}")
 
-    try:
-        for frontend in ("esphome", "native"):
-            frontend_cases = tuple(case for case in selected_cases if case.frontend == frontend)
-            if not frontend_cases:
-                continue
-            classic_case = BenchmarkCase(frontend, "classic")
-            ml_case = BenchmarkCase(frontend, "ml")
-            if classic_case not in frontend_cases:
-                ml_result, _unused = run_case(ml_case, args.chip, port, clean=True)
-                results.append(ml_result)
-                write_report(args.chip, port, started_at, results, selected_cases)
-                continue
+    def write_current_report() -> Path:
+        if args.update:
+            report_results = merge_report_results(existing_results, results)
+            expected_cases = tuple(result.case for result in report_results)
+            return write_report(args.chip, port, started_at, report_results, expected_cases)
+        return write_report(args.chip, port, started_at, results, selected_cases)
 
-            overlap_ml = ml_case if ml_case in frontend_cases else None
-            classic_result, ml_build = run_case(
-                classic_case,
+    try:
+        require_benchmark_prerequisites()
+
+        native_classic_case = BenchmarkCase("native", "classic")
+        native_ml_case = BenchmarkCase("native", "ml")
+        if native_classic_case in selected_cases:
+            classic_result, _unused = run_case(
+                native_classic_case,
                 args.chip,
                 port,
                 clean=True,
-                overlap_build=overlap_ml,
+                overlap_build=None,
             )
             results.append(classic_result)
-            write_report(args.chip, port, started_at, results, selected_cases)
+            write_current_report()
 
-            if ml_case not in frontend_cases:
-                continue
-
-            if ml_build is None:
-                classic_build_succeeded = (
-                    classic_result.build is not None and classic_result.build.returncode == 0
+            if native_ml_case in selected_cases:
+                classic_firmware_ready = (
+                    classic_result.build is not None
+                    and classic_result.build.returncode == 0
+                    and classic_result.flash is not None
+                    and classic_result.flash.returncode == 0
                 )
-                ml_result, _unused = run_case(
-                    ml_case,
-                    args.chip,
-                    port,
-                    clean=not classic_build_succeeded,
-                )
-            else:
-                ml_result, _unused = run_case(
-                    ml_case,
-                    args.chip,
-                    port,
-                    clean=False,
-                    prebuilt=ml_build,
-                )
+                if classic_firmware_ready:
+                    ml_result = run_native_monitor_only_case(
+                        native_ml_case,
+                        port,
+                        prebuilt=clone_prebuilt_result(native_ml_case, classic_result),
+                        before_monitor=lambda: set_native_detector_via_mqtt(
+                            "ml",
+                            classic_result.monitor.output if classic_result.monitor is not None else "",
+                        ),
+                    )
+                else:
+                    raise RuntimeError(
+                        "native ML benchmark requires a successful native classic build and flash before runtime detector switching"
+                    )
+                results.append(ml_result)
+                write_current_report()
+        elif native_ml_case in selected_cases:
+            bootstrap_case = BenchmarkCase("native", "classic")
+            bootstrap_result, _unused = run_case(
+                bootstrap_case,
+                args.chip,
+                port,
+                clean=True,
+                overlap_build=None,
+            )
+            if bootstrap_result.build is None or bootstrap_result.build.returncode != 0:
+                results.append(BenchmarkResult(case=native_ml_case, status="FAIL", reasons=["native classic bootstrap build failed"]))
+                write_current_report()
+                destination = write_current_report()
+                print(f"\nWrote {destination}")
+                print("Overall result: FAIL")
+                return 1
+            if bootstrap_result.flash is None or bootstrap_result.flash.returncode != 0:
+                results.append(BenchmarkResult(case=native_ml_case, status="FAIL", reasons=["native classic bootstrap flash failed"]))
+                write_current_report()
+                destination = write_current_report()
+                print(f"\nWrote {destination}")
+                print("Overall result: FAIL")
+                return 1
+            ml_result = run_native_monitor_only_case(
+                native_ml_case,
+                port,
+                prebuilt=clone_prebuilt_result(native_ml_case, bootstrap_result),
+                before_monitor=lambda: set_native_detector_via_mqtt(
+                    "ml",
+                    bootstrap_result.monitor.output if bootstrap_result.monitor is not None else "",
+                ),
+            )
             results.append(ml_result)
-            write_report(args.chip, port, started_at, results, selected_cases)
+            write_current_report()
 
-        matter_case = BenchmarkCase("matter", "classic", benchmark_mode="smoke")
+        esphome_classic_case = BenchmarkCase("esphome", "classic")
+        if esphome_classic_case in selected_cases:
+            esphome_result, _unused = run_case(
+                esphome_classic_case,
+                args.chip,
+                port,
+                clean=True,
+            )
+            results.append(esphome_result)
+            write_current_report()
+
+        matter_case = BenchmarkCase("matter", "default", benchmark_mode="smoke")
         if matter_case in selected_cases:
             matter_result, _unused = run_case(
                 matter_case,
@@ -1356,7 +2135,7 @@ def main() -> int:
                 clean=True,
             )
             results.append(matter_result)
-            write_report(args.chip, port, started_at, results, selected_cases)
+            write_current_report()
 
         streamer_case = BenchmarkCase("streamer", "collect", benchmark_mode="stream")
         if streamer_case in selected_cases:
@@ -1367,14 +2146,16 @@ def main() -> int:
                 clean=True,
             )
             results.append(streamer_result)
-            write_report(args.chip, port, started_at, results, selected_cases)
+            write_current_report()
     except KeyboardInterrupt:
         print("\nBenchmark interrupted; writing the partial report.", file=sys.stderr)
-        write_report(args.chip, port, started_at, results, selected_cases)
+        write_current_report()
         return 130
 
-    destination = write_report(args.chip, port, started_at, results, selected_cases)
-    passed = all(result.status == "PASS" for result in results) and len(results) == len(selected_cases)
+    destination = write_current_report()
+    final_results = merge_report_results(existing_results, results) if args.update else list(results)
+    final_expected_cases = tuple(result.case for result in final_results) if args.update else selected_cases
+    passed = all(result.status == "PASS" for result in final_results) and len(final_results) == len(final_expected_cases)
     print(f"\nWrote {destination}")
     print(f"Overall result: {'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1

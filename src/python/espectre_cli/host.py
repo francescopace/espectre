@@ -256,6 +256,7 @@ def _collect_dataset_csi_data(args) -> None:
             pacing_sender=pacing_sender,
             adaptive=bool(getattr(args, "adaptive", True)),
             boost_allowed=target_mode in ("broadcast", "multicast"),
+            ready_stable_seconds=float(getattr(args, "ready_stable_seconds", 3.0)),
         )
         if saved:
             print(f"{Fore.GREEN}✅ Collected {len(saved)} device file(s) for label '{args.label}'{Style.RESET_ALL}")
@@ -272,6 +273,11 @@ def _collect_dataset_csi_data(args) -> None:
 
 def collect_csi_data(args) -> None:
     """Run the unified host-side collect command."""
+    ready_stable_seconds = float(getattr(args, "ready_stable_seconds", 3.0))
+    if ready_stable_seconds < 0:
+        print(f"{Fore.RED}❌ Ready gate seconds must be >= 0{Style.RESET_ALL}")
+        raise SystemExit(1)
+    args.ready_stable_seconds = ready_stable_seconds
     if _uses_legacy_dataset_collection(args):
         _collect_dataset_csi_data(args)
         return
@@ -351,7 +357,7 @@ def _run_live_collect(args) -> None:
     label = getattr(args, "label", None)
     live_duration = getattr(args, "duration", None)
     save_enabled = bool(label)
-    ready_stable_seconds = 3.0
+    ready_stable_seconds = float(getattr(args, "ready_stable_seconds", 3.0))
 
     if live_duration is not None and live_duration <= 0:
         print(f"{Fore.RED}❌ Duration must be > 0 seconds{Style.RESET_ALL}")
@@ -931,7 +937,7 @@ def _run_live_collect(args) -> None:
         "capture_packets": [],
         "session_started_at": None,
         "capture_started_at": None,
-        "capture_ready": not save_enabled,
+        "capture_ready": (not save_enabled) or ready_stable_seconds <= 0.0,
         "capture_completed": False,
         "interrupted": False,
         "devices": {},
@@ -1019,6 +1025,8 @@ def _run_live_collect(args) -> None:
                 should_render_summary = True
 
         if save_enabled and state["capture_ready"]:
+            if state["capture_started_at"] is None:
+                state["capture_started_at"] = now
             if maybe_stop_live_session(now):
                 return
             state["capture_packets"].append(pkt)
@@ -1053,7 +1061,10 @@ def _run_live_collect(args) -> None:
     if save_enabled:
         duration_text = "until Ctrl+C" if live_duration is None else f"{live_duration:g}s"
         print(f"  {Fore.CYAN}Save:{Style.RESET_ALL}      label={label} duration={duration_text}")
-        print(f"  {Fore.CYAN}Ready gate:{Style.RESET_ALL} {ready_stable_seconds:.1f}s below threshold before saving")
+        if ready_stable_seconds <= 0.0:
+            print(f"  {Fore.CYAN}Ready gate:{Style.RESET_ALL} disabled")
+        else:
+            print(f"  {Fore.CYAN}Ready gate:{Style.RESET_ALL} {ready_stable_seconds:.1f}s below threshold before saving")
         if getattr(args, "description", None):
             print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     else:

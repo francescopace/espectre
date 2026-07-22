@@ -72,6 +72,15 @@ def _add_collect_parser(
         help="Live mode: stop after N seconds. Timed dataset mode: duration per sample.",
     )
     collect_parser.add_argument(
+        "--ready-stable-seconds",
+        type=float,
+        default=3.0,
+        help=(
+            "Seconds the detector must stay below threshold before saving starts; "
+            "set 0 to disable the ready gate (default: 3.0)"
+        ),
+    )
+    collect_parser.add_argument(
         "--start-delay",
         type=float,
         default=0.0,

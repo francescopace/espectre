@@ -25,6 +25,7 @@
 #include <setup_payload/OnboardingCodesUtil.h>
 
 #include "espectre_banner.h"
+#include "debug_telemetry_log_helpers.h"
 #include "matter_bindings_esp_matter.h"
 #include "matter_commissioning_data.h"
 #include "matter_frontend.h"
@@ -54,6 +55,7 @@ bool has_commissioned_fabric() {
 }
 
 void configure_log_levels() {
+  espectre::configure_debug_telemetry_log_levels();
   // CHIP logs are reduced at build time; mute esp-matter attribute chatter at runtime.
   esp_log_level_set("esp_matter_attribute", ESP_LOG_WARN);
 }

@@ -252,9 +252,38 @@ python train_ml_model.py --ablation-feature turb_skewness --seed 1386543369  # T
 For the complete ML training workflow, promotion guidance, gain-stress
 diagnostics, and post-training regressions, see
 [ML_TRAINING.md](../docs/ML_TRAINING.md). For dataset preparation and labeling,
-see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md).
+see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md). For the host CLI
+entry points that drive collection and related workflows, see
+[CLI.md](../docs/CLI.md).
 
-### 11. Dataset Quality Validation (`validate_dataset_quality.py`)
+### 11. Low-RSSI Degradation Study (`analyze_low_rssi_degradation.py`)
+
+**Purpose**: Replay Classic and ML on synthetically degraded weak-link packet
+streams without changing the runtime detector implementations
+
+- Reuses the shared paired-dataset replay helpers from `performance_report.py`
+- Applies bounded amplitude attenuation, optional reported-RSSI-only drops,
+  additive I/Q noise, per-packet subcarrier-profile jitter, packet loss, and
+  burst loss to recorded packet streams
+- Includes `low_rssi_proxy_agc`, a real-capture-inspired recipe calibrated from
+  the 2026-07-21 `C3` weak-link sample with strong reported RSSI loss, mild CSI
+  attenuation, elevated L1-delta feature drift, and sparse gaps
+- Reports detector recall, false-positive rate, F1, and simple feature summary
+  shifts relative to the clean baseline
+- Keeps the study offline and exploratory: use it to probe robustness gaps, not
+  as a substitute for real low-RSSI captures
+
+```bash
+python analyze_low_rssi_degradation.py
+python analyze_low_rssi_degradation.py --chip ESP32 --scenario clean low_rssi_proxy_medium
+python analyze_low_rssi_degradation.py --chip C3 --scenario clean low_rssi_proxy_agc
+python analyze_low_rssi_degradation.py --dataset-id esp32_pair_001 --scenario low_rssi_proxy_hard
+```
+
+See [ML_TRAINING.md](../docs/ML_TRAINING.md) for how this synthetic weak-link
+study complements the gain-stress gate and the normal promotion workflow.
+
+### 12. Dataset Quality Validation (`validate_dataset_quality.py`)
 
 Validates the shared Classic and ML datasets for metadata completeness, file
 integrity, signal quality, pair diagnostics, training readiness, and long-recording
@@ -308,7 +337,7 @@ python validate_dataset_quality.py --no-report      # Skip markdown report
 
 ---
 
-### 12. Performance Report Generation (`generate_performance_report.py`)
+### 13. Performance Report Generation (`generate_performance_report.py`)
 
 **Purpose**: Regenerate `docs/performance/README.md` from the current validation
 datasets
@@ -331,24 +360,28 @@ python generate_performance_report.py --output /tmp/PERFORMANCE.md
 
 ---
 
-### 13. Firmware Benchmark (`benchmark_firmware.py`)
+### 14. Firmware Benchmark (`benchmark_firmware.py`)
 
-**Purpose**: Run the live ESPHome and Native firmware benchmark for one
-connected chip and write its generated report under `docs/performance/`
+**Purpose**: Run the live Native, ESPHome, Matter, and Streamer firmware
+benchmark for one connected chip and write its generated report under
+`docs/performance/`
 
 The benchmark auto-detects the serial port and flashes and monitors these
 variants in order:
 
-1. ESPHome Dev Classic
-2. ESPHome Dev ML
-3. Native Classic
-4. Native ML
+1. Native Classic
+2. Native ML
+3. ESPHome Dev Classic
+4. Matter Default
+5. Streamer Collect
 
-Each frontend starts with a clean Classic build. Its ML variant reuses the same
-build directory for an incremental build. To reduce total runtime, the ML build
-runs while the already-flashed Classic firmware is being monitored. No two
-builds run at the same time. Each variant is monitored for three minutes, and
-the tool evaluates firmware size, application-partition space, packet rate,
+Native starts with a clean Classic build, then reuses that same Native firmware
+and switches the detector at runtime with `set_detector` over MQTT before the
+ML pass. MQTT is a benchmark prerequisite, not an optional optimization.
+ESPHome now benchmarks only the Classic detector. Matter uses a smoke
+benchmark with the frontend's default detector, and Streamer runs the host
+collect workflow. Each runtime variant is monitored for three minutes, and the
+tool evaluates firmware size, application-partition space, packet rate,
 motion-state logging, heap, runtime load, loop timing, and detector timing.
 Motion transitions are recorded for context but do not affect the result
 because the environment may be occupied.
@@ -358,15 +391,18 @@ per-packet ingestion step. The runtime measures every evaluation tick and
 reports accumulated duration, sample count, minimum, and maximum. The tool
 computes the overall average from total duration divided by total samples and
 ignores telemetry windows without detector samples for timing statistics.
-Keep local ESPHome and Native Wi-Fi credentials configured. Native falls back
-to the local Streamer `sdkconfig.wifi` when it has no frontend-local Wi-Fi
-defaults.
+Keep local ESPHome and Native Wi-Fi credentials configured. The benchmark looks
+for `tools/benchmark_firmware.local.env` first and uses it for benchmark-local
+Wi-Fi and MQTT settings. Copy `tools/benchmark_firmware.local.env.example` to
+`tools/benchmark_firmware.local.env` and fill in the values for your lab
+before running the benchmark. The benchmark derives the MQTT device id from the
+MAC address reported by the Native flash step.
 
 ```bash
 python benchmark_firmware.py --chip c3
 ```
 
-The command exits successfully only when all four variants pass. It still
+The command exits successfully only when all five cases pass. It still
 writes a partial report if a build, flash, monitor, or runtime check fails.
 
 ---

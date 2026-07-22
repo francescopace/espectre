@@ -96,4 +96,12 @@ config ESPECTRE_HAMPEL_THRESHOLD
     help
         Hampel threshold as a decimal string in the 1.0-10.0 range.
 
+config ESPECTRE_DEBUG_TELEMETRY
+    bool "Enable runtime debug telemetry"
+    default n
+    help
+        Enable periodic ESPectre runtime DEBUG telemetry with heap, load, and
+        timing metrics. The logs appear when the relevant runtime tags are
+        raised to DEBUG, for example during firmware benchmarking.
+
 endmenu

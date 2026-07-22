@@ -15,7 +15,7 @@
 # Replace "espectre_" with "espectre_XXXXXX_" where XXXXXX is your MAC suffix.
 
 views:
-  - title: 🛜 ESPectre 👻
+  - title: ESPectre
     type: sections
     sections:
     - type: grid

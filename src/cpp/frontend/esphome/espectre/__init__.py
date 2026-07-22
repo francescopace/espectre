@@ -51,6 +51,7 @@ CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 
 # Detection algorithm
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
+CONF_DEBUG_TELEMETRY = "debug_telemetry"
 
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
@@ -162,6 +163,8 @@ CONFIG_SCHEMA = cv.Schema({
     # CLASSIC: weighted L1 + autocorrelation fusion - adaptive threshold
     # ML: Machine Learning (MLP neural network) - higher accuracy, fixed subcarriers
     cv.Optional(CONF_DETECTION_ALGORITHM, default=DETECTION_ALGORITHM_DEFAULT): cv.one_of("classic", "ml", lower=True),
+    # Internal benchmark switch for shared runtime debug telemetry.
+    cv.Optional(CONF_DEBUG_TELEMETRY, default=False): cv.boolean,
     cv.Optional(CONF_EVALUATION_INTERVAL, default=EVALUATION_INTERVAL_DEFAULT): cv.int_range(
         min=INTERVAL_MIN, max=INTERVAL_MAX
     ),
@@ -244,6 +247,8 @@ async def to_code(config):
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_AMPDU_TX_ENABLED", False)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_AMPDU_RX_ENABLED", False)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM", 128)
+    if config[CONF_DEBUG_TELEMETRY]:
+        cg.add_build_flag("-DCONFIG_ESPECTRE_DEBUG_TELEMETRY=1")
     # Note: CONFIG_FREERTOS_HZ=1000 is already set by ESPHome
     
     # Threshold is selected automatically at startup and remains adjustable

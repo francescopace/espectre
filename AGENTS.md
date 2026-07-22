@@ -30,7 +30,7 @@ Innovation flow: prototype in Python, validate, then port to the relevant shared
 - `docs/SETUP.md`: shared configuration parameters, defaults, ranges, frontend chooser, and current CLI entry points
 - `docs/TUNING.md`: tuning advice and operational guidance
 - `docs/ALGORITHMS.md`: algorithm theory and detector explanations
-- `docs/PERFORMANCE.md`: benchmark targets and current metrics
+- `docs/performance/README.md`: benchmark targets and current metrics
 - `docs/ARCHITECTURE.md`: internal architecture, runtime/frontend split, and orchestration direction
 - `docs/adr/*.md`: architecture decision records for stable technical choices, including context, decision, alternatives, and consequences
 - `docs/ESPECTRE_PROTOCOL.md`: shared device protocol, payloads, topics, and transport semantics
@@ -77,7 +77,7 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 pytest test/python/test_validation_real_data.py::TestPerformanceMetrics -v
 ```
 
-Keep C++ and Python algorithm trends aligned; see `docs/PERFORMANCE.md`.
+Keep C++ and Python algorithm trends aligned; see `docs/performance/README.md`.
 
 ## Python Rules
 

@@ -1251,6 +1251,7 @@ class CSICollector:
         warmup_target: int,
         threshold: float,
         now: float,
+        ready_stable_seconds: float,
     ) -> Dict[str, Any]:
         observed_count = len(device_states)
         required_count = max(1, expected_device_count)
@@ -1304,7 +1305,7 @@ class CSICollector:
             max(0.0, now - state["stable_since"]) if state["stable_since"] is not None else 0.0
             for state in relevant_states
         )
-        ready = stable_elapsed >= CSICollector.READY_STABLE_SECONDS
+        ready = stable_elapsed >= ready_stable_seconds
         return {
             "ready": ready,
             "status": f"READY {observed_count}/{total_relevant}" if ready else f"STABLE {observed_count}/{total_relevant}",
@@ -1322,6 +1323,7 @@ class CSICollector:
         warmup_target: int,
         threshold: float,
         now: float,
+        ready_stable_seconds: float,
     ) -> List[str]:
         lines: List[str] = []
         seen_ips = {state.get("source_ip") for state in device_states.values() if state.get("source_ip")}
@@ -1354,7 +1356,7 @@ class CSICollector:
                 metric_ratio = min(current_metric / current_threshold, 1.0) if current_threshold > 0 else 0.0
                 if current_metric > current_threshold:
                     status = "UNSTABLE"
-                elif stable_value >= CSICollector.READY_STABLE_SECONDS:
+                elif stable_value >= ready_stable_seconds:
                     status = "READY"
                 else:
                     status = "STABLE"
@@ -1373,7 +1375,11 @@ class CSICollector:
         return lines
 
     def _wait_for_ready_state(self, quiet: bool = False, summary_prefix: str = "  ") -> Dict[int, Dict[str, Any]]:
-        return self._wait_for_ready_state_with_pacing(quiet=quiet, summary_prefix=summary_prefix)
+        return self._wait_for_ready_state_with_pacing(
+            quiet=quiet,
+            summary_prefix=summary_prefix,
+            ready_stable_seconds=self.READY_STABLE_SECONDS,
+        )
 
     def _wait_for_ready_state_with_pacing(
         self,
@@ -1382,6 +1388,7 @@ class CSICollector:
         *,
         pacing_controller: Optional[AdaptivePacingController] = None,
         pacing_sender: Any = None,
+        ready_stable_seconds: float = READY_STABLE_SECONDS,
     ) -> Dict[int, Dict[str, Any]]:
         if self.receiver.sock is None:
             raise RuntimeError("Receiver socket is not initialized")
@@ -1425,6 +1432,7 @@ class CSICollector:
                     warmup_target=warmup_target,
                     threshold=self._ready_initial_threshold,
                     now=now,
+                    ready_stable_seconds=ready_stable_seconds,
                 )
                 current_state = summary["status"]
                 if summary["ready"]:
@@ -1440,6 +1448,7 @@ class CSICollector:
                                 warmup_target=warmup_target,
                                 threshold=self._ready_initial_threshold,
                                 now=now,
+                                ready_stable_seconds=ready_stable_seconds,
                             ),
                             inline=use_inline_status,
                         )
@@ -1463,6 +1472,7 @@ class CSICollector:
                             warmup_target=warmup_target,
                             threshold=self._ready_initial_threshold,
                             now=now,
+                            ready_stable_seconds=ready_stable_seconds,
                         ),
                         inline=use_inline_status,
                     )
@@ -1478,6 +1488,7 @@ class CSICollector:
                             warmup_target=warmup_target,
                             threshold=self._ready_initial_threshold,
                             now=now,
+                            ready_stable_seconds=ready_stable_seconds,
                         ),
                         inline=use_inline_status,
                     )
@@ -1492,6 +1503,7 @@ class CSICollector:
         summary_prefix: str = "  ",
         pacing_controller: Optional[AdaptivePacingController] = None,
         pacing_sender: Any = None,
+        ready_stable_seconds: float = READY_STABLE_SECONDS,
     ) -> List[CSIPacket]:
         if self.receiver.sock is None:
             raise RuntimeError("Receiver socket is not initialized")
@@ -1555,6 +1567,7 @@ class CSICollector:
                             warmup_target=warmup_target,
                             threshold=self._ready_initial_threshold,
                             now=now,
+                            ready_stable_seconds=ready_stable_seconds,
                         ),
                         inline=use_inline_status,
                     )
@@ -1571,6 +1584,7 @@ class CSICollector:
                             warmup_target=warmup_target,
                             threshold=self._ready_initial_threshold,
                             now=now,
+                            ready_stable_seconds=ready_stable_seconds,
                         ),
                         inline=use_inline_status,
                     )
@@ -1586,6 +1600,7 @@ class CSICollector:
         pacing_sender: Any = None,
         adaptive: bool = False,
         adaptive_controller_kwargs: Optional[Dict[str, Any]] = None,
+        ready_stable_seconds: float = READY_STABLE_SECONDS,
     ) -> List[Path]:
         saved_files: List[Path] = []
         initial_pacing_pps = 0.0
@@ -1606,7 +1621,10 @@ class CSICollector:
             print(f'{"=" * 60}')
             print(f"  Duration per sample: {duration}s")
             print(f"  Samples to collect:  {num_samples}")
-            print(f"  Ready gate:          implicit ({self.READY_STABLE_SECONDS:.1f}s stable)")
+            if ready_stable_seconds <= 0.0:
+                print("  Ready gate:          disabled")
+            else:
+                print(f"  Ready gate:          implicit ({ready_stable_seconds:.1f}s stable)")
             print(f"  Pacing mode:         {'adaptive' if adaptive else 'fixed'}")
             print(f'{"=" * 60}\n')
         self.receiver.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1617,12 +1635,15 @@ class CSICollector:
                 self._reset_live_status_block()
                 summary_prefix = f"  Sample {sample_idx + 1}/{num_samples} | "
                 self._drain_udp_backlog()
-                ready_device_states = self._wait_for_ready_state_with_pacing(
-                    quiet=quiet,
-                    summary_prefix=summary_prefix,
-                    pacing_controller=pacing_controller,
-                    pacing_sender=pacing_sender,
-                )
+                ready_device_states = None
+                if ready_stable_seconds > 0.0:
+                    ready_device_states = self._wait_for_ready_state_with_pacing(
+                        quiet=quiet,
+                        summary_prefix=summary_prefix,
+                        pacing_controller=pacing_controller,
+                        pacing_sender=pacing_sender,
+                        ready_stable_seconds=ready_stable_seconds,
+                    )
                 packets = self._collect_with_live_status(
                     duration,
                     quiet=quiet,
@@ -1630,6 +1651,7 @@ class CSICollector:
                     summary_prefix=summary_prefix,
                     pacing_controller=pacing_controller,
                     pacing_sender=pacing_sender,
+                    ready_stable_seconds=ready_stable_seconds,
                 )
                 sample_files = self.save_samples_by_device(packets)
                 if sample_files:

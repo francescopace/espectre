@@ -30,6 +30,7 @@ set(ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES
 set(ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES)
 
 set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/debug_telemetry_log_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_stream_transport.cpp"

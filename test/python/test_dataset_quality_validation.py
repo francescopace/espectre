@@ -205,6 +205,56 @@ def test_refresh_metadata_respects_chip_filter() -> None:
     assert len(pair_rows) == 1
 
 
+def test_refresh_metadata_never_pairs_real_with_synthetic() -> None:
+    module = _load_validator_module()
+    info = {
+        "files": {
+            "static_presence": [
+                {
+                    "filename": "real_static.npz",
+                    "chip": "C3",
+                    "subcarriers": 64,
+                    "collected_at": "2026-07-22T10:00:00",
+                },
+                {
+                    "filename": "synthetic_static.npz",
+                    "chip": "C3",
+                    "subcarriers": 64,
+                    "collected_at": "2026-07-22T10:00:00",
+                    "synthetic": True,
+                    "generation": {"group_id": "synthetic-pair"},
+                },
+            ],
+            "motion": [
+                {
+                    "filename": "real_motion.npz",
+                    "chip": "C3",
+                    "subcarriers": 64,
+                    "collected_at": "2026-07-22T10:01:00",
+                },
+                {
+                    "filename": "synthetic_motion.npz",
+                    "chip": "C3",
+                    "subcarriers": 64,
+                    "collected_at": "2026-07-22T10:01:00",
+                    "synthetic": True,
+                    "generation": {"group_id": "synthetic-pair"},
+                },
+            ],
+        }
+    }
+
+    refreshed, rows = module.refresh_metadata(info)
+
+    assert len(rows) == 2
+    assert refreshed["files"]["static_presence"][0]["optimal_pair_motion_file"] == (
+        "real_motion.npz"
+    )
+    assert refreshed["files"]["static_presence"][1]["optimal_pair_motion_file"] == (
+        "synthetic_motion.npz"
+    )
+
+
 def test_run_validation_refresh_metadata_writes_dataset_info(monkeypatch, tmp_path) -> None:
     module = _load_validator_module()
 

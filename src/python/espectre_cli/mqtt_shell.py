@@ -9,10 +9,13 @@ License: GPLv3
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shlex
+import threading
 import time
+import uuid
 from datetime import datetime
 from typing import Any, Dict
 
@@ -41,6 +44,247 @@ from .host import open_web_ui
 from micro_espectre.branding import ASCII_BANNER
 
 
+def _make_mqtt_client(username: str | None, password: str | None) -> mqtt.Client:
+    """Build a paho client with the repo's compatibility settings."""
+    if PAHO_V2:
+        client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION1)
+    else:
+        client = mqtt.Client()
+    if username:
+        client.username_pw_set(username, password if password else None)
+    return client
+
+
+def _mqtt_topic_bindings(args: argparse.Namespace) -> tuple[str, str, list[str], str]:
+    """Return base, command, response topics, and info topic."""
+    device_id = (args.device_id or "").strip()
+    if not device_id:
+        raise ValueError("MQTT device id is required for non-interactive commands")
+    topic_prefix = args.topic_prefix.rstrip("/")
+    base_topic = f"{topic_prefix}/{device_id}"
+    return (
+        base_topic,
+        f"{base_topic}/commands/request",
+        [
+            f"{base_topic}/commands/accepted",
+            f"{base_topic}/commands/rejected",
+        ],
+        f"{base_topic}/info",
+    )
+
+
+def _wait_for_subscription_ready(
+    client: mqtt.Client,
+    topics: list[str],
+    *,
+    timeout_s: float,
+    error_holder: dict[str, str],
+) -> threading.Event:
+    """Subscribe to topics and return an event that signals all SUBACKs arrived."""
+    if not topics:
+        ready_event = threading.Event()
+        ready_event.set()
+        return ready_event
+
+    ready_event = threading.Event()
+    subscribed_mids: set[int] = set()
+    expected_mids: set[int] = set()
+
+    def on_subscribe(_client, _userdata, mid, granted_qos, properties=None):
+        del granted_qos, properties
+        subscribed_mids.add(int(mid))
+        if subscribed_mids >= expected_mids:
+            ready_event.set()
+
+    client.on_subscribe = on_subscribe
+    for topic in topics:
+        result = client.subscribe(topic)
+        if isinstance(result, tuple):
+            rc = int(result[0])
+            mid = int(result[1]) if len(result) > 1 else None
+            if rc != mqtt.MQTT_ERR_SUCCESS:
+                error_holder["subscribe"] = f"MQTT subscribe failed for {topic} with return code {rc}"
+                ready_event.set()
+                continue
+            if mid is not None:
+                expected_mids.add(mid)
+        else:
+            # Fallback for clients that do not expose Paho's subscribe tuple.
+            ready_event.set()
+    if not expected_mids and "subscribe" not in error_holder:
+        ready_event.set()
+    return ready_event
+
+
+def send_mqtt_command_and_wait(
+    args: argparse.Namespace,
+    cmd_data: Dict[str, Any],
+    *,
+    timeout_s: float = 10.0,
+    observe_request_echo: bool = False,
+) -> Dict[str, Any]:
+    """Publish one MQTT command and wait for the matching response."""
+    _base_topic, topic_cmd, topic_responses, _info_topic = _mqtt_topic_bindings(args)
+    command = dict(cmd_data)
+    command.setdefault("protocol_version", "1.0")
+    command_id = str(command.get("command_id") or f"cmd-{uuid.uuid4().hex[:12]}")
+    command["command_id"] = command_id
+
+    client = _make_mqtt_client(args.username, args.password)
+    connected_event = threading.Event()
+    response_event = threading.Event()
+    request_echo_event = threading.Event()
+    response_holder: dict[str, Dict[str, Any]] = {}
+    error_holder: dict[str, str] = {}
+    subscription_event: threading.Event | None = None
+
+    def on_connect(client, userdata, flags, rc, properties=None):
+        del userdata, flags, properties
+        if rc == 0:
+            nonlocal subscription_event
+            subscription_event = _wait_for_subscription_ready(
+                client,
+                [*topic_responses, *([topic_cmd] if observe_request_echo else [])],
+                timeout_s=timeout_s,
+                error_holder=error_holder,
+            )
+        else:
+            error_holder["connect"] = f"MQTT connect failed with return code {rc}"
+        connected_event.set()
+
+    def on_message(client, userdata, msg):
+        del client, userdata
+        try:
+            payload = msg.payload.decode()
+            data = json.loads(payload)
+        except Exception:
+            return
+        topic = msg.topic.decode() if isinstance(msg.topic, bytes) else msg.topic
+        if observe_request_echo and topic == topic_cmd and data.get("command_id") == command_id:
+            request_echo_event.set()
+            return
+        if data.get("command_id") != command_id:
+            return
+        response_holder["payload"] = data
+        response_event.set()
+
+    client.on_connect = on_connect
+    client.on_message = on_message
+
+    try:
+        client.connect(args.broker, args.port, 60)
+        client.loop_start()
+        if not connected_event.wait(timeout=timeout_s):
+            raise RuntimeError(f"timed out connecting to MQTT broker {args.broker}:{args.port}")
+        if "connect" in error_holder:
+            raise RuntimeError(error_holder["connect"])
+        if subscription_event is not None and not subscription_event.wait(timeout=timeout_s):
+            raise RuntimeError("timed out waiting for MQTT subscriptions")
+        if "subscribe" in error_holder:
+            raise RuntimeError(error_holder["subscribe"])
+
+        publish_result = client.publish(topic_cmd, json.dumps(command))
+        if getattr(publish_result, "rc", mqtt.MQTT_ERR_UNKNOWN) != mqtt.MQTT_ERR_SUCCESS:
+            raise RuntimeError(
+                f"failed to publish MQTT command to {topic_cmd} "
+                f"(rc={getattr(publish_result, 'rc', 'unknown')})"
+            )
+        if not response_event.wait(timeout=timeout_s):
+            request_echo = "yes" if request_echo_event.is_set() else "no"
+            raise RuntimeError(
+                f"timed out waiting for MQTT response to {command_id} "
+                f"(topic={topic_cmd} request_echo={request_echo})"
+            )
+        return response_holder["payload"]
+    finally:
+        client.loop_stop()
+        client.disconnect()
+
+
+def request_mqtt_info_and_wait(
+    args: argparse.Namespace,
+    *,
+    timeout_s: float = 10.0,
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """Request MQTT info and wait for both the command ack and info payload."""
+    _base_topic, topic_cmd, topic_responses, info_topic = _mqtt_topic_bindings(args)
+    command_id = f"cmd-{uuid.uuid4().hex[:12]}"
+    command = {
+        "protocol_version": "1.0",
+        "command_id": command_id,
+        "command": "info",
+    }
+
+    client = _make_mqtt_client(args.username, args.password)
+    connected_event = threading.Event()
+    command_event = threading.Event()
+    info_event = threading.Event()
+    command_holder: dict[str, Dict[str, Any]] = {}
+    info_holder: dict[str, Dict[str, Any]] = {}
+    error_holder: dict[str, str] = {}
+    subscription_event: threading.Event | None = None
+
+    def on_connect(client, userdata, flags, rc, properties=None):
+        del userdata, flags, properties
+        if rc == 0:
+            nonlocal subscription_event
+            subscription_event = _wait_for_subscription_ready(
+                client,
+                [*topic_responses, info_topic],
+                timeout_s=timeout_s,
+                error_holder=error_holder,
+            )
+        else:
+            error_holder["connect"] = f"MQTT connect failed with return code {rc}"
+        connected_event.set()
+
+    def on_message(client, userdata, msg):
+        del client, userdata
+        try:
+            payload = msg.payload.decode()
+            data = json.loads(payload)
+        except Exception:
+            return
+        topic = msg.topic.decode() if isinstance(msg.topic, bytes) else msg.topic
+        if topic == info_topic:
+            info_holder["payload"] = data
+            info_event.set()
+            return
+        if data.get("command_id") == command_id:
+            command_holder["payload"] = data
+            command_event.set()
+
+    client.on_connect = on_connect
+    client.on_message = on_message
+
+    try:
+        client.connect(args.broker, args.port, 60)
+        client.loop_start()
+        if not connected_event.wait(timeout=timeout_s):
+            raise RuntimeError(f"timed out connecting to MQTT broker {args.broker}:{args.port}")
+        if "connect" in error_holder:
+            raise RuntimeError(error_holder["connect"])
+        if subscription_event is not None and not subscription_event.wait(timeout=timeout_s):
+            raise RuntimeError("timed out waiting for MQTT subscriptions")
+        if "subscribe" in error_holder:
+            raise RuntimeError(error_holder["subscribe"])
+
+        publish_result = client.publish(topic_cmd, json.dumps(command))
+        if getattr(publish_result, "rc", mqtt.MQTT_ERR_UNKNOWN) != mqtt.MQTT_ERR_SUCCESS:
+            raise RuntimeError(
+                f"failed to publish MQTT command to {topic_cmd} "
+                f"(rc={getattr(publish_result, 'rc', 'unknown')})"
+            )
+        if not command_event.wait(timeout=timeout_s):
+            raise RuntimeError(f"timed out waiting for MQTT response to {command_id}")
+        if not info_event.wait(timeout=timeout_s):
+            raise RuntimeError(f"timed out waiting for MQTT info payload after {command_id}")
+        return command_holder["payload"], info_holder["payload"]
+    finally:
+        client.loop_stop()
+        client.disconnect()
+
+
 class EspectreMQTTShell:
     """Interactive MQTT CLI for runtime commands."""
 
@@ -56,18 +300,13 @@ class EspectreMQTTShell:
         self.password = args.password
 
         self.topic_cmd = ""
-        self.topic_responses = ""
+        self.topic_responses: list[str] = []
         self.discovery_info_topic = f"{self.topic_prefix}/+/info"
         self.discovery_status_topic = f"{self.topic_prefix}/+/status"
         self.discovered_devices: dict[str, dict[str, Any]] = {}
         self.discovery_active = self.device_id is None
         self._set_active_device(self.device_id)
-        if PAHO_V2:
-            self.client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION1)
-        else:
-            self.client = mqtt.Client()
-        if self.username and self.password:
-            self.client.username_pw_set(self.username, self.password)
+        self.client = _make_mqtt_client(self.username, self.password)
 
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
@@ -100,17 +339,21 @@ class EspectreMQTTShell:
         if not device_id:
             self.base_topic = ""
             self.topic_cmd = ""
-            self.topic_responses = ""
+            self.topic_responses = []
             return
         self.base_topic = f"{self.topic_prefix}/{device_id}"
         self.topic_cmd = f"{self.base_topic}/commands/request"
-        self.topic_responses = f"{self.base_topic}/commands/+"
+        self.topic_responses = [
+            f"{self.base_topic}/commands/accepted",
+            f"{self.base_topic}/commands/rejected",
+        ]
 
     def _subscribe_selected_device(self, client) -> None:
         """Subscribe to command responses for the selected device."""
         print(f"{Fore.BLUE}Command topic: {self.topic_cmd}{Style.RESET_ALL}")
-        print(f"{Fore.BLUE}Listening on: {self.topic_responses}{Style.RESET_ALL}")
-        client.subscribe(self.topic_responses)
+        print(f"{Fore.BLUE}Listening on: {', '.join(self.topic_responses)}{Style.RESET_ALL}")
+        for topic in self.topic_responses:
+            client.subscribe(topic)
 
     def _extract_device_id_from_topic(self, topic: str) -> str | None:
         """Extract the ESPectre device id from a topic under the configured prefix."""

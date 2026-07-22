@@ -16,6 +16,7 @@
 #include "esp_timer.h"
 #include "sdkconfig.h"
 
+#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
 #if __has_include("esp_heap_caps.h")
 #include "esp_heap_caps.h"
 #define ESPECTRE_HAVE_ESP_HEAP_CAPS 1
@@ -151,3 +152,4 @@ RuntimeDebugLoopScope::~RuntimeDebugLoopScope() {
 }
 
 }  // namespace espectre
+#endif

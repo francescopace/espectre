@@ -373,10 +373,12 @@ Current repository CLI target coverage for the streamer frontend includes
 
 ## Observed ESP32-C3 Throughput
 
-The table below summarizes a standalone streamer transport benchmark snapshot on
-`ESP32-C3`, recorded on `2026-07-03` near commit `7d96792`. It was measured
-with collector-driven UDP target traffic and host-side receive stats over `4 s`
-windows. Broader project performance metrics live in
+The table below summarizes standalone streamer transport benchmark captures on
+`ESP32-C3`, recorded on `2026-07-21`. It was measured
+with collector-driven fixed UDP target traffic and saved `10 s` captures; 
+observed host receive rate is derived from capture duration, while host drop 
+rate and max sequence gap are derived from `stream_seq_num` gaps in the saved stream. 
+Broader project performance metrics live in
 [`docs/performance`](../../../../docs/performance/README.md).
 
 Benchmark firmware profile:
@@ -391,30 +393,27 @@ Benchmark firmware profile:
 
 Observed results:
 
-| Requested Traffic Rate | Observed Host Receive Rate | Host Drop Rate |
-|-------------------------|----------------------------|----------------|
-| `500 pps` | `~473 pps` | `~1.2%` |
-| `650 pps` | `~618 pps` | `~0.0%` |
-| `750 pps` | `~707 pps` | `~0.8%` |
-| `850 pps` | `~806 pps` | `~0.2%` |
-| `1000 pps` | `~935 pps` | `~1.1%` |
-| `1200 pps` | `~1136 pps` | `~0.3%` |
+| Requested Traffic Rate | Observed Host Receive Rate | Host Drop Rate | Max Sequence Gap |
+|-------------------------|----------------------------|----------------|------------------|
+| `500 pps` | `~496 pps` | `~0.2%` | `4 packets` |
+| `750 pps` | `~746 pps` | `~0.1%` | `10 packets` |
+| `1000 pps` | `~997 pps` | `~0.2%` | `7 packets` |
+| `1250 pps` | `~1248 pps` | `~0.4%` | `32 packets` |
+| `1500 pps` | `~1441 pps` | `~0.6%` | `47 packets` |
+| `1750 pps` | `~1674 pps` | `~0.1%` | `5 packets` |
+| `2000 pps` | `~1853 pps` | `~0.1%` | `10 packets` |
 
 Notes:
 
 - host-side `requested pps` is the control target; the Python sender may
-  slightly under-run or over-run during short windows
+  still land slightly under-run or over-run across a finite capture window
 - the transport path is mostly packet-rate bound rather than byte-rate bound
 - `queue=0` in the periodic log does not mean the queue never saturated; use
   `peak=<n>/<slots>` to inspect burst pressure between log ticks
 - `retry` counts retry-marked frames, while `wifi_dup` counts the repeated
   copies actually filtered early by the streamer; `retry` may therefore be
   higher than `wifi_dup`
-- `batch=4` is the recommended default on ESP32-C3; `batch=8` slightly helped
-  some `1000 pps` runs but was less robust at `1200 pps`
+- max sequence gap is the worst observed burst loss in one capture, measured as
+  the largest count of consecutive `stream_seq_num` values missing between two
+  received records
 
-Practical guidance:
-
-- use `1000 pps` as the recommended high-rate profile for ESP32-C3
-- use `1200 pps` as an aggressive profile when a small amount of burst pressure
-  is acceptable
