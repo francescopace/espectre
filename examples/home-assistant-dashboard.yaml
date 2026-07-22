@@ -8,7 +8,14 @@
 # 5. Click "Save"
 #
 # Note: If you changed the device name from "espectre", replace all
-# occurrences of "espectre_" with your device name (e.g., "espectre_living_room_")
+# entity prefixes to match Home Assistant entity IDs. Depending on the
+# ESPHome device name, IDs may look like:
+#   sensor.espectre_intensity
+#   sensor.bedroom_espectre_intensity
+# Check Settings → Devices & services → Entities for the exact IDs.
+#
+# Intensity is published by the ESPHome firmware as intensity_sensor
+# (movement / threshold × 100, clamped to 200). No HA template sensor is needed.
 #
 # ⚠️ Multiple devices? If you uncommented "name_add_mac_suffix: true" in your
 # device YAML, entity names will include the MAC suffix (e.g., "espectre_a1b2c3").
@@ -18,86 +25,69 @@ views:
   - title: ESPectre
     type: sections
     sections:
-    - type: grid
-      cards:
-        # Static gauge (default)
-        - type: gauge
-          entity: sensor.espectre_movement_score
-          name: Movement Level
-          min: 0
-          max: 1
-          needle: true
-          segments:
-            - from: 0
-              color: green
-            - from: 0.3
-              color: yellow
-            - from: 0.5
-              color: orange
-            - from: 0.7
-              color: red
-        # Dynamic gauge (alternative) - segments adapt to threshold value
-        # Requires 'Config Template Card' from HACS:
-        # https://github.com/iantrich/config-template-card
-        # Contributed by @jolas
-        #
-        # - type: custom:config-template-card
-        #   entities:
-        #     - sensor.espectre_movement_score
-        #   card:
-        #     type: gauge
-        #     entity: sensor.espectre_movement_score
-        #     name: Movement Level
-        #     min: 0
-        #     max: 1
-        #     needle: true
-        #     segments:
-        #       - from: 0
-        #         color: red
-        #       - from: >-
-        #           ${0.30 * Number(states['number.espectre_threshold'].state)}
-        #         color: orange
-        #       - from: >-
-        #           ${0.60 * Number(states['number.espectre_threshold'].state)}
-        #         color: yellow
-        #       - from: ${Number(states['number.espectre_threshold'].state)}
-        #         color: green
-        - type: tile
-          grid_options:
-            columns: 12
-            rows: 1
-          entity: binary_sensor.espectre_motion_detected
-          name: Motion
-          show_entity_picture: false
-          hide_state: false
-          state_content:
-            - state
-            - last_changed
-          vertical: false
-          features_position: bottom
-        - type: entities
-          entities:
-            - entity: select.espectre_detector
-              icon: mdi:chip
-              name: Detector
-            - entity: number.espectre_threshold
-              icon: mdi:tune-vertical
-              name: Threshold
-            - entity: switch.espectre_calibrate
-              icon: mdi:refresh
-              name: Recalibrate
-          show_header_toggle: false
-          state_color: false
-    - type: grid
-      cards:
-        - type: history-graph
-          title: Motion History
-          hours_to_show: 24
-          entities:
-            - entity: sensor.espectre_movement_score
-              name: Movement
-            - entity: number.espectre_threshold
-              name: Threshold
-          grid_options:
-            columns: 12
-            rows: 5
+      - type: grid
+        cards:
+          - type: gauge
+            name: Intensity
+            min: 0
+            max: 200
+            needle: true
+            segments:
+              - from: 0
+                color: green
+              - from: 70
+                color: yellow
+              - from: 100
+                color: red
+            entity: >-
+              sensor.espectre_intensity
+          - type: history-graph
+            grid_options:
+              columns: 12
+              rows: 4
+            entities:
+              - entity: sensor.espectre_movement_score
+                name: Movement
+              - entity: number.espectre_threshold
+                name: Threshold
+            title: ESPectre
+            hours_to_show: 1
+      - type: grid
+        cards:
+          - type: tile
+            grid_options:
+              columns: 12
+              rows: 1
+            entity: binary_sensor.espectre_motion_detected
+            name: Motion
+            show_entity_picture: false
+            hide_state: false
+            state_content:
+              - state
+              - last_changed
+            vertical: false
+            features_position: bottom
+          - type: entities
+            entities:
+              - entity: number.espectre_threshold
+                icon: mdi:tune-vertical
+                name: Threshold
+              - entity: switch.espectre_calibrate
+                icon: mdi:refresh
+                name: Recalibrate
+            show_header_toggle: false
+            state_color: false
+          # Optional: requires ESPHome debug sensors enabled in the device YAML
+          # (platform: debug → free / block / loop_time). See examples/espectre-*-dev.yaml.
+          # - type: entities
+          #   title: Debug Sensors
+          #   entities:
+          #     - entity: sensor.espectre_free_heap
+          #       name: Free Heap
+          #     - entity: sensor.espectre_max_free_block
+          #       name: Max Free Block
+          #     - entity: sensor.espectre_loop_time
+          #       name: Loop Time
+          #   show_header_toggle: false
+          #   state_color: false
+    cards: []

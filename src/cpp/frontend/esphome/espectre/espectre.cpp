@@ -94,6 +94,7 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
 
   this->sensor_publisher_.log_status(TAG, snapshot, packets_received);
   this->sensor_publisher_.publish_movement_metric(snapshot.movement_metric);
+  this->sensor_publisher_.publish_intensity(snapshot.movement_metric, snapshot.threshold);
 }
 
 void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
@@ -102,6 +103,7 @@ void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   if (this->threshold_number_ != nullptr) {
     this->threshold_number_->publish_state(snapshot.threshold);
   }
+  this->sensor_publisher_.publish_intensity(snapshot.movement_metric, snapshot.threshold);
 }
 
 void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
@@ -186,9 +188,11 @@ void ESpectreComponent::dump_config() {
   }
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SENSORS");
-  ESP_LOGCONFIG(TAG, " ├─ Movement ........... %s", 
+  ESP_LOGCONFIG(TAG, " ├─ Movement ........... %s",
                 this->sensor_publisher_.has_movement_sensor() ? "[OK]" : "[--]");
-  ESP_LOGCONFIG(TAG, " └─ Motion Binary ...... %s", 
+  ESP_LOGCONFIG(TAG, " ├─ Intensity .......... %s",
+                this->sensor_publisher_.has_intensity_sensor() ? "[OK]" : "[--]");
+  ESP_LOGCONFIG(TAG, " └─ Motion Binary ...... %s",
                 this->sensor_publisher_.has_motion_binary_sensor() ? "[OK]" : "[--]");
   ESP_LOGCONFIG(TAG, "");
 }

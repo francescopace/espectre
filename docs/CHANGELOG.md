@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **ESPHome Intensity sensor**: the frontend now publishes a derived `intensity_sensor` (`min(200, movement / threshold × 100)`) so Home Assistant gauges stay meaningful when Classic adapts the threshold at boot, without a template helper.
 - **Synthetic low-RSSI dataset generator**: reproducible C3, C5, C6, and S3 weak-link profiles now derive clearly marked NPZ captures from registered real data, jointly fit the production Core-6 feature distribution, embed ML-ready fit metadata in each NPZ, register them in the standard label directories with compact `low_rssi` and `synthetic` markers, prefer real low-RSSI pairs, and provide a batch entry point for compatible captures without real weak-link coverage.
 - **Dual licensing**: ESPectre is now offered under GPLv3 or a separate commercial license for proprietary integrations (`LICENSING.md`), and the CLA check returns alongside the DCO check so contributions can be distributed under both tracks.
 - **Embedding guide** (`docs/EMBEDDING.md`): how to integrate the shared `core` and `runtime` layers into third-party ESP32 firmware, with the published frontends as reference integrations.

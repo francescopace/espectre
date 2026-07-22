@@ -1,8 +1,8 @@
 /*
  * ESPectre - Sensor Publisher
  *
- * Publishes motion, movement, and periodic status updates through ESPHome
- * sensors.
+ * Publishes motion, movement, intensity, and periodic status updates through
+ * ESPHome sensors.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -30,6 +30,7 @@ class SensorPublisher {
  public:
   // Motion sensors
   void set_movement_sensor(sensor::Sensor *sensor) { movement_sensor_ = sensor; }
+  void set_intensity_sensor(sensor::Sensor *sensor) { intensity_sensor_ = sensor; }
   void set_motion_binary_sensor(binary_sensor::BinarySensor *sensor) { motion_binary_sensor_ = sensor; }
   
   /**
@@ -45,6 +46,17 @@ class SensorPublisher {
    * @param movement_metric Movement metric value
    */
   void publish_movement_metric(float movement_metric);
+
+  /**
+   * Publish movement relative to the current threshold as intensity percent.
+   *
+   * Intensity is min(200, movement / threshold * 100). Values at or above 100
+   * mean the movement metric has reached or exceeded the decision threshold.
+   *
+   * @param movement_metric Movement metric value
+   * @param threshold Current probability threshold
+   */
+  void publish_intensity(float movement_metric, float threshold);
   
   /**
    * Log status with progress bar
@@ -62,6 +74,7 @@ class SensorPublisher {
    * Check if sensors are configured
    */
   bool has_movement_sensor() const { return movement_sensor_ != nullptr; }
+  bool has_intensity_sensor() const { return intensity_sensor_ != nullptr; }
   bool has_motion_binary_sensor() const { return motion_binary_sensor_ != nullptr; }
   
   /**
@@ -71,6 +84,7 @@ class SensorPublisher {
   
  private:
   sensor::Sensor *movement_sensor_{nullptr};
+  sensor::Sensor *intensity_sensor_{nullptr};
   binary_sensor::BinarySensor *motion_binary_sensor_{nullptr};
   PeriodicSensingStatusLogger status_logger_{};
 };

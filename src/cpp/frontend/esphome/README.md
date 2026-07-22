@@ -62,6 +62,7 @@ The frontend maps runtime state into ESPHome and Home Assistant entities.
 | Runtime state/event | ESPHome surface |
 |---------------------|-----------------|
 | movement metric | `movement_sensor` |
+| movement vs threshold | `intensity_sensor` |
 | motion state | `motion_sensor` |
 | runtime threshold write | `threshold_number` |
 | runtime detector selection | `detector_select` |
@@ -90,6 +91,7 @@ control is exposed separately through the entities below:
 | Runtime surface | Config key | Runtime behavior |
 |-----------------|------------|------------------|
 | Movement score | `movement_sensor` | Read-only Home Assistant sensor |
+| Intensity | `intensity_sensor` | Read-only movement-vs-threshold percent (0–200) |
 | Motion state | `motion_sensor` | Read-only Home Assistant binary sensor |
 | Threshold | `threshold_number` | Writable runtime threshold control |
 | Detector | `detector_select` | Writable, persisted `classic` / `ml` selection |
@@ -137,6 +139,7 @@ espectre:
 | Sensor config | Type | Default name | Description |
 |---------------|------|--------------|-------------|
 | `movement_sensor` | sensor | `Movement Score` | Current movement score (0.0–1.0) |
+| `intensity_sensor` | sensor | `Intensity` | Movement relative to threshold (`min(200, movement / threshold × 100)`); 100% is at threshold |
 | `motion_sensor` | binary_sensor | `Motion Detected` | Edge-driven motion state |
 | `threshold_number` | number | `Threshold` | Runtime probability threshold (0.0–1.0) |
 | `detector_select` | select | `Detector` | Runtime `classic` / `ml` selection |
@@ -196,8 +199,8 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-The ESPHome frontend exposes movement, motion, threshold control, and
-recalibration as Home Assistant entities.
+The ESPHome frontend exposes movement, intensity, motion, threshold control,
+and recalibration as Home Assistant entities.
 
 To manage configuration and OTA updates, install ESPHome Device Builder and
 adopt the discovered device. The imported configuration keeps the Git ref

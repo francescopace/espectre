@@ -20,6 +20,7 @@ from esphome.const import (
     STATE_CLASS_MEASUREMENT,
     DEVICE_CLASS_MOTION,
     UNIT_EMPTY,
+    UNIT_PERCENT,
     ENTITY_CATEGORY_CONFIG,
     ICON_PULSE,
 )
@@ -55,6 +56,7 @@ CONF_DEBUG_TELEMETRY = "debug_telemetry"
 
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
+CONF_INTENSITY_SENSOR = "intensity_sensor"
 CONF_MOTION_SENSOR = "motion_sensor"
 
 # Number controls
@@ -200,6 +202,12 @@ CONFIG_SCHEMA = cv.Schema({
         accuracy_decimals=2,
         state_class=STATE_CLASS_MEASUREMENT,
     ),
+    cv.Optional(CONF_INTENSITY_SENSOR, default={"name": "Intensity"}): sensor.sensor_schema(
+        unit_of_measurement=UNIT_PERCENT,
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        icon="mdi:gauge",
+    ),
     cv.Optional(CONF_MOTION_SENSOR, default={"name": "Motion Detected"}): binary_sensor.binary_sensor_schema(
         device_class=DEVICE_CLASS_MOTION,
     ),
@@ -275,8 +283,10 @@ async def to_code(config):
     # Register sensors (required, always present)
     sens = await sensor.new_sensor(config[CONF_MOVEMENT_SENSOR])
     cg.add(var.set_movement_sensor(sens))
-    
-    
+
+    sens = await sensor.new_sensor(config[CONF_INTENSITY_SENSOR])
+    cg.add(var.set_intensity_sensor(sens))
+
     sens = await binary_sensor.new_binary_sensor(config[CONF_MOTION_SENSOR])
     cg.add(var.set_motion_binary_sensor(sens))
     

@@ -13,7 +13,7 @@
 # - LCD_BL:  GPIO46
 
 packages:
-  base: !include espectre-s3.yaml
+  base: !include espectre-s3-dev.yaml
 
 # Touch-LCD board profile
 esp32:
