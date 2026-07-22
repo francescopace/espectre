@@ -346,10 +346,7 @@ def predict_logits(model, X):
     return logits.detach().cpu().numpy().reshape(-1)
 
 from tools.lib.csi_io import load_npz_as_packets
-from tools.lib.dataset_metadata import (
-    DATA_DIR,
-    resolve_explicit_pair,
-)
+from tools.lib.dataset_metadata import DATA_DIR
 from config import (
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
@@ -358,13 +355,16 @@ from config import (
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
     LOWPASS_CUTOFF,
+    MOTION_OFF_HITS,
+    MOTION_ON_HITS,
     SEG_WINDOW_SIZE,
 )
+from detector_interface import MotionState
 from segmentation import SegmentationContext
 from tools.lib.performance_report import (
     evaluate_idle_runtime_policy as evaluate_idle_runtime_policy_states,
 )
-from runtime_policy import make_evaluation_cadence
+from runtime_policy import RuntimeMotionPolicy, make_evaluation_cadence
 from csi_features import (
     DEFAULT_FEATURES,
     L1_DELTA_LAG,
@@ -399,7 +399,7 @@ DEFAULT_FP_WEIGHT = 2.0
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
-TRAINING_FEATURE_CACHE_VERSION = 7
+TRAINING_FEATURE_CACHE_VERSION = 8
 # All chips included: MLDetector keeps the legacy variance-baseline CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
 DEFAULT_EXCLUDED_CHIPS = ()
@@ -429,13 +429,18 @@ ROBUSTNESS_FILTER_SEEDS = (20260518, 20260519, 20260520)
 ROBUSTNESS_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 20260522)
 ROBUSTNESS_TARGET_RECALL = 95.0
 ROBUSTNESS_TARGET_FP_RATE = 5.0
-DEFAULT_PRIMARY_GROUP_KEY = 'session_group'
+DATASET_ROLES = ('train', 'selection', 'holdout')
+DEFAULT_TRAINING_ROLES = ('train',)
+DEFAULT_PRIMARY_GROUP_KEY = 'lineage_group'
 DEFAULT_BLOCK_GROUP_KEY = 'source_file'
 DEFAULT_CV_FOLDS = 3
 DEFAULT_SHAP_BACKGROUND_SAMPLES = 100
+ROBUST_TAIL_GROUPS = 5
+OOF_F1_EQUIVALENCE_MARGIN = 0.2
 DEFAULT_REPORT_GROUP_KEYS = (
     'chip',
     'environment_group',
+    'lineage_group',
     'session_group',
     'source_file',
 )
@@ -483,6 +488,19 @@ def normalize_allowed_labels(labels):
     if labels is None:
         return None
     return {str(label).strip().lower() for label in labels if str(label).strip()} or None
+
+
+def normalize_dataset_roles(roles, *, default=DEFAULT_TRAINING_ROLES):
+    """Normalize dataset roles and reject unknown role names."""
+    if roles is None:
+        roles = default
+    if isinstance(roles, str):
+        roles = roles.split(',')
+    normalized = {str(role).strip().lower() for role in roles if str(role).strip()}
+    unknown = normalized.difference(DATASET_ROLES)
+    if unknown:
+        raise ValueError(f"Unsupported dataset role(s): {', '.join(sorted(unknown))}")
+    return normalized
 
 
 
@@ -778,6 +796,9 @@ def _build_file_context(label, file_info, dataset_info=None):
     )
     pair_id = _build_pair_id(label, file_info, dataset_info=dataset_info)
     day_group = collected_at.date().isoformat() if collected_at else 'unknown-day'
+    session_group = explicit_session or pair_id or f"file:{filename or 'unknown'}"
+    lineage_group = str(file_info.get('_lineage_group') or session_group)
+    dataset_role = str(file_info.get('dataset_role', 'train')).strip().lower() or 'train'
 
     return {
         'chip': chip,
@@ -786,7 +807,12 @@ def _build_file_context(label, file_info, dataset_info=None):
         'pair_id': pair_id or '',
         # Session grouping is the primary evaluation key. Use explicit session
         # metadata when available, otherwise fall back to the paired capture or file.
-        'session_group': explicit_session or pair_id or f"file:{filename or 'unknown'}",
+        'session_group': session_group,
+        # Synthetic derivatives and their real source pair share one lineage so
+        # grouped CV cannot train on one representation and validate on the other.
+        'lineage_group': lineage_group,
+        'dataset_role': dataset_role,
+        'synthetic': bool(file_info.get('synthetic', False)),
         # Keep a dedicated environment field so future datasets can report
         # room/environment worst-groups without changing the training code again.
         'environment_group': explicit_environment or 'unknown-environment',
@@ -799,6 +825,8 @@ def _fallback_file_context(filename, label, packet):
         'filename': filename,
         'chip': packet.get('chip', 'unknown'),
         'collected_at': packet.get('collected_at', ''),
+        'dataset_role': packet.get('dataset_role', 'train'),
+        'synthetic': packet.get('synthetic', False),
     }
     return _build_file_context(label, fallback)
 
@@ -823,6 +851,28 @@ def is_motion_label(label_name, dataset_info):
     return label_name == 'motion'
 
 
+def _npz_provenance_fields(label, file_info):
+    """Read scalar lineage metadata missing from older dataset-info entries."""
+    fields = {}
+    filename = str(file_info.get('filename', ''))
+    if not filename:
+        return fields
+    path = DATA_DIR / str(label) / filename
+    if not path.exists():
+        return fields
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            for key in ('source_dataset', 'generation_group', 'generation_mode', 'synthetic'):
+                if key not in data.files:
+                    continue
+                value = np.asarray(data[key])
+                if value.ndim == 0:
+                    fields[key] = value.item()
+    except (OSError, ValueError):
+        return fields
+    return fields
+
+
 def get_file_metadata(dataset_info):
     """
     Get metadata for all files in dataset_info.json.
@@ -838,17 +888,44 @@ def get_file_metadata(dataset_info):
     """
     file_metadata = {}
     files_by_label = dataset_info.get('files', {})
+    entries_by_filename = {}
     for label, file_list in files_by_label.items():
         for file_info in file_list:
             filename = file_info.get('filename', '')
             if filename:
-                file_metadata[filename] = _build_file_context(label, file_info, dataset_info=dataset_info)
+                enriched = dict(file_info)
+                for key, value in _npz_provenance_fields(label, enriched).items():
+                    enriched.setdefault(key, value)
+                entries_by_filename[str(filename)] = (str(label), enriched)
+
+    for filename, (label, file_info) in entries_by_filename.items():
+        base_context = _build_file_context(label, file_info, dataset_info=dataset_info)
+        lineage_group = base_context['session_group']
+        source_dataset = str(file_info.get('source_dataset', '')).strip()
+        if source_dataset and source_dataset in entries_by_filename:
+            source_label, source_info = entries_by_filename[source_dataset]
+            source_context = _build_file_context(
+                source_label,
+                source_info,
+                dataset_info=dataset_info,
+            )
+            lineage_group = source_context['session_group']
+        elif file_info.get('synthetic') and file_info.get('generation_group'):
+            lineage_group = f"synthetic:{file_info['generation_group']}"
+        enriched = dict(file_info)
+        enriched['_lineage_group'] = lineage_group
+        file_metadata[filename] = _build_file_context(
+            label,
+            enriched,
+            dataset_info=dataset_info,
+        )
     return file_metadata
 
 
 def load_all_data(environment_filter=None, excluded_chips=None,
                   allowed_labels=BINARY_TRAINING_LABELS,
-                  require_sync_metadata=False):
+                  require_sync_metadata=False,
+                  dataset_roles=DEFAULT_TRAINING_ROLES):
     """
     Load all available CSI data from the data/ directory.
 
@@ -868,6 +945,7 @@ def load_all_data(environment_filter=None, excluded_chips=None,
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     allowed_labels = normalize_allowed_labels(allowed_labels)
+    dataset_roles = normalize_dataset_roles(dataset_roles)
     all_packets = []
     stats = {
         'chips': set(),
@@ -878,7 +956,9 @@ def load_all_data(environment_filter=None, excluded_chips=None,
         'excluded_chips': set(),
         'excluded_environments': set(),
         'excluded_missing_sync_metadata': set(),
+        'excluded_dataset_roles': set(),
         'session_groups': set(),
+        'lineage_groups': set(),
         'environment_groups': set(),
         'sync_metadata_files': set(),
     }
@@ -920,6 +1000,11 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                 if meta is None:
                     meta = _fallback_file_context(npz_file.name, label_lc, packets[0])
 
+                dataset_role = meta.get('dataset_role', 'train')
+                if dataset_role not in dataset_roles:
+                    stats['excluded_dataset_roles'].add(dataset_role)
+                    continue
+
                 environment_group = meta.get('environment_group', 'unknown-environment')
                 if environment_filter is not None and environment_group not in environment_filter:
                     stats['excluded_environments'].add(environment_group)
@@ -945,6 +1030,7 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                 stats['chips'].add(chip)
 
                 stats['session_groups'].add(meta.get('session_group', f"file:{npz_file.name}"))
+                stats['lineage_groups'].add(meta.get('lineage_group', f"file:{npz_file.name}"))
                 if environment_group != 'unknown-environment':
                     stats['environment_groups'].add(environment_group)
 
@@ -960,6 +1046,9 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                     p['day_group'] = meta.get('day_group', 'unknown-day')
                     p['pair_id'] = meta.get('pair_id', '')
                     p['session_group'] = meta.get('session_group', f"file:{npz_file.name}")
+                    p['lineage_group'] = meta.get('lineage_group', p['session_group'])
+                    p['dataset_role'] = dataset_role
+                    p['synthetic'] = bool(meta.get('synthetic', False))
                     p['environment_group'] = environment_group
                 
                 all_packets.extend(packets)
@@ -973,7 +1062,9 @@ def load_all_data(environment_filter=None, excluded_chips=None,
     stats['excluded_chips'] = sorted(stats['excluded_chips'])
     stats['excluded_environments'] = sorted(stats['excluded_environments'])
     stats['excluded_missing_sync_metadata'] = sorted(stats['excluded_missing_sync_metadata'])
+    stats['excluded_dataset_roles'] = sorted(stats['excluded_dataset_roles'])
     stats['session_groups'] = sorted(stats['session_groups'])
+    stats['lineage_groups'] = sorted(stats['lineage_groups'])
     stats['environment_groups'] = sorted(stats['environment_groups'])
     stats['sync_metadata_files'] = sorted(stats['sync_metadata_files'])
     return all_packets, stats
@@ -981,11 +1072,13 @@ def load_all_data(environment_filter=None, excluded_chips=None,
 
 def _training_dataset_manifest(environment_filter=None,
                                excluded_chips=None,
-                               allowed_labels=BINARY_TRAINING_LABELS):
+                               allowed_labels=BINARY_TRAINING_LABELS,
+                               dataset_roles=DEFAULT_TRAINING_ROLES):
     """Build the dataset fingerprint shared by feature and weight caches."""
     allowed_labels = sorted(normalize_allowed_labels(allowed_labels) or ())
     environment_filter = sorted(parse_environment_filter(environment_filter) or ())
     excluded_chips = sorted(parse_chip_filter(excluded_chips) or ())
+    dataset_roles = sorted(normalize_dataset_roles(dataset_roles))
     files = []
     for npz_file in sorted(DATA_DIR.glob('*/*.npz')):
         if allowed_labels and npz_file.parent.name.lower() not in allowed_labels:
@@ -1014,6 +1107,7 @@ def _training_dataset_manifest(environment_filter=None,
         'allowed_labels': allowed_labels,
         'environment_filter': environment_filter,
         'excluded_chips': excluded_chips,
+        'dataset_roles': dataset_roles,
         'dataset_info': dataset_info,
         'files': files,
     }
@@ -1022,6 +1116,7 @@ def _training_dataset_manifest(environment_filter=None,
 def _feature_cache_manifest(feature_names, environment_filter=None,
                             excluded_chips=None,
                             allowed_labels=BINARY_TRAINING_LABELS,
+                            dataset_roles=DEFAULT_TRAINING_ROLES,
                             window_size=SEG_WINDOW_SIZE,
                             enable_lowpass=ENABLE_LOWPASS_FILTER,
                             lowpass_cutoff=LOWPASS_CUTOFF,
@@ -1035,6 +1130,7 @@ def _feature_cache_manifest(feature_names, environment_filter=None,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         allowed_labels=allowed_labels,
+        dataset_roles=dataset_roles,
     )
     return {
         'version': TRAINING_FEATURE_CACHE_VERSION,
@@ -1175,7 +1271,8 @@ def augment_csi_packets(packets, config, seed):
 
 def load_training_matrix(environment_filter=None, excluded_chips=None,
                          feature_names=None, use_cache=True,
-                         packet_augmentation=None, augmentation_seed=None):
+                         packet_augmentation=None, augmentation_seed=None,
+                         dataset_roles=DEFAULT_TRAINING_ROLES):
     """Load or build the cached feature matrix used by training."""
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
@@ -1186,6 +1283,7 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         allowed_labels=BINARY_TRAINING_LABELS,
+        dataset_roles=dataset_roles,
         packet_augmentation=packet_augmentation,
         augmentation_seed=augmentation_seed,
     )
@@ -1209,6 +1307,7 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
         all_packets, stats = load_all_data(
             environment_filter=environment_filter,
             excluded_chips=excluded_chips,
+            dataset_roles=dataset_roles,
         )
         if packet_augmentation:
             all_packets = augment_csi_packets(all_packets, packet_augmentation, augmentation_seed)
@@ -1299,10 +1398,13 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
     sample_context = {
         'chip': [],
         'source_file': [],
+        'lineage_group': [],
         'session_group': [],
         'environment_group': [],
         'pair_id': [],
         'day_group': [],
+        'dataset_role': [],
+        'synthetic': [],
         'label_name': [],
         'packet_index': [],
         'window_index': [],
@@ -1319,10 +1421,13 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         file_context = {
             'chip': chip,
             'source_file': source_file,
+            'lineage_group': file_packets[0].get('lineage_group', f"file:{source_file}"),
             'session_group': file_packets[0].get('session_group', f"file:{source_file}"),
             'environment_group': file_packets[0].get('environment_group', 'unknown-environment'),
             'pair_id': file_packets[0].get('pair_id', ''),
             'day_group': file_packets[0].get('day_group', 'unknown-day'),
+            'dataset_role': file_packets[0].get('dataset_role', 'train'),
+            'synthetic': bool(file_packets[0].get('synthetic', False)),
         }
         ctx = SegmentationContext(
             window_size=window_size,
@@ -1760,10 +1865,27 @@ def build_group_report(y_true, y_prob, group_values):
     fp_rows = [r for r in rows if r['negatives'] > 0]
     rows_by_recall = sorted(recall_rows or rows, key=lambda r: (r['recall'], r['fp_rate'], -r['samples']))
     rows_by_fp = sorted(fp_rows or rows, key=lambda r: (-r['fp_rate'], r['recall'], -r['samples']))
+    recall_tail = rows_by_recall[:min(ROBUST_TAIL_GROUPS, len(rows_by_recall))]
+    fp_tail = rows_by_fp[:min(ROBUST_TAIL_GROUPS, len(rows_by_fp))]
+
+    def tail_summary(tail_rows, metric, denominator):
+        return {
+            'value': float(np.mean([row[metric] for row in tail_rows])),
+            'groups': [row['group'] for row in tail_rows],
+            # One changed evaluation per group is the natural resolution of
+            # these blocked rates; use its mean as the equivalence margin.
+            'resolution': float(np.mean([
+                100.0 / max(int(row[denominator]), 1)
+                for row in tail_rows
+            ])),
+        }
+
     return {
         'rows': rows,
         'worst_recall': rows_by_recall[0],
         'worst_fp_rate': rows_by_fp[0],
+        'tail_recall': tail_summary(recall_tail, 'recall', 'positives'),
+        'tail_fp_rate': tail_summary(fp_tail, 'fp_rate', 'negatives'),
         'count': len(rows),
     }
 
@@ -1930,20 +2052,182 @@ def print_gain_stress_summary(results):
 def build_candidate_key(cv_results):
     """Ranking key for seeds/architectures under the robust evaluation protocol."""
     group_reports = cv_results.get('group_reports', {})
-    session_report = group_reports.get('session_group') or {}
+    if not group_reports and cv_results.get('candidate_key') is not None:
+        return tuple(float(value) for value in cv_results['candidate_key'])
+    # Real sessions lead ranking whenever the provenance split exists; the
+    # synthetic stress metrics act only as regression guards in the comparison.
+    session_report = (
+        group_reports.get('real_session_group')
+        or group_reports.get('session_group')
+        or {}
+    )
     chip_report = group_reports.get('chip') or {}
 
     worst_session_recall = session_report.get('worst_recall', {}).get('recall', 0.0)
     worst_session_fp = session_report.get('worst_fp_rate', {}).get('fp_rate', 100.0)
     worst_chip_recall = chip_report.get('worst_recall', {}).get('recall', 0.0)
+    worst_chip_fp = chip_report.get('worst_fp_rate', {}).get('fp_rate', 100.0)
+    tail_session_recall = session_report.get('tail_recall', {}).get(
+        'value', worst_session_recall)
+    tail_session_fp = session_report.get('tail_fp_rate', {}).get(
+        'value', worst_session_fp)
 
     return (
+        tail_session_recall,
+        -tail_session_fp,
         worst_session_recall,
         worst_chip_recall,
         -worst_session_fp,
+        -worst_chip_fp,
         cv_results.get('oof_f1', 0.0),
         cv_results.get('f1_mean', 0.0),
     )
+
+
+def _row_resolution(row, denominator):
+    """Return the percentage-point step represented by one changed outcome."""
+    if not row:
+        return 0.0
+    count = int(row.get(denominator, 0))
+    return 100.0 / count if count > 0 else 0.0
+
+
+def compare_robust_cv(candidate, baseline):
+    """Compare grouped OOF results with one-event equivalence margins."""
+    candidate_reports = candidate.get('group_reports', {})
+    baseline_reports = baseline.get('group_reports', {})
+    # Real sessions decide movement; combined reports remain the fallback for
+    # datasets that never produced a provenance split.
+    candidate_session = (
+        candidate_reports.get('real_session_group')
+        or candidate_reports.get('session_group')
+        or {}
+    )
+    baseline_session = (
+        baseline_reports.get('real_session_group')
+        or baseline_reports.get('session_group')
+        or {}
+    )
+    candidate_synthetic = candidate_reports.get('synthetic_session_group') or {}
+    baseline_synthetic = baseline_reports.get('synthetic_session_group') or {}
+    candidate_chip = candidate_reports.get('chip') or {}
+    baseline_chip = baseline_reports.get('chip') or {}
+
+    checks = []
+
+    def add_higher(label, candidate_value, baseline_value, margin, guard_only=False):
+        delta = float(candidate_value) - float(baseline_value)
+        checks.append({
+            'label': label,
+            'delta': delta,
+            'margin': float(margin),
+            'regressed': delta < -float(margin) - 1e-9,
+            'improved': not guard_only and delta > float(margin) + 1e-9,
+        })
+
+    def add_lower(label, candidate_value, baseline_value, margin, guard_only=False):
+        delta = float(candidate_value) - float(baseline_value)
+        checks.append({
+            'label': label,
+            'delta': delta,
+            'margin': float(margin),
+            'regressed': delta > float(margin) + 1e-9,
+            'improved': not guard_only and delta < -float(margin) - 1e-9,
+        })
+
+    def add_session_checks(candidate_report, baseline_report, scope,
+                           guard_only=False):
+        candidate_worst_recall = candidate_report.get('worst_recall', {})
+        baseline_worst_recall = baseline_report.get('worst_recall', {})
+        add_higher(
+            f'CV worst-{scope} recall',
+            candidate_worst_recall.get('recall', 0.0),
+            baseline_worst_recall.get('recall', 0.0),
+            max(
+                _row_resolution(candidate_worst_recall, 'positives'),
+                _row_resolution(baseline_worst_recall, 'positives'),
+            ),
+            guard_only=guard_only,
+        )
+
+        candidate_worst_fp = candidate_report.get('worst_fp_rate', {})
+        baseline_worst_fp = baseline_report.get('worst_fp_rate', {})
+        add_lower(
+            f'CV worst-{scope} FP',
+            candidate_worst_fp.get('fp_rate', 100.0),
+            baseline_worst_fp.get('fp_rate', 100.0),
+            max(
+                _row_resolution(candidate_worst_fp, 'negatives'),
+                _row_resolution(baseline_worst_fp, 'negatives'),
+            ),
+            guard_only=guard_only,
+        )
+
+        for key, label, higher_is_better in (
+            ('tail_recall', f'CV tail-{scope} recall', True),
+            ('tail_fp_rate', f'CV tail-{scope} FP', False),
+        ):
+            candidate_tail = candidate_report.get(key, {})
+            baseline_tail = baseline_report.get(key, {})
+            candidate_value = candidate_tail.get('value')
+            baseline_value = baseline_tail.get('value')
+            if candidate_value is None or baseline_value is None:
+                continue
+            margin = max(
+                float(candidate_tail.get('resolution', 0.0)),
+                float(baseline_tail.get('resolution', 0.0)),
+            )
+            if higher_is_better:
+                add_higher(label, candidate_value, baseline_value, margin,
+                           guard_only=guard_only)
+            else:
+                add_lower(label, candidate_value, baseline_value, margin,
+                          guard_only=guard_only)
+
+    add_session_checks(candidate_session, baseline_session, 'session')
+    # Synthetic stress sessions may only block: a candidate cannot win by
+    # improving synthetic derivatives, nor materially regress on them.
+    if candidate_synthetic and baseline_synthetic:
+        add_session_checks(
+            candidate_synthetic,
+            baseline_synthetic,
+            'synthetic-session',
+            guard_only=True,
+        )
+
+    for report_key, label, higher_is_better, denominator in (
+        ('worst_recall', 'CV worst-chip recall', True, 'positives'),
+        ('worst_fp_rate', 'CV worst-chip FP', False, 'negatives'),
+    ):
+        candidate_row = candidate_chip.get(report_key, {})
+        baseline_row = baseline_chip.get(report_key, {})
+        metric = 'recall' if higher_is_better else 'fp_rate'
+        margin = max(
+            _row_resolution(candidate_row, denominator),
+            _row_resolution(baseline_row, denominator),
+        )
+        if higher_is_better:
+            add_higher(label, candidate_row.get(metric, 0.0), baseline_row.get(metric, 0.0), margin)
+        else:
+            add_lower(label, candidate_row.get(metric, 100.0), baseline_row.get(metric, 100.0), margin)
+
+    add_higher(
+        'Blocked OOF F1',
+        candidate.get('oof_f1', 0.0),
+        baseline.get('oof_f1', 0.0),
+        OOF_F1_EQUIVALENCE_MARGIN,
+    )
+
+    regressions = [check for check in checks if check['regressed']]
+    improvements = [check for check in checks if check['improved']]
+    return {
+        'passed': not regressions and bool(improvements),
+        'non_regression': not regressions,
+        'material_improvement': bool(improvements),
+        'checks': checks,
+        'regressions': regressions,
+        'improvements': improvements,
+    }
 
 
 def build_model(hidden_layers=None, num_features=12, use_dropout=True, dropout_rate=0.2,
@@ -2399,6 +2683,27 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
             )
             if report is not None:
                 group_reports[group_key] = report
+        # Provenance-split session reports: synthetic derivatives may stress the
+        # model, but they must not mask (or fake) movement in the real-session
+        # worst/tail metrics that lead promotion.
+        synthetic_flags = np.asarray(
+            scored_context.get('synthetic', ()), dtype=bool)
+        session_values = scored_context.get('session_group')
+        if session_values is not None and synthetic_flags.size and synthetic_flags.any():
+            for provenance_key, provenance_mask in (
+                ('real_session_group', ~synthetic_flags),
+                ('synthetic_session_group', synthetic_flags),
+            ):
+                provenance_idx = np.flatnonzero(provenance_mask)
+                if provenance_idx.size == 0:
+                    continue
+                report = build_group_report(
+                    y[scored_idx][provenance_idx],
+                    oof_prob[scored_idx][provenance_idx],
+                    np.asarray(session_values)[provenance_idx],
+                )
+                if report is not None:
+                    group_reports[provenance_key] = report
         result['group_reports'] = group_reports
 
     return result
@@ -3640,7 +3945,11 @@ def print_cv_summary(cv_results, title="Primary grouped CV"):
     print(f"  Scored windows: {cv_results['scored_samples']} / {cv_results['dense_samples']}")
 
     group_reports = cv_results.get('group_reports', {})
-    for group_key in DEFAULT_REPORT_GROUP_KEYS:
+    provenance_keys = tuple(
+        key for key in ('real_session_group', 'synthetic_session_group')
+        if key in group_reports
+    )
+    for group_key in DEFAULT_REPORT_GROUP_KEYS + provenance_keys:
         report = group_reports.get(group_key)
         if not report:
             continue
@@ -3656,6 +3965,14 @@ def print_cv_summary(cv_results, title="Primary grouped CV"):
                 f"  Worst {group_key} FP:     "
                 f"{worst_fp['group']} -> FP={worst_fp['fp_rate']:.1f}% "
                 f"R={worst_fp['recall']:.1f}% (n={worst_fp['samples']})"
+            )
+        if group_key in ('lineage_group', 'session_group') + provenance_keys:
+            tail_recall = report.get('tail_recall', {})
+            tail_fp = report.get('tail_fp_rate', {})
+            print(
+                f"  Worst-{len(tail_recall.get('groups', []))} {group_key} mean: "
+                f"R={tail_recall.get('value', 0.0):.1f}% "
+                f"FP={tail_fp.get('value', 0.0):.1f}%"
             )
 
 
@@ -3755,6 +4072,8 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
               hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
               batch_size=DEFAULT_BATCH_SIZE, export_artifacts=True,
               evaluate_deployment=False,
+              deployment_roles=('selection', 'holdout'),
+              allow_legacy_gate_fallback=True,
               environment_filter=None, excluded_chips=None,
               positive_chip_boost=None,
               use_cache=True, augment=False):
@@ -3775,6 +4094,9 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         export_artifacts: If False, leave runtime artifacts unchanged.
         evaluate_deployment: Train the final in-memory model and run the paired
                              gate even when artifacts are not exported.
+        deployment_roles: Dataset roles allowed in the deployment replay.
+        allow_legacy_gate_fallback: Use the latest real train pair when no
+                                    role-isolated replay is configured.
         environment_filter: Optional environment name(s) to keep.
         excluded_chips: Optional chip name(s) to exclude.
         positive_chip_boost: Optional {CHIP: factor} boost applied to motion
@@ -3862,6 +4184,12 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     if stats.get('excluded_environments'):
         print(f"  Excluded environments: {', '.join(stats['excluded_environments'])}")
     print(f"  Session groups: {len(stats.get('session_groups', []))}")
+    print(f"  Lineage groups: {len(stats.get('lineage_groups', []))}")
+    if stats.get('excluded_dataset_roles'):
+        print(
+            "  Reserved roles excluded from training: "
+            + ', '.join(stats['excluded_dataset_roles'])
+        )
     if stats.get('environment_groups'):
         print(f"  Named environments: {len(stats['environment_groups'])}")
     for label, count in sorted(stats['labels'].items()):
@@ -4020,24 +4348,50 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     print(f"  Final training time: {format_duration(perf_counter() - final_train_start)}")
 
     if evaluate_deployment:
-        print("\nEvaluating in-memory candidate on paired recordings...")
-        paired_gate = evaluate_paired_gate(model, scaler, actual_feature_names)
+        print("\nEvaluating in-memory candidate on deployment safety recordings...")
+        paired_gate = evaluate_paired_gate(
+            model,
+            scaler,
+            actual_feature_names,
+            roles=deployment_roles,
+            allow_legacy_fallback=allow_legacy_gate_fallback,
+        )
+        quiet_gate = evaluate_quiet_gate(
+            model,
+            scaler,
+            actual_feature_names,
+            roles=deployment_roles,
+        )
         cv_results['paired'] = paired_gate
+        cv_results['quiet'] = quiet_gate
         print(
             f"  Paired: pass={paired_gate['pass_count']} "
             f"maxFP={paired_gate['max_fp_rate']:.2f}% "
-            f"worstRecall={paired_gate['worst_chip_recall']:.2f}%"
+            f"worstRecall={paired_gate['worst_chip_recall']:.2f}% "
+            f"alarms={paired_gate.get('total_effective_alarms', 0)}"
         )
+        if quiet_gate is None:
+            print("  Quiet holdout: not configured")
+        else:
+            print(
+                f"  Quiet holdout: {'pass' if quiet_gate['passed'] else 'fail'} "
+                f"maxFP={quiet_gate['max_fp_rate']:.2f}% "
+                f"alarms={quiet_gate['total_effective_alarms']}"
+            )
         paired_total = len(paired_gate.get('by_chip', {}))
         if export_artifacts and (
             paired_total == 0
             or paired_gate['pass_count'] < paired_total
+            or (quiet_gate is not None and not quiet_gate['passed'])
         ):
-            print("Error: paired deployment gate failed; runtime artifacts were not exported")
+            print("Error: deployment safety gate failed; runtime artifacts were not exported")
             return 1, seed, cv_results
         if export_artifacts:
             try:
-                baseline_paired = evaluate_exported_paired_gate()
+                baseline_paired = evaluate_exported_paired_gate(
+                    roles=deployment_roles,
+                    allow_legacy_fallback=allow_legacy_gate_fallback,
+                )
             except (FileNotFoundError, ImportError, AttributeError) as exc:
                 baseline_paired = None
                 print(f"  Exported baseline unavailable ({exc}); using absolute paired gate")
@@ -4127,7 +4481,12 @@ def summarize_gate(by_chip):
         return None
     return {
         'by_chip': by_chip,
-        'pass_count': int(sum(1 for row in rows if row['recall'] > 95.0 and row['fp_rate'] < 5.0)),
+        'pass_count': int(sum(
+            1 for row in rows
+            if row['recall'] > ROBUSTNESS_TARGET_RECALL
+            and row['fp_rate'] < ROBUSTNESS_TARGET_FP_RATE
+            and row.get('effective_alarms', 0) == 0
+        )),
         'mean_recall': float(np.mean([row['recall'] for row in rows])),
         'worst_chip_recall': float(np.min([row['recall'] for row in rows])),
         'mean_fp_rate': float(np.mean([row['fp_rate'] for row in rows])),
@@ -4136,12 +4495,32 @@ def summarize_gate(by_chip):
         'worst_chip_f1': float(np.min([row['f1'] for row in rows])),
         'total_fp': int(sum(row['fp'] for row in rows)),
         'total_fn': int(sum(row['fn'] for row in rows)),
+        'total_effective_alarms': int(sum(row.get('effective_alarms', 0) for row in rows)),
+        'max_effective_alarms': int(max(row.get('effective_alarms', 0) for row in rows)),
     }
 
 
 def evaluate_idle_runtime_policy(probabilities, threshold=0.5):
     """Evaluate deploy-time cadence and hit filtering on an IDLE score stream."""
     return evaluate_idle_runtime_policy_states(np.asarray(probabilities) > threshold)
+
+
+def evaluate_runtime_policy_evaluations(raw_motion_states):
+    """Apply production hit filtering to states already sampled at eval ticks."""
+    policy = RuntimeMotionPolicy(EVALUATION_INTERVAL, MOTION_ON_HITS, MOTION_OFF_HITS)
+    effective_alarms = 0
+    false_motion_evaluations = 0
+    for raw_motion in raw_motion_states:
+        raw_state = MotionState.MOTION if raw_motion else MotionState.IDLE
+        effective_state, changed = policy.apply_state(raw_state)
+        if changed and effective_state == MotionState.MOTION:
+            effective_alarms += 1
+        if effective_state == MotionState.MOTION:
+            false_motion_evaluations += 1
+    return {
+        'effective_alarms': effective_alarms,
+        'false_motion_evaluations': false_motion_evaluations,
+    }
 
 
 def _layer_arrays_from_model(model):
@@ -4289,6 +4668,7 @@ def evaluate_streaming_split(evaluator, static_presence_packets, motion_packets,
     static_presence_eval_count = 0
     motion_eval_count = 0
     static_presence_motion_packets = 0
+    static_presence_motion_states = []
     motion_with_motion = 0
     motion_without_motion = 0
 
@@ -4300,7 +4680,9 @@ def evaluate_streaming_split(evaluator, static_presence_packets, motion_packets,
         if i < warmup or prob is None:
             continue
         static_presence_eval_count += 1
-        if prob > threshold:
+        is_motion = prob > threshold
+        static_presence_motion_states.append(is_motion)
+        if is_motion:
             static_presence_motion_packets += 1
 
     cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
@@ -4339,6 +4721,7 @@ def evaluate_streaming_split(evaluator, static_presence_packets, motion_packets,
         'fn': int(fn),
         'static_presence_eval_count': int(static_presence_eval_count),
         'motion_eval_count': int(motion_eval_count),
+        **evaluate_runtime_policy_evaluations(static_presence_motion_states),
     }
 
 
@@ -4380,24 +4763,97 @@ def _load_npz_packets_cached(path):
     return packets
 
 
-def _iter_paired_chip_packets(chips=None):
-    """Yield (chip, static_presence_packets, motion_packets) for available pairs."""
+def _iter_paired_chip_packets(chips=None, roles=('selection',),
+                              allow_legacy_fallback=True):
+    """Yield role-isolated real pairs, or the legacy latest pair as fallback."""
+    dataset_info = load_dataset_info()
+    files = dataset_info.get('files', {})
+    roles = normalize_dataset_roles(roles, default=('selection',))
+    motion_by_name = {
+        str(entry.get('filename', '')): entry
+        for entry in files.get('motion', [])
+    }
     for chip in tuple(chips or DEFAULT_PAIRED_GATE_CHIPS):
-        try:
-            pair = resolve_explicit_pair(chip=chip, num_sc=64)
-        except FileNotFoundError:
+        role_pairs = []
+        for static_entry in files.get('static_presence', []):
+            if str(static_entry.get('chip', '')).upper() != chip:
+                continue
+            if int(static_entry.get('subcarriers', 0) or 0) != 64:
+                continue
+            if bool(static_entry.get('synthetic')):
+                continue
+            role = str(static_entry.get('dataset_role', 'train')).lower()
+            if role not in roles:
+                continue
+            motion_name = str(static_entry.get('optimal_pair_motion_file', ''))
+            motion_entry = motion_by_name.get(motion_name)
+            if motion_entry is None or bool(motion_entry.get('synthetic')):
+                continue
+            if str(motion_entry.get('dataset_role', 'train')).lower() != role:
+                continue
+            static_path = DATA_DIR / 'static_presence' / str(static_entry['filename'])
+            motion_path = DATA_DIR / 'motion' / motion_name
+            if static_path.exists() and motion_path.exists():
+                role_pairs.append((role, static_path, motion_path))
+        if role_pairs:
+            for role, static_path, motion_path in sorted(role_pairs):
+                key = f"{chip}:{role}:{static_path.name}"
+                yield (
+                    key,
+                    _load_npz_packets_cached(static_path),
+                    _load_npz_packets_cached(motion_path),
+                )
             continue
+        if not allow_legacy_fallback:
+            continue
+
+        # Backward-compatible fallback for repositories that have not assigned
+        # roles yet. Keep it explicitly real and train-only so a newly generated
+        # synthetic derivative can never become the deployment replay by being
+        # the latest timestamped pair.
+        legacy_pairs = []
+        for static_entry in files.get('static_presence', []):
+            if str(static_entry.get('chip', '')).upper() != chip:
+                continue
+            if int(static_entry.get('subcarriers', 0) or 0) != 64:
+                continue
+            if bool(static_entry.get('synthetic')):
+                continue
+            if str(static_entry.get('dataset_role', 'train')).lower() != 'train':
+                continue
+            motion_name = str(static_entry.get('optimal_pair_motion_file', ''))
+            motion_entry = motion_by_name.get(motion_name)
+            if motion_entry is None or bool(motion_entry.get('synthetic')):
+                continue
+            if str(motion_entry.get('dataset_role', 'train')).lower() != 'train':
+                continue
+            static_path = DATA_DIR / 'static_presence' / str(static_entry.get('filename', ''))
+            motion_path = DATA_DIR / 'motion' / motion_name
+            if static_path.exists() and motion_path.exists():
+                sort_key = (
+                    str(static_entry.get('collected_at', '')),
+                    static_path.name,
+                )
+                legacy_pairs.append((sort_key, static_path, motion_path))
+        if not legacy_pairs:
+            continue
+        _, static_path, motion_path = max(legacy_pairs, key=lambda row: row[0])
         yield (
             chip,
-            _load_npz_packets_cached(pair.static_presence.path),
-            _load_npz_packets_cached(pair.motion.path),
+            _load_npz_packets_cached(static_path),
+            _load_npz_packets_cached(motion_path),
         )
 
 
-def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None):
+def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None,
+                         roles=('selection',), allow_legacy_fallback=True):
     """Evaluate a candidate on the paired validation datasets."""
     by_chip = {}
-    for chip, static_presence_packets, motion_packets in _iter_paired_chip_packets(chips):
+    for chip, static_presence_packets, motion_packets in _iter_paired_chip_packets(
+        chips,
+        roles=roles,
+        allow_legacy_fallback=allow_legacy_fallback,
+    ):
         by_chip[chip] = evaluate_split(
             model,
             scaler,
@@ -4424,11 +4880,17 @@ def _load_exported_model_arrays():
     return list(module.FEATURE_NAMES), center, scale, layers
 
 
-def evaluate_exported_paired_gate(threshold=0.5, chips=None):
+def evaluate_exported_paired_gate(threshold=0.5, chips=None,
+                                  roles=('selection', 'holdout'),
+                                  allow_legacy_fallback=True):
     """Evaluate exported runtime arrays on the paired validation datasets."""
     feature_names, center, scale, layers = _load_exported_model_arrays()
     by_chip = {}
-    for chip, static_presence_packets, motion_packets in _iter_paired_chip_packets(chips):
+    for chip, static_presence_packets, motion_packets in _iter_paired_chip_packets(
+        chips,
+        roles=roles,
+        allow_legacy_fallback=allow_legacy_fallback,
+    ):
         by_chip[chip] = evaluate_array_split(
             center,
             scale,
@@ -4441,6 +4903,85 @@ def evaluate_exported_paired_gate(threshold=0.5, chips=None):
     return summarize_gate(by_chip)
 
 
+def _iter_quiet_gate_packets(roles=('selection', 'holdout')):
+    """Yield real empty recordings explicitly reserved for selection/holdout."""
+    dataset_info = load_dataset_info()
+    roles = normalize_dataset_roles(roles, default=('selection', 'holdout'))
+    for entry in dataset_info.get('files', {}).get('empty', []):
+        role = str(entry.get('dataset_role', 'train')).lower()
+        if role not in roles or bool(entry.get('synthetic')):
+            continue
+        path = DATA_DIR / 'empty' / str(entry.get('filename', ''))
+        if path.exists():
+            chip = str(entry.get('chip', 'unknown')).upper()
+            yield f"{chip}:{role}:{path.name}", _load_npz_packets_cached(path)
+
+
+def evaluate_idle_streaming(evaluator, packets, threshold=0.5):
+    """Evaluate one quiet stream at production cadence and hit filtering."""
+    raw_states = []
+    cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
+    for index, packet in enumerate(packets):
+        probability = evaluator.process_packet(packet_csi_data(packet))
+        if not cadence.note_evaluation_tick():
+            continue
+        if index < SEG_WINDOW_SIZE or probability is None:
+            continue
+        raw_states.append(probability > threshold)
+    fp = int(sum(raw_states))
+    count = len(raw_states)
+    return {
+        'fp': fp,
+        'evaluations': count,
+        'fp_rate': fp / count * 100.0 if count else 0.0,
+        **evaluate_runtime_policy_evaluations(raw_states),
+    }
+
+
+def summarize_quiet_gate(by_dataset):
+    """Aggregate explicitly reserved empty-room safety replays."""
+    if not by_dataset:
+        return None
+    rows = list(by_dataset.values())
+    return {
+        'by_dataset': by_dataset,
+        'max_fp_rate': float(max(row['fp_rate'] for row in rows)),
+        'total_effective_alarms': int(sum(row['effective_alarms'] for row in rows)),
+        'max_effective_alarms': int(max(row['effective_alarms'] for row in rows)),
+        'passed': all(
+            row['fp_rate'] < ROBUSTNESS_TARGET_FP_RATE
+            and row['effective_alarms'] == 0
+            for row in rows
+        ),
+    }
+
+
+def evaluate_quiet_gate(model, scaler, feature_names, threshold=0.5,
+                        roles=('selection', 'holdout')):
+    """Evaluate an in-memory candidate on reserved real empty recordings."""
+    by_dataset = {}
+    for key, packets in _iter_quiet_gate_packets(roles=roles):
+        by_dataset[key] = evaluate_idle_streaming(
+            StreamingEvaluator(model, scaler, feature_names),
+            packets,
+            threshold=threshold,
+        )
+    return summarize_quiet_gate(by_dataset)
+
+
+def evaluate_exported_quiet_gate(threshold=0.5, roles=('selection', 'holdout')):
+    """Evaluate exported arrays on reserved real empty recordings."""
+    feature_names, center, scale, layers = _load_exported_model_arrays()
+    by_dataset = {}
+    for key, packets in _iter_quiet_gate_packets(roles=roles):
+        by_dataset[key] = evaluate_idle_streaming(
+            ArrayStreamingEvaluator(center, scale, layers, feature_names),
+            packets,
+            threshold=threshold,
+        )
+    return summarize_quiet_gate(by_dataset)
+
+
 @dataclass
 class ExportedMLGateResult:
     """Verification result for exported ML artifacts (paired gate)."""
@@ -4448,25 +4989,36 @@ class ExportedMLGateResult:
     paired_returncode: int
     paired_output: str
     paired_metrics: dict | None = None
+    quiet_metrics: dict | None = None
 
     @property
     def available(self):
-        return self.paired_returncode == 0 or self.paired_metrics is not None
+        return self.paired_metrics is not None or self.quiet_metrics is not None
 
     @property
     def passed(self):
-        return self.paired_returncode == 0
+        return (
+            self.available
+            and (self.paired_metrics is None or self.paired_returncode == 0)
+            and (self.quiet_metrics is None or self.quiet_metrics.get('passed', False))
+        )
 
 
-def run_exported_ml_gates():
-    """Run the paired gate for already-exported ML artifacts."""
-    paired_metrics = evaluate_exported_paired_gate()
+def run_exported_ml_gates(roles=('selection', 'holdout'),
+                          allow_legacy_fallback=True):
+    """Run paired and explicitly reserved quiet gates for exported artifacts."""
+    paired_metrics = evaluate_exported_paired_gate(
+        roles=roles,
+        allow_legacy_fallback=allow_legacy_fallback,
+    )
+    quiet_metrics = evaluate_exported_quiet_gate(roles=roles)
     paired_total = len(paired_metrics.get('by_chip', {})) if paired_metrics else 0
     paired_rc = 0 if paired_total and paired_metrics['pass_count'] == paired_total else 1
     return ExportedMLGateResult(
         paired_returncode=paired_rc,
         paired_output="",
         paired_metrics=paired_metrics,
+        quiet_metrics=quiet_metrics,
     )
 
 
@@ -4476,6 +5028,7 @@ def _paired_gate_key(paired_metrics):
         return None
     return (
         paired_metrics.get('pass_count', 0),
+        -paired_metrics.get('total_effective_alarms', float('inf')),
         -paired_metrics.get('max_fp_rate', float('inf')),
         paired_metrics.get('worst_chip_recall', -float('inf')),
         paired_metrics.get('worst_chip_f1', -float('inf')),
@@ -4488,35 +5041,45 @@ def _combined_candidate_key(cv_metrics, paired_metrics=None):
     """
     Final selection key.
 
-    Paired validation leads ranking; grouped CV remains the tie-breaker.
+    Grouped OOF robustness leads ranking after deployment safety passes.
     """
     cv_key = build_candidate_key(cv_metrics)
     paired_key = _paired_gate_key(paired_metrics)
     if paired_key is None:
         return cv_key
-    return paired_key + cv_key
+    return cv_key + paired_key
 
 
 def _format_exported_gate_summary(gate):
     """Build a short one-line summary for exported-artifact verification."""
     if gate is None:
         return "exported_gates=not_run"
-    if gate.paired_returncode == 0:
-        paired = "paired=pass"
-    else:
-        paired = f"paired=fail({gate.paired_returncode})"
     metrics = gate.paired_metrics
     if metrics is None:
-        return paired
+        summary = "paired=not_configured"
+    else:
+        paired = (
+            "paired=pass"
+            if gate.paired_returncode == 0
+            else f"paired=fail({gate.paired_returncode})"
+        )
+        summary = (
+            f"{paired} maxFP={metrics.get('max_fp_rate', 0.0):.2f}% "
+            f"worstRecall={metrics.get('worst_chip_recall', 0.0):.2f}% "
+            f"worstF1={metrics.get('worst_chip_f1', 0.0):.2f}% "
+            f"alarms={metrics.get('total_effective_alarms', 0)}"
+        )
+    if gate.quiet_metrics is None:
+        return summary + " quiet=not_configured"
     return (
-        f"{paired} maxFP={metrics.get('max_fp_rate', 0.0):.2f}% "
-        f"worstRecall={metrics.get('worst_chip_recall', 0.0):.2f}% "
-        f"worstF1={metrics.get('worst_chip_f1', 0.0):.2f}%"
+        summary
+        + f" quietMaxFP={gate.quiet_metrics.get('max_fp_rate', 0.0):.2f}%"
+        + f" quietAlarms={gate.quiet_metrics.get('total_effective_alarms', 0)}"
     )
 
 
 def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, static_presence_gate):
-    """Compare candidate vs baseline only when exported gates are available."""
+    """Require deployment safety plus robust grouped-CV improvement."""
     if candidate_gate is None or static_presence_gate is None:
         return False
     if not candidate_gate.passed or not static_presence_gate.passed:
@@ -4530,13 +5093,20 @@ def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, 
         )
     ):
         return False
-    return _combined_candidate_key(
-        candidate_cv,
-        candidate_gate.paired_metrics,
-    ) > _combined_candidate_key(
-        static_presence_cv,
-        static_presence_gate.paired_metrics,
-    )
+    return compare_robust_cv(candidate_cv, static_presence_cv)['passed']
+
+
+def _format_candidate_comparison(candidate_cv, baseline_cv):
+    """Format material CV deltas and equivalence decisions for seed search."""
+    comparison = compare_robust_cv(candidate_cv, baseline_cv)
+    parts = []
+    for check in comparison['checks']:
+        state = 'regression' if check['regressed'] else 'improvement' if check['improved'] else 'tie'
+        parts.append(
+            f"{check['label']} {check['delta']:+.2f}pp "
+            f"(margin {check['margin']:.2f}, {state})"
+        )
+    return comparison, '; '.join(parts)
 
 
 def _search_candidate_key(cv_metrics, gate=None):
@@ -4545,7 +5115,7 @@ def _search_candidate_key(cv_metrics, gate=None):
     paired_passed = 1 if gate is not None and gate.paired_returncode == 0 else 0
     paired_key = _paired_gate_key(gate.paired_metrics if gate is not None else None)
     if paired_key is None:
-        paired_key = (-float('inf'),) * 6
+        paired_key = (-float('inf'),) * 7
     return (
         gate_passed,
         paired_passed,
@@ -4587,16 +5157,15 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                             excluded_chips=None, positive_chip_boost=None,
                             use_cache=True, augment=False):
     """
-    Train repeatedly with auto-generated seeds until the promoted candidate improves.
+    Train all requested seeds and keep the strongest robust improvement.
 
     Baseline is recomputed using the seed embedded in the current exported model.
-    Promotion uses paired validation as the real-data gate and ranking signal.
-    Grouped CV remains a diagnostic and final tie-breaker.
+    Deployment replays are safety gates. Grouped OOF worst/tail metrics lead
+    ranking with one-event equivalence margins.
 
-    When the current exported baseline fails the paired gate, the command falls
-    back to a ranking mode: it evaluates all MAX_TRIALS candidates, keeps the
-    best exported candidate that beats the broken baseline, and restores it at
-    the end even if no candidate reaches a fully passing gate state.
+    When the current exported baseline fails the paired gate, the command still
+    evaluates all MAX_TRIALS candidates, but only a candidate that restores the
+    deployment safety gate can replace it.
     """
     if max_trials < 1:
         print("Error: --seed-search-until-improvement must be >= 1")
@@ -4620,7 +5189,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         return 1
 
     print("\n" + "=" * 70)
-    print("  SEED SEARCH (loop until improvement)")
+    print("  SEED SEARCH (evaluate all candidates)")
     print("=" * 70)
     print(f"Max trials: {max_trials}")
     print(f"FP weight: {fp_weight}")
@@ -4659,6 +5228,10 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         'positive_chip_boost': positive_chip_boost,
         'use_cache': use_cache,
         'augment': bool(augment),
+        # Candidate selection may reuse selection recordings, but the holdout
+        # stays sealed until exactly one winner has been chosen.
+        'deployment_roles': ('selection',),
+        'allow_legacy_gate_fallback': True,
     }
 
     print(f"\nEvaluating current model baseline with seed {static_presence_seed}...")
@@ -4678,8 +5251,19 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         f"chip_min_recall={static_presence_chip.get('recall', 0.0):.1f}% "
         f"blocked_oof_f1={static_presence_metrics['oof_f1']:.1f}%"
     )
-    static_presence_gate = run_exported_ml_gates()
+    static_presence_gate = run_exported_ml_gates(roles=('selection',))
     print(f"Baseline exported ML gates: {_format_exported_gate_summary(static_presence_gate)}")
+    baseline_holdout_gate = run_exported_ml_gates(
+        roles=('holdout',),
+        allow_legacy_fallback=False,
+    )
+    if baseline_holdout_gate.available:
+        print(
+            "Reserved baseline holdout captured for final non-regression: "
+            f"{_format_exported_gate_summary(baseline_holdout_gate)}"
+        )
+    else:
+        print("Reserved holdout: not configured")
     broken_baseline_mode = not static_presence_gate.passed
     if broken_baseline_mode:
         print(
@@ -4724,7 +5308,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             f"blocked_oof_f1={final_metrics['oof_f1']:.1f}%"
         )
 
-        candidate_gate = run_exported_ml_gates()
+        candidate_gate = run_exported_ml_gates(roles=('selection',))
         print(f"  Exported ML gates: {_format_exported_gate_summary(candidate_gate)}")
         if not candidate_gate.passed and candidate_gate.paired_output.strip():
             print(candidate_gate.paired_output.strip())
@@ -4732,7 +5316,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         if broken_baseline_mode:
             status = 'ranked_rejected'
             candidate_search_key = _search_candidate_key(final_metrics, candidate_gate)
-            if candidate_search_key > best_search_key:
+            if candidate_gate.passed and candidate_search_key > best_search_key:
                 improved = True
                 improved_seed = used_seed
                 improved_metrics = final_metrics
@@ -4743,22 +5327,56 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                 best_candidate_backup_dir, best_candidate_saved_files = _backup_artifacts()
                 status = 'ranked_best'
                 print("  Broken baseline mode: current best candidate updated")
+            elif not candidate_gate.passed:
+                print("  Broken baseline mode: candidate still fails deployment safety")
             else:
                 print("  Broken baseline mode: candidate did not beat current best")
             trial_summaries.append((used_seed, final_metrics, candidate_gate, status))
             _restore_artifacts(saved_files)
             continue
 
-        trial_summaries.append((used_seed, final_metrics, candidate_gate, 'exported_gates'))
-        if _candidate_beats_baseline(final_metrics, candidate_gate, static_presence_metrics, static_presence_gate):
-            improved = True
-            improved_seed = used_seed
-            improved_metrics = final_metrics
-            improved_gate = candidate_gate
-            print("  Improvement found after paired ML gate: stopping search")
-            break
-
-        print("  Paired ML gate rejected candidate, restoring previous artifacts")
+        comparison, comparison_text = _format_candidate_comparison(
+            final_metrics,
+            static_presence_metrics,
+        )
+        print(f"  Robust CV comparison: {comparison_text}")
+        status = 'robust_rejected'
+        if _candidate_beats_baseline(
+            final_metrics,
+            candidate_gate,
+            static_presence_metrics,
+            static_presence_gate,
+        ):
+            candidate_key = _combined_candidate_key(
+                final_metrics,
+                candidate_gate.paired_metrics,
+            )
+            if not improved or candidate_key > best_search_key:
+                improved = True
+                improved_seed = used_seed
+                improved_metrics = final_metrics
+                improved_gate = candidate_gate
+                best_search_key = candidate_key
+                if best_candidate_backup_dir is not None:
+                    shutil.rmtree(best_candidate_backup_dir, ignore_errors=True)
+                best_candidate_backup_dir, best_candidate_saved_files = _backup_artifacts()
+                status = 'robust_best'
+                print("  Robust improvement: current best candidate updated")
+            else:
+                status = 'robust_eligible'
+                print("  Robust improvement: eligible, but not the current best")
+        elif not candidate_gate.passed:
+            print("  Deployment safety gate rejected candidate")
+        elif not paired_result_non_regression(
+            candidate_gate.paired_metrics,
+            static_presence_gate.paired_metrics,
+        ):
+            print("  Per-recording paired non-regression rejected candidate")
+        elif comparison['regressions']:
+            print("  Robust CV rejected candidate due to material regression")
+        else:
+            print("  Robust CV found no material improvement")
+        trial_summaries.append((used_seed, final_metrics, candidate_gate, status))
         _restore_artifacts(saved_files)
 
     print("\n" + "=" * 70)
@@ -4775,22 +5393,38 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         )
 
     if improved:
-        if broken_baseline_mode and best_candidate_saved_files is not None:
+        if best_candidate_saved_files is not None:
             _restore_artifacts(best_candidate_saved_files)
+            final_holdout_gate = run_exported_ml_gates(
+                roles=('holdout',),
+                allow_legacy_fallback=False,
+            )
+            if final_holdout_gate.available:
+                print(
+                    "Final reserved holdout: "
+                    f"{_format_exported_gate_summary(final_holdout_gate)}"
+                )
+                holdout_non_regression = (
+                    baseline_holdout_gate.paired_metrics is None
+                    or final_holdout_gate.paired_metrics is None
+                    or paired_result_non_regression(
+                        final_holdout_gate.paired_metrics,
+                        baseline_holdout_gate.paired_metrics,
+                    )
+                )
+                if not final_holdout_gate.passed or not holdout_non_regression:
+                    _restore_artifacts(saved_files)
+                    print(
+                        "Final reserved holdout rejected the selected candidate; "
+                        "current artifacts were restored"
+                    )
+                    return 1
             print(
-                f"\nSelected seed after broken-baseline ranking: {improved_seed} "
+                f"\nSelected seed after full robust ranking: {improved_seed} "
                 f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "
                 f"{_format_exported_gate_summary(improved_gate)})"
             )
             return 0
-        # Artifacts already hold the promoted candidate; reuse the gate that just passed.
-        print(f"Final exported ML gates: {_format_exported_gate_summary(improved_gate)}")
-        print(
-            f"\nSelected seed: {improved_seed} "
-            f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "
-            f"{_format_exported_gate_summary(improved_gate)})"
-        )
-        return 0
 
     if broken_baseline_mode:
         print("\nNo candidate beat the current broken baseline; current artifacts remain unchanged")
@@ -5053,14 +5687,15 @@ def architecture_stats(input_dim, hidden_layers):
 
 
 def architecture_campaign_rank_key(result):
-    """Sort key for single-run architecture candidates (lower is better)."""
+    """Sort safely passing runs by robust grouped-CV performance."""
+    robust_key = tuple(-value for value in build_candidate_key(result['cv']))
     return (
         -result['paired']['pass_count'],
+        result['paired'].get('total_effective_alarms', 0),
+        *robust_key,
         result['paired']['max_fp_rate'],
         -result['paired']['worst_chip_recall'],
         -result['paired']['worst_chip_f1'],
-        -result['cv']['oof_f1'],
-        -result['cv']['f1_mean'],
         result['params'],
     )
 
@@ -5068,6 +5703,10 @@ def architecture_campaign_rank_key(result):
 def aggregate_architecture_runs(name, runs):
     """Aggregate multi-seed runs for one architecture."""
     template = runs[0]
+    candidate_keys = np.asarray(
+        [build_candidate_key(run['cv']) for run in runs],
+        dtype=np.float64,
+    )
     return {
         'name': name,
         'layers': list(template['layers']),
@@ -5077,12 +5716,18 @@ def aggregate_architecture_runs(name, runs):
         'flops': int(template['flops']),
         'seeds': [int(run['seed']) for run in runs],
         'median_paired_pass_count': float(np.median([run['paired']['pass_count'] for run in runs])),
+        'median_paired_effective_alarms': float(np.median([
+            run['paired'].get('total_effective_alarms', 0) for run in runs
+        ])),
         'median_paired_max_fp_rate': float(np.median([run['paired']['max_fp_rate'] for run in runs])),
         'median_paired_worst_chip_recall': float(np.median([
             run['paired']['worst_chip_recall'] for run in runs
         ])),
         'median_paired_worst_chip_f1': float(np.median([run['paired']['worst_chip_f1'] for run in runs])),
         'median_oof_f1': float(np.median([run['cv']['oof_f1'] for run in runs])),
+        'median_cv_candidate_key': [
+            float(value) for value in np.median(candidate_keys, axis=0)
+        ],
         'best_single_run': min(runs, key=architecture_campaign_rank_key),
         'runs': runs,
     }
@@ -5090,12 +5735,17 @@ def aggregate_architecture_runs(name, runs):
 
 def aggregate_architecture_rank_key(summary):
     """Sort key for aggregated architecture summaries (lower is better)."""
+    robust_key = tuple(-value for value in summary.get(
+        'median_cv_candidate_key',
+        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, summary['median_oof_f1'], 0.0),
+    ))
     return (
         -summary['median_paired_pass_count'],
+        summary.get('median_paired_effective_alarms', 0.0),
+        *robust_key,
         summary['median_paired_max_fp_rate'],
         -summary['median_paired_worst_chip_recall'],
         -summary['median_paired_worst_chip_f1'],
-        -summary['median_oof_f1'],
         summary['params'],
     )
 
@@ -5281,21 +5931,45 @@ def _feature_ablation_rank_key(result):
 
 
 def paired_result_non_regression(candidate, baseline, tolerance=0.25):
-    """Require a single-run candidate to preserve paired performance."""
+    """Preserve each paired replay within one changed-evaluation margin."""
     if candidate['pass_count'] != baseline['pass_count']:
         return candidate['pass_count'] > baseline['pass_count']
+    candidate_rows = candidate.get('by_chip') or {}
+    baseline_rows = baseline.get('by_chip') or {}
+    shared_keys = sorted(set(candidate_rows).intersection(baseline_rows))
+    if shared_keys and len(shared_keys) == len(candidate_rows) == len(baseline_rows):
+        for key in shared_keys:
+            candidate_row = candidate_rows[key]
+            baseline_row = baseline_rows[key]
+            fp_margin = max(
+                100.0 / max(int(candidate_row.get('static_presence_eval_count', 0)), 1),
+                100.0 / max(int(baseline_row.get('static_presence_eval_count', 0)), 1),
+            )
+            recall_margin = max(
+                100.0 / max(int(candidate_row.get('motion_eval_count', 0)), 1),
+                100.0 / max(int(baseline_row.get('motion_eval_count', 0)), 1),
+            )
+            if candidate_row.get('fp_rate', 100.0) > baseline_row.get('fp_rate', 100.0) + fp_margin + 1e-9:
+                return False
+            if candidate_row.get('recall', 0.0) < baseline_row.get('recall', 0.0) - recall_margin - 1e-9:
+                return False
+            if candidate_row.get('effective_alarms', 0) > baseline_row.get('effective_alarms', 0):
+                return False
+        return True
     return (
-        candidate['max_fp_rate'] <= baseline['max_fp_rate'] + 1e-6
+        candidate['max_fp_rate'] <= baseline['max_fp_rate'] + tolerance
         and candidate['worst_chip_recall'] >= baseline['worst_chip_recall'] - tolerance
         and candidate['worst_chip_f1'] >= baseline['worst_chip_f1'] - tolerance
+        and candidate.get('total_effective_alarms', 0)
+        <= baseline.get('total_effective_alarms', 0)
     )
 
 
 def deployment_candidate_beats_baseline(candidate, baseline):
-    """Compare single-run candidates with paired validation leading the rank."""
+    """Compare single-run candidates with safety first and robust CV leading."""
     if not paired_result_non_regression(candidate['paired'], baseline['paired']):
         return False
-    return _feature_ablation_rank_key(candidate) > _feature_ablation_rank_key(baseline)
+    return compare_robust_cv(candidate['cv'], baseline['cv'])['passed']
 
 
 def experiment_feature_ablation(feature_name, seed=None,
@@ -5880,7 +6554,7 @@ Examples:
   python tools/train_ml_model.py --hidden-layers 24,12 --positive-chip-boost ESP32=1.2
                                            # Bias training slightly toward ESP32 motion recall
   python tools/train_ml_model.py --seed-search-until-improvement 20
-                                           # Stop at first improvement (max 20 trials)
+                                           # Rank all 20 seeds by robust worst/tail CV
   python tools/train_ml_model.py --augment # Train with the robustness-winner augmentation recipe
   python tools/train_ml_model.py --augment --seed-search-until-improvement 10
                                            # Seed-search using the same train-time augmentation
@@ -5937,12 +6611,11 @@ To compare ML with the moving-variance baseline, use:
                             'augmentation recipe (feature jitter 0.10 + moderate '
                             'packet gain/noise/loss). Inference stays unaugmented')
     parser.add_argument('--seed-search-until-improvement', type=int, default=0, metavar='MAX_TRIALS',
-                       help='Train with auto-generated seeds until first '
-                            'improvement over current ML performance, with '
-                            'at most MAX_TRIALS attempts. If the exported '
-                            'baseline is already broken, evaluate all '
-                            'MAX_TRIALS candidates and keep the best one that '
-                            'beats the current baseline')
+                       help='Evaluate MAX_TRIALS auto-generated seeds, require '
+                            'deployment safety and per-recording non-regression, '
+                            'then keep the strongest material worst/tail grouped-CV '
+                            'improvement. A reserved holdout, when configured, is '
+                            'opened only for the selected winner')
     parser.add_argument('--gain-stress-gate', action='store_true',
                        help='Evaluate current exported ML artifacts under '
                             'artificial gain scaling without training/exporting')

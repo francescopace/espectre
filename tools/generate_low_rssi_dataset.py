@@ -811,6 +811,8 @@ def _build_output_entry(
     profile: LowRssiProfile,
     packet_count: int,
     generated_at: str,
+    generation_group: str,
+    generation_mode: str,
 ) -> Dict[str, Any]:
     description = (
         f"Synthetic low-RSSI derivative of {source_path.name} using the "
@@ -830,6 +832,10 @@ def _build_output_entry(
         "device_id": _format_device_id(source_entry),
         "low_rssi": True,
         "synthetic": True,
+        "source_dataset": source_path.name,
+        "generation_group": generation_group,
+        "generation_mode": generation_mode,
+        "dataset_role": "train",
     }
     return entry
 
@@ -1120,6 +1126,8 @@ def generate_dataset(
             profile=profile,
             packet_count=len(degraded),
             generated_at=generated_at,
+            generation_group=group_id,
+            generation_mode=generation_mode,
         )
         _upsert_entry(info, label, output_entry)
         pair = _link_synthetic_pair(info, group_id)

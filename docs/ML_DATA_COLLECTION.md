@@ -199,6 +199,10 @@ metadata instead.
 - `low_rssi: true` for real and synthetic weak-link datasets stored under their
   semantic labels
 - `synthetic: true` for generated captures that are not real measurements
+- `dataset_role: train | selection | holdout` to reserve recordings for the
+  deployment safety replays; entries without a role default to `train`.
+  `selection` recordings gate candidate selection, and `holdout` recordings
+  stay sealed until the trainer evaluates the final winner once
 
 `validate_dataset_quality.py` regenerates those pair fields automatically
 before admission and Classic review. It never pairs a real capture with a

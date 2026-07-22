@@ -64,7 +64,8 @@
         "num_packets": 11994,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "hobby_room",
-        "device_id": "0x00007c2c6742bbac"
+        "device_id": "0x00007c2c6742bbac",
+        "dataset_role": "selection"
       },
       {
         "filename": "empty_c3_64sc_dev0000acebe64ae708_20260704_161540_862193_0001.npz",
@@ -76,7 +77,8 @@
         "num_packets": 11869,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "hobby_room",
-        "device_id": "0x0000acebe64ae708"
+        "device_id": "0x0000acebe64ae708",
+        "dataset_role": "selection"
       },
       {
         "filename": "empty_c5_64sc_dev000030eda0e46278_20260704_175448_826137_0001.npz",
@@ -88,7 +90,8 @@
         "num_packets": 12005,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "device_id": "0x000030eda0e46278",
-        "environment": "hobby_room"
+        "environment": "hobby_room",
+        "dataset_role": "selection"
       },
       {
         "filename": "empty_c5_64sc_dev000030eda0e46278_20260704_192116_870146_0001.npz",
@@ -100,7 +103,8 @@
         "num_packets": 11707,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "living_room",
-        "device_id": "0x000030eda0e46278"
+        "device_id": "0x000030eda0e46278",
+        "dataset_role": "holdout"
       },
       {
         "filename": "empty_s3_64sc_dev000010b41de8ec00_20260712_203314_805494_0001.npz",
@@ -124,7 +128,8 @@
         "num_packets": 14507,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "bedroom",
-        "device_id": "0x00007c2c6742bbac"
+        "device_id": "0x00007c2c6742bbac",
+        "dataset_role": "holdout"
       },
       {
         "filename": "empty_c3_64sc_dev0000acebe64ae708_20260712_235052_800678_0001.npz",
@@ -136,7 +141,8 @@
         "num_packets": 12225,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "living_room",
-        "device_id": "0x0000acebe64ae708"
+        "device_id": "0x0000acebe64ae708",
+        "dataset_role": "holdout"
       },
       {
         "filename": "empty_s3_64sc_dev000010b41de8ec00_20260713_002325_306350_0001.npz",
@@ -148,7 +154,8 @@
         "num_packets": 12093,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "living_room",
-        "device_id": "0x000010b41de8ec00"
+        "device_id": "0x000010b41de8ec00",
+        "dataset_role": "selection"
       },
       {
         "filename": "empty_s3_64sc_dev000010b41de8ec00_20260715_202019_268337_0001.npz",
@@ -160,7 +167,8 @@
         "num_packets": 11951,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "hobby_room",
-        "device_id": "0x000010b41de8ec00"
+        "device_id": "0x000010b41de8ec00",
+        "dataset_role": "holdout"
       }
     ],
     "static_presence": [
@@ -188,7 +196,8 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz",
+        "dataset_role": "selection"
       },
       {
         "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz",
@@ -201,7 +210,8 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz",
+        "dataset_role": "selection"
       },
       {
         "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz",
@@ -319,7 +329,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260722_172305_879358_0001.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260722_172305_879358_0001.npz",
+        "dataset_role": "holdout"
       },
       {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz",
@@ -332,7 +343,8 @@
         "description": "HT20 static presence sample.",
         "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260722_185456_839511_0001.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260722_185456_839511_0001.npz",
+        "dataset_role": "selection"
       },
       {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz",
@@ -346,7 +358,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260722_191914_560463_0001.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260722_191914_560463_0001.npz",
+        "dataset_role": "holdout"
       },
       {
         "filename": "static_presence_c3_64sc_dev0000acebe64adb64_20260722_195858_502587_0001.npz",
@@ -359,7 +372,8 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64adb64",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260722_200102_757740_0001.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260722_200102_757740_0001.npz",
+        "dataset_role": "selection"
       },
       {
         "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz",
@@ -373,7 +387,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260722_205350_355335_0001.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260722_205350_355335_0001.npz",
+        "dataset_role": "holdout"
       },
       {
         "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260722_210321_712831_0001.npz",
@@ -387,7 +402,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x0000acebe64ae708",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260722_210523_413343_0001.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260722_210523_413343_0001.npz",
+        "dataset_role": "holdout"
       },
       {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz",
@@ -543,7 +559,8 @@
         "description": "HT20 motion sample",
         "device_id": "0x000010b41de8ec00",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz",
+        "dataset_role": "selection"
       },
       {
         "filename": "motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz",
@@ -556,7 +573,8 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz",
+        "dataset_role": "selection"
       },
       {
         "filename": "motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001.npz",
@@ -674,7 +692,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz",
+        "dataset_role": "holdout"
       },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260722_185456_839511_0001.npz",
@@ -687,7 +706,8 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz",
+        "dataset_role": "selection"
       },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260722_191914_560463_0001.npz",
@@ -701,7 +721,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz",
+        "dataset_role": "holdout"
       },
       {
         "filename": "motion_c3_64sc_dev0000acebe64adb64_20260722_200102_757740_0001.npz",
@@ -714,7 +735,8 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64adb64",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260722_195858_502587_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260722_195858_502587_0001.npz",
+        "dataset_role": "selection"
       },
       {
         "filename": "motion_c5_64sc_dev000030eda0e46278_20260722_205350_355335_0001.npz",
@@ -728,7 +750,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz",
+        "dataset_role": "holdout"
       },
       {
         "filename": "motion_c3_64sc_dev0000acebe64ae708_20260722_210523_413343_0001.npz",
@@ -742,7 +765,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x0000acebe64ae708",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260722_210321_712831_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260722_210321_712831_0001.npz",
+        "dataset_role": "holdout"
       },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz",

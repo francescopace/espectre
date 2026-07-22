@@ -39,10 +39,10 @@ Run the default trainer:
 python tools/train_ml_model.py
 ```
 
-This evaluates grouped CV, trains the final candidate, runs the paired gate,
-and exports runtime artifacts when that gate passes and does not regress
-against the current baseline. Use `--no-export` to evaluate without replacing
-artifacts.
+This evaluates grouped CV, trains the final candidate, runs the deployment
+replay gates, and exports runtime artifacts when those gates pass and do not
+regress against the current baseline. Use `--no-export` to evaluate without
+replacing artifacts.
 
 Useful variants:
 
@@ -145,8 +145,9 @@ runs; use `--no-cache` to force a rebuild.
 
 The training pipeline:
 
-1. Loads all `.npz` files from `data/` for `empty`, `static_presence`, and
-   `motion`.
+1. Loads `train`-role `.npz` files from `data/` for `empty`,
+   `static_presence`, and `motion`. Entries without a role remain `train` for
+   backward compatibility.
 2. Uses the shared CV-normalized turbulence path (`std/mean`) across all files.
 3. Extracts the selected ML feature set per sliding window. The production
    default is the Core-6 set. When Hampel is enabled, the trainer filters both
@@ -154,13 +155,18 @@ The training pipeline:
    features and per-packet L1 deltas for all `l1_delta*` features.
    Feature extraction uses the same fixed HT20 subcarrier band as the runtime,
    rather than re-optimizing the band independently for ML.
-4. Runs grouped cross-validation by paired capture/session, with blocked
-   scoring to reduce overlap optimism.
+4. Runs grouped cross-validation by provenance lineage, with blocked scoring
+   to reduce overlap optimism. Synthetic derivatives share the lineage of
+   their real source, so they cannot cross the train/validation boundary.
 5. Optionally computes balanced SHAP explanations on the held-out blocked
    windows from each fold.
-6. Reports worst-group metrics for session, chip, environment, and source file.
+6. Reports worst-group and worst-five-tail metrics for lineage, session, chip,
+   environment, and source file. When synthetic derivatives are present, the
+   session metrics are additionally split by provenance into real and
+   synthetic reports.
 7. Trains the selected MLP architecture with PyTorch, early stopping, and dropout.
-8. Evaluates the in-memory candidate on paired captures.
+8. Evaluates the in-memory candidate on real paired captures and any explicitly
+   reserved quiet recordings, using production cadence and hit filtering.
 9. Exports Python and C++ runtime artifacts plus a regression dataset unless
    `--no-export` is set or the paired gate rejects the candidate.
 
@@ -181,10 +187,11 @@ exported weight files. Pass `--seed <number>` to override it; promoted exports
 write the chosen seed back into those files.
 
 `ml_test_data.npz` is an inference-regression artifact, not the main
-model-selection metric. Architecture, weighting, and scaler choices should
-treat grouped blocked CV as a diagnostic. Paired validation is the real-data
-promotion gate and ranking signal. Long-recording checks stay in the
-performance report and dedicated pytest suites.
+model-selection metric. Paired and reserved quiet replays are deployment
+safety gates. Among candidates that pass those gates without a material
+per-recording regression, grouped blocked CV worst-group, worst-five-tail, and
+OOF metrics determine promotion. Long-recording checks stay in the performance
+report and dedicated pytest suites.
 
 ## Promotion Guidance
 
@@ -195,15 +202,24 @@ For production artifact updates, prefer one of these gated flows:
 - `python tools/train_ml_model.py --experiment --experiment-promote`
 - `python tools/train_ml_model.py --experiment-fp-weights "..." --experiment-promote`
 
-A normal training run exports when the paired gate passes and does not regress
-against the exported baseline. Use `--no-export` to leave runtime artifacts
-unchanged. Experiment campaigns leave artifacts unchanged unless
-`--experiment-promote` is supplied. Seed search and experiment promotions
-confirm the selected artifacts with the paired gate before keeping them.
+A normal training run exports when the deployment replay gates pass and do not
+regress against the exported baseline. Use `--no-export` to leave runtime
+artifacts unchanged. Experiment campaigns leave artifacts unchanged unless
+`--experiment-promote` is supplied.
 
-Candidate ranking is paired-first: pass count, max FP rate, worst-chip recall,
-and worst-chip F1 precede grouped CV. Long-recording FP policy metrics remain
-useful in `generate_performance_report` and
+Seed search evaluates every requested seed. Safety comes first: paired recall
+must remain above `95%`, raw FP must remain below `5%`, runtime-filtered
+effective alarms must stay at zero, and each recording may move by at most one
+scored evaluation relative to the baseline. Safe candidates are then compared
+on worst-session recall/FP, the mean of the five worst sessions, worst-chip
+recall/FP, and blocked OOF F1. When synthetic derivatives exist, real sessions
+lead those comparisons; synthetic session metrics act only as regression
+guards and cannot justify promotion on their own. A candidate needs at least
+one material improvement and no material regression. When explicit `holdout`
+data exists, it stays sealed throughout selection and is evaluated only once
+on the chosen winner.
+
+Long-recording FP policy metrics remain useful in `generate_performance_report` and
 `test_validation_long_recordings.py`, but they do not block trainer promotion.
 Event recall and detection latency still require long recordings with an
 annotated motion start and are not inferred from quiet-only captures.

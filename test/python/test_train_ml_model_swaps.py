@@ -163,6 +163,55 @@ def test_training_cache_manifest_tracks_packet_augmentation():
     assert manifest["augmentation_seed"] == 123
 
 
+def test_training_cache_manifest_tracks_dataset_roles():
+    module = _load_train_module()
+
+    manifest = module._feature_cache_manifest(
+        ["turb_skewness"],
+        dataset_roles=("train", "selection"),
+    )
+
+    assert manifest["dataset"]["dataset_roles"] == ["selection", "train"]
+    with pytest.raises(ValueError, match="Unsupported dataset role"):
+        module.normalize_dataset_roles(("train", "unknown"))
+
+
+def test_synthetic_metadata_shares_source_lineage(monkeypatch, tmp_path):
+    module = _load_train_module()
+    data_dir = tmp_path / "data"
+    (data_dir / "static_presence").mkdir(parents=True)
+    (data_dir / "motion").mkdir(parents=True)
+    np.savez(data_dir / "static_presence" / "source.npz", csi_data=np.zeros((1, 2)))
+    np.savez(
+        data_dir / "motion" / "synthetic.npz",
+        csi_data=np.zeros((1, 2)),
+        source_dataset=np.asarray("source.npz"),
+        generation_group=np.asarray("low-rssi-c3"),
+        generation_mode=np.asarray("derived"),
+        synthetic=np.asarray(True),
+    )
+    monkeypatch.setattr(module, "DATA_DIR", data_dir)
+    dataset_info = {
+        "files": {
+            "static_presence": [{
+                "filename": "source.npz",
+                "chip": "C3",
+                "session": "real-session",
+            }],
+            "motion": [{
+                "filename": "synthetic.npz",
+                "chip": "C3",
+            }],
+        },
+    }
+
+    metadata = module.get_file_metadata(dataset_info)
+
+    assert metadata["source.npz"]["lineage_group"] == "real-session"
+    assert metadata["synthetic.npz"]["lineage_group"] == "real-session"
+    assert metadata["synthetic.npz"]["synthetic"] is True
+
+
 def test_session_balanced_robust_scaler_is_deterministic_and_balanced():
     module = _load_train_module()
     X = np.arange(80, dtype=np.float32).reshape(40, 2)
@@ -640,6 +689,202 @@ def _cv_metrics(*, session_recall: float, chip_recall: float, session_fp: float,
     }
 
 
+def _robust_cv_metrics(*, session_recall, session_fp, tail_recall=90.0,
+                       tail_fp=5.0, chip_recall=90.0, chip_fp=5.0,
+                       oof_f1=93.0):
+    return {
+        "oof_f1": oof_f1,
+        "f1_mean": oof_f1,
+        "group_reports": {
+            "session_group": {
+                "worst_recall": {
+                    "recall": session_recall,
+                    "positives": 100,
+                },
+                "worst_fp_rate": {
+                    "fp_rate": session_fp,
+                    "negatives": 100,
+                },
+                "tail_recall": {
+                    "value": tail_recall,
+                    "resolution": 1.0,
+                },
+                "tail_fp_rate": {
+                    "value": tail_fp,
+                    "resolution": 1.0,
+                },
+            },
+            "chip": {
+                "worst_recall": {
+                    "recall": chip_recall,
+                    "positives": 200,
+                },
+                "worst_fp_rate": {
+                    "fp_rate": chip_fp,
+                    "negatives": 200,
+                },
+            },
+        },
+    }
+
+
+def _session_report(*, recall, fp, tail_recall=None, tail_fp=None):
+    return {
+        "worst_recall": {"recall": recall, "positives": 100},
+        "worst_fp_rate": {"fp_rate": fp, "negatives": 100},
+        "tail_recall": {
+            "value": recall if tail_recall is None else tail_recall,
+            "resolution": 1.0,
+        },
+        "tail_fp_rate": {
+            "value": fp if tail_fp is None else tail_fp,
+            "resolution": 1.0,
+        },
+    }
+
+
+def test_robust_cv_promotes_worst_group_improvement_without_regressions():
+    module = _load_train_module()
+    baseline = _robust_cv_metrics(session_recall=80.0, session_fp=10.0)
+    candidate = _robust_cv_metrics(session_recall=82.0, session_fp=10.0)
+
+    comparison = module.compare_robust_cv(candidate, baseline)
+
+    assert comparison["passed"] is True
+    assert any(
+        check["label"] == "CV worst-session recall" and check["improved"]
+        for check in comparison["checks"]
+    )
+
+
+def test_robust_cv_rejects_material_worst_group_regression():
+    module = _load_train_module()
+    baseline = _robust_cv_metrics(session_recall=80.0, session_fp=10.0)
+    candidate = _robust_cv_metrics(
+        session_recall=84.0,
+        session_fp=12.0,
+        oof_f1=95.0,
+    )
+
+    comparison = module.compare_robust_cv(candidate, baseline)
+
+    assert comparison["passed"] is False
+    assert [row["label"] for row in comparison["regressions"]] == [
+        "CV worst-session FP"
+    ]
+
+
+def test_candidate_key_prefers_real_session_report():
+    module = _load_train_module()
+    metrics = _robust_cv_metrics(
+        session_recall=70.0,
+        session_fp=20.0,
+        tail_recall=75.0,
+        tail_fp=15.0,
+    )
+    metrics["group_reports"]["real_session_group"] = _session_report(
+        recall=90.0,
+        fp=2.0,
+        tail_recall=95.0,
+        tail_fp=1.0,
+    )
+
+    key = module.build_candidate_key(metrics)
+
+    assert key[0] == pytest.approx(95.0)
+    assert key[1] == pytest.approx(-1.0)
+    assert key[2] == pytest.approx(90.0)
+    assert key[4] == pytest.approx(-2.0)
+
+
+def test_robust_cv_synthetic_improvement_cannot_promote():
+    module = _load_train_module()
+    baseline = _robust_cv_metrics(session_recall=80.0, session_fp=10.0)
+    candidate = _robust_cv_metrics(session_recall=80.0, session_fp=10.0)
+    baseline["group_reports"]["synthetic_session_group"] = _session_report(
+        recall=70.0, fp=20.0,
+    )
+    candidate["group_reports"]["synthetic_session_group"] = _session_report(
+        recall=90.0, fp=5.0,
+    )
+
+    comparison = module.compare_robust_cv(candidate, baseline)
+
+    assert comparison["non_regression"] is True
+    assert comparison["material_improvement"] is False
+    assert comparison["passed"] is False
+
+
+def test_robust_cv_synthetic_regression_blocks_promotion():
+    module = _load_train_module()
+    baseline = _robust_cv_metrics(session_recall=80.0, session_fp=10.0)
+    candidate = _robust_cv_metrics(session_recall=85.0, session_fp=10.0)
+    baseline["group_reports"]["synthetic_session_group"] = _session_report(
+        recall=90.0, fp=5.0,
+    )
+    candidate["group_reports"]["synthetic_session_group"] = _session_report(
+        recall=90.0, fp=12.0,
+    )
+
+    comparison = module.compare_robust_cv(candidate, baseline)
+
+    assert comparison["passed"] is False
+    assert [row["label"] for row in comparison["regressions"]] == [
+        "CV worst-synthetic-session FP",
+        "CV tail-synthetic-session FP",
+    ]
+
+
+def test_robust_cv_real_sessions_lead_when_provenance_split_exists():
+    module = _load_train_module()
+    baseline = _robust_cv_metrics(session_recall=70.0, session_fp=20.0)
+    candidate = _robust_cv_metrics(session_recall=60.0, session_fp=30.0)
+    baseline["group_reports"]["real_session_group"] = _session_report(
+        recall=80.0, fp=10.0,
+    )
+    candidate["group_reports"]["real_session_group"] = _session_report(
+        recall=85.0, fp=10.0,
+    )
+
+    comparison = module.compare_robust_cv(candidate, baseline)
+
+    assert comparison["passed"] is True
+    assert any(
+        check["label"] == "CV worst-session recall" and check["improved"]
+        for check in comparison["checks"]
+    )
+
+
+def test_group_report_summarizes_the_five_worst_groups():
+    module = _load_train_module()
+    y_true = []
+    y_prob = []
+    groups = []
+    for index in range(6):
+        groups.extend([f"session-{index}"] * 20)
+        y_true.extend([1] * 10 + [0] * 10)
+        true_positives = 5 + index
+        false_positives = 5 - min(index, 5)
+        y_prob.extend(
+            [0.9] * true_positives
+            + [0.1] * (10 - true_positives)
+            + [0.9] * false_positives
+            + [0.1] * (10 - false_positives)
+        )
+
+    report = module.build_group_report(
+        np.asarray(y_true),
+        np.asarray(y_prob),
+        np.asarray(groups),
+    )
+
+    assert report["count"] == 6
+    assert len(report["tail_recall"]["groups"]) == module.ROBUST_TAIL_GROUPS
+    assert report["tail_recall"]["value"] == pytest.approx(70.0)
+    assert report["tail_fp_rate"]["value"] == pytest.approx(30.0)
+    assert report["tail_recall"]["resolution"] == pytest.approx(10.0)
+
+
 def test_search_candidate_key_prefers_passing_gate():
     module = _load_train_module()
     cv = _cv_metrics(session_recall=90.0, chip_recall=88.0, session_fp=8.0, oof_f1=85.0, f1_mean=84.0)
@@ -705,6 +950,96 @@ def test_idle_runtime_policy_rejects_isolated_hits_and_counts_alarm_duration():
     }
 
 
+def test_runtime_policy_on_evaluation_ticks_requires_production_hit_count():
+    module = _load_train_module()
+
+    assert module.evaluate_runtime_policy_evaluations([True] * (MOTION_ON_HITS - 1)) == {
+        "effective_alarms": 0,
+        "false_motion_evaluations": 0,
+    }
+    assert module.evaluate_runtime_policy_evaluations(
+        [True] * MOTION_ON_HITS + [False] * MOTION_OFF_HITS
+    ) == {
+        "effective_alarms": 1,
+        "false_motion_evaluations": MOTION_OFF_HITS,
+    }
+
+
+def test_paired_non_regression_uses_one_evaluation_per_recording_margin():
+    module = _load_train_module()
+
+    def summary(fp_rate):
+        row = {
+            "fp_rate": fp_rate,
+            "recall": 99.0,
+            "static_presence_eval_count": 100,
+            "motion_eval_count": 100,
+            "effective_alarms": 0,
+        }
+        return {
+            "pass_count": 1,
+            "max_fp_rate": fp_rate,
+            "worst_chip_recall": 99.0,
+            "worst_chip_f1": 99.0,
+            "by_chip": {"C3:selection:capture.npz": row},
+        }
+
+    baseline = summary(1.0)
+
+    assert module.paired_result_non_regression(summary(2.0), baseline)
+    assert not module.paired_result_non_regression(summary(3.0), baseline)
+
+
+def test_legacy_paired_fallback_never_selects_synthetic(monkeypatch, tmp_path):
+    module = _load_train_module()
+    data_dir = tmp_path / "data"
+    for label in ("static_presence", "motion"):
+        (data_dir / label).mkdir(parents=True)
+    for label, filename in (
+        ("static_presence", "real-static.npz"),
+        ("motion", "real-motion.npz"),
+        ("static_presence", "synthetic-static.npz"),
+        ("motion", "synthetic-motion.npz"),
+    ):
+        (data_dir / label / filename).write_bytes(b"npz")
+    dataset_info = {
+        "files": {
+            "static_presence": [
+                {
+                    "filename": "real-static.npz",
+                    "chip": "C3",
+                    "subcarriers": 64,
+                    "collected_at": "2026-01-01T00:00:00Z",
+                    "optimal_pair_motion_file": "real-motion.npz",
+                },
+                {
+                    "filename": "synthetic-static.npz",
+                    "chip": "C3",
+                    "subcarriers": 64,
+                    "collected_at": "2026-07-01T00:00:00Z",
+                    "optimal_pair_motion_file": "synthetic-motion.npz",
+                    "synthetic": True,
+                },
+            ],
+            "motion": [
+                {"filename": "real-motion.npz", "chip": "C3"},
+                {
+                    "filename": "synthetic-motion.npz",
+                    "chip": "C3",
+                    "synthetic": True,
+                },
+            ],
+        },
+    }
+    monkeypatch.setattr(module, "DATA_DIR", data_dir)
+    monkeypatch.setattr(module, "load_dataset_info", lambda: dataset_info)
+    monkeypatch.setattr(module, "_load_npz_packets_cached", lambda path: [path.name])
+
+    pairs = list(module._iter_paired_chip_packets(chips=("C3",)))
+
+    assert pairs == [("C3", ["real-static.npz"], ["real-motion.npz"])]
+
+
 def test_paired_gate_ranking_prefers_lower_fp_before_cv():
     module = _load_train_module()
     quieter = {
@@ -727,7 +1062,7 @@ def test_paired_gate_ranking_prefers_lower_fp_before_cv():
     assert module._paired_gate_key(quieter) > module._paired_gate_key(noisier)
 
 
-def test_architecture_ranking_prefers_paired_fp_before_cv():
+def test_architecture_ranking_prefers_robust_cv_after_equal_safety_passes():
     module = _load_train_module()
 
     def result(max_fp, oof_f1):
@@ -745,7 +1080,7 @@ def test_architecture_ranking_prefers_paired_fp_before_cv():
     quieter = result(0.0, 90.0)
     noisier = result(1.5, 95.0)
 
-    assert module.architecture_campaign_rank_key(quieter) < module.architecture_campaign_rank_key(noisier)
+    assert module.architecture_campaign_rank_key(noisier) < module.architecture_campaign_rank_key(quieter)
 
 
 def test_parse_fp_weight_sweep_validates_and_deduplicates():
@@ -904,6 +1239,13 @@ def test_normal_training_evaluates_deployment_without_exporting(monkeypatch):
         "max_fp_rate": 0.0,
         "worst_chip_recall": 99.0,
     }
+    quiet = {
+        "by_dataset": {"C3:selection:quiet.npz": {}},
+        "max_fp_rate": 0.0,
+        "total_effective_alarms": 0,
+        "max_effective_alarms": 0,
+        "passed": True,
+    }
     cv = {"oof_f1": 90.0, "f1_mean": 90.0, "f1_std": 0.0}
 
     monkeypatch.setattr(module, "ensure_torch_available", lambda: None)
@@ -916,6 +1258,7 @@ def test_normal_training_evaluates_deployment_without_exporting(monkeypatch):
     monkeypatch.setattr(module, "build_preprocessor", lambda mode: IdentityScaler())
     monkeypatch.setattr(module, "train_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(module, "evaluate_paired_gate", lambda *args, **kwargs: paired)
+    monkeypatch.setattr(module, "evaluate_quiet_gate", lambda *args, **kwargs: quiet)
     monkeypatch.setattr(
         module,
         "export_micropython",
@@ -932,6 +1275,7 @@ def test_normal_training_evaluates_deployment_without_exporting(monkeypatch):
     assert result == 0
     assert seed == 123
     assert summary["paired"] is paired
+    assert summary["quiet"] is quiet
     assert "long" not in summary
 
 
@@ -955,8 +1299,8 @@ def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkey
         },
     )
     candidate_gate_a = module.ExportedMLGateResult(
-        paired_returncode=1,
-        paired_output="paired failed",
+        paired_returncode=0,
+        paired_output="",
         paired_metrics={
             "pass_count": 2,
             "max_fp_rate": 11.0,
@@ -967,8 +1311,8 @@ def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkey
         },
     )
     candidate_gate_b = module.ExportedMLGateResult(
-        paired_returncode=1,
-        paired_output="paired failed",
+        paired_returncode=0,
+        paired_output="",
         paired_metrics={
             "pass_count": 3,
             "max_fp_rate": 9.0,
@@ -986,13 +1330,24 @@ def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkey
             (0, 202, candidate_cv_b),
         ]
     )
-    gate_calls = iter([baseline_gate, candidate_gate_a, candidate_gate_b])
+    no_holdout_gate = module.ExportedMLGateResult(1, "")
+    gate_calls = iter([
+        baseline_gate,
+        no_holdout_gate,
+        candidate_gate_a,
+        candidate_gate_b,
+        no_holdout_gate,
+    ])
 
     monkeypatch.setattr(module, "ensure_torch_available", lambda: object())
     monkeypatch.setattr(module, "describe_torch_device", lambda: "cpu")
     monkeypatch.setattr(module, "read_exported_seed", lambda: 111)
     monkeypatch.setattr(module, "train_all", lambda **kwargs: next(train_calls))
-    monkeypatch.setattr(module, "run_exported_ml_gates", lambda: next(gate_calls))
+    monkeypatch.setattr(
+        module,
+        "run_exported_ml_gates",
+        lambda **_kwargs: next(gate_calls),
+    )
 
     backup_counter = itertools.count()
     restore_calls = []
