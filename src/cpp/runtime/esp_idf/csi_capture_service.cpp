@@ -35,6 +35,7 @@ void CsiCaptureService::reset_session() {
   null_or_empty_packets_.store(0U, std::memory_order_relaxed);
   normalized_invalid_packets_.store(0U, std::memory_order_relaxed);
   valid_packets_.store(0U, std::memory_order_relaxed);
+  rejected_out_of_order_packets_.store(0U, std::memory_order_relaxed);
   enable_attempts_.store(0U, std::memory_order_relaxed);
   disable_attempts_.store(0U, std::memory_order_relaxed);
   last_configure_err_.store(ESP_OK, std::memory_order_relaxed);
@@ -43,6 +44,7 @@ void CsiCaptureService::reset_session() {
   last_disable_err_.store(ESP_OK, std::memory_order_relaxed);
   collapse_seen_.store(false, std::memory_order_relaxed);
   remap_seen_.store(false, std::memory_order_relaxed);
+  rx_timestamp_tracker_.reset();
   collapse_log_event_.clear();
   remap_log_event_.clear();
 }
@@ -64,6 +66,7 @@ esp_err_t CsiCaptureService::enable() {
 
   const uint32_t attempt = enable_attempts_.fetch_add(1U, std::memory_order_relaxed) + 1U;
   ESP_LOGI(TAG, "Arming CSI attempt=%" PRIu32, attempt);
+  rx_timestamp_tracker_.reset();
 
   esp_err_t err = configure_platform_specific_();
   last_configure_err_.store(err, std::memory_order_relaxed);
@@ -116,8 +119,19 @@ esp_err_t CsiCaptureService::disable() {
   }
 
   enabled_ = false;
+  rx_timestamp_tracker_.reset();
   ESP_LOGI(TAG, "CSI disabled attempt=%" PRIu32 " disable=%s", attempt, esp_err_to_name(last_disable_err()));
   return ESP_OK;
+}
+
+bool CsiCaptureService::accept_rx_timestamp_(const wifi_csi_info_t *data) {
+  const uint32_t timestamp = data->rx_ctrl.timestamp;
+  if (timestamp == 0U || rx_timestamp_tracker_.accept(timestamp)) {
+    return true;
+  }
+  filtered_packets_.fetch_add(1U, std::memory_order_relaxed);
+  rejected_out_of_order_packets_.fetch_add(1U, std::memory_order_relaxed);
+  return false;
 }
 
 void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
@@ -129,6 +143,9 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   // When the driver already delivers the HT20 payload shape we stream, keep
   // the hot callback path short and skip the slower normalizer.
   if (data->len == HT20_CSI_LEN) {
+    if (!accept_rx_timestamp_(data)) {
+      return;
+    }
     if (packet_callback_ != nullptr) {
       packet_callback_(packet_callback_context_, data, NormalizedCSIPayload{data->buf, HT20_CSI_LEN,
                                                                             NormalizedCSIPayloadTag::NONE});
@@ -158,6 +175,10 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   if (!normalized.valid() || normalized.len != HT20_CSI_LEN) {
     filtered_packets_.fetch_add(1U, std::memory_order_relaxed);
     normalized_invalid_packets_.fetch_add(1U, std::memory_order_relaxed);
+    return;
+  }
+
+  if (!accept_rx_timestamp_(data)) {
     return;
   }
 

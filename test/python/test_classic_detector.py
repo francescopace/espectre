@@ -50,6 +50,7 @@ def test_hampel_master_switch_controls_both_feature_streams() -> None:
 def test_startup_q95_adapts_probability_threshold() -> None:
     detector = ClassicDetector()
     detector._startup_logits = [-1.0, -0.8, -0.6, -0.4]
+    detector._startup_l1_deltas = [detector.FEATURE_CENTER[0]] * 4
 
     detector.set_adaptive_threshold(0.01)
 
@@ -62,6 +63,22 @@ def test_startup_q95_adapts_probability_threshold() -> None:
         + detector.STARTUP_STRENGTH * (q95 - detector.TRAIN_IDLE_Q95_LOGIT)
     )
     assert detector.get_threshold() == pytest.approx(expected)
+
+
+def test_noisy_startup_uses_bidirectional_l1_excursion() -> None:
+    detector = ClassicDetector()
+    detector._startup_logits = [10.0] * 4
+    detector._startup_l1_deltas = [0.12] * 4
+
+    detector.set_adaptive_threshold(0.01)
+
+    assert detector._startup_l1_floor == pytest.approx(0.12)
+    assert detector._l1_noise_blend == pytest.approx(1.0)
+    assert detector.get_threshold() == pytest.approx(detector.BASE_THRESHOLD)
+    upward = detector._calculate_logit(0.14, detector.FEATURE_CENTER[1])
+    downward = detector._calculate_logit(0.10, detector.FEATURE_CENTER[1])
+    assert upward == pytest.approx(downward)
+    assert upward > detector._calculate_logit(0.12, detector.FEATURE_CENTER[1])
 
 
 def test_manual_threshold_uses_probability_scale() -> None:
@@ -92,10 +109,12 @@ def test_reset_preserves_threshold_and_clears_feature_state() -> None:
     detector = ClassicDetector(threshold=0.7)
     detector._current_probability = 0.9
     detector._startup_logits = [1.0]
+    detector._startup_l1_deltas = [0.1]
 
     detector.reset()
 
     assert detector.get_threshold() == pytest.approx(0.7)
     assert detector.get_motion_metric() == 0.0
     assert detector._startup_logits == []
+    assert detector._startup_l1_deltas == []
     assert detector.get_state() == MotionState.IDLE

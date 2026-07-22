@@ -11,6 +11,7 @@ License: GPLv3
 import math
 try:
     from src.device_utils import (
+        CsiFrameTimestampFilter as CsiFrameTimestampFilter,
         calculate_variance,
         csi_read_frame as csi_read_frame,
         insertion_sort as insertion_sort,
@@ -20,6 +21,7 @@ try:
     )
 except ImportError:
     from device_utils import (
+        CsiFrameTimestampFilter as CsiFrameTimestampFilter,
         calculate_variance,
         csi_read_frame as csi_read_frame,
         insertion_sort as insertion_sort,

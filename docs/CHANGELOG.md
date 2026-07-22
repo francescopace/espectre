@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Synthetic low-RSSI dataset generator**: reproducible C3, C5, C6, and S3 weak-link profiles now derive clearly marked NPZ captures from registered real data, jointly fit the production Core-6 feature distribution, embed ML-ready fit metadata in each NPZ, register them in the standard label directories with compact `low_rssi` and `synthetic` markers, prefer real low-RSSI pairs, and provide a batch entry point for compatible captures without real weak-link coverage.
 - **Dual licensing**: ESPectre is now offered under GPLv3 or a separate commercial license for proprietary integrations (`LICENSING.md`), and the CLA check returns alongside the DCO check so contributions can be distributed under both tracks.
 - **Embedding guide** (`docs/EMBEDDING.md`): how to integrate the shared `core` and `runtime` layers into third-party ESP32 firmware, with the published frontends as reference integrations.
 
@@ -53,6 +54,7 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Fixed
 
+- **Classic false motion at very low RSSI**: startup calibration now recognizes an out-of-domain L1 noise floor and fades to bidirectional, session-centered L1 excursion, preventing raw-logit saturation while retaining motion sensitivity.
 - **Original ESP32 streamer stability under sustained collection**: the streamer now stays on the shared HT20 sensing contract, while the pacing-health path reports sustained callback deficits as telemetry instead of trying to recover them by cycling CSI capture.
 - **Embedded traffic-generator pacing no longer over-cuts under CSI surplus**: shared C++ and Micro-ESPectre adaptive pacing now react to local socket backpressure, keep a `70%` floor of the CSI target, settle between reductions, and avoid the previous proportional slash that could drop send rate from `100` toward below `50` pps.
 - **Original ESP32 CSI stall handling is now passive telemetry across sensing runtimes**: streamer and Micro-ESPectre log sustained callback deficits for diagnostics, instead of trying to recover them by rearming CSI capture.
@@ -94,7 +96,7 @@ Historical decision context for the Classic and ML promotions now lives in:
 - **Native firmware was simplified into a dedicated standalone frontend**: BLE telemetry, MQTT diagnostics, device identity, and subscription behavior were cleaned up around the shared protocol contract.
 - **Streamer workflows were modernized**: multi-chip CLI support was expanded, collection is now collector-driven, the C++ streamer protocol became the primary live-streaming path, and ESP32-C3 transport defaults were tuned for high-rate capture.
 - **Dataset and sensing defaults were normalized across the project**: room-state labels were simplified, empty-room validation became part of the standard workflow, and the active runtime path now uses one fixed shared subcarrier set.
-- **Classic startup calibration now adapts the learned probability boundary in logit space** from the session's quiet `q95` reference.
+- **Classic startup calibration now adapts the learned probability boundary in logit space** using `75%` of the session's quiet `q95` displacement, restoring the aggregate C6 recall and S3 false-positive targets on the expanded real low-RSSI corpus.
 - **Classic detection now uses direct weighted fusion without a recovery vote**, reducing runtime branches and calibration state.
 - **Default runtime subcarriers were moved away from the DC bin**: the shared fixed 12-subcarrier set is now `[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]`, improving current Classic real-data validation while keeping one cross-chip default band.
 - **Hardware gain lock was removed completely**: ESPectre now keeps AGC active on all chips and uses one shared CV-normalized turbulence path (`std/mean`) across runtime, collection, datasets, and tooling. This avoids the forced-gain instability and Wi-Fi RX/TX problems that may lead to packet loss.

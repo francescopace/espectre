@@ -13,6 +13,7 @@ import os
 import src.config as config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN
 from src.device_utils import (
+    CsiFrameTimestampFilter,
     normalize_ht20_csi_payload,
     csi_read_frame,
     is_ht20_sensing_frame,
@@ -273,6 +274,7 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     collapse_logged = False
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
+    frame_timestamp_filter = CsiFrameTimestampFilter()
     frame_result = None
     
     while not calibration_tracker.is_complete():
@@ -307,6 +309,11 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                     detector.reset()
                     g_state.calibration_mode = False
                     return False
+                continue
+
+            if not frame_timestamp_filter.accept(frame):
+                del frame
+                time.sleep_us(100)
                 continue
 
             if remap_tag in ('double_ht20', 'double_ht57_and_remap') and not collapse_logged:
@@ -571,6 +578,8 @@ def main():
     collapse_logged = False
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
+    frame_timestamp_filter = CsiFrameTimestampFilter()
+    out_of_order_count = 0
     frame_result = None
     dropped_at_main_loop_start = wlan.csi_dropped()
     csi_health = CsiPacingHealthMonitor(enabled=(g_state.chip_type == 'ESP32'))
@@ -621,6 +630,22 @@ def main():
 
                 if not is_ht20_sensing_frame(frame):
                     filtered_count += 1
+                    del frame
+                    _maintain_traffic_and_csi_health(
+                        traffic_gen,
+                        csi_health,
+                        accepted_csi_total=processed_packet_count,
+                        callback_total=callback_packet_count,
+                        now_us=loop_start,
+                    )
+                    g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    time.sleep_us(100)
+                    continue
+
+                if not frame_timestamp_filter.accept(frame):
+                    out_of_order_count += 1
+                    if out_of_order_count % 100 == 1:
+                        print(f"[WARN] Filtered {out_of_order_count} duplicate or out-of-order CSI frames")
                     del frame
                     _maintain_traffic_and_csi_health(
                         traffic_gen,

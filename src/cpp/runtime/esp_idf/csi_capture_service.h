@@ -16,6 +16,7 @@
 #include "esp_err.h"
 #include "esp_wifi.h"
 #include "pending_event.h"
+#include "serial_sequence.h"
 #include "utils.h"
 #include "wifi_csi_interface.h"
 
@@ -41,6 +42,9 @@ class CsiCaptureService {
     return normalized_invalid_packets_.load(std::memory_order_relaxed);
   }
   uint32_t valid_packets() const { return valid_packets_.load(std::memory_order_relaxed); }
+  uint32_t rejected_out_of_order_packets() const {
+    return rejected_out_of_order_packets_.load(std::memory_order_relaxed);
+  }
   uint32_t enable_attempts() const { return enable_attempts_.load(std::memory_order_relaxed); }
   uint32_t disable_attempts() const { return disable_attempts_.load(std::memory_order_relaxed); }
   esp_err_t last_configure_err() const { return static_cast<esp_err_t>(last_configure_err_.load(std::memory_order_relaxed)); }
@@ -60,6 +64,7 @@ class CsiCaptureService {
  private:
   static void IRAM_ATTR csi_rx_callback_wrapper_(void *ctx, wifi_csi_info_t *data);
   esp_err_t configure_platform_specific_();
+  bool accept_rx_timestamp_(const wifi_csi_info_t *data);
 
   bool enabled_{false};
   IWiFiCSI *wifi_csi_{nullptr};
@@ -71,6 +76,7 @@ class CsiCaptureService {
   std::atomic<uint32_t> null_or_empty_packets_{0U};
   std::atomic<uint32_t> normalized_invalid_packets_{0U};
   std::atomic<uint32_t> valid_packets_{0U};
+  std::atomic<uint32_t> rejected_out_of_order_packets_{0U};
   std::atomic<uint32_t> enable_attempts_{0U};
   std::atomic<uint32_t> disable_attempts_{0U};
   std::atomic<int32_t> last_configure_err_{ESP_OK};
@@ -79,6 +85,7 @@ class CsiCaptureService {
   std::atomic<int32_t> last_disable_err_{ESP_OK};
   std::atomic<bool> collapse_seen_{false};
   std::atomic<bool> remap_seen_{false};
+  SerialSequenceTracker rx_timestamp_tracker_;
   PendingEvent<> collapse_log_event_;
   PendingEvent<> remap_log_event_;
 };

@@ -58,6 +58,7 @@ struct PerformanceResult {
 struct DatasetResults {
     std::string dataset_name;
     const char* chip_name;
+    bool synthetic;
     PerformanceResult classic;
     PerformanceResult ml;
 };
@@ -147,6 +148,7 @@ static void record_result(const char* algorithm, float recall, float fp_rate, fl
         DatasetResults row{};
         row.dataset_name = current_label;
         row.chip_name = csi_test_data::chip_name(csi_test_data::current_chip());
+        row.synthetic = csi_test_data::current_pair_is_synthetic();
         row.classic = {0, 0, 0, 0, 0, false};
         row.ml = {0, 0, 0, 0, 0, false};
         g_results.push_back(row);
@@ -160,11 +162,11 @@ static void record_result(const char* algorithm, float recall, float fp_rate, fl
     }
 }
 
-static PerformanceResult mean_result_for_chip(const char* chip_name, const char* algorithm) {
+static PerformanceResult mean_result_for_chip(const char* chip_name, const char* algorithm, bool synthetic) {
     PerformanceResult mean{0, 0, 0, 0, 0, false};
     int count = 0;
     for (const auto& r : g_results) {
-        if (strcmp(r.chip_name, chip_name) != 0) {
+        if (strcmp(r.chip_name, chip_name) != 0 || r.synthetic != synthetic) {
             continue;
         }
         const PerformanceResult& value =
@@ -192,20 +194,20 @@ static PerformanceResult mean_result_for_chip(const char* chip_name, const char*
     return mean;
 }
 
-static int dataset_count_for_chip(const char* chip_name) {
+static int dataset_count_for_chip(const char* chip_name, bool synthetic) {
     int count = 0;
     for (const auto& r : g_results) {
-        if (strcmp(r.chip_name, chip_name) == 0) {
+        if (strcmp(r.chip_name, chip_name) == 0 && r.synthetic == synthetic) {
             count++;
         }
     }
     return count;
 }
 
-static int valid_result_count_for_chip(const char* chip_name, const char* algorithm) {
+static int valid_result_count_for_chip(const char* chip_name, const char* algorithm, bool synthetic) {
     int count = 0;
     for (const auto& r : g_results) {
-        if (strcmp(r.chip_name, chip_name) != 0) {
+        if (strcmp(r.chip_name, chip_name) != 0 || r.synthetic != synthetic) {
             continue;
         }
         const PerformanceResult& value =
@@ -237,15 +239,15 @@ static void print_summary_table() {
 
     for (auto chip : csi_test_data::get_supported_chips()) {
         const char* chip_name = csi_test_data::chip_name(chip);
-        const int dataset_count = dataset_count_for_chip(chip_name);
+        const int dataset_count = dataset_count_for_chip(chip_name, false);
         if (dataset_count == 0) {
             continue;
         }
 
         char classic_str[32] = "N/A";
         char ml_str[32] = "N/A";
-        const PerformanceResult classic = mean_result_for_chip(chip_name, "classic");
-        const PerformanceResult ml = mean_result_for_chip(chip_name, "ml");
+        const PerformanceResult classic = mean_result_for_chip(chip_name, "classic", false);
+        const PerformanceResult ml = mean_result_for_chip(chip_name, "ml", false);
         
         if (classic.valid) {
             snprintf(classic_str, sizeof(classic_str), "%.1f%% R, %.1f%% FP",
@@ -296,12 +298,12 @@ static void print_summary_table() {
     printf("--------------------------------------------------------------------------------\n");
 }
 
-static void write_algorithm_json(FILE* handle, const char* algorithm) {
+static void write_algorithm_json(FILE* handle, const char* algorithm, bool synthetic) {
     bool first_chip = true;
     for (auto chip : csi_test_data::get_supported_chips()) {
         const char* chip_name = csi_test_data::chip_name(chip);
-        const PerformanceResult metrics = mean_result_for_chip(chip_name, algorithm);
-        const int count = valid_result_count_for_chip(chip_name, algorithm);
+        const PerformanceResult metrics = mean_result_for_chip(chip_name, algorithm, synthetic);
+        const int count = valid_result_count_for_chip(chip_name, algorithm, synthetic);
         if (!metrics.valid || count == 0) {
             continue;
         }
@@ -340,10 +342,18 @@ static void write_parity_payload_if_requested() {
     fprintf(handle, "\"suite\":\"test_motion_detection\",");
     fprintf(handle, "\"paired\":{");
     fprintf(handle, "\"classic\":{");
-    write_algorithm_json(handle, "classic");
+    write_algorithm_json(handle, "classic", false);
     fprintf(handle, "},");
     fprintf(handle, "\"ml\":{");
-    write_algorithm_json(handle, "ml");
+    write_algorithm_json(handle, "ml", false);
+    fprintf(handle, "}");
+    fprintf(handle, "},");
+    fprintf(handle, "\"paired_synthetic\":{");
+    fprintf(handle, "\"classic\":{");
+    write_algorithm_json(handle, "classic", true);
+    fprintf(handle, "},");
+    fprintf(handle, "\"ml\":{");
+    write_algorithm_json(handle, "ml", true);
     fprintf(handle, "}");
     fprintf(handle, "}");
     fprintf(handle, "}\n");

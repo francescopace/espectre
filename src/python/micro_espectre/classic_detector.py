@@ -35,8 +35,15 @@ class ClassicDetector(IDetector):
     BASE_THRESHOLD = 0.6066111851930618
     TRAIN_IDLE_Q95_LOGIT = -0.6372601389884949
     STARTUP_QUANTILE = 0.95
-    STARTUP_STRENGTH = 0.3
+    STARTUP_STRENGTH = 0.75
     STARTUP_SAMPLE_LIMIT = 64
+
+    # A quiet L1 floor above the fitted domain means profile displacement is
+    # dominated by weak-link noise. Fade to a session-centered, bidirectional
+    # excursion so both increases and decreases remain useful motion evidence.
+    L1_NOISE_BLEND_START = FEATURE_CENTER[0] + FEATURE_SCALE[0]
+    L1_NOISE_BLEND_END = FEATURE_CENTER[0] + 2.5 * FEATURE_SCALE[0]
+    L1_EXCURSION_GAIN = 1.5
 
     # The detector owns its startup threshold formula; the shared multiplier is
     # retained only for the generic calibrator's progress/fallback machinery.
@@ -72,6 +79,9 @@ class ClassicDetector(IDetector):
         self._current_l1_delta = 0.0
         self._current_turb_autocorr = 0.0
         self._startup_logits = []
+        self._startup_l1_deltas = []
+        self._startup_l1_floor = self.FEATURE_CENTER[0]
+        self._l1_noise_blend = 0.0
 
     @staticmethod
     def _clamp_probability(value):
@@ -133,10 +143,26 @@ class ClassicDetector(IDetector):
         autocorr_norm = (
             (turb_autocorr - self.FEATURE_CENTER[1]) / self.FEATURE_SCALE[1]
         )
-        return (
+        raw_logit = (
             self.INTERCEPT
             + self.FEATURE_WEIGHT[0] * l1_norm
             + self.FEATURE_WEIGHT[1] * autocorr_norm
+        )
+        if self._l1_noise_blend <= 0.0:
+            return raw_logit
+
+        l1_excursion = abs(l1_delta - self._startup_l1_floor)
+        robust_l1_norm = (
+            self.L1_EXCURSION_GAIN * l1_excursion / self.FEATURE_SCALE[0]
+        )
+        robust_logit = (
+            self.INTERCEPT
+            + self.FEATURE_WEIGHT[0] * robust_l1_norm
+            + self.FEATURE_WEIGHT[1] * autocorr_norm
+        )
+        return (
+            (1.0 - self._l1_noise_blend) * raw_logit
+            + self._l1_noise_blend * robust_logit
         )
 
     def update_state(self):
@@ -153,6 +179,7 @@ class ClassicDetector(IDetector):
             self._current_probability = self._sigmoid(self._current_logit)
             if len(self._startup_logits) < self.STARTUP_SAMPLE_LIMIT:
                 self._startup_logits.append(self._current_logit)
+                self._startup_l1_deltas.append(self._current_l1_delta)
             self._state = (
                 MotionState.MOTION
                 if self._current_probability > self._threshold
@@ -173,15 +200,29 @@ class ClassicDetector(IDetector):
         if session_q95 is None:
             self._threshold = self.BASE_THRESHOLD
             return
+        l1_floor = self._quantile(self._startup_l1_deltas, 0.5)
+        if l1_floor is not None:
+            self._startup_l1_floor = l1_floor
+        blend_span = self.L1_NOISE_BLEND_END - self.L1_NOISE_BLEND_START
+        self._l1_noise_blend = self._clamp_probability(
+            (self._startup_l1_floor - self.L1_NOISE_BLEND_START) / blend_span
+        )
         base_logit = math.log(self.BASE_THRESHOLD / (1.0 - self.BASE_THRESHOLD))
-        adapted_logit = base_logit + self.STARTUP_STRENGTH * (
+        normal_adapted_logit = base_logit + self.STARTUP_STRENGTH * (
             session_q95 - self.TRAIN_IDLE_Q95_LOGIT
+        )
+        adapted_logit = (
+            (1.0 - self._l1_noise_blend) * normal_adapted_logit
+            + self._l1_noise_blend * base_logit
         )
         self._threshold = self._sigmoid(adapted_logit)
 
     def on_startup_calibration_begin(self):
         """Discard stale runtime logits before a fresh calibration session."""
         self._startup_logits = []
+        self._startup_l1_deltas = []
+        self._startup_l1_floor = self.FEATURE_CENTER[0]
+        self._l1_noise_blend = 0.0
 
     def set_threshold(self, threshold):
         value = float(threshold)
@@ -215,6 +256,7 @@ class ClassicDetector(IDetector):
         self._current_l1_delta = 0.0
         self._current_turb_autocorr = 0.0
         self._startup_logits = []
+        self._startup_l1_deltas = []
 
     def get_name(self):
         return "Classic"

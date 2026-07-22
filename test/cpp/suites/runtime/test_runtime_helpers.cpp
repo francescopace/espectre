@@ -32,6 +32,7 @@ namespace {
 void dummy_csi_callback(void *, wifi_csi_info_t *) {}
 
 struct CapturedCsiPacket {
+  uint32_t callback_count{0U};
   int8_t first_value{0};
   uint16_t info_len{0U};
   size_t normalized_len{0U};
@@ -74,6 +75,7 @@ class CaptureWiFiMock final : public IWiFiCSI {
 
 void capture_csi_packet(void *context, const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) {
   auto *captured = static_cast<CapturedCsiPacket *>(context);
+  captured->callback_count++;
   captured->first_value = normalized.valid() ? normalized.data[0] : 0;
   captured->info_len = info != nullptr ? info->len : 0U;
   captured->normalized_len = normalized.len;
@@ -98,6 +100,38 @@ void test_original_esp32_csi_config_captures_ht_ltf_only(void) {
     TEST_ASSERT_FALSE(config.lltf_en);
     TEST_ASSERT_TRUE(config.htltf_en);
     TEST_ASSERT_FALSE(config.stbc_htltf2_en);
+}
+
+void test_csi_capture_service_filters_duplicate_and_stale_timestamps(void) {
+    CsiCaptureService service;
+    CapturedCsiPacket captured;
+    service.init();
+    service.set_packet_callback(&capture_csi_packet, &captured);
+
+    std::array<int8_t, HT20_CSI_LEN> csi{};
+    wifi_csi_info_t info{};
+    info.buf = csi.data();
+    info.len = HT20_CSI_LEN;
+
+    const uint32_t timestamps[] = {100U, 101U, 101U, 50U, 102U};
+    for (uint32_t timestamp : timestamps) {
+        info.rx_ctrl.timestamp = timestamp;
+        service.process_packet(&info);
+    }
+
+    TEST_ASSERT_EQUAL(3U, captured.callback_count);
+    TEST_ASSERT_EQUAL(3U, service.valid_packets());
+    TEST_ASSERT_EQUAL(2U, service.filtered_packets());
+    TEST_ASSERT_EQUAL(2U, service.rejected_out_of_order_packets());
+
+    service.reset_session();
+    info.rx_ctrl.timestamp = 50U;
+    service.process_packet(&info);
+
+    TEST_ASSERT_EQUAL(4U, captured.callback_count);
+    TEST_ASSERT_EQUAL(1U, service.valid_packets());
+    TEST_ASSERT_EQUAL(0U, service.filtered_packets());
+    TEST_ASSERT_EQUAL(0U, service.rejected_out_of_order_packets());
 }
 
 void test_csi_stream_transport_serializes_v7_phy_metadata(void) {
@@ -248,6 +282,7 @@ int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi);
     RUN_TEST(test_original_esp32_csi_config_captures_ht_ltf_only);
+    RUN_TEST(test_csi_capture_service_filters_duplicate_and_stale_timestamps);
     RUN_TEST(test_csi_stream_transport_serializes_v7_phy_metadata);
     RUN_TEST(test_csi_stream_transport_prefers_latest_fresh_sample);
     RUN_TEST(test_csi_stream_transport_drops_stale_latest_sample);

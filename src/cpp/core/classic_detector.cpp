@@ -24,6 +24,8 @@ ClassicDetector::ClassicDetector(uint16_t window_size, float threshold)
       current_l1_delta_(0.0f),
       current_turb_autocorr_(0.0f),
       startup_logit_count_(0U),
+      startup_l1_floor_(CLASSIC_L1_CENTER),
+      l1_noise_blend_(0.0f),
       adapted_threshold_(CLASSIC_DEFAULT_THRESHOLD),
       adapted_threshold_ready_(false) {
   l1_tracker_.configure(l1_delta_capacity_());
@@ -97,8 +99,17 @@ float ClassicDetector::calculate_logit_(float l1_delta, float turb_autocorr) con
   const float normalized_l1 = (l1_delta - CLASSIC_L1_CENTER) / CLASSIC_L1_SCALE;
   const float normalized_autocorr =
       (turb_autocorr - CLASSIC_AUTOCORR_CENTER) / CLASSIC_AUTOCORR_SCALE;
-  return CLASSIC_INTERCEPT + CLASSIC_L1_WEIGHT * normalized_l1 +
-         CLASSIC_AUTOCORR_WEIGHT * normalized_autocorr;
+  const float raw_logit = CLASSIC_INTERCEPT + CLASSIC_L1_WEIGHT * normalized_l1 +
+                          CLASSIC_AUTOCORR_WEIGHT * normalized_autocorr;
+  if (l1_noise_blend_ <= 0.0f) {
+    return raw_logit;
+  }
+
+  const float l1_excursion = std::fabs(l1_delta - startup_l1_floor_);
+  const float robust_l1 = CLASSIC_L1_EXCURSION_GAIN * l1_excursion / CLASSIC_L1_SCALE;
+  const float robust_logit = CLASSIC_INTERCEPT + CLASSIC_L1_WEIGHT * robust_l1 +
+                             CLASSIC_AUTOCORR_WEIGHT * normalized_autocorr;
+  return (1.0f - l1_noise_blend_) * raw_logit + l1_noise_blend_ * robust_logit;
 }
 
 float ClassicDetector::sigmoid_(float value) {
@@ -119,40 +130,62 @@ void ClassicDetector::update_state() {
   current_logit_ = calculate_logit_(current_l1_delta_, current_turb_autocorr_);
   current_probability_ = sigmoid_(current_logit_);
   if (!adapted_threshold_ready_ && startup_logit_count_ < CLASSIC_STARTUP_SAMPLE_LIMIT) {
-    startup_logits_[startup_logit_count_++] = current_logit_;
+    startup_logits_[startup_logit_count_] = current_logit_;
+    startup_l1_deltas_[startup_logit_count_] = current_l1_delta_;
+    startup_logit_count_++;
   }
   state_ = current_probability_ > threshold_ ? MotionState::MOTION : MotionState::IDLE;
 }
 
-float ClassicDetector::startup_quantile_() const {
-  if (startup_logit_count_ == 0U) {
-    return CLASSIC_TRAIN_IDLE_Q95_LOGIT;
+float ClassicDetector::quantile_(const float* values, uint8_t count, float quantile) {
+  if (values == nullptr || count == 0U) {
+    return 0.0f;
   }
   float ordered[CLASSIC_STARTUP_SAMPLE_LIMIT];
-  std::copy(startup_logits_, startup_logits_ + startup_logit_count_, ordered);
-  std::sort(ordered, ordered + startup_logit_count_);
-  const float position = static_cast<float>(startup_logit_count_ - 1U) *
-                         CLASSIC_STARTUP_QUANTILE;
+  std::copy(values, values + count, ordered);
+  std::sort(ordered, ordered + count);
+  const float position = static_cast<float>(count - 1U) * quantile;
   const uint8_t lower = static_cast<uint8_t>(position);
-  const uint8_t upper = std::min<uint8_t>(lower + 1U, startup_logit_count_ - 1U);
+  const uint8_t upper = std::min<uint8_t>(lower + 1U, count - 1U);
   const float fraction = position - static_cast<float>(lower);
   return ordered[lower] * (1.0f - fraction) + ordered[upper] * fraction;
 }
 
+float ClassicDetector::startup_quantile_() const {
+  return startup_logit_count_ == 0U
+             ? CLASSIC_TRAIN_IDLE_Q95_LOGIT
+             : quantile_(startup_logits_, startup_logit_count_, CLASSIC_STARTUP_QUANTILE);
+}
+
+float ClassicDetector::startup_l1_median_() const {
+  return startup_logit_count_ == 0U
+             ? CLASSIC_L1_CENTER
+             : quantile_(startup_l1_deltas_, startup_logit_count_, 0.5f);
+}
+
 void ClassicDetector::on_startup_calibration_begin() {
   startup_logit_count_ = 0U;
+  startup_l1_floor_ = CLASSIC_L1_CENTER;
+  l1_noise_blend_ = 0.0f;
   adapted_threshold_ready_ = false;
 }
 
 void ClassicDetector::on_startup_calibration_complete() {
   const float base_logit = std::log(CLASSIC_DEFAULT_THRESHOLD /
                                     (1.0f - CLASSIC_DEFAULT_THRESHOLD));
-  const float adapted_logit = base_logit + CLASSIC_STARTUP_STRENGTH *
+  startup_l1_floor_ = startup_l1_median_();
+  const float blend_span = CLASSIC_L1_NOISE_BLEND_END - CLASSIC_L1_NOISE_BLEND_START;
+  l1_noise_blend_ = std::clamp(
+      (startup_l1_floor_ - CLASSIC_L1_NOISE_BLEND_START) / blend_span, 0.0f, 1.0f);
+  const float normal_adapted_logit = base_logit + CLASSIC_STARTUP_STRENGTH *
       (startup_quantile_() - CLASSIC_TRAIN_IDLE_Q95_LOGIT);
+  const float adapted_logit = (1.0f - l1_noise_blend_) * normal_adapted_logit +
+                              l1_noise_blend_ * base_logit;
   adapted_threshold_ = sigmoid_(adapted_logit);
   adapted_threshold_ready_ = true;
-  ESP_LOGD(TAG, "Startup threshold prepared: %.6f (%u logit samples)",
-           adapted_threshold_, static_cast<unsigned>(startup_logit_count_));
+  ESP_LOGD(TAG, "Startup threshold prepared: %.6f (%u samples, l1 floor=%.6f, blend=%.3f)",
+           adapted_threshold_, static_cast<unsigned>(startup_logit_count_),
+           startup_l1_floor_, l1_noise_blend_);
 }
 
 bool ClassicDetector::set_adaptive_threshold(float) {

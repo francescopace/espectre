@@ -34,8 +34,12 @@ constexpr float CLASSIC_INTERCEPT = -2.1254162788391113f;
 
 constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -0.6372601389884949f;
 constexpr float CLASSIC_STARTUP_QUANTILE = 0.95f;
-constexpr float CLASSIC_STARTUP_STRENGTH = 0.3f;
+constexpr float CLASSIC_STARTUP_STRENGTH = 0.75f;
 constexpr uint8_t CLASSIC_STARTUP_SAMPLE_LIMIT = 64U;
+constexpr float CLASSIC_L1_NOISE_BLEND_START = CLASSIC_L1_CENTER + CLASSIC_L1_SCALE;
+constexpr float CLASSIC_L1_NOISE_BLEND_END =
+    CLASSIC_L1_CENTER + 2.5f * CLASSIC_L1_SCALE;
+constexpr float CLASSIC_L1_EXCURSION_GAIN = 1.5f;
 
 class ClassicDetector : public BaseDetector {
  public:
@@ -79,7 +83,9 @@ class ClassicDetector : public BaseDetector {
   float calculate_turb_autocorr_() const;
   float calculate_logit_(float l1_delta, float turb_autocorr) const;
   static float sigmoid_(float value);
+  static float quantile_(const float* values, uint8_t count, float quantile);
   float startup_quantile_() const;
+  float startup_l1_median_() const;
 
   float threshold_;
   float current_probability_;
@@ -87,7 +93,10 @@ class ClassicDetector : public BaseDetector {
   float current_l1_delta_;
   float current_turb_autocorr_;
   float startup_logits_[CLASSIC_STARTUP_SAMPLE_LIMIT]{};
+  float startup_l1_deltas_[CLASSIC_STARTUP_SAMPLE_LIMIT]{};
   uint8_t startup_logit_count_;
+  float startup_l1_floor_;
+  float l1_noise_blend_;
   float adapted_threshold_;
   bool adapted_threshold_ready_;
   L1DeltaTracker l1_tracker_;

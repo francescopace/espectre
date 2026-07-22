@@ -12,6 +12,7 @@ decision context now live in ADRs, especially:
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
 - [`2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md`](adr/2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md)
 - [`2026-07-20-keep-the-12-tone-ht20-classic-band.md`](adr/2026-07-20-keep-the-12-tone-ht20-classic-band.md)
+- [`2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md`](adr/2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md)
 
 ## Overview
 
@@ -211,13 +212,29 @@ The coefficients come from grouped, de-overlapped out-of-fold training balanced
 by class, chip, and session. The runtime contains no majority vote or recovery
 branch.
 
+When the startup L1 floor is above the fitted range, weak-link noise can make
+raw profile displacement unreliable. Classic then fades continuously from raw
+`l1_delta` to a session-centered absolute excursion:
+
+```text
+l1_excursion = gain * |l1_delta - median(startup_l1_delta)|
+```
+
+This keeps both upward and downward changes as positive motion evidence. The
+normal fitted path remains unchanged while the startup floor is within its
+training range.
+
 ### Startup Threshold Calibration
 
 At startup, Classic begins from the validated global probability threshold
 and shifts its logit using the session's startup `q95` relative to the training
-idle reference. This preserves the learned two-feature decision boundary while
-compensating for session-level floor movement. Runtime adjustments use the same
-`0.0-1.0` probability scale and remain active until recalibration or reboot.
+idle reference. The shift applies `75%` of the observed session-to-training
+offset. This preserves the learned two-feature decision boundary while giving
+the quiet baseline enough influence to cover weak links whose startup logits
+move in either direction. When the weak-link safeguard is fully active, the
+session-centered feature uses the validated global threshold instead of the
+saturated raw-logit threshold. Runtime adjustments use the same `0.0-1.0`
+probability scale and remain active until recalibration or reboot.
 
 ### Implementation Status
 

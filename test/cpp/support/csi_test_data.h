@@ -262,6 +262,7 @@ inline int get_available_long_recording_count();
 inline ChipType long_recording_chip(int recording_index);
 inline const char* long_recording_label(int recording_index);
 inline bool switch_long_recording_dataset_by_index(int recording_index);
+inline const struct LowRssiDatasetSelection* real_low_rssi_pair_for_chip(ChipType chip);
 inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm);
 inline bool parse_iso8601_epoch_seconds(const std::string& text, double& out_epoch_seconds);
 
@@ -303,11 +304,23 @@ struct ChipDatasetSelection {
     std::string static_presence_path;
     std::string motion_path;
     std::string environment;
+    bool synthetic = false;
     bool valid = false;
 };
 static std::array<ChipDatasetSelection, CHIP_COUNT> g_selected_by_chip;
 static std::vector<ChipDatasetSelection> g_pair_selections;
 static int g_current_pair_index = -1;
+struct LowRssiDatasetSelection {
+    ChipType chip = ChipType::C6;
+    std::string static_presence_filename;
+    std::string motion_filename;
+    std::string static_presence_path;
+    std::string motion_path;
+    std::string environment;
+    bool valid = false;
+};
+static bool g_low_rssi_cache_loaded = false;
+static std::array<LowRssiDatasetSelection, CHIP_COUNT> g_low_rssi_selected_by_chip;
 
 struct LongRecordingSelection {
     ChipType chip = ChipType::C6;
@@ -352,6 +365,111 @@ inline CsiData slice_packets(const CsiData& source, int start_idx, int end_idx) 
     return result;
 }
 
+inline bool load_real_low_rssi_cache() {
+    if (g_low_rssi_cache_loaded) {
+        return true;
+    }
+
+    const std::string dataset_info_path = "../../data/dataset_info.json";
+    std::ifstream in(dataset_info_path);
+    if (!in.is_open()) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Cannot open %s\n", dataset_info_path.c_str());
+        return false;
+    }
+
+    DynamicJsonDocument doc(128 * 1024);
+    auto err = deserializeJson(doc, in);
+    if (err) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Failed parsing dataset_info.json: %s\n", err.c_str());
+        return false;
+    }
+
+    struct PairFile {
+        std::string filename;
+        std::string path;
+        std::string environment;
+        bool valid = false;
+    };
+    std::unordered_map<std::string, PairFile> motion_by_filename;
+
+    for (auto& selected : g_low_rssi_selected_by_chip) {
+        selected = LowRssiDatasetSelection{};
+    }
+
+    JsonArray motion_entries = doc["files"]["motion"].as<JsonArray>();
+    for (JsonObject entry : motion_entries) {
+        const char* filename = entry["filename"];
+        const char* chip_text = entry["chip"];
+        const int subcarriers = entry["subcarriers"] | 0;
+        const bool low_rssi = entry["low_rssi"] | false;
+        const bool synthetic = entry["synthetic"] | false;
+        if (filename == nullptr || chip_text == nullptr || subcarriers != 64 ||
+            !low_rssi || synthetic) {
+            continue;
+        }
+
+        ChipType chip{};
+        if (!chip_from_string(chip_text, chip)) {
+            continue;
+        }
+        const int idx = chip_index(chip);
+        if (idx < 0) {
+            continue;
+        }
+
+        PairFile candidate{};
+        candidate.filename = filename;
+        candidate.path = std::string("../../data/motion/") + filename;
+        candidate.environment = entry["environment"] | "";
+        candidate.valid = true;
+        motion_by_filename[candidate.filename] = candidate;
+    }
+
+    JsonArray static_presence_entries = doc["files"]["static_presence"].as<JsonArray>();
+    for (JsonObject entry : static_presence_entries) {
+        const char* filename = entry["filename"];
+        const char* chip_text = entry["chip"];
+        const char* optimal_pair_motion_file = entry["optimal_pair_motion_file"];
+        const int subcarriers = entry["subcarriers"] | 0;
+        const bool low_rssi = entry["low_rssi"] | false;
+        const bool synthetic = entry["synthetic"] | false;
+        if (filename == nullptr || chip_text == nullptr || optimal_pair_motion_file == nullptr ||
+            subcarriers != 64 || !low_rssi || synthetic) {
+            continue;
+        }
+
+        ChipType chip{};
+        if (!chip_from_string(chip_text, chip)) {
+            continue;
+        }
+        const int idx = chip_index(chip);
+        if (idx < 0) {
+            continue;
+        }
+
+        auto motion_it = motion_by_filename.find(optimal_pair_motion_file);
+        if (motion_it == motion_by_filename.end()) {
+            continue;
+        }
+
+        LowRssiDatasetSelection& selected = g_low_rssi_selected_by_chip[idx];
+        if (selected.valid) {
+            continue;
+        }
+
+        selected.chip = chip;
+        selected.static_presence_filename = filename;
+        selected.motion_filename = motion_it->second.filename;
+        selected.static_presence_path = std::string("../../data/static_presence/") + filename;
+        selected.motion_path = motion_it->second.path;
+        selected.environment = entry["environment"] | "";
+        selected.valid = true;
+    }
+
+    g_low_rssi_cache_loaded = true;
+    return true;
+}
+
 inline bool load_tuning_cache() {
     if (g_tuning_cache_loaded) {
         return true;
@@ -376,6 +494,7 @@ inline bool load_tuning_cache() {
         std::string path;
         std::string environment;
         std::string optimal_pair_motion_file;
+        bool synthetic = false;
         bool valid = false;
     };
     std::array<std::vector<PairFile>, CHIP_COUNT> static_presence_candidates{};
@@ -407,6 +526,7 @@ inline bool load_tuning_cache() {
             candidate.path = std::string("../../data/static_presence/") + filename;
             candidate.environment = environment;
             candidate.optimal_pair_motion_file = optimal_pair_motion_file;
+            candidate.synthetic = entry["synthetic"] | false;
             candidate.valid = true;
             static_presence_candidates[idx].push_back(candidate);
         }
@@ -427,6 +547,7 @@ inline bool load_tuning_cache() {
                     candidate.filename = filename;
                     candidate.path = std::string("../../data/motion/") + filename;
                     candidate.environment = entry["environment"] | "";
+                    candidate.synthetic = entry["synthetic"] | false;
                     candidate.valid = true;
                     motion_by_filename[candidate.filename] = candidate;
                 }
@@ -454,6 +575,9 @@ inline bool load_tuning_cache() {
             }
 
             const PairFile& motion = motion_it->second;
+            if (static_presence.synthetic != motion.synthetic) {
+                continue;
+            }
             ChipDatasetSelection selected{};
             selected.chip = chip;
             selected.static_presence_filename = static_presence.filename;
@@ -461,6 +585,7 @@ inline bool load_tuning_cache() {
             selected.static_presence_path = static_presence.path;
             selected.motion_path = motion.path;
             selected.environment = static_presence.environment;
+            selected.synthetic = static_presence.synthetic;
             selected.valid = true;
             g_pair_selections.push_back(selected);
 
@@ -640,6 +765,17 @@ inline const char* long_recording_name_for_chip(ChipType chip) {
         return nullptr;
     }
     return g_long_selected_by_chip[idx].filename.c_str();
+}
+
+inline const LowRssiDatasetSelection* real_low_rssi_pair_for_chip(ChipType chip) {
+    if (!load_real_low_rssi_cache()) {
+        return nullptr;
+    }
+    const int idx = chip_index(chip);
+    if (idx < 0 || !g_low_rssi_selected_by_chip[idx].valid) {
+        return nullptr;
+    }
+    return &g_low_rssi_selected_by_chip[idx];
 }
 
 inline const LongRecordingSelection* long_recording_selection(int recording_index) {
@@ -944,6 +1080,14 @@ inline int current_pair_index() {
 
 inline const char* current_pair_label() {
     return pair_label(g_current_pair_index);
+}
+
+inline bool current_pair_is_synthetic() {
+    if (!load_tuning_cache() || g_current_pair_index < 0 ||
+        g_current_pair_index >= static_cast<int>(g_pair_selections.size())) {
+        return false;
+    }
+    return g_pair_selections[g_current_pair_index].synthetic;
 }
 
 // ============================================================================

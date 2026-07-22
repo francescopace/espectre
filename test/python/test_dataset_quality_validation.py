@@ -127,6 +127,40 @@ def test_active_burst_metrics_reports_duration_and_rate() -> None:
     assert metrics["bursts_per_minute"] == pytest.approx(30.0)
 
 
+def test_classic_calibration_cache_preserves_full_detector_state(monkeypatch) -> None:
+    module = _load_validator_module()
+
+    class FakeDetector:
+        def __init__(self):
+            self.threshold = 0.8
+            self.startup_l1_floor = 0.12
+            self.l1_noise_blend = 0.75
+
+    calibration_calls = []
+
+    def fake_calibrate(*_args, **_kwargs):
+        calibration_calls.append(True)
+        return FakeDetector(), 0.8
+
+    monkeypatch.setattr(
+        module, "build_calibrated_classic_detector", fake_calibrate
+    )
+    cache = {}
+    first = module._calibrated_classic_for(
+        np.zeros((10, 128), dtype=np.int8), cache, "low-rssi"
+    )
+    first[0].startup_l1_floor = 99.0
+    second = module._calibrated_classic_for(
+        np.zeros((10, 128), dtype=np.int8), cache, "low-rssi"
+    )
+
+    assert len(calibration_calls) == 1
+    assert second[0] is not first[0]
+    assert second[0].threshold == pytest.approx(0.8)
+    assert second[0].startup_l1_floor == pytest.approx(0.12)
+    assert second[0].l1_noise_blend == pytest.approx(0.75)
+
+
 def test_empty_and_presence_verdicts_use_classic_baseline_only() -> None:
     module = _load_validator_module()
     baseline = {
@@ -205,8 +239,21 @@ def test_refresh_metadata_respects_chip_filter() -> None:
     assert len(pair_rows) == 1
 
 
-def test_refresh_metadata_never_pairs_real_with_synthetic() -> None:
+def test_refresh_metadata_never_pairs_real_with_synthetic(
+    monkeypatch, tmp_path
+) -> None:
     module = _load_validator_module()
+    monkeypatch.setattr(module.dataset_metadata, "DATA_DIR", tmp_path)
+    (tmp_path / "static_presence").mkdir()
+    (tmp_path / "motion").mkdir()
+    np.savez_compressed(
+        tmp_path / "static_presence" / "synthetic_static.npz",
+        generation_group=np.asarray("synthetic-pair"),
+    )
+    np.savez_compressed(
+        tmp_path / "motion" / "synthetic_motion.npz",
+        generation_group=np.asarray("synthetic-pair"),
+    )
     info = {
         "files": {
             "static_presence": [
@@ -222,7 +269,6 @@ def test_refresh_metadata_never_pairs_real_with_synthetic() -> None:
                     "subcarriers": 64,
                     "collected_at": "2026-07-22T10:00:00",
                     "synthetic": True,
-                    "generation": {"group_id": "synthetic-pair"},
                 },
             ],
             "motion": [
@@ -238,7 +284,6 @@ def test_refresh_metadata_never_pairs_real_with_synthetic() -> None:
                     "subcarriers": 64,
                     "collected_at": "2026-07-22T10:01:00",
                     "synthetic": True,
-                    "generation": {"group_id": "synthetic-pair"},
                 },
             ],
         }
@@ -789,7 +834,11 @@ def test_idle_evidence_results_never_fail_the_run() -> None:
         "longest_burst_seconds": 30.0,
     }
     module._compute_idle_evidence_for_entry = (
-        lambda entry, label, npz_cache, calibration_cache=None: (dirty_baseline, None)
+        lambda entry, label, npz_cache, calibration_cache=None: (
+            dirty_baseline,
+            None,
+            None,
+        )
     )
 
     results, rows = module._evaluate_idle_evidence_files(

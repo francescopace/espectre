@@ -103,7 +103,12 @@ def main() -> int:
         "generated_by": "tools/generate_performance_report.py",
         "run_started": started_at.isoformat(timespec="seconds"),
         "run_duration": _format_duration(get_elapsed()),
-        "paired_dataset_count": len(get_available_paired_datasets()),
+        "real_paired_dataset_count": len(
+            get_available_paired_datasets(synthetic=False)
+        ),
+        "synthetic_paired_dataset_count": len(
+            get_available_paired_datasets(synthetic=True)
+        ),
         "long_quiet_dataset_count": len(get_available_long_test_datasets()),
     }
     if args.stdout:

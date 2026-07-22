@@ -57,7 +57,7 @@ instead of repeating its historical rationale.
 - [`2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md`](2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md)
 - [`2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md`](2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md)
 - [`2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
-- [`2026-07-21-replace-classic-l1-delta-with-adaptive-l1-delta.md`](2026-07-21-replace-classic-l1-delta-with-adaptive-l1-delta.md)
+- [`2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md`](2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md)
 
 ### ML
 

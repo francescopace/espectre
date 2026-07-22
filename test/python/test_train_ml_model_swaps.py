@@ -788,6 +788,25 @@ def test_deployment_candidate_requires_paired_non_regression():
     assert not module.deployment_candidate_beats_baseline(fp_regression, baseline)
 
 
+def test_paired_non_regression_prioritizes_more_passing_chips():
+    module = _load_train_module()
+    broken_baseline = {
+        "pass_count": 2,
+        "max_fp_rate": 100.0,
+        "worst_chip_recall": 100.0,
+        "worst_chip_f1": 66.0,
+    }
+    valid_candidate = {
+        "pass_count": 5,
+        "max_fp_rate": 3.0,
+        "worst_chip_recall": 98.0,
+        "worst_chip_f1": 98.0,
+    }
+
+    assert module.paired_result_non_regression(valid_candidate, broken_baseline)
+    assert not module.paired_result_non_regression(broken_baseline, valid_candidate)
+
+
 def test_fp_weight_campaign_is_multi_seed_and_non_promoting_by_default(monkeypatch, tmp_path):
     module = _load_train_module()
     context = {module.DEFAULT_PRIMARY_GROUP_KEY: np.asarray(["a", "b"])}

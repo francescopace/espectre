@@ -155,6 +155,9 @@ class CsiPipeline {
   uint64_t accepted_packets_total() const {
     return accepted_packets_total_.load(std::memory_order_relaxed);
   }
+  uint64_t rejected_out_of_order_packets_total() const {
+    return capture_service_.rejected_out_of_order_packets();
+  }
   /**
    * Set callback for live telemetry updates.
    */

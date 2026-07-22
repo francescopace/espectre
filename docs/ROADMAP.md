@@ -78,7 +78,9 @@ tagged.
 - [ ] Optimize Micro-ESPectre to exceed its current approximately 70 pps ceiling
 - [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
 - [ ] Add and validate broader PHY and band support, including graceful handling for currently unsupported LLTF, HT40, and HE20 packets, plus Wi-Fi 6 / 802.11ax capabilities and, where supported by hardware and exposed APIs, 5 GHz operation
-- [ ] Add low-RSSI safeguards so Classic and ML detector behavior remains usable when RSSI drops into the roughly `-70` to `-80 dBm` range
+- [ ] Keep Classic and ML usable when RSSI drops into the roughly `-70` to `-80 dBm` range
+  - [x] Add a session-centered L1 safeguard for Classic
+  - [ ] Add and validate an ML low-RSSI safeguard from real captures
 - [ ] Make `segmentation_window_size`, detector feature windows, and `evaluation_interval` adapt automatically to the effective CSI packet rate, and keep Classic and ML features comparable across window sizes
 - [ ] Use a dedicated build directory for each chip instead of reusing the same directory across targets
 - [ ] Test the new GitHub issue and pull request templates end to end

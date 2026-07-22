@@ -5282,9 +5282,10 @@ def _feature_ablation_rank_key(result):
 
 def paired_result_non_regression(candidate, baseline, tolerance=0.25):
     """Require a single-run candidate to preserve paired performance."""
+    if candidate['pass_count'] != baseline['pass_count']:
+        return candidate['pass_count'] > baseline['pass_count']
     return (
-        candidate['pass_count'] >= baseline['pass_count']
-        and candidate['max_fp_rate'] <= baseline['max_fp_rate'] + 1e-6
+        candidate['max_fp_rate'] <= baseline['max_fp_rate'] + 1e-6
         and candidate['worst_chip_recall'] >= baseline['worst_chip_recall'] - tolerance
         and candidate['worst_chip_f1'] >= baseline['worst_chip_f1'] - tolerance
     )

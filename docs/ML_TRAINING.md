@@ -239,18 +239,35 @@ flat at `1.00x`, `1.25x`, and `1.50x`. The remaining worst-session weakness is
 nominal dataset difficulty, not gain-shift sensitivity. Treat this gate as the
 primary diagnostic before promoting future retrains.
 
-When you want a synthetic weak-link proxy instead of a pure amplitude-gain
-stress, use `tools/analyze_low_rssi_degradation.py`. That tool can attenuate
-CSI I/Q payloads, lower reported RSSI independently, inject bounded additive
-noise, perturb per-packet subcarrier profiles, and drop packets before
-replaying the current Classic and ML detectors on the degraded streams. Treat
-it as an exploratory robustness study, not as a substitute for real low-RSSI
-captures. Keep the tool-specific scenario catalog, real-capture notes, and CLI
-examples in [README.md](../tools/README.md).
+Amplitude-gain stress does not model the feature-floor drift seen on weak Wi-Fi
+links. Validate low-RSSI behavior separately with real captures registered in
+`data/dataset_info.json` and production-path detector regressions. Classic has
+a startup-centered safeguard for this case; ML low-RSSI behavior remains a
+separate promotion problem that requires additional real-data evidence.
+
+Use `tools/generate_low_rssi_dataset.py` for synthetic weak-link derivatives.
+The generator models RSSI and packet loss from the retained C3, C5, C6, or S3
+low-RSSI pair, then jointly fits the six production ML feature medians through
+temporal profile deformation and controlled spatial turbulence. The exported
+NPZ includes its source, target, and achieved Core-6 medians, normalized fit
+errors, and fitted parameters.
+
+The `reference_match` mode reproduces each phase independently for detector
+replay and should not be used for training. The `shared_session` mode fits
+`static_presence`, preserves source dynamics, and reuses the same impairment
+parameters for paired `motion`; use this mode for ML augmentation. Synthetic
+files live in the standard `data/<label>/` directories and are therefore
+consumed by the current trainer alongside real captures.
+
+Generate the complete compatible augmentation set with:
 
 ```bash
-python tools/analyze_low_rssi_degradation.py --chip ESP32 --scenario clean low_rssi_proxy_medium
+python tools/generate_all_low_rssi_datasets.py --dry-run
+python tools/generate_all_low_rssi_datasets.py
 ```
+
+The batch does not synthesize `static_presence` or `motion` for a chip already
+covered by a real pair marked `low_rssi: true`.
 
 ## Cross-Environment And Cross-Chip Generalization Checks
 

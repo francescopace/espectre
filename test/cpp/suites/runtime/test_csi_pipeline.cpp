@@ -317,6 +317,50 @@ void test_csi_pipeline_process_packet_valid_data(void) {
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
 
+void test_csi_pipeline_filters_duplicate_and_stale_rx_timestamps(void) {
+    ClassicDetector detector(10, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    csi_info.rx_ctrl.timestamp = 100U;
+    manager.process_packet(&csi_info);
+    csi_info.rx_ctrl.timestamp = 101U;
+    manager.process_packet(&csi_info);
+    manager.process_packet(&csi_info);
+    csi_info.rx_ctrl.timestamp = 50U;
+    manager.process_packet(&csi_info);
+    csi_info.rx_ctrl.timestamp = 102U;
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(3U, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(3U, manager.accepted_packets_total());
+    TEST_ASSERT_EQUAL(2U, manager.rejected_out_of_order_packets_total());
+}
+
+void test_csi_pipeline_accepts_rx_timestamp_wrap(void) {
+    ClassicDetector detector(10, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    const uint32_t timestamps[] = {UINT32_MAX - 1U, UINT32_MAX, 0U, 1U};
+    for (uint32_t timestamp : timestamps) {
+        csi_info.rx_ctrl.timestamp = timestamp;
+        manager.process_packet(&csi_info);
+    }
+
+    TEST_ASSERT_EQUAL(4U, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(4U, manager.accepted_packets_total());
+    TEST_ASSERT_EQUAL(0U, manager.rejected_out_of_order_packets_total());
+}
+
 void test_csi_pipeline_filters_non_ht20_phy(void) {
     ClassicDetector detector(50, 1.0f);
     CsiPipeline manager;
@@ -847,6 +891,8 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_process_packet_short_data);
     RUN_TEST(test_csi_pipeline_counts_valid_local_packets_for_traffic_feedback);
     RUN_TEST(test_csi_pipeline_process_packet_valid_data);
+    RUN_TEST(test_csi_pipeline_filters_duplicate_and_stale_rx_timestamps);
+    RUN_TEST(test_csi_pipeline_accepts_rx_timestamp_wrap);
     RUN_TEST(test_csi_pipeline_filters_non_ht20_phy);
     RUN_TEST(test_csi_pipeline_motion_state_callback_fires_before_periodic_publish);
     RUN_TEST(test_csi_pipeline_motion_state_callback_does_not_repeat_without_new_edge);

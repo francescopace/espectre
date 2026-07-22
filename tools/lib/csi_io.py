@@ -36,6 +36,11 @@ except ImportError:
     import src.config as config
 
 try:
+    from serial_sequence import SerialSequenceTracker
+except ImportError:
+    from src.serial_sequence import SerialSequenceTracker
+
+try:
     from detector_interface import (
         detector_needs_startup_calibration,
         load_detector_class,
@@ -190,6 +195,51 @@ class CSIPacket:
     def phases(self) -> np.ndarray:
         self._ensure_derived_arrays()
         return self._phases
+
+
+@dataclass(frozen=True)
+class SequenceObservation:
+    """Result of checking one packet against a wrapping stream sequence."""
+
+    accepted: bool
+    missing: int = 0
+
+
+class PacketSequenceTracker:
+    """Track independent wrapping 32-bit packet streams."""
+
+    def __init__(self):
+        self._trackers: Dict[Tuple[str, Any], SerialSequenceTracker] = {}
+
+    @staticmethod
+    def _stream_key(packet: CSIPacket) -> Tuple[str, Any]:
+        if packet.device_id is not None:
+            return ("device", int(packet.device_id))
+        if packet.source_ip:
+            return ("source", str(packet.source_ip))
+        return ("receiver", 0)
+
+    def observe(self, packet: CSIPacket) -> SequenceObservation:
+        key = self._stream_key(packet)
+        tracker = self._trackers.get(key)
+        if tracker is None:
+            tracker = SerialSequenceTracker()
+            self._trackers[key] = tracker
+        missing = tracker.observe(packet.seq_num)
+        if missing < 0:
+            return SequenceObservation(False)
+        return SequenceObservation(True, missing=missing)
+
+    def seed_device(self, device_id: int, seq_num: int) -> None:
+        key = ("device", int(device_id))
+        tracker = self._trackers.get(key)
+        if tracker is None:
+            tracker = SerialSequenceTracker()
+            self._trackers[key] = tracker
+        tracker.seed(seq_num)
+
+    def reset(self) -> None:
+        self._trackers.clear()
 
 
 def build_pacing_datagram(*, payload: bytes = DEFAULT_PACING_PAYLOAD) -> bytes:
@@ -585,7 +635,9 @@ class CSIReceiver:
         self.buffer: deque[CSIPacket] = deque(maxlen=buffer_size)
         self.packet_count = 0
         self.dropped_count = 0
+        self.out_of_order_count = 0
         self.last_seq = -1
+        self._sequence_tracker = PacketSequenceTracker()
         self.start_time = 0.0
         self.pps = 0
         self._pps_counter = 0
@@ -699,10 +751,25 @@ class CSIReceiver:
             return 0
         return delta
 
+    def accept_packet(self, packet: CSIPacket) -> bool:
+        """Accept a fresh packet and account for loss or reordering."""
+        observation = self._sequence_tracker.observe(packet)
+        if not observation.accepted:
+            self.out_of_order_count += 1
+            return False
+        self.dropped_count += observation.missing
+        self.last_seq = int(packet.seq_num)
+        return True
+
     def _check_sequence(self, seq_num: int) -> None:
+        """Preserve legacy single-stream drop accounting for callers."""
         if self.last_seq >= 0:
             self.dropped_count += self._compute_sequence_gap(self.last_seq, seq_num)
-        self.last_seq = seq_num
+        self.last_seq = int(seq_num)
+
+    def seed_device_sequence(self, device_id: int, seq_num: int) -> None:
+        """Continue sequence tracking across collector phases."""
+        self._sequence_tracker.seed_device(device_id, seq_num)
 
     def _update_pps(self) -> None:
         current_time = time.time()
@@ -732,6 +799,7 @@ class CSIReceiver:
         return {
             "packets": self.packet_count,
             "dropped": self.dropped_count,
+            "out_of_order": self.out_of_order_count,
             "drop_rate": self.dropped_count / max(total_expected, 1) * 100,
             "pps": self.pps,
             "buffer_fill": len(self.buffer),
@@ -742,7 +810,9 @@ class CSIReceiver:
     def reset_stats(self) -> None:
         self.packet_count = 0
         self.dropped_count = 0
+        self.out_of_order_count = 0
         self.last_seq = -1
+        self._sequence_tracker.reset()
         self.start_time = time.time()
         self.pps = 0
         self._pps_counter = 0
@@ -797,7 +867,8 @@ class CSIReceiver:
                     continue
                 for packet in packets:
                     packet.source_ip = addr[0]
-                    self._check_sequence(packet.seq_num)
+                    if not self.accept_packet(packet):
+                        continue
                     self.buffer.append(packet)
                     self.packet_count += 1
                     self._pps_counter += 1
@@ -1233,17 +1304,6 @@ class CSICollector:
         return len(lines)
 
     @staticmethod
-    def _check_sequence_by_device(packet: CSIPacket, last_seq_by_device: Dict[int, int]) -> int:
-        if packet.device_id is None:
-            return 0
-        device_id = int(packet.device_id)
-        dropped = 0
-        if device_id in last_seq_by_device:
-            dropped = CSIReceiver._compute_sequence_gap(last_seq_by_device[device_id], packet.seq_num)
-        last_seq_by_device[device_id] = packet.seq_num
-        return dropped
-
-    @staticmethod
     def _summarize_ready_devices(
         device_states: Dict[int, Dict[str, Any]],
         *,
@@ -1395,7 +1455,6 @@ class CSICollector:
         self.receiver.reset_stats()
         warmup_target = self._ready_window_size
         device_states: Dict[int, Dict[str, Any]] = {}
-        last_seq_by_device: Dict[int, int] = {}
         processed_packets = 0
         last_render = 0.0
         last_pps_time = time.monotonic()
@@ -1410,9 +1469,11 @@ class CSICollector:
                 if not packets:
                     continue
                 for packet in packets:
+                    packet.source_ip = addr[0]
+                    if not self.receiver.accept_packet(packet):
+                        continue
                     processed_packets += 1
                     self.receiver.packet_count += 1
-                    self.receiver.dropped_count += self._check_sequence_by_device(packet, last_seq_by_device)
                     if packet.device_id is None:
                         continue
                     state = self._update_device_detector_state(device_states, packet, addr[0])
@@ -1512,11 +1573,9 @@ class CSICollector:
         deadline = time.monotonic() + duration
         warmup_target = self._ready_window_size
         device_states: Dict[int, Dict[str, Any]] = dict(initial_device_states or {})
-        last_seq_by_device: Dict[int, int] = {
-            device_id: int(state["last_seq"])
-            for device_id, state in device_states.items()
-            if state.get("last_seq") is not None
-        }
+        for device_id, state in device_states.items():
+            if state.get("last_seq") is not None:
+                self.receiver.seed_device_sequence(device_id, int(state["last_seq"]))
         processed_packets = 0
         last_render = 0.0
         last_pps_time = time.monotonic()
@@ -1530,10 +1589,12 @@ class CSICollector:
                 if not parsed_packets:
                     continue
                 for packet in parsed_packets:
+                    packet.source_ip = addr[0]
+                    if not self.receiver.accept_packet(packet):
+                        continue
                     packets.append(packet)
                     processed_packets += 1
                     self.receiver.packet_count += 1
-                    self.receiver.dropped_count += self._check_sequence_by_device(packet, last_seq_by_device)
                     if packet.device_id is None:
                         continue
                     state = self._update_device_detector_state(device_states, packet, addr[0])

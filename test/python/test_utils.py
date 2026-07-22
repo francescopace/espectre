@@ -11,6 +11,7 @@ import pytest
 import math
 import numpy as np
 from utils import (
+    CsiFrameTimestampFilter,
     to_signed_int8,
     normalize_ht20_csi_payload,
     is_ht20_sensing_frame,
@@ -104,6 +105,38 @@ class TestIsHt20SensingFrame:
 
     def test_short_frame_defaults_to_ht20(self):
         assert is_ht20_sensing_frame([0] * 6) is True
+
+
+class TestCsiFrameTimestampFilter:
+    """Test wrap-aware filtering before MicroPython detector callbacks."""
+
+    @staticmethod
+    def _frame(timestamp):
+        frame = [0] * 10
+        frame[4] = timestamp
+        return frame
+
+    def test_rejects_duplicate_and_stale_frames_without_poisoning_state(self):
+        timestamp_filter = CsiFrameTimestampFilter()
+
+        accepted = [
+            timestamp_filter.accept(self._frame(timestamp))
+            for timestamp in (100, 101, 3, 101, 102)
+        ]
+
+        assert accepted == [True, True, False, False, True]
+
+    def test_accepts_wrap_missing_metadata_and_reset(self):
+        timestamp_filter = CsiFrameTimestampFilter()
+
+        assert all(
+            timestamp_filter.accept(self._frame(timestamp))
+            for timestamp in (0xFFFFFFFE, 0xFFFFFFFF, 0, 1)
+        )
+        assert timestamp_filter.accept([0] * 4)
+
+        timestamp_filter.reset()
+        assert timestamp_filter.accept(self._frame(1))
 
 
 # ============================================================================

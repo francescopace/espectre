@@ -109,6 +109,9 @@ def load_cpp_parity_payloads(output_dir: Path) -> dict[str, dict[str, Any]]:
     }
     return {
         "paired": payloads["test_motion_detection"]["paired"],
+        "paired_synthetic": payloads["test_motion_detection"].get(
+            "paired_synthetic", {"classic": {}, "ml": {}}
+        ),
         "long_quiet": payloads["test_long_recordings"]["long_quiet"],
     }
 
@@ -207,19 +210,20 @@ def compare_cpp_and_python_report_data(
     """Return a list of formatted mismatches between Python and C++ report data."""
     mismatches: list[str] = []
 
-    paired_python = python_report_data.get("paired", {})
-    paired_cpp = cpp_report_data.get("paired", {})
-    for algorithm in ("classic", "ml"):
-        _compare_chip_metrics(
-            mismatches,
-            section="paired",
-            algorithm=algorithm,
-            python_by_chip=paired_python.get(algorithm, {}),
-            cpp_by_chip=paired_cpp.get(algorithm, {}),
-            float_metrics=("recall", "precision", "fp_rate", "f1"),
-            int_metrics=("count", "effective_alarms"),
-            tolerance=percent_tolerance,
-        )
+    for section in ("paired", "paired_synthetic"):
+        paired_python = python_report_data.get(section, {})
+        paired_cpp = cpp_report_data.get(section, {})
+        for algorithm in ("classic", "ml"):
+            _compare_chip_metrics(
+                mismatches,
+                section=section,
+                algorithm=algorithm,
+                python_by_chip=paired_python.get(algorithm, {}),
+                cpp_by_chip=paired_cpp.get(algorithm, {}),
+                float_metrics=("recall", "precision", "fp_rate", "f1"),
+                int_metrics=("count", "effective_alarms"),
+                tolerance=percent_tolerance,
+            )
 
     long_python = python_report_data.get("long_quiet", {})
     long_cpp = cpp_report_data.get("long_quiet", {})

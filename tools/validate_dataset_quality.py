@@ -64,7 +64,6 @@ from tools.lib.repo_paths import generated_data_dir  # noqa: E402
 from tools.lib import dataset_metadata  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
     build_calibrated_classic_detector,
-    build_classic_detector,
 )
 from tools.lib.csi_analysis import extract_amplitudes_matrix  # noqa: E402
 from tools.lib.csi_io import filter_npz_arrays_sensing  # noqa: E402
@@ -520,13 +519,51 @@ def _format_score_cell(score, severity=None, *, markdown=False):
     return _mark_cell(f"{float(score):.1f}", severity, markdown=markdown)
 
 
+def _median_rssi_dbm(data):
+    """Return the median per-packet RSSI in dBm, or None when unavailable."""
+    if not hasattr(data, "files") or "rssi_dbm" not in data.files:
+        return None
+    rssi = np.asarray(data["rssi_dbm"], dtype=np.float64)
+    if rssi.size == 0:
+        return None
+    return float(np.median(rssi))
+
+
+def _format_rssi_value(rssi_dbm):
+    """Format one RSSI value for table display."""
+    if rssi_dbm is None:
+        return "n/a"
+    return f"{int(round(float(rssi_dbm)))}"
+
+
+def _format_rssi_cell(rssi_dbm):
+    """Format the RSSI cell for one single-capture row."""
+    return _format_rssi_value(rssi_dbm)
+
+
+def _format_pair_rssi_cell(static_rssi_dbm, motion_rssi_dbm):
+    """Format the shared RSSI cell for one static/motion pair."""
+    if static_rssi_dbm is None and motion_rssi_dbm is None:
+        return "n/a"
+    if static_rssi_dbm is None:
+        return f"n/a / {_format_rssi_value(motion_rssi_dbm)}"
+    if motion_rssi_dbm is None:
+        return f"{_format_rssi_value(static_rssi_dbm)} / n/a"
+    return (
+        f"{int(round(float(static_rssi_dbm)))} / "
+        f"{int(round(float(motion_rssi_dbm)))}"
+    )
+
+
 # Indicative score tables share one renderer; each table keeps its own schema.
 # Presence/Empty/Long-test share the idle-evidence schema and expose every
 # baseline-score component (FP, MAD, Burst) next to the final Score.
-_IDLE_EVIDENCE_SCORE_HEADER = "| Chip | Env | File | FP | MAD | Burst | Score |"
-_IDLE_EVIDENCE_SCORE_SEPARATOR = "|---|---|---|---:|---:|---:|---:|"
+_IDLE_EVIDENCE_SCORE_HEADER = (
+    "| Chip | Env | File | RSSI | FP | MAD | Burst | Score |"
+)
+_IDLE_EVIDENCE_SCORE_SEPARATOR = "|---|---|---|---:|---:|---:|---:|---:|"
 _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR = (
-    "  |------|-----|------|-----:|-----:|------:|------:|"
+    "  |------|-----|------|---------:|-----:|-----:|------:|------:|"
 )
 
 
@@ -561,6 +598,7 @@ def _format_idle_evidence_score_row(
     if markdown:
         return (
             f"| {row['chip']} | {row.get('environment', '?')} | {file_cell} | "
+            f"{_format_rssi_cell(row.get('rssi_dbm'))} | "
             f"{_format_quiet_fp_cell(baseline['fp_rate'], markdown=True)} | "
             f"{_format_margin_mad_cell(baseline['margin_mad'], markdown=True, severity_profile=severity_profile)} | "
             f"{_format_burst_cell(baseline['longest_burst_seconds'], markdown=True, severity_profile=severity_profile)} | "
@@ -569,6 +607,7 @@ def _format_idle_evidence_score_row(
     return (
         f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
         f"{file_cell:<16} | "
+        f"{_format_rssi_cell(row.get('rssi_dbm')):>9} | "
         f"{_format_quiet_fp_cell(baseline['fp_rate']):>5} | "
         f"{_format_margin_mad_cell(baseline['margin_mad'], severity_profile=severity_profile):>5} | "
         f"{_format_burst_cell(baseline['longest_burst_seconds'], severity_profile=severity_profile):>6} | "
@@ -646,6 +685,7 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
     if markdown:
         return (
             f"| {row['chip']} | {row.get('environment', '?')} | {files_cell} | "
+            f"{_format_pair_rssi_cell(row.get('static_rssi_dbm'), row.get('motion_rssi_dbm'))} | "
             f"{row['threshold']:.2e} | "
             f"{_format_static_above_cell(row['static_active_ratio'], markdown=True)} | "
             f"{_format_motion_above_cell(row['motion_active_ratio'], markdown=True)} | "
@@ -655,6 +695,7 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
     return (
         f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
         f"{files_cell:<23} | "
+        f"{_format_pair_rssi_cell(row.get('static_rssi_dbm'), row.get('motion_rssi_dbm')):>17} | "
         f"{_format_static_above_cell(row['static_active_ratio']):>5} | "
         f"{_format_motion_above_cell(row['motion_active_ratio']):>5} | "
         f"{_format_pair_ratio_cell(row['pair_ratio'], severity_profile=severity_profile):>6} | "
@@ -666,13 +707,15 @@ _PAIR_SCORE_TABLE = {
     "title": "Motion Scores",
     "table_key": "pair",
     "header": (
-        "| Chip | Env | static_presence / motion | Threshold | "
+        "| Chip | Env | static_presence / motion | RSSI | Threshold | "
         "FP | TP | Ratio | Score |"
     ),
-    "separator": "|---|---|---|---:|---:|---:|---:|---:|",
-    "console_header": "| Chip | Env | static_presence / motion | FP | TP | Ratio | Score |",
+    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|",
+    "console_header": (
+        "| Chip | Env | static_presence / motion | RSSI | FP | TP | Ratio | Score |"
+    ),
     "console_separator": (
-        "  |------|-----|-------------------------|-----:|-----:|------:|------:|"
+        "  |------|-----|-------------------------|-----------------:|-----:|-----:|------:|------:|"
     ),
     "console_heading": False,
     "sort_key": lambda item: -item.get("classic_score", 0.0),
@@ -879,6 +922,22 @@ def _entry_matches_selected_chips(entry, selected_chips):
     return str(entry.get("chip", "")).upper() in selected_chips
 
 
+def _synthetic_group_from_npz(label, entry, cache):
+    """Read the pairing group from a generated NPZ without catalog fields."""
+    path = dataset_metadata.resolve_entry_path(label, entry)
+    if path in cache:
+        return cache[path]
+    group_id = ""
+    try:
+        with np.load(path, allow_pickle=False) as generated:
+            if "generation_group" in generated:
+                group_id = str(np.asarray(generated["generation_group"]).item())
+    except (OSError, ValueError):
+        pass
+    cache[path] = group_id
+    return group_id
+
+
 def refresh_pair_metadata(files, *, selected_chips=None):
     """
     Refresh explicit static_presence/motion pairing fields.
@@ -891,6 +950,7 @@ def refresh_pair_metadata(files, *, selected_chips=None):
     """
     static_entries = files.get("static_presence", [])
     motion_entries = files.get("motion", [])
+    synthetic_group_cache = {}
 
     for entry in static_entries:
         if _entry_matches_selected_chips(entry, selected_chips):
@@ -921,6 +981,20 @@ def refresh_pair_metadata(files, *, selected_chips=None):
                 continue
             if motion_chip != static_chip or motion_sc != static_sc:
                 continue
+
+            static_synthetic = bool(static_entry.get("synthetic"))
+            motion_synthetic = bool(motion_entry.get("synthetic"))
+            if static_synthetic != motion_synthetic:
+                continue
+            if static_synthetic:
+                static_group = _synthetic_group_from_npz(
+                    "static_presence", static_entry, synthetic_group_cache
+                )
+                motion_group = _synthetic_group_from_npz(
+                    "motion", motion_entry, synthetic_group_cache
+                )
+                if not static_group or static_group != motion_group:
+                    continue
 
             static_device = str(static_entry.get("device_id", "")).strip()
             motion_device = str(motion_entry.get("device_id", "")).strip()
@@ -1038,7 +1112,7 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
                 if _is_missing_metadata_value(entry.get(required_field)):
                     entry_errors.append(f"missing {required_field}")
 
-            primary_path = DATA_DIR / label / filename
+            primary_path = dataset_metadata.resolve_entry_path(label, entry)
             if filename != '<missing filename>' and not primary_path.exists():
                 entry_errors.append("metadata entry target file is missing")
 
@@ -1051,13 +1125,26 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
                 else:
                     counterpart_name = str(counterpart_name)
                     counterpart_entry = filename_index[counterpart_label].get(counterpart_name)
-                    counterpart_path = DATA_DIR / counterpart_label / counterpart_name
+                    counterpart_path = (
+                        dataset_metadata.resolve_entry_path(
+                            counterpart_label, counterpart_entry
+                        )
+                        if counterpart_entry is not None
+                        else DATA_DIR / counterpart_label / counterpart_name
+                    )
                     if counterpart_entry is None:
                         entry_errors.append(
                             f"{pair_field} does not reference a {counterpart_label} metadata entry"
                         )
                     if not counterpart_path.exists():
                         entry_errors.append(f"{pair_field} target file is missing")
+                    elif counterpart_entry is not None:
+                        if bool(entry.get("synthetic")) != bool(
+                            counterpart_entry.get("synthetic")
+                        ):
+                            entry_errors.append(
+                                f"{pair_field} mixes real and synthetic datasets"
+                            )
                     if counterpart_entry is not None:
                         reverse_field = REQUIRED_PAIR_FIELD_BY_LABEL[counterpart_label]
                         if counterpart_entry.get(reverse_field) != filename:
@@ -1593,6 +1680,7 @@ def validate_ml_readiness(dataset_info, chip_filter=None):
         label: [
             entry for entry in files_by_label.get(label, [])
             if _entry_matches_chip(entry, chip_filter)
+            and not bool(entry.get('synthetic'))
         ]
         for label in ('empty', 'static_presence', 'motion')
     }
@@ -1736,23 +1824,24 @@ def _calibrated_classic_for(csi_data, calibration_cache=None, cache_key=None):
     """Return a (detector, threshold) tuple calibrated on a capture's startup.
 
     The startup calibration replays packets through the detector in Python and
-    is the expensive step, so the resulting threshold is memoized per capture;
-    cache hits rebuild an equivalent fresh detector with the threshold applied.
+    is the expensive step, so a pristine calibrated detector snapshot is
+    memoized per capture. The full snapshot matters because low-RSSI calibration
+    also sets the session L1 floor and noise blend, not only the threshold.
     """
     if calibration_cache is not None and cache_key in calibration_cache:
-        threshold = calibration_cache[cache_key]
-        if threshold is None:
+        calibrated = calibration_cache[cache_key]
+        if calibrated is None:
             return None
-        detector = build_classic_detector()
-        detector.set_threshold(threshold)
-        return detector, threshold
+        return deepcopy(calibrated)
 
     calibrated = build_calibrated_classic_detector(
         csi_data[:CALIBRATION_BUFFER_SIZE],
         selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
     )
     if calibration_cache is not None and cache_key is not None:
-        calibration_cache[cache_key] = None if calibrated is None else calibrated[1]
+        calibration_cache[cache_key] = (
+            None if calibrated is None else deepcopy(calibrated)
+        )
     return calibrated
 
 
@@ -1918,7 +2007,7 @@ def _group_entries_by_chip_env(entries):
 
 
 def _compute_idle_evidence_for_entry(entry, label, npz_cache, calibration_cache=None):
-    """Return (baseline, error) for one empty/static_presence entry."""
+    """Return (baseline, median_rssi_dbm, error) for one idle-evidence entry."""
     try:
         filepath = _resolve_dataset_entry_path(entry, label)
         data, csi_key = _load_cached_or_npz(filepath, npz_cache)
@@ -1930,12 +2019,12 @@ def _compute_idle_evidence_for_entry(entry, label, npz_cache, calibration_cache=
             calibration_cache=calibration_cache,
             cache_key=str(filepath),
         )
-        return baseline, None
+        return baseline, _median_rssi_dbm(data), None
     except (OSError, ValueError, KeyError) as exc:
-        return None, str(exc)
+        return None, None, str(exc)
 
 
-def _idle_evidence_score_row(entry, baseline, verdict):
+def _idle_evidence_score_row(entry, baseline, verdict, rssi_dbm):
     """Build one shared idle-evidence score-table row."""
     filename = str(entry.get("filename", "?"))
     return {
@@ -1943,6 +2032,7 @@ def _idle_evidence_score_row(entry, baseline, verdict):
         "environment": _entry_environment(entry),
         "filename": filename,
         "display_date": _entry_display_date(entry, filename),
+        "rssi_dbm": rssi_dbm,
         "baseline": baseline,
         "verdict": verdict,
     }
@@ -1963,7 +2053,7 @@ def _evaluate_idle_evidence_files(
     score_rows = []
     for entry in entries:
         filename = str(entry.get("filename", "?"))
-        baseline, error = _compute_idle_evidence_for_entry(
+        baseline, rssi_dbm, error = _compute_idle_evidence_for_entry(
             entry, label, npz_cache, calibration_cache
         )
         if baseline is None:
@@ -1990,7 +2080,12 @@ def _evaluate_idle_evidence_files(
             baseline["score"],
         ))
         score_rows.append(
-            _idle_evidence_score_row(entry, baseline, verdict)
+            _idle_evidence_score_row(
+                entry,
+                baseline,
+                verdict,
+                rssi_dbm,
+            )
         )
     return results, score_rows
 
@@ -2006,10 +2101,12 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None, calibration
     empty_files = [
         entry for entry in dataset_info.get('files', {}).get('empty', [])
         if _entry_matches_chip(entry, chip_filter)
+        and not bool(entry.get('synthetic'))
     ]
     static_presence_files = [
         entry for entry in dataset_info.get('files', {}).get('static_presence', [])
         if _entry_matches_chip(entry, chip_filter)
+        and not bool(entry.get('synthetic'))
     ]
 
     if not empty_files:
@@ -2251,13 +2348,6 @@ def run_validation(chip_filter=None, generate_report=True):
     motion_dir = DATA_DIR / "motion"
 
     if static_presence_dir.exists() and motion_dir.exists():
-        static_presence_files = {
-            path.name: path for path in sorted(static_presence_dir.glob("*.npz"))
-        }
-        motion_files = {
-            path.name: path for path in sorted(motion_dir.glob("*.npz"))
-        }
-
         static_entries = dataset_info.get("files", {}).get("static_presence", [])
         motion_entries_by_name = {
             str(item.get("filename", "")): item
@@ -2268,11 +2358,16 @@ def run_validation(chip_filter=None, generate_report=True):
                 continue
 
             bl_name = str(entry.get("filename", ""))
-            bl_file = static_presence_files.get(bl_name)
+            bl_file = dataset_metadata.resolve_entry_path("static_presence", entry)
             mv_name = str(entry.get("optimal_pair_motion_file", ""))
-            best_mv = motion_files.get(mv_name)
+            motion_entry = motion_entries_by_name.get(mv_name)
+            best_mv = (
+                dataset_metadata.resolve_entry_path("motion", motion_entry)
+                if motion_entry is not None
+                else None
+            )
 
-            if bl_file is None:
+            if not bl_file.exists():
                 _emit_issues(
                     _tag_results(
                         [ValidationResult(
@@ -2285,7 +2380,7 @@ def run_validation(chip_filter=None, generate_report=True):
                     heading="Pair validation",
                 )
                 continue
-            if best_mv is None:
+            if best_mv is None or not best_mv.exists():
                 missing_motion_pair_count += 1
                 _emit_issues(
                     _tag_results(
@@ -2302,7 +2397,7 @@ def run_validation(chip_filter=None, generate_report=True):
 
             chip = str(entry.get("chip", "unknown")).upper()
             mv_file = best_mv
-            motion_entry = motion_entries_by_name.get(mv_name, {})
+            motion_entry = motion_entry or {}
 
             try:
                 bl_data, bl_key = _load_cached_or_npz(bl_file, npz_cache)
@@ -2351,6 +2446,8 @@ def run_validation(chip_filter=None, generate_report=True):
                 'motion': mv_file.name,
                 'static_date': _entry_display_date(entry, bl_file.name),
                 'motion_date': _entry_display_date(motion_entry, mv_file.name),
+                'static_rssi_dbm': _median_rssi_dbm(bl_data),
+                'motion_rssi_dbm': _median_rssi_dbm(mv_data),
                 'chip': chip.upper(),
                 'environment': _entry_environment(entry),
                 'threshold': pair_threshold,
@@ -2592,6 +2689,9 @@ def _generate_report(
     lines.append("- `Env`: capture environment from `dataset_info.json`")
     lines.append(
         "- `File` and `static_presence / motion`: capture-date links to the NPZ paths"
+    )
+    lines.append(
+        "- `RSSI`: median per-packet `rssi_dbm`; pair rows show `static_presence / motion`"
     )
     lines.append(
         "- `FP` (Motion Scores): share of replayed `ClassicDetector` evaluation "

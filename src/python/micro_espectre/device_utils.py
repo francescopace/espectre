@@ -7,6 +7,11 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
+try:
+    from src.serial_sequence import SerialSequenceTracker
+except ImportError:
+    from serial_sequence import SerialSequenceTracker
+
 HT20_CSI_LEN = 128
 HT20_CSI_LEN_SHORT = 114
 HT20_CSI_LEN_SHORT_DOUBLE = 228
@@ -17,6 +22,27 @@ HT20_CSI_SHORT_LEFT_ZEROS = b"\x00" * HT20_CSI_SHORT_LEFT_PAD
 HT20_CSI_SHORT_RIGHT_ZEROS = b"\x00" * HT20_CSI_SHORT_RIGHT_PAD
 
 _CSI_READ_SUPPORTS_REUSE = None
+
+
+class CsiFrameTimestampFilter:
+    """Reject duplicate or stale CSI frames using the Wi-Fi RX timestamp."""
+
+    def __init__(self):
+        self._tracker = SerialSequenceTracker()
+
+    def accept(self, frame):
+        if frame is None or len(frame) <= 4:
+            return True
+        timestamp = frame[4]
+        if timestamp is None or timestamp == 0:
+            return True
+        try:
+            return self._tracker.observe(timestamp) >= 0
+        except (TypeError, ValueError):
+            return True
+
+    def reset(self):
+        self._tracker.reset()
 
 
 def csi_read_frame(wlan, reuse_frame=None):

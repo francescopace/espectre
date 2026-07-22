@@ -799,6 +799,50 @@ def test_receiver_configures_udp_receive_buffer(monkeypatch):
     assert ("getsockopt", socket.SOL_SOCKET, socket.SO_RCVBUF) in calls
 
 
+def test_receiver_filters_out_of_order_packets_before_buffer_and_callbacks(monkeypatch):
+    datagrams = [
+        build_packet(seq_num=100, device_id=0x1),
+        build_packet(seq_num=3, device_id=0x1),
+        build_packet(seq_num=101, device_id=0x1),
+    ]
+
+    class FakeSocket:
+        def setsockopt(self, *_args):
+            pass
+
+        def getsockopt(self, *_args):
+            return 425984
+
+        def bind(self, _addr):
+            pass
+
+        def settimeout(self, _value):
+            pass
+
+        def recvfrom(self, _size):
+            return datagrams.pop(0), ("192.0.2.1", 5001)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(socket, "socket", lambda *_args, **_kwargs: FakeSocket())
+    receiver = CSIReceiver(bind_host="127.0.0.1")
+    observed = []
+
+    def on_packet(packet):
+        observed.append(packet.seq_num)
+        if packet.seq_num == 101:
+            receiver.stop()
+
+    receiver.add_callback(on_packet)
+    receiver.run(quiet=True)
+
+    assert observed == [100, 101]
+    assert [packet.seq_num for packet in receiver.buffer] == [100, 101]
+    assert receiver.packet_count == 2
+    assert receiver.out_of_order_count == 1
+
+
 def test_parse_packets_accepts_multiple_records_in_one_datagram():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     datagram = build_packet(seq_num=10, payload=[1, 2, 3, 4]) + build_packet(seq_num=11, payload=[5, 6, 7, 8])
@@ -1096,25 +1140,46 @@ def test_check_sequence_by_device_handles_interleaved_streams():
         receiver._parse_packet(build_packet(seq_num=4, device_id=0x1)),
     ]
 
-    last_seq_by_device = {}
-    drops = [CSICollector._check_sequence_by_device(packet, last_seq_by_device) for packet in packets]
+    accepted = [receiver.accept_packet(packet) for packet in packets]
 
-    assert drops == [0, 0, 0, 0, 1]
+    assert accepted == [True, True, True, True, True]
+    assert receiver.dropped_count == 1
+    assert receiver.out_of_order_count == 0
 
 
-def test_check_sequence_by_device_ignores_large_backward_jump():
+def test_receiver_rejects_backward_and_duplicate_sequences_without_poisoning_state():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     packets = [
         receiver._parse_packet(build_packet(seq_num=100, device_id=0x1)),
         receiver._parse_packet(build_packet(seq_num=101, device_id=0x1)),
         receiver._parse_packet(build_packet(seq_num=3, device_id=0x1)),
-        receiver._parse_packet(build_packet(seq_num=4, device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=101, device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=102, device_id=0x1)),
     ]
 
-    last_seq_by_device = {}
-    drops = [CSICollector._check_sequence_by_device(packet, last_seq_by_device) for packet in packets]
+    accepted = [receiver.accept_packet(packet) for packet in packets]
 
-    assert drops == [0, 0, 0, 0]
+    assert accepted == [True, True, False, False, True]
+    assert receiver.dropped_count == 0
+    assert receiver.out_of_order_count == 2
+
+
+def test_receiver_sequence_filter_accepts_uint32_wrap_and_reset():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    wrapped = [
+        receiver._parse_packet(build_packet(seq_num=0xFFFFFFFE, device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=0xFFFFFFFF, device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=0, device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=1, device_id=0x1)),
+    ]
+
+    assert all(receiver.accept_packet(packet) for packet in wrapped)
+    assert receiver.dropped_count == 0
+    assert receiver.out_of_order_count == 0
+
+    receiver.reset_stats()
+    restarted = receiver._parse_packet(build_packet(seq_num=0, device_id=0x1))
+    assert receiver.accept_packet(restarted)
 
 
 def test_summarize_ready_devices_waits_for_all_expected_devices():

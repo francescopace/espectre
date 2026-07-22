@@ -153,7 +153,7 @@ def _load_dataset_info() -> Dict[str, Any]:
 
 
 @lru_cache(maxsize=1)
-def _get_available_paired_datasets_cached() -> tuple[tuple[Path, Path, int, str, str], ...]:
+def _get_available_paired_dataset_specs_cached() -> tuple[tuple[Path, Path, int, str, str, bool], ...]:
     """Return explicit static-presence/motion pairs (HT20: 64 SC only)."""
     dataset_info = _load_dataset_info()
     files = dataset_info.get("files", {})
@@ -180,15 +180,27 @@ def _get_available_paired_datasets_cached() -> tuple[tuple[Path, Path, int, str,
 
         environment = static_entry.get("environment") or "unknown"
         dataset_id = f"{str(chip).lower()}_{environment}_{static_path.stem}"
-        pair_entries.append((static_path, motion_path, 64, str(chip).upper(), dataset_id))
+        synthetic = bool(static_entry.get("synthetic"))
+        if synthetic != bool(motion_entry.get("synthetic")):
+            continue
+        pair_entries.append(
+            (static_path, motion_path, 64, str(chip).upper(), dataset_id, synthetic)
+        )
 
     pair_entries.sort(key=lambda item: (item[3], item[4]))
     return tuple(pair_entries)
 
 
-def get_available_paired_datasets() -> list[tuple[Path, Path, int, str, str]]:
-    """Return the paired real-data datasets used by the performance report."""
-    return list(_get_available_paired_datasets_cached())
+def get_available_paired_datasets(
+    *, synthetic: Optional[bool] = None
+) -> list[tuple[Path, Path, int, str, str]]:
+    """Return paired datasets, optionally restricted by provenance."""
+    return [
+        (static_path, motion_path, num_sc, chip, dataset_id)
+        for static_path, motion_path, num_sc, chip, dataset_id, is_synthetic
+        in _get_available_paired_dataset_specs_cached()
+        if synthetic is None or is_synthetic == synthetic
+    ]
 
 
 @lru_cache(maxsize=1)
@@ -807,14 +819,24 @@ def compute_performance_report_data(
     progress: Optional[ProgressCallback] = None,
 ) -> Dict[str, Dict[str, Dict[str, Dict[str, float]]]]:
     """Compute all metrics published in docs/performance/README.md."""
-    paired_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
+    paired_results: dict[
+        str, dict[str, dict[str, list[Dict[str, float]]]]
+    ] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     long_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
 
-    paired_datasets = get_available_paired_datasets()
-    _emit_progress(progress, f"discovered {len(paired_datasets)} paired validation datasets")
+    paired_datasets = _get_available_paired_dataset_specs_cached()
+    real_count = sum(not item[5] for item in paired_datasets)
+    synthetic_count = sum(item[5] for item in paired_datasets)
+    _emit_progress(
+        progress,
+        f"discovered {real_count} real and {synthetic_count} synthetic paired validation datasets",
+    )
     paired_phase_started = time.perf_counter()
-    for index, (static_path, motion_path, _num_sc, chip, dataset_id) in enumerate(paired_datasets, start=1):
+    for index, (static_path, motion_path, _num_sc, chip, dataset_id, synthetic) in enumerate(
+        paired_datasets, start=1
+    ):
         dataset_started = time.perf_counter()
+        section = "paired_synthetic" if synthetic else "paired"
         classic_result = compute_classic_dataset_result(
             static_path,
             motion_path,
@@ -823,7 +845,7 @@ def compute_performance_report_data(
         )
         if classic_result is not None:
             _adaptive_threshold, classic_metrics = classic_result
-            paired_results["classic"][chip].append(classic_metrics)
+            paired_results[section]["classic"][chip].append(classic_metrics)
 
         ml_metrics, _feature_payload = compute_ml_dataset_result(
             static_path,
@@ -832,12 +854,13 @@ def compute_performance_report_data(
             DETECTOR_DEFAULT_WINDOW_SIZE,
             0.5,
         )
-        paired_results["ml"][chip].append(ml_metrics)
+        paired_results[section]["ml"][chip].append(ml_metrics)
         _emit_progress(
             progress,
             (
                 f"paired dataset {index}/{len(paired_datasets)} complete: "
-                f"{chip} ({dataset_id}) in {_format_progress_duration(time.perf_counter() - dataset_started)}"
+                f"{chip} ({'synthetic' if synthetic else 'real'}, {dataset_id}) in "
+                f"{_format_progress_duration(time.perf_counter() - dataset_started)}"
             ),
         )
 
@@ -880,12 +903,18 @@ def compute_performance_report_data(
     )
 
     summary_started = time.perf_counter()
-    paired_summary: Dict[str, Dict[str, Dict[str, float]]] = {"classic": {}, "ml": {}}
-    for algorithm, by_chip in paired_results.items():
-        for chip, entries in by_chip.items():
-            averaged = _average_detector_metrics(entries)
-            if averaged is not None:
-                paired_summary[algorithm][chip] = averaged
+    paired_summaries: Dict[str, Dict[str, Dict[str, Dict[str, float]]]] = {}
+    for section in ("paired", "paired_synthetic"):
+        section_summary: Dict[str, Dict[str, Dict[str, float]]] = {
+            "classic": {},
+            "ml": {},
+        }
+        for algorithm, by_chip in paired_results[section].items():
+            for chip, entries in by_chip.items():
+                averaged = _average_detector_metrics(entries)
+                if averaged is not None:
+                    section_summary[algorithm][chip] = averaged
+        paired_summaries[section] = section_summary
 
     long_summary: Dict[str, Dict[str, Dict[str, float]]] = {"classic": {}, "ml": {}}
     for algorithm, by_chip in long_results.items():
@@ -906,7 +935,8 @@ def compute_performance_report_data(
     )
     _emit_progress(progress, "render data ready")
     return {
-        "paired": paired_summary,
+        "paired": paired_summaries["paired"],
+        "paired_synthetic": paired_summaries["paired_synthetic"],
         "long_quiet": long_summary,
     }
 
@@ -932,7 +962,8 @@ def render_performance_report_markdown(
             f"Run duration: `{execution_info['run_duration']}`",
             (
                 "Inputs: "
-                f"`{execution_info['paired_dataset_count']}` paired datasets, "
+                f"`{execution_info['real_paired_dataset_count']}` real paired datasets, "
+                f"`{execution_info['synthetic_paired_dataset_count']}` synthetic paired datasets, "
                 f"`{execution_info['long_quiet_dataset_count']}` long quiet datasets"
             ),
             "",
@@ -975,7 +1006,7 @@ def render_performance_report_markdown(
         "",
         "---",
         "",
-        "## Paired Real-Data Validation (empty+static_presence / motion)",
+        "## Paired Real-Data Validation (static_presence / motion)",
         "",
         "Effective Alarms count each false MOTION transition on quiet or static-presence "
         "segments, after the same consecutive-hit filtering used at deploy time.",
@@ -985,6 +1016,9 @@ def render_performance_report_markdown(
     ])
 
     paired = report_data["paired"]
+    paired_synthetic = report_data.get(
+        "paired_synthetic", {"classic": {}, "ml": {}}
+    )
     paired_header = "| Metric | " + " | ".join(PAIRED_CHIP_LABELS[chip] for chip in CHIP_ORDER) + " |"
     paired_divider = "|--------|" + "|".join("----------" for _ in CHIP_ORDER) + "|"
     paired_row_specs = (
@@ -995,25 +1029,48 @@ def render_performance_report_markdown(
         ("effective_alarms", "Effective Alarms", lambda value: f"{int(value)}"),
     )
 
-    def _append_paired_table(algorithm):
+    def _append_paired_table(section, algorithm):
         lines.append(paired_header)
         lines.append(paired_divider)
         for key, label, formatter in paired_row_specs:
             values = []
             for chip in CHIP_ORDER:
-                metrics = paired[algorithm].get(chip)
+                metrics = section[algorithm].get(chip)
                 value = metrics.get(key) if metrics is not None else None
                 values.append(formatter(value) if value is not None else "N/A")
             lines.append(f"| {label} | " + " | ".join(values) + " |")
 
-    _append_paired_table("classic")
+    _append_paired_table(paired, "classic")
 
     lines.extend([
         "",
         "### ML Detector",
         "",
     ])
-    _append_paired_table("ml")
+    _append_paired_table(paired, "ml")
+
+    lines.extend([
+        "",
+        "---",
+        "",
+        "## Synthetic Low-RSSI Stress Validation",
+        "",
+        (
+            "Synthetic pairs are reported separately and do not alter the real-data "
+            "promotion metrics above."
+        ),
+        "",
+        "### Classic Detector",
+        "",
+    ])
+    _append_paired_table(paired_synthetic, "classic")
+
+    lines.extend([
+        "",
+        "### ML Detector",
+        "",
+    ])
+    _append_paired_table(paired_synthetic, "ml")
 
     lines.extend([
         "",

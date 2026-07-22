@@ -196,9 +196,22 @@ metadata instead.
 - `environment`
 - `optimal_pair_motion_file` / `optimal_pair_static_presence_file` for
   reciprocal `static_presence` / `motion` pairing
+- `low_rssi: true` for real and synthetic weak-link datasets stored under their
+  semantic labels
+- `synthetic: true` for generated captures that are not real measurements
 
 `validate_dataset_quality.py` regenerates those pair fields automatically
-before admission and Classic review.
+before admission and Classic review. It never pairs a real capture with a
+synthetic capture; generated pair identity is read from the NPZ metadata.
+
+Synthetic low-RSSI derivatives use the standard `data/<label>/` directories.
+Their `low_rssi: true` and `synthetic: true` catalog markers describe the link
+condition and generated origin without changing the `empty`, `static_presence`,
+or `motion` meaning.
+
+Detailed generation provenance, fitted parameters, and Core-6 diagnostics live
+inside the generated NPZ rather than in `dataset_info.json`, keeping the shared
+catalog compact.
 
 ## NPZ Contract
 
@@ -223,6 +236,13 @@ Common fields:
 | `channel` | `uint8[N]` | Optional per-packet Wi-Fi channel |
 | `rssi_dbm` | `int16[N]` | Optional RSSI metadata |
 | `noise_floor_dbm` | `int16[N]` | Optional noise-floor metadata |
+
+Generated NPZ files additionally store `synthetic`, `source_dataset`,
+`low_rssi_profile`, `generation_mode`, `generation_seed`, `generation_group`,
+`generated_at`, and `generator_version`. They also embed the Core-6 feature
+names, source, target, and achieved medians, normalized fit errors, and fitted
+impairment parameters. These fields make generated files self-describing for
+ML analysis; the runtime packet loader ignores them.
 
 CSI uses the Espressif ordering `[Q0, I0, Q1, I1, ...]`.
 

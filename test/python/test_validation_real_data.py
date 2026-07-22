@@ -767,8 +767,9 @@ def test_classic_chip_aggregate_targets(chip):
     fp_rate_target = get_classic_fp_rate_target(chip)
     recall_target = get_classic_recall_target(chip)
     chip_pairs = []
-    for dataset in get_available_datasets():
-        static_path, motion_path, _num_sc, dataset_chip, dataset_id = dataset.values[0]
+    for static_path, motion_path, _num_sc, dataset_chip, dataset_id in (
+        _shared_get_available_paired_datasets(synthetic=False)
+    ):
         if str(dataset_chip).upper() != str(chip).upper():
             continue
         chip_pairs.append((static_path, motion_path, dataset_id))

@@ -256,32 +256,69 @@ see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md). For the host CLI
 entry points that drive collection and related workflows, see
 [CLI.md](../docs/CLI.md).
 
-### 11. Low-RSSI Degradation Study (`analyze_low_rssi_degradation.py`)
+### 11. Synthetic Low-RSSI Dataset Generation (`generate_low_rssi_dataset.py`)
 
-**Purpose**: Replay Classic and ML on synthetically degraded weak-link packet
-streams without changing the runtime detector implementations
+Generates a reproducible weak-link derivative from one registered real NPZ
+capture. The C3, C5, C6, and S3 profiles are anchored to retained real low-RSSI
+pairs and report the resulting Core-6 feature medians against their
+reference values. Calibration jointly fits all six production ML features,
+using sensing-band profile deformation and controlled spatial turbulence rather
+than matching only the L1 floor.
 
-- Reuses the shared paired-dataset replay helpers from `performance_report.py`
-- Applies bounded amplitude attenuation, optional reported-RSSI-only drops,
-  additive I/Q noise, per-packet subcarrier-profile jitter, packet loss, and
-  burst loss to recorded packet streams
-- Includes `low_rssi_proxy_agc`, a real-capture-inspired recipe calibrated from
-  the 2026-07-21 `C3` weak-link sample with strong reported RSSI loss, mild CSI
-  attenuation, elevated L1-delta feature drift, and sparse gaps
-- Reports detector recall, false-positive rate, F1, and simple feature summary
-  shifts relative to the clean baseline
-- Keeps the study offline and exploratory: use it to probe robustness gaps, not
-  as a substitute for real low-RSSI captures
+`reference_match` independently matches the observed static and motion phases
+for Classic detector testing. `shared_session` calibrates the quiet L1 floor
+and reuses the same impairment strength for motion, avoiding label-conditioned
+generation in datasets that may later be considered for training.
 
 ```bash
-python analyze_low_rssi_degradation.py
-python analyze_low_rssi_degradation.py --chip ESP32 --scenario clean low_rssi_proxy_medium
-python analyze_low_rssi_degradation.py --chip C3 --scenario clean low_rssi_proxy_agc
-python analyze_low_rssi_degradation.py --dataset-id esp32_pair_001 --scenario low_rssi_proxy_hard
+python generate_low_rssi_dataset.py \
+  static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz \
+  --profile c3_weak_link --mode reference_match --seed 42
+python generate_low_rssi_dataset.py \
+  motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001.npz \
+  --profile c3_weak_link --mode reference_match --seed 42
+
+python generate_low_rssi_dataset.py \
+  static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz \
+  --profile c5_moderate_link --mode shared_session --seed 43
+python generate_low_rssi_dataset.py \
+  motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001.npz \
+  --profile c5_moderate_link --mode shared_session --seed 43
+
+python generate_low_rssi_dataset.py \
+  empty_s3_64sc_dev000010b41de8ec00_20260712_203314_805494_0001.npz \
+  --profile s3_weak_link --mode shared_session --seed 44
+
+python generate_low_rssi_dataset.py \
+  empty_c6_64sc_dev00007c2c6742bbac_20260712_215645_774938_0001.npz \
+  --profile c6_moderate_link --mode shared_session --seed 45
 ```
 
-See [ML_TRAINING.md](../docs/ML_TRAINING.md) for how this synthetic weak-link
-study complements the gain-stress gate and the normal promotion workflow.
+Generate `static_presence` before `motion` in `shared_session` mode. The second
+command finds the quiet calibration in the paired synthetic NPZ,
+registers reciprocal pair metadata, and prints a production Classic replay.
+
+Use the batch entry point to generate every compatible derivative.
+It processes `empty` and `static_presence` before `motion`, defaults to
+`shared_session`, skips already registered outputs, and continues after an
+individual failure:
+
+```bash
+python generate_all_low_rssi_datasets.py --dry-run
+python generate_all_low_rssi_datasets.py
+```
+
+Use `--labels static_presence motion` to omit `empty`, `--chips C3`, or
+`--chips C6` to restrict the source chip, and `--force` to regenerate the
+deterministic outputs. The batch skips `static_presence` and `motion` groups
+whose chip already has a real pair marked `low_rssi: true`.
+
+Outputs live in the standard `data/<label>/` directories. Their
+`data/dataset_info.json` entries use the compact `low_rssi: true` and
+`synthetic: true` markers alongside the normal dataset and reciprocal-pair
+fields. Detailed source provenance, fitted parameters, feature targets, and
+errors remain inside the NPZ. Use `--no-register` with an explicit `--output`
+for disposable experiments.
 
 ### 12. Dataset Quality Validation (`validate_dataset_quality.py`)
 

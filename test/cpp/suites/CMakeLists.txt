@@ -118,6 +118,11 @@ add_espectre_test(test_long_recordings
     LIBRARIES espectre_runtime_testlib
 )
 
+add_espectre_test(test_low_rssi
+    "${CMAKE_CURRENT_SOURCE_DIR}/integration/test_low_rssi.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
 add_espectre_test(test_sensor_publisher
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_sensor_publisher.cpp"
     LIBRARIES espectre_frontend_esphome_testlib
