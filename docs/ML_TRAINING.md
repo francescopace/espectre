@@ -219,6 +219,12 @@ one material improvement and no material regression. When explicit `holdout`
 data exists, it stays sealed throughout selection and is evaluated only once
 on the chosen winner.
 
+`--force-promote --seed <number>` exports a specific candidate even when the
+deployment safety gates fail or regress. The gates still run and print their
+results, and the bypass is reported loudly. Reserve it for deliberate baseline
+resets, such as replacing a model whose gate results predate the reserved
+`selection`/`holdout` split and are therefore in-sample.
+
 Long-recording FP policy metrics remain useful in `generate_performance_report` and
 `test_validation_long_recordings.py`, but they do not block trainer promotion.
 Event recall and detection latency still require long recordings with an

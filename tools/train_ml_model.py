@@ -4074,6 +4074,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
               evaluate_deployment=False,
               deployment_roles=('selection', 'holdout'),
               allow_legacy_gate_fallback=True,
+              force_export=False,
               environment_filter=None, excluded_chips=None,
               positive_chip_boost=None,
               use_cache=True, augment=False):
@@ -4097,6 +4098,9 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         deployment_roles: Dataset roles allowed in the deployment replay.
         allow_legacy_gate_fallback: Use the latest real train pair when no
                                     role-isolated replay is configured.
+        force_export: Export runtime artifacts even when the deployment
+                      safety gates fail or regress. Gates still run and their
+                      results are printed; the bypass is reported loudly.
         environment_filter: Optional environment name(s) to keep.
         excluded_chips: Optional chip name(s) to exclude.
         positive_chip_boost: Optional {CHIP: factor} boost applied to motion
@@ -4384,8 +4388,14 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             or paired_gate['pass_count'] < paired_total
             or (quiet_gate is not None and not quiet_gate['passed'])
         ):
-            print("Error: deployment safety gate failed; runtime artifacts were not exported")
-            return 1, seed, cv_results
+            if force_export:
+                print(
+                    "WARNING: deployment safety gate FAILED; exporting anyway "
+                    "because --force-promote bypasses the promotion rules"
+                )
+            else:
+                print("Error: deployment safety gate failed; runtime artifacts were not exported")
+                return 1, seed, cv_results
         if export_artifacts:
             try:
                 baseline_paired = evaluate_exported_paired_gate(
@@ -4402,11 +4412,18 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
                     f"worstRecall={baseline_paired['worst_chip_recall']:.2f}%"
                 )
                 if not paired_result_non_regression(paired_gate, baseline_paired):
-                    print(
-                        "Error: candidate regresses the paired deployment gate; "
-                        "runtime artifacts were not exported"
-                    )
-                    return 1, seed, cv_results
+                    if force_export:
+                        print(
+                            "WARNING: candidate regresses the paired deployment "
+                            "gate; exporting anyway because --force-promote "
+                            "bypasses the promotion rules"
+                        )
+                    else:
+                        print(
+                            "Error: candidate regresses the paired deployment gate; "
+                            "runtime artifacts were not exported"
+                        )
+                        return 1, seed, cv_results
 
     if not export_artifacts:
         print("\nArtifacts unchanged (--no-export).")
@@ -6529,49 +6546,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='Train ML motion detection model',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
-Examples:
-  python tools/train_ml_model.py                    # Train and export if the paired gate passes
-  python tools/train_ml_model.py --no-export        # Evaluate without replacing runtime artifacts
-  python tools/train_ml_model.py --info             # Show dataset info
-  python tools/train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
-  python tools/train_ml_model.py --experiment --experiment-promote
-                                           # Promote the winner if it beats the baseline
-  python tools/train_ml_model.py --experiment-fp-weights "1,1.5,2,2.5,3"
-                                           # Gated multi-seed FP-weight campaign
-  python tools/train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"
-                                           # Custom shortlist for the topology campaign
-  python tools/train_ml_model.py --hidden-layers 24,12
-                                           # Evaluate the previous 8 -> 24 -> 12 -> 1 candidate
-  python tools/train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
-  python tools/train_ml_model.py --scaler clipped_standard
-                                           # Robust clipping + z-score
-  python tools/train_ml_model.py --batch-size 32     # Smaller batch size experiment
-  python tools/train_ml_model.py --device cuda       # Force CUDA when available
-  python tools/train_ml_model.py --device mps        # Force Apple GPU when available
-  python tools/train_ml_model.py --no-cache          # Rebuild cached training matrix
-  python tools/train_ml_model.py --seed 42          # Reproducible training
-  python tools/train_ml_model.py --hidden-layers 24,12 --positive-chip-boost ESP32=1.2
-                                           # Bias training slightly toward ESP32 motion recall
-  python tools/train_ml_model.py --seed-search-until-improvement 20
-                                           # Rank all 20 seeds by robust worst/tail CV
-  python tools/train_ml_model.py --augment # Train with the robustness-winner augmentation recipe
-  python tools/train_ml_model.py --augment --seed-search-until-improvement 10
-                                           # Seed-search using the same train-time augmentation
-  python tools/train_ml_model.py --gain-stress-gate --environment bedroom
-                                           # Diagnose exported model robustness to feature gain shifts
-  python tools/train_ml_model.py --shap --no-export  # Grouped OOF SHAP (200 samples)
-  python tools/train_ml_model.py --shap 500 --no-export
-                                           # Grouped OOF SHAP (500 samples)
-  python tools/train_ml_model.py --ablation-feature turb_skewness --seed 1386543369
-                                           # Targeted CV and real-data feature ablation
-
-Configuration (edit at top of this file):
-  TRAINING_FEATURES = [...]   # Feature list to use
-
-To compare ML with the moving-variance baseline, use:
-  python tools/compare_detection_methods.py
-'''
+        epilog=''
     )
     parser.add_argument('--info', action='store_true', 
                        help='Show dataset information')
@@ -6643,6 +6618,11 @@ To compare ML with the moving-variance baseline, use:
     parser.add_argument('--no-export', action='store_true',
                        help='Leave runtime artifacts unchanged (CV-only for normal training; '
                             'also use with --shap / --ablation diagnostics)')
+    parser.add_argument('--force-promote', action='store_true',
+                       help='Export runtime artifacts even when the deployment '
+                            'safety gates fail or regress. Gates still run and '
+                            'report; use only for a deliberate, explicit '
+                            'baseline reset with a fixed --seed')
     parser.add_argument('--no-cache', action='store_true',
                        help='Rebuild the training feature matrix instead of using the local cache')
     parser.add_argument('--environment', type=str, default=None,
@@ -6699,6 +6679,30 @@ To compare ML with the moving-variance baseline, use:
     if args.robustness_augmentation_only and not args.experiment_robustness:
         print("Error: --robustness-augmentation-only requires --experiment-robustness")
         return 1
+
+    if args.force_promote:
+        if args.no_export:
+            print("Error: --force-promote and --no-export are mutually exclusive")
+            return 1
+        if args.seed is None:
+            print("Error: --force-promote requires an explicit --seed so the "
+                  "bypassed candidate is deliberate and reproducible")
+            return 1
+        if (args.seed_search_until_improvement > 0
+                or args.experiment
+                or args.experiment_fp_weights is not None
+                or args.experiment_robustness
+                or args.experiment_promote
+                or args.gain_stress_gate
+                or args.cross_environment
+                or args.cross_chip
+                or args.shap is not None
+                or args.ablation
+                or args.ablation_feature
+                or args.correlation):
+            print("Error: --force-promote applies only to a plain single-seed "
+                  "training run")
+            return 1
     if args.augment and (
         args.experiment
         or args.experiment_fp_weights is not None
@@ -6893,6 +6897,7 @@ To compare ML with the moving-variance baseline, use:
             and args.shap is None
             and not args.ablation
         ),
+        force_export=args.force_promote,
     )
     return train_rc
 

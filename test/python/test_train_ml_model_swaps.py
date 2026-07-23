@@ -1279,6 +1279,109 @@ def test_normal_training_evaluates_deployment_without_exporting(monkeypatch):
     assert "long" not in summary
 
 
+def test_force_export_bypasses_failed_deployment_gate(monkeypatch, tmp_path):
+    module = _load_train_module()
+    context = {
+        module.DEFAULT_PRIMARY_GROUP_KEY: np.asarray(["a", "b"]),
+        module.DEFAULT_BLOCK_GROUP_KEY: np.asarray(["one", "two"]),
+    }
+    matrix = {
+        "X": np.asarray([[0.0], [1.0]], dtype=np.float32),
+        "y": np.asarray([0, 1], dtype=np.int8),
+        "feature_names": ["feature"],
+        "sample_context": context,
+        "sample_weights": np.ones(2, dtype=np.float32),
+        "stats": {
+            "chips": ["C3"],
+            "labels": {"idle": 1, "motion": 1},
+            "total": 2,
+            "session_groups": ["a", "b"],
+            "environment_groups": [],
+        },
+    }
+
+    class IdentityScaler:
+        def fit_transform(self, values):
+            return values
+
+    failing_paired = {
+        "by_chip": {"C3": {}},
+        "pass_count": 0,
+        "max_fp_rate": 17.0,
+        "worst_chip_recall": 98.0,
+    }
+    failing_quiet = {
+        "by_dataset": {"C3:selection:quiet.npz": {}},
+        "max_fp_rate": 6.0,
+        "total_effective_alarms": 2,
+        "max_effective_alarms": 2,
+        "passed": False,
+    }
+    cv = {"oof_f1": 90.0, "f1_mean": 90.0, "f1_std": 0.0}
+    exports = []
+
+    def _unavailable_baseline(**_kwargs):
+        raise FileNotFoundError("no exported baseline")
+
+    monkeypatch.setattr(module, "ensure_torch_available", lambda: None)
+    monkeypatch.setattr(module, "describe_torch_device", lambda: "cpu")
+    monkeypatch.setattr(module, "set_global_determinism", lambda *args, **kwargs: None)
+    monkeypatch.setattr(module, "load_training_matrix", lambda **kwargs: (matrix, None))
+    monkeypatch.setattr(module, "apply_positive_chip_boost", lambda *args: (matrix["sample_weights"], {}))
+    monkeypatch.setattr(module, "cross_validate", lambda *args, **kwargs: dict(cv))
+    monkeypatch.setattr(module, "print_cv_summary", lambda results: None)
+    monkeypatch.setattr(module, "build_preprocessor", lambda mode: IdentityScaler())
+    monkeypatch.setattr(module, "train_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(module, "evaluate_paired_gate", lambda *args, **kwargs: failing_paired)
+    monkeypatch.setattr(module, "evaluate_quiet_gate", lambda *args, **kwargs: failing_quiet)
+    monkeypatch.setattr(module, "evaluate_exported_paired_gate", _unavailable_baseline)
+    monkeypatch.setattr(
+        module,
+        "select_regression_subset_indices",
+        lambda *args, **kwargs: np.asarray([0, 1]),
+    )
+    monkeypatch.setattr(module, "GENERATED_DATA_DIR", tmp_path)
+    monkeypatch.setattr(
+        module,
+        "export_micropython",
+        lambda *args, **kwargs: exports.append("micropython") or 1024,
+    )
+    monkeypatch.setattr(
+        module,
+        "export_cpp_weights",
+        lambda *args, **kwargs: exports.append("cpp") or 1024,
+    )
+    monkeypatch.setattr(
+        module,
+        "export_test_data",
+        lambda *args, **kwargs: exports.append("test_data") or 2,
+    )
+
+    result, seed, summary = module.train_all(
+        seed=123,
+        feature_names=["feature"],
+        export_artifacts=True,
+        evaluate_deployment=True,
+        force_export=True,
+    )
+
+    assert result == 0
+    assert seed == 123
+    assert summary["paired"] is failing_paired
+    assert exports == ["micropython", "cpp", "test_data"]
+
+
+def test_force_promote_cli_requires_explicit_seed(monkeypatch, capsys):
+    module = _load_train_module()
+    monkeypatch.setattr(
+        "sys.argv",
+        ["train_ml_model.py", "--force-promote"],
+    )
+
+    assert module.main() == 1
+    assert "--force-promote requires an explicit --seed" in capsys.readouterr().out
+
+
 def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkeypatch):
     module = _load_train_module()
 

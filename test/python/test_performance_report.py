@@ -55,6 +55,36 @@ def _fake_report_data():
                 },
             },
         },
+        "paired_ml_roles": {
+            "reserved": {
+                "C3": {
+                    "count": 1,
+                    "recall": 99.8,
+                    "precision": 100.0,
+                    "fp_rate": 0.0,
+                    "f1": 99.9,
+                    "effective_alarms": 0,
+                },
+                "S3": {
+                    "count": 1,
+                    "recall": 100.0,
+                    "precision": 100.0,
+                    "fp_rate": 0.0,
+                    "f1": 100.0,
+                    "effective_alarms": 2,
+                },
+            },
+            "train": {
+                "C3": {
+                    "count": 2,
+                    "recall": 99.9,
+                    "precision": 99.8,
+                    "fp_rate": 0.2,
+                    "f1": 99.8,
+                    "effective_alarms": 0,
+                },
+            },
+        },
         "paired_synthetic": {
             "classic": {
                 "C3": {
@@ -133,6 +163,21 @@ def test_render_performance_report_markdown_formats_missing_values_as_na() -> No
     assert "also verifies that the host-side C++ integration suites stay aligned" in markdown
     assert "## Synthetic Low-RSSI Stress Validation" in markdown
     assert "| Recall | 87.0% | N/A | N/A | N/A | N/A |" in markdown
+
+
+def test_render_performance_report_markdown_splits_ml_by_provenance() -> None:
+    markdown = report.render_performance_report_markdown(_fake_report_data())
+
+    assert "### ML Detector — Reserved Replays (out-of-sample)" in markdown
+    assert "### ML Detector — Training Recordings (in-sample diagnostic)" in markdown
+    reserved_index = markdown.index("Reserved Replays")
+    train_index = markdown.index("Training Recordings")
+    assert reserved_index < train_index
+    reserved_section = markdown[reserved_index:train_index]
+    train_section = markdown[train_index:markdown.index("## Synthetic")]
+    assert "| Recall | 99.8% | N/A | N/A | N/A | 100.0% |" in reserved_section
+    assert "| Recall | 99.9% | N/A | N/A | N/A | N/A |" in train_section
+    assert "so for the ML detector this section is an in-sample sanity check" in markdown
 
 
 def test_render_performance_report_markdown_includes_execution_info_when_provided() -> None:

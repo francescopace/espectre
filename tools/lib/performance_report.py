@@ -153,7 +153,7 @@ def _load_dataset_info() -> Dict[str, Any]:
 
 
 @lru_cache(maxsize=1)
-def _get_available_paired_dataset_specs_cached() -> tuple[tuple[Path, Path, int, str, str, bool], ...]:
+def _get_available_paired_dataset_specs_cached() -> tuple[tuple[Path, Path, int, str, str, bool, str], ...]:
     """Return explicit static-presence/motion pairs (HT20: 64 SC only)."""
     dataset_info = _load_dataset_info()
     files = dataset_info.get("files", {})
@@ -183,8 +183,14 @@ def _get_available_paired_dataset_specs_cached() -> tuple[tuple[Path, Path, int,
         synthetic = bool(static_entry.get("synthetic"))
         if synthetic != bool(motion_entry.get("synthetic")):
             continue
+        # A pair is reserved only when both sides carry the same reserved role;
+        # anything else stays in-sample for the exported ML model.
+        static_role = str(static_entry.get("dataset_role", "train")).lower() or "train"
+        motion_role = str(motion_entry.get("dataset_role", "train")).lower() or "train"
+        dataset_role = static_role if static_role == motion_role else "train"
         pair_entries.append(
-            (static_path, motion_path, 64, str(chip).upper(), dataset_id, synthetic)
+            (static_path, motion_path, 64, str(chip).upper(), dataset_id, synthetic,
+             dataset_role)
         )
 
     pair_entries.sort(key=lambda item: (item[3], item[4]))
@@ -197,7 +203,7 @@ def get_available_paired_datasets(
     """Return paired datasets, optionally restricted by provenance."""
     return [
         (static_path, motion_path, num_sc, chip, dataset_id)
-        for static_path, motion_path, num_sc, chip, dataset_id, is_synthetic
+        for static_path, motion_path, num_sc, chip, dataset_id, is_synthetic, _role
         in _get_available_paired_dataset_specs_cached()
         if synthetic is None or is_synthetic == synthetic
     ]
@@ -822,6 +828,12 @@ def compute_performance_report_data(
     paired_results: dict[
         str, dict[str, dict[str, list[Dict[str, float]]]]
     ] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    # Real pairs split by ML provenance: reserved (selection/holdout, never in
+    # ML training) vs train (in-sample for the exported model).
+    ml_role_results: dict[str, dict[str, list[Dict[str, float]]]] = {
+        "reserved": defaultdict(list),
+        "train": defaultdict(list),
+    }
     long_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
 
     paired_datasets = _get_available_paired_dataset_specs_cached()
@@ -832,9 +844,8 @@ def compute_performance_report_data(
         f"discovered {real_count} real and {synthetic_count} synthetic paired validation datasets",
     )
     paired_phase_started = time.perf_counter()
-    for index, (static_path, motion_path, _num_sc, chip, dataset_id, synthetic) in enumerate(
-        paired_datasets, start=1
-    ):
+    for index, (static_path, motion_path, _num_sc, chip, dataset_id, synthetic,
+                dataset_role) in enumerate(paired_datasets, start=1):
         dataset_started = time.perf_counter()
         section = "paired_synthetic" if synthetic else "paired"
         classic_result = compute_classic_dataset_result(
@@ -855,6 +866,9 @@ def compute_performance_report_data(
             0.5,
         )
         paired_results[section]["ml"][chip].append(ml_metrics)
+        if not synthetic:
+            role_bucket = "train" if dataset_role == "train" else "reserved"
+            ml_role_results[role_bucket][chip].append(ml_metrics)
         _emit_progress(
             progress,
             (
@@ -916,6 +930,16 @@ def compute_performance_report_data(
                     section_summary[algorithm][chip] = averaged
         paired_summaries[section] = section_summary
 
+    ml_role_summary: Dict[str, Dict[str, Dict[str, float]]] = {
+        "reserved": {},
+        "train": {},
+    }
+    for role_bucket, by_chip in ml_role_results.items():
+        for chip, entries in by_chip.items():
+            averaged = _average_detector_metrics(entries)
+            if averaged is not None:
+                ml_role_summary[role_bucket][chip] = averaged
+
     long_summary: Dict[str, Dict[str, Dict[str, float]]] = {"classic": {}, "ml": {}}
     for algorithm, by_chip in long_results.items():
         for chip, entries in by_chip.items():
@@ -936,6 +960,7 @@ def compute_performance_report_data(
     _emit_progress(progress, "render data ready")
     return {
         "paired": paired_summaries["paired"],
+        "paired_ml_roles": ml_role_summary,
         "paired_synthetic": paired_summaries["paired_synthetic"],
         "long_quiet": long_summary,
     }
@@ -1011,11 +1036,22 @@ def render_performance_report_markdown(
         "Effective Alarms count each false MOTION transition on quiet or static-presence "
         "segments, after the same consecutive-hit filtering used at deploy time.",
         "",
+        (
+            "The Classic detector calibrates itself on each recording and has no "
+            "training set, so its table aggregates every real pair. The ML tables "
+            "are split by provenance instead: the exported model trains on the "
+            "`train`-role recordings, so only the reserved replays measure "
+            "generalization."
+        ),
+        "",
         "### Classic Detector",
         "",
     ])
 
     paired = report_data["paired"]
+    paired_ml_roles = report_data.get(
+        "paired_ml_roles", {"reserved": {}, "train": {}}
+    )
     paired_synthetic = report_data.get(
         "paired_synthetic", {"classic": {}, "ml": {}}
     )
@@ -1044,10 +1080,29 @@ def render_performance_report_markdown(
 
     lines.extend([
         "",
-        "### ML Detector",
+        "### ML Detector — Reserved Replays (out-of-sample)",
+        "",
+        (
+            "`selection` and `holdout` recordings excluded from ML training. "
+            "This is the honest generalization signal. Chips without reserved "
+            "recordings show N/A."
+        ),
         "",
     ])
-    _append_paired_table(paired, "ml")
+    _append_paired_table({"ml": paired_ml_roles.get("reserved", {})}, "ml")
+
+    lines.extend([
+        "",
+        "### ML Detector — Training Recordings (in-sample diagnostic)",
+        "",
+        (
+            "Recordings the exported model trained on. Expect optimistic values; "
+            "use them only to spot training-side breakage, never as a "
+            "generalization signal."
+        ),
+        "",
+    ])
+    _append_paired_table({"ml": paired_ml_roles.get("train", {})}, "ml")
 
     lines.extend([
         "",
@@ -1057,7 +1112,9 @@ def render_performance_report_markdown(
         "",
         (
             "Synthetic pairs are reported separately and do not alter the real-data "
-            "promotion metrics above."
+            "promotion metrics above. All synthetic pairs are part of ML training, "
+            "so for the ML detector this section is an in-sample sanity check, not "
+            "a generalization signal."
         ),
         "",
         "### Classic Detector",
