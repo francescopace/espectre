@@ -368,6 +368,7 @@ from tools.lib.performance_report import (
 )
 from runtime_policy import RuntimeMotionPolicy, make_evaluation_cadence
 from csi_features import (
+    ALL_FEATURES,
     DEFAULT_FEATURES,
     L1_DELTA_LAG,
     L1DeltaTracker,
@@ -3387,9 +3388,11 @@ CPP_FEATURE_IDS = {
     'turb_skewness': 5,
     'turb_autocorr': 6,
     'turb_mad_over_mean': 13,
+    'turb_zcr': 14,
     'l1_delta': 17,
     'l1_delta_std': 18,
     'l1_delta_waveform_length': 23,
+    'l1_delta_autocorr': 24,
 }
 
 
@@ -6638,6 +6641,11 @@ def main():
     parser.add_argument('--hidden-layers', type=parse_hidden_layers, default=None,
                        help='Comma-separated hidden layer widths for the MLP '
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
+    parser.add_argument('--features', type=str, default=None, metavar='NAME1,NAME2,...',
+                       help='Comma-separated feature set for training/evaluation '
+                            'experiments (default: production Core-6). Candidate '
+                            'features without a C++ extractor id require '
+                            '--no-export or an evaluation-only flow')
     parser.add_argument('--no-export', action='store_true',
                        help='Leave runtime artifacts unchanged (CV-only for normal training; '
                             'also use with --shap / --ablation diagnostics)')
@@ -6680,7 +6688,60 @@ def main():
     args = parser.parse_args()
     set_active_torch_device(args.device)
     selected_training_features = list(DEFAULT_FEATURES)
-    
+    if args.features is not None:
+        selected_training_features = [
+            name.strip() for name in args.features.split(',') if name.strip()
+        ]
+        if not selected_training_features:
+            print("Error: --features requires at least one feature name")
+            return 1
+        unknown = [
+            name for name in selected_training_features
+            if name not in ALL_FEATURES
+        ]
+        if unknown:
+            print(
+                f"Error: unknown feature(s): {', '.join(unknown)}. "
+                f"Available: {', '.join(ALL_FEATURES)}"
+            )
+            return 1
+        if len(set(selected_training_features)) != len(selected_training_features):
+            print("Error: --features contains duplicate names")
+            return 1
+        # Flows that export runtime artifacts need a C++ extractor for every
+        # feature; candidate features are evaluation-only until they are ported.
+        will_export = (
+            args.seed_search_until_improvement > 0
+            or args.experiment_promote
+            or not (
+                args.no_export
+                or args.shap is not None
+                or args.ablation
+                or args.ablation_feature
+                or args.correlation
+                or args.cross_environment
+                or args.cross_chip
+                or args.experiment_robustness
+                or args.gain_stress_gate
+                or args.experiment
+                or args.experiment_fp_weights is not None
+                or args.info
+            )
+        )
+        unsupported = [
+            name for name in selected_training_features
+            if name not in CPP_FEATURE_IDS
+        ]
+        if will_export and unsupported:
+            print(
+                f"Error: feature(s) without a C++ extractor id: "
+                f"{', '.join(unsupported)}. Use --no-export for evaluation, or "
+                f"add them to CPP_FEATURE_IDS and csi_features.h first"
+            )
+            return 1
+        print(f"Selected features ({len(selected_training_features)}): "
+              + ', '.join(selected_training_features))
+
     if args.info:
         show_info()
         return 0

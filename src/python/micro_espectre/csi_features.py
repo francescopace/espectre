@@ -150,6 +150,26 @@ def calc_waveform_length(turbulence_buffer, buffer_count):
     return total
 
 
+def calc_zero_crossing_rate(values, count, center):
+    """
+    Calculate the crossing rate of ``values`` around ``center``.
+
+    Shift and scale invariant when ``center`` tracks the window (median):
+    white noise crosses its median almost every sample, while temporally
+    coherent motion excursions stay on one side for long runs.
+    """
+    if count < 2:
+        return 0.0
+    crossings = 0
+    prev_above = values[0] >= center
+    for i in range(1, count):
+        curr_above = values[i] >= center
+        if curr_above != prev_above:
+            crossings += 1
+            prev_above = curr_above
+    return crossings / (count - 1)
+
+
 # Supported L1-delta features. The wider descriptor experiment was rejected;
 # only the three promoted features remain available to training/export flows.
 L1_DELTA_FEATURES = [
@@ -171,7 +191,19 @@ CORE6_FEATURES.extend(L1_DELTA_FEATURES)
 # Production feature set.
 DEFAULT_FEATURES = CORE6_FEATURES
 
-ALL_FEATURES = tuple(DEFAULT_FEATURES)
+# Shift/scale-invariant candidates for weak-link robustness experiments.
+# On real low-RSSI pairs the absolute L1 features lose (or invert) their
+# separation, while temporal-coherence statistics survive: the noise floor is
+# white in time, human motion is not. Available to training experiments only;
+# promotion into DEFAULT_FEATURES requires the standard gated flow and a C++
+# port of the winning set.
+CANDIDATE_FEATURES = [
+    'turb_zcr',
+    'l1_delta_autocorr',
+    'l1_delta_cv',
+]
+
+ALL_FEATURES = tuple(DEFAULT_FEATURES + CANDIDATE_FEATURES)
 
 
 def normalize_amplitude_profile_into(amplitudes, count, out):
@@ -485,11 +517,13 @@ def extract_features_by_name(
     turb_mad = None
     turb_skewness = None
     turb_autocorr = None
+    turb_zcr = None
     l1_waveform_length = 0.0
     _l1_series = None
     _l1_n = 0
     _l1_mean = 0.0
     _l1_std = 0.0
+    _l1_var = 0.0
     needs_l1 = False
     needs_mad = False
     for name in feature_names:
@@ -502,6 +536,13 @@ def extract_features_by_name(
         elif name == "turb_autocorr":
             turb_autocorr = calc_autocorrelation(
                 turb_list, n, mean=turb_mean, variance=turb_var
+            )
+        elif name == "turb_zcr":
+            # Crossing rate needs the time-ordered series; compute it before
+            # any in-place sort of the reused turbulence buffer.
+            sorted_copy = sorted(turb_list)
+            turb_zcr = calc_zero_crossing_rate(
+                turb_list, n, sorted_copy[n // 2]
             )
     if needs_l1:
         if l1_series is None:
@@ -523,8 +564,8 @@ def extract_features_by_name(
                 value = _l1_series[i]
                 d = value - _l1_mean
                 vs += d * d
-            variance = vs / _l1_n
-            _l1_std = math.sqrt(variance) if variance > 0 else 0.0
+            _l1_var = vs / _l1_n
+            _l1_std = math.sqrt(_l1_var) if _l1_var > 0 else 0.0
             l1_waveform_length = calc_waveform_length(_l1_series, _l1_n)
 
     if needs_mad and reuse_turbulence_buffer:
@@ -541,12 +582,21 @@ def extract_features_by_name(
             value = turb_skewness
         elif name == 'turb_autocorr':
             value = turb_autocorr
+        elif name == 'turb_zcr':
+            value = turb_zcr
         elif name == 'l1_delta':
             value = _l1_mean
         elif name == 'l1_delta_std':
             value = _l1_std
         elif name == 'l1_delta_waveform_length':
             value = l1_waveform_length if _l1_n else 0.0
+        elif name == 'l1_delta_autocorr':
+            value = (
+                calc_autocorrelation(_l1_series, _l1_n, mean=_l1_mean, variance=_l1_var)
+                if _l1_n else 0.0
+            )
+        elif name == 'l1_delta_cv':
+            value = _l1_std / (_l1_mean if _l1_mean > 1e-9 else 1e-9) if _l1_n else 0.0
         else:
             raise ValueError(f"Unknown feature: {name}")
         if out is None:

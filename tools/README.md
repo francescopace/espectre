@@ -182,6 +182,7 @@ python train_ml_model.py --no-cache       # Rebuild cached training matrix
 python train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python train_ml_model.py --seed-search-until-improvement 20  # Evaluate all seeds and keep the best robust improvement
 python train_ml_model.py --seed 12345 --force-promote  # Deliberate baseline reset: export even if the gates fail
+python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta,l1_delta_std,l1_delta_autocorr --no-export  # Evaluate a candidate feature set
 python train_ml_model.py --augment            # Robustness-winner train-time augmentation
 python train_ml_model.py --augment --seed-search-until-improvement 10
 python train_ml_model.py --cross-environment  # LOEO using the exported model seed by default

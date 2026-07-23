@@ -15,7 +15,10 @@ from csi_features import (
     calc_iqr,
     calc_autocorrelation,
     calc_mad,
+    calc_zero_crossing_rate,
     extract_features_by_name,
+    ALL_FEATURES,
+    CANDIDATE_FEATURES,
     DEFAULT_FEATURES,
     CORE6_FEATURES,
     FEATURE_NAMES,
@@ -252,6 +255,12 @@ class TestExtractAllFeatures:
         assert FEATURE_NAMES == DEFAULT_FEATURES
         assert DEFAULT_FEATURES == CORE6_FEATURES
 
+    def test_candidate_features_stay_out_of_production_set(self):
+        """Weak-link candidates are selectable but never part of Core-6."""
+        for name in CANDIDATE_FEATURES:
+            assert name in ALL_FEATURES
+            assert name not in DEFAULT_FEATURES
+
     def test_unknown_feature_raises(self):
         """Removed legacy features are no longer accepted."""
         buffer = [float(i) for i in range(50)]
@@ -318,3 +327,84 @@ class TestExtractAllFeatures:
         buffer = [3.0 + (i % 7) * 0.25 for i in range(50)]
         with pytest.raises(ValueError, match="Unknown feature"):
             extract_features_by_name(buffer, 50, feature_names=['turb_std_over_mean'])
+
+
+class TestCalcZeroCrossingRate:
+    """Test the median-crossing rate helper"""
+
+    def test_short_buffer_returns_zero(self):
+        assert calc_zero_crossing_rate([1.0], 1, 0.0) == 0.0
+
+    def test_alternating_signal_crosses_every_sample(self):
+        values = [1.0, -1.0] * 25
+        assert calc_zero_crossing_rate(values, len(values), 0.0) == 1.0
+
+    def test_single_excursion_crosses_twice(self):
+        values = [0.0] * 20 + [5.0] * 10 + [0.0] * 20
+        rate = calc_zero_crossing_rate(values, len(values), 2.5)
+        assert rate == pytest.approx(2 / 49)
+
+    def test_shift_and_scale_invariance_with_median_center(self):
+        np.random.seed(7)
+        base = list(np.random.normal(0.0, 1.0, 60))
+        transformed = [0.02 * v + 10.0 for v in base]
+        base_median = sorted(base)[30]
+        transformed_median = sorted(transformed)[30]
+        assert calc_zero_crossing_rate(base, 60, base_median) == pytest.approx(
+            calc_zero_crossing_rate(transformed, 60, transformed_median)
+        )
+
+
+class TestCandidateFeatures:
+    """Test the weak-link candidate features"""
+
+    def test_turb_zcr_separates_noise_from_coherent_excursions(self):
+        np.random.seed(11)
+        noise = list(np.random.normal(5.0, 1.0, 50))
+        excursion = [5.0] * 20 + [9.0 + 0.01 * i for i in range(15)] + [5.0] * 15
+        noise_zcr = extract_features_by_name(noise, 50, feature_names=['turb_zcr'])[0]
+        excursion_zcr = extract_features_by_name(excursion, 50, feature_names=['turb_zcr'])[0]
+        assert noise_zcr > excursion_zcr
+
+    def test_turb_zcr_survives_reused_buffer_sort(self):
+        """The mad feature sorts the reused buffer; zcr must see time order."""
+        values = [1.0, -1.0] * 25
+        combined = extract_features_by_name(
+            list(values), 50,
+            feature_names=['turb_zcr', 'turb_mad_over_mean'],
+            reuse_turbulence_buffer=True,
+        )
+        alone = extract_features_by_name(
+            list(values), 50, feature_names=['turb_zcr']
+        )
+        assert combined[0] == pytest.approx(alone[0])
+        assert combined[0] == pytest.approx(1.0)
+
+    def test_l1_candidates_are_scale_invariant_unlike_l1_delta(self):
+        np.random.seed(13)
+        turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
+        series = [abs(v) + 0.05 for v in np.random.normal(0.1, 0.03, 40)]
+        scaled = [v * 10.0 for v in series]
+        names = ['l1_delta', 'l1_delta_autocorr', 'l1_delta_cv']
+        base = extract_features_by_name(turb, 50, feature_names=names, l1_series=series)
+        boosted = extract_features_by_name(turb, 50, feature_names=names, l1_series=scaled)
+        assert boosted[0] == pytest.approx(base[0] * 10.0)
+        assert boosted[1] == pytest.approx(base[1])
+        assert boosted[2] == pytest.approx(base[2])
+
+    def test_l1_delta_autocorr_matches_direct_computation(self):
+        turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
+        series = [0.1, 0.12, 0.11, 0.3, 0.32, 0.31, 0.1, 0.12, 0.11, 0.3]
+        value = extract_features_by_name(
+            turb, 50, feature_names=['l1_delta_autocorr'], l1_series=series
+        )[0]
+        assert value == pytest.approx(calc_autocorrelation(series, len(series)))
+
+    def test_l1_candidates_return_zero_without_series_samples(self):
+        turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
+        values = extract_features_by_name(
+            turb, 50,
+            feature_names=['l1_delta_autocorr', 'l1_delta_cv'],
+            l1_series=[],
+        )
+        assert values == [0.0, 0.0]

@@ -1392,6 +1392,45 @@ def test_force_export_bypasses_failed_deployment_gate(monkeypatch, tmp_path):
     assert exports == ["micropython", "cpp", "test_data"]
 
 
+def test_features_cli_rejects_unknown_names(monkeypatch, capsys):
+    module = _load_train_module()
+    monkeypatch.setattr(
+        "sys.argv",
+        ["train_ml_model.py", "--features", "turb_zcr,bogus", "--no-export"],
+    )
+
+    assert module.main() == 1
+    assert "unknown feature(s): bogus" in capsys.readouterr().out
+
+
+def test_features_cli_blocks_candidate_features_on_exporting_flows(monkeypatch, capsys):
+    module = _load_train_module()
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "train_ml_model.py",
+            "--features", "l1_delta_cv,l1_delta",
+            "--seed-search-until-improvement", "2",
+        ],
+    )
+
+    assert module.main() == 1
+    out = capsys.readouterr().out
+    assert "without a C++ extractor id" in out
+    assert "l1_delta_cv" in out
+
+
+def test_features_cli_rejects_duplicates(monkeypatch, capsys):
+    module = _load_train_module()
+    monkeypatch.setattr(
+        "sys.argv",
+        ["train_ml_model.py", "--features", "l1_delta,l1_delta", "--no-export"],
+    )
+
+    assert module.main() == 1
+    assert "duplicate" in capsys.readouterr().out
+
+
 def test_force_promote_cli_requires_explicit_seed(monkeypatch, capsys):
     module = _load_train_module()
     monkeypatch.setattr(

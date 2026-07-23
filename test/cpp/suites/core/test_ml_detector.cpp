@@ -302,6 +302,36 @@ void test_feature_extraction_empty_buffer(void) {
     }
 }
 
+void test_candidate_feature_python_parity(void) {
+    // Same deterministic series as the Python reference:
+    // turb[i] = 10.0 + (i % 5) * 0.5, delta[i] = 0.01 + (i % 7) * 0.002.
+    float turb_buffer[50];
+    float delta_buffer[50];
+    for (int i = 0; i < 50; i++) {
+        turb_buffer[i] = 10.0f + (i % 5) * 0.5f;
+        delta_buffer[i] = 0.01f + (i % 7) * 0.002f;
+    }
+
+    const uint8_t candidate_ids[2] = {ML_FEAT_TURB_ZCR, ML_FEAT_L1_DELTA_AUTOCORR};
+    float features[2];
+    extract_ml_features_by_id(turb_buffer, 50, delta_buffer, 50,
+                              candidate_ids, 2, features);
+
+    // Expected values computed by src/python/micro_espectre/csi_features.py.
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.3877551f, features[0]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.2449956f, features[1]);
+}
+
+void test_zero_crossing_rate_alternating_signal(void) {
+    float values[50];
+    for (int i = 0; i < 50; i++) {
+        values[i] = (i % 2 == 0) ? 1.0f : -1.0f;
+    }
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, calc_zero_crossing_rate(values, 50, 0.0f));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_zero_crossing_rate(values, 1, 0.0f));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_zero_crossing_rate(nullptr, 50, 0.0f));
+}
+
 // ============================================================================
 // ML SUBCARRIERS TESTS
 // ============================================================================
@@ -379,6 +409,8 @@ int main(int argc, char **argv) {
     // Feature extraction tests
     RUN_TEST(test_feature_extraction_basic);
     RUN_TEST(test_feature_extraction_empty_buffer);
+    RUN_TEST(test_candidate_feature_python_parity);
+    RUN_TEST(test_zero_crossing_rate_alternating_signal);
     
     // Subcarriers tests
     RUN_TEST(test_ml_subcarriers_count);

@@ -35,9 +35,11 @@ enum MLFeatureId : uint8_t {
     ML_FEAT_TURB_SKEWNESS = 5,
     ML_FEAT_TURB_AUTOCORR = 6,
     ML_FEAT_TURB_MAD_OVER_MEAN = 13,
+    ML_FEAT_TURB_ZCR = 14,
     ML_FEAT_L1_DELTA = 17,
     ML_FEAT_L1_DELTA_STD = 18,
     ML_FEAT_L1_DELTA_WAVEFORM_LENGTH = 23,
+    ML_FEAT_L1_DELTA_AUTOCORR = 24,
 };
 
 // First L1-delta feature id: ids >= this are computed from the delta series.
@@ -116,6 +118,24 @@ inline float calc_waveform_length(const float* values, uint16_t count) {
     return total;
 }
 
+// Crossing rate of the series around `center`. Shift and scale invariant when
+// `center` tracks the window; matches the Python `calc_zero_crossing_rate`,
+// whose zcr center is the upper median `sorted[count / 2]`.
+inline float calc_zero_crossing_rate(const float* values, uint16_t count, float center) {
+    if (count < 2 || values == nullptr) return 0.0f;
+
+    uint16_t crossings = 0;
+    bool prev_above = values[0] >= center;
+    for (uint16_t i = 1; i < count; i++) {
+        bool curr_above = values[i] >= center;
+        if (curr_above != prev_above) {
+            crossings++;
+            prev_above = curr_above;
+        }
+    }
+    return static_cast<float>(crossings) / (count - 1);
+}
+
 struct MLSeriesStats {
     uint16_t count = 0;
     float mean = 0.0f;
@@ -125,6 +145,7 @@ struct MLSeriesStats {
     float skewness = 0.0f;
     float autocorr = 0.0f;
     float waveform_length = 0.0f;
+    float zcr = 0.0f;
     float mean_denom = 1e-6f;  // max(|mean|, 1e-6), matches Python
 };
 
@@ -150,7 +171,17 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
     out->variance = var_sum / count;
     out->std = out->variance > 0.0f ? std::sqrt(out->variance) : 0.0f;
 
-    out->mad = calc_mad(values, count);
+    // Sort once; MAD and the zcr center share the sorted view.
+    if (count <= ML_MAX_SORT_SIZE) {
+        float sorted_scratch[ML_MAX_SORT_SIZE];
+        for (uint16_t i = 0; i < count; i++) {
+            sorted_scratch[i] = values[i];
+        }
+        std::sort(sorted_scratch, sorted_scratch + count);
+        out->mad = calc_mad(values, count, sorted_scratch);
+        // Python zcr centers on the upper median (sorted[count // 2]).
+        out->zcr = calc_zero_crossing_rate(values, count, sorted_scratch[count / 2]);
+    }
     out->skewness = calc_skewness(values, count, out->mean, out->std);
     out->autocorr = calc_autocorrelation(values, count, out->mean, out->variance, 1);
     out->waveform_length = calc_waveform_length(values, count);
@@ -163,9 +194,11 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
         case ML_FEAT_TURB_SKEWNESS: return turb.skewness;
         case ML_FEAT_TURB_AUTOCORR: return turb.autocorr;
         case ML_FEAT_TURB_MAD_OVER_MEAN: return turb.mad / turb.mean_denom;
+        case ML_FEAT_TURB_ZCR: return turb.zcr;
         case ML_FEAT_L1_DELTA: return delta.mean;
         case ML_FEAT_L1_DELTA_STD: return delta.std;
         case ML_FEAT_L1_DELTA_WAVEFORM_LENGTH: return delta.waveform_length;
+        case ML_FEAT_L1_DELTA_AUTOCORR: return delta.autocorr;
         default: return 0.0f;
     }
 }

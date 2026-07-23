@@ -54,7 +54,14 @@ python tools/train_ml_model.py --exclude-chip ESP32
 python tools/train_ml_model.py --gain-stress-gate
 python tools/train_ml_model.py --gain-stress-gate --environment bedroom
 python tools/train_ml_model.py --seed-search-until-improvement 20
+python tools/train_ml_model.py --features turb_autocorr,turb_zcr,l1_delta --no-export
 ```
+
+`--features` selects the training feature set for experiments. Candidate
+features from `csi_features.CANDIDATE_FEATURES` have no C++ extractor yet, so
+they are accepted only by evaluation flows (`--no-export`, diagnostics);
+exporting flows reject them until the winning set is ported to
+`csi_features.h`.
 
 For exploratory architecture campaigns:
 
