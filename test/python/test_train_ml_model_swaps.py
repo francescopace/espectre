@@ -176,6 +176,45 @@ def test_training_cache_manifest_tracks_dataset_roles():
         module.normalize_dataset_roles(("train", "unknown"))
 
 
+def test_feature_cache_round_trips_without_pickle(tmp_path):
+    module = _load_train_module()
+    cache_path = tmp_path / "training_features.npz"
+    manifest = module._feature_cache_manifest(["turb_skewness"], dataset_roles=("train",))
+    sample_context = {
+        "chip": np.asarray(["C6", "S3"]),
+        "dataset_role": np.asarray(["train", "train"]),
+        "synthetic": np.asarray([False, True]),
+        "window_index": np.asarray([0, 1], dtype=np.int32),
+    }
+    stats = {"chips": ["C6", "S3"], "total": 2}
+    X = np.asarray([[1.0], [2.0]], dtype=np.float32)
+    y = np.asarray([0, 1], dtype=np.int8)
+
+    module._save_feature_cache(
+        cache_path,
+        manifest,
+        X,
+        y,
+        ["turb_skewness"],
+        sample_context,
+        stats,
+    )
+
+    with np.load(cache_path, allow_pickle=False) as data:
+        assert data["feature_names"].astype(str).tolist() == ["turb_skewness"]
+        assert data["context_keys"].astype(str).tolist() == list(sample_context.keys())
+
+    loaded = module._load_feature_cache(cache_path, manifest)
+
+    assert loaded is not None
+    np.testing.assert_array_equal(loaded["X"], X)
+    np.testing.assert_array_equal(loaded["y"], y)
+    assert loaded["feature_names"] == ["turb_skewness"]
+    assert loaded["stats"] == stats
+    for key, values in sample_context.items():
+        np.testing.assert_array_equal(loaded["sample_context"][key], values)
+
+
 def test_synthetic_metadata_shares_source_lineage(monkeypatch, tmp_path):
     module = _load_train_module()
     data_dir = tmp_path / "data"

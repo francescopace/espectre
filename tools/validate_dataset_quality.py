@@ -66,7 +66,7 @@ from tools.lib.dataset_metadata import (  # noqa: E402
     build_calibrated_classic_detector,
 )
 from tools.lib.csi_analysis import extract_amplitudes_matrix  # noqa: E402
-from tools.lib.csi_io import filter_npz_arrays_sensing  # noqa: E402
+from tools.lib.csi_io import filter_npz_arrays_sensing, load_npz_arrays  # noqa: E402
 
 
 from detector_interface import MotionState  # noqa: E402
@@ -1232,8 +1232,7 @@ class _MaterializedNpz(dict):
 
 def _load_npz_materialized(filepath):
     """Load one NPZ file into a fully materialized key/array mapping."""
-    with np.load(filepath, allow_pickle=True) as npz:
-        return _MaterializedNpz((key, npz[key]) for key in npz.files)
+    return _MaterializedNpz(load_npz_arrays(filepath).items())
 
 
 def _sensing_view_npz(data):

@@ -115,6 +115,38 @@ CHANNEL_WIDTH_CODES = {
 }
 
 
+def _raise_unsafe_npz_object_array(filepath: Path, key: str | None = None, exc: Exception | None = None):
+    """Raise a consistent error for pickle-backed object arrays in dataset NPZs."""
+    detail = (
+        f"field {key!r} contains a pickle-backed object array"
+        if key is not None
+        else "contains a pickle-backed object array"
+    )
+    error = ValueError(
+        f"Unsafe NPZ dataset {filepath}: {detail}; only numeric and string arrays are supported"
+    )
+    if exc is not None:
+        raise error from exc
+    raise error
+
+
+def load_npz_arrays(filepath: Path) -> Dict[str, np.ndarray]:
+    """Materialize a dataset NPZ without enabling pickle-backed object arrays."""
+    arrays: Dict[str, np.ndarray] = {}
+    with np.load(filepath, allow_pickle=False) as data:
+        for key in data.files:
+            try:
+                value = np.asarray(data[key])
+            except ValueError as exc:
+                if "Object arrays cannot be loaded when allow_pickle=False" in str(exc):
+                    _raise_unsafe_npz_object_array(filepath, key, exc)
+                raise
+            if value.dtype.kind == "O":
+                _raise_unsafe_npz_object_array(filepath, key)
+            arrays[key] = value
+    return arrays
+
+
 def get_default_bind_host() -> str:
     """Determine a safe default bind interface."""
     import os
@@ -2127,25 +2159,25 @@ def load_npz_as_packets(
     sensing consumers; dataset quality validation uses the same filtered view so
     excessive drops fail continuity.
     """
-    data = np.load(filepath, allow_pickle=True)
-    if "csi_data" not in data.files:
+    data = load_npz_arrays(filepath)
+    if "csi_data" not in data:
         raise ValueError(f"No CSI data found in {filepath}")
     csi_array = data["csi_data"]
 
     label = str(data.get("label", "unknown"))
     num_subcarriers = int(data.get("num_subcarriers", csi_array.shape[1] // 2))
     chip = str(data.get("chip", "unknown"))
-    stream_seq_nums = data["stream_seq_num"] if "stream_seq_num" in data.files else None
-    device_ticks_us = data["device_ticks_us"] if "device_ticks_us" in data.files else None
-    wifi_rx_ts_us = data["wifi_rx_ts_us"] if "wifi_rx_ts_us" in data.files else None
-    wifi_rx_start_ts_ns = data["wifi_rx_start_ts_ns"] if "wifi_rx_start_ts_ns" in data.files else None
-    device_ids = data["device_id"] if "device_id" in data.files else None
-    channels = data["channel"] if "channel" in data.files else None
-    rssi_dbm = data["rssi_dbm"] if "rssi_dbm" in data.files else None
-    noise_floor_dbm = data["noise_floor_dbm"] if "noise_floor_dbm" in data.files else None
-    phy_modes = data["phy_mode"] if "phy_mode" in data.files else None
-    ltf_types = data["ltf_type"] if "ltf_type" in data.files else None
-    channel_widths = data["channel_width"] if "channel_width" in data.files else None
+    stream_seq_nums = data["stream_seq_num"] if "stream_seq_num" in data else None
+    device_ticks_us = data["device_ticks_us"] if "device_ticks_us" in data else None
+    wifi_rx_ts_us = data["wifi_rx_ts_us"] if "wifi_rx_ts_us" in data else None
+    wifi_rx_start_ts_ns = data["wifi_rx_start_ts_ns"] if "wifi_rx_start_ts_ns" in data else None
+    device_ids = data["device_id"] if "device_id" in data else None
+    channels = data["channel"] if "channel" in data else None
+    rssi_dbm = data["rssi_dbm"] if "rssi_dbm" in data else None
+    noise_floor_dbm = data["noise_floor_dbm"] if "noise_floor_dbm" in data else None
+    phy_modes = data["phy_mode"] if "phy_mode" in data else None
+    ltf_types = data["ltf_type"] if "ltf_type" in data else None
+    channel_widths = data["channel_width"] if "channel_width" in data else None
 
     def optional_scalar(array, index, cast):
         if array is None:
@@ -2228,24 +2260,24 @@ def load_npz_csi_data(
     into a metadata dictionary. Non-sensing rows are dropped by default when
     PHY metadata is present. Pass ``keep_all_phy=True`` to keep every row.
     """
-    with np.load(filepath, allow_pickle=False) as data:
-        if "csi_data" not in data.files:
-            raise ValueError(f"No CSI data found in {filepath}")
-        csi = np.asarray(data["csi_data"], dtype=np.int8)
-        if keep_all_phy:
-            return csi
-        raw_num_subcarriers = int(data["num_subcarriers"]) if "num_subcarriers" in data.files else int(csi.shape[1] // 2)
-        mask = ht20_packet_mask(
-            data["phy_mode"] if "phy_mode" in data.files else None,
-            data["ltf_type"] if "ltf_type" in data.files else None,
-            data["channel_width"] if "channel_width" in data.files else None,
-            int(csi.shape[1]),
-            raw_num_subcarriers,
-            len(csi),
-        )
-        if mask is None:
-            return csi
-        return csi[mask]
+    data = load_npz_arrays(filepath)
+    if "csi_data" not in data:
+        raise ValueError(f"No CSI data found in {filepath}")
+    csi = np.asarray(data["csi_data"], dtype=np.int8)
+    if keep_all_phy:
+        return csi
+    raw_num_subcarriers = int(data["num_subcarriers"]) if "num_subcarriers" in data else int(csi.shape[1] // 2)
+    mask = ht20_packet_mask(
+        data["phy_mode"] if "phy_mode" in data else None,
+        data["ltf_type"] if "ltf_type" in data else None,
+        data["channel_width"] if "channel_width" in data else None,
+        int(csi.shape[1]),
+        raw_num_subcarriers,
+        len(csi),
+    )
+    if mask is None:
+        return csi
+    return csi[mask]
 
 
 def get_dataset_stats() -> Dict[str, Any]:

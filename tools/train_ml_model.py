@@ -1169,19 +1169,54 @@ def _feature_cache_path(manifest):
     return _cache_path('training_features', manifest)
 
 
+# Sample-context columns that are not label strings.
+CONTEXT_INT_KEYS = ('packet_index', 'window_index')
+CONTEXT_BOOL_KEYS = ('synthetic',)
+
+
+def encode_label_column(values):
+    """Encode a label column as (int32 codes, unicode uniques).
+
+    NPZ payloads must stay loadable with ``allow_pickle=False`` so a dataset
+    or cache file can never execute code on load. Label columns hold a handful
+    of long identifiers repeated per row, so codes plus uniques are both
+    pickle-free and far smaller than a fixed-width unicode copy per row.
+    """
+    array = np.asarray(values)
+    if array.size == 0:
+        return np.zeros(0, dtype=np.int32), np.zeros(0, dtype='<U1')
+    uniques, codes = np.unique(array, return_inverse=True)
+    unique_text = np.asarray([str(value) for value in uniques.tolist()])
+    return codes.astype(np.int32, copy=False), unique_text
+
+
+def decode_label_column(codes, uniques):
+    """Rebuild a label column as an object array of shared strings."""
+    lookup = np.empty(len(uniques), dtype=object)
+    lookup[:] = [str(value) for value in np.asarray(uniques).tolist()]
+    if len(lookup) == 0:
+        return np.empty(0, dtype=object)
+    return lookup[np.asarray(codes, dtype=np.int64)]
+
+
 def _load_feature_cache(cache_path, manifest):
     """Load cached feature matrix, labels, context, and stats."""
     if not cache_path.exists():
         return None
     try:
-        with np.load(cache_path, allow_pickle=True) as data:
+        with np.load(cache_path, allow_pickle=False) as data:
             cached_manifest = json.loads(str(data['manifest_json'].item()))
             if cached_manifest != manifest:
                 return None
-            sample_context = {
-                key: data[f'ctx_{key}']
-                for key in data['context_keys'].tolist()
-            }
+            sample_context = {}
+            for key in data['context_keys'].tolist():
+                codes_key = f'ctx_{key}__codes'
+                if codes_key in data.files:
+                    sample_context[key] = decode_label_column(
+                        data[codes_key], data[f'ctx_{key}__uniques']
+                    )
+                else:
+                    sample_context[key] = data[f'ctx_{key}']
             stats = json.loads(str(data['stats_json'].item()))
             X = data['X'].astype(np.float32, copy=False)
             y = data['y'].astype(np.int8, copy=False)
@@ -1215,11 +1250,17 @@ def _save_feature_cache(cache_path, manifest, X, y, feature_names,
             'stats_json': np.asarray(json.dumps(stats, sort_keys=True)),
             'X': np.asarray(X, dtype=np.float32),
             'y': np.asarray(y, dtype=np.int8),
-            'feature_names': np.asarray(feature_names, dtype=object),
-            'context_keys': np.asarray(list(sample_context.keys()), dtype=object),
+            'feature_names': np.asarray(feature_names),
+            'context_keys': np.asarray(list(sample_context.keys())),
         }
         for key, values in sample_context.items():
-            payload[f'ctx_{key}'] = np.asarray(values)
+            array = np.asarray(values)
+            if array.dtype.hasobject or array.dtype.kind in ('U', 'S'):
+                codes, uniques = encode_label_column(array)
+                payload[f'ctx_{key}__codes'] = codes
+                payload[f'ctx_{key}__uniques'] = uniques
+            else:
+                payload[f'ctx_{key}'] = array
         np.savez(cache_path, **payload)
     except Exception as exc:
         print(f"  Warning: could not write feature cache {cache_path.name}: {exc}")
@@ -1499,10 +1540,18 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
 
     X_arr = np.asarray(X, dtype=np.float32)
     y_arr = np.asarray(y, dtype=np.int8)
-    context_arrays = {
-        key: np.asarray(values, dtype=np.int32 if key in ('packet_index', 'window_index') else object)
-        for key, values in sample_context.items()
-    }
+    context_arrays = {}
+    for key, values in sample_context.items():
+        if key in CONTEXT_INT_KEYS:
+            context_arrays[key] = np.asarray(values, dtype=np.int32)
+        elif key in CONTEXT_BOOL_KEYS:
+            context_arrays[key] = np.asarray(values, dtype=bool)
+        else:
+            # Label columns stay object arrays in memory: one shared string
+            # pointer per row instead of a fixed-width unicode copy of long
+            # session identifiers. Serialization encodes them (see
+            # encode_label_column) so no NPZ payload needs pickle.
+            context_arrays[key] = np.asarray(values, dtype=object)
     return X_arr, y_arr, feature_names, context_arrays
 
 
@@ -3545,21 +3594,24 @@ constexpr uint8_t ML_FEATURE_IDS[{len(feature_ids)}] = {{{feature_ids_csv}}};
     return len(code)
 
 
-def export_test_data(model, scaler, X_test_raw, y_test, output_path, sample_context=None):
+def export_test_data(model, scaler, X_test_raw, y_test, output_path):
     """
     Export test data for validation across Python and C++.
-    
+
     Generates ml_test_data.npz with RAW features (not normalized) and expected outputs.
     This allows testing the full pipeline including normalization.
-    
+
+    The artifact is committed, so it carries only what the host and C++
+    regression suites read: raw features, labels, and expected outputs. It
+    holds no object arrays and stays loadable with ``allow_pickle=False``.
+
     Args:
         model: Trained PyTorch model
         scaler: Fitted preprocessing object used for normalization
         X_test_raw: Test features (NOT normalized, raw values)
         y_test: Test labels
         output_path: Output file path
-        sample_context: Optional aligned metadata to save alongside the samples
-    
+
     Returns:
         Number of test samples
     """
@@ -3573,12 +3625,6 @@ def export_test_data(model, scaler, X_test_raw, y_test, output_path, sample_cont
         'labels': y_test.astype(np.int32),
         'expected_outputs': predictions.astype(np.float32),
     }
-    if sample_context is not None:
-        if 'source_file' in sample_context:
-            payload['source_files'] = np.asarray(sample_context['source_file'])
-        if 'session_group' in sample_context:
-            payload['session_groups'] = np.asarray(sample_context['session_group'])
-
     np.savez(output_path, **payload)
     
     return len(X_test_raw)
@@ -4479,7 +4525,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             X[regression_indices],
             y[regression_indices],
             test_data_path,
-            sample_context=slice_sample_context(sample_context, regression_indices),
         )
     print(f"  Test data: {test_data_path.name} ({n_test} blocked samples)")
     print(f"  Export time: {format_duration(perf_counter() - export_start)}")

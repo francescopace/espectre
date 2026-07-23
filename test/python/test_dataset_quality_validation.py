@@ -113,6 +113,25 @@ def test_classic_baseline_score_weights_cleanliness_stability_and_bursts() -> No
     assert module.classic_baseline_score(0.05, 1.125, 2.5) == 53.8
 
 
+def test_validate_file_integrity_rejects_object_arrays(tmp_path) -> None:
+    module = _load_validator_module()
+    filepath = tmp_path / "malicious_dataset.npz"
+    np.savez_compressed(
+        filepath,
+        csi_data=np.zeros((1, 128), dtype=np.int8),
+        num_subcarriers=64,
+        chip=np.array("c6", dtype=object),
+        label="motion",
+    )
+
+    results, data = module.validate_file_integrity(filepath)
+
+    assert data is None
+    assert results[0].name == "file_load"
+    assert results[0].status == "FAIL"
+    assert "Unsafe NPZ dataset" in results[0].message
+
+
 def test_active_burst_metrics_reports_duration_and_rate() -> None:
     module = _load_validator_module()
     # States are evaluation ticks; with EVALUATION_INTERVAL=25 and 50 pps,

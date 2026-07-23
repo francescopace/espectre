@@ -909,7 +909,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert filepath is not None
     assert filepath.exists()
 
-    data = np.load(filepath, allow_pickle=True)
+    data = np.load(filepath, allow_pickle=False)
     assert str(data['label']) == 'static_presence'
     assert str(data['chip']) == 'c6'
     assert int(data['num_subcarriers']) == 2
@@ -947,7 +947,7 @@ def test_save_sample_preserves_short_transport_schema(tmp_path, monkeypatch):
     filepath = collector.save_sample([packet])
 
     assert filepath is not None
-    data = np.load(filepath, allow_pickle=True)
+    data = np.load(filepath, allow_pickle=False)
     assert int(data['num_subcarriers']) == 12
     assert data['csi_data'].shape == (1, 24)
     np.testing.assert_array_equal(data['csi_data'][0], np.array(short_payload, dtype=np.int8))
@@ -972,6 +972,20 @@ def test_load_historical_dataset_labels_missing_phy_as_ht20(tmp_path):
     assert packet['channel_width'] == '20'
     assert packet['layout_id'] == 'ht20_64'
     assert packet['format_metadata_source'] == 'historical_missing_phy'
+
+
+def test_load_npz_as_packets_rejects_object_arrays(tmp_path):
+    filepath = tmp_path / 'malicious_object_array.npz'
+    np.savez_compressed(
+        filepath,
+        csi_data=np.zeros((1, 128), dtype=np.int8),
+        num_subcarriers=64,
+        label='motion',
+        chip=np.array('esp32', dtype=object),
+    )
+
+    with pytest.raises(ValueError, match="Unsafe NPZ dataset"):
+        load_npz_as_packets(filepath)
 
 
 def test_load_dataset_preserves_explicit_ht20_phy_metadata(tmp_path):
@@ -1102,6 +1116,22 @@ def test_load_npz_csi_data_drops_legacy20_rows_even_for_original_esp32(tmp_path)
 
     filtered = load_npz_csi_data(filepath)
     assert filtered.shape == (0, 4)
+
+
+def test_load_npz_csi_data_rejects_object_arrays(tmp_path):
+    from tools.lib.csi_io import load_npz_csi_data
+
+    filepath = tmp_path / 'malicious_csi_object_array.npz'
+    np.savez_compressed(
+        filepath,
+        csi_data=np.array([object()], dtype=object),
+        num_subcarriers=64,
+        label='motion',
+        chip='esp32',
+    )
+
+    with pytest.raises(ValueError, match="Unsafe NPZ dataset"):
+        load_npz_csi_data(filepath)
 
 
 def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):
