@@ -72,6 +72,7 @@ instead of repeating its historical rationale.
 - [`2026-07-07-use-core-6-as-the-production-ml-feature-set.md`](2026-07-07-use-core-6-as-the-production-ml-feature-set.md)
 - [`2026-07-07-reject-detector-guided-sample-weighting-as-the-default-ml-baseline-policy.md`](2026-07-07-reject-detector-guided-sample-weighting-as-the-default-ml-baseline-policy.md)
 - [`2026-07-23-separate-ml-training-data-from-promotion-replays.md`](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
+- [`2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md`](2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md)
 
 ### Protocol And Frontends
 

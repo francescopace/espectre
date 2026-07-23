@@ -149,8 +149,51 @@ struct MLSeriesStats {
     float mean_denom = 1e-6f;  // max(|mean|, 1e-6), matches Python
 };
 
+// Which per-series statistics one feature set actually references. Lets the
+// hot path skip the unused ones (notably the sort, which the delta series
+// never needs under the production feature set). Mean, variance, std, and
+// mean_denom are always computed: they are cheap and interdependent.
+struct MLStatNeeds {
+    bool sorted = false;   // mad and/or zcr (both share one sort)
+    bool skewness = false;
+    bool autocorr = false;
+    bool waveform_length = false;
+};
+
+// Derive the needs of one series (turbulence when l1 is false, L1-delta when
+// true) from the exported feature id list.
+inline MLStatNeeds ml_series_needs(const uint8_t *feature_ids, uint8_t num_features,
+                                   bool l1) {
+    MLStatNeeds needs;
+    for (uint8_t i = 0; i < num_features; i++) {
+        const uint8_t id = feature_ids[i];
+        if (ml_feature_is_l1(id) != l1) {
+            continue;
+        }
+        switch (id) {
+            case ML_FEAT_TURB_MAD_OVER_MEAN:
+            case ML_FEAT_TURB_ZCR:
+                needs.sorted = true;
+                break;
+            case ML_FEAT_TURB_SKEWNESS:
+                needs.skewness = true;
+                break;
+            case ML_FEAT_TURB_AUTOCORR:
+            case ML_FEAT_L1_DELTA_AUTOCORR:
+                needs.autocorr = true;
+                break;
+            case ML_FEAT_L1_DELTA_WAVEFORM_LENGTH:
+                needs.waveform_length = true;
+                break;
+            default:  // mean / std features need no extra statistic
+                break;
+        }
+    }
+    return needs;
+}
+
 inline void compute_ml_series_stats(const float* values, uint16_t count,
-                                    MLSeriesStats* out) {
+                                    MLSeriesStats* out, const MLStatNeeds& needs) {
     *out = MLSeriesStats{};
     if (values == nullptr || count < 2) {
         return;
@@ -170,9 +213,10 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
     }
     out->variance = var_sum / count;
     out->std = out->variance > 0.0f ? std::sqrt(out->variance) : 0.0f;
+    out->mean_denom = std::max(std::fabs(out->mean), 1e-6f);
 
     // Sort once; MAD and the zcr center share the sorted view.
-    if (count <= ML_MAX_SORT_SIZE) {
+    if (needs.sorted && count <= ML_MAX_SORT_SIZE) {
         float sorted_scratch[ML_MAX_SORT_SIZE];
         for (uint16_t i = 0; i < count; i++) {
             sorted_scratch[i] = values[i];
@@ -182,10 +226,15 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
         // Python zcr centers on the upper median (sorted[count // 2]).
         out->zcr = calc_zero_crossing_rate(values, count, sorted_scratch[count / 2]);
     }
-    out->skewness = calc_skewness(values, count, out->mean, out->std);
-    out->autocorr = calc_autocorrelation(values, count, out->mean, out->variance, 1);
-    out->waveform_length = calc_waveform_length(values, count);
-    out->mean_denom = std::max(std::fabs(out->mean), 1e-6f);
+    if (needs.skewness) {
+        out->skewness = calc_skewness(values, count, out->mean, out->std);
+    }
+    if (needs.autocorr) {
+        out->autocorr = calc_autocorrelation(values, count, out->mean, out->variance, 1);
+    }
+    if (needs.waveform_length) {
+        out->waveform_length = calc_waveform_length(values, count);
+    }
 }
 
 inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
@@ -208,10 +257,12 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
                                       const uint8_t* feature_ids, uint8_t num_features,
                                       float* features_out) {
     MLSeriesStats turb;
-    compute_ml_series_stats(turb_buffer, turb_count, &turb);
+    compute_ml_series_stats(turb_buffer, turb_count, &turb,
+                            ml_series_needs(feature_ids, num_features, /*l1=*/false));
 
     MLSeriesStats delta;
-    compute_ml_series_stats(delta_buffer, delta_count, &delta);
+    compute_ml_series_stats(delta_buffer, delta_count, &delta,
+                            ml_series_needs(feature_ids, num_features, /*l1=*/true));
 
     for (uint8_t i = 0; i < num_features; i++) {
         features_out[i] = ml_feature_value_from_stats(feature_ids[i], turb, delta);

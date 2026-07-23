@@ -242,7 +242,12 @@ def test_session_balanced_robust_scaler_is_deterministic_and_balanced():
 def test_l1_feature_variants_keep_delta_and_normalize_descriptors(
         variant, relative_std, relative_waveform):
     module = _load_train_module()
-    names = list(module.DEFAULT_FEATURES)
+    # The variant transform targets the historical Core-6 L1 descriptors;
+    # pin the names instead of following the production default set.
+    names = [
+        "turb_mad_over_mean", "turb_skewness", "turb_autocorr",
+        "l1_delta", "l1_delta_std", "l1_delta_waveform_length",
+    ]
     row = np.asarray([[0.1, 0.2, 0.3, 1.0, 2.0, 3.0]], dtype=np.float32)
 
     transformed = module.apply_l1_feature_variant(row, names, variant)
@@ -1030,6 +1035,36 @@ def test_paired_non_regression_uses_one_evaluation_per_recording_margin():
 
     assert module.paired_result_non_regression(summary(2.0), baseline)
     assert not module.paired_result_non_regression(summary(3.0), baseline)
+
+
+def test_paired_non_regression_weak_rows_ratchet_alarms_only():
+    """Weak-link replays are stress diagnostics: recall/FP parity is not
+    enforced there, but their alarm counts still ratchet against baseline."""
+    module = _load_train_module()
+
+    def summary(recall, alarms):
+        row = {
+            "fp_rate": 1.0,
+            "recall": recall,
+            "static_presence_eval_count": 700,
+            "motion_eval_count": 355,
+            "effective_alarms": alarms,
+            "low_rssi": True,
+        }
+        return {
+            "pass_count": 1,
+            "max_fp_rate": 1.0,
+            "worst_chip_recall": recall,
+            "worst_chip_f1": 95.0,
+            "by_chip": {"C3:holdout:weak.npz": row},
+        }
+
+    baseline = summary(99.72, 0)
+
+    # A multi-event recall drop on a weak replay is not a regression...
+    assert module.paired_result_non_regression(summary(98.31, 0), baseline)
+    # ...but any alarm increase on the same replay still is.
+    assert not module.paired_result_non_regression(summary(99.72, 1), baseline)
 
 
 def test_legacy_paired_fallback_never_selects_synthetic(monkeypatch, tmp_path):

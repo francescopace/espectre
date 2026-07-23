@@ -332,6 +332,35 @@ void test_zero_crossing_rate_alternating_signal(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_zero_crossing_rate(nullptr, 50, 0.0f));
 }
 
+void test_ml_series_needs_tracks_only_referenced_stats(void) {
+    // Production Coherence-6 ids: turb {mad, autocorr, zcr}, delta {mean,
+    // std, autocorr}. The delta series needs no sort and no skewness/waveform.
+    const uint8_t coherence6[6] = {
+        ML_FEAT_TURB_MAD_OVER_MEAN, ML_FEAT_TURB_AUTOCORR, ML_FEAT_TURB_ZCR,
+        ML_FEAT_L1_DELTA, ML_FEAT_L1_DELTA_STD, ML_FEAT_L1_DELTA_AUTOCORR,
+    };
+
+    const MLStatNeeds turb = ml_series_needs(coherence6, 6, /*l1=*/false);
+    TEST_ASSERT_TRUE(turb.sorted);       // mad + zcr
+    TEST_ASSERT_TRUE(turb.autocorr);
+    TEST_ASSERT_FALSE(turb.skewness);
+    TEST_ASSERT_FALSE(turb.waveform_length);
+
+    const MLStatNeeds delta = ml_series_needs(coherence6, 6, /*l1=*/true);
+    TEST_ASSERT_FALSE(delta.sorted);     // no mad/zcr on the delta series
+    TEST_ASSERT_TRUE(delta.autocorr);
+    TEST_ASSERT_FALSE(delta.skewness);
+    TEST_ASSERT_FALSE(delta.waveform_length);
+
+    // Historical Core-6 still resolves its extra stats for experiments/export.
+    const uint8_t core6[6] = {
+        ML_FEAT_TURB_MAD_OVER_MEAN, ML_FEAT_TURB_SKEWNESS, ML_FEAT_TURB_AUTOCORR,
+        ML_FEAT_L1_DELTA, ML_FEAT_L1_DELTA_STD, ML_FEAT_L1_DELTA_WAVEFORM_LENGTH,
+    };
+    TEST_ASSERT_TRUE(ml_series_needs(core6, 6, /*l1=*/false).skewness);
+    TEST_ASSERT_TRUE(ml_series_needs(core6, 6, /*l1=*/true).waveform_length);
+}
+
 // ============================================================================
 // ML SUBCARRIERS TESTS
 // ============================================================================
@@ -411,6 +440,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_feature_extraction_empty_buffer);
     RUN_TEST(test_candidate_feature_python_parity);
     RUN_TEST(test_zero_crossing_rate_alternating_signal);
+    RUN_TEST(test_ml_series_needs_tracks_only_referenced_stats);
     
     // Subcarriers tests
     RUN_TEST(test_ml_subcarriers_count);

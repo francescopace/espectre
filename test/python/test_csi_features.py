@@ -19,6 +19,7 @@ from csi_features import (
     extract_features_by_name,
     ALL_FEATURES,
     CANDIDATE_FEATURES,
+    COHERENCE6_FEATURES,
     DEFAULT_FEATURES,
     CORE6_FEATURES,
     FEATURE_NAMES,
@@ -250,13 +251,21 @@ class TestExtractAllFeatures:
         assert features == [0.0] * len(DEFAULT_FEATURES)
     
     def test_feature_names_match(self):
-        """Test that FEATURE_NAMES matches DEFAULT_FEATURES (production = Core-6)"""
+        """Test that FEATURE_NAMES matches DEFAULT_FEATURES (production = Coherence-6)"""
         assert len(FEATURE_NAMES) == len(DEFAULT_FEATURES)
         assert FEATURE_NAMES == DEFAULT_FEATURES
-        assert DEFAULT_FEATURES == CORE6_FEATURES
+        assert DEFAULT_FEATURES == COHERENCE6_FEATURES
+        # Coherence-6 is Core-6 with skewness and waveform length swapped for
+        # the temporal-coherence statistics.
+        assert set(CORE6_FEATURES) - set(COHERENCE6_FEATURES) == {
+            'turb_skewness', 'l1_delta_waveform_length',
+        }
+        assert set(COHERENCE6_FEATURES) - set(CORE6_FEATURES) == {
+            'turb_zcr', 'l1_delta_autocorr',
+        }
 
     def test_candidate_features_stay_out_of_production_set(self):
-        """Weak-link candidates are selectable but never part of Core-6."""
+        """Demoted and experimental features are selectable but not production."""
         for name in CANDIDATE_FEATURES:
             assert name in ALL_FEATURES
             assert name not in DEFAULT_FEATURES

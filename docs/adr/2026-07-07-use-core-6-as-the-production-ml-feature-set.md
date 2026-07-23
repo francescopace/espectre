@@ -1,8 +1,9 @@
 # ADR: use core-6 as the production ml feature set
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-07-07
 - Recorded: 2026-07-09 (retrospective)
+- Superseded by: 2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md
 
 ## Context
 

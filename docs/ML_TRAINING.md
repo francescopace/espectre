@@ -166,7 +166,7 @@ The training pipeline:
    backward compatibility.
 2. Uses the shared CV-normalized turbulence path (`std/mean`) across all files.
 3. Extracts the selected ML feature set per sliding window. The production
-   default is the Core-6 set. When Hampel is enabled, the trainer filters both
+   default is the Coherence-6 set. When Hampel is enabled, the trainer filters both
    base streams before feature extraction: turbulence for all `turb_*`
    features and per-packet L1 deltas for all `l1_delta*` features.
    Feature extraction uses the same fixed HT20 subcarrier band as the runtime,
@@ -239,9 +239,12 @@ per-recording non-regression checks still forbid exceeding the exported
 baseline's alarms on any individual replay. Real weak-link
 (`low_rssi: true`) replays are stress diagnostics: motion is barely separable
 from the noise floor at very low RSSI, so they gate with the relaxed stress
-targets (recall above `90%`, FP below `10%`), their alarms are bounded only by
-the per-recording non-regression checks, and the same split applies to the
-validation suite and the performance report. Safe candidates are then compared
+targets (recall above `90%`, FP below `10%`), and the same split applies to
+the validation suite and the performance report. In the per-recording
+non-regression checks, weak replays ratchet only their alarm count against
+the baseline; their recall and FP move freely within the stress targets,
+because at `-75/-77 dBm` both jitter by whole events between equally healthy
+models. Safe candidates are then compared
 on worst-session recall/FP, the mean of the five worst sessions, worst-chip
 recall/FP, and blocked OOF F1. When synthetic derivatives exist, real sessions
 lead those comparisons; synthetic session metrics act only as regression
@@ -269,7 +272,8 @@ promotable artifacts should still pass the validation checks below.
 
 The production ML path deliberately keeps Python/C++ runtime inference aligned
 by deriving all neural-detector inputs from the same raw turbulence signal. The
-exported Core-6 feature set uses gain-invariant turbulence and L1-delta
+exported Coherence-6 feature set uses gain-invariant, temporally-coherent
+turbulence and L1-delta
 statistics, so the model is structurally less sensitive to absolute amplitude
 gain changes.
 
@@ -287,7 +291,7 @@ python tools/train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,
 features, and reports recall/FP degradation overall plus worst chip,
 environment, session, and source-file groups.
 
-Current finding for the exported Core-6 model: all-environment gain stress is
+Current finding for the exported model: all-environment gain stress is
 flat at `1.00x`, `1.25x`, and `1.50x`. The remaining worst-session weakness is
 nominal dataset difficulty, not gain-shift sensitivity. Treat this gate as the
 primary diagnostic before promoting future retrains.
@@ -375,7 +379,7 @@ Runtime artifacts are never exported by this command. A final candidate must
 still pass paired validation, gain stress, long recordings, and Python/C++
 feature parity before a separate production promotion.
 
-To keep the production Core-6 features and standard scaler fixed and evaluate
+To keep the production Coherence-6 features and standard scaler fixed and evaluate
 only feature-space and packet-level augmentation, use:
 
 ```bash

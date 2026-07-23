@@ -297,7 +297,7 @@ view, so excessive non-sensing drops show up as stream continuity gaps.
 - AGC stays active during collection
 - the fixed production sensing contract is HT20 + HT-LTF + 64 subcarriers;
   unsupported PHY/layout combinations are excluded from the sensing view
-- the current ML runtime and training flow use the Core-6 feature set defined in
+- the current ML runtime and training flow use the Coherence-6 feature set defined in
   [`ALGORITHMS.md`](ALGORITHMS.md)
 
 ## Dataset Inspection

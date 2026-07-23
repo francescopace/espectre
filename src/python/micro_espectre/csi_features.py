@@ -170,36 +170,48 @@ def calc_zero_crossing_rate(values, count, center):
     return crossings / (count - 1)
 
 
-# Supported L1-delta features. The wider descriptor experiment was rejected;
-# only the three promoted features remain available to training/export flows.
+# Supported L1-delta features available to training/export flows.
 L1_DELTA_FEATURES = [
+    'l1_delta',
+    'l1_delta_std',
+    'l1_delta_waveform_length',
+    'l1_delta_autocorr',
+]
+
+# Historical Core-6 production set (2026-07-07 to 2026-07-23); kept for
+# reference and experiments. Superseded by Coherence-6 (see below).
+CORE6_FEATURES = [
+    'turb_mad_over_mean',
+    'turb_skewness',
+    'turb_autocorr',
     'l1_delta',
     'l1_delta_std',
     'l1_delta_waveform_length',
 ]
 
-# Core-6 production set: three gain-invariant turbulence statistics plus the
-# three L1-delta profile-displacement features that survived ablation. Beats
-# the former relative-8 set on all promotion gates (see the Core-6 ADR).
-CORE6_FEATURES = [
+# Coherence-6 production set: Core-6 with the two weakest members swapped for
+# shift/scale-invariant temporal-coherence statistics. On real weak-link pairs
+# the absolute L1 features lose (or invert) their motion separation, while the
+# noise floor is white in time and human motion is not; the coherence swap
+# collapses seed-to-seed variance on out-of-sample false positives (see the
+# temporal-coherence promotion ADR).
+COHERENCE6_FEATURES = [
     'turb_mad_over_mean',
-    'turb_skewness',
     'turb_autocorr',
+    'turb_zcr',
+    'l1_delta',
+    'l1_delta_std',
+    'l1_delta_autocorr',
 ]
-CORE6_FEATURES.extend(L1_DELTA_FEATURES)
 
 # Production feature set.
-DEFAULT_FEATURES = CORE6_FEATURES
+DEFAULT_FEATURES = COHERENCE6_FEATURES
 
-# Shift/scale-invariant candidates for weak-link robustness experiments.
-# On real low-RSSI pairs the absolute L1 features lose (or invert) their
-# separation, while temporal-coherence statistics survive: the noise floor is
-# white in time, human motion is not. Available to training experiments only;
-# promotion into DEFAULT_FEATURES requires the standard gated flow and a C++
-# port of the winning set.
+# Non-production features available to training experiments: the two members
+# demoted from Core-6 plus the never-promoted coefficient of variation.
 CANDIDATE_FEATURES = [
-    'turb_zcr',
-    'l1_delta_autocorr',
+    'turb_skewness',
+    'l1_delta_waveform_length',
     'l1_delta_cv',
 ]
 

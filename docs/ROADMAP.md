@@ -72,7 +72,7 @@ ESPectre v3 success criteria:
   - [x] Add a session-centered L1 safeguard for Classic
   - [x] Add and validate an ML low-RSSI safeguard from real captures
 - [x] Separate ML training data from reserved promotion replays, with lineage-grouped CV and a link-class stress policy for real weak-link captures
-- [ ] Promote a weak-link-robust ML feature set (the temporal-coherence swap6 candidate is validated multi-seed; the gated seed search and C++-exported model promotion remain)
+- [x] Promote a weak-link-robust ML feature set (Coherence-6: temporal-coherence features replace the two weakest Core-6 members; promoted end-to-end by the reserved-replay protocol with a novel-hardware holdout check)
 - [ ] Add and validate broader PHY and band support, including Wi-Fi 6 / 802.11ax capabilities and, where supported by hardware and exposed APIs, 5 GHz operation
   - [x] Classify CSI formats before normalization and handle currently unsupported LLTF, HT40, and HE20 packets gracefully, with explicit drop-reason telemetry and detector resets on format-stream changes
 - [ ] Trigger Native firmware OTA from BLE, then resolve the manifest and download the update over HTTPS through the same OTA service used by MQTT
