@@ -280,19 +280,23 @@ from tools.lib.csi_io import load_npz_as_packets
 packets = load_npz_as_packets(Path("data/static_presence/sample.npz"))
 ```
 
-`load_npz_as_packets` and `load_npz_csi_data` prefer HT20 packets
-(`phy_mode=ht`, `channel_width=20`) when per-record PHY metadata is present.
-Captures without PHY fields are treated as HT20. Original-ESP32 files fall back
-to `legacy` + `20` rows only when no HT20 packets remain. Pass
-`keep_all_phy=True` to inspect mixed-PHY rows. Dataset quality validation and
-the C++ test NPZ loader use the same filtered view, so excessive non-sensing
-drops show up as stream continuity gaps.
+`load_npz_as_packets` and `load_npz_csi_data` expose the production sensing
+view by default: `phy_mode=ht`, `ltf_type=ht-ltf`, `channel_width=20`, and the
+stored 64-subcarrier HT20 layout. Historical captures that omit all per-record
+PHY metadata are only accepted when the on-disk payload already matches that
+same 64-subcarrier contract. Partially missing PHY metadata (some arrays
+present, others absent) is rejected rather than defaulted: a capture recorded
+after PHY provenance was introduced should carry every field, so a missing one
+marks the file as suspect. There is no fallback to `legacy` rows. Pass
+`keep_all_phy=True` to inspect mixed-PHY or unsupported captures explicitly.
+Dataset quality validation and the C++ test NPZ loader use the same filtered
+view, so excessive non-sensing drops show up as stream continuity gaps.
 
 ## Collection Notes
 
 - AGC stays active during collection
-- the fixed production subcarrier set is applied later in runtime and offline
-  tooling; raw captures keep the full HT20 packet layout
+- the fixed production sensing contract is HT20 + HT-LTF + 64 subcarriers;
+  unsupported PHY/layout combinations are excluded from the sensing view
 - the current ML runtime and training flow use the Core-6 feature set defined in
   [`ALGORITHMS.md`](ALGORITHMS.md)
 

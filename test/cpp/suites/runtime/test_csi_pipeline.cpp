@@ -620,6 +620,7 @@ void test_csi_pipeline_process_stbc_256_byte_packet(void) {
     csi_info.rx_ctrl.channel = 6;
     csi_info.rx_ctrl.sig_mode = 1;
     csi_info.rx_ctrl.cwb = 0;
+    csi_info.rx_ctrl.stbc = 1;
     
     manager.process_packet(&csi_info);
     

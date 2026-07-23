@@ -12,6 +12,15 @@ import math
 import numpy as np
 from utils import (
     CsiFrameTimestampFilter,
+    DISPOSITION_DROP,
+    DISPOSITION_SENSE,
+    NORMALIZATION_DOUBLE_HT57_TO_64,
+    NORMALIZATION_HT57_TO_64,
+    REASON_NONE,
+    REASON_UNKNOWN_LAYOUT,
+    REASON_UNSUPPORTED_WIDTH,
+    assess_ht20_payload_layout,
+    assess_ht20_sensing_frame,
     to_signed_int8,
     normalize_ht20_csi_payload,
     is_ht20_sensing_frame,
@@ -71,7 +80,7 @@ class TestNormalizeHt20CsiPayload:
         assert normalized[8:122] == payload[:114]
         assert normalized[122:] == b"\x00" * 6
         assert raw_len == 228
-        assert tag == "double_ht57_and_remap"
+        assert tag == "double_ht57_to_64"
 
     def test_unsupported_length_returns_none(self):
         payload = bytes([0] * 64)
@@ -104,6 +113,46 @@ class TestIsHt20SensingFrame:
 
     def test_short_frame_defaults_to_ht20(self):
         assert is_ht20_sensing_frame([0] * 6) is True
+
+
+class TestHt20Assessment:
+    """Classifier-first HT20 assessment tests."""
+
+    def test_payload_layout_marks_114_as_normalized_ht20(self):
+        assessment = assess_ht20_payload_layout(114)
+        assert assessment["disposition"] == DISPOSITION_SENSE
+        assert assessment["reason_code"] == REASON_NONE
+        assert assessment["normalization_id"] == NORMALIZATION_HT57_TO_64
+
+    def test_payload_layout_rejects_unknown_even_length(self):
+        assessment = assess_ht20_payload_layout(64)
+        assert assessment["disposition"] == DISPOSITION_DROP
+        assert assessment["reason_code"] == REASON_UNKNOWN_LAYOUT
+
+    def test_sensing_frame_rejects_ht40_before_normalization(self):
+        frame = [0] * 10
+        frame[5] = bytes([0] * 256)
+        frame[7] = 1
+        frame[9] = 1
+        assessment = assess_ht20_sensing_frame(frame, frame[5])
+        assert assessment["disposition"] == DISPOSITION_DROP
+        assert assessment["reason_code"] == REASON_UNSUPPORTED_WIDTH
+
+    def test_sensing_frame_accepts_double_ht20_under_ht20_phy(self):
+        frame = [0] * 10
+        frame[5] = bytes([0] * 256)
+        frame[7] = 1
+        frame[9] = 0
+        assessment = assess_ht20_sensing_frame(frame, frame[5])
+        assert assessment["disposition"] == DISPOSITION_SENSE
+        assert assessment["normalization_id"] == "double_ht20"
+
+    def test_sensing_frame_short_metadata_uses_historical_ht20_compatibility(self):
+        frame = [0] * 6
+        assessment = assess_ht20_sensing_frame(frame, bytes([0] * 128))
+        assert assessment["disposition"] == DISPOSITION_SENSE
+        assert assessment["reason_code"] == REASON_NONE
+        assert assessment["normalization_id"] is None
 
 
 class TestCsiFrameTimestampFilter:

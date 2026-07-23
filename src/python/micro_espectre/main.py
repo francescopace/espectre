@@ -14,9 +14,14 @@ import src.config as config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN
 from src.device_utils import (
     CsiFrameTimestampFilter,
+    DETECTOR_RESET_DROP_STREAK,
+    DISPOSITION_SENSE,
+    NORMALIZATION_DOUBLE_HT20,
+    NORMALIZATION_DOUBLE_HT57_TO_64,
+    NORMALIZATION_HT57_TO_64,
+    assess_ht20_sensing_frame,
     normalize_ht20_csi_payload,
     csi_read_frame,
-    is_ht20_sensing_frame,
 )
 from src.branding import ASCII_BANNER
 from src.console_output import format_calibration_status_line, format_detection_publish_line
@@ -276,19 +281,23 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
     frame_timestamp_filter = CsiFrameTimestampFilter()
     frame_result = None
-    
+    # Reused per-frame assessment mapping: keeps this loop allocation-free.
+    assessment_result = {}
+
     while not calibration_tracker.is_complete():
         frame = csi_read_frame(wlan, frame_result)
         if frame:
             frame_result = frame
-            csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
-                frame[5], EXPECTED_CSI_LEN, remap_buffer=ht57_remap_buffer
+            assessment = assess_ht20_sensing_frame(
+                frame, frame[5], expected_len=EXPECTED_CSI_LEN, out=assessment_result
             )
-
-            if csi_data is None:
+            if assessment["disposition"] != DISPOSITION_SENSE:
                 filtered_count += 1
                 if filtered_count % 100 == 1:
-                    print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {raw_len} bytes, expected {EXPECTED_CSI_LEN})")
+                    print(
+                        f"[WARN] Filtered {filtered_count} packets before calibration "
+                        f"(reason={assessment['reason_code']}, len={assessment['raw_len']})"
+                    )
                 del frame
                 time.sleep_us(100)
                 if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
@@ -299,7 +308,10 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                     return False
                 continue
 
-            if not is_ht20_sensing_frame(frame):
+            csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
+                frame[5], EXPECTED_CSI_LEN, remap_buffer=ht57_remap_buffer
+            )
+            if csi_data is None:
                 filtered_count += 1
                 del frame
                 time.sleep_us(100)
@@ -316,10 +328,10 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                 time.sleep_us(100)
                 continue
 
-            if remap_tag in ('double_ht20', 'double_ht57_and_remap') and not collapse_logged:
+            if remap_tag in (NORMALIZATION_DOUBLE_HT20, NORMALIZATION_DOUBLE_HT57_TO_64) and not collapse_logged:
                 print("[INFO] CSI double-length collapse active: 256->128 and/or 228->114")
                 collapse_logged = True
-            if remap_tag in ('ht57_to_64', 'double_ht57_and_remap') and not remap_logged:
+            if remap_tag in (NORMALIZATION_HT57_TO_64, NORMALIZATION_DOUBLE_HT57_TO_64) and not remap_logged:
                 print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                 remap_logged = True
             del frame
@@ -581,6 +593,10 @@ def main():
     frame_timestamp_filter = CsiFrameTimestampFilter()
     out_of_order_count = 0
     frame_result = None
+    format_drop_streak = 0
+    last_normalization_id = None
+    # Reused per-frame assessment mapping: keeps the hot loop allocation-free.
+    assessment_result = {}
     dropped_at_main_loop_start = wlan.csi_dropped()
     csi_health = CsiPacingHealthMonitor(enabled=(g_state.chip_type == 'ESP32'))
     
@@ -608,14 +624,17 @@ def main():
             if frame:
                 frame_result = frame
                 callback_packet_count += 1
-                csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
-                    frame[5], EXPECTED_CSI_LEN, remap_buffer=ht57_remap_buffer
+                assessment = assess_ht20_sensing_frame(
+                    frame, frame[5], expected_len=EXPECTED_CSI_LEN, out=assessment_result
                 )
-
-                if csi_data is None:
+                if assessment["disposition"] != DISPOSITION_SENSE:
                     filtered_count += 1
+                    format_drop_streak += 1
                     if filtered_count % 100 == 1:
-                        print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {raw_len} bytes, expected {EXPECTED_CSI_LEN})")
+                        print(
+                            f"[WARN] Filtered {filtered_count} packets before detection "
+                            f"(reason={assessment['reason_code']}, len={assessment['raw_len']})"
+                        )
                     del frame
                     _maintain_traffic_and_csi_health(
                         traffic_gen,
@@ -628,8 +647,12 @@ def main():
                     time.sleep_us(100)
                     continue
 
-                if not is_ht20_sensing_frame(frame):
+                csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
+                    frame[5], EXPECTED_CSI_LEN, remap_buffer=ht57_remap_buffer
+                )
+                if csi_data is None:
                     filtered_count += 1
+                    format_drop_streak += 1
                     del frame
                     _maintain_traffic_and_csi_health(
                         traffic_gen,
@@ -658,10 +681,25 @@ def main():
                     time.sleep_us(100)
                     continue
 
-                if remap_tag in ('double_ht20', 'double_ht57_and_remap') and not collapse_logged:
+                should_reset_detector = (
+                    format_drop_streak >= DETECTOR_RESET_DROP_STREAK
+                    or (
+                        last_normalization_id is not None
+                        and assessment["normalization_id"] != last_normalization_id
+                    )
+                )
+                format_drop_streak = 0
+                if should_reset_detector:
+                    print("[WARN] CSI format stream changed after incompatible packets, resetting detection buffer")
+                    detector.reset()
+                    runtime_policy.reset()
+                    frame_timestamp_filter.reset()
+                last_normalization_id = assessment["normalization_id"]
+
+                if remap_tag in (NORMALIZATION_DOUBLE_HT20, NORMALIZATION_DOUBLE_HT57_TO_64) and not collapse_logged:
                     print("[INFO] CSI double-length collapse active: 256->128 and/or 228->114")
                     collapse_logged = True
-                if remap_tag in ('ht57_to_64', 'double_ht57_and_remap') and not remap_logged:
+                if remap_tag in (NORMALIZATION_HT57_TO_64, NORMALIZATION_DOUBLE_HT57_TO_64) and not remap_logged:
                     print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                     remap_logged = True
                 packet_channel = frame[1]

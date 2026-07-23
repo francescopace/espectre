@@ -1,8 +1,8 @@
 /*
  * ESPectre - CSI Capture Service
  *
- * Enables ESP-IDF CSI capture, normalizes payloads, and forwards valid
- * packets.
+ * Enables ESP-IDF CSI capture, classifies/normalizes supported HT20 payloads,
+ * and forwards valid packets.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -11,6 +11,7 @@
 
 #include <atomic>
 
+#include "csi_format_classifier.h"
 #include "csi_payload_normalizer.h"
 #include "esp_attr.h"
 #include "esp_err.h"
@@ -45,6 +46,23 @@ class CsiCaptureService {
   uint32_t rejected_out_of_order_packets() const {
     return rejected_out_of_order_packets_.load(std::memory_order_relaxed);
   }
+  uint32_t unsupported_phy_packets() const { return unsupported_phy_packets_.load(std::memory_order_relaxed); }
+  uint32_t unsupported_width_packets() const {
+    return unsupported_width_packets_.load(std::memory_order_relaxed);
+  }
+  uint32_t unexpected_ltf_packets() const { return unexpected_ltf_packets_.load(std::memory_order_relaxed); }
+  uint32_t unknown_layout_packets() const { return unknown_layout_packets_.load(std::memory_order_relaxed); }
+  uint32_t bad_length_packets() const { return bad_length_packets_.load(std::memory_order_relaxed); }
+  uint32_t missing_metadata_packets() const {
+    return missing_metadata_packets_.load(std::memory_order_relaxed);
+  }
+  uint32_t normalization_collapse_packets() const {
+    return normalization_collapse_packets_.load(std::memory_order_relaxed);
+  }
+  uint32_t normalization_remap_packets() const {
+    return normalization_remap_packets_.load(std::memory_order_relaxed);
+  }
+  const CsiFormatAssessment &last_assessment() const { return last_assessment_; }
   uint32_t enable_attempts() const { return enable_attempts_.load(std::memory_order_relaxed); }
   uint32_t disable_attempts() const { return disable_attempts_.load(std::memory_order_relaxed); }
   esp_err_t last_configure_err() const { return static_cast<esp_err_t>(last_configure_err_.load(std::memory_order_relaxed)); }
@@ -65,6 +83,7 @@ class CsiCaptureService {
   static void IRAM_ATTR csi_rx_callback_wrapper_(void *ctx, wifi_csi_info_t *data);
   esp_err_t configure_platform_specific_();
   bool accept_rx_timestamp_(const wifi_csi_info_t *data);
+  void record_format_drop_(CsiFormatReasonCode reason_code);
 
   bool enabled_{false};
   IWiFiCSI *wifi_csi_{nullptr};
@@ -77,6 +96,14 @@ class CsiCaptureService {
   std::atomic<uint32_t> normalized_invalid_packets_{0U};
   std::atomic<uint32_t> valid_packets_{0U};
   std::atomic<uint32_t> rejected_out_of_order_packets_{0U};
+  std::atomic<uint32_t> unsupported_phy_packets_{0U};
+  std::atomic<uint32_t> unsupported_width_packets_{0U};
+  std::atomic<uint32_t> unexpected_ltf_packets_{0U};
+  std::atomic<uint32_t> unknown_layout_packets_{0U};
+  std::atomic<uint32_t> bad_length_packets_{0U};
+  std::atomic<uint32_t> missing_metadata_packets_{0U};
+  std::atomic<uint32_t> normalization_collapse_packets_{0U};
+  std::atomic<uint32_t> normalization_remap_packets_{0U};
   std::atomic<uint32_t> enable_attempts_{0U};
   std::atomic<uint32_t> disable_attempts_{0U};
   std::atomic<int32_t> last_configure_err_{ESP_OK};
@@ -88,6 +115,10 @@ class CsiCaptureService {
   SerialSequenceTracker rx_timestamp_tracker_;
   PendingEvent<> collapse_log_event_;
   PendingEvent<> remap_log_event_;
+  CsiFormatAssessment last_assessment_{};
+  uint32_t consecutive_format_drops_{0U};
+  NormalizedCSIPayloadTag last_accepted_normalization_tag_{NormalizedCSIPayloadTag::NONE};
+  bool has_accepted_packet_{false};
 };
 
 }  // namespace espectre

@@ -516,6 +516,7 @@ def test_file_integrity_returns_ht20_sensing_view(tmp_path) -> None:
         num_subcarriers=np.array(64),
         label=np.array("motion"),
         phy_mode=np.array(["ht", "legacy", "ht", "legacy", "ht"]),
+        ltf_type=np.array(["ht-ltf", "lltf", "ht-ltf", "lltf", "ht-ltf"]),
         channel_width=np.array(["20", "20", "20", "20", "20"]),
         stream_seq_num=np.array([1, 2, 3, 4, 5], dtype=np.uint32),
     )
@@ -535,6 +536,7 @@ def test_capture_continuity_sees_gaps_after_ht20_filter(tmp_path) -> None:
     path = tmp_path / "legacy_heavy.npz"
     # Alternate HT/legacy so the HT20 view has a gap on every other seq number.
     phy_mode = np.array(["ht", "legacy"] * 20)
+    ltf_type = np.array(["ht-ltf", "lltf"] * 20)
     stream_seq = np.arange(1, 41, dtype=np.uint32)
     np.savez(
         path,
@@ -543,6 +545,7 @@ def test_capture_continuity_sees_gaps_after_ht20_filter(tmp_path) -> None:
         label=np.array("static_presence"),
         duration_ms=np.array(1000.0),
         phy_mode=phy_mode,
+        ltf_type=ltf_type,
         channel_width=np.array(["20"] * 40),
         stream_seq_num=stream_seq,
     )

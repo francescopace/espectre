@@ -9,6 +9,7 @@
 #include "test_harness.h"
 
 #include "csi_capture_service.h"
+#include "csi_format_classifier.h"
 #include "csi_format.h"
 #include "csi_platform_config.h"
 #include "runtime_config_utils.h"
@@ -112,6 +113,8 @@ void test_csi_capture_service_filters_duplicate_and_stale_timestamps(void) {
     wifi_csi_info_t info{};
     info.buf = csi.data();
     info.len = HT20_CSI_LEN;
+    info.rx_ctrl.sig_mode = 1U;
+    info.rx_ctrl.cwb = 0U;
 
     const uint32_t timestamps[] = {100U, 101U, 101U, 50U, 102U};
     for (uint32_t timestamp : timestamps) {
@@ -132,6 +135,51 @@ void test_csi_capture_service_filters_duplicate_and_stale_timestamps(void) {
     TEST_ASSERT_EQUAL(1U, service.valid_packets());
     TEST_ASSERT_EQUAL(0U, service.filtered_packets());
     TEST_ASSERT_EQUAL(0U, service.rejected_out_of_order_packets());
+}
+
+void test_csi_format_classifier_rejects_ht40_before_normalization(void) {
+    std::array<int8_t, HT20_CSI_LEN_DOUBLE> csi{};
+    wifi_csi_info_t info{};
+    info.buf = csi.data();
+    info.len = HT20_CSI_LEN_DOUBLE;
+    info.rx_ctrl.sig_mode = 1U;
+    info.rx_ctrl.cwb = 1U;
+
+    const CsiFormatAssessment assessment = assess_ht20_sensing_format(&info);
+
+    TEST_ASSERT_FALSE(assessment.is_sensing_accepted());
+    TEST_ASSERT_TRUE(assessment.reason_code == CsiFormatReasonCode::UNSUPPORTED_WIDTH);
+    TEST_ASSERT_TRUE(assessment.normalization_tag == NormalizedCSIPayloadTag::NONE);
+}
+
+void test_csi_capture_service_tracks_format_drop_reasons(void) {
+    CsiCaptureService service;
+    CapturedCsiPacket captured;
+    service.init();
+    service.set_packet_callback(&capture_csi_packet, &captured);
+
+    std::array<int8_t, HT20_CSI_LEN> csi{};
+    wifi_csi_info_t info{};
+    info.buf = csi.data();
+    info.len = HT20_CSI_LEN;
+
+    info.rx_ctrl.sig_mode = 0U;
+    info.rx_ctrl.cwb = 0U;
+    service.process_packet(&info);
+
+    info.rx_ctrl.sig_mode = 1U;
+    info.rx_ctrl.cwb = 1U;
+    service.process_packet(&info);
+
+    info.len = 64U;
+    info.rx_ctrl.cwb = 0U;
+    service.process_packet(&info);
+
+    TEST_ASSERT_EQUAL(0U, captured.callback_count);
+    TEST_ASSERT_EQUAL(1U, service.unsupported_phy_packets());
+    TEST_ASSERT_EQUAL(1U, service.unsupported_width_packets());
+    TEST_ASSERT_EQUAL(1U, service.unknown_layout_packets());
+    TEST_ASSERT_EQUAL(3U, service.filtered_packets());
 }
 
 void test_csi_stream_transport_serializes_v7_phy_metadata(void) {
@@ -283,6 +331,8 @@ int process(void) {
     RUN_TEST(test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi);
     RUN_TEST(test_original_esp32_csi_config_captures_ht_ltf_only);
     RUN_TEST(test_csi_capture_service_filters_duplicate_and_stale_timestamps);
+    RUN_TEST(test_csi_format_classifier_rejects_ht40_before_normalization);
+    RUN_TEST(test_csi_capture_service_tracks_format_drop_reasons);
     RUN_TEST(test_csi_stream_transport_serializes_v7_phy_metadata);
     RUN_TEST(test_csi_stream_transport_prefers_latest_fresh_sample);
     RUN_TEST(test_csi_stream_transport_drops_stale_latest_sample);

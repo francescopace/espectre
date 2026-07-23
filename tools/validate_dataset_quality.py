@@ -1367,7 +1367,23 @@ def validate_file_integrity(filepath):
             "embedded_label", "PASS", f"Embedded label is {embedded_label!r}"
         ))
 
-    return results, _sensing_view_npz(raw_data)
+    sensing_view = _sensing_view_npz(raw_data)
+    sensing_key = _get_csi_key(sensing_view)
+    sensing_rows = 0 if sensing_key is None else int(np.asarray(sensing_view[sensing_key]).shape[0])
+    if sensing_rows == 0:
+        results.append(ValidationResult(
+            "sensing_contract",
+            "FAIL",
+            "No HT20/HT-LTF/64-SC sensing packets remain after format filtering",
+        ))
+    else:
+        results.append(ValidationResult(
+            "sensing_contract",
+            "PASS",
+            f"Sensing view keeps {sensing_rows} HT20/HT-LTF/64-SC packet(s)",
+        ))
+
+    return results, sensing_view
 
 
 def validate_signal_quality(csi_data):

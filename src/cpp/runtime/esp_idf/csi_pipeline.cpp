@@ -149,13 +149,15 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   if (data == nullptr || detector_ == nullptr || !normalized.valid()) {
     return;
   }
+  const CsiFormatAssessment &assessment = capture_service_.last_assessment();
+  if (!assessment.is_sensing_accepted()) {
+    return;
+  }
   if (!csi_frame_matches_local_identity(data, local_ip_addr_, local_mac_addr_.data())) {
     return;
   }
-  // Keep capture open for legacy/HT fallback health on original ESP32, but feed
-  // Classic/ML only HT20 samples so runtime matches the host training contract.
-  if (!csi_info_is_ht20_sensing(data)) {
-    return;
+  if (assessment.reset_detector_before_consume) {
+    clear_detector_buffer_deferred_();
   }
 
   accepted_packets_total_.fetch_add(1U, std::memory_order_relaxed);

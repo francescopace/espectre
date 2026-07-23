@@ -38,18 +38,18 @@ frontend paths, and an embeddable foundation for custom firmware and OEM product
 The v3 platform is approaching release-candidate state for the modular platform goal.
 The shared architecture, protocol services, frontend paths, and host-side
 validation workflows are present and covered by automated tests.
-Remaining work is closing the Native BLE control gaps, release polish, hardware
-smoke coverage, and clearly documenting current sensing characteristics.
+Remaining work is closing the Native BLE control gaps, release polish, and
+clearly documenting current sensing characteristics.
 
 | Area | State | Notes |
 |------|-------|-------|
 | **Shared architecture** | Ready | `core`, `runtime`, ESP-IDF runtime services, and frontend adapters are split and documented |
 | **Frontend coverage** | Ready | ESPHome remains the production Home Assistant path; native, Matter, and streamer firmware paths are present on the shared platform |
-| **Firmware smoke coverage** | Ready with caveats | ESPHome dev config passes for C3/C5/C6/S3; ESPHome C3 build, native C3 Docker build, and Matter C3 Docker build pass; hardware flash/monitor smoke remains open |
+| **Firmware smoke coverage** | Ready | ESPHome dev config passes for C3/C5/C6/S3; ESPHome C3 build, native C3 Docker build, and Matter C3 Docker build pass; hardware flash/monitor smoke completed for the release targets |
 | **Protocol baseline** | Ready | BLE+MQTT payloads, provisioning, telemetry, status, info, commands, and monitor tooling are documented in `ESPECTRE_PROTOCOL.md` |
 | **Detection validation** | Ready | Current C++ and Python real-data and long-recording suites pass across supported chips; C5/C6 long-quiet false-positive rates remain below the 5% target |
 | **Documentation** | Ready | Setup, architecture, protocol, tuning, performance, and frontend-specific READMEs describe the v3 surface |
-| **Product polish** | Remaining | Native BLE OTA and hit-threshold controls, hardware flash smoke, release notes, final binary artifact checks, and user-facing wording should be completed before tagging |
+| **Product polish** | Remaining | Native BLE OTA and hit-threshold controls, release notes, final binary artifact checks, and user-facing wording should be completed before tagging |
 
 ESPectre v3 success criteria:
 
@@ -58,11 +58,33 @@ ESPectre v3 success criteria:
 - [x] Keep Python long-recording validation green
 - [x] Document multi-frontend setup, architecture, and protocol boundaries
 - [x] Run local firmware smoke tests for ESPHome, native, and Matter C3 release paths
-- [ ] Run hardware flash/monitor smoke tests for the release targets, published factory images, and Native OTA images
+- [x] Run hardware flash/monitor smoke tests for the release targets, published factory images, and Native OTA images
+- [x] Reduce long-recording false-positive caveats on C5/C6
+- [x] Define local-first shared protocol baseline for BLE and MQTT derived telemetry
+- [x] Implement BLE-assisted Wi-Fi and MQTT provisioning
+- [x] Persist Wi-Fi and ESPectre Protocol settings on the native firmware path
+- [x] Move ESPectre Protocol helpers and ESP-IDF protocol services into shared runtime layers
+- [x] Keep the streamer firmware on a narrow Wi-Fi-only streaming path without a separate BLE, MQTT, or OTA control surface
+- [x] Publish MQTT telemetry, status, info, stats, and command results from native firmware
+- [x] Align `micro-espectre` MQTT payloads and commands with the ESPectre Protocol baseline
+- [x] Adapt the existing web monitor into a protocol validation and MQTT dashboard client
+- [x] Keep Classic and ML usable when RSSI drops into the roughly `-70` to `-80 dBm` range
+  - [x] Add a session-centered L1 safeguard for Classic
+  - [x] Add and validate an ML low-RSSI safeguard from real captures
+- [x] Separate ML training data from reserved promotion replays, with lineage-grouped CV and a link-class stress policy for real weak-link captures
+- [ ] Promote a weak-link-robust ML feature set (the temporal-coherence swap6 candidate is validated multi-seed; the gated seed search and C++-exported model promotion remain)
+- [ ] Add and validate broader PHY and band support, including Wi-Fi 6 / 802.11ax capabilities and, where supported by hardware and exposed APIs, 5 GHz operation
+  - [x] Classify CSI formats before normalization and handle currently unsupported LLTF, HT40, and HE20 packets gracefully, with explicit drop-reason telemetry and detector resets on format-stream changes
 - [ ] Trigger Native firmware OTA from BLE, then resolve the manifest and download the update over HTTPS through the same OTA service used by MQTT
 - [ ] Set the runtime `motion_on_hits` and `motion_off_hits` thresholds through the Native BLE control surface
-- [x] Reduce long-recording false-positive caveats on C5/C6
+- [ ] Make `segmentation_window_size`, detector feature windows, and `evaluation_interval` adapt automatically to the effective CSI packet rate, and keep Classic and ML features comparable across window sizes and different CSI packet rates
+- [ ] Add Presence vs Empty detection
+- [x] Raise the ESP32 streamer sustained capture rate beyond the previous approximately 70 pps ceiling (stable ~80 pps via legacy broadcast pacing; L-LTF frames stay outside the HT20 sensing contract, so sensing datasets still come from HT captures)
+  - [ ] Collect ESP32 data across all dataset environments
+  - [ ] Retrain and validate the production model with the expanded ESP32 dataset
+- [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
 - [ ] Re-enable the `CLA Signature Check` as a required status check in GitHub branch protection for `develop`
+- [ ] Test the new GitHub issue and pull request templates end to end
 - [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
 
 ### Planned v3.x Follow-Ups
@@ -71,19 +93,8 @@ These items belong to the v3 series but do not all need to block `v3.0.0`; they
 may ship in later v3.x minor releases after the modular platform baseline is
 tagged.
 
-- [ ] Add Presence vs Empty detection
-- [ ] Raise the ESP32 streamer sustained capture rate beyond the current approximately 70 pps ceiling
-  - [ ] Collect ESP32 data across all dataset environments
-  - [ ] Retrain and validate the production model with the expanded ESP32 dataset
 - [ ] Optimize Micro-ESPectre to exceed its current approximately 70 pps ceiling
-- [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
-- [ ] Add and validate broader PHY and band support, including graceful handling for currently unsupported LLTF, HT40, and HE20 packets, plus Wi-Fi 6 / 802.11ax capabilities and, where supported by hardware and exposed APIs, 5 GHz operation
-- [ ] Keep Classic and ML usable when RSSI drops into the roughly `-70` to `-80 dBm` range
-  - [x] Add a session-centered L1 safeguard for Classic
-  - [ ] Add and validate an ML low-RSSI safeguard from real captures
-- [ ] Make `segmentation_window_size`, detector feature windows, and `evaluation_interval` adapt automatically to the effective CSI packet rate, and keep Classic and ML features comparable across window sizes
 - [ ] Use a dedicated build directory for each chip instead of reusing the same directory across targets
-- [ ] Test the new GitHub issue and pull request templates end to end
 
 ### Deferred Follow-Ups
 
@@ -124,15 +135,7 @@ sensitive radio data to leave the user environment.
 
 ### Implementation Checklist
 
-- [x] Define local-first shared protocol baseline for BLE and MQTT derived telemetry
-- [x] Implement BLE-assisted Wi-Fi and MQTT provisioning
-- [x] Persist Wi-Fi and ESPectre Protocol settings on the native firmware path
-- [x] Move ESPectre Protocol helpers and ESP-IDF protocol services into shared runtime layers
-- [x] Keep the streamer firmware on a narrow Wi-Fi-only streaming path without a separate BLE, MQTT, or OTA control surface
-- [x] Publish MQTT telemetry, status, info, stats, and command results from native firmware
-- [x] Align `micro-espectre` MQTT payloads and commands with the ESPectre Protocol baseline
-- [x] Adapt the existing web monitor into a protocol validation and MQTT dashboard client
-- [ ] Define web orchestration profiles, per-device service credentials, MQTT-over-TLS policy, and privacy boundary for device telemetry
+- [x] Define web orchestration profiles, per-device service credentials, MQTT-over-TLS policy, and privacy boundary for device telemetry (documented in `ESPECTRE_PROTOCOL.md`)
 - [ ] Design tenant, home/location, room, and device ownership model
 - [ ] Implement social login and account management
 - [ ] Implement secure Web Bluetooth assisted device claim flow
@@ -174,7 +177,7 @@ When a microcontroller or embedded Wi-Fi platform exposes practical 802.11bf-sty
 
 ## Roadmap Updates
 
-Last update: **July 22, 2026**
+Last update: **July 23, 2026**
 
 For discussion and proposed changes:
 

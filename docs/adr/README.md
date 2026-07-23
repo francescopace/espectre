@@ -58,6 +58,7 @@ instead of repeating its historical rationale.
 - [`2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md`](2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md)
 - [`2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
 - [`2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md`](2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md)
+- [`2026-07-23-adopt-classifier-first-ht20-sensing-contract.md`](2026-07-23-adopt-classifier-first-ht20-sensing-contract.md)
 
 ### ML
 
@@ -85,6 +86,7 @@ instead of repeating its historical rationale.
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
 - [`2026-07-17-separate-dataset-admission-from-classic-diagnostics.md`](2026-07-17-separate-dataset-admission-from-classic-diagnostics.md)
 - [`2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md`](2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md)
+- [`2026-07-23-adopt-classifier-first-ht20-sensing-contract.md`](2026-07-23-adopt-classifier-first-ht20-sensing-contract.md)
 - [`2026-07-23-separate-ml-training-data-from-promotion-replays.md`](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 
 ## How To Name ADR Files

@@ -982,7 +982,9 @@ def load_all_data(environment_filter=None, excluded_chips=None,
             try:
                 packets = load_npz_as_packets(npz_file)
                 if not packets:
-                    continue
+                    raise RuntimeError(
+                        f"{npz_file.name} has no HT20/HT-LTF/64-SC sensing packets after format filtering"
+                    )
                 
                 # Get label from file metadata (already set by load_npz_as_packets)
                 label = packets[0].get('label', subdir.name)
@@ -1056,7 +1058,11 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                 
                 all_packets.extend(packets)
                 stats['files'].append(npz_file.name)
-                
+
+            except RuntimeError:
+                # Sensing-contract violations must stop training explicitly;
+                # a silently skipped file would hide a contaminated dataset.
+                raise
             except Exception as e:
                 print(f"  Warning: Could not load {npz_file.name}: {e}")
     
@@ -4794,6 +4800,10 @@ def _load_npz_packets_cached(path):
     if cached is not None:
         return cached
     packets = load_npz_as_packets(path)
+    if not packets:
+        raise RuntimeError(
+            f"{Path(path).name} has no HT20/HT-LTF/64-SC sensing packets after format filtering"
+        )
     _PAIRED_PACKET_CACHE[key] = packets
     return packets
 

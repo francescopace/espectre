@@ -958,8 +958,8 @@ def test_load_historical_dataset_labels_missing_phy_as_ht20(tmp_path):
     filepath = tmp_path / 'historical_ht20.npz'
     np.savez_compressed(
         filepath,
-        csi_data=np.array([[1, 2, 3, 4]], dtype=np.int8),
-        num_subcarriers=2,
+        csi_data=np.zeros((1, 128), dtype=np.int8),
+        num_subcarriers=64,
         label='motion',
         chip='esp32',
     )
@@ -970,14 +970,16 @@ def test_load_historical_dataset_labels_missing_phy_as_ht20(tmp_path):
     assert packet['phy_mode'] == 'ht'
     assert packet['ltf_type'] == 'ht-ltf'
     assert packet['channel_width'] == '20'
+    assert packet['layout_id'] == 'ht20_64'
+    assert packet['format_metadata_source'] == 'historical_missing_phy'
 
 
 def test_load_dataset_preserves_explicit_ht20_phy_metadata(tmp_path):
     filepath = tmp_path / 'explicit_phy.npz'
     np.savez_compressed(
         filepath,
-        csi_data=np.array([[1, 2, 3, 4]], dtype=np.int8),
-        num_subcarriers=2,
+        csi_data=np.zeros((1, 128), dtype=np.int8),
+        num_subcarriers=64,
         label='motion',
         chip='esp32',
         phy_mode=np.array(['ht']),
@@ -991,21 +993,19 @@ def test_load_dataset_preserves_explicit_ht20_phy_metadata(tmp_path):
     assert packet['phy_mode'] == 'ht'
     assert packet['ltf_type'] == 'ht-ltf'
     assert packet['channel_width'] == '20'
+    assert packet['layout_id'] == 'ht20_64'
 
 
 def test_load_npz_filters_non_ht20_packets_by_default(tmp_path):
     filepath = tmp_path / 'mixed_phy.npz'
+    rows = np.zeros((3, 128), dtype=np.int8)
+    rows[0, :4] = np.array([1, 2, 3, 4], dtype=np.int8)
+    rows[1, :4] = np.array([5, 6, 7, 8], dtype=np.int8)
+    rows[2, :4] = np.array([9, 10, 11, 12], dtype=np.int8)
     np.savez_compressed(
         filepath,
-        csi_data=np.array(
-            [
-                [1, 2, 3, 4],
-                [5, 6, 7, 8],
-                [9, 10, 11, 12],
-            ],
-            dtype=np.int8,
-        ),
-        num_subcarriers=2,
+        csi_data=rows,
+        num_subcarriers=64,
         label='motion',
         chip='esp32',
         phy_mode=np.array(['ht', 'legacy', 'ht']),
@@ -1018,37 +1018,68 @@ def test_load_npz_filters_non_ht20_packets_by_default(tmp_path):
     assert len(packets) == 2
     assert [packet['phy_mode'] for packet in packets] == ['ht', 'ht']
     assert [packet['stream_seq_num'] for packet in packets] == [10, 12]
-    np.testing.assert_array_equal(packets[0]['csi_data'], np.array([1, 2, 3, 4], dtype=np.int8))
-    np.testing.assert_array_equal(packets[1]['csi_data'], np.array([9, 10, 11, 12], dtype=np.int8))
+    np.testing.assert_array_equal(packets[0]['csi_data'][:4], np.array([1, 2, 3, 4], dtype=np.int8))
+    np.testing.assert_array_equal(packets[1]['csi_data'][:4], np.array([9, 10, 11, 12], dtype=np.int8))
 
     all_packets = load_npz_as_packets(filepath, keep_all_phy=True)
     assert len(all_packets) == 3
     assert [packet['phy_mode'] for packet in all_packets] == ['ht', 'legacy', 'ht']
 
 
+def test_load_npz_filters_non_ht_ltf_packets_by_default(tmp_path):
+    filepath = tmp_path / 'mixed_ltf.npz'
+    np.savez_compressed(
+        filepath,
+        csi_data=np.zeros((2, 128), dtype=np.int8),
+        num_subcarriers=64,
+        label='motion',
+        chip='esp32',
+        phy_mode=np.array(['ht', 'ht']),
+        ltf_type=np.array(['ht-ltf', 'vht-ltf']),
+        channel_width=np.array(['20', '20']),
+    )
+
+    packets = load_npz_as_packets(filepath)
+    assert len(packets) == 1
+    assert packets[0]['ltf_type'] == 'ht-ltf'
+
+
+def test_load_npz_filters_non_64sc_historical_rows_by_default(tmp_path):
+    filepath = tmp_path / 'historical_short.npz'
+    np.savez_compressed(
+        filepath,
+        csi_data=np.array([[1, 2, 3, 4]], dtype=np.int8),
+        num_subcarriers=2,
+        label='motion',
+        chip='esp32',
+    )
+
+    packets = load_npz_as_packets(filepath)
+    assert packets == []
+
+
 def test_load_npz_csi_data_filters_non_ht20_rows(tmp_path):
     from tools.lib.csi_io import load_npz_csi_data
 
     filepath = tmp_path / 'mixed_phy_matrix.npz'
+    rows = np.zeros((2, 128), dtype=np.int8)
+    rows[0, :4] = np.array([1, 2, 3, 4], dtype=np.int8)
+    rows[1, :4] = np.array([5, 6, 7, 8], dtype=np.int8)
     np.savez_compressed(
         filepath,
-        csi_data=np.array(
-            [
-                [1, 2, 3, 4],
-                [5, 6, 7, 8],
-            ],
-            dtype=np.int8,
-        ),
+        csi_data=rows,
+        num_subcarriers=64,
         phy_mode=np.array(['legacy', 'ht']),
+        ltf_type=np.array(['unknown', 'ht-ltf']),
         channel_width=np.array(['20', '20']),
     )
 
     filtered = load_npz_csi_data(filepath)
-    assert filtered.shape == (1, 4)
-    np.testing.assert_array_equal(filtered[0], np.array([5, 6, 7, 8], dtype=np.int8))
+    assert filtered.shape == (1, 128)
+    np.testing.assert_array_equal(filtered[0][:4], np.array([5, 6, 7, 8], dtype=np.int8))
 
     raw = load_npz_csi_data(filepath, keep_all_phy=True)
-    assert raw.shape == (2, 4)
+    assert raw.shape == (2, 128)
 
 
 def test_load_npz_csi_data_drops_legacy20_rows_even_for_original_esp32(tmp_path):

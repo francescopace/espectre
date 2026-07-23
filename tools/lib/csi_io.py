@@ -1779,23 +1779,214 @@ class CSICollector:
         return saved_files
 
 
-def is_ht20_phy(phy_mode: Any, channel_width: Any) -> bool:
-    """Return True when a packet matches the HT20 sensing contract."""
-    return str(phy_mode) == "ht" and str(channel_width) == "20"
+FORMAT_ID_UNKNOWN = "unknown"
+FORMAT_ID_HT20 = "ht20"
+LAYOUT_ID_UNKNOWN = "unknown"
+LAYOUT_ID_HT20_64 = "ht20_64"
+LAYOUT_ID_HT20_57 = "ht20_57"
+LAYOUT_ID_HT20_64_DOUBLE = "ht20_64_double"
+LAYOUT_ID_HT20_57_DOUBLE = "ht20_57_double"
+PAYLOAD_VIEW_RAW = "raw"
+PAYLOAD_VIEW_NORMALIZED = "normalized"
+METADATA_SOURCE_EXPLICIT = "explicit"
+METADATA_SOURCE_HISTORICAL = "historical_missing_phy"
+DISPOSITION_DROP = "drop"
+DISPOSITION_SENSE = "sense"
+REASON_NONE = "none"
+REASON_BAD_LENGTH = "bad_length"
+REASON_UNSUPPORTED_PHY = "unsupported_phy"
+REASON_UNSUPPORTED_WIDTH = "unsupported_width"
+REASON_UNEXPECTED_LTF = "unexpected_ltf"
+REASON_UNKNOWN_LAYOUT = "unknown_layout"
+REASON_UNNORMALIZED_LAYOUT = "unnormalized_layout"
+REASON_MISSING_METADATA = "missing_metadata"
+NORMALIZATION_DOUBLE_HT20 = "double_ht20"
+NORMALIZATION_HT57_TO_64 = "ht57_to_64"
+NORMALIZATION_DOUBLE_HT57_TO_64 = "double_ht57_to_64"
+
+
+def build_csi_format_assessment(
+    *,
+    format_id: str = FORMAT_ID_UNKNOWN,
+    layout_id: str = LAYOUT_ID_UNKNOWN,
+    metadata_source: str = METADATA_SOURCE_EXPLICIT,
+    payload_view: str = PAYLOAD_VIEW_RAW,
+    disposition: str = DISPOSITION_DROP,
+    reason_code: str = REASON_BAD_LENGTH,
+    normalization_id: Optional[str] = None,
+    raw_len: int = 0,
+    raw_num_subcarriers: int = 0,
+    normalized_len: int = 0,
+    normalized_num_subcarriers: int = 0,
+) -> Dict[str, Any]:
+    """Build a host-side CSI format assessment mapping."""
+    return {
+        "format_id": format_id,
+        "layout_id": layout_id,
+        "metadata_source": metadata_source,
+        "payload_view": payload_view,
+        "disposition": disposition,
+        "reason_code": reason_code,
+        "normalization_id": normalization_id,
+        "raw_len": int(raw_len),
+        "raw_num_subcarriers": int(raw_num_subcarriers),
+        "normalized_len": int(normalized_len),
+        "normalized_num_subcarriers": int(normalized_num_subcarriers),
+    }
+
+
+def assess_ht20_payload_layout(raw_len: int, raw_num_subcarriers: int) -> Dict[str, Any]:
+    """Assess one stored CSI payload layout against the HT20 sensing contract."""
+    if raw_len <= 0 or raw_len % 2:
+        return build_csi_format_assessment(
+            reason_code=REASON_BAD_LENGTH,
+            raw_len=raw_len,
+            raw_num_subcarriers=raw_num_subcarriers,
+        )
+    if raw_num_subcarriers != raw_len // 2:
+        return build_csi_format_assessment(
+            reason_code=REASON_BAD_LENGTH,
+            raw_len=raw_len,
+            raw_num_subcarriers=raw_num_subcarriers,
+        )
+
+    common = {
+        "format_id": FORMAT_ID_HT20,
+        "raw_len": raw_len,
+        "raw_num_subcarriers": raw_num_subcarriers,
+        "normalized_len": int(getattr(config, "EXPECTED_CSI_LEN", 128)),
+        "normalized_num_subcarriers": int(getattr(config, "NUM_SUBCARRIERS", 64)),
+        "disposition": DISPOSITION_SENSE,
+        "reason_code": REASON_NONE,
+    }
+    if raw_len == getattr(config, "EXPECTED_CSI_LEN", 128) and raw_num_subcarriers == getattr(config, "NUM_SUBCARRIERS", 64):
+        return build_csi_format_assessment(
+            layout_id=LAYOUT_ID_HT20_64,
+            payload_view=PAYLOAD_VIEW_RAW,
+            **common,
+        )
+    if raw_len == 114 and raw_num_subcarriers == 57:
+        return build_csi_format_assessment(
+            layout_id=LAYOUT_ID_HT20_57,
+            payload_view=PAYLOAD_VIEW_NORMALIZED,
+            normalization_id=NORMALIZATION_HT57_TO_64,
+            **common,
+        )
+    if raw_len == 256 and raw_num_subcarriers == 128:
+        return build_csi_format_assessment(
+            layout_id=LAYOUT_ID_HT20_64_DOUBLE,
+            payload_view=PAYLOAD_VIEW_NORMALIZED,
+            normalization_id=NORMALIZATION_DOUBLE_HT20,
+            **common,
+        )
+    if raw_len == 228 and raw_num_subcarriers == 114:
+        return build_csi_format_assessment(
+            layout_id=LAYOUT_ID_HT20_57_DOUBLE,
+            payload_view=PAYLOAD_VIEW_NORMALIZED,
+            normalization_id=NORMALIZATION_DOUBLE_HT57_TO_64,
+            **common,
+        )
+    return build_csi_format_assessment(
+        format_id=FORMAT_ID_HT20,
+        reason_code=REASON_UNKNOWN_LAYOUT,
+        raw_len=raw_len,
+        raw_num_subcarriers=raw_num_subcarriers,
+    )
+
+
+def assess_ht20_sensing_record(
+    phy_mode: Any,
+    ltf_type: Any,
+    channel_width: Any,
+    raw_len: int,
+    raw_num_subcarriers: int,
+    *,
+    allow_historical_missing_metadata: bool,
+) -> Dict[str, Any]:
+    """Assess whether one host record belongs to the supported sensing view."""
+    metadata_missing = (
+        phy_mode is None
+        and ltf_type is None
+        and channel_width is None
+    )
+    metadata_source = METADATA_SOURCE_HISTORICAL if metadata_missing else METADATA_SOURCE_EXPLICIT
+    if metadata_missing and not allow_historical_missing_metadata:
+        return build_csi_format_assessment(
+            metadata_source=metadata_source,
+            reason_code=REASON_MISSING_METADATA,
+            raw_len=raw_len,
+            raw_num_subcarriers=raw_num_subcarriers,
+        )
+    resolved_phy = "ht" if metadata_missing else str(phy_mode)
+    resolved_ltf = "ht-ltf" if metadata_missing else str(ltf_type)
+    resolved_width = "20" if metadata_missing else str(channel_width)
+    if resolved_phy != "ht":
+        return build_csi_format_assessment(
+            metadata_source=metadata_source,
+            reason_code=REASON_UNSUPPORTED_PHY,
+            raw_len=raw_len,
+            raw_num_subcarriers=raw_num_subcarriers,
+        )
+    if resolved_width != "20":
+        return build_csi_format_assessment(
+            metadata_source=metadata_source,
+            reason_code=REASON_UNSUPPORTED_WIDTH,
+            raw_len=raw_len,
+            raw_num_subcarriers=raw_num_subcarriers,
+        )
+    if resolved_ltf != "ht-ltf":
+        return build_csi_format_assessment(
+            metadata_source=metadata_source,
+            reason_code=REASON_UNEXPECTED_LTF,
+            raw_len=raw_len,
+            raw_num_subcarriers=raw_num_subcarriers,
+        )
+    layout = assess_ht20_payload_layout(raw_len, raw_num_subcarriers)
+    layout["metadata_source"] = metadata_source
+    if layout["reason_code"] != REASON_NONE:
+        layout["disposition"] = DISPOSITION_DROP
+        return layout
+    if layout["payload_view"] != PAYLOAD_VIEW_RAW:
+        # The layout is a known HT20 variant, but stored host data must
+        # already be normalized to the 64-SC grid; report the honest reason
+        # instead of pretending the layout is unknown.
+        layout["disposition"] = DISPOSITION_DROP
+        layout["reason_code"] = REASON_UNNORMALIZED_LAYOUT
+        return layout
+    return layout
+
+
+def is_ht20_phy(phy_mode: Any, channel_width: Any, ltf_type: Any = "ht-ltf") -> bool:
+    """Return True when metadata matches the HT20 HT-LTF sensing contract."""
+    return str(phy_mode) == "ht" and str(channel_width) == "20" and str(ltf_type) == "ht-ltf"
 
 
 def _packet_phy_mask(
     phy_modes: Optional[np.ndarray],
+    ltf_types: Optional[np.ndarray],
     channel_widths: Optional[np.ndarray],
+    raw_len: int,
+    raw_num_subcarriers: int,
     num_packets: int,
     *,
     predicate,
+    allow_historical_missing_metadata: bool = True,
 ) -> Optional[np.ndarray]:
     """Build a boolean keep-mask for one per-packet PHY predicate."""
     if num_packets <= 0:
         return None
-    if phy_modes is None and channel_widths is None:
-        return None
+    if phy_modes is None and ltf_types is None and channel_widths is None:
+        assessment = assess_ht20_sensing_record(
+            None,
+            None,
+            None,
+            raw_len,
+            raw_num_subcarriers,
+            allow_historical_missing_metadata=allow_historical_missing_metadata,
+        )
+        if assessment["reason_code"] == REASON_NONE:
+            return None
+        return np.zeros(num_packets, dtype=bool)
 
     def _value_at(array: Optional[np.ndarray], index: int, default: str) -> str:
         if array is None:
@@ -1809,29 +2000,38 @@ def _packet_phy_mask(
 
     mask = np.empty(num_packets, dtype=bool)
     for index in range(num_packets):
-        mask[index] = predicate(
-            _value_at(phy_modes, index, "ht"),
-            _value_at(channel_widths, index, "20"),
+        assessment = predicate(
+            _value_at(phy_modes, index, ""),
+            _value_at(ltf_types, index, ""),
+            _value_at(channel_widths, index, ""),
+            raw_len,
+            raw_num_subcarriers,
+            allow_historical_missing_metadata=allow_historical_missing_metadata,
         )
+        mask[index] = assessment["reason_code"] == REASON_NONE
     return mask
 
 
 def ht20_packet_mask(
     phy_modes: Optional[np.ndarray],
+    ltf_types: Optional[np.ndarray],
     channel_widths: Optional[np.ndarray],
+    raw_len: int,
+    raw_num_subcarriers: int,
     num_packets: int,
+    *,
+    allow_historical_missing_metadata: bool = True,
 ) -> Optional[np.ndarray]:
-    """Build a boolean HT20 keep-mask, or ``None`` when PHY fields are absent.
-
-    Captures without per-record PHY metadata are treated as already-HT20 and are
-    left unfiltered. When either field exists, missing per-packet values default
-    to ``ht`` / ``20`` (same as :func:`load_npz_as_packets`).
-    """
+    """Build a boolean keep-mask for the supported HT20 sensing view."""
     return _packet_phy_mask(
         phy_modes,
+        ltf_types,
         channel_widths,
+        raw_len,
+        raw_num_subcarriers,
         num_packets,
-        predicate=is_ht20_phy,
+        predicate=assess_ht20_sensing_record,
+        allow_historical_missing_metadata=allow_historical_missing_metadata,
     )
 
 
@@ -1853,9 +2053,14 @@ def filter_npz_arrays_ht20(arrays: Dict[str, Any]) -> Dict[str, Any]:
     if csi.ndim == 0:
         return arrays
     num_packets = int(csi.shape[0])
+    raw_len = int(csi.shape[1])
+    raw_num_subcarriers = int(arrays.get("num_subcarriers", raw_len // 2))
     mask = ht20_packet_mask(
         arrays.get("phy_mode"),
+        arrays.get("ltf_type"),
         arrays.get("channel_width"),
+        raw_len,
+        raw_num_subcarriers,
         num_packets,
     )
     if mask is None or bool(np.all(mask)):
@@ -1872,7 +2077,7 @@ def filter_npz_arrays_ht20(arrays: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def filter_npz_arrays_sensing(arrays: Dict[str, Any]) -> Dict[str, Any]:
-    """Return the sensing-view slice, keeping only HT20 packets."""
+    """Return the sensing-view slice, keeping only HT20/HT-LTF/64-SC packets."""
     if "csi_data" in arrays:
         csi_key = "csi_data"
     elif "csi" in arrays:
@@ -1884,7 +2089,16 @@ def filter_npz_arrays_sensing(arrays: Dict[str, Any]) -> Dict[str, Any]:
     if csi.ndim == 0:
         return arrays
     num_packets = int(csi.shape[0])
-    mask = ht20_packet_mask(arrays.get("phy_mode"), arrays.get("channel_width"), num_packets)
+    raw_len = int(csi.shape[1])
+    raw_num_subcarriers = int(arrays.get("num_subcarriers", raw_len // 2))
+    mask = ht20_packet_mask(
+        arrays.get("phy_mode"),
+        arrays.get("ltf_type"),
+        arrays.get("channel_width"),
+        raw_len,
+        raw_num_subcarriers,
+        num_packets,
+    )
     if mask is None or bool(np.all(mask)):
         return arrays
 
@@ -1905,12 +2119,13 @@ def load_npz_as_packets(
 ) -> List[Dict[str, Any]]:
     """Load a ``.npz`` file and convert it to packet dictionaries.
 
-    By default the sensing view keeps HT20 packets (``phy_mode=ht``,
-    ``channel_width=20``). Captures without PHY metadata are treated as HT20.
-    Pass ``keep_all_phy=True`` to inspect mixed-PHY captures. Gaps left
-    by dropped non-sensing packets are intentional for sensing consumers;
-    dataset quality validation uses the same filtered view so excessive drops
-    fail continuity.
+    By default the sensing view keeps only HT20 + HT-LTF + 64-SC packets. A
+    narrow compatibility path still accepts historical captures that lack all
+    per-record PHY metadata, but only when their stored layout already matches
+    the HT20 sensing contract. Pass ``keep_all_phy=True`` to inspect mixed-PHY
+    captures. Gaps left by dropped non-sensing packets are intentional for
+    sensing consumers; dataset quality validation uses the same filtered view so
+    excessive drops fail continuity.
     """
     data = np.load(filepath, allow_pickle=True)
     if "csi_data" not in data.files:
@@ -1942,17 +2157,35 @@ def load_npz_as_packets(
         return cast(array[index])
 
     keep_mask = None
+    row_len = int(csi_array.shape[1]) if len(csi_array.shape) >= 2 else 0
     if not keep_all_phy:
-        keep_mask = ht20_packet_mask(phy_modes, channel_widths, len(csi_array))
+        keep_mask = ht20_packet_mask(
+            phy_modes,
+            ltf_types,
+            channel_widths,
+            row_len,
+            num_subcarriers,
+            len(csi_array),
+        )
 
     packets = []
     for index in range(len(csi_array)):
         if keep_mask is not None and not bool(keep_mask[index]):
             continue
-        # Captures without per-record PHY metadata are documented as HT20.
-        phy_mode = optional_scalar(phy_modes, index, str) or "ht"
-        ltf_type = optional_scalar(ltf_types, index, str) or "ht-ltf"
-        channel_width = optional_scalar(channel_widths, index, str) or "20"
+        phy_mode = optional_scalar(phy_modes, index, str)
+        ltf_type = optional_scalar(ltf_types, index, str)
+        channel_width = optional_scalar(channel_widths, index, str)
+        assessment = assess_ht20_sensing_record(
+            phy_mode,
+            ltf_type,
+            channel_width,
+            len(csi_array[index]),
+            num_subcarriers,
+            allow_historical_missing_metadata=True,
+        )
+        phy_mode = "ht" if phy_mode is None else phy_mode
+        ltf_type = "ht-ltf" if ltf_type is None else ltf_type
+        channel_width = "20" if channel_width is None else channel_width
         phy_format = f"{phy_mode}{channel_width}" if channel_width != "unknown" else phy_mode
         packets.append(
             {
@@ -1972,6 +2205,12 @@ def load_npz_as_packets(
                 "phy_mode": phy_mode,
                 "ltf_type": ltf_type,
                 "channel_width": channel_width,
+                "format_id": assessment["format_id"],
+                "layout_id": assessment["layout_id"],
+                "payload_view": assessment["payload_view"],
+                "normalization_id": assessment["normalization_id"],
+                "format_reason": assessment["reason_code"],
+                "format_metadata_source": assessment["metadata_source"],
             }
         )
     return packets
@@ -1995,9 +2234,13 @@ def load_npz_csi_data(
         csi = np.asarray(data["csi_data"], dtype=np.int8)
         if keep_all_phy:
             return csi
+        raw_num_subcarriers = int(data["num_subcarriers"]) if "num_subcarriers" in data.files else int(csi.shape[1] // 2)
         mask = ht20_packet_mask(
             data["phy_mode"] if "phy_mode" in data.files else None,
+            data["ltf_type"] if "ltf_type" in data.files else None,
             data["channel_width"] if "channel_width" in data.files else None,
+            int(csi.shape[1]),
+            raw_num_subcarriers,
             len(csi),
         )
         if mask is None:

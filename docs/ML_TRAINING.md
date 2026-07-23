@@ -31,6 +31,12 @@ That command updates pair metadata when needed, writes
 `data/auto_generated/DATASET_QUALITY_CHECK.md`, and fails only on admission
 checks. Classic indicative scores are review-only.
 
+The production trainer admits only the HT20 sensing contract: `phy_mode=ht`,
+`ltf_type=ht-ltf`, `channel_width=20`, and the stored 64-subcarrier HT20
+layout. Historical captures that omit all per-record PHY metadata are allowed
+only when their payload already matches that exact layout. Any other PHY or
+layout now fails explicitly instead of falling back silently.
+
 ## Basic Training Workflow
 
 Run the default trainer:
@@ -116,6 +122,9 @@ switching count or adopting adjacent-tone averaging, see
 The binary production trainer loads `empty`, `static_presence`, and `motion`.
 `empty` and `static_presence` are both IDLE targets; `motion` is the MOTION
 target.
+
+If format filtering removes every packet from a selected file, training stops
+with an explicit error so incompatible captures cannot contaminate the dataset.
 
 Current default training settings:
 

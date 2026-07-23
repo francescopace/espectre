@@ -1392,6 +1392,21 @@ def test_force_export_bypasses_failed_deployment_gate(monkeypatch, tmp_path):
     assert exports == ["micropython", "cpp", "test_data"]
 
 
+def test_load_all_data_propagates_sensing_contract_errors(monkeypatch, tmp_path):
+    """A file emptied by format filtering must stop training, not be skipped."""
+    module = _load_train_module()
+    data_dir = tmp_path / "data"
+    (data_dir / "motion").mkdir(parents=True)
+    (data_dir / "motion" / "bad.npz").write_bytes(b"npz")
+    monkeypatch.setattr(module, "DATA_DIR", data_dir)
+    monkeypatch.setattr(module, "load_dataset_info", lambda: {"files": {}})
+    monkeypatch.setattr(module, "get_file_metadata", lambda info: {})
+    monkeypatch.setattr(module, "load_npz_as_packets", lambda path: [])
+
+    with pytest.raises(RuntimeError, match="no HT20/HT-LTF/64-SC sensing packets"):
+        module.load_all_data()
+
+
 def test_features_cli_rejects_unknown_names(monkeypatch, capsys):
     module = _load_train_module()
     monkeypatch.setattr(
