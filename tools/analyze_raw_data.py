@@ -105,7 +105,7 @@ def analyze_packets(packets, label_name):
     
     turb_variance = np.var(turbulences)
     print(f"\nTurbulence Variance: {format_variance(turb_variance, width=0)}")
-    print("  (This is what the moving-variance baseline uses to detect motion)")
+    print("  (Higher motion/static variance ratio means clearer separation)")
     
     return {
         'label_name': label,

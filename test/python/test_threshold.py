@@ -29,7 +29,7 @@ class FakeDetector:
     def get_motion_metric(self):
         return self.metric
 
-    def get_last_moving_variance(self):
+    def get_startup_floor_metric(self):
         return self.floor_metric
 
 
@@ -80,7 +80,6 @@ def test_startup_threshold_calibrator_tracks_generic_motion_metric() -> None:
 
     threshold, formula = tracker.calculate_threshold()
     assert tracker.max_motion_metric == 0.05
-    assert tracker.max_moving_variance == 0.05
     assert threshold == pytest.approx(0.055)
     assert formula == "max x 1.1"
 

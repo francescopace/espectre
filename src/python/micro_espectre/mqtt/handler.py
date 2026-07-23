@@ -195,7 +195,7 @@ class MQTTHandler:
         Publish current state to MQTT
         
         Args:
-            current_variance: Current moving variance (or probability for ML)
+            current_variance: Current motion metric (probability for Classic/ML)
             current_state: Current state (0=IDLE, 1=MOTION)
             current_threshold: Current threshold
         """

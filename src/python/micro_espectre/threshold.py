@@ -85,8 +85,6 @@ class StartupThresholdCalibrator:
         self.packet_count = 0
         self.ready_packet_count = 0
         self.max_motion_metric = None
-        # Backward-compatible alias kept for existing callers/tests.
-        self.max_moving_variance = None
 
         self.gate_enabled = bool(gate_enabled)
         self.gate_chunks = max(2, int(gate_chunks))
@@ -140,7 +138,6 @@ class StartupThresholdCalibrator:
         current_metric = float(detector.get_motion_metric())
         if self.max_motion_metric is None or current_metric > self.max_motion_metric:
             self.max_motion_metric = current_metric
-            self.max_moving_variance = current_metric
         if self.gate_enabled:
             if not self.gate_accepted:
                 self._observe_gate_metric(
@@ -159,11 +156,11 @@ class StartupThresholdCalibrator:
         return current_metric
 
     def _extract_floor_metric(self, detector):
-        """Return the variance-like startup floor metric when available."""
-        getter = getattr(detector, "get_last_moving_variance", None)
+        """Return the detector-specific startup floor metric when available."""
+        getter = getattr(detector, "get_startup_floor_metric", None)
         if callable(getter):
             return float(getter())
-        return float(getattr(detector, "_last_moving_variance", 0.0))
+        return 0.0
 
     def _observe_gate_metric(self, metric, weight=1, initial_remaining=None):
         """Fold one weighted metric into the fallback quiet-first chunk ring."""

@@ -245,7 +245,9 @@ Current aligned implementations:
 
 ## Retired Historical Baseline
 
-The old standalone moving-variance detector remains relevant only for offline comparison tooling and historical context. It is not part of the active runtime surface anymore.
+The old standalone moving-variance detector is retained only as historical
+context in ADRs and the changelog. It is no longer part of the runtime or
+host tooling surface.
 
 ## ML Detector
 

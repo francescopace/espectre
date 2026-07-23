@@ -64,9 +64,8 @@ class ResolvedPair:
 
     Detection thresholds are intentionally not resolved here: they are
     detector-specific, so consumers replay the startup calibration of the
-    detector they evaluate (`estimate_runtime_threshold` for classic, the
-    variance sweep calibration for the moving-variance baseline) on the static
-    capture of the pair.
+    detector they evaluate (`estimate_runtime_threshold` for classic) on the
+    static capture of the pair.
     """
 
     static_presence: ResolvedDataset

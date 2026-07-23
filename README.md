@@ -35,7 +35,7 @@ ESPectre started as a Home Assistant-friendly Wi-Fi motion detector. With v3, it
 - **Matter path**: production-ready Matter firmware opens the door to Apple Home, Google Home, Alexa, Samsung SmartThings, Home Assistant, and other controller-based smart-home setups.
 - **Native firmware**: standalone BLE, MQTT, and OTA firmware works without Home Assistant and can be driven by web clients or custom integrations.
 - **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed in custom ESP32 firmware and OEM products.
-- **Research and ML tooling**: streamer firmware, notebooks, collection tools, and training docs support CSI dataset creation and future sensing models.
+- **Research and ML tooling**: streamer firmware, collection tools, and training docs support CSI dataset creation and future sensing models.
 
 The long-term idea is simple: ordinary Wi-Fi smart devices can double as ambient sensing nodes.  
 Lights, switches, HVAC devices, appliances, and custom ESP32 products can add motion or occupancy awareness without cameras or dedicated sensors.

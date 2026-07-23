@@ -135,30 +135,6 @@ def calculate_spatial_turbulence(magnitudes, band):
     return std / mean if mean > 0 else 0.0
 
 
-def calculate_moving_variance(values, window_size=100):
-    """
-    Calculate moving variance series.
-    
-    For each position, calculates variance of the previous window_size values.
-    
-    Args:
-        values: List of numeric values
-        window_size: Size of sliding window (default: 100, matches C++ DETECTOR_DEFAULT_WINDOW_SIZE)
-    
-    Returns:
-        list: Moving variance series (length = len(values) - window_size)
-    """
-    if len(values) < window_size:
-        return []
-    
-    variances = []
-    for i in range(window_size, len(values)):
-        window = values[i-window_size:i]
-        variances.append(calculate_variance(window))
-    
-    return variances
-
-
 # =============================================================================
 # CSI I/Q Parsing Functions
 # =============================================================================

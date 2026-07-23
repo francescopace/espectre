@@ -31,7 +31,7 @@ frontend paths, and an embeddable foundation for custom firmware and OEM product
 | **Streamer frontend** | Standalone CSI UDP streamer for dataset collection, host tooling, and realtime fusion experiments |
 | **SDK-oriented firmware path** | Ability to assemble alternate firmware targets from shared platform layers for custom devices and OEM products |
 | **Practical sensing** | Presence and occupancy baselines, plus reusable inference/tooling foundations |
-| **Host-side tooling** | Analysis tools, notebooks, datasets, and training workflows that support the platform direction |
+| **Host-side tooling** | Analysis tools, datasets, and training workflows that support the platform direction |
 
 ### Release Readiness
 

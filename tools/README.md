@@ -65,66 +65,7 @@ python analyze_system_tuning.py --chip S3    # Use S3 dataset
 python analyze_system_tuning.py --quick      # Reduced parameter space
 ```
 
-### 3. Filter Location Analysis (`analyze_filter_location.py`)
-
-**Purpose**: Compare filter placement in processing pipeline
-
-- Tests pre-filtering vs post-filtering approaches
-- Evaluates impact on motion detection accuracy
-- Determines optimal filter location
-
-```bash
-python analyze_filter_location.py              # Use C6 dataset
-python analyze_filter_location.py --chip S3    # Use S3 dataset
-python analyze_filter_location.py --plot       # Show visualizations
-```
-
----
-
-### 4. Filter Turbulence Analysis (`analyze_filter_turbulence.py`)
-
-**Purpose**: Run the production-aligned paired variance-baseline sweep and compare candidate detector variants
-
-- Sweeps all explicit `static_presence` / `motion` pairs from `data/dataset_info.json` by default
-- Mirrors the current startup/runtime path: fixed production subcarriers, startup adaptive threshold, and continuous baseline -> motion evaluation
-- Compares detector variants such as `baseline`, `baseline_tracking`, and `subcarrier_ema_norm`
-- Supports optional filter-profile comparison mode (`production`, `no_filter`, `hampel_only`, `lowpass_only`, `hampel_lowpass`)
-- Reports aggregate metrics, per-chip breakdown, worst-pair regressions, and tracking diagnostics
-- Supports `--plot` for a single selected pair to visualize moving variance and threshold evolution
-
-**Current lesson**: the plain production baseline remains the safest global default. Online threshold tracking is chip-dependent, and per-subcarrier EMA normalization is still experimental.
-
-```bash
-python analyze_filter_turbulence.py
-python analyze_filter_turbulence.py --variant baseline_tracking
-python analyze_filter_turbulence.py --chip S3 --variant baseline_tracking
-python analyze_filter_turbulence.py --compare-filters --filter-profile all
-python analyze_filter_turbulence.py --dataset-id <pair_id> --plot
-```
-
----
-
-### 5. Filter Parameters Optimization (`optimize_filter_params.py`)
-
-**Purpose**: Run paired filter-parameter sweeps on top of the same production-aligned variance evaluator
-
-- Reuses the shared paired sweep core instead of selecting the latest files by modification time
-- Evaluates explicit `dataset_info.json` pairs, optionally filtered by chip
-- Low-pass sweep mode compares runtime-relevant low-pass settings over the paired datasets
-- Hampel sweep mode compares `(window, threshold)` combinations over the paired datasets
-- `--all` runs low-pass first, then a Hampel sweep using the best low-pass setting found in that run
-
-```bash
-python optimize_filter_params.py
-python optimize_filter_params.py c6
-python optimize_filter_params.py --hampel
-python optimize_filter_params.py c6 --hampel
-python optimize_filter_params.py --all
-```
-
----
-
-### 6. Detection Methods Comparison (`compare_detection_methods.py`)
+### 3. Detection Methods Comparison (`compare_detection_methods.py`)
 
 **Purpose**: Compare different motion detection algorithms
 
@@ -140,7 +81,7 @@ python compare_detection_methods.py --plot       # Show per-method comparison
 
 ---
 
-### 7. I/Q Constellation Plotter (`plot_constellation.py`)
+### 4. I/Q Constellation Plotter (`plot_constellation.py`)
 
 **Purpose**: Visualize I/Q constellation diagrams
 
@@ -158,7 +99,7 @@ python plot_constellation.py --grid       # One subplot per subcarrier
 
 ---
 
-### 8. CSI Amplitude Heatmaps (`plot_heatmap.py`)
+### 5. CSI Amplitude Heatmaps (`plot_heatmap.py`)
 
 **Purpose**: Plot paper-style CSI amplitude heatmaps (time × subcarrier)
 
@@ -179,12 +120,12 @@ python plot_heatmap.py --chip C5 --environment living_room --detrend --shared-sc
 
 ---
 
-### 9. ESP32 Variant Comparison (`compare_chips.py`)
+### 6. ESP32 Variant Comparison (`compare_chips.py`)
 
 **Purpose**: Compare CSI characteristics between ESP32 variants
 
 - Compares signal quality between S3 and C6 chips
-- Analyzes SNR differences and detection performance
+- Analyzes amplitude and turbulence differences
 - Helps choose optimal hardware for specific environments
 
 ```bash
@@ -194,7 +135,7 @@ python compare_chips.py --plot
 
 ---
 
-### 10. ML Model Training (`train_ml_model.py`)
+### 7. ML Model Training (`train_ml_model.py`)
 
 **Purpose**: Train, evaluate, and export the production ML model
 
@@ -259,7 +200,7 @@ see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md). For the host CLI
 entry points that drive collection and related workflows, see
 [CLI.md](../docs/CLI.md).
 
-### 11. Synthetic Low-RSSI Dataset Generation (`generate_low_rssi_dataset.py`)
+### 8. Synthetic Low-RSSI Dataset Generation (`generate_low_rssi_dataset.py`)
 
 Generates a reproducible weak-link derivative from one registered real NPZ
 capture. The C3, C5, C6, and S3 profiles are anchored to retained real low-RSSI
@@ -323,7 +264,7 @@ fields. Detailed source provenance, fitted parameters, feature targets, and
 errors remain inside the NPZ. Use `--no-register` with an explicit `--output`
 for disposable experiments.
 
-### 12. Dataset Quality Validation (`validate_dataset_quality.py`)
+### 9. Dataset Quality Validation (`validate_dataset_quality.py`)
 
 Validates the shared Classic and ML datasets for metadata completeness, file
 integrity, signal quality, pair diagnostics, training readiness, and long-recording
@@ -377,7 +318,7 @@ python validate_dataset_quality.py --no-report      # Skip markdown report
 
 ---
 
-### 13. Performance Report Generation (`generate_performance_report.py`)
+### 10. Performance Report Generation (`generate_performance_report.py`)
 
 **Purpose**: Regenerate `docs/performance/README.md` from the current validation
 datasets
@@ -400,7 +341,7 @@ python generate_performance_report.py --output /tmp/PERFORMANCE.md
 
 ---
 
-### 14. Firmware Benchmark (`benchmark_firmware.py`)
+### 11. Firmware Benchmark (`benchmark_firmware.py`)
 
 **Purpose**: Run the live Native, ESPHome, Matter, and Streamer firmware
 benchmark for one connected chip and write its generated report under
@@ -466,11 +407,11 @@ cd tools
 # 1. Analyze raw data
 python analyze_raw_data.py
 
-# 2. Optimize parameters
+# 2. Optimize Classic parameters
 python analyze_system_tuning.py --quick
 
-# 3. Compare filter placement
-python analyze_filter_location.py --plot
+# 3. Compare detection methods
+python compare_detection_methods.py --plot
 
 # 4. Run unit tests
 cd ..
@@ -496,15 +437,6 @@ python compare_chips.py --plot
 ---
 
 ## Key Results
-
-### Filter Optimization (Noisy Environment)
-
-Tested on 60-second noisy static-presence capture with C6 chip:
-
-| Configuration | Recall | FP Rate | F1 Score |
-|---------------|--------|---------|----------|
-| Low-pass 11Hz only | 92.4% | 2.34% | 88.9% |
-| **Low-pass 11Hz + Hampel (W=9, T=4)** | **92.1%** | **0.84%** | **93.2%** |
 
 ### Fixed Subcarriers
 

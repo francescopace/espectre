@@ -390,10 +390,7 @@ def _run_live_collect(args) -> None:
         return fallback
 
     def extract_motion_metric(metrics):
-        return metrics.get(
-            "motion_metric",
-            metrics.get("probability", metrics.get("moving_variance", metrics.get("jitter", 0.0))),
-        )
+        return metrics.get("motion_metric", metrics.get("probability", 0.0))
 
     def supports_inline_terminal(stream=None):
         target_stream = sys.stdout if stream is None else stream

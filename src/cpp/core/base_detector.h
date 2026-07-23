@@ -172,9 +172,8 @@ public:
     virtual void on_startup_calibration_complete() {}
 
     /**
-     * Auxiliary startup metric used to build detector-specific frozen state.
+     * Optional auxiliary startup metric for detector-specific frozen state.
      *
-     * Classic uses the moving-variance metric to build its startup floor.
      * Detectors that do not need a startup floor can keep the default 0.0f.
      */
     virtual float get_startup_floor_metric() const { return 0.0f; }

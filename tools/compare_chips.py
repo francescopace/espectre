@@ -5,7 +5,7 @@ ESPectre - Chip Comparison
 Analyzes raw CSI data from multiple ESP32 chips to identify:
 - I/Q value ranges and scaling differences
 - Amplitude statistics per subcarrier
-- Turbulence and Moving Variance differences
+- Turbulence differences across chips
 - Suggested normalization factors
 
 Based on ESP-IDF issue #14271, known differences include:
@@ -37,20 +37,7 @@ from tools.lib.bootstrap import setup_paths  # noqa: F401
 from tools.lib.csi_analysis import calculate_spatial_turbulence
 from tools.lib.csi_io import load_static_presence_and_motion
 from tools.lib.ui import show_plot_window
-from config import (
-    SEG_WINDOW_SIZE,
-    DEFAULT_SUBCARRIERS,
-    ENABLE_HAMPEL_FILTER,
-    ENABLE_LOWPASS_FILTER,
-    HAMPEL_WINDOW,
-    HAMPEL_THRESHOLD,
-    LOWPASS_CUTOFF,
-)
-from segmentation import SegmentationContext
-
-# Alias for backward compatibility
-WINDOW_SIZE = SEG_WINDOW_SIZE
-THRESHOLD = 1.0
+from config import DEFAULT_SUBCARRIERS
 
 
 def analyze_iq_values(packets, name):
@@ -121,50 +108,23 @@ def analyze_amplitudes_per_subcarrier(packets, name, num_subcarriers=64):
     }
 
 
-def calculate_runtime_variance_series(packets):
-    """Replay packets through the shared moving-variance context and collect the metric."""
-    detector = SegmentationContext(
-        window_size=WINDOW_SIZE,
-        threshold=THRESHOLD,
-        enable_hampel=ENABLE_HAMPEL_FILTER,
-        hampel_window=HAMPEL_WINDOW,
-        hampel_threshold=HAMPEL_THRESHOLD,
-        enable_lowpass=ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=LOWPASS_CUTOFF,
-    )
-    series = []
-    for pkt in packets:
-        turbulence = detector.calculate_spatial_turbulence(pkt['csi_data'], DEFAULT_SUBCARRIERS)
-        detector.add_turbulence(turbulence)
-        state = detector.update_state()
-        series.append(float(state.get('moving_variance', 0.0)))
-    return series
-
-
-def analyze_turbulence_and_variance(packets, name, window_size):
-    """Analyze turbulence and moving variance with the fixed production subcarriers."""
+def analyze_turbulence(packets, name):
+    """Analyze turbulence with the fixed production subcarriers."""
     turbulences = []
     all_amplitudes = []
-    
+
     for pkt in packets:
-        turb, amps = calculate_spatial_turbulence(pkt['csi_data'])
+        turb, amps = calculate_spatial_turbulence(pkt['csi_data'], DEFAULT_SUBCARRIERS)
         turbulences.append(turb)
         all_amplitudes.extend(amps)
-    
-    variance_values = calculate_runtime_variance_series(packets)
-    
+
     return {
         'name': name,
         'turb_mean': np.mean(turbulences),
         'turb_std': np.std(turbulences),
         'turb_min': np.min(turbulences),
         'turb_max': np.max(turbulences),
-        'variance_mean': np.mean(variance_values) if variance_values else 0,
-        'variance_std': np.std(variance_values) if variance_values else 0,
-        'variance_min': np.min(variance_values) if variance_values else 0,
-        'variance_max': np.max(variance_values) if variance_values else 0,
         'turbulences': turbulences,
-        'variance_values': variance_values,
         'amplitudes': all_amplitudes
     }
 
@@ -299,74 +259,37 @@ def main():
     print("\n  Selected SC Average: " + ", ".join([f"{chip}={selected_means[chip]:.2f}" for chip in chips_data]))
     
     # =========================================================================
-    # 3. TURBULENCE AND MOVING-VARIANCE ANALYSIS
+    # 3. TURBULENCE ANALYSIS
     # =========================================================================
     print("\n" + "="*70)
-    print("  3. TURBULENCE AND MOVING-VARIANCE ANALYSIS")
+    print("  3. TURBULENCE ANALYSIS")
     print("="*70)
-    
+
     # Analyze turbulence for all chips
     turb_stats = {}
     for chip in chips_data:
         data = chips_data[chip]
-        turb_stats[f"{chip}_baseline"] = analyze_turbulence_and_variance(
-            data['static_presence'], f"{chip} Baseline", WINDOW_SIZE
+        turb_stats[f"{chip}_baseline"] = analyze_turbulence(
+            data['static_presence'], f"{chip} Baseline"
         )
-        turb_stats[f"{chip}_movement"] = analyze_turbulence_and_variance(
-            data['motion'], f"{chip} Movement", WINDOW_SIZE
+        turb_stats[f"{chip}_movement"] = analyze_turbulence(
+            data['motion'], f"{chip} Movement"
         )
-    
-    print("\nTurbulence (Spatial Std Dev):")
+
+    print("\nTurbulence (gain-invariant std/mean):")
     print(f"  {'Dataset':<20} {'Mean':>12} {'Std':>12} {'Min':>12} {'Max':>12}")
     print(f"  {'-'*60}")
-    
+
     for key in turb_stats:
         data = turb_stats[key]
         print(f"  {data['name']:<20} {data['turb_mean']:>12.4f} {data['turb_std']:>12.4f} "
               f"{data['turb_min']:>12.4f} {data['turb_max']:>12.4f}")
-    
-    print(f"\nMoving Variance (Window={WINDOW_SIZE}):")
-    print(f"  {'Dataset':<20} {'Mean':>12} {'Std':>12} {'Min':>12} {'Max':>12}")
-    print(f"  {'-'*60}")
-    
-    for key in turb_stats:
-        data = turb_stats[key]
-        print(f"  {data['name']:<20} {data['variance_mean']:>12.4f} {data['variance_std']:>12.4f} "
-              f"{data['variance_min']:>12.4f} {data['variance_max']:>12.4f}")
-    
+
     # =========================================================================
-    # 4. DETECTION TEST WITH CURRENT THRESHOLD
+    # 4. AMPLITUDE SUMMARY
     # =========================================================================
     print("\n" + "="*70)
-    print(f"  4. DETECTION TEST (Threshold={THRESHOLD})")
-    print("="*70)
-    
-    print(f"\n  {'Dataset':<20} {'Detections':>12} {'Total':>12} {'Rate':>12}")
-    print(f"  {'-'*56}")
-    
-    for chip in chips_data:
-        static_presence_key = f"{chip}_baseline"
-        motion_key = f"{chip}_movement"
-        
-        if static_presence_key in turb_stats:
-            static_presence_variance = turb_stats[static_presence_key]['variance_values']
-            static_presence_det = sum(1 for mv in static_presence_variance if mv > THRESHOLD)
-            static_presence_total = len(static_presence_variance)
-            static_presence_rate = static_presence_det / static_presence_total * 100 if static_presence_total > 0 else 0
-            print(f"  {f'{chip} Baseline (FP)':<20} {static_presence_det:>12} {static_presence_total:>12} {static_presence_rate:>11.1f}%")
-        
-        if motion_key in turb_stats:
-            motion_variance = turb_stats[motion_key]['variance_values']
-            motion_det = sum(1 for mv in motion_variance if mv > THRESHOLD)
-            motion_total = len(motion_variance)
-            motion_rate = motion_det / motion_total * 100 if motion_total > 0 else 0
-            print(f"  {f'{chip} Movement (TP)':<20} {motion_det:>12} {motion_total:>12} {motion_rate:>11.1f}%")
-    
-    # =========================================================================
-    # 5. AMPLITUDE SUMMARY
-    # =========================================================================
-    print("\n" + "="*70)
-    print("  5. AMPLITUDE SUMMARY")
+    print("  4. AMPLITUDE SUMMARY")
     print("="*70)
     
     print("\n  Selected SC Average per chip:")
@@ -375,18 +298,18 @@ def main():
         print(f"    {chip}: mean={selected_means[chip]:.2f}, max={max_amp:.2f}")
     
     # =========================================================================
-    # 6. PLOTS (if requested)
+    # 5. PLOTS (if requested)
     # =========================================================================
     if args.plot:
         try:
             import matplotlib.pyplot as plt
-            
+
             chip_colors = {'S3': 'blue', 'C3': 'green', 'C6': 'red'}
             chip_list = list(chips_data.keys())
-            
+
             fig, axes = plt.subplots(2, 3, figsize=(20, 12))
             fig.suptitle(f'ESP32 CSI Comparison ({"/".join(chip_list)})', fontsize=14)
-            
+
             # Maximize window
             try:
                 mng = plt.get_current_fig_manager()
@@ -399,86 +322,73 @@ def main():
                     mng.full_screen_toggle()
             except Exception:
                 pass
-            
+
             # Plot 1: I/Q Distribution
             ax = axes[0, 0]
             for chip in chip_list:
-                ax.hist(iq_stats[chip]['i_values'], bins=50, alpha=0.4, 
+                ax.hist(iq_stats[chip]['i_values'], bins=50, alpha=0.4,
                        label=f'{chip} I', color=chip_colors.get(chip, 'gray'))
             ax.set_xlabel('I Value')
             ax.set_ylabel('Count')
             ax.set_title('I Value Distribution')
             ax.legend()
-            
+
             # Plot 2: Amplitude per Subcarrier
             ax = axes[0, 1]
             for chip in chip_list:
                 means = [amp_stats[chip]['stats'][i]['mean'] for i in range(64)]
                 ax.plot(means, label=chip, alpha=0.7, color=chip_colors.get(chip, 'gray'))
-            ax.axvspan(min(DEFAULT_SUBCARRIERS), max(DEFAULT_SUBCARRIERS), 
+            ax.axvspan(min(DEFAULT_SUBCARRIERS), max(DEFAULT_SUBCARRIERS),
                        alpha=0.2, color='yellow', label='Selected SC')
             ax.set_xlabel('Subcarrier Index')
             ax.set_ylabel('Mean Amplitude')
             ax.set_title('Amplitude per Subcarrier')
             ax.legend()
-            
+
             # Plot 3: Turbulence Time Series (Baseline)
             ax = axes[0, 2]
             for chip in chip_list:
                 key = f"{chip}_baseline"
                 if key in turb_stats:
-                    ax.plot(turb_stats[key]['turbulences'][:500], label=chip, 
+                    ax.plot(turb_stats[key]['turbulences'][:500], label=chip,
                            alpha=0.7, color=chip_colors.get(chip, 'gray'))
             ax.set_xlabel('Packet Index')
             ax.set_ylabel('Turbulence')
             ax.set_title('Turbulence (Baseline, first 500)')
             ax.legend()
-            
-            # Plot 4: Moving-variance time series (Baseline)
+
+            # Plot 4: Turbulence Time Series (Movement)
             ax = axes[1, 0]
-            for chip in chip_list:
-                key = f"{chip}_baseline"
-                if key in turb_stats:
-                    ax.plot(turb_stats[key]['variance_values'][:500], label=chip,
-                           alpha=0.7, color=chip_colors.get(chip, 'gray'))
-            ax.axhline(y=THRESHOLD, color='r', linestyle='--', label=f'Threshold={THRESHOLD}')
-            ax.set_xlabel('Packet Index')
-            ax.set_ylabel('Moving Variance')
-            ax.set_title('Moving Variance (Baseline, first 500)')
-            ax.legend()
-            
-            # Plot 5: Moving-variance time series (Movement)
-            ax = axes[1, 1]
             for chip in chip_list:
                 key = f"{chip}_movement"
                 if key in turb_stats:
-                    ax.plot(turb_stats[key]['variance_values'][:500], label=chip,
+                    ax.plot(turb_stats[key]['turbulences'][:500], label=chip,
                            alpha=0.7, color=chip_colors.get(chip, 'gray'))
-            ax.axhline(y=THRESHOLD, color='r', linestyle='--', label=f'Threshold={THRESHOLD}')
             ax.set_xlabel('Packet Index')
-            ax.set_ylabel('Moving Variance')
-            ax.set_title('Moving Variance (Movement, first 500)')
+            ax.set_ylabel('Turbulence')
+            ax.set_title('Turbulence (Movement, first 500)')
             ax.legend()
-            
-            # Plot 6: Box plot comparison
-            ax = axes[1, 2]
+
+            # Plot 5: Turbulence distribution comparison
+            ax = axes[1, 1]
             data_to_plot = []
             labels = []
             for chip in chip_list:
                 for phase, label in [('baseline', 'Base'), ('movement', 'Move')]:
                     key = f"{chip}_{phase}"
                     if key in turb_stats:
-                        data_to_plot.append(turb_stats[key]['variance_values'])
+                        data_to_plot.append(turb_stats[key]['turbulences'])
                         labels.append(f"{chip} {label}")
             ax.boxplot(data_to_plot, tick_labels=labels)
-            ax.axhline(y=THRESHOLD, color='r', linestyle='--', label=f'Threshold={THRESHOLD}')
-            ax.set_ylabel('Moving Variance')
-            ax.set_title('Moving-Variance Distribution Comparison')
-            ax.legend()
-            
+            ax.set_ylabel('Turbulence')
+            ax.set_title('Turbulence Distribution Comparison')
+
+            # Plot 6: unused slot kept for layout stability
+            axes[1, 2].axis('off')
+
             plt.tight_layout()
             show_plot_window(plt)
-            
+
         except ImportError:
             print("\n  matplotlib not available. Skipping plots.")
     

@@ -32,7 +32,6 @@ from tools.lib.csi_io import load_npz_as_packets
 from tools.lib.dataset_metadata import (
     build_calibrated_classic_detector,
 )
-from tools.lib.variance_baseline_core import calibrate_startup_threshold
 from config import (
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
@@ -158,24 +157,23 @@ def enable_hampel(chip_type):
 
 def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, hint_band=None, window_size_override=None):
     """
-    Run fixed-subcarrier threshold bootstrap exactly as in production.
-    
+    Run fixed-subcarrier Classic startup calibration exactly as in production.
+
     Calibration starts from packet 0 and uses the first CALIBRATION_BUFFER_SIZE
     packets, matching live startup behavior.
-    
+
     Args:
         static_presence_packets: List of baseline CSI packets
         num_subcarriers: Number of subcarriers
         hint_band: Optional subcarrier band override (defaults to fixed defaults).
-        window_size_override: Optional shared variance window size for validation
-    
+        window_size_override: Optional detector window size for validation
+
     Returns:
         tuple: (selected_band, adaptive_threshold)
     """
     selected_band = hint_band if hint_band is not None else DEFAULT_SUBCARRIERS
-    max_moving_variance = None
     window_size = window_size_override or DETECTOR_DEFAULT_WINDOW_SIZE
-    adaptive_threshold, max_moving_variance = calibrate_startup_threshold(
+    adaptive_threshold = run_classic_calibration(
         static_presence_packets,
         selected_band=tuple(selected_band),
         window_size=window_size,
@@ -661,12 +659,12 @@ class TestEndToEndWithCalibration:
         print(f"  Selected band: {selected_band}")
         print(f"  Adaptive threshold: {adaptive_threshold:.4f}")
     
-    def test_end_to_end_with_band_calibration_and_variance_path(self, dataset_config, real_data, num_subcarriers, window_size, fp_rate_target, recall_target, enable_hampel, calibration_algorithm, chip_type, default_subcarriers):
+    def test_end_to_end_with_band_calibration_and_classic_path(self, dataset_config, real_data, num_subcarriers, window_size, fp_rate_target, recall_target, enable_hampel, calibration_algorithm, chip_type, default_subcarriers):
         """
         Test complete end-to-end flow: startup calibration -> Classic replay.
-        
+
         This validates the actual production runtime path after startup
-        calibration, rather than a raw variance-only replay.
+        calibration.
 
         Per-dataset promotion gates live in the aggregate Classic target test.
         This integration check only verifies that the calibrated pipeline
@@ -674,12 +672,12 @@ class TestEndToEndWithCalibration:
         """
         static_presence_packets, motion_packets = real_data
         static_presence_path, _motion_path, _num_sc, _chip, _dataset_id = dataset_config
-        
+
         # ========================================
         # Step 1: Fixed-band bootstrap
         # ========================================
         print("\n" + "=" * 70)
-        print(f"  END-TO-END TEST: Startup Calibration + variance path ({num_subcarriers} SC, {calibration_algorithm.upper()})")
+        print(f"  END-TO-END TEST: Startup Calibration + Classic path ({num_subcarriers} SC, {calibration_algorithm.upper()})")
         print("=" * 70)
         
         print(f"\nStep 1: {calibration_algorithm.upper()} fixed-band bootstrap...")
@@ -691,9 +689,9 @@ class TestEndToEndWithCalibration:
             window_size,
         )
         print(f"  Selected band: {selected_band}")
-        
+
         assert selected_band is not None, f"[{calibration_algorithm}] Startup calibration failed for {num_subcarriers} SC"
-        print(f"  Variance-path threshold (diagnostic): {adaptive_threshold:.4f}")
+        print(f"  Classic startup threshold: {adaptive_threshold:.4f}")
         
         # ========================================
         # Step 2: Build the production Classic detector with calibration state

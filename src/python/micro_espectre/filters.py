@@ -133,7 +133,7 @@ class HampelFilter:
     - Partial insertion sorting during startup
     
     This is ideal for filtering turbulence values before the shared
-    moving-variance path, as it removes outliers that cause false
+    detector feature path, as it removes outliers that cause false
     positives without smoothing the signal (which would reduce
     sensitivity).
     """

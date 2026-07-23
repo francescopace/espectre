@@ -37,7 +37,7 @@ Configuration:
 Note: turbulence normalization now follows the shared production path:
 CV-normalized turbulence (`std/mean`) for every stream.
 
-To compare ML with the moving-variance baseline, use:
+To compare ML with Classic and RSSI baselines, use:
     python tools/compare_detection_methods.py
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -1431,7 +1431,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         }
         ctx = SegmentationContext(
             window_size=window_size,
-            threshold=1.0,
             enable_lowpass=enable_lowpass,
             lowpass_cutoff=lowpass_cutoff,
             enable_hampel=enable_hampel,
@@ -4577,7 +4576,6 @@ class StreamingFeatureExtractor:
         self.feature_names = list(feature_names)
         self.context = SegmentationContext(
             window_size=SEG_WINDOW_SIZE,
-            threshold=1.0,
             enable_lowpass=ENABLE_LOWPASS_FILTER,
             lowpass_cutoff=LOWPASS_CUTOFF,
             enable_hampel=ENABLE_HAMPEL_FILTER,

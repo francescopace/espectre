@@ -55,7 +55,6 @@ class ClassicDetector(IDetector):
                  **_unused):
         self._context = SegmentationContext(
             window_size=window_size,
-            threshold=1.0,
             enable_lowpass=enable_lowpass,
             lowpass_cutoff=lowpass_cutoff,
             enable_hampel=enable_hampel,

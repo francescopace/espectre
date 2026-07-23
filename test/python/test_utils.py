@@ -22,7 +22,6 @@ from utils import (
     calculate_std,
     calculate_magnitude,
     calculate_spatial_turbulence,
-    calculate_moving_variance,
     extract_amplitude,
     extract_amplitudes,
     extract_all_magnitudes,
@@ -382,41 +381,6 @@ class TestCalculateSpatialTurbulence:
         
         result = calculate_spatial_turbulence(magnitudes, band)
         assert result > 0  # std/mean > 0 for non-constant values
-
-
-# ============================================================================
-# Moving Variance Tests
-# ============================================================================
-
-class TestCalculateMovingVariance:
-    """Test moving variance calculation"""
-    
-    def test_short_series(self):
-        """Test with series shorter than window"""
-        values = [1.0, 2.0, 3.0]
-        result = calculate_moving_variance(values, window_size=10)
-        assert result == []
-    
-    def test_output_length(self):
-        """Test output length"""
-        values = [float(i) for i in range(100)]
-        result = calculate_moving_variance(values, window_size=20)
-        assert len(result) == 80  # 100 - 20
-    
-    def test_constant_series_zero_variance(self):
-        """Test that constant series gives zero variance"""
-        values = [5.0] * 50
-        result = calculate_moving_variance(values, window_size=10)
-        
-        assert all(v == 0.0 for v in result)
-    
-    def test_variance_values_positive(self):
-        """Test that variances are non-negative"""
-        np.random.seed(42)
-        values = list(np.random.normal(5, 2, 100))
-        result = calculate_moving_variance(values, window_size=20)
-        
-        assert all(v >= 0 for v in result)
 
 
 # ============================================================================
