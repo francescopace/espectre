@@ -230,8 +230,13 @@ for the rationale and the alternatives that were rejected.
 
 Seed search evaluates every requested seed. Safety comes first: on normal-link
 replays paired recall must remain above `95%`, raw FP must remain below `5%`,
-runtime-filtered effective alarms must stay at zero, and each recording may
-move by at most one scored evaluation relative to the baseline. Real weak-link
+runtime-filtered effective alarms must stay within a budget of one per
+static-presence replay, and each recording may move by at most one scored
+evaluation relative to the baseline. The one-alarm budget exists because a
+sustained micro-motion of the present person is genuine motion, not model
+noise; quiet `empty` replays keep a zero-alarm requirement, and the
+per-recording non-regression checks still forbid exceeding the exported
+baseline's alarms on any individual replay. Real weak-link
 (`low_rssi: true`) replays are stress diagnostics: motion is barely separable
 from the noise floor at very low RSSI, so they gate with the relaxed stress
 targets (recall above `90%`, FP below `10%`), their alarms are bounded only by

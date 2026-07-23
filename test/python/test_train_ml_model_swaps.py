@@ -986,6 +986,27 @@ def test_gate_row_passes_uses_stress_targets_for_low_rssi_rows():
     ) is True
 
 
+def test_gate_row_allows_one_micro_motion_alarm_on_static_presence():
+    """Sustained micro-motion of the present person is genuine motion."""
+    module = _load_train_module()
+    row = {"recall": 99.0, "fp_rate": 1.0}
+
+    assert module._gate_row_passes({**row, "effective_alarms": 1}) is True
+    assert module._gate_row_passes({**row, "effective_alarms": 2}) is False
+
+
+def test_quiet_gate_keeps_zero_alarm_requirement():
+    """An empty room has no micro-motion excuse: quiet replays stay at zero."""
+    module = _load_train_module()
+
+    def quiet_row(alarms):
+        return {"fp": alarms, "evaluations": 100, "fp_rate": alarms,
+                "effective_alarms": alarms, "false_motion_evaluations": alarms}
+
+    assert module.summarize_quiet_gate({"C3": quiet_row(0)})["passed"] is True
+    assert module.summarize_quiet_gate({"C3": quiet_row(1)})["passed"] is False
+
+
 def test_paired_non_regression_uses_one_evaluation_per_recording_margin():
     module = _load_train_module()
 

@@ -8,18 +8,18 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 
 ## Quality Check Summary
 
-- Total checks: 1037
-- ✅ PASS: 965
-- ⚠️ WARN: 72
+- Total checks: 1261
+- ✅ PASS: 1179
+- ⚠️ WARN: 82
 - ❌ FAIL: 0
 
 ## Validation Domains
 
 | Domain | PASS | WARN | FAIL |
 |---|---:|---:|---:|
-| Common integrity | 913 | 49 | 0 |
-| Empty/static presence | 14 | 5 | 0 |
-| ClassicDetector indicative scores | 33 | 16 | 0 |
+| Common integrity | 1121 | 55 | 0 |
+| Empty/static presence | 15 | 9 | 0 |
+| ClassicDetector indicative scores | 38 | 16 | 0 |
 | ML readiness | 4 | 1 | 0 |
 | Long-recording coverage | 1 | 1 | 0 |
 
@@ -28,7 +28,7 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 | Chip | Env | static_presence / motion | RSSI | Threshold | FP | TP | Ratio | Score |
 |---|---|---|---:|---:|---:|---:|---:|---:|
 | C6 | hobby_room | [2026-07-04 15:32](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz) / [2026-07-04 15:36](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz) | -50 / -51 | 3.67e-02 | 0.0% | 98.3% | 27.28x | 100.0 |
-| C5 | bedroom | [2026-07-12 19:04](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz) / [2026-07-12 19:26](../motion/motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz) | -46 / -44 | 2.41e-01 | 0.0% | 100.0% | **4.15x ❌** | 100.0 |
+| C5 | bedroom | [2026-07-12 19:04](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz) / [2026-07-12 19:26](../motion/motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz) | -46 / -44 | 2.41e-01 | 0.0% | 100.0% | 4.15x | 100.0 |
 | S3 | hobby_room | [2026-07-15 23:39](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz) / [2026-07-15 23:47](../motion/motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001.npz) | -48 / -49 | 2.30e-01 | 0.0% | 97.8% | 4.35x | 100.0 |
 | C3 | hobby_room | [2026-07-16 00:33](../static_presence/static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz) / [2026-07-16 00:37](../motion/motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001.npz) | -57 / -56 | 7.51e-02 | 0.0% | 99.7% | 13.31x | 100.0 |
 | C5 | hobby_room | [2026-07-16 00:52](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz) / [2026-07-16 01:04](../motion/motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001.npz) | -48 / -50 | 9.01e-03 | 0.0% | 99.7% | 110.95x | 100.0 |
@@ -38,18 +38,23 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 | C5 | bedroom | [2026-07-22 20:51](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz) / [2026-07-22 20:53](../motion/motion_c5_64sc_dev000030eda0e46278_20260722_205350_355335_0001.npz) | -75 / -71 | 1.30e-01 | 0.0% | 99.1% | 7.66x | 100.0 |
 | C5 | living_room | [2026-07-16 10:43](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz) / [2026-07-16 10:48](../motion/motion_c5_64sc_dev000030eda0e46278_20260716_104800_125919_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz) | -75 / -75 | 7.06e-02 | 0.0% | 98.3% | 14.13x | 100.0 |
 | C6 | living_room | [2026-07-16 10:43](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz) / [2026-07-16 10:48](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260716_104800_358109_0002__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz) | -69 / -69 | 3.33e-02 | 0.0% | 100.0% | 30.00x | 100.0 |
+| C3 | bedroom | [2026-07-23 12:00](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260723_120030_769423_0001.npz) / [2026-07-23 12:02](../motion/motion_c3_64sc_dev0000acebe64ae708_20260723_120227_676445_0001.npz) | -43 / -42 | 1.70e-01 | 0.0% | 99.7% | 5.89x | 100.0 |
 | C5 | hobby_room | [2026-07-16 00:52](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz) / [2026-07-16 01:04](../motion/motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz) | -75 / -75 | 5.46e-02 | 0.3% | 100.0% | 18.33x | 98.6 |
 | S3 | bedroom | [2026-07-11 19:57](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz) / [2026-07-11 20:04](../motion/motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz) | -47 / -48 | 2.59e-01 | 0.3% | 100.0% | 3.86x | 98.1 |
 | ESP32 | bedroom | [2026-07-19 17:13](../static_presence/static_presence_esp32_64sc_dev00004c11aeb86eb8_20260719_171301_344381_0001.npz) / [2026-07-19 17:15](../motion/motion_esp32_64sc_dev00004c11aeb86eb8_20260719_171516_472716_0001.npz) | -47 / -47 | 3.80e-02 | 0.6% | 100.0% | 26.28x | 97.2 |
 | C6 | hobby_room | [2026-07-04 15:32](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz) / [2026-07-04 15:36](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz) | -69 / -69 | 7.00e-02 | 0.9% | 98.0% | 14.29x | 95.7 |
-| C6 | bedroom | [2026-07-22 19:16](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz) / [2026-07-22 19:19](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260722_191914_560463_0001.npz) | -69 / -66 | 2.32e-01 | 0.9% | **87.8% ❌** | **4.22x ❌** | 92.6 |
+| C6 | bedroom | [2026-07-22 19:16](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz) / [2026-07-22 19:19](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260722_191914_560463_0001.npz) | -69 / -66 | 2.32e-01 | 0.9% | **87.8% ❌** | 4.22x | 92.6 |
 | C3 | bedroom | [2026-07-22 19:58](../static_presence/static_presence_c3_64sc_dev0000acebe64adb64_20260722_195858_502587_0001.npz) / [2026-07-22 20:01](../motion/motion_c3_64sc_dev0000acebe64adb64_20260722_200102_757740_0001.npz) | -39 / -38 | 3.90e-01 | 0.6% | 97.8% | 2.56x | 92.4 |
 | C3 | hobby_room | [2026-07-16 00:33](../static_presence/static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz) / [2026-07-16 00:37](../motion/motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz) | -77 / -77 | 6.07e-01 | 0.0% | 100.0% | 1.65x | 92.2 |
 | C3 | living_room | [2026-07-19 22:41](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz) / [2026-07-19 22:48](../motion/motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz) | -77 / -77 | 6.07e-01 | 0.0% | 100.0% | **1.65x ❌** | 92.2 |
 | C3 | living_room | [2026-07-19 22:41](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz) / [2026-07-19 22:48](../motion/motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001.npz) | -52 / -52 | 1.59e-01 | 1.7% | 99.7% | 6.28x | 91.3 |
 | C3 | bedroom | [2026-07-22 21:03](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260722_210321_712831_0001.npz) / [2026-07-22 21:05](../motion/motion_c3_64sc_dev0000acebe64ae708_20260722_210523_413343_0001.npz) | -77 / -77 | 6.07e-01 | 0.0% | **91.0% ⚠️** | 1.65x | 90.5 |
+| S3 | bedroom | [2026-07-23 13:06](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260723_130651_930086_0001.npz) / [2026-07-23 13:09](../motion/motion_s3_64sc_dev000010b41de8ec00_20260723_130900_697661_0001.npz) | -42 / -45 | 2.75e-01 | 1.9% | 100.0% | 3.63x | 89.4 |
+| S3 | bedroom | [2026-07-23 12:10](../static_presence/static_presence_s3_64sc_dev000080b54ef1ee78_20260723_121059_606276_0001.npz) / [2026-07-23 12:12](../motion/motion_s3_64sc_dev000080b54ef1ee78_20260723_121259_714810_0001.npz) | -63 / -62 | 1.70e-01 | 2.2% | 100.0% | 5.90x | 89.1 |
+| C6 | bedroom | [2026-07-23 13:33](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260723_133317_279759_0001.npz) / [2026-07-23 13:35](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260723_133515_742709_0001.npz) | -41 / -42 | 9.01e-01 | 0.3% | 98.0% | **1.11x ❌** | 88.9 |
 | S3 | hobby_room | [2026-07-15 23:39](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz) / [2026-07-15 23:47](../motion/motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz) | -77 / -77 | 9.78e-01 | 1.1% | 100.0% | **1.02x ❌** | 84.5 |
-| C6 | bedroom | [2026-07-22 18:52](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz) / [2026-07-22 18:54](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260722_185456_839511_0001.npz) | -42 / -42 | 2.64e-01 | 4.4% | 100.0% | **3.79x ❌** | 77.4 |
+| C5 | bedroom | [2026-07-23 14:35](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz) / [2026-07-23 14:38](../motion/motion_c5_64sc_dev000030eda0e46278_20260723_143809_984640_0001.npz) | -48 / -45 | 4.43e-01 | 2.0% | 100.0% | **2.26x ❌** | 84.4 |
+| C6 | bedroom | [2026-07-22 18:52](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz) / [2026-07-22 18:54](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260722_185456_839511_0001.npz) | -42 / -42 | 2.64e-01 | 4.4% | 100.0% | 3.79x | 77.4 |
 | S3 | living_room | [2026-07-16 10:10](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz) / [2026-07-16 10:22](../motion/motion_s3_64sc_dev000010b41de8ec00_20260716_102200_622276_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz) | -77 / -77 | 9.72e-01 | **5.6% ⚠️** | 100.0% | **1.03x ❌** | 62.1 |
 | S3 | bedroom | [2026-07-22 17:20](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz) / [2026-07-22 17:23](../motion/motion_s3_64sc_dev000010b41de8ec00_20260722_172305_879358_0001.npz) | -77 / -75 | 9.69e-01 | **6.3% ⚠️** | 96.3% | **1.03x ❌** | 58.7 |
 
@@ -65,14 +70,19 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 | C6 | living_room | [2026-07-16 10:43](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz) | -53 | 0.0% | 0.65 | 0.0s | 100.0 |
 | C5 | bedroom | [2026-07-22 20:51](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz) | -75 | 0.0% | **0.75 ❌** | 0.0s | 100.0 |
 | C3 | bedroom | [2026-07-22 21:03](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260722_210321_712831_0001.npz) | -77 | 0.0% | 0.79 | 0.0s | 100.0 |
+| C3 | bedroom | [2026-07-23 12:00](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260723_120030_769423_0001.npz) | -43 | 0.0% | 0.80 | 0.0s | 100.0 |
 | S3 | bedroom | [2026-07-11 19:57](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz) | -47 | 0.3% | 0.83 | 0.3s | 97.5 |
 | S3 | hobby_room | [2026-07-15 23:39](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz) | -48 | 0.0% | **0.95 ❌** | 0.0s | 97.3 |
 | C3 | bedroom | [2026-07-22 19:58](../static_presence/static_presence_c3_64sc_dev0000acebe64adb64_20260722_195858_502587_0001.npz) | -39 | 0.6% | 0.66 | 0.8s | 94.0 |
 | S3 | living_room | [2026-07-16 10:10](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz) | -54 | 0.0% | **1.03 ❌** | 0.0s | 93.7 |
 | ESP32 | bedroom | [2026-07-19 17:13](../static_presence/static_presence_esp32_64sc_dev00004c11aeb86eb8_20260719_171301_344381_0001.npz) | -47 | 0.6% | 0.74 | **1.0s ❌** | 93.0 |
 | C6 | bedroom | [2026-07-22 19:16](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz) | -69 | 0.9% | 0.67 | **1.0s ❌** | 91.3 |
+| C6 | bedroom | [2026-07-23 13:33](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260723_133317_279759_0001.npz) | -41 | 0.2% | **1.10 ❌** | 0.3s | 88.0 |
 | C3 | living_room | [2026-07-19 22:41](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz) | -52 | 1.9% | **0.87 ❌** | **0.8s ❌** | 87.6 |
+| S3 | bedroom | [2026-07-23 12:10](../static_presence/static_presence_s3_64sc_dev000080b54ef1ee78_20260723_121059_606276_0001.npz) | -63 | **2.3% ⚠️** | **0.96 ❌** | **1.0s ❌** | 81.1 |
+| S3 | bedroom | [2026-07-23 13:06](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260723_130651_930086_0001.npz) | -42 | 2.0% | **1.16 ❌** | **1.0s ❌** | 72.8 |
 | S3 | bedroom | [2026-07-22 17:20](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz) | -77 | **6.7% ❌** | 0.73 | **1.5s ❌** | 60.6 |
+| C5 | bedroom | [2026-07-23 14:35](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz) | -48 | **2.1% ⚠️** | **1.43 ❌** | **1.0s ❌** | 59.3 |
 | C6 | bedroom | [2026-07-22 18:52](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz) | -42 | **4.3% ⚠️** | **1.92 ❌** | **1.3s ❌** | 43.1 |
 
 ## Empty Scores

@@ -80,6 +80,7 @@ ESPectre v3 success criteria:
 - [ ] Make `segmentation_window_size`, detector feature windows, and `evaluation_interval` adapt automatically to the effective CSI packet rate, and keep Classic and ML features comparable across window sizes and different CSI packet rates
 - [ ] Add Presence vs Empty detection
 - [x] Raise the ESP32 streamer sustained capture rate beyond the previous approximately 70 pps ceiling (stable ~80 pps via legacy broadcast pacing; L-LTF frames stay outside the HT20 sensing contract, so sensing datasets still come from HT captures)
+- [ ] Add a post-collect dataset consistency check for streamer captures that at least verifies there are no recording gaps and that class separation is decent
   - [ ] Collect ESP32 data across all dataset environments
   - [ ] Retrain and validate the production model with the expanded ESP32 dataset
 - [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
@@ -95,6 +96,7 @@ tagged.
 
 - [ ] Optimize Micro-ESPectre to exceed its current approximately 70 pps ceiling
 - [ ] Use a dedicated build directory for each chip instead of reusing the same directory across targets
+- [ ] Add Native frontend support for local TFT/LCD status displays similar to `examples/espectre-s3-touch-lcd.yaml`
 
 ### Deferred Follow-Ups
 

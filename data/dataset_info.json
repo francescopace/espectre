@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-22T22:27:44.036812",
+  "updated_at": "2026-07-23T14:42:30.897830",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -196,8 +196,8 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz",
-        "dataset_role": "selection"
+        "dataset_role": "selection",
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz"
       },
       {
         "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz",
@@ -210,8 +210,8 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz",
-        "dataset_role": "selection"
+        "dataset_role": "selection",
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz"
       },
       {
         "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz",
@@ -329,8 +329,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260722_172305_879358_0001.npz",
-        "dataset_role": "holdout"
+        "dataset_role": "holdout",
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260722_172305_879358_0001.npz"
       },
       {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz",
@@ -343,8 +343,8 @@
         "description": "HT20 static presence sample.",
         "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260722_185456_839511_0001.npz",
-        "dataset_role": "selection"
+        "dataset_role": "selection",
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260722_185456_839511_0001.npz"
       },
       {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz",
@@ -358,8 +358,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260722_191914_560463_0001.npz",
-        "dataset_role": "holdout"
+        "dataset_role": "holdout",
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260722_191914_560463_0001.npz"
       },
       {
         "filename": "static_presence_c3_64sc_dev0000acebe64adb64_20260722_195858_502587_0001.npz",
@@ -372,8 +372,8 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64adb64",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260722_200102_757740_0001.npz",
-        "dataset_role": "selection"
+        "dataset_role": "selection",
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260722_200102_757740_0001.npz"
       },
       {
         "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz",
@@ -387,8 +387,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260722_205350_355335_0001.npz",
-        "dataset_role": "holdout"
+        "dataset_role": "holdout",
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260722_205350_355335_0001.npz"
       },
       {
         "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260722_210321_712831_0001.npz",
@@ -402,8 +402,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x0000acebe64ae708",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260722_210523_413343_0001.npz",
-        "dataset_role": "holdout"
+        "dataset_role": "holdout",
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260722_210523_413343_0001.npz"
       },
       {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz",
@@ -532,6 +532,72 @@
         "low_rssi": true,
         "synthetic": true,
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz"
+      },
+      {
+        "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260723_120030_769423_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T12:00:30.751562",
+        "duration_ms": 179990,
+        "num_packets": 17954,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64ae708",
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260723_120227_676445_0001.npz"
+      },
+      {
+        "filename": "static_presence_s3_64sc_dev000080b54ef1ee78_20260723_121059_606276_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T12:10:59.590717",
+        "duration_ms": 179973,
+        "num_packets": 17228,
+        "description": "HT20 static presence sample, ESP32-S3-Touch-LCD-1.47 (waveshare)",
+        "environment": "bedroom",
+        "device_id": "0x000080b54ef1ee78",
+        "dataset_role": "holdout",
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000080b54ef1ee78_20260723_121259_714810_0001.npz"
+      },
+      {
+        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260723_130651_930086_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T13:06:51.919288",
+        "duration_ms": 179955,
+        "num_packets": 17332,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260723_130900_697661_0001.npz"
+      },
+      {
+        "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260723_133317_279759_0001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T13:33:17.262209",
+        "duration_ms": 179993,
+        "num_packets": 17568,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x00007c2c6742bbac",
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260723_133515_742709_0001.npz"
+      },
+      {
+        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T14:35:40.170749",
+        "duration_ms": 179931,
+        "num_packets": 17944,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x000030eda0e46278",
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260723_143809_984640_0001.npz"
       }
     ],
     "motion": [
@@ -559,8 +625,8 @@
         "description": "HT20 motion sample",
         "device_id": "0x000010b41de8ec00",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz",
-        "dataset_role": "selection"
+        "dataset_role": "selection",
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz"
       },
       {
         "filename": "motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz",
@@ -573,8 +639,8 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz",
-        "dataset_role": "selection"
+        "dataset_role": "selection",
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz"
       },
       {
         "filename": "motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001.npz",
@@ -692,8 +758,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz",
-        "dataset_role": "holdout"
+        "dataset_role": "holdout",
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz"
       },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260722_185456_839511_0001.npz",
@@ -706,8 +772,8 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz",
-        "dataset_role": "selection"
+        "dataset_role": "selection",
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz"
       },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260722_191914_560463_0001.npz",
@@ -721,8 +787,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz",
-        "dataset_role": "holdout"
+        "dataset_role": "holdout",
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz"
       },
       {
         "filename": "motion_c3_64sc_dev0000acebe64adb64_20260722_200102_757740_0001.npz",
@@ -735,8 +801,8 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64adb64",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260722_195858_502587_0001.npz",
-        "dataset_role": "selection"
+        "dataset_role": "selection",
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260722_195858_502587_0001.npz"
       },
       {
         "filename": "motion_c5_64sc_dev000030eda0e46278_20260722_205350_355335_0001.npz",
@@ -750,8 +816,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz",
-        "dataset_role": "holdout"
+        "dataset_role": "holdout",
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz"
       },
       {
         "filename": "motion_c3_64sc_dev0000acebe64ae708_20260722_210523_413343_0001.npz",
@@ -765,8 +831,8 @@
         "environment": "bedroom",
         "low_rssi": true,
         "device_id": "0x0000acebe64ae708",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260722_210321_712831_0001.npz",
-        "dataset_role": "holdout"
+        "dataset_role": "holdout",
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260722_210321_712831_0001.npz"
       },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz",
@@ -895,6 +961,72 @@
         "low_rssi": true,
         "synthetic": true,
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz"
+      },
+      {
+        "filename": "motion_c3_64sc_dev0000acebe64ae708_20260723_120227_676445_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T12:02:27.666450",
+        "duration_ms": 89977,
+        "num_packets": 8986,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64ae708",
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260723_120030_769423_0001.npz"
+      },
+      {
+        "filename": "motion_s3_64sc_dev000080b54ef1ee78_20260723_121259_714810_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T12:12:59.704518",
+        "duration_ms": 89997,
+        "num_packets": 8604,
+        "description": "HT20 motion sample, ESP32-S3-Touch-LCD-1.47 (waveshare)",
+        "environment": "bedroom",
+        "device_id": "0x000080b54ef1ee78",
+        "dataset_role": "holdout",
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000080b54ef1ee78_20260723_121059_606276_0001.npz"
+      },
+      {
+        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260723_130900_697661_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T13:09:00.693275",
+        "duration_ms": 89998,
+        "num_packets": 8692,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260723_130651_930086_0001.npz"
+      },
+      {
+        "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260723_133515_742709_0001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T13:35:15.732404",
+        "duration_ms": 89948,
+        "num_packets": 8784,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x00007c2c6742bbac",
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260723_133317_279759_0001.npz"
+      },
+      {
+        "filename": "motion_c5_64sc_dev000030eda0e46278_20260723_143809_984640_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T14:38:09.973700",
+        "duration_ms": 89985,
+        "num_packets": 8976,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x000030eda0e46278",
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz"
       }
     ],
     "test": [

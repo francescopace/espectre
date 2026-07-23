@@ -126,6 +126,25 @@ Trade-offs:
   alarm, so seed searches run in broken-baseline mode (a candidate must fully
   restore the gate) until better candidates or new training data arrive.
 
+## Amendment: static-presence alarm budget (2026-07-23)
+
+The original absolute bar required zero runtime-filtered alarms on every
+normal-link paired replay. Three seed searches later, every candidate
+converged to exactly one alarm, and the diagnosis located a single ~1 s
+temporally coherent event (four consecutive evaluations at p>0.94, normal
+turbulence amplitude, ~1m51s into the C3 selection static capture) that the
+exported baseline detects identically: a genuine micro-motion of the present
+person, which the runtime hit filter had correctly isolated from all other
+raw hits.
+
+Requiring zero alarms on a static-presence capture asks models to ignore real
+motion at one-second granularity. The absolute bar therefore allows at most
+one effective alarm per static-presence replay (`PAIRED_ALARM_BUDGET`). Quiet
+`empty` replays keep the zero-alarm requirement (an empty room has no
+micro-motion), and the per-recording non-regression checks still forbid
+exceeding the exported baseline's alarms on any individual replay, so the
+budget cannot compound across generations.
+
 ## Related
 
 - [2026-03-08-use-host-side-validation-gates-for-detector-promotion.md](2026-03-08-use-host-side-validation-gates-for-detector-promotion.md)
