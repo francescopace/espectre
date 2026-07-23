@@ -41,7 +41,7 @@ from ml_detector import FEATURE_NAMES, MLDetector  # noqa: E402
 from runtime_policy import make_evaluation_cadence  # noqa: E402
 
 
-GENERATOR_VERSION = 4
+GENERATOR_VERSION = 5
 SUPPORTED_SOURCE_LABELS = ("empty", "static_presence", "motion")
 QUIET_LABELS = ("empty", "static_presence")
 CALIBRATION_MAX_PACKETS = 6000
@@ -117,19 +117,19 @@ LOW_RSSI_PROFILES = {
         reference_feature_medians={
             "static_presence": {
                 "turb_mad_over_mean": 0.0141460914,
-                "turb_skewness": 0.6029982003,
                 "turb_autocorr": 0.0038923421,
+                "turb_zcr": 0.4949494949,
                 "l1_delta": 0.1068241023,
                 "l1_delta_std": 0.0263707299,
-                "l1_delta_waveform_length": 2.6515621811,
+                "l1_delta_autocorr": -0.0072241020,
             },
             "motion": {
                 "turb_mad_over_mean": 0.0265381753,
-                "turb_skewness": 0.9141968319,
                 "turb_autocorr": 0.5726245162,
+                "turb_zcr": 0.2929292929,
                 "l1_delta": 0.1162957716,
                 "l1_delta_std": 0.0320751730,
-                "l1_delta_waveform_length": 2.9129450872,
+                "l1_delta_autocorr": 0.1650625202,
             },
         },
         reference_datasets=(
@@ -154,19 +154,19 @@ LOW_RSSI_PROFILES = {
         reference_feature_medians={
             "static_presence": {
                 "turb_mad_over_mean": 0.0317348919,
-                "turb_skewness": 0.0108864711,
                 "turb_autocorr": 0.0146959884,
+                "turb_zcr": 0.4949494949,
                 "l1_delta": 0.0324460606,
                 "l1_delta_std": 0.0072907729,
-                "l1_delta_waveform_length": 0.7344873603,
+                "l1_delta_autocorr": 0.0058772196,
             },
             "motion": {
                 "turb_mad_over_mean": 0.1035929297,
-                "turb_skewness": 0.2776024626,
                 "turb_autocorr": 0.6678587802,
+                "turb_zcr": 0.2626262626,
                 "l1_delta": 0.0359959860,
                 "l1_delta_std": 0.0128352709,
-                "l1_delta_waveform_length": 0.8823076765,
+                "l1_delta_autocorr": 0.4838535394,
             },
         },
         reference_datasets=(
@@ -191,19 +191,19 @@ LOW_RSSI_PROFILES = {
         reference_feature_medians={
             "static_presence": {
                 "turb_mad_over_mean": 0.0079209775,
-                "turb_skewness": 0.7076436922,
                 "turb_autocorr": 0.0704195681,
+                "turb_zcr": 0.4747474747,
                 "l1_delta": 0.0829442076,
                 "l1_delta_std": 0.0207895529,
-                "l1_delta_waveform_length": 2.0497956170,
+                "l1_delta_autocorr": 0.0224161708,
             },
             "motion": {
                 "turb_mad_over_mean": 0.0136436264,
-                "turb_skewness": 1.1579034260,
                 "turb_autocorr": 0.6778138926,
+                "turb_zcr": 0.2626262626,
                 "l1_delta": 0.0797444073,
                 "l1_delta_std": 0.0257041642,
-                "l1_delta_waveform_length": 2.0729831844,
+                "l1_delta_autocorr": 0.2911674563,
             },
         },
         reference_datasets=(
@@ -228,19 +228,19 @@ LOW_RSSI_PROFILES = {
         reference_feature_medians={
             "static_presence": {
                 "turb_mad_over_mean": 0.0872638584,
-                "turb_skewness": 0.0774848815,
                 "turb_autocorr": 0.0249507884,
+                "turb_zcr": 0.4949494949,
                 "l1_delta": 0.0336792292,
                 "l1_delta_std": 0.0075417523,
-                "l1_delta_waveform_length": 0.7617675375,
+                "l1_delta_autocorr": 0.0010567325,
             },
             "motion": {
                 "turb_mad_over_mean": 0.0883550303,
-                "turb_skewness": 0.2033364546,
                 "turb_autocorr": 0.6303078168,
+                "turb_zcr": 0.2828282828,
                 "l1_delta": 0.0320762532,
                 "l1_delta_std": 0.0100869223,
-                "l1_delta_waveform_length": 0.7641816740,
+                "l1_delta_autocorr": 0.3991386796,
             },
         },
         reference_datasets=(
@@ -557,7 +557,7 @@ def degrade_csi(
 
 
 def extract_feature_medians(csi_data: np.ndarray) -> Dict[str, float]:
-    """Measure production Core-6 medians at the runtime evaluation cadence."""
+    """Measure production feature medians at the runtime evaluation cadence."""
     detector = MLDetector(window_size=config.SEG_WINDOW_SIZE)
     cadence = make_evaluation_cadence(config.EVALUATION_INTERVAL)
     rows = []
@@ -584,20 +584,30 @@ FEATURE_ERROR_FLOORS = {
     "turb_mad_over_mean": 0.02,
     "turb_skewness": 0.25,
     "turb_autocorr": 0.10,
+    # Bounded rate/correlation statistics share the autocorr floor scale.
+    "turb_zcr": 0.10,
     "l1_delta": 0.02,
     "l1_delta_std": 0.01,
     "l1_delta_waveform_length": 0.50,
+    "l1_delta_autocorr": 0.10,
 }
 
 
 def feature_fit_errors(
     achieved: Dict[str, float], target: Dict[str, float]
 ) -> Dict[str, float]:
-    """Return scale-aware absolute errors for the production feature set."""
+    """Return scale-aware absolute errors for the fitted feature set.
+
+    Profiles carry reference medians for the feature set that was current
+    when they were calibrated, so the fit covers the intersection with the
+    production set. Refit `reference_feature_medians` when recalibrating
+    profiles for a newly promoted feature set.
+    """
     return {
         name: abs(achieved[name] - target[name])
         / max(abs(target[name]), FEATURE_ERROR_FLOORS[name])
         for name in FEATURE_NAMES
+        if name in target and name in achieved
     }
 
 
@@ -668,7 +678,9 @@ def calibrate_impairment_parameters(
         turbulence_rho=min(
             0.95, max(0.0, target_metrics["turb_autocorr"])
         ),
-        turbulence_skew=min(2.0, max(0.0, target_metrics["turb_skewness"] / 2.0)),
+        # Coherence-6 dropped turb_skewness; start the skew knob neutral and
+        # let coordinate descent tune it against the fitted feature set.
+        turbulence_skew=0.0,
     )
     current_metrics = measure(current)
     target_l1 = target_metrics["l1_delta"]
@@ -1070,18 +1082,24 @@ def generate_dataset(
     payload["generation_mode"] = np.asarray(generation_mode)
     payload["generated_at"] = np.asarray(generated_at)
     payload["generator_version"] = np.asarray(GENERATOR_VERSION, dtype=np.int16)
-    payload["feature_names"] = np.asarray(FEATURE_NAMES)
+    # Persist fit metadata for the fitted feature subset: profiles calibrated
+    # under an older production set may not carry targets for newer features.
+    fitted_names = [
+        name for name in FEATURE_NAMES
+        if name in target_metrics and name in achieved_metrics and name in source_metrics
+    ]
+    payload["feature_names"] = np.asarray(fitted_names)
     payload["source_feature_medians"] = np.asarray(
-        [source_metrics[name] for name in FEATURE_NAMES], dtype=np.float32
+        [source_metrics[name] for name in fitted_names], dtype=np.float32
     )
     payload["target_feature_medians"] = np.asarray(
-        [target_metrics[name] for name in FEATURE_NAMES], dtype=np.float32
+        [target_metrics[name] for name in fitted_names], dtype=np.float32
     )
     payload["synthetic_feature_medians"] = np.asarray(
-        [achieved_metrics[name] for name in FEATURE_NAMES], dtype=np.float32
+        [achieved_metrics[name] for name in fitted_names], dtype=np.float32
     )
     payload["feature_relative_errors"] = np.asarray(
-        [fit_errors[name] for name in FEATURE_NAMES], dtype=np.float32
+        [fit_errors[name] for name in fitted_names], dtype=np.float32
     )
     payload["mean_feature_relative_error"] = np.asarray(
         np.mean(tuple(fit_errors.values())), dtype=np.float32

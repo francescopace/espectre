@@ -258,19 +258,19 @@ def test_shared_session_reuses_quiet_calibration_and_registers_provenance(
         assert len(generated["device_ticks_us"]) == generated_packets
         assert len(generated["rssi_dbm"]) == generated_packets
         assert float(np.median(generated["rssi_dbm"])) == pytest.approx(-77.0)
-        assert list(generated["feature_names"]) == list(module.FEATURE_NAMES)
-        assert generated["source_feature_medians"].shape == (
-            len(module.FEATURE_NAMES),
-        )
-        assert generated["target_feature_medians"].shape == (
-            len(module.FEATURE_NAMES),
-        )
-        assert generated["synthetic_feature_medians"].shape == (
-            len(module.FEATURE_NAMES),
-        )
-        assert generated["feature_relative_errors"].shape == (
-            len(module.FEATURE_NAMES),
-        )
+        # Fit metadata covers the intersection of the production feature set
+        # with the profile's calibrated reference medians: profiles calibrated
+        # under an older production set may lack targets for newer features.
+        profile = module.LOW_RSSI_PROFILES["c3_weak_link"]
+        fitted_names = [
+            name for name in module.FEATURE_NAMES
+            if name in profile.reference_feature_medians["static_presence"]
+        ]
+        assert list(generated["feature_names"]) == fitted_names
+        assert generated["source_feature_medians"].shape == (len(fitted_names),)
+        assert generated["target_feature_medians"].shape == (len(fitted_names),)
+        assert generated["synthetic_feature_medians"].shape == (len(fitted_names),)
+        assert generated["feature_relative_errors"].shape == (len(fitted_names),)
         assert float(generated["mean_feature_relative_error"]) >= 0.0
         assert str(generated["deformation_mode"]) == "gain_jitter"
         assert generated["reference_datasets"].shape == (2,)

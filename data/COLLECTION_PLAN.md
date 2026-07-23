@@ -1,92 +1,109 @@
 # Collection Plan
 
-Target captures to close the current dataset gaps, sequenced after the
-2026-07-23 train/evaluation separation (see
-[2026-07-23-separate-ml-training-data-from-promotion-replays.md](../docs/adr/2026-07-23-separate-ml-training-data-from-promotion-replays.md)).
-
-Status 2026-07-23: normal-link bedroom training pairs are collected for C3,
-C5, C6, and S3 (two S3 devices), and S3 has a normal-link holdout pair
-(Waveshare device). Remaining gaps: the ESP32 kit (no out-of-sample gate, no
-`empty` capture) and the C3, C5, and C6 normal-link holdout pairs (the first
-C5 attempt was deleted as contaminated; see the P2 notes).
+Remaining dataset gaps under the 2026-07-23 train/evaluation separation (see
+[2026-07-23-separate-ml-training-data-from-promotion-replays.md](../docs/adr/2026-07-23-separate-ml-training-data-from-promotion-replays.md))
+and the Coherence-6 production feature set (see
+[2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md](../docs/adr/2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md)).
 
 Durations follow the existing corpus: `static_presence` 3 min, `motion`
 1.5 min, `empty` 2 min.
 
+## Current State (2026-07-23)
+
+| Role | Real normal-link pairs | Real weak-link pairs | Synthetic weak pairs | Empty |
+|------|------------------------|----------------------|----------------------|-------|
+| train | 13 (C3/C5/C6/S3 across bedroom/hobby/living, ESP32 bedroom) | 0 | 8 | 4 |
+| selection | 4 (C3/C5/C6/S3 bedroom) | 0 | 0 | 4 |
+| holdout | 1 (S3 Waveshare bedroom) | 4 (C3/C5/C6/S3 bedroom) | 0 | 4 |
+
+Coherence-6 is promoted (seed `1312857390`). The known open issues this plan
+addresses:
+
+- **ESP32 has no role-isolated gate and no `empty` capture.** It has a single
+  real pair (train), so its paired gate falls back to the in-sample legacy
+  path and it contributes nothing to the quiet gate.
+- **Only S3 has a normal-link holdout.** C3, C5, and C6 normal-link holdout
+  pairs are missing (the first C5 attempt was deleted as contaminated).
+- **Training has zero real weak-link data.** All real weak pairs are reserved
+  in holdout (correctly: gates must be real, never synthetic), so the model
+  learns the weak regime only from synthetic derivatives. Synthetic fidelity
+  in the coherence features was refit for Coherence-6; a real weak pair in
+  training would still be the stronger signal.
+
 ## RSSI Targets
 
 - Normal link: `-45..-60 dBm` (matches the healthy historical captures).
-- Weak link (P4 only): `-70..-75 dBm`. Do not go beyond `-77 dBm`: at
-`-77/-80` the motion/static turbulence ratio collapses to ~1.0x and the
-capture is physically unusable for training.
-- Check RSSI from the device logs before starting; the value is stored in  
-`rssi_dbm` for post-capture verification.
-
-
+- Weak link: `-70..-75 dBm`. Do not go beyond `-77 dBm`: at `-77/-80` the
+  motion/static turbulence ratio collapses to ~1.0x and the capture is
+  physically unusable for training.
+- Check RSSI from the device logs before starting; it is stored in `rssi_dbm`
+  for post-capture verification.
+- Before assigning any role, check the Classic review flags in
+  `DATASET_QUALITY_CHECK.md` (`Ratio`, robust margin): a static capture with
+  elevated turbulence means the person moved during it and the pair is
+  contaminated.
 
 ## P1 — ESP32 Kit
 
-ESP32 is the only chip without a role-isolated gate (single real pair, gate is
-in-sample via the legacy fallback) and has no `empty` capture at all.
+The only chip without a role-isolated gate or an `empty` capture.
 
-
-| Done | Captures                | Environment     | RSSI     | dataset_role     |
-| ---- | ----------------------- | --------------- | -------- | ---------------- |
-| [ ]  | static 3' + motion 1.5' | bedroom         | -45..-60 | selection        |
-| [ ]  | empty 2'                | bedroom         | -45..-60 | selection        |
-| [ ]  | static 3' + motion 1.5' | living or hobby | -45..-60 | train (no field) |
-| [ ]  | empty 2'                | living or hobby | -45..-60 | train (no field) |
-
+| Done | Captures | Environment | RSSI | dataset_role |
+|------|----------|-------------|------|--------------|
+| [ ] | static 3' + motion 1.5' | bedroom | -45..-60 | selection |
+| [ ] | empty 2' | bedroom | -45..-60 | selection |
+| [ ] | static 3' + motion 1.5' | living or hobby | -45..-60 | train |
+| [ ] | empty 2' | living or hobby | -45..-60 | train |
 
 Estimated time: ~13 min.
 
-## P2 — Normal-Link Holdout Pairs
+## P2 — Normal-Link Holdout Pairs (C3, C5, C6)
 
-No normal-link holdout exists: all 2026-07-22 holdout pairs turned out to be weak-link captures. Collect in a separate session from P0 (different day, or at least a different time slot), otherwise train and holdout become near-duplicates and the holdout loses its value.
+S3 already has one (Waveshare device). Collect these in a session separate
+from the training captures (different day or time slot), otherwise train and
+holdout become near-duplicates and the holdout loses its value.
 
+| Done | Chip | Captures | Environment | RSSI | dataset_role |
+|------|------|----------|-------------|------|--------------|
+| [ ] | C3 | static 3' + motion 1.5' | bedroom | -45..-60 | holdout |
+| [ ] | C5 | static 3' + motion 1.5' | bedroom | -45..-60 | holdout |
+| [ ] | C6 | static 3' + motion 1.5' | bedroom | -45..-60 | holdout |
 
-| Done | Chip | Captures                | Environment | RSSI     | dataset_role |
-| ---- | ---- | ----------------------- | ----------- | -------- | ------------ |
-| [ ]  | C3   | static 3' + motion 1.5' | bedroom     | -45..-60 | holdout      |
-| [ ]  | C5   | static 3' + motion 1.5' | bedroom     | -45..-60 | holdout      |
-| [ ]  | C6   | static 3' + motion 1.5' | bedroom     | -45..-60 | holdout      |
-| [x]  | S3   | static 3' + motion 1.5' | bedroom     | -45..-60 | holdout      |
+Estimated time: ~14 min.
 
+The existing S3 holdout is the Waveshare LCD device (~`-62 dBm`, ~20 dB
+enclosure attenuation, healthy 5.9x ratio): it doubles as a novel-hardware
+generalization check and gates at strict normal-link targets.
 
-Notes on the 2026-07-23 holdout captures:
+## P3 — Real Weak-Link Pair For Training
 
-- The S3 holdout pair is the Waveshare LCD device (~`-62 dBm`, ~20 dB
-enclosure attenuation, healthy 5.9x motion/static ratio): it doubles as a
-novel-hardware generalization check and gates at strict normal-link targets.
-- A first C5 holdout attempt (14:22/14:24, trimmed for startup gaps) was
-deleted entirely: the static was contaminated (turbulence `5.4e-01` at
-`-44 dBm`, ~40x the healthy C5 floor, motion/static ratio `1.84x`, and both the old Core-6 model and the swap6 candidate false-fired heavily on it while staying clean on every other C5 replay), and dataset admission requires paired captures, so the healthy motion half went with it. Re-record the full C5 holdout pair on a separate day, and check the Classic review flags (`Ratio`, robust margin) before assigning the role.
+Training's weak regime is currently synthetic-only. A real weak pair assigned
+to `train` (not holdout) would give the model genuine weak-link structure,
+directly targeting the residual weak-link recall gap and the incoherent-motion
+weakness (energetic-but-incoherent motion the model under-detects).
 
-Estimated time: ~18 min.
+| Done | Chip | Captures | Environment | RSSI | dataset_role |
+|------|------|----------|-------------|------|--------------|
+| [ ] | S3 | static 3' + motion 1.5' | any | -70..-75 | train |
+| [ ] | C6 | static 3' + motion 1.5' | any | -70..-75 | train (optional) |
 
-## P3— Optional
+Estimated time: ~5-9 min. Keep the four existing real weak pairs in holdout;
+these are additional captures, not moved from holdout.
 
-Status 2026-07-23: three swap6 seed searches ran; every candidate stayed under
-the `5%` FP bar but none reached the zero-alarm full-restore required in
-broken-baseline mode, so the sealed holdout was never opened. The weak-link
-question below stays undecided until a promoted swap6 model is evaluated on
-the S3 weak holdout.
+## P4 — Optional Coverage
 
-- One `empty` 2' per chip (C3, C5, C6, S3) in a room different from its
-current train `empty` (~8 min).
-- One real weak-link pair for S3 (optionally C6) at `-70..-75 dBm` for
-training: all real weak pairs currently sit in the holdout, so the model
-learns the weak regime only from synthetic derivatives. Skip if the swap6
-feature set closes the S3 recall gap on its own.
-
-
+- One `empty` 2' per chip in a room different from its current train `empty`
+  (~8 min), to broaden the quiet training distribution.
+- Normal-link motion with varied, less coherent movement styles (steady walking
+  at distance/angle, not only close jerky motion) to cover the
+  energetic-but-incoherent motion signature the current model under-detects.
 
 ## After Collection
 
-1. Report the new files; `selection` and `holdout` roles are assigned in
-  `dataset_info.json` (new entries default to train, which is correct for
-   P1 and the train rows above).
-2. Run the dataset quality validation to refresh pair metadata and admission.
-3. Rerun the gated seed search (with `--augment`, and `--features` for the
-  swap6 candidate set).
-
+1. Report the new files. New entries default to `train`; assign `selection`
+   and `holdout` roles in `dataset_info.json` for the reserved captures.
+2. Run `tools/validate_dataset_quality.py` to refresh pair metadata and
+   admission, and review the Classic flags before trusting any reserved pair.
+3. If real weak or new normal captures were added, recalibrate and regenerate
+   the synthetic low-RSSI derivatives so their coherence features stay faithful.
+4. Rerun the gated seed search with `--features` (Coherence-6 set) and
+   `--augment`, watching the reserved weak-link replays.
