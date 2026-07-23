@@ -965,6 +965,27 @@ def test_runtime_policy_on_evaluation_ticks_requires_production_hit_count():
     }
 
 
+def test_gate_row_passes_uses_stress_targets_for_low_rssi_rows():
+    module = _load_train_module()
+    row = {
+        "recall": 92.8,
+        "fp_rate": 4.4,
+        "effective_alarms": 7,
+    }
+
+    assert module._gate_row_passes(row) is False
+    assert module._gate_row_passes({**row, "low_rssi": True}) is True
+    assert module._gate_row_passes(
+        {"recall": 89.0, "fp_rate": 4.4, "effective_alarms": 0, "low_rssi": True}
+    ) is False
+    assert module._gate_row_passes(
+        {"recall": 99.0, "fp_rate": 11.0, "effective_alarms": 0, "low_rssi": True}
+    ) is False
+    assert module._gate_row_passes(
+        {"recall": 99.0, "fp_rate": 1.0, "effective_alarms": 0}
+    ) is True
+
+
 def test_paired_non_regression_uses_one_evaluation_per_recording_margin():
     module = _load_train_module()
 
@@ -1037,7 +1058,7 @@ def test_legacy_paired_fallback_never_selects_synthetic(monkeypatch, tmp_path):
 
     pairs = list(module._iter_paired_chip_packets(chips=("C3",)))
 
-    assert pairs == [("C3", ["real-static.npz"], ["real-motion.npz"])]
+    assert pairs == [("C3", ["real-static.npz"], ["real-motion.npz"], False)]
 
 
 def test_paired_gate_ranking_prefers_lower_fp_before_cv():

@@ -70,6 +70,7 @@ instead of repeating its historical rationale.
 - [`2026-07-02-use-pytorch-as-the-host-training-stack.md`](2026-07-02-use-pytorch-as-the-host-training-stack.md)
 - [`2026-07-07-use-core-6-as-the-production-ml-feature-set.md`](2026-07-07-use-core-6-as-the-production-ml-feature-set.md)
 - [`2026-07-07-reject-detector-guided-sample-weighting-as-the-default-ml-baseline-policy.md`](2026-07-07-reject-detector-guided-sample-weighting-as-the-default-ml-baseline-policy.md)
+- [`2026-07-23-separate-ml-training-data-from-promotion-replays.md`](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 
 ### Protocol And Frontends
 
@@ -84,6 +85,7 @@ instead of repeating its historical rationale.
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
 - [`2026-07-17-separate-dataset-admission-from-classic-diagnostics.md`](2026-07-17-separate-dataset-admission-from-classic-diagnostics.md)
 - [`2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md`](2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md)
+- [`2026-07-23-separate-ml-training-data-from-promotion-replays.md`](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 
 ## How To Name ADR Files
 

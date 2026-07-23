@@ -362,6 +362,8 @@ from config import (
 from detector_interface import MotionState
 from segmentation import SegmentationContext
 from tools.lib.performance_report import (
+    STRESS_TARGET_FP_RATE,
+    STRESS_TARGET_RECALL,
     evaluate_idle_runtime_policy as evaluate_idle_runtime_policy_states,
 )
 from runtime_policy import RuntimeMotionPolicy, make_evaluation_cadence
@@ -4490,6 +4492,26 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     return 0, seed, cv_results
 
 
+def _gate_row_passes(row):
+    """Per-replay pass criterion under the link-class policy.
+
+    Normal-link replays keep the strict production bar including zero
+    runtime-filtered alarms. Real weak-link (`low_rssi`) replays are stress
+    diagnostics: they use the relaxed stress targets, and their alarms are
+    reported but bounded only by the per-recording non-regression checks.
+    """
+    if row.get('low_rssi'):
+        return (
+            row['recall'] > STRESS_TARGET_RECALL
+            and row['fp_rate'] < STRESS_TARGET_FP_RATE
+        )
+    return (
+        row['recall'] > ROBUSTNESS_TARGET_RECALL
+        and row['fp_rate'] < ROBUSTNESS_TARGET_FP_RATE
+        and row.get('effective_alarms', 0) == 0
+    )
+
+
 def summarize_gate(by_chip):
     """Aggregate per-chip gate metrics."""
     rows = list(by_chip.values())
@@ -4497,12 +4519,7 @@ def summarize_gate(by_chip):
         return None
     return {
         'by_chip': by_chip,
-        'pass_count': int(sum(
-            1 for row in rows
-            if row['recall'] > ROBUSTNESS_TARGET_RECALL
-            and row['fp_rate'] < ROBUSTNESS_TARGET_FP_RATE
-            and row.get('effective_alarms', 0) == 0
-        )),
+        'pass_count': int(sum(1 for row in rows if _gate_row_passes(row))),
         'mean_recall': float(np.mean([row['recall'] for row in rows])),
         'worst_chip_recall': float(np.min([row['recall'] for row in rows])),
         'mean_fp_rate': float(np.mean([row['fp_rate'] for row in rows])),
@@ -4809,14 +4826,16 @@ def _iter_paired_chip_packets(chips=None, roles=('selection',),
             static_path = DATA_DIR / 'static_presence' / str(static_entry['filename'])
             motion_path = DATA_DIR / 'motion' / motion_name
             if static_path.exists() and motion_path.exists():
-                role_pairs.append((role, static_path, motion_path))
+                low_rssi = bool(static_entry.get('low_rssi')) or bool(motion_entry.get('low_rssi'))
+                role_pairs.append((role, static_path, motion_path, low_rssi))
         if role_pairs:
-            for role, static_path, motion_path in sorted(role_pairs):
+            for role, static_path, motion_path, low_rssi in sorted(role_pairs):
                 key = f"{chip}:{role}:{static_path.name}"
                 yield (
                     key,
                     _load_npz_packets_cached(static_path),
                     _load_npz_packets_cached(motion_path),
+                    low_rssi,
                 )
             continue
         if not allow_legacy_fallback:
@@ -4849,14 +4868,16 @@ def _iter_paired_chip_packets(chips=None, roles=('selection',),
                     str(static_entry.get('collected_at', '')),
                     static_path.name,
                 )
-                legacy_pairs.append((sort_key, static_path, motion_path))
+                low_rssi = bool(static_entry.get('low_rssi')) or bool(motion_entry.get('low_rssi'))
+                legacy_pairs.append((sort_key, static_path, motion_path, low_rssi))
         if not legacy_pairs:
             continue
-        _, static_path, motion_path = max(legacy_pairs, key=lambda row: row[0])
+        _, static_path, motion_path, low_rssi = max(legacy_pairs, key=lambda row: row[0])
         yield (
             chip,
             _load_npz_packets_cached(static_path),
             _load_npz_packets_cached(motion_path),
+            low_rssi,
         )
 
 
@@ -4864,12 +4885,12 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
                          roles=('selection',), allow_legacy_fallback=True):
     """Evaluate a candidate on the paired validation datasets."""
     by_chip = {}
-    for chip, static_presence_packets, motion_packets in _iter_paired_chip_packets(
+    for chip, static_presence_packets, motion_packets, low_rssi in _iter_paired_chip_packets(
         chips,
         roles=roles,
         allow_legacy_fallback=allow_legacy_fallback,
     ):
-        by_chip[chip] = evaluate_split(
+        row = evaluate_split(
             model,
             scaler,
             feature_names,
@@ -4877,6 +4898,8 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
             motion_packets,
             threshold=threshold,
         )
+        row['low_rssi'] = low_rssi
+        by_chip[chip] = row
     return summarize_gate(by_chip)
 
 
@@ -4901,12 +4924,12 @@ def evaluate_exported_paired_gate(threshold=0.5, chips=None,
     """Evaluate exported runtime arrays on the paired validation datasets."""
     feature_names, center, scale, layers = _load_exported_model_arrays()
     by_chip = {}
-    for chip, static_presence_packets, motion_packets in _iter_paired_chip_packets(
+    for chip, static_presence_packets, motion_packets, low_rssi in _iter_paired_chip_packets(
         chips,
         roles=roles,
         allow_legacy_fallback=allow_legacy_fallback,
     ):
-        by_chip[chip] = evaluate_array_split(
+        row = evaluate_array_split(
             center,
             scale,
             layers,
@@ -4915,6 +4938,8 @@ def evaluate_exported_paired_gate(threshold=0.5, chips=None,
             motion_packets,
             threshold=threshold,
         )
+        row['low_rssi'] = low_rssi
+        by_chip[chip] = row
     return summarize_gate(by_chip)
 
 

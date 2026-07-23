@@ -85,6 +85,46 @@ def _fake_report_data():
                 },
             },
         },
+        "paired_classic_normal": {
+            "C3": {
+                "count": 1,
+                "recall": 98.0,
+                "precision": 99.3,
+                "fp_rate": 0.3,
+                "f1": 98.6,
+                "effective_alarms": 1,
+            },
+            "C5": {
+                "count": 1,
+                "recall": 99.9,
+                "precision": 100.0,
+                "fp_rate": 0.0,
+                "f1": 100.0,
+                "effective_alarms": 0,
+            },
+        },
+        "paired_stress_real": {
+            "classic": {
+                "S3": {
+                    "count": 1,
+                    "recall": 96.3,
+                    "precision": 94.0,
+                    "fp_rate": 6.3,
+                    "f1": 92.2,
+                    "effective_alarms": 7,
+                },
+            },
+            "ml": {
+                "S3": {
+                    "count": 1,
+                    "recall": 92.8,
+                    "precision": 95.5,
+                    "fp_rate": 4.4,
+                    "f1": 92.0,
+                    "effective_alarms": 7,
+                },
+            },
+        },
         "paired_synthetic": {
             "classic": {
                 "C3": {
@@ -161,7 +201,7 @@ def test_render_performance_report_markdown_formats_missing_values_as_na() -> No
     assert "False Motion Evals" not in markdown
     assert "Per-chip live firmware reports" in markdown
     assert "also verifies that the host-side C++ integration suites stay aligned" in markdown
-    assert "## Synthetic Low-RSSI Stress Validation" in markdown
+    assert "## Low-RSSI Stress Validation" in markdown
     assert "| Recall | 87.0% | N/A | N/A | N/A | N/A |" in markdown
 
 
@@ -174,10 +214,24 @@ def test_render_performance_report_markdown_splits_ml_by_provenance() -> None:
     train_index = markdown.index("Training Recordings")
     assert reserved_index < train_index
     reserved_section = markdown[reserved_index:train_index]
-    train_section = markdown[train_index:markdown.index("## Synthetic")]
+    train_section = markdown[train_index:markdown.index("## Low-RSSI Stress Validation")]
     assert "| Recall | 99.8% | N/A | N/A | N/A | 100.0% |" in reserved_section
     assert "| Recall | 99.9% | N/A | N/A | N/A | N/A |" in train_section
-    assert "so for the ML detector this section is an in-sample sanity check" in markdown
+    assert "so for the ML detector these tables are an in-sample sanity check" in markdown
+
+
+def test_render_performance_report_markdown_reports_link_class_split() -> None:
+    markdown = report.render_performance_report_markdown(_fake_report_data())
+
+    assert "(static_presence / motion, normal link)" in markdown
+    assert "### Real Weak-Link Pairs — Classic Detector (report-only)" in markdown
+    assert "### Real Weak-Link Pairs — ML Detector" in markdown
+    assert "### Synthetic Weak-Link Pairs" in markdown
+    stress_index = markdown.index("## Low-RSSI Stress Validation")
+    stress_section = markdown[stress_index:]
+    assert "| Recall | N/A | N/A | N/A | N/A | 96.3% |" in stress_section
+    assert "| Recall | N/A | N/A | N/A | N/A | 92.8% |" in stress_section
+    assert "recall >90% and FP <10%" in stress_section
 
 
 def test_render_performance_report_markdown_includes_execution_info_when_provided() -> None:

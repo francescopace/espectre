@@ -19,6 +19,8 @@ import math
 from filters import HampelFilter
 from tools.lib.csi_analysis import calculate_spatial_turbulence
 from tools.lib.performance_report import (
+    STRESS_TARGET_FP_RATE,
+    STRESS_TARGET_RECALL,
     compute_classic_dataset_result as _compute_classic_dataset_result,
     compute_ml_dataset_result as _compute_ml_dataset_result,
     compute_ml_empty_fp_result as _compute_ml_empty_fp_result,
@@ -26,6 +28,7 @@ from tools.lib.performance_report import (
     get_available_chip_types as _shared_get_available_chip_types,
     get_available_empty_datasets as _shared_get_available_empty_datasets,
     get_available_paired_datasets as _shared_get_available_paired_datasets,
+    is_low_rssi_paired_dataset as _is_low_rssi_paired_dataset,
     load_real_data_cached as _load_real_data_cached,
 )
 from tools.lib.csi_io import load_npz_as_packets
@@ -121,6 +124,13 @@ def dataset_id(dataset_config):
     """Get the stable dataset id for current static-presence/motion pair."""
     _, _, _, _, dataset_id_value = dataset_config
     return dataset_id_value
+
+
+@pytest.fixture
+def link_stress(dataset_config):
+    """True when the pair is a real weak-link (`low_rssi`) stress capture."""
+    static_presence_path, _, _, _, _ = dataset_config
+    return _is_low_rssi_paired_dataset(static_presence_path)
 
 
 @pytest.fixture
@@ -340,11 +350,16 @@ class TestPerformanceMetrics:
     """Test that we achieve expected performance metrics with fixed subcarriers."""
 
     def test_classic_detection_accuracy(self, dataset_config, fp_rate_target, recall_target,
-                                        chip_type, default_subcarriers, dataset_id):
+                                        chip_type, default_subcarriers, dataset_id,
+                                        link_stress):
         """
         Test Classic motion detection accuracy with fixed production subcarriers.
 
         This is the promotion gate for the sole non-ML runtime detector.
+        Normal-link pairs are gated at the production targets; real weak-link
+        (`low_rssi`) pairs are stress diagnostics and stay report-only, because
+        at very low RSSI the motion/static turbulence separation collapses and
+        the threshold detector has no headroom left to trade.
         """
         static_presence_path, motion_path, _num_sc, _chip, _dataset_id = dataset_config
         cached_result = _compute_classic_dataset_result(
@@ -394,8 +409,19 @@ class TestPerformanceMetrics:
         assert 0.0 <= metrics["fp_rate"] <= 100.0
         assert 0.0 <= metrics["f1"] <= 100.0
 
+        if link_stress:
+            print("Link class: weak (low_rssi) -> Classic stress replay, report-only")
+            return
+        assert metrics["recall"] > recall_target, (
+            f"Classic Recall too low: {metrics['recall']:.1f}% (target: >{recall_target}%)"
+        )
+        if metrics["num_baseline"] > 0:
+            assert metrics["fp_rate"] < fp_rate_target, (
+                f"Classic FP Rate too high: {metrics['fp_rate']:.1f}% (target: <{fp_rate_target}%)"
+            )
+
     def test_ml_detection_accuracy(self, dataset_config, num_subcarriers, ml_fp_rate_target, ml_recall_target,
-                                   chip_type, dataset_id):
+                                   chip_type, dataset_id, link_stress):
         """
         Test ML (Neural Network) motion detection accuracy with real CSI data.
         
@@ -405,12 +431,17 @@ class TestPerformanceMetrics:
         Note: ML model uses fixed subcarriers from config.DEFAULT_SUBCARRIERS regardless of chip type.
         ML uses the shared CV-normalized turbulence path.
         
-        Targets: >ml_recall_target% Recall, <ml_fp_rate_target% FP Rate.
+        Targets: >ml_recall_target% Recall, <ml_fp_rate_target% FP Rate on
+        normal-link pairs; real weak-link (`low_rssi`) pairs use the relaxed
+        stress targets because motion is barely separable from the noise floor.
         """
         from config import DEFAULT_SUBCARRIERS
 
         static_presence_path, motion_path, _num_sc, _chip, _dataset_id = dataset_config
-        
+        if link_stress:
+            ml_recall_target = STRESS_TARGET_RECALL
+            ml_fp_rate_target = STRESS_TARGET_FP_RATE
+
         # ML model uses fixed subcarriers (must match training)
         ml_subcarriers = DEFAULT_SUBCARRIERS
         # ========================================
@@ -429,6 +460,8 @@ class TestPerformanceMetrics:
         print(f"  Window size: {DETECTOR_DEFAULT_WINDOW_SIZE} (DETECTOR_DEFAULT_WINDOW_SIZE)")
         print(f"  Subcarriers: {ml_subcarriers} (fixed for ML)")
         print("  Turbulence: normalized runtime path")
+        if link_stress:
+            print("  Link class: weak (low_rssi) -> ML stress targets")
 
         # ========================================
         # Print results
@@ -761,7 +794,7 @@ class TestEndToEndWithCalibration:
 
 @pytest.mark.parametrize("chip", get_available_chip_types())
 def test_classic_chip_aggregate_targets(chip):
-    """Gate Classic on the aggregate paired metrics published in PERFORMANCE.md."""
+    """Gate Classic on the aggregate normal-link metrics published in PERFORMANCE.md."""
     fp_rate_target = get_classic_fp_rate_target(chip)
     recall_target = get_classic_recall_target(chip)
     chip_pairs = []
@@ -769,6 +802,10 @@ def test_classic_chip_aggregate_targets(chip):
         _shared_get_available_paired_datasets(synthetic=False)
     ):
         if str(dataset_chip).upper() != str(chip).upper():
+            continue
+        # Real weak-link pairs are stress diagnostics; the Classic promotion
+        # aggregate covers normal-link sessions only.
+        if _is_low_rssi_paired_dataset(static_path):
             continue
         chip_pairs.append((static_path, motion_path, dataset_id))
 

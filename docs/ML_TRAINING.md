@@ -207,10 +207,20 @@ regress against the exported baseline. Use `--no-export` to leave runtime
 artifacts unchanged. Experiment campaigns leave artifacts unchanged unless
 `--experiment-promote` is supplied.
 
-Seed search evaluates every requested seed. Safety comes first: paired recall
-must remain above `95%`, raw FP must remain below `5%`, runtime-filtered
-effective alarms must stay at zero, and each recording may move by at most one
-scored evaluation relative to the baseline. Safe candidates are then compared
+The train/evaluation separation, dataset roles, and link-class policy are a
+durable decision; see
+[2026-07-23-separate-ml-training-data-from-promotion-replays.md](adr/2026-07-23-separate-ml-training-data-from-promotion-replays.md)
+for the rationale and the alternatives that were rejected.
+
+Seed search evaluates every requested seed. Safety comes first: on normal-link
+replays paired recall must remain above `95%`, raw FP must remain below `5%`,
+runtime-filtered effective alarms must stay at zero, and each recording may
+move by at most one scored evaluation relative to the baseline. Real weak-link
+(`low_rssi: true`) replays are stress diagnostics: motion is barely separable
+from the noise floor at very low RSSI, so they gate with the relaxed stress
+targets (recall above `90%`, FP below `10%`), their alarms are bounded only by
+the per-recording non-regression checks, and the same split applies to the
+validation suite and the performance report. Safe candidates are then compared
 on worst-session recall/FP, the mean of the five worst sessions, worst-chip
 recall/FP, and blocked OOF F1. When synthetic derivatives exist, real sessions
 lead those comparisons; synthetic session metrics act only as regression
