@@ -6,7 +6,7 @@
 |---------|------|--------|---------|
 | **v1.x** | 2025-11-09 | Released | First release demonstrating motion detection capabilities using a brand-new algorithm |
 | **v2.x** | 2025-12-06 | Released | Home Assistant integration via ESPHome plus custom MicroPython-based firmware |
-| **v3.x** | 2026-08 (target) | In progress | New Detectors based on spectral features. Add Matter support, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
+| **v3.x** | 2026-08 (target) | In progress | New detectors based on spectral features. Add Matter preview support, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
 | **v4.x** | 2026-12 (target) | Planned | Privacy-first web orchestration layer for multi-node sensing, secure onboarding, fleet visibility, history, alerting, and remote management |
 | **v5.x** | Future | Exploratory | Standards-ready sensing platform prepared for practical IEEE 802.11bf / Wi-Fi Sensing hardware support when embedded vendors expose it |
 
@@ -27,7 +27,7 @@ frontend paths, and an embeddable foundation for custom firmware and OEM product
 | **ESPHome frontend** | Production Home Assistant path kept on top of the shared platform |
 | **Native frontend** | Standalone custom GATT surface for generic BLE clients and web integrations, including runtime tuning and BLE-triggered HTTPS OTA |
 | **ESPectre Protocol** | Shared BLE+MQTT Protocol baseline for provisioning, telemetry, status, info, commands, monitor integration, and reusable runtime protocol services |
-| **Matter frontend** | Matter occupancy surface proving a second ecosystem-facing frontend |
+| **Matter frontend** | Preview Matter occupancy surface proving a second ecosystem-facing frontend |
 | **Streamer frontend** | Standalone CSI UDP streamer for dataset collection, host tooling, and realtime fusion experiments |
 | **SDK-oriented firmware path** | Ability to assemble alternate firmware targets from shared platform layers for custom devices and OEM products |
 | **Practical sensing** | Presence and occupancy baselines, plus reusable inference/tooling foundations |
@@ -44,7 +44,7 @@ clearly documenting current sensing characteristics.
 | Area | State | Notes |
 |------|-------|-------|
 | **Shared architecture** | Ready | `core`, `runtime`, ESP-IDF runtime services, and frontend adapters are split and documented |
-| **Frontend coverage** | Ready | ESPHome remains the production Home Assistant path; native, Matter, and streamer firmware paths are present on the shared platform |
+| **Frontend coverage** | Ready | ESPHome remains the production Home Assistant path; native and streamer firmware paths are present on the shared platform, and Matter remains a published preview path |
 | **Firmware smoke coverage** | Ready | ESPHome dev config passes for C3/C5/C6/S3; ESPHome C3 build, native C3 Docker build, and Matter C3 Docker build pass; hardware flash/monitor smoke completed for the release targets |
 | **Protocol baseline** | Ready | BLE+MQTT payloads, provisioning, telemetry, status, info, commands, and monitor tooling are documented in `ESPECTRE_PROTOCOL.md` |
 | **Detection validation** | Ready | Current C++ and Python real-data and long-recording suites pass across supported chips; C5/C6 long-quiet false-positive rates remain below the 5% target |
@@ -73,15 +73,14 @@ ESPectre v3 success criteria:
   - [x] Add and validate an ML low-RSSI safeguard from real captures
 - [x] Separate ML training data from reserved promotion replays, with lineage-grouped CV and a link-class stress policy for real weak-link captures
 - [x] Promote a weak-link-robust ML feature set (Coherence-6: temporal-coherence features replace the two weakest Core-6 members; promoted end-to-end by the reserved-replay protocol with a novel-hardware holdout check)
+- [x] Raise the ESP32 streamer sustained capture rate beyond the previous approximately 70 pps ceiling (stable ~80 pps via legacy broadcast pacing; L-LTF frames stay outside the HT20 sensing contract, so sensing datasets still come from HT captures)
+- [x] Add a post-collect dataset consistency check for streamer captures that at least verifies there are no recording gaps and that class separation is decent
 - [ ] Add and validate broader PHY and band support, including Wi-Fi 6 / 802.11ax capabilities and, where supported by hardware and exposed APIs, 5 GHz operation
   - [x] Classify CSI formats before normalization and handle currently unsupported LLTF, HT40, and HE20 packets gracefully, with explicit drop-reason telemetry and detector resets on format-stream changes
 - [ ] Trigger Native firmware OTA from BLE, then resolve the manifest and download the update over HTTPS through the same OTA service used by MQTT
 - [ ] Set the runtime `motion_on_hits` and `motion_off_hits` thresholds through the Native BLE control surface
 - [ ] Make `segmentation_window_size`, detector feature windows, and `evaluation_interval` adapt automatically to the effective CSI packet rate, and keep Classic and ML features comparable across window sizes and different CSI packet rates
-- [ ] Add Presence vs Empty detection
-- [x] Raise the ESP32 streamer sustained capture rate beyond the previous approximately 70 pps ceiling (stable ~80 pps via legacy broadcast pacing; L-LTF frames stay outside the HT20 sensing contract, so sensing datasets still come from HT captures)
-- [ ] Add a post-collect dataset consistency check for streamer captures that at least verifies there are no recording gaps and that class separation is decent
-  - [ ] Collect ESP32 data across all dataset environments
+- [ ] Collect ESP32 data across all dataset environments
   - [ ] Retrain and validate the production model with the expanded ESP32 dataset
 - [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
 - [ ] Re-enable the `CLA Signature Check` as a required status check in GitHub branch protection for `develop`
@@ -94,6 +93,7 @@ These items belong to the v3 series but do not all need to block `v3.0.0`; they
 may ship in later v3.x minor releases after the modular platform baseline is
 tagged.
 
+- [ ] Add Presence vs Empty detection
 - [ ] Optimize Micro-ESPectre to exceed its current approximately 70 pps ceiling
 - [ ] Use a dedicated build directory for each chip instead of reusing the same directory across targets
 - [ ] Add Native frontend support for local TFT/LCD status displays similar to `examples/espectre-s3-touch-lcd.yaml`

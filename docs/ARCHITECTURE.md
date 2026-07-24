@@ -186,7 +186,7 @@ Wi-Fi or CSI pipeline services.
 
 Runtime detector selection is capability-gated. ESPHome and Native enable the
 shared ESP-IDF detector store, which persists `classic` or `ml` in NVS and
-restores it at boot. Matter keeps a frontend-owned `ml` default without a
+restores it at boot. Matter keeps a frontend-owned `classic` default without a
 writable detector surface, while Streamer remains detector-free.
 
 ### Shared Runtime Debug Telemetry

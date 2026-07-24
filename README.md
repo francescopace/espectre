@@ -32,7 +32,7 @@ the ML workflow, training process, and model export path, see
 ESPectre started as a Home Assistant-friendly Wi-Fi motion detector. With v3, it becomes a reusable Wi-Fi sensing platform:
 
 - **Smart home ready**: ESPHome remains the production path for Home Assistant.
-- **Matter path**: production-ready Matter firmware opens the door to Apple Home, Google Home, Alexa, Samsung SmartThings, Home Assistant, and other controller-based smart-home setups.
+- **Matter path**: Matter firmware opens the door to Apple Home, Google Home, Alexa, Samsung SmartThings, Home Assistant, and other controller-based smart-home setups.
 - **Native firmware**: standalone BLE, MQTT, and OTA firmware works without Home Assistant and can be driven by web clients or custom integrations.
 - **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed in custom ESP32 firmware and OEM products.
 - **Research and ML tooling**: streamer firmware, collection tools, and training docs support CSI dataset creation and future sensing models.
@@ -55,8 +55,6 @@ The browser tools share one site:
 - [MQTT Monitor](https://espectre.dev/monitor/) displays telemetry and device controls
 - [The Game](https://espectre.dev/game/) and [Theremin](https://espectre.dev/theremin/) provide interactive sensing demos
 
-Published ESPHome images use the default Classic detector. ML firmware and the
-credential-bound Streamer frontend are built locally from source.
 GitHub Releases also provide Native OTA payloads; ESPHome updates are compiled
 and installed through ESPHome Device Builder after the device is adopted.
 

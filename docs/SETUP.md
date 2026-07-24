@@ -13,7 +13,7 @@ Use `Latest Release` for the newest official firmware, or `Release Preview` for 
 |----------|---------------------|-----------------|
 | `ESPHome` | [Web Flash](#web-flash-no-coding-required) for the quickest start, then the frontend README for YAML, Home Assistant, and local development | [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) |
 | `Native` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the native frontend README for local ESP-IDF workflow | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
-| `Matter` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the frontend README for commissioning and local ESP-IDF workflow | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
+| `Matter` | [Web Flash](#web-flash-no-coding-required) for published preview firmware, then the frontend README for commissioning and local ESP-IDF workflow | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
 | `Streamer` | Frontend README for the dedicated CSI stream workflow | [`README.md`](../src/cpp/frontend/streamer/README.md) |
 
 ## Shared Prerequisites
@@ -226,10 +226,10 @@ uses the default `Classic` detector, and CI pins its `git_ref` substitution to
 the exact source commit used to build the published binary. Subsequent ESPHome
 updates are compiled and installed through ESPHome Device Builder.
 
-The `ML` detector remains available through a local ESPHome build with
-`detection_algorithm: ml`; it is not published as a separate precompiled image.
-`Streamer` is also source-built because its Wi-Fi credentials are supplied at
-build time.
+The published `Matter` image also uses the default `Classic` detector. The
+`ML` detector remains available through local firmware builds; it is not
+published as a separate precompiled image. `Streamer` is also source-built
+because its Wi-Fi credentials are supplied at build time.
 
 | Publication surface | Full-flash images | OTA payloads | Manifests |
 |---------------------|------------------:|-------------:|-----------|
@@ -308,7 +308,7 @@ Support in this phase:
 
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
-| `detection_algorithm` | `classic` or `ml` | `classic`; Matter: `ml` | Shared detector family |
+| `detection_algorithm` | `classic` or `ml` | `classic`, including Matter | Shared detector family |
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; adjustable from the frontend during the session |
 | `segmentation_window_size` | int | `100` | `10-200` packets |
 | `traffic_generator_rate` | int | `100` | Target valid local CSI rate, `0-1000`; `0` disables internal traffic generation |
@@ -343,7 +343,8 @@ ESPHome and Native can switch detectors at runtime and persist the selection.
 The switch resets the threshold to the selected detector's default;
 `ml -> classic` starts calibration automatically. Matter remains read-only,
 does not consume that persisted selection, and uses its firmware default of
-`ml`. Streamer has no detector.
+`classic` to keep the published path conservative while the frontend remains
+preview. Streamer has no detector.
 
 See:
 

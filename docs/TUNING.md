@@ -73,7 +73,7 @@ Rules of thumb:
 
 Runtime threshold changes are session-only and are recalculated at boot.
 ESPHome and Native persist runtime detector selections; Matter uses its fixed
-frontend default, and Streamer does not run a detector.
+frontend default of `classic`, and Streamer does not run a detector.
 
 ### Detection Algorithm
 

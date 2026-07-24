@@ -91,8 +91,7 @@ Notes:
 - If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor`
   or `./espectre doctor` for troubleshooting.
 - shared sensing options are selected through the shared ESPectre sensing
-  `sdkconfig` menu; `matter` currently overrides `ESPECTRE_DETECTION_ALGORITHM`
-  to `ML` in [`sdkconfig.defaults`](app/sdkconfig.defaults)
+  `sdkconfig` menu.
 - the first build downloads managed components and compiles `esp_matter`, so it
   is significantly slower than incremental builds
 
@@ -180,9 +179,6 @@ In practice, this frontend is best understood as:
 - a Matter-native occupancy surface
 - without ESPectre-specific writable controls
 - over the shared ESPectre runtime
-
-Matter firmware uses `ml` as its frontend default and does not load or expose
-the persisted detector selection used by ESPHome and Native.
 
 ## Targets and Validation
 
