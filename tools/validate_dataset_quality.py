@@ -101,9 +101,6 @@ MAX_INTER_PACKET_GAP_FAIL_MS = 250.0
 # Self-calibrated idle-baseline review. Empty and static-presence captures may
 # come from different sessions, so each capture owns its startup calibration.
 BASELINE_BLOCK_SECONDS = 5.0
-BASELINE_MARGIN_MAD_FULL = 0.90
-BASELINE_MARGIN_MAD_WARN = 1.00
-BASELINE_MARGIN_MAD_ZERO = 1.50
 BASELINE_LONGEST_BURST_WARN_SECONDS = 1.0
 BASELINE_LONGEST_BURST_ZERO_SECONDS = 5.0
 QUIET_TEST_CLASSIC_FP_WARN_RATIO = 0.02
@@ -128,7 +125,7 @@ EMPIRICAL_FAIL_QUANTILE_ABOVE = 0.98
 EMPIRICAL_WARN_QUANTILE_BELOW = 0.10
 EMPIRICAL_FAIL_QUANTILE_BELOW = 0.02
 EMPIRICAL_MIN_GLOBAL_ROWS = 4
-EMPIRICAL_MIN_CHIP_ROWS = 3
+EMPIRICAL_MIN_CHIP_ROWS = 4
 EMPIRICAL_PROFILE_GLOBAL_KEY = "__all__"
 METADATA_LABELS = ('empty', 'static_presence', 'motion', 'test')
 PER_FILE_QUALITY_LABELS = METADATA_LABELS
@@ -188,21 +185,15 @@ def classic_pair_score(static_active_ratio, motion_active_ratio, pair_ratio):
     return round(0.5 * idle_clean + 0.4 * motion_cover + 0.1 * ratio_score, 1)
 
 
-def classic_baseline_score(fp_rate, margin_mad, longest_burst_seconds):
+def classic_baseline_score(fp_rate, longest_burst_seconds):
     """Return a 0-100 self-calibrated idle-baseline score.
 
-    Cleanliness carries half of the score. Robust logit-margin dispersion and
-    sustained activation carry 30% and 20%, respectively. This remains a
-    review-only Classic diagnostic, not a dataset-admission gate.
+    Cleanliness carries most of the score, and sustained activation covers the
+    remainder. This remains a review-only Classic diagnostic, not a
+    dataset-admission gate.
     """
     cleanliness = _clamp_score(
         100.0 * (1.0 - float(fp_rate) / CLASSIC_SCORE_QUIET_ZERO)
-    )
-    mad_span = BASELINE_MARGIN_MAD_ZERO - BASELINE_MARGIN_MAD_FULL
-    stability = _clamp_score(
-        100.0
-        * (BASELINE_MARGIN_MAD_ZERO - float(margin_mad))
-        / mad_span
     )
     burst_clean = _clamp_score(
         100.0
@@ -212,7 +203,7 @@ def classic_baseline_score(fp_rate, margin_mad, longest_burst_seconds):
             / BASELINE_LONGEST_BURST_ZERO_SECONDS
         )
     )
-    return round(0.5 * cleanliness + 0.3 * stability + 0.2 * burst_clean, 1)
+    return round(0.7 * cleanliness + 0.3 * burst_clean, 1)
 
 
 def _threshold_severity(
@@ -300,10 +291,7 @@ def _format_quiet_fp_cell(value, *, markdown=False):
 def _default_thresholds_for_metric(metric_name):
     """Return the legacy fixed soft-review thresholds for one metric."""
     if metric_name == "mad":
-        return {
-            "warn_above": BASELINE_MARGIN_MAD_WARN,
-            "fail_above": BASELINE_MARGIN_MAD_ZERO,
-        }
+        return {}
     if metric_name == "burst":
         return {
             "warn_above": BASELINE_LONGEST_BURST_WARN_SECONDS,
@@ -315,6 +303,8 @@ def _default_thresholds_for_metric(metric_name):
             "fail_below": RATIO_FAIL_BELOW,
         }
     if metric_name == "score":
+        return {}
+    if metric_name in {"q95", "drift", "mad"}:
         return {}
     raise KeyError(f"Unknown review metric: {metric_name}")
 
@@ -337,10 +327,10 @@ def _finite_float_values(values):
     return finite
 
 
-def _empirical_thresholds(values, *, direction):
+def _empirical_thresholds(values, *, direction, min_samples=EMPIRICAL_MIN_GLOBAL_ROWS):
     """Return empirical warn/fail thresholds for one metric direction."""
     finite = _finite_float_values(values)
-    if len(finite) < EMPIRICAL_MIN_GLOBAL_ROWS:
+    if len(finite) < int(min_samples):
         return {}
 
     if direction == "above":
@@ -366,20 +356,27 @@ def _empirical_thresholds(values, *, direction):
     raise ValueError(f"Unsupported threshold direction: {direction}")
 
 
-def _chip_review_profile(reference_rows, metric_specs):
+def _chip_review_profile(
+    reference_rows,
+    metric_specs,
+    *,
+    min_chip_rows=EMPIRICAL_MIN_CHIP_ROWS,
+    allow_global=True,
+):
     """Return per-chip empirical thresholds with a global fallback."""
     profile = {}
 
-    global_profile = {}
-    for metric_name, spec in metric_specs.items():
-        thresholds = _empirical_thresholds(
-            [spec["extract"](row) for row in reference_rows],
-            direction=spec["direction"],
-        )
-        if thresholds:
-            global_profile[metric_name] = thresholds
-    if global_profile:
-        profile[EMPIRICAL_PROFILE_GLOBAL_KEY] = global_profile
+    if allow_global:
+        global_profile = {}
+        for metric_name, spec in metric_specs.items():
+            thresholds = _empirical_thresholds(
+                [spec["extract"](row) for row in reference_rows],
+                direction=spec["direction"],
+            )
+            if thresholds:
+                global_profile[metric_name] = thresholds
+        if global_profile:
+            profile[EMPIRICAL_PROFILE_GLOBAL_KEY] = global_profile
 
     chips = sorted({
         str(row.get("chip", "")).upper()
@@ -391,13 +388,14 @@ def _chip_review_profile(reference_rows, metric_specs):
             row for row in reference_rows
             if str(row.get("chip", "")).upper() == chip
         ]
-        if len(chip_rows) < EMPIRICAL_MIN_CHIP_ROWS:
+        if len(chip_rows) < min_chip_rows:
             continue
         chip_profile = {}
         for metric_name, spec in metric_specs.items():
             thresholds = _empirical_thresholds(
                 [spec["extract"](row) for row in chip_rows],
                 direction=spec["direction"],
+                min_samples=min_chip_rows,
             )
             if thresholds:
                 chip_profile[metric_name] = thresholds
@@ -413,30 +411,41 @@ def _pair_review_profile(pair_rows):
         row for row in pair_rows
         if row.get("classic_status") == "PASS"
     ]
-    return _chip_review_profile(reference_rows, {
-        "ratio": {
-            "extract": lambda row: row["pair_ratio"],
-            "direction": "below",
+    return _chip_review_profile(
+        reference_rows,
+        {
+            "ratio": {
+                "extract": lambda row: row["pair_ratio"],
+                "direction": "below",
+            },
         },
-    })
+    )
 
 
 def _idle_review_profile(rows):
-    """Return empirical MAD/Burst review thresholds from clean idle rows."""
+    """Return same-chip empirical idle-review thresholds from clean rows."""
     reference_rows = [
         row for row in rows
         if row.get("verdict") == "clean"
     ]
-    return _chip_review_profile(reference_rows, {
-        "mad": {
-            "extract": lambda row: row["baseline"]["margin_mad"],
-            "direction": "above",
+    return _chip_review_profile(
+        reference_rows,
+        {
+            "burst": {
+                "extract": lambda row: row["baseline"]["longest_burst_seconds"],
+                "direction": "above",
+            },
+            "q95": {
+                "extract": lambda row: row["baseline"]["margin_q95"],
+                "direction": "above",
+            },
+            "drift": {
+                "extract": lambda row: row["baseline"]["margin_drift_abs"],
+                "direction": "above",
+            },
         },
-        "burst": {
-            "extract": lambda row: row["baseline"]["longest_burst_seconds"],
-            "direction": "above",
-        },
-    })
+        allow_global=False,
+    )
 
 
 def _table_review_profiles(
@@ -459,8 +468,16 @@ def _row_severity_profile(profile_map, table_key, chip):
     table_profile = profile_map.get(table_key, {}) if profile_map else {}
     chip = str(chip).upper()
     if chip in table_profile:
-        return table_profile[chip]
-    return table_profile.get(EMPIRICAL_PROFILE_GLOBAL_KEY, {})
+        return {
+            "__basis__": "chip",
+            **table_profile[chip],
+        }
+    if table_key == "pair" and EMPIRICAL_PROFILE_GLOBAL_KEY in table_profile:
+        return {
+            "__basis__": "global",
+            **table_profile[EMPIRICAL_PROFILE_GLOBAL_KEY],
+        }
+    return {"__basis__": "fixed"}
 
 
 def _has_empirical_metric(profile_map, table_key, metric_name):
@@ -469,16 +486,44 @@ def _has_empirical_metric(profile_map, table_key, metric_name):
     return any(metric_name in metric_profile for metric_profile in table_profile.values())
 
 
+def _review_basis_label(severity_profile):
+    """Return one short label for the applied review-threshold source."""
+    basis = (severity_profile or {}).get("__basis__", "fixed")
+    if basis == "chip":
+        return "chip"
+    if basis == "global":
+        return "global"
+    return "fixed"
+
+
 def _format_margin_mad_cell(value, *, markdown=False, severity_profile=None):
     """Format a logit-margin MAD cell and mark soft WARN/FAIL breaches."""
     severity = _threshold_severity(value, **_metric_thresholds("mad", severity_profile))
     return _mark_cell(f"{float(value):.2f}", severity, markdown=markdown)
 
 
+def _format_packet_rate_cell(value, *, markdown=False):
+    """Format one observed packet-rate cell."""
+    del markdown
+    return f"{float(value):.1f}"
+
+
 def _format_burst_cell(value, *, markdown=False, severity_profile=None):
     """Format a longest-activation-burst cell and mark soft WARN/FAIL breaches."""
     severity = _threshold_severity(value, **_metric_thresholds("burst", severity_profile))
     return _mark_cell(f"{float(value):.1f}s", severity, markdown=markdown)
+
+
+def _format_margin_q95_cell(value, *, markdown=False, severity_profile=None):
+    """Format one idle q95 margin cell with exploratory soft marks."""
+    severity = _threshold_severity(value, **_metric_thresholds("q95", severity_profile))
+    return _mark_cell(f"{float(value):.2f}", severity, markdown=markdown)
+
+
+def _format_margin_drift_cell(value, *, markdown=False, severity_profile=None):
+    """Format one absolute half-to-half margin drift cell."""
+    severity = _threshold_severity(value, **_metric_thresholds("drift", severity_profile))
+    return _mark_cell(f"{float(value):.2f}", severity, markdown=markdown)
 
 
 def _pair_ratio(motion_scores, threshold):
@@ -555,15 +600,31 @@ def _format_pair_rssi_cell(static_rssi_dbm, motion_rssi_dbm):
     )
 
 
+def _format_pair_packet_rate_cell(static_packet_rate_pps, motion_packet_rate_pps):
+    """Format the shared PPS cell for one static/motion pair."""
+    if static_packet_rate_pps is None and motion_packet_rate_pps is None:
+        return "n/a"
+    if static_packet_rate_pps is None:
+        return f"n/a / {_format_packet_rate_cell(motion_packet_rate_pps)}"
+    if motion_packet_rate_pps is None:
+        return f"{_format_packet_rate_cell(static_packet_rate_pps)} / n/a"
+    return (
+        f"{_format_packet_rate_cell(static_packet_rate_pps)} / "
+        f"{_format_packet_rate_cell(motion_packet_rate_pps)}"
+    )
+
+
 # Indicative score tables share one renderer; each table keeps its own schema.
 # Presence/Empty/Long-test share the idle-evidence schema and expose every
-# baseline-score component (FP, MAD, Burst) next to the final Score.
+# baseline-score component plus exploratory tail/drift signals next to Score.
 _IDLE_EVIDENCE_SCORE_HEADER = (
-    "| Chip | Env | File | RSSI | FP | MAD | Burst | Score |"
+    "| Chip | Env | File | RSSI | PPS | FP | Burst | Q95 | Drift | Score |"
 )
-_IDLE_EVIDENCE_SCORE_SEPARATOR = "|---|---|---|---:|---:|---:|---:|---:|"
+_IDLE_EVIDENCE_SCORE_SEPARATOR = (
+    "|---|---|---|---:|---:|---:|---:|---:|---:|---:|"
+)
 _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR = (
-    "  |------|-----|------|---------:|-----:|-----:|------:|------:|"
+    "  |------|-----|------|---------:|----:|-----:|------:|-----:|------:|------:|"
 )
 
 
@@ -583,8 +644,8 @@ def _format_idle_evidence_score_row(
 ):
     """Format one idle-evidence score row with the shared column schema.
 
-    Every baseline-score component is shown next to the final Score:
-    FP (cleanliness), MAD (stability), and Burst (sustained activation).
+    Every baseline-score component is shown next to the final Score, plus
+    observed packet rate and exploratory tail/drift signals.
     """
     file_cell = _idle_evidence_file_cell(row, label, markdown=markdown)
     baseline = row["baseline"]
@@ -599,18 +660,22 @@ def _format_idle_evidence_score_row(
         return (
             f"| {row['chip']} | {row.get('environment', '?')} | {file_cell} | "
             f"{_format_rssi_cell(row.get('rssi_dbm'))} | "
+            f"{_format_packet_rate_cell(baseline['packet_rate_pps'])} | "
             f"{_format_quiet_fp_cell(baseline['fp_rate'], markdown=True)} | "
-            f"{_format_margin_mad_cell(baseline['margin_mad'], markdown=True, severity_profile=severity_profile)} | "
             f"{_format_burst_cell(baseline['longest_burst_seconds'], markdown=True, severity_profile=severity_profile)} | "
+            f"{_format_margin_q95_cell(baseline['margin_q95'], markdown=True, severity_profile=severity_profile)} | "
+            f"{_format_margin_drift_cell(baseline['margin_drift_abs'], markdown=True, severity_profile=severity_profile)} | "
             f"{baseline_cell} |"
         )
     return (
         f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
         f"{file_cell:<16} | "
         f"{_format_rssi_cell(row.get('rssi_dbm')):>9} | "
+        f"{_format_packet_rate_cell(baseline['packet_rate_pps']):>4} | "
         f"{_format_quiet_fp_cell(baseline['fp_rate']):>5} | "
-        f"{_format_margin_mad_cell(baseline['margin_mad'], severity_profile=severity_profile):>5} | "
         f"{_format_burst_cell(baseline['longest_burst_seconds'], severity_profile=severity_profile):>6} | "
+        f"{_format_margin_q95_cell(baseline['margin_q95'], severity_profile=severity_profile):>5} | "
+        f"{_format_margin_drift_cell(baseline['margin_drift_abs'], severity_profile=severity_profile):>6} | "
         f"{baseline_cell:>8} |"
     )
 
@@ -670,7 +735,7 @@ _LONG_TEST_SCORE_TABLE = _idle_evidence_table_spec("Long-test scores", "test")
 def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
     """Format one static_presence/motion pair score row.
 
-    The markdown report also shows the calibrated threshold column.
+    The markdown report also shows observed packet rate and calibrated threshold.
     """
     score_value = row.get("classic_score", 0.0)
     severity_profile = _row_severity_profile(review_profiles, "pair", row["chip"])
@@ -686,6 +751,7 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
         return (
             f"| {row['chip']} | {row.get('environment', '?')} | {files_cell} | "
             f"{_format_pair_rssi_cell(row.get('static_rssi_dbm'), row.get('motion_rssi_dbm'))} | "
+            f"{_format_pair_packet_rate_cell(row.get('static_packet_rate_pps'), row.get('motion_packet_rate_pps'))} | "
             f"{row['threshold']:.2e} | "
             f"{_format_static_above_cell(row['static_active_ratio'], markdown=True)} | "
             f"{_format_motion_above_cell(row['motion_active_ratio'], markdown=True)} | "
@@ -696,6 +762,7 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
         f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
         f"{files_cell:<23} | "
         f"{_format_pair_rssi_cell(row.get('static_rssi_dbm'), row.get('motion_rssi_dbm')):>17} | "
+        f"{_format_pair_packet_rate_cell(row.get('static_packet_rate_pps'), row.get('motion_packet_rate_pps')):>13} | "
         f"{_format_static_above_cell(row['static_active_ratio']):>5} | "
         f"{_format_motion_above_cell(row['motion_active_ratio']):>5} | "
         f"{_format_pair_ratio_cell(row['pair_ratio'], severity_profile=severity_profile):>6} | "
@@ -707,15 +774,15 @@ _PAIR_SCORE_TABLE = {
     "title": "Motion Scores",
     "table_key": "pair",
     "header": (
-        "| Chip | Env | static_presence / motion | RSSI | Threshold | "
+        "| Chip | Env | static_presence / motion | RSSI | PPS | Threshold | "
         "FP | TP | Ratio | Score |"
     ),
-    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|",
+    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
     "console_header": (
-        "| Chip | Env | static_presence / motion | RSSI | FP | TP | Ratio | Score |"
+        "| Chip | Env | static_presence / motion | RSSI | PPS | FP | TP | Ratio | Score |"
     ),
     "console_separator": (
-        "  |------|-----|-------------------------|-----------------:|-----:|-----:|------:|------:|"
+        "  |------|-----|-------------------------|-----------------:|-------------:|-----:|-----:|------:|------:|"
     ),
     "console_heading": False,
     "sort_key": lambda item: -item.get("classic_score", 0.0),
@@ -758,18 +825,13 @@ def _pair_files_cell(
     return f"{static_date} / {motion_date}"
 
 
-def _baseline_severity(fp_rate, margin_mad, longest_burst_seconds):
+def _baseline_severity(fp_rate, longest_burst_seconds):
     """Return soft severity for one self-calibrated idle baseline."""
     severities = (
         _threshold_severity(
             fp_rate,
             warn_above=QUIET_TEST_CLASSIC_FP_WARN_RATIO,
             fail_above=QUIET_TEST_CLASSIC_FP_FAIL_RATIO,
-        ),
-        _threshold_severity(
-            margin_mad,
-            warn_above=BASELINE_MARGIN_MAD_WARN,
-            fail_above=BASELINE_MARGIN_MAD_ZERO,
         ),
         _threshold_severity(
             longest_burst_seconds,
@@ -1973,11 +2035,11 @@ def _classic_self_baseline_stats(
     fp_rate = float(states.mean())
     score = classic_baseline_score(
         fp_rate,
-        margin_mad,
         burst_metrics["longest_burst_seconds"],
     )
     return {
         "threshold": float(threshold),
+        "packet_rate_pps": float(packet_rate_pps),
         "eval_count": int(len(scores)),
         "motion_count": int(states.sum()),
         "fp_rate": fp_rate,
@@ -1986,6 +2048,7 @@ def _classic_self_baseline_stats(
         "margin_q95": float(np.quantile(margins, 0.95)),
         "margin_q99": float(np.quantile(margins, 0.99)),
         "margin_drift": margin_drift,
+        "margin_drift_abs": float(abs(margin_drift)),
         "margin_series": margins,
         "block_margins": block_margins,
         "score": score,
@@ -2003,7 +2066,6 @@ def _idle_quality_verdict(baseline, *, motion_verdict, gate_on_burst):
         return motion_verdict
     if _baseline_severity(
         baseline["fp_rate"],
-        baseline["margin_mad"],
         baseline["longest_burst_seconds"],
     ):
         return "unstable"
@@ -2478,6 +2540,8 @@ def run_validation(chip_filter=None, generate_report=True):
                 'motion_date': _entry_display_date(motion_entry, mv_file.name),
                 'static_rssi_dbm': _median_rssi_dbm(bl_data),
                 'motion_rssi_dbm': _median_rssi_dbm(mv_data),
+                'static_packet_rate_pps': _packet_rate_from_entry(entry),
+                'motion_packet_rate_pps': _packet_rate_from_entry(motion_entry),
                 'chip': chip.upper(),
                 'environment': _entry_environment(entry),
                 'threshold': pair_threshold,
@@ -2683,33 +2747,50 @@ def _generate_report(
             f"❌ `<{RATIO_FAIL_BELOW:.0f}x`"
         )
     if any(
-        _has_empirical_metric(review_profiles, table_key, "mad")
-        for table_key in ("static_presence", "empty", "test")
-    ):
-        lines.append(
-            "- `MAD` (Presence/Empty/Long-test): peer-relative empirical outlier "
-            "threshold derived from clean idle captures in this run, per chip "
-            "when enough references exist, otherwise global fallback"
-        )
-    else:
-        lines.append(
-            f"- `MAD` (Presence/Empty/Long-test): ⚠️ `>{BASELINE_MARGIN_MAD_WARN:.2f}`, "
-            f"❌ `>{BASELINE_MARGIN_MAD_ZERO:.2f}`"
-        )
-    if any(
         _has_empirical_metric(review_profiles, table_key, "burst")
         for table_key in ("static_presence", "empty", "test")
     ):
         lines.append(
             "- `Burst` (Presence/Empty/Long-test): peer-relative empirical "
-            "outlier threshold derived from clean idle captures in this run, "
-            "per chip when enough references exist, otherwise global fallback"
+            "outlier threshold derived from clean idle captures of the same chip "
+            "in this run; without enough same-chip references, cells fall back "
+            "to fixed review thresholds"
         )
     else:
         lines.append(
             f"- `Burst` (Presence/Empty/Long-test): "
             f"⚠️ `>{BASELINE_LONGEST_BURST_WARN_SECONDS:.1f}s`, "
             f"❌ `>{BASELINE_LONGEST_BURST_ZERO_SECONDS:.1f}s`"
+        )
+    if any(
+        _has_empirical_metric(review_profiles, table_key, "q95")
+        for table_key in ("static_presence", "empty", "test")
+    ):
+        lines.append(
+            "- `Q95` (Presence/Empty/Long-test): exploratory peer-relative "
+            "same-chip outlier threshold on the 95th percentile post-bootstrap "
+            "logit margin; no mark is shown when same-chip references are "
+            "insufficient"
+        )
+    else:
+        lines.append(
+            "- `Q95` (Presence/Empty/Long-test): exploratory same-chip signal, "
+            "shown without soft marks until enough clean references exist"
+        )
+    if any(
+        _has_empirical_metric(review_profiles, table_key, "drift")
+        for table_key in ("static_presence", "empty", "test")
+    ):
+        lines.append(
+            "- `Drift` (Presence/Empty/Long-test): exploratory peer-relative "
+            "same-chip outlier threshold on the absolute half-to-half median "
+            "margin drift; no mark is shown when same-chip references are "
+            "insufficient"
+        )
+    else:
+        lines.append(
+            "- `Drift` (Presence/Empty/Long-test): exploratory same-chip signal, "
+            "shown without soft marks until enough clean references exist"
         )
     lines.append(
         "- `Score`: absolute 0-100 ranking only; it does not carry peer-relative "
@@ -2737,23 +2818,30 @@ def _generate_report(
         "idle-only quiet test"
     )
     lines.append(
-        "- `Ratio`: `p95(motion) / threshold` on replayed `ClassicDetector` "
-        "probabilities"
+        "- `PPS`: observed packets per second from dataset metadata "
+        "(`num_packets / duration_ms`); pair rows show `static_presence / motion`"
     )
     lines.append(
-        "- `MAD` (Presence/Empty/Long-test): robust dispersion of the logit "
-        "margin `logit(probability) - logit(threshold)` on the post-bootstrap "
-        "tail"
+        "- `Ratio`: `p95(motion) / threshold` on replayed `ClassicDetector` "
+        "probabilities"
     )
     lines.append(
         "- `Burst` (Presence/Empty/Long-test): longest sustained activation "
         "episode in seconds"
     )
     lines.append(
+        "- `Q95` (Presence/Empty/Long-test): 95th percentile of the post-bootstrap "
+        "logit margin `logit(probability) - logit(threshold)`"
+    )
+    lines.append(
+        "- `Drift` (Presence/Empty/Long-test): absolute difference between the "
+        "first-half and second-half median post-bootstrap logit margins"
+    )
+    lines.append(
         "- `Score`: indicative 0-100 score from `ClassicDetector` replay, "
         "tables sorted descending; on Presence/Empty/Long-test it is the "
-        "self-calibrated idle score (0.5×cleanliness from `FP` + 0.3×stability "
-        "from `MAD` + 0.2×burst_clean from `Burst`); score is shown as an "
+        "self-calibrated idle score (0.7×cleanliness from `FP` + 0.3×burst_clean "
+        "from `Burst`); score is shown as an "
         "absolute ranking value without soft review icons"
     )
 

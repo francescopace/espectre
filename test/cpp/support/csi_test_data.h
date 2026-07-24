@@ -400,11 +400,12 @@ inline bool load_real_low_rssi_cache() {
     for (JsonObject entry : motion_entries) {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
+        const char* dataset_role = entry["dataset_role"] | "train";
         const int subcarriers = entry["subcarriers"] | 0;
         const bool low_rssi = entry["low_rssi"] | false;
         const bool synthetic = entry["synthetic"] | false;
         if (filename == nullptr || chip_text == nullptr || subcarriers != 64 ||
-            !low_rssi || synthetic) {
+            !low_rssi || synthetic || std::strcmp(dataset_role, "exclude") == 0) {
             continue;
         }
 
@@ -430,11 +431,12 @@ inline bool load_real_low_rssi_cache() {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
         const char* optimal_pair_motion_file = entry["optimal_pair_motion_file"];
+        const char* dataset_role = entry["dataset_role"] | "train";
         const int subcarriers = entry["subcarriers"] | 0;
         const bool low_rssi = entry["low_rssi"] | false;
         const bool synthetic = entry["synthetic"] | false;
         if (filename == nullptr || chip_text == nullptr || optimal_pair_motion_file == nullptr ||
-            subcarriers != 64 || !low_rssi || synthetic) {
+            subcarriers != 64 || !low_rssi || synthetic || std::strcmp(dataset_role, "exclude") == 0) {
             continue;
         }
 
@@ -507,7 +509,11 @@ inline bool load_tuning_cache() {
         int subcarriers = entry["subcarriers"] | 0;
         const char* environment = entry["environment"] | "";
         const char* optimal_pair_motion_file = entry["optimal_pair_motion_file"];
+        const char* dataset_role = entry["dataset_role"] | "train";
         if (filename == nullptr || chip_text == nullptr || optimal_pair_motion_file == nullptr) {
+            continue;
+        }
+        if (std::strcmp(dataset_role, "exclude") == 0) {
             continue;
         }
 
@@ -537,9 +543,13 @@ inline bool load_tuning_cache() {
     for (JsonObject entry : motion_entries) {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
+        const char* dataset_role = entry["dataset_role"] | "train";
         int subcarriers = entry["subcarriers"] | 0;
         ChipType chip{};
         if (filename != nullptr && chip_from_string(chip_text, chip)) {
+            if (std::strcmp(dataset_role, "exclude") == 0) {
+                continue;
+            }
             if (subcarriers == 64) {
                 const int idx = chip_index(chip);
                 if (idx >= 0) {

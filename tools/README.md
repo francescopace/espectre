@@ -286,6 +286,22 @@ score tables, then Validation rule / computed-metric notes. Presence and Empty
 tables show self-calibrated Classic idle FP plus the indicative 0-100 baseline
 score.
 
+How to read the review tables:
+
+- `dataset_role` stays manual. The validator refreshes pair metadata, but it
+  does not assign `train`, `selection`, `holdout`, or `exclude`.
+- Motion `Ratio` marks still use empirical review thresholds from passing pairs,
+  per chip when enough references exist and otherwise with a global fallback.
+- Idle-table `Burst` marks now use same-chip clean-idle references only; when a
+  chip does not have enough clean references, the cells fall back to fixed
+  review thresholds instead of cross-chip empirical marks.
+- Idle-table `PPS` shows the observed packet rate from dataset metadata.
+- Idle-table `Q95` and `Drift` are exploratory diagnostics. They are shown to
+  compare tail proximity and half-to-half stability alongside `FP` / `Burst`,
+  and they receive soft marks only when enough same-chip references exist.
+- The `Basis` column shows which threshold source was applied in that row:
+  `chip`, `global`, or `fixed`.
+
 **Checks performed:**
 - Metadata completeness — required dataset metadata exists, disk captures are
   registered, pair links are reciprocal, and paired chip, subcarrier, device,

@@ -1,109 +1,83 @@
-# Collection Plan
+# Collection Priorities
 
-Remaining dataset gaps under the 2026-07-23 train/evaluation separation (see
-[2026-07-23-separate-ml-training-data-from-promotion-replays.md](../docs/adr/2026-07-23-separate-ml-training-data-from-promotion-replays.md))
-and the Coherence-6 production feature set (see
-[2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md](../docs/adr/2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md)).
+This list is derived from the current `dataset_info.json` role split and
+`DATASET_QUALITY_CHECK.md` diagnostics. It does not mirror an external plan.
 
-Durations follow the existing corpus: `static_presence` 3 min, `motion`
-1.5 min, `empty` 2 min.
+## Priority 1: Reserved normal-link coverage outside bedroom
 
-## Current State (2026-07-23)
+Collect one reserved `static_presence` / `motion` pair for each non-ESP32 chip
+in a non-bedroom environment:
 
-| Role | Real normal-link pairs | Real weak-link pairs | Synthetic weak pairs | Empty |
-|------|------------------------|----------------------|----------------------|-------|
-| train | 13 (C3/C5/C6/S3 across bedroom/hobby/living, ESP32 bedroom) | 0 | 8 | 4 |
-| selection | 4 (C3/C5/C6/S3 bedroom) | 0 | 0 | 4 |
-| holdout | 1 (S3 Waveshare bedroom) | 4 (C3/C5/C6/S3 bedroom) | 0 | 4 |
+- C3: `living_room` or `hobby_room`
+- C5: `living_room` or `hobby_room`
+- C6: `living_room` or `hobby_room`
+- S3: `living_room` or `hobby_room`
 
-Coherence-6 is promoted (seed `1312857390`). The known open issues this plan
-addresses:
+Why:
 
-- **ESP32 has no role-isolated gate and no `empty` capture.** It has a single
-  real pair (train), so its paired gate falls back to the in-sample legacy
-  path and it contributes nothing to the quiet gate.
-- **Only S3 has a normal-link holdout.** C3, C5, and C6 normal-link holdout
-  pairs are missing (the first C5 attempt was deleted as contaminated).
-- **Training has zero real weak-link data.** All real weak pairs are reserved
-  in holdout (correctly: gates must be real, never synthetic), so the model
-  learns the weak regime only from synthetic derivatives. Synthetic fidelity
-  in the coherence features was refit for Coherence-6; a real weak pair in
-  training would still be the stronger signal.
+- Current reserved non-low-RSSI validation is bedroom-only.
+- Generalization outside bedroom is therefore under-measured.
 
-## RSSI Targets
+## Priority 2: Low-RSSI empty-room controls
 
-- Normal link: `-45..-60 dBm` (matches the healthy historical captures).
-- Weak link: `-70..-75 dBm`. Do not go beyond `-77 dBm`: at `-77/-80` the
-  motion/static turbulence ratio collapses to ~1.0x and the capture is
-  physically unusable for training.
-- Check RSSI from the device logs before starting; it is stored in `rssi_dbm`
-  for post-capture verification.
-- Before assigning any role, check the Classic review flags in
-  `DATASET_QUALITY_CHECK.md` (`Ratio`, robust margin): a static capture with
-  elevated turbulence means the person moved during it and the pair is
-  contaminated.
+Collect one low-RSSI `empty` recording in `bedroom` for each non-ESP32 chip:
 
-## P1 — ESP32 Kit
+- C3
+- C5
+- C6
+- S3
 
-The only chip without a role-isolated gate or an `empty` capture.
+Why:
 
-| Done | Captures | Environment | RSSI | dataset_role |
-|------|----------|-------------|------|--------------|
-| [ ] | static 3' + motion 1.5' | bedroom | -45..-60 | selection |
-| [ ] | empty 2' | bedroom | -45..-60 | selection |
-| [ ] | static 3' + motion 1.5' | living or hobby | -45..-60 | train |
-| [ ] | empty 2' | living or hobby | -45..-60 | train |
+- Weak-link false positives currently mix link noise and possible human
+  micro-motion.
+- There are no explicit low-RSSI empty-room controls to separate those causes.
 
-Estimated time: ~13 min.
+## Priority 3: Second low-RSSI reserved checkpoint for S3
 
-## P2 — Normal-Link Holdout Pairs (C3, C5, C6)
+Collect one additional low-RSSI reserved pair in `bedroom` for:
 
-S3 already has one (Waveshare device). Collect these in a session separate
-from the training captures (different day or time slot), otherwise train and
-holdout become near-duplicates and the holdout loses its value.
+- S3
 
-| Done | Chip | Captures | Environment | RSSI | dataset_role |
-|------|------|----------|-------------|------|--------------|
-| [ ] | C3 | static 3' + motion 1.5' | bedroom | -45..-60 | holdout |
-| [ ] | C5 | static 3' + motion 1.5' | bedroom | -45..-60 | holdout |
-| [ ] | C6 | static 3' + motion 1.5' | bedroom | -45..-60 | holdout |
+Why:
 
-Estimated time: ~14 min.
+- S3 remains the least comfortable non-ESP32 weak-link case in the current
+  stress report.
+- One reserved weak-link checkpoint is still too brittle for strong claims.
 
-The existing S3 holdout is the Waveshare LCD device (~`-62 dBm`, ~20 dB
-enclosure attenuation, healthy 5.9x ratio): it doubles as a novel-hardware
-generalization check and gates at strict normal-link targets.
+## Priority 4: Optional second low-RSSI reserved checkpoint for C3
 
-## P3 — Real Weak-Link Pair For Training
+Collect one additional low-RSSI reserved `bedroom` pair for C3 when a
+less-extreme candidate is available.
 
-Training's weak regime is currently synthetic-only. A real weak pair assigned
-to `train` (not holdout) would give the model genuine weak-link structure,
-directly targeting the residual weak-link recall gap and the incoherent-motion
-weakness (energetic-but-incoherent motion the model under-detects).
+Why:
 
-| Done | Chip | Captures | Environment | RSSI | dataset_role |
-|------|------|----------|-------------|------|--------------|
-| [ ] | S3 | static 3' + motion 1.5' | any | -70..-75 | train |
-| [ ] | C6 | static 3' + motion 1.5' | any | -70..-75 | train (optional) |
+- C3 stress behavior looks materially better after the current role cleanup and
+  sample pruning.
+- A second C3 checkpoint is still useful, but it is no longer as urgent as S3.
 
-Estimated time: ~5-9 min. Keep the four existing real weak pairs in holdout;
-these are additional captures, not moved from holdout.
+## Priority 5: Replacement-quality S3 low-RSSI training sample
 
-## P4 — Optional Coverage
+Collect one additional S3 low-RSSI `bedroom` pair intended for `train`.
 
-- One `empty` 2' per chip in a room different from its current train `empty`
-  (~8 min), to broaden the quiet training distribution.
-- Normal-link motion with varied, less coherent movement styles (steady walking
-  at distance/angle, not only close jerky motion) to cover the
-  energetic-but-incoherent motion signature the current model under-detects.
+Why:
 
-## After Collection
+- The current S3 low-RSSI train candidate is extremely pathological in the
+  Classic diagnostics.
+- A second sample would let us keep weak-link training coverage without relying
+  on a single outlier-like pair.
 
-1. Report the new files. New entries default to `train`; assign `selection`
-   and `holdout` roles in `dataset_info.json` for the reserved captures.
-2. Run `tools/validate_dataset_quality.py` to refresh pair metadata and
-   admission, and review the Classic flags before trusting any reserved pair.
-3. If real weak or new normal captures were added, recalibrate and regenerate
-   the synthetic low-RSSI derivatives so their coherence features stay faithful.
-4. Rerun the gated seed search with `--features` (Coherence-6 set) and
-   `--augment`, watching the reserved weak-link replays.
+## Priority 6: Nice-to-have low-RSSI living-room diversity
+
+Collect one low-RSSI pair in `living_room` for any two of:
+
+- C3
+- C5
+- C6
+- S3
+
+Why:
+
+- Current real weak-link coverage is concentrated in `bedroom`.
+- A second environment would show whether the weak-link failure mode is
+  environment-specific or link-class-specific.

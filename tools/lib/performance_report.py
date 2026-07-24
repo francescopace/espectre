@@ -194,7 +194,11 @@ def _get_available_paired_dataset_specs_cached() -> tuple[tuple[Path, Path, int,
         # anything else stays in-sample for the exported ML model.
         static_role = str(static_entry.get("dataset_role", "train")).lower() or "train"
         motion_role = str(motion_entry.get("dataset_role", "train")).lower() or "train"
+        if static_role == "exclude" or motion_role == "exclude":
+            continue
         dataset_role = static_role if static_role == motion_role else "train"
+        if dataset_role == "exclude":
+            continue
         low_rssi = bool(static_entry.get("low_rssi")) or bool(motion_entry.get("low_rssi"))
         pair_entries.append(
             (static_path, motion_path, 64, str(chip).upper(), dataset_id, synthetic,
@@ -214,6 +218,15 @@ def is_low_rssi_paired_dataset(static_presence_path: str | Path) -> bool:
     return False
 
 
+def get_paired_dataset_role(static_presence_path: str | Path) -> Optional[str]:
+    """Return the normalized dataset role for one paired replay."""
+    name = Path(static_presence_path).name
+    for spec in _get_available_paired_dataset_specs_cached():
+        if spec[0].name == name:
+            return str(spec[6])
+    return None
+
+
 def get_available_paired_datasets(
     *, synthetic: Optional[bool] = None
 ) -> list[tuple[Path, Path, int, str, str]]:
@@ -229,7 +242,19 @@ def get_available_paired_datasets(
 @lru_cache(maxsize=1)
 def _get_available_empty_datasets_cached() -> tuple[Path, ...]:
     empty_dir = DATA_DIR / "empty"
-    return tuple(sorted(empty_dir.glob("empty_*_64sc_*.npz")))
+    dataset_info = _load_dataset_info()
+    empty_paths = []
+    for entry in dataset_info.get("files", {}).get("empty", []):
+        role = str(entry.get("dataset_role", "train")).lower() or "train"
+        if role == "exclude":
+            continue
+        filename = entry.get("filename")
+        if not filename:
+            continue
+        path = empty_dir / str(filename)
+        if path.exists():
+            empty_paths.append(path)
+    return tuple(sorted(empty_paths))
 
 
 def get_available_empty_datasets() -> list[Path]:
@@ -1106,9 +1131,6 @@ def render_performance_report_markdown(
     paired_stress_real = report_data.get(
         "paired_stress_real", {"classic": {}, "ml": {}}
     )
-    paired_synthetic = report_data.get(
-        "paired_synthetic", {"classic": {}, "ml": {}}
-    )
     paired_header = "| Metric | " + " | ".join(PAIRED_CHIP_LABELS[chip] for chip in CHIP_ORDER) + " |"
     paired_divider = "|--------|" + "|".join("----------" for _ in CHIP_ORDER) + "|"
     paired_row_specs = (
@@ -1184,28 +1206,6 @@ def render_performance_report_markdown(
         "",
     ])
     _append_paired_table({"ml": paired_stress_real.get("ml", {})}, "ml")
-
-    lines.extend([
-        "",
-        "### Synthetic Weak-Link Pairs",
-        "",
-        (
-            "Synthetic derivatives of real recordings. All synthetic pairs are "
-            "part of ML training, so for the ML detector these tables are an "
-            "in-sample sanity check, not a generalization signal."
-        ),
-        "",
-        "#### Classic Detector",
-        "",
-    ])
-    _append_paired_table(paired_synthetic, "classic")
-
-    lines.extend([
-        "",
-        "#### ML Detector",
-        "",
-    ])
-    _append_paired_table(paired_synthetic, "ml")
 
     lines.extend([
         "",

@@ -168,10 +168,11 @@ def test_training_cache_manifest_tracks_dataset_roles():
 
     manifest = module._feature_cache_manifest(
         ["turb_skewness"],
-        dataset_roles=("train", "selection"),
+        dataset_roles=("train", "selection", "exclude"),
     )
 
-    assert manifest["dataset"]["dataset_roles"] == ["selection", "train"]
+    assert manifest["dataset"]["dataset_roles"] == ["exclude", "selection", "train"]
+    assert module.normalize_dataset_roles(("train", "exclude")) == {"train", "exclude"}
     with pytest.raises(ValueError, match="Unsupported dataset role"):
         module.normalize_dataset_roles(("train", "unknown"))
 

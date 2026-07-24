@@ -31,6 +31,18 @@ and writes `data/auto_generated/DATASET_QUALITY_CHECK.md` unless `--no-report`
 is set. Admission checks (integrity, empty/static sanity, ML readiness) can
 fail the run. Classic replay adds indicative 0-100 scores for review only, so
 the dataset is not filtered to "what Classic already solves".
+
+Read the Classic review tables with three rules in mind:
+
+- `dataset_role` stays a manual curation decision; the validator never assigns
+  `train`, `selection`, or `holdout`.
+- Idle-table `Burst` marks are same-chip review signals when enough clean idle
+  references exist for that chip; otherwise they fall back to fixed review
+  thresholds instead of cross-chip empirical marks.
+- `PPS` reports the observed packet rate from metadata, while `Q95`, `Drift`,
+  and the `Basis` column help explain whether a mark came from a same-chip
+  profile, a global pair profile, or fixed thresholds.
+
 Tooling details live in [`tools/README.md`](../tools/README.md).
 
 ## Scope
@@ -199,10 +211,12 @@ metadata instead.
 - `low_rssi: true` for real and synthetic weak-link datasets stored under their
   semantic labels
 - `synthetic: true` for generated captures that are not real measurements
-- `dataset_role: train | selection | holdout` to reserve recordings for the
-  deployment safety replays; entries without a role default to `train`.
-  `selection` recordings gate candidate selection, and `holdout` recordings
-  stay sealed until the trainer evaluates the final winner once
+- `dataset_role: train | selection | holdout | exclude` to reserve recordings
+  for the deployment safety replays; entries without a role default to
+  `train`. `selection` recordings gate candidate selection, `holdout`
+  recordings stay sealed until the trainer evaluates the final winner once,
+  and `exclude` keeps a dataset in the catalog while removing it from the
+  current train/selection/holdout workflow
 
 `validate_dataset_quality.py` regenerates those pair fields automatically
 before admission and Classic review. It never pairs a real capture with a

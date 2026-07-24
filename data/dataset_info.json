@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-23T20:48:26.150228",
+  "updated_at": "2026-07-24T19:29:38.279240",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -28,7 +28,8 @@
         "num_packets": 11996,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "living_room",
-        "device_id": "0x00007c2c6742bbac"
+        "device_id": "0x00007c2c6742bbac",
+        "dataset_role": "train"
       },
       {
         "filename": "empty_c3_64sc_dev0000acebe64ae708_20260704_112319_314055_0003.npz",
@@ -40,7 +41,8 @@
         "num_packets": 12105,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "bedroom",
-        "device_id": "0x0000acebe64ae708"
+        "device_id": "0x0000acebe64ae708",
+        "dataset_role": "train"
       },
       {
         "filename": "empty_c5_64sc_dev000030eda0e46278_20260704_151620_081075_0002.npz",
@@ -52,7 +54,8 @@
         "num_packets": 11992,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "bedroom",
-        "device_id": "0x000030eda0e46278"
+        "device_id": "0x000030eda0e46278",
+        "dataset_role": "train"
       },
       {
         "filename": "empty_c6_64sc_dev00007c2c6742bbac_20260704_151620_420932_0003.npz",
@@ -116,7 +119,8 @@
         "num_packets": 13951,
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "bedroom",
-        "device_id": "0x000010b41de8ec00"
+        "device_id": "0x000010b41de8ec00",
+        "dataset_role": "train"
       },
       {
         "filename": "empty_c6_64sc_dev00007c2c6742bbac_20260712_215645_774938_0001.npz",
@@ -183,7 +187,8 @@
         "description": "HT20 static presence sample",
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz",
@@ -224,7 +229,8 @@
         "description": "HT20 static presence sample",
         "environment": "hobby_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz",
@@ -237,7 +243,8 @@
         "description": "HT20 static presence sample",
         "environment": "hobby_room",
         "device_id": "0x0000acebe64adb64",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz",
@@ -250,7 +257,8 @@
         "description": "HT20 static presence sample",
         "environment": "hobby_room",
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz",
@@ -263,7 +271,8 @@
         "description": "HT20 static presence sample",
         "environment": "living_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260716_102200_622276_0001.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260716_102200_622276_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001.npz",
@@ -276,7 +285,8 @@
         "description": "HT20 static presence sample",
         "environment": "living_room",
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260716_104800_125919_0001.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260716_104800_125919_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz",
@@ -289,7 +299,8 @@
         "description": "HT20 static presence sample",
         "environment": "living_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260716_104800_358109_0002.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260716_104800_358109_0002.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_esp32_64sc_dev00004c11aeb86eb8_20260719_171301_344381_0001.npz",
@@ -302,7 +313,8 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x00004c11aeb86eb8",
-        "optimal_pair_motion_file": "motion_esp32_64sc_dev00004c11aeb86eb8_20260719_171516_472716_0001.npz"
+        "optimal_pair_motion_file": "motion_esp32_64sc_dev00004c11aeb86eb8_20260719_171516_472716_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz",
@@ -315,7 +327,8 @@
         "description": "HT20 static presence sample",
         "environment": "living_room",
         "device_id": "0x0000acebe64ae708",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz",
@@ -416,7 +429,8 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64ae708",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260723_120227_676445_0001.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260723_120227_676445_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_s3_64sc_dev000080b54ef1ee78_20260723_121059_606276_0001.npz",
@@ -443,7 +457,8 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260723_130900_697661_0001.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260723_130900_697661_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260723_133317_279759_0001.npz",
@@ -456,7 +471,8 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260723_133515_742709_0001.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260723_133515_742709_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz",
@@ -469,167 +485,124 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260723_143809_984640_0001.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260723_143809_984640_0001.npz",
+        "dataset_role": "train"
       },
       {
-        "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T15:32:59.576598",
-        "generated_at": "2026-07-23T20:47:25.605210",
-        "duration_ms": 179993,
-        "num_packets": 17628,
-        "description": "Synthetic low-RSSI derivative of static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz using the c6_moderate_link profile. Not a real capture.",
-        "environment": "hobby_room",
-        "device_id": "0x00007c2c6742bbac",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz",
-        "generation_group": "low-rssi-c6_moderate_link-shared_session-s20260722-615a1657f5b2",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz"
-      },
-      {
-        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-15T23:39:59.126050",
-        "generated_at": "2026-07-23T20:47:33.320287",
-        "duration_ms": 179963,
-        "num_packets": 17924,
-        "description": "Synthetic low-RSSI derivative of static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz using the s3_weak_link profile. Not a real capture.",
-        "environment": "hobby_room",
-        "device_id": "0x000010b41de8ec00",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz",
-        "generation_group": "low-rssi-s3_weak_link-shared_session-s20260722-504c52d5ea3c",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz"
-      },
-      {
-        "filename": "static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-16T00:33:06.429164",
-        "generated_at": "2026-07-23T20:47:40.648486",
-        "duration_ms": 179979,
-        "num_packets": 17707,
-        "description": "Synthetic low-RSSI derivative of static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz using the c3_weak_link profile. Not a real capture.",
-        "environment": "hobby_room",
-        "device_id": "0x0000acebe64adb64",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz",
-        "generation_group": "low-rssi-c3_weak_link-shared_session-s20260722-9b7ec697c3d4",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz"
-      },
-      {
-        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz",
+        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260724_125917_826283_0001.npz",
         "chip": "C5",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-07-16T00:52:25.846991",
-        "generated_at": "2026-07-23T20:47:49.279023",
-        "duration_ms": 179976,
-        "num_packets": 17972,
-        "description": "Synthetic low-RSSI derivative of static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz using the c5_moderate_link profile. Not a real capture.",
-        "environment": "hobby_room",
+        "collected_at": "2026-07-24T12:59:17.812295",
+        "duration_ms": 179937,
+        "num_packets": 16768,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz",
-        "generation_group": "low-rssi-c5_moderate_link-shared_session-s20260722-bced77ecea1e",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz"
+        "dataset_role": "holdout",
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260724_130555_313579_0001.npz"
       },
       {
-        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz",
-        "chip": "S3",
+        "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260724_125917_926272_0002.npz",
+        "chip": "C6",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-07-16T10:10:27.175122",
-        "generated_at": "2026-07-23T20:47:57.137076",
+        "collected_at": "2026-07-24T12:59:17.917650",
         "duration_ms": 179967,
-        "num_packets": 17968,
-        "description": "Synthetic low-RSSI derivative of static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz using the s3_weak_link profile. Not a real capture.",
-        "environment": "living_room",
-        "device_id": "0x000010b41de8ec00",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz",
-        "generation_group": "low-rssi-s3_weak_link-shared_session-s20260722-0be84e42164a",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260716_102200_622276_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz"
-      },
-      {
-        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz",
-        "chip": "C5",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-16T10:43:11.771507",
-        "generated_at": "2026-07-23T20:48:05.235201",
-        "duration_ms": 179944,
-        "num_packets": 18230,
-        "description": "Synthetic low-RSSI derivative of static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001.npz using the c5_moderate_link profile. Not a real capture.",
-        "environment": "living_room",
-        "device_id": "0x000030eda0e46278",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001.npz",
-        "generation_group": "low-rssi-c5_moderate_link-shared_session-s20260722-1d095916f6ad",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260716_104800_125919_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz"
-      },
-      {
-        "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-16T10:43:11.871945",
-        "generated_at": "2026-07-23T20:48:12.891401",
-        "duration_ms": 179968,
-        "num_packets": 18145,
-        "description": "Synthetic low-RSSI derivative of static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz using the c6_moderate_link profile. Not a real capture.",
-        "environment": "living_room",
+        "num_packets": 16460,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz",
-        "generation_group": "low-rssi-c6_moderate_link-shared_session-s20260722-c8d357d9108f",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260716_104800_358109_0002__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz"
+        "dataset_role": "holdout",
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260724_130555_377748_0002.npz"
       },
       {
-        "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz",
+        "filename": "static_presence_c3_64sc_dev0000acebe64adb64_20260724_125918_021296_0003.npz",
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-07-19T22:41:49.162734",
-        "generated_at": "2026-07-23T20:48:20.919340",
-        "duration_ms": 180000,
-        "num_packets": 17231,
-        "description": "Synthetic low-RSSI derivative of static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz using the c3_weak_link profile. Not a real capture.",
-        "environment": "living_room",
-        "device_id": "0x0000acebe64ae708",
+        "collected_at": "2026-07-24T12:59:18.010807",
+        "duration_ms": 179978,
+        "num_packets": 18135,
+        "description": "HT20 static presence sample. Gioele's bedroom.",
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64adb64",
+        "dataset_role": "holdout",
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260724_131108_916493_0001.npz"
+      },
+      {
+        "filename": "static_presence_c3_64sc_dev0000acebe64adb64_20260724_153301_148544_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T15:33:00.965363",
+        "duration_ms": 180001,
+        "num_packets": 179553,
+        "description": "HT20 static presence sample. 1000pps",
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64adb64",
+        "dataset_role": "exclude",
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260724_153521_973894_0001.npz"
+      },
+      {
+        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260724_154215_755817_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T15:42:15.738237",
+        "duration_ms": 179983,
+        "num_packets": 17914,
+        "description": "HT20 low-RSSI static presence sample. AP is in hobby room.",
         "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz",
-        "generation_group": "low-rssi-c3_weak_link-shared_session-s20260722-405ea1e35f48",
-        "generation_mode": "shared_session",
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
         "dataset_role": "train",
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260724_154440_361170_0001.npz"
+      },
+      {
+        "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260724_155953_837027_0001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T15:59:53.820868",
+        "duration_ms": 179963,
+        "num_packets": 17905,
+        "description": "HT20 low-RSSI static presence sample. AP is in hobby room.",
+        "low_rssi": true,
+        "environment": "bedroom",
+        "device_id": "0x00007c2c6742bbac",
+        "dataset_role": "train",
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260724_160150_405763_0001.npz"
+      },
+      {
+        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260724_182124_554857_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T18:21:24.538334",
+        "duration_ms": 179965,
+        "num_packets": 17940,
+        "description": "HT20 low-RSSI static presence sample. AP is in hobby room.",
+        "low_rssi": true,
+        "environment": "bedroom",
+        "device_id": "0x000030eda0e46278",
+        "dataset_role": "train",
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260724_182458_501798_0001.npz"
+      },
+      {
+        "filename": "static_presence_c3_64sc_dev0000acebe64adb64_20260724_191349_306817_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T19:13:49.294153",
+        "duration_ms": 180001,
+        "num_packets": 17998,
+        "description": "HT20 low-RSSI static presence sample. AP is in hobby room.",
+        "low_rssi": true,
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64adb64",
+        "dataset_role": "train",
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260724_191543_067609_0001.npz"
       }
     ],
     "motion": [
@@ -644,7 +617,8 @@
         "description": "HT20 motion sample",
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz",
@@ -685,7 +659,8 @@
         "description": "HT20 motion sample",
         "environment": "hobby_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001.npz",
@@ -698,7 +673,8 @@
         "description": "HT20 motion sample",
         "environment": "hobby_room",
         "device_id": "0x0000acebe64adb64",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001.npz",
@@ -711,7 +687,8 @@
         "description": "HT20 motion sample",
         "environment": "hobby_room",
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_s3_64sc_dev000010b41de8ec00_20260716_102200_622276_0001.npz",
@@ -724,7 +701,8 @@
         "description": "HT20 motion sample",
         "environment": "living_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_c5_64sc_dev000030eda0e46278_20260716_104800_125919_0001.npz",
@@ -737,7 +715,8 @@
         "description": "HT20 motion sample",
         "environment": "living_room",
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260716_104800_358109_0002.npz",
@@ -750,7 +729,8 @@
         "description": "HT20 motion sample",
         "environment": "living_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_esp32_64sc_dev00004c11aeb86eb8_20260719_171516_472716_0001.npz",
@@ -763,7 +743,8 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x00004c11aeb86eb8",
-        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_dev00004c11aeb86eb8_20260719_171301_344381_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_dev00004c11aeb86eb8_20260719_171301_344381_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001.npz",
@@ -776,7 +757,8 @@
         "description": "HT20 motion sample",
         "environment": "living_room",
         "device_id": "0x0000acebe64ae708",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_s3_64sc_dev000010b41de8ec00_20260722_172305_879358_0001.npz",
@@ -877,7 +859,8 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64ae708",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260723_120030_769423_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260723_120030_769423_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_s3_64sc_dev000080b54ef1ee78_20260723_121259_714810_0001.npz",
@@ -904,7 +887,8 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x000010b41de8ec00",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260723_130651_930086_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260723_130651_930086_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260723_133515_742709_0001.npz",
@@ -917,7 +901,8 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260723_133317_279759_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260723_133317_279759_0001.npz",
+        "dataset_role": "train"
       },
       {
         "filename": "motion_c5_64sc_dev000030eda0e46278_20260723_143809_984640_0001.npz",
@@ -930,167 +915,124 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz",
+        "dataset_role": "train"
       },
       {
-        "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz",
+        "filename": "motion_c5_64sc_dev000030eda0e46278_20260724_130555_313579_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T13:05:55.303367",
+        "duration_ms": 89949,
+        "num_packets": 8640,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x000030eda0e46278",
+        "dataset_role": "holdout",
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260724_125917_826283_0001.npz"
+      },
+      {
+        "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260724_130555_377748_0002.npz",
         "chip": "C6",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-07-04T15:36:24.253379",
-        "generated_at": "2026-07-23T20:48:21.289052",
-        "duration_ms": 89999,
-        "num_packets": 8780,
-        "description": "Synthetic low-RSSI derivative of motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz using the c6_moderate_link profile. Not a real capture.",
-        "environment": "hobby_room",
+        "collected_at": "2026-07-24T13:05:55.373660",
+        "duration_ms": 89971,
+        "num_packets": 8532,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz",
-        "generation_group": "low-rssi-c6_moderate_link-shared_session-s20260722-615a1657f5b2",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz"
+        "dataset_role": "holdout",
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260724_125917_926272_0002.npz"
       },
       {
-        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-15T23:47:36.424217",
-        "generated_at": "2026-07-23T20:48:21.897939",
-        "duration_ms": 89976,
-        "num_packets": 8988,
-        "description": "Synthetic low-RSSI derivative of motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001.npz using the s3_weak_link profile. Not a real capture.",
-        "environment": "hobby_room",
-        "device_id": "0x000010b41de8ec00",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "motion_s3_64sc_dev000010b41de8ec00_20260715_234736_430941_0001.npz",
-        "generation_group": "low-rssi-s3_weak_link-shared_session-s20260722-504c52d5ea3c",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz"
-      },
-      {
-        "filename": "motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz",
+        "filename": "motion_c3_64sc_dev0000acebe64adb64_20260724_131108_916493_0001.npz",
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-07-16T00:37:08.693388",
-        "generated_at": "2026-07-23T20:48:22.528221",
-        "duration_ms": 89995,
-        "num_packets": 8834,
-        "description": "Synthetic low-RSSI derivative of motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001.npz using the c3_weak_link profile. Not a real capture.",
-        "environment": "hobby_room",
+        "collected_at": "2026-07-24T13:11:08.906836",
+        "duration_ms": 89996,
+        "num_packets": 8993,
+        "description": "HT20 motion sample. Gioele's bedroom.",
+        "environment": "bedroom",
         "device_id": "0x0000acebe64adb64",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001.npz",
-        "generation_group": "low-rssi-c3_weak_link-shared_session-s20260722-9b7ec697c3d4",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz"
+        "dataset_role": "holdout",
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260724_125918_021296_0003.npz"
       },
       {
-        "filename": "motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz",
-        "chip": "C5",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-16T01:04:14.608327",
-        "generated_at": "2026-07-23T20:48:23.242726",
-        "duration_ms": 89990,
-        "num_packets": 8904,
-        "description": "Synthetic low-RSSI derivative of motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001.npz using the c5_moderate_link profile. Not a real capture.",
-        "environment": "hobby_room",
-        "device_id": "0x000030eda0e46278",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001.npz",
-        "generation_group": "low-rssi-c5_moderate_link-shared_session-s20260722-bced77ecea1e",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz"
-      },
-      {
-        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260716_102200_622276_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-16T10:22:00.618244",
-        "generated_at": "2026-07-23T20:48:23.908403",
-        "duration_ms": 89994,
-        "num_packets": 8707,
-        "description": "Synthetic low-RSSI derivative of motion_s3_64sc_dev000010b41de8ec00_20260716_102200_622276_0001.npz using the s3_weak_link profile. Not a real capture.",
-        "environment": "living_room",
-        "device_id": "0x000010b41de8ec00",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "motion_s3_64sc_dev000010b41de8ec00_20260716_102200_622276_0001.npz",
-        "generation_group": "low-rssi-s3_weak_link-shared_session-s20260722-0be84e42164a",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001__synthetic_low_rssi_s3_weak_link_shared_session_seed20260722.npz"
-      },
-      {
-        "filename": "motion_c5_64sc_dev000030eda0e46278_20260716_104800_125919_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz",
-        "chip": "C5",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-16T10:48:00.121169",
-        "generated_at": "2026-07-23T20:48:24.637226",
-        "duration_ms": 89956,
-        "num_packets": 9096,
-        "description": "Synthetic low-RSSI derivative of motion_c5_64sc_dev000030eda0e46278_20260716_104800_125919_0001.npz using the c5_moderate_link profile. Not a real capture.",
-        "environment": "living_room",
-        "device_id": "0x000030eda0e46278",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "motion_c5_64sc_dev000030eda0e46278_20260716_104800_125919_0001.npz",
-        "generation_group": "low-rssi-c5_moderate_link-shared_session-s20260722-1d095916f6ad",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260716_104311_777671_0001__synthetic_low_rssi_c5_moderate_link_shared_session_seed20260722.npz"
-      },
-      {
-        "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260716_104800_358109_0002__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-16T10:48:00.353996",
-        "generated_at": "2026-07-23T20:48:25.341080",
-        "duration_ms": 89997,
-        "num_packets": 9048,
-        "description": "Synthetic low-RSSI derivative of motion_c6_64sc_dev00007c2c6742bbac_20260716_104800_358109_0002.npz using the c6_moderate_link profile. Not a real capture.",
-        "environment": "living_room",
-        "device_id": "0x00007c2c6742bbac",
-        "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "motion_c6_64sc_dev00007c2c6742bbac_20260716_104800_358109_0002.npz",
-        "generation_group": "low-rssi-c6_moderate_link-shared_session-s20260722-c8d357d9108f",
-        "generation_mode": "shared_session",
-        "dataset_role": "train",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002__synthetic_low_rssi_c6_moderate_link_shared_session_seed20260722.npz"
-      },
-      {
-        "filename": "motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz",
+        "filename": "motion_c3_64sc_dev0000acebe64adb64_20260724_153521_973894_0001.npz",
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-07-19T22:48:14.992256",
-        "generated_at": "2026-07-23T20:48:26.150228",
-        "duration_ms": 89933,
-        "num_packets": 8598,
-        "description": "Synthetic low-RSSI derivative of motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001.npz using the c3_weak_link profile. Not a real capture.",
-        "environment": "living_room",
-        "device_id": "0x0000acebe64ae708",
+        "collected_at": "2026-07-24T15:35:21.904161",
+        "duration_ms": 90000,
+        "num_packets": 89721,
+        "description": "HT20 motion sample. 1000pps",
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64adb64",
+        "dataset_role": "exclude",
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260724_153301_148544_0001.npz"
+      },
+      {
+        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260724_154440_361170_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T15:44:40.349333",
+        "duration_ms": 89996,
+        "num_packets": 8972,
+        "description": "HT20 low-RSSI motion sample. AP is in hobby room.",
         "low_rssi": true,
-        "synthetic": true,
-        "source_dataset": "motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001.npz",
-        "generation_group": "low-rssi-c3_weak_link-shared_session-s20260722-405ea1e35f48",
-        "generation_mode": "shared_session",
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
         "dataset_role": "train",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001__synthetic_low_rssi_c3_weak_link_shared_session_seed20260722.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260724_154215_755817_0001.npz"
+      },
+      {
+        "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260724_160150_405763_0001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T16:01:50.394978",
+        "duration_ms": 89995,
+        "num_packets": 8972,
+        "description": "HT20 low-RSSI motion sample. AP is in hobby room.",
+        "low_rssi": true,
+        "environment": "bedroom",
+        "device_id": "0x00007c2c6742bbac",
+        "dataset_role": "train",
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260724_155953_837027_0001.npz"
+      },
+      {
+        "filename": "motion_c5_64sc_dev000030eda0e46278_20260724_182458_501798_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T18:24:58.492078",
+        "duration_ms": 89983,
+        "num_packets": 8964,
+        "description": "HT20 low-RSSI motion sample. AP is in hobby room.",
+        "low_rssi": true,
+        "environment": "bedroom",
+        "device_id": "0x000030eda0e46278",
+        "dataset_role": "train",
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260724_182124_554857_0001.npz"
+      },
+      {
+        "filename": "motion_c3_64sc_dev0000acebe64adb64_20260724_191543_067609_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T19:15:43.062016",
+        "duration_ms": 89992,
+        "num_packets": 9000,
+        "description": "HT20 low-RSSI motion sample. AP is in hobby room.",
+        "low_rssi": true,
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64adb64",
+        "dataset_role": "train",
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260724_191349_306817_0001.npz"
       }
     ],
     "test": [
@@ -1104,7 +1046,8 @@
         "num_packets": 47961,
         "description": "quiet long-run",
         "environment": "living_room",
-        "device_id": "0x00007c2c6742bbac"
+        "device_id": "0x00007c2c6742bbac",
+        "dataset_role": "train"
       },
       {
         "filename": "test_c3_64sc_dev0000acebe64ae708_20260704_112519_283723_0003.npz",
@@ -1116,7 +1059,8 @@
         "num_packets": 48407,
         "description": "quiet long-run",
         "environment": "bedroom",
-        "device_id": "0x0000acebe64ae708"
+        "device_id": "0x0000acebe64ae708",
+        "dataset_role": "train"
       },
       {
         "filename": "test_c5_64sc_dev000030eda0e46278_20260704_151820_059431_0002.npz",
@@ -1128,7 +1072,8 @@
         "num_packets": 47841,
         "description": "HT20 test sample",
         "environment": "bedroom",
-        "device_id": "0x000030eda0e46278"
+        "device_id": "0x000030eda0e46278",
+        "dataset_role": "train"
       },
       {
         "filename": "test_c6_64sc_dev00007c2c6742bbac_20260704_151820_395340_0003.npz",
@@ -1140,7 +1085,8 @@
         "num_packets": 47868,
         "description": "HT20 test sample",
         "environment": "hobby_room",
-        "device_id": "0x00007c2c6742bbac"
+        "device_id": "0x00007c2c6742bbac",
+        "dataset_role": "train"
       },
       {
         "filename": "test_c3_64sc_dev0000acebe64ae708_20260704_161740_831577_0001.npz",
@@ -1152,7 +1098,8 @@
         "num_packets": 47566,
         "description": "HT20 test sample",
         "environment": "hobby_room",
-        "device_id": "0x0000acebe64ae708"
+        "device_id": "0x0000acebe64ae708",
+        "dataset_role": "train"
       },
       {
         "filename": "test_c5_64sc_dev000030eda0e46278_20260704_175648_806841_0001.npz",
@@ -1164,7 +1111,8 @@
         "num_packets": 47990,
         "description": "HT20 test sample",
         "device_id": "0x000030eda0e46278",
-        "environment": "hobby_room"
+        "environment": "hobby_room",
+        "dataset_role": "train"
       },
       {
         "filename": "test_c5_64sc_dev000030eda0e46278_20260704_192316_855582_0001.npz",
@@ -1176,7 +1124,8 @@
         "num_packets": 46724,
         "description": "HT20 test sample",
         "environment": "living_room",
-        "device_id": "0x000030eda0e46278"
+        "device_id": "0x000030eda0e46278",
+        "dataset_role": "train"
       },
       {
         "filename": "test_s3_64sc_dev000010b41de8ec00_20260712_203514_779438_0001.npz",
@@ -1188,7 +1137,8 @@
         "num_packets": 56979,
         "description": "HT20 test sample",
         "environment": "bedroom",
-        "device_id": "0x000010b41de8ec00"
+        "device_id": "0x000010b41de8ec00",
+        "dataset_role": "train"
       },
       {
         "filename": "test_c6_64sc_dev00007c2c6742bbac_20260712_215845_742467_0001.npz",
@@ -1200,7 +1150,8 @@
         "num_packets": 59657,
         "description": "HT20 test sample",
         "environment": "bedroom",
-        "device_id": "0x00007c2c6742bbac"
+        "device_id": "0x00007c2c6742bbac",
+        "dataset_role": "train"
       },
       {
         "filename": "test_c3_64sc_dev0000acebe64ae708_20260712_235252_773547_0001.npz",
@@ -1212,7 +1163,8 @@
         "num_packets": 49084,
         "description": "HT20 test sample",
         "environment": "living_room",
-        "device_id": "0x0000acebe64ae708"
+        "device_id": "0x0000acebe64ae708",
+        "dataset_role": "train"
       },
       {
         "filename": "test_s3_64sc_dev000010b41de8ec00_20260713_002525_284455_0001.npz",
@@ -1224,7 +1176,8 @@
         "num_packets": 48494,
         "description": "HT20 test sample",
         "environment": "living_room",
-        "device_id": "0x000010b41de8ec00"
+        "device_id": "0x000010b41de8ec00",
+        "dataset_role": "train"
       },
       {
         "filename": "test_s3_64sc_dev000010b41de8ec00_20260715_202219_234292_0001.npz",
@@ -1236,7 +1189,8 @@
         "num_packets": 49145,
         "description": "HT20 test sample",
         "environment": "hobby_room",
-        "device_id": "0x000010b41de8ec00"
+        "device_id": "0x000010b41de8ec00",
+        "dataset_role": "train"
       }
     ]
   },

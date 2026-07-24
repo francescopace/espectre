@@ -202,7 +202,6 @@ def test_render_performance_report_markdown_formats_missing_values_as_na() -> No
     assert "Per-chip live firmware reports" in markdown
     assert "also verifies that the host-side C++ integration suites stay aligned" in markdown
     assert "## Low-RSSI Stress Validation" in markdown
-    assert "| Recall | 87.0% | N/A | N/A | N/A | N/A |" in markdown
 
 
 def test_render_performance_report_markdown_splits_ml_by_provenance() -> None:
@@ -217,7 +216,6 @@ def test_render_performance_report_markdown_splits_ml_by_provenance() -> None:
     train_section = markdown[train_index:markdown.index("## Low-RSSI Stress Validation")]
     assert "| Recall | 99.8% | N/A | N/A | N/A | 100.0% |" in reserved_section
     assert "| Recall | 99.9% | N/A | N/A | N/A | N/A |" in train_section
-    assert "so for the ML detector these tables are an in-sample sanity check" in markdown
 
 
 def test_render_performance_report_markdown_reports_link_class_split() -> None:
@@ -226,7 +224,6 @@ def test_render_performance_report_markdown_reports_link_class_split() -> None:
     assert "(static_presence / motion, normal link)" in markdown
     assert "### Real Weak-Link Pairs — Classic Detector (report-only)" in markdown
     assert "### Real Weak-Link Pairs — ML Detector" in markdown
-    assert "### Synthetic Weak-Link Pairs" in markdown
     stress_index = markdown.index("## Low-RSSI Stress Validation")
     stress_section = markdown[stress_index:]
     assert "| Recall | N/A | N/A | N/A | N/A | 96.3% |" in stress_section

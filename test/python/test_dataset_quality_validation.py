@@ -74,6 +74,7 @@ def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> No
             "margin_q95": float(np.quantile(margins, 0.95)),
             "margin_q99": float(np.quantile(margins, 0.99)),
             "margin_drift": 0.0,
+            "margin_drift_abs": 0.0,
             "margin_series": margins,
             "block_margins": np.array([median]),
             "burst_count": motion_count,
@@ -105,12 +106,12 @@ def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> No
     assert presence_rows[0]["verdict"] == "motion-contaminated"
 
 
-def test_classic_baseline_score_weights_cleanliness_stability_and_bursts() -> None:
+def test_classic_baseline_score_weights_cleanliness_and_bursts() -> None:
     module = _load_validator_module()
 
-    assert module.classic_baseline_score(0.0, 0.75, 0.0) == 100.0
-    assert module.classic_baseline_score(0.10, 1.50, 5.0) == 0.0
-    assert module.classic_baseline_score(0.05, 1.125, 2.5) == 53.8
+    assert module.classic_baseline_score(0.0, 0.0) == 100.0
+    assert module.classic_baseline_score(0.10, 5.0) == 0.0
+    assert module.classic_baseline_score(0.05, 2.5) == 50.0
 
 
 def test_validate_file_integrity_rejects_object_arrays(tmp_path) -> None:
@@ -185,6 +186,9 @@ def test_empty_and_presence_verdicts_use_classic_baseline_only() -> None:
     baseline = {
         "fp_rate": 0.0,
         "margin_mad": 0.7,
+        "margin_q95": -0.4,
+        "margin_drift": 0.0,
+        "margin_drift_abs": 0.0,
         "longest_burst_seconds": 0.0,
     }
 
@@ -608,6 +612,9 @@ def test_long_recording_coverage_warns_without_annotated_motion() -> None:
             "score": 100.0,
             "fp_rate": 0.0,
             "margin_mad": 0.5,
+            "margin_q95": -0.5,
+            "margin_drift": 0.0,
+            "margin_drift_abs": 0.0,
             "longest_burst_seconds": 0.0,
             "threshold": 1.0,
             "eval_count": 100,
@@ -823,11 +830,14 @@ def test_ratio_cells_mark_soft_warn_and_fail_thresholds() -> None:
     assert "⚠️" in module._format_score_cell(80.0, "warn")
     assert "❌" in module._format_score_cell(40.0, "fail")
     assert module._format_margin_mad_cell(0.90) == "0.90"
-    assert "⚠️" in module._format_margin_mad_cell(1.10)
-    assert "❌" in module._format_margin_mad_cell(1.60)
+    assert module._format_margin_mad_cell(1.10) == "1.10"
+    assert module._format_margin_mad_cell(1.60) == "1.60"
+    assert module._format_packet_rate_cell(93.2) == "93.2"
     assert module._format_burst_cell(0.5) == "0.5s"
     assert "⚠️" in module._format_burst_cell(1.5)
     assert "❌" in module._format_burst_cell(5.5)
+    assert module._format_margin_q95_cell(-0.20) == "-0.20"
+    assert module._format_margin_drift_cell(0.20) == "0.20"
     assert module._score_value_severity(95.0) is None
     assert module._score_value_severity(94.9) is None
     assert module._score_value_severity(90.0) is None
@@ -855,6 +865,9 @@ def test_idle_evidence_results_never_fail_the_run() -> None:
         "score": 10.0,
         "fp_rate": 0.5,
         "margin_mad": 2.0,
+        "margin_q95": 0.8,
+        "margin_drift": 0.6,
+        "margin_drift_abs": 0.6,
         "longest_burst_seconds": 30.0,
     }
     module._compute_idle_evidence_for_entry = (
@@ -895,7 +908,7 @@ def test_pair_review_profile_derives_empirical_ratio_and_score_thresholds() -> N
     assert module._score_value_severity(97.3, severity_profile) is None
 
 
-def test_idle_review_profile_derives_empirical_mad_and_burst_thresholds() -> None:
+def test_idle_review_profile_derives_empirical_burst_q95_and_drift_thresholds() -> None:
     module = _load_validator_module()
     idle_rows = [
         {
@@ -903,6 +916,9 @@ def test_idle_review_profile_derives_empirical_mad_and_burst_thresholds() -> Non
             "verdict": "clean",
             "baseline": {
                 "margin_mad": 0.60,
+                "margin_q95": -0.70,
+                "margin_drift": 0.02,
+                "margin_drift_abs": 0.02,
                 "longest_burst_seconds": 0.0,
                 "score": 100.0,
             },
@@ -912,6 +928,9 @@ def test_idle_review_profile_derives_empirical_mad_and_burst_thresholds() -> Non
             "verdict": "clean",
             "baseline": {
                 "margin_mad": 0.70,
+                "margin_q95": -0.60,
+                "margin_drift": 0.04,
+                "margin_drift_abs": 0.04,
                 "longest_burst_seconds": 0.1,
                 "score": 99.0,
             },
@@ -921,6 +940,9 @@ def test_idle_review_profile_derives_empirical_mad_and_burst_thresholds() -> Non
             "verdict": "clean",
             "baseline": {
                 "margin_mad": 0.80,
+                "margin_q95": -0.45,
+                "margin_drift": 0.07,
+                "margin_drift_abs": 0.07,
                 "longest_burst_seconds": 0.2,
                 "score": 97.0,
             },
@@ -930,6 +952,9 @@ def test_idle_review_profile_derives_empirical_mad_and_burst_thresholds() -> Non
             "verdict": "clean",
             "baseline": {
                 "margin_mad": 0.90,
+                "margin_q95": -0.35,
+                "margin_drift": 0.10,
+                "margin_drift_abs": 0.10,
                 "longest_burst_seconds": 0.3,
                 "score": 95.0,
             },
@@ -937,8 +962,121 @@ def test_idle_review_profile_derives_empirical_mad_and_burst_thresholds() -> Non
     ]
 
     profile_map = module._table_review_profiles([], idle_rows, [], [])
-    severity_profile = profile_map["static_presence"]["S3"]
+    severity_profile = module._row_severity_profile(
+        profile_map, "static_presence", "S3"
+    )
 
-    assert "⚠️" in module._format_margin_mad_cell(0.88, severity_profile=severity_profile)
+    assert module._review_basis_label(severity_profile) == "chip"
     assert "⚠️" in module._format_burst_cell(0.28, severity_profile=severity_profile)
+    assert "⚠️" in module._format_margin_q95_cell(-0.37, severity_profile=severity_profile)
+    assert "⚠️" in module._format_margin_drift_cell(0.095, severity_profile=severity_profile)
     assert module._score_value_severity(95.4, severity_profile) is None
+
+
+def test_idle_review_profile_uses_fixed_basis_without_same_chip_references() -> None:
+    module = _load_validator_module()
+    idle_rows = [
+        {
+            "chip": "C3",
+            "verdict": "clean",
+            "baseline": {
+                "margin_mad": 0.60,
+                "margin_q95": -0.70,
+                "margin_drift": 0.02,
+                "margin_drift_abs": 0.02,
+                "longest_burst_seconds": 0.0,
+                "score": 100.0,
+            },
+        },
+        {
+            "chip": "C3",
+            "verdict": "clean",
+            "baseline": {
+                "margin_mad": 0.70,
+                "margin_q95": -0.60,
+                "margin_drift": 0.04,
+                "margin_drift_abs": 0.04,
+                "longest_burst_seconds": 0.1,
+                "score": 99.0,
+            },
+        },
+        {
+            "chip": "C3",
+            "verdict": "clean",
+            "baseline": {
+                "margin_mad": 0.80,
+                "margin_q95": -0.45,
+                "margin_drift": 0.07,
+                "margin_drift_abs": 0.07,
+                "longest_burst_seconds": 0.2,
+                "score": 97.0,
+            },
+        },
+    ]
+
+    profile_map = module._table_review_profiles([], idle_rows, [], [])
+    severity_profile = module._row_severity_profile(profile_map, "static_presence", "C6")
+
+    assert module._review_basis_label(severity_profile) == "fixed"
+    assert "C3" not in profile_map["static_presence"]
+    assert module.EMPIRICAL_PROFILE_GLOBAL_KEY not in profile_map["static_presence"]
+
+
+def test_pair_rows_can_fall_back_to_global_empirical_profile() -> None:
+    module = _load_validator_module()
+    pair_rows = [
+        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.8, "classic_score": 99.8},
+        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.4, "classic_score": 98.9},
+        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.0, "classic_score": 98.0},
+        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 3.6, "classic_score": 97.2},
+        {"chip": "C6", "classic_status": "PASS", "pair_ratio": 3.5, "classic_score": 96.1},
+    ]
+
+    profile_map = module._table_review_profiles(pair_rows, [], [], [])
+    severity_profile = module._row_severity_profile(profile_map, "pair", "C6")
+
+    assert module._review_basis_label(severity_profile) == "global"
+    assert module._pair_ratio_severity(3.53, severity_profile) == "warn"
+
+
+def test_idle_score_row_reports_basis_and_alternative_metrics() -> None:
+    module = _load_validator_module()
+    row = {
+        "chip": "S3",
+        "environment": "bedroom",
+        "filename": "static_presence_s3_demo.npz",
+        "display_date": "2026-07-24 12:59",
+        "rssi_dbm": -47.0,
+        "baseline": {
+            "score": 97.5,
+            "packet_rate_pps": 93.2,
+            "fp_rate": 0.0,
+            "margin_mad": 0.88,
+            "margin_q95": -0.37,
+            "margin_drift": 0.09,
+            "margin_drift_abs": 0.09,
+            "longest_burst_seconds": 0.28,
+        },
+        "verdict": "clean",
+    }
+    review_profiles = {
+        "static_presence": {
+            "S3": {
+                "mad": {"warn_above": 0.85, "fail_above": 0.95},
+                "burst": {"warn_above": 0.25, "fail_above": 0.35},
+                "q95": {"warn_above": -0.40, "fail_above": -0.30},
+                "drift": {"warn_above": 0.08, "fail_above": 0.12},
+            },
+        },
+    }
+
+    rendered = module._format_idle_evidence_score_row(
+        row,
+        label="static_presence",
+        markdown=True,
+        review_profiles=review_profiles,
+    )
+
+    assert rendered.startswith("| S3 | bedroom |")
+    assert "| 93.2 |" in rendered
+    assert "⚠️" in rendered

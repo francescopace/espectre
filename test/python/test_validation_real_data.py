@@ -28,6 +28,7 @@ from tools.lib.performance_report import (
     get_available_chip_types as _shared_get_available_chip_types,
     get_available_empty_datasets as _shared_get_available_empty_datasets,
     get_available_paired_datasets as _shared_get_available_paired_datasets,
+    get_paired_dataset_role as _get_paired_dataset_role,
     is_low_rssi_paired_dataset as _is_low_rssi_paired_dataset,
     load_real_data_cached as _load_real_data_cached,
 )
@@ -74,6 +75,12 @@ def get_available_empty_datasets():
 def get_available_chip_types():
     """Return the stable set of chips covered by the paired real-data datasets."""
     return _shared_get_available_chip_types()
+
+
+ML_RESERVED_REPLAY_GUARDRAIL_RECALL = 90.0
+ML_RESERVED_REPLAY_GUARDRAIL_FP_RATE = 10.0
+ML_STRESS_REPLAY_GUARDRAIL_RECALL = 85.0
+ML_STRESS_REPLAY_GUARDRAIL_FP_RATE = 15.0
 
 
 # ============================================================================
@@ -131,6 +138,14 @@ def link_stress(dataset_config):
     """True when the pair is a real weak-link (`low_rssi`) stress capture."""
     static_presence_path, _, _, _, _ = dataset_config
     return _is_low_rssi_paired_dataset(static_presence_path)
+
+
+@pytest.fixture
+def dataset_role(dataset_config):
+    """Return the normalized ML provenance role for the paired replay."""
+    static_presence_path, _, _, _, _ = dataset_config
+    role = _get_paired_dataset_role(static_presence_path)
+    return role or "train"
 
 
 @pytest.fixture
@@ -421,7 +436,7 @@ class TestPerformanceMetrics:
             )
 
     def test_ml_detection_accuracy(self, dataset_config, num_subcarriers, ml_fp_rate_target, ml_recall_target,
-                                   chip_type, dataset_id, link_stress):
+                                   chip_type, dataset_id, link_stress, dataset_role):
         """
         Test ML (Neural Network) motion detection accuracy with real CSI data.
         
@@ -431,9 +446,13 @@ class TestPerformanceMetrics:
         Note: ML model uses fixed subcarriers from config.DEFAULT_SUBCARRIERS regardless of chip type.
         ML uses the shared CV-normalized turbulence path.
         
-        Targets: >ml_recall_target% Recall, <ml_fp_rate_target% FP Rate on
-        normal-link pairs; real weak-link (`low_rssi`) pairs use the relaxed
-        stress targets because motion is barely separable from the noise floor.
+        This per-recording replay is mostly diagnostic. Promotion gates live in
+        the aggregate ML target tests below, split by provenance and link class:
+        reserved normal-link replays measure honest generalization, training-role
+        replays stay in-sample diagnostics, and real weak-link (`low_rssi`)
+        captures stay stress diagnostics with relaxed targets. Individual
+        reserved/stress replays still keep coarse anti-catastrophe guardrails so
+        a single very bad capture does not disappear inside a good aggregate.
         """
         from config import DEFAULT_SUBCARRIERS
 
@@ -462,6 +481,8 @@ class TestPerformanceMetrics:
         print("  Turbulence: normalized runtime path")
         if link_stress:
             print("  Link class: weak (low_rssi) -> ML stress targets")
+        else:
+            print(f"  Provenance role: {dataset_role}")
 
         # ========================================
         # Print results
@@ -490,11 +511,39 @@ class TestPerformanceMetrics:
                            dataset_id=dataset_id)
         
         # ========================================
-        # Assertions
+        # Diagnostic assertions
         # ========================================
-        assert cached_metrics['recall'] > ml_recall_target, f"ML Recall too low: {cached_metrics['recall']:.1f}% (target: >{ml_recall_target}%)"
-        if cached_metrics["num_baseline"] > 0:
-            assert cached_metrics['fp_rate'] < ml_fp_rate_target, f"ML FP Rate too high: {cached_metrics['fp_rate']:.1f}% (target: <{ml_fp_rate_target}%)"
+        assert 0.0 <= cached_metrics["recall"] <= 100.0
+        assert 0.0 <= cached_metrics["precision"] <= 100.0
+        assert 0.0 <= cached_metrics["fp_rate"] <= 100.0
+        assert 0.0 <= cached_metrics["f1"] <= 100.0
+
+        if link_stress:
+            assert cached_metrics["recall"] > ML_STRESS_REPLAY_GUARDRAIL_RECALL, (
+                f"ML weak-link replay recall collapsed for {dataset_id}: "
+                f"{cached_metrics['recall']:.1f}% "
+                f"(guardrail: >{ML_STRESS_REPLAY_GUARDRAIL_RECALL}%)"
+            )
+            if cached_metrics["num_baseline"] > 0:
+                assert cached_metrics["fp_rate"] < ML_STRESS_REPLAY_GUARDRAIL_FP_RATE, (
+                    f"ML weak-link replay FP Rate exploded for {dataset_id}: "
+                    f"{cached_metrics['fp_rate']:.1f}% "
+                    f"(guardrail: <{ML_STRESS_REPLAY_GUARDRAIL_FP_RATE}%)"
+                )
+            return
+
+        if dataset_role in {"selection", "holdout"}:
+            assert cached_metrics["recall"] > ML_RESERVED_REPLAY_GUARDRAIL_RECALL, (
+                f"ML reserved replay recall collapsed for {dataset_id}: "
+                f"{cached_metrics['recall']:.1f}% "
+                f"(guardrail: >{ML_RESERVED_REPLAY_GUARDRAIL_RECALL}%)"
+            )
+            if cached_metrics["num_baseline"] > 0:
+                assert cached_metrics["fp_rate"] < ML_RESERVED_REPLAY_GUARDRAIL_FP_RATE, (
+                    f"ML reserved replay FP Rate exploded for {dataset_id}: "
+                    f"{cached_metrics['fp_rate']:.1f}% "
+                    f"(guardrail: <{ML_RESERVED_REPLAY_GUARDRAIL_FP_RATE}%)"
+                )
 
     @pytest.mark.parametrize("empty_dataset_path", get_available_empty_datasets())
     def test_ml_empty_false_positive_rate(self, empty_dataset_path):
@@ -852,4 +901,97 @@ def test_classic_chip_aggregate_targets(chip):
     )
     assert fp_rate < fp_rate_target, (
         f"Classic aggregate FP Rate too high for {chip}: {fp_rate:.1f}% (target: <{fp_rate_target}%)"
+    )
+
+
+@pytest.mark.parametrize("chip", get_available_chip_types())
+def test_ml_chip_aggregate_reserved_targets(chip):
+    """Gate ML on aggregate reserved normal-link replays."""
+    chip_pairs = []
+    for static_path, motion_path, _num_sc, dataset_chip, dataset_id in (
+        _shared_get_available_paired_datasets(synthetic=False)
+    ):
+        if str(dataset_chip).upper() != str(chip).upper():
+            continue
+        if _is_low_rssi_paired_dataset(static_path):
+            continue
+        dataset_role = _get_paired_dataset_role(static_path)
+        if dataset_role not in {"selection", "holdout"}:
+            continue
+        chip_pairs.append((static_path, motion_path, dataset_id))
+
+    if not chip_pairs:
+        pytest.skip(f"No reserved normal-link paired datasets found for chip {chip}")
+
+    total_tp = total_fn = total_fp = total_baseline = 0
+    for static_path, motion_path, _dataset_id in chip_pairs:
+        cached_metrics, _feature_payload = _compute_ml_dataset_result(
+            static_path,
+            motion_path,
+            tuple(DEFAULT_SUBCARRIERS),
+            window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+            threshold=0.5,
+        )
+        total_tp += cached_metrics["tp"]
+        total_fn += cached_metrics["fn"]
+        total_fp += cached_metrics["fp"]
+        total_baseline += cached_metrics["num_baseline"]
+
+    total_motion = total_tp + total_fn
+    assert total_motion > 0, f"No movement evaluations aggregated for reserved ML chip {chip}"
+    recall = total_tp / total_motion * 100.0
+    fp_rate = total_fp / total_baseline * 100.0 if total_baseline > 0 else 0.0
+    ml_recall_target = 95.0
+    ml_fp_rate_target = 5.0
+    assert recall > ml_recall_target, (
+        f"ML aggregate reserved recall too low for {chip}: {recall:.1f}% "
+        f"(target: >{ml_recall_target}%)"
+    )
+    assert fp_rate < ml_fp_rate_target, (
+        f"ML aggregate reserved FP Rate too high for {chip}: {fp_rate:.1f}% "
+        f"(target: <{ml_fp_rate_target}%)"
+    )
+
+
+@pytest.mark.parametrize("chip", get_available_chip_types())
+def test_ml_chip_aggregate_stress_targets(chip):
+    """Gate ML weak-link stress replays on aggregate relaxed targets."""
+    chip_pairs = []
+    for static_path, motion_path, _num_sc, dataset_chip, dataset_id in (
+        _shared_get_available_paired_datasets(synthetic=False)
+    ):
+        if str(dataset_chip).upper() != str(chip).upper():
+            continue
+        if not _is_low_rssi_paired_dataset(static_path):
+            continue
+        chip_pairs.append((static_path, motion_path, dataset_id))
+
+    if not chip_pairs:
+        pytest.skip(f"No weak-link paired datasets found for chip {chip}")
+
+    total_tp = total_fn = total_fp = total_baseline = 0
+    for static_path, motion_path, _dataset_id in chip_pairs:
+        cached_metrics, _feature_payload = _compute_ml_dataset_result(
+            static_path,
+            motion_path,
+            tuple(DEFAULT_SUBCARRIERS),
+            window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+            threshold=0.5,
+        )
+        total_tp += cached_metrics["tp"]
+        total_fn += cached_metrics["fn"]
+        total_fp += cached_metrics["fp"]
+        total_baseline += cached_metrics["num_baseline"]
+
+    total_motion = total_tp + total_fn
+    assert total_motion > 0, f"No movement evaluations aggregated for weak-link ML chip {chip}"
+    recall = total_tp / total_motion * 100.0
+    fp_rate = total_fp / total_baseline * 100.0 if total_baseline > 0 else 0.0
+    assert recall > STRESS_TARGET_RECALL, (
+        f"ML aggregate weak-link recall too low for {chip}: {recall:.1f}% "
+        f"(target: >{STRESS_TARGET_RECALL}%)"
+    )
+    assert fp_rate < STRESS_TARGET_FP_RATE, (
+        f"ML aggregate weak-link FP Rate too high for {chip}: {fp_rate:.1f}% "
+        f"(target: <{STRESS_TARGET_FP_RATE}%)"
     )
