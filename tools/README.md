@@ -148,11 +148,11 @@ pip install -r requirements-ml.txt
 The main repository workflow and this training stack target Python `3.14`.
 
 - Trains the MLP detector with weighted binary cross-entropy
-- Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, and lineage-grouped CV with uniform sample weights
+- Default training uses `--fp-weight 1.5`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, and lineage-grouped CV with uniform sample weights
 - Caches the derived feature matrix for repeated local runs; use `--no-cache` to rebuild
 - Reuses the seed embedded in the current exported weights when `--seed` is omitted
   (`--seed-search-until-improvement` still samples fresh seeds)
-- Optional `--augment` applies the Core-6 robustness-winner train-time recipe
+- Optional `--augment` applies the current validated train-time augmentation recipe
   (feature jitter + moderate packet augmentation; inference stays clean)
 - Reports blocked out-of-fold metrics plus worst and worst-five-tail session,
   lineage, chip, and source-file groups, splitting session metrics by real and
@@ -173,7 +173,7 @@ python train_ml_model.py --experiment   # Run the FP-first MLP topology campaign
 python train_ml_model.py --experiment --experiment-promote  # Promote the winner if it beats the baseline
 python train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"  # Custom shortlist
 python train_ml_model.py --experiment-fp-weights "1,1.5,2,2.5,3"  # Gated multi-seed FP-weight campaign
-python train_ml_model.py --fp-weight 2.0  # Penalize false positives 2x
+python train_ml_model.py --fp-weight 1.5  # Penalize false positives 1.5x
 python train_ml_model.py --scaler clipped_standard  # Robust clipping + z-score
 python train_ml_model.py --batch-size 32  # Smaller-batch comparison
 python train_ml_model.py --device cuda    # Force CUDA when available

@@ -128,7 +128,7 @@ with an explicit error so incompatible captures cannot contaminate the dataset.
 
 Current default training settings:
 
-- `--fp-weight 2.0`
+- `--fp-weight 1.5`
 - `--scaler standard`
 - `--batch-size 1024`
 - `--device cpu`
@@ -244,14 +244,16 @@ the validation suite and the performance report. In the per-recording
 non-regression checks, weak replays ratchet only their alarm count against
 the baseline; their recall and FP move freely within the stress targets,
 because at `-75/-77 dBm` both jitter by whole events between equally healthy
-models. Safe candidates are then compared
-on worst-session recall/FP, the mean of the five worst sessions, worst-chip
-recall/FP, and blocked OOF F1. When synthetic derivatives exist, real sessions
-lead those comparisons; synthetic session metrics act only as regression
-guards and cannot justify promotion on their own. A candidate needs at least
-one material improvement and no material regression. When explicit `holdout`
-data exists, it stays sealed throughout selection and is evaluated only once
-on the chosen winner.
+models. Safe candidates are then compared first on paired replay quality,
+prioritizing worst-chip recall before false-positive burden that still remains
+within budget, and then on worst-session recall/FP, the mean of the five worst
+sessions, worst-chip recall/FP, and blocked OOF F1. When synthetic derivatives
+exist, real sessions lead those grouped-CV comparisons; synthetic session
+metrics act only as regression guards and cannot justify promotion on their
+own. A candidate still needs at least one material grouped-CV improvement and
+no material regression before that paired-first ranking is allowed to decide
+the winner. When explicit `holdout` data exists, it stays sealed throughout
+selection and is evaluated only once on the chosen winner.
 
 `--force-promote --seed <number>` exports a specific candidate even when the
 deployment safety gates fail or regress. The gates still run and print their
@@ -359,37 +361,23 @@ mutually exclusive with each other and cannot be combined with `--environment`
 (which holds nothing out), experiment flows, seed search, or the diagnostic
 feature-analysis flags.
 
-## Core-6 Robustness Campaign
+## Training Augmentation
 
-Run the staged, non-destructive normalization and augmentation campaign with:
+`--augment` enables the current production train-time augmentation recipe:
+feature jitter (`jitter_sigma=0.10`) plus moderate packet augmentation
+(`gain_sigma=0.05`, `noise_sigma=0.01`, `packet_loss=0.05`). Inference stays
+clean; the exported runtime does not apply augmentation.
 
-```bash
-python tools/train_ml_model.py --experiment-robustness
-```
-
-The campaign screens the standard, robust, and session-balanced robust scalers;
-relative L1 descriptors; normalized feature noise, block jitter, and feature
-dropout; and packet-level frequency-selective gain, amplitude noise, and packet
-loss. Every candidate is evaluated with all environment and chip holdouts.
-Screening uses one seed, the shortlist uses three seeds, and the final baseline
-comparison uses five seeds. Incremental results are written to
-`data/auto_generated/ml_robustness_experiment.json`.
-
-Runtime artifacts are never exported by this command. A final candidate must
-still pass paired validation, gain stress, long recordings, and Python/C++
-feature parity before a separate production promotion.
-
-To keep the production Coherence-6 features and standard scaler fixed and evaluate
-only feature-space and packet-level augmentation, use:
+Use it on normal training runs, seed search, and the `--cross-environment` /
+`--cross-chip` diagnostics when you want to measure whether the augmented
+training recipe improves generalization:
 
 ```bash
-python tools/train_ml_model.py --experiment-robustness \
-  --robustness-augmentation-only
+python tools/train_ml_model.py --augment
+python tools/train_ml_model.py --augment --seed-search-until-improvement 10
+python tools/train_ml_model.py --augment --cross-environment
+python tools/train_ml_model.py --augment --cross-chip
 ```
-
-The campaign winner
-(`baseline_standard__feature_jitter_010__packet_packet_combined_moderate`) is
-available for production training through `--augment`.
 
 ## Empty-Room Regression Check
 

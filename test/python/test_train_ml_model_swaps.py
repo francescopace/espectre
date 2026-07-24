@@ -1,7 +1,7 @@
 """
 ESPectre - ML Training Helper Tests
 
-Tests for the minimal Core-6 training helpers in tools/train_ml_model.py.
+Tests for the ML training helpers in tools/train_ml_model.py.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -271,35 +271,6 @@ def test_session_balanced_robust_scaler_is_deterministic_and_balanced():
     assert first.scale_ == pytest.approx(second.scale_)
 
 
-@pytest.mark.parametrize(
-    ("variant", "relative_std", "relative_waveform"),
-    [
-        ("l1_std_relative", True, False),
-        ("l1_waveform_relative", False, True),
-        ("l1_both_relative", True, True),
-    ],
-)
-def test_l1_feature_variants_keep_delta_and_normalize_descriptors(
-        variant, relative_std, relative_waveform):
-    module = _load_train_module()
-    # The variant transform targets the historical Core-6 L1 descriptors;
-    # pin the names instead of following the production default set.
-    names = [
-        "turb_mad_over_mean", "turb_skewness", "turb_autocorr",
-        "l1_delta", "l1_delta_std", "l1_delta_waveform_length",
-    ]
-    row = np.asarray([[0.1, 0.2, 0.3, 1.0, 2.0, 3.0]], dtype=np.float32)
-
-    transformed = module.apply_l1_feature_variant(row, names, variant)
-
-    assert transformed[0, names.index("l1_delta")] == pytest.approx(1.0)
-    expected_std = 2.0 / 1.001 if relative_std else 2.0
-    l1_steps = max(1, module.SEG_WINDOW_SIZE - module.L1_DELTA_LAG - 1)
-    expected_waveform = 3.0 / (l1_steps * 1.001) if relative_waveform else 3.0
-    assert transformed[0, names.index("l1_delta_std")] == pytest.approx(expected_std)
-    assert transformed[0, names.index("l1_delta_waveform_length")] == pytest.approx(expected_waveform)
-
-
 def test_feature_augmentation_is_reproducible_and_respects_bounds():
     module = _load_train_module()
     X = np.zeros((128, 6), dtype=np.float32)
@@ -342,114 +313,6 @@ def test_packet_augmentation_is_reproducible_bounded_and_non_mutating():
     assert all(np.array_equal(a["csi_data"], b["csi_data"]) for a, b in zip(first, second))
     assert all(np.all(row["csi_data"] >= -128) and np.all(row["csi_data"] <= 127) for row in first)
     assert all(np.array_equal(packet["csi_data"], before) for packet, before in zip(packets, original))
-
-
-def test_robustness_campaign_runs_staged_seed_schedule_without_promotion(monkeypatch, tmp_path):
-    module = _load_train_module()
-    matrix = {
-        "X": np.zeros((2, 6), dtype=np.float32),
-        "y": np.asarray([0, 1], dtype=np.int8),
-        "feature_names": list(module.DEFAULT_FEATURES),
-        "sample_context": {},
-    }
-
-    monkeypatch.setattr(module, "ensure_torch_available", lambda: None)
-    monkeypatch.setattr(module, "load_training_matrix", lambda **_kwargs: (matrix, None))
-
-    def fake_evaluate(candidate, seed, _matrix, augmented_matrix=None, **_kwargs):
-        improvement = 1.0 if candidate["name"] != "baseline_standard" else 0.0
-        folds = [
-            {
-                "fold": f"fold:{idx}",
-                "recall": 96.0 + improvement,
-                "fp_rate": 4.0 - improvement,
-                "f1": 95.0 + improvement,
-            }
-            for idx in range(7)
-        ]
-        run = {
-            "candidate": candidate,
-            "seed": seed,
-            "folds": folds,
-            "holdout_count": len(folds),
-            "seconds": 0.0,
-        }
-        run["rank_key"] = list(module.robustness_run_rank_key(run))
-        return run
-
-    monkeypatch.setattr(module, "evaluate_robustness_candidate", fake_evaluate)
-    output = tmp_path / "robustness.json"
-
-    payload = module.run_robustness_experiment(output_path=output)
-
-    assert [stage["name"] for stage in payload["stages"]] == [
-        "scalers", "l1_normalization", "feature_augmentation", "packet_augmentation"]
-    assert [len(stage["runs"]) for stage in payload["stages"]] == [3, 3, 8, 14]
-    assert len(payload["filter"]) == 3
-    assert len(payload["final"]) == 2
-    assert all(len(summary["seeds"]) == 5 for summary in payload["final"])
-    assert payload["decision"]["generalization_qualified"] is True
-    assert payload["decision"]["artifacts_changed"] is False
-    assert json.loads(output.read_text())["decision"]["deployment_validation"] == "required"
-
-    augmentation_output = tmp_path / "augmentation-only.json"
-    augmentation_payload = module.run_robustness_experiment(
-        output_path=augmentation_output,
-        augmentation_only=True,
-    )
-    assert augmentation_payload["config"]["augmentation_only"] is True
-    assert [stage["name"] for stage in augmentation_payload["stages"]] == [
-        "baseline", "feature_augmentation", "packet_augmentation"]
-    assert [len(stage["runs"]) for stage in augmentation_payload["stages"]] == [1, 8, 14]
-
-
-def test_robustness_candidate_evaluates_all_holdouts_and_augments_training_only(monkeypatch):
-    module = _load_train_module()
-    environments = ("bedroom", "hobby_room", "living_room")
-    chips = ("C3", "C5", "C6", "ESP32", "S3")
-    rows = []
-    labels = []
-    context = {key: [] for key in (
-        "environment_group", "chip", "session_group", "source_file", "label_name")}
-    for environment, chip, label in itertools.product(environments, chips, (0, 1)):
-        rows.append([float(label), 0.1, 0.2, 0.3, 0.4, 0.5])
-        labels.append(label)
-        suffix = f"{environment}-{chip}-{label}"
-        context["environment_group"].append(environment)
-        context["chip"].append(chip)
-        context["session_group"].append(suffix)
-        context["source_file"].append(suffix)
-        context["label_name"].append("motion" if label else "empty")
-    context = {key: np.asarray(values) for key, values in context.items()}
-    matrix = {
-        "X": np.asarray(rows, dtype=np.float32),
-        "y": np.asarray(labels, dtype=np.int8),
-        "feature_names": list(module.DEFAULT_FEATURES),
-        "sample_context": context,
-    }
-    observed_train_rows = []
-
-    def fake_train(values, _labels, feature_augmentation=None, **_kwargs):
-        observed_train_rows.append(len(values))
-        assert feature_augmentation == {"noise_sigma": 0.02}
-        return object()
-
-    monkeypatch.setattr(module, "train_model", fake_train)
-    monkeypatch.setattr(
-        module,
-        "predict_probabilities",
-        lambda _model, values: np.where(values[:, 0] > 0.0, 0.9, 0.1),
-    )
-    candidate = module._robustness_candidate(
-        "synthetic", feature_augmentation={"noise_sigma": 0.02})
-
-    result = module.evaluate_robustness_candidate(candidate, 42, matrix)
-
-    assert len(result["folds"]) == 8
-    assert result["holdout_count"] == 8
-    assert {row["dimension"] for row in result["folds"]} == {"environment", "chip"}
-    assert len(observed_train_rows) == 8
-    assert all(row["test_windows"] > 0 for row in result["folds"])
 
 
 def test_extract_features_uses_runtime_filter_defaults(monkeypatch):
@@ -1157,7 +1020,7 @@ def test_legacy_paired_fallback_never_selects_synthetic(monkeypatch, tmp_path):
     assert pairs == [("C3", ["real-static.npz"], ["real-motion.npz"], False)]
 
 
-def test_paired_gate_ranking_prefers_lower_fp_before_cv():
+def test_paired_gate_ranking_prefers_worst_recall_before_false_positives():
     module = _load_train_module()
     quieter = {
         "pass_count": 4,
@@ -1176,7 +1039,7 @@ def test_paired_gate_ranking_prefers_lower_fp_before_cv():
         "mean_recall": 99.0,
     }
 
-    assert module._paired_gate_key(quieter) > module._paired_gate_key(noisier)
+    assert module._paired_gate_key(noisier) > module._paired_gate_key(quieter)
 
 
 def test_architecture_ranking_prefers_robust_cv_after_equal_safety_passes():

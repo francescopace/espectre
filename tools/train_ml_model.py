@@ -20,7 +20,7 @@ Usage:
     python tools/train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
     python tools/train_ml_model.py --experiment --experiment-promote
                                                     # Promote the winner if it beats the baseline
-    python tools/train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
+    python tools/train_ml_model.py --fp-weight 1.5    # Penalize FP 1.5x more
     python tools/train_ml_model.py --scaler clipped_standard
                                                     # Robust clipping + z-score
     python tools/train_ml_model.py --batch-size 32
@@ -32,7 +32,7 @@ Usage:
                                                     # Grouped OOF SHAP (500 samples)
 
 Configuration:
-  - TRAINING_FEATURES: Production Core-6 feature list
+  - TRAINING_FEATURES: Production ML feature list
 
 Note: turbulence normalization now follows the shared production path:
 CV-normalized turbulence (`std/mean`) for every stream.
@@ -398,7 +398,7 @@ CPP_DIR = cpp_core_dir()
 
 # Default training/evaluation configuration
 DEFAULT_HIDDEN_LAYERS = [32, 16]
-DEFAULT_FP_WEIGHT = 2.0
+DEFAULT_FP_WEIGHT = 1.5
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
@@ -415,7 +415,6 @@ DEFAULT_ARCHITECTURE_SWEEP = (
 )
 DEFAULT_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'mlp_architecture_experiment.json'
 DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'mlp_fp_weight_experiment.json'
-DEFAULT_ROBUSTNESS_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'ml_robustness_experiment.json'
 DEFAULT_FP_WEIGHT_SWEEP = (1.0, 1.5, 2.0, 2.5, 3.0)
 DEFAULT_EXPERIMENT_SCREENING_SEED = 20260519
 DEFAULT_EXPERIMENT_INITIAL_SEEDS = (20260518, 20260519, 20260520)
@@ -423,15 +422,12 @@ DEFAULT_EXPERIMENT_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 202605
 DEFAULT_PAIRED_GATE_CHIPS = ('C3', 'C5', 'C6', 'ESP32', 'S3')
 DEFAULT_GAIN_STRESS_SCALES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
 GAIN_SENSITIVE_FEATURES = ()
+DEFAULT_GATE_TARGET_RECALL = 95.0
+DEFAULT_GATE_TARGET_FP_RATE = 5.0
 DEFAULT_MAX_EPOCHS = 100
 DEFAULT_EARLY_STOP_PATIENCE = 8
 DEFAULT_LR_PATIENCE = 4
 DEFAULT_CLIP_PERCENTILES = (1.0, 99.0)
-ROBUSTNESS_SCREENING_SEED = 20260519
-ROBUSTNESS_FILTER_SEEDS = (20260518, 20260519, 20260520)
-ROBUSTNESS_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 20260522)
-ROBUSTNESS_TARGET_RECALL = 95.0
-ROBUSTNESS_TARGET_FP_RATE = 5.0
 DATASET_ROLES = ('train', 'selection', 'holdout', 'exclude')
 DEFAULT_TRAINING_ROLES = ('train',)
 DEFAULT_PRIMARY_GROUP_KEY = 'lineage_group'
@@ -1670,34 +1666,8 @@ def fit_preprocessor(preprocessor, X, y=None, sample_context=None):
     return preprocessor
 
 
-def apply_l1_feature_variant(X, feature_names, variant='core6'):
-    """Apply host-side Core-6 L1 ratio candidates without mutating input rows."""
-    X = np.asarray(X, dtype=np.float32)
-    if variant in (None, 'core6'):
-        return X.copy()
-    supported = {'l1_std_relative', 'l1_waveform_relative', 'l1_both_relative'}
-    if variant not in supported:
-        raise ValueError(f"Unsupported L1 feature variant: {variant}")
-    names = list(feature_names)
-    required = ('l1_delta', 'l1_delta_std', 'l1_delta_waveform_length')
-    missing = [name for name in required if name not in names]
-    if missing:
-        raise ValueError(f"L1 feature variant requires: {', '.join(missing)}")
-    result = X.copy()
-    mean_idx = names.index('l1_delta')
-    denom = result[:, mean_idx] + 1e-3
-    if variant in ('l1_std_relative', 'l1_both_relative'):
-        std_idx = names.index('l1_delta_std')
-        result[:, std_idx] = result[:, std_idx] / denom
-    if variant in ('l1_waveform_relative', 'l1_both_relative'):
-        waveform_idx = names.index('l1_delta_waveform_length')
-        l1_count = max(1, int(SEG_WINDOW_SIZE - L1_DELTA_LAG) - 1)
-        result[:, waveform_idx] = result[:, waveform_idx] / (l1_count * denom)
-    return result
-
-
 def normalized_feature_bounds(preprocessor, feature_names):
-    """Return normalized bounds used to keep augmented Core-6 rows valid."""
+    """Return normalized bounds used to keep augmented feature rows valid."""
     center, scale = get_preprocessor_arrays(preprocessor)
     lower = np.full(len(feature_names), -np.inf, dtype=np.float32)
     upper = np.full(len(feature_names), np.inf, dtype=np.float32)
@@ -2789,7 +2759,7 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
         detail_group_key: Secondary sample-context key reported as the worst
             sub-group inside each held-out fold (e.g. ``chip`` for rooms).
         skip_values: Group values treated as missing metadata and ignored.
-        augment: If True, apply the robustness-winner train-time augmentation.
+        augment: If True, apply the current validated train-time augmentation.
 
     This is a diagnostic only: it never trains a promotable model or exports
     runtime artifacts. Held-out scoring reuses the same block subsampling as
@@ -3042,34 +3012,7 @@ def cross_chip_validation(**kwargs):
     )
 
 
-ROBUSTNESS_FEATURE_AUGMENTATIONS = (
-    ('noise_002', {'noise_sigma': 0.02}),
-    ('noise_005', {'noise_sigma': 0.05}),
-    ('noise_010', {'noise_sigma': 0.10}),
-    ('jitter_005', {'jitter_sigma': 0.05}),
-    ('jitter_010', {'jitter_sigma': 0.10}),
-    ('dropout_002', {'dropout_probability': 0.02}),
-    ('dropout_005', {'dropout_probability': 0.05}),
-    ('combined_moderate', {
-        'noise_sigma': 0.05,
-        'jitter_sigma': 0.05,
-        'dropout_probability': 0.02,
-    }),
-)
-ROBUSTNESS_PACKET_AUGMENTATIONS = (
-    ('gain_005', {'gain_sigma': 0.05}),
-    ('gain_010', {'gain_sigma': 0.10}),
-    ('amplitude_noise_001', {'noise_sigma': 0.01}),
-    ('amplitude_noise_003', {'noise_sigma': 0.03}),
-    ('packet_loss_005', {'packet_loss': 0.05}),
-    ('packet_loss_010', {'packet_loss': 0.10}),
-    ('packet_combined_moderate', {
-        'gain_sigma': 0.05,
-        'noise_sigma': 0.01,
-        'packet_loss': 0.05,
-    }),
-)
-# Production shortcut for --augment: Core-6 robustness campaign winner
+# Production shortcut for --augment: the validated augmentation recipe
 # (feature jitter 0.10 + moderate packet combined augmentation).
 ROBUSTNESS_WINNER_NAME = (
     'baseline_standard__feature_jitter_010__packet_packet_combined_moderate'
@@ -3136,198 +3079,6 @@ def _append_augmented_training_rows(X_train_scaled, y_train, scaler, X_aug, y_au
         np.ones(int(np.sum(aug_mask)), dtype=np.float32),
     ))
     return X_out, y_out, sw_out
-
-
-def _robustness_candidate(name, scaler='standard', l1_variant='core6',
-                          feature_augmentation=None, packet_augmentation=None):
-    return {
-        'name': str(name),
-        'scaler': str(scaler),
-        'l1_variant': str(l1_variant),
-        'feature_augmentation': dict(feature_augmentation or {}),
-        'packet_augmentation': dict(packet_augmentation or {}),
-    }
-
-
-def robustness_run_rank_key(run):
-    """Rank one complete robustness run; lower is better."""
-    folds = run['folds']
-    pass_count = sum(
-        row['recall'] > ROBUSTNESS_TARGET_RECALL
-        and row['fp_rate'] < ROBUSTNESS_TARGET_FP_RATE
-        for row in folds
-    )
-    return (
-        -pass_count,
-        max(row['fp_rate'] for row in folds),
-        -min(row['recall'] for row in folds),
-        -float(np.mean([row['f1'] for row in folds])),
-        run['candidate']['name'],
-    )
-
-
-def aggregate_robustness_runs(candidate, runs):
-    """Aggregate fold metrics across seeds for one robustness candidate."""
-    by_fold = {}
-    for run in runs:
-        for row in run['folds']:
-            by_fold.setdefault(row['fold'], []).append(row)
-    fold_summaries = []
-    for fold_name in sorted(by_fold):
-        rows = by_fold[fold_name]
-        median_recall = float(np.median([row['recall'] for row in rows]))
-        median_fp = float(np.median([row['fp_rate'] for row in rows]))
-        median_f1 = float(np.median([row['f1'] for row in rows]))
-        seed_passes = sum(
-            row['recall'] > ROBUSTNESS_TARGET_RECALL
-            and row['fp_rate'] < ROBUSTNESS_TARGET_FP_RATE
-            for row in rows
-        )
-        fold_summaries.append({
-            'fold': fold_name,
-            'median_recall': median_recall,
-            'median_fp_rate': median_fp,
-            'median_f1': median_f1,
-            'seed_passes': int(seed_passes),
-            'seed_count': len(rows),
-            'median_pass': bool(
-                median_recall > ROBUSTNESS_TARGET_RECALL
-                and median_fp < ROBUSTNESS_TARGET_FP_RATE
-            ),
-        })
-    return {
-        'candidate': candidate,
-        'seeds': [int(run['seed']) for run in runs],
-        'folds': fold_summaries,
-        'holdout_count': len(fold_summaries),
-        'median_pass_count': sum(row['median_pass'] for row in fold_summaries),
-        'worst_median_fp_rate': max(row['median_fp_rate'] for row in fold_summaries),
-        'worst_median_recall': min(row['median_recall'] for row in fold_summaries),
-        'macro_median_f1': float(np.mean([row['median_f1'] for row in fold_summaries])),
-        'runs': runs,
-    }
-
-
-def robustness_summary_rank_key(summary):
-    return (
-        -summary['median_pass_count'],
-        summary['worst_median_fp_rate'],
-        -summary['worst_median_recall'],
-        -summary['macro_median_f1'],
-        summary['candidate']['name'],
-    )
-
-
-def evaluate_robustness_candidate(candidate, seed, matrix, augmented_matrix=None,
-                                  hidden_layers=None, fp_weight=DEFAULT_FP_WEIGHT,
-                                  batch_size=DEFAULT_BATCH_SIZE):
-    """Evaluate one candidate across every environment and chip holdout."""
-    hidden_layers = list(hidden_layers or DEFAULT_HIDDEN_LAYERS)
-    feature_names = list(matrix['feature_names'])
-    X = apply_l1_feature_variant(matrix['X'], feature_names, candidate['l1_variant'])
-    y = np.asarray(matrix['y'])
-    context = matrix['sample_context']
-    X_aug = y_aug = context_aug = None
-    if augmented_matrix is not None:
-        X_aug = apply_l1_feature_variant(
-            augmented_matrix['X'], feature_names, candidate['l1_variant'])
-        y_aug = np.asarray(augmented_matrix['y'])
-        context_aug = augmented_matrix['sample_context']
-
-    dimensions = (
-        ('environment_group', 'environment', {'unknown-environment'}, 'chip'),
-        ('chip', 'chip', {'', 'unknown', 'UNKNOWN', 'unknown-chip'}, 'environment_group'),
-    )
-    folds = []
-    expected_folds = []
-    run_started = perf_counter()
-    for group_key, unit, skipped, detail_key in dimensions:
-        group_values = np.asarray(context[group_key]).astype(str)
-        groups = sorted(set(group_values.tolist()) - skipped)
-        for held_out in groups:
-            expected_folds.append(f'{unit}:{held_out}')
-            fold_started = perf_counter()
-            test_mask = group_values == held_out
-            train_mask = np.isin(group_values, groups) & ~test_mask
-            if not np.any(train_mask) or len(set(y[test_mask].tolist())) < 2:
-                continue
-            train_context = slice_sample_context(context, np.flatnonzero(train_mask))
-            scaler = build_preprocessor(candidate['scaler'])
-            fit_preprocessor(scaler, X[train_mask], y=y[train_mask], sample_context=train_context)
-            X_train = scaler.transform(X[train_mask])
-            y_train = y[train_mask]
-            if X_aug is not None:
-                aug_groups = np.asarray(context_aug[group_key]).astype(str)
-                aug_mask = np.isin(aug_groups, groups) & (aug_groups != held_out)
-                if np.any(aug_mask):
-                    X_train = np.concatenate((X_train, scaler.transform(X_aug[aug_mask])), axis=0)
-                    y_train = np.concatenate((y_train, y_aug[aug_mask]), axis=0)
-            X_test = scaler.transform(X[test_mask])
-            bounds = normalized_feature_bounds(scaler, feature_names)
-            fold_seed = derive_seed(seed, _stable_text_seed(f'{group_key}:{held_out}'))
-            with suppress_stderr():
-                model = train_model(
-                    X_train,
-                    y_train,
-                    hidden_layers=hidden_layers,
-                    fp_weight=fp_weight,
-                    batch_size=batch_size,
-                    seed=fold_seed,
-                    feature_augmentation=candidate['feature_augmentation'],
-                    feature_bounds=bounds,
-                )
-                probabilities = predict_probabilities(model, X_test)
-
-            test_context = slice_sample_context(context, np.flatnonzero(test_mask))
-            block_mask = build_block_mask(
-                test_context, stride=SEG_WINDOW_SIZE, group_key=DEFAULT_BLOCK_GROUP_KEY)
-            if block_mask is None:
-                block_mask = np.ones(int(np.sum(test_mask)), dtype=bool)
-            y_test = y[test_mask][block_mask]
-            scored_prob = probabilities[block_mask]
-            metrics = evaluate_probabilities(y_test, scored_prob)
-            detail_values = np.asarray(test_context[detail_key])[block_mask]
-            detail_report = build_group_report(y_test, scored_prob, detail_values)
-            labels = np.asarray(test_context['label_name'])[block_mask]
-            idle_breakdown = {}
-            for label in ('empty', 'static_presence'):
-                label_mask = labels == label
-                if np.any(label_mask):
-                    label_metrics = evaluate_probabilities(
-                        y_test[label_mask], scored_prob[label_mask])
-                    idle_breakdown[label] = {
-                        'samples': int(np.sum(label_mask)),
-                        'fp_rate': float(label_metrics['fp_rate']),
-                    }
-            folds.append({
-                'fold': f'{unit}:{held_out}',
-                'dimension': unit,
-                'group': held_out,
-                'train_windows': int(len(y_train)),
-                'test_windows': int(np.sum(block_mask)),
-                **{key: float(value) if isinstance(value, (float, np.floating)) else int(value)
-                   for key, value in metrics.items()},
-                'idle_breakdown': idle_breakdown,
-                'worst_detail_recall': None if detail_report is None else detail_report['worst_recall'],
-                'worst_detail_fp_rate': None if detail_report is None else detail_report['worst_fp_rate'],
-                'seconds': float(perf_counter() - fold_started),
-            })
-    completed_folds = sorted(row['fold'] for row in folds)
-    if completed_folds != sorted(expected_folds):
-        missing = sorted(set(expected_folds) - set(completed_folds))
-        raise RuntimeError(
-            f"robustness candidate completed {len(folds)}/{len(expected_folds)} holdouts; "
-            f"missing: {', '.join(missing) or 'none'}"
-        )
-    result = {
-        'candidate': candidate,
-        'seed': int(seed),
-        'folds': folds,
-        'holdout_count': len(folds),
-        'seconds': float(perf_counter() - run_started),
-    }
-    result['rank_key'] = list(robustness_run_rank_key(result))
-    return result
 
 
 def get_model_architecture(model):
@@ -4162,7 +3913,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         positive_chip_boost: Optional {CHIP: factor} boost applied to motion
                              samples after feature extraction.
         use_cache: If True, reuse the cached feature matrix.
-        augment: If True, apply the Core-6 robustness-winner train-time
+        augment: If True, apply the current validated train-time
                  augmentation recipe (feature jitter + packet combined).
 
     Returns:
@@ -4572,8 +4323,8 @@ def _gate_row_passes(row):
             and row['fp_rate'] < STRESS_TARGET_FP_RATE
         )
     return (
-        row['recall'] > ROBUSTNESS_TARGET_RECALL
-        and row['fp_rate'] < ROBUSTNESS_TARGET_FP_RATE
+        row['recall'] > DEFAULT_GATE_TARGET_RECALL
+        and row['fp_rate'] < DEFAULT_GATE_TARGET_FP_RATE
         and row.get('effective_alarms', 0) <= PAIRED_ALARM_BUDGET
     )
 
@@ -5059,7 +4810,7 @@ def summarize_quiet_gate(by_dataset):
         'total_effective_alarms': int(sum(row['effective_alarms'] for row in rows)),
         'max_effective_alarms': int(max(row['effective_alarms'] for row in rows)),
         'passed': all(
-            row['fp_rate'] < ROBUSTNESS_TARGET_FP_RATE
+            row['fp_rate'] < DEFAULT_GATE_TARGET_FP_RATE
             and row['effective_alarms'] == 0
             for row in rows
         ),
@@ -5138,10 +4889,10 @@ def _paired_gate_key(paired_metrics):
         return None
     return (
         paired_metrics.get('pass_count', 0),
-        -paired_metrics.get('total_effective_alarms', float('inf')),
-        -paired_metrics.get('max_fp_rate', float('inf')),
         paired_metrics.get('worst_chip_recall', -float('inf')),
         paired_metrics.get('worst_chip_f1', -float('inf')),
+        -paired_metrics.get('max_fp_rate', float('inf')),
+        -paired_metrics.get('total_effective_alarms', float('inf')),
         paired_metrics.get('mean_f1', -float('inf')),
         paired_metrics.get('mean_recall', -float('inf')),
     )
@@ -5151,13 +4902,14 @@ def _combined_candidate_key(cv_metrics, paired_metrics=None):
     """
     Final selection key.
 
-    Grouped OOF robustness leads ranking after deployment safety passes.
+    After deployment safety passes, paired replay recall leads ranking and
+    grouped OOF robustness breaks ties between similarly safe candidates.
     """
     cv_key = build_candidate_key(cv_metrics)
     paired_key = _paired_gate_key(paired_metrics)
     if paired_key is None:
         return cv_key
-    return cv_key + paired_key
+    return paired_key + cv_key
 
 
 def _format_exported_gate_summary(gate):
@@ -5560,208 +5312,6 @@ def _json_value(value):
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
-def run_robustness_experiment(output_path=DEFAULT_ROBUSTNESS_EXPERIMENT_OUTPUT,
-                              use_cache=True, hidden_layers=None,
-                              fp_weight=DEFAULT_FP_WEIGHT,
-                              batch_size=DEFAULT_BATCH_SIZE,
-                              augmentation_only=False):
-    """Run the non-destructive staged Core-6 robustness campaign."""
-    ensure_torch_available()
-    hidden_layers = list(hidden_layers or DEFAULT_HIDDEN_LAYERS)
-    print("\n" + "=" * 70)
-    print("  CORE-6 ROBUSTNESS CAMPAIGN")
-    print("=" * 70)
-    print("Artifacts: unchanged")
-    print(f"Output: {output_path}")
-    print(f"Architecture: {' -> '.join(map(str, [len(TRAINING_FEATURES)] + hidden_layers + [1]))}")
-
-    matrix, _ = load_training_matrix(
-        feature_names=TRAINING_FEATURES,
-        use_cache=use_cache,
-    )
-    payload = {
-        'config': {
-            'screening_seed': ROBUSTNESS_SCREENING_SEED,
-            'filter_seeds': list(ROBUSTNESS_FILTER_SEEDS),
-            'final_seeds': list(ROBUSTNESS_FINAL_SEEDS),
-            'target_recall': ROBUSTNESS_TARGET_RECALL,
-            'target_fp_rate': ROBUSTNESS_TARGET_FP_RATE,
-            'hidden_layers': hidden_layers,
-            'batch_size': int(batch_size),
-            'fp_weight': float(fp_weight),
-            'feature_names': list(TRAINING_FEATURES),
-            'promote': False,
-            'augmentation_only': bool(augmentation_only),
-        },
-        'stages': [],
-        'filter': [],
-        'final': [],
-        'decision': None,
-    }
-    run_cache = {}
-
-    def candidate_key(candidate):
-        return json.dumps(candidate, sort_keys=True, separators=(',', ':'))
-
-    def evaluate(candidate, seed):
-        key = (candidate_key(candidate), int(seed))
-        if key in run_cache:
-            return run_cache[key]
-        print(f"\n== {candidate['name']} | seed {seed} ==")
-        augmented = None
-        if candidate['packet_augmentation']:
-            augmented, _ = load_training_matrix(
-                feature_names=TRAINING_FEATURES,
-                use_cache=use_cache,
-                packet_augmentation=candidate['packet_augmentation'],
-                augmentation_seed=seed,
-            )
-        run = evaluate_robustness_candidate(
-            candidate,
-            seed,
-            matrix,
-            augmented_matrix=augmented,
-            hidden_layers=hidden_layers,
-            fp_weight=fp_weight,
-            batch_size=batch_size,
-        )
-        run_cache[key] = run
-        rank = run['rank_key']
-        print(
-            f"  holdout passes={-rank[0]}/{run['holdout_count']} | worst FP={rank[1]:.1f}% | "
-            f"worst recall={-rank[2]:.1f}%"
-        )
-        return run
-
-    def screen_stage(name, candidates):
-        stage = {'name': name, 'runs': []}
-        payload['stages'].append(stage)
-        for candidate in candidates:
-            stage['runs'].append(evaluate(candidate, ROBUSTNESS_SCREENING_SEED))
-            write_json_results(output_path, payload)
-        return sorted(stage['runs'], key=robustness_run_rank_key)
-
-    baseline = _robustness_candidate('baseline_standard')
-    if augmentation_only:
-        scaler_runs = screen_stage('baseline', [baseline])
-        l1_runs = []
-        best_pre_augmentation = baseline
-    else:
-        scaler_candidates = [
-            baseline,
-            _robustness_candidate('scaler_robust', scaler='robust'),
-            _robustness_candidate(
-                'scaler_session_balanced_robust', scaler='session_balanced_robust'),
-        ]
-        scaler_runs = screen_stage('scalers', scaler_candidates)
-        best_scaler = scaler_runs[0]['candidate']
-
-        l1_candidates = []
-        for variant in ('l1_std_relative', 'l1_waveform_relative', 'l1_both_relative'):
-            l1_candidates.append(_robustness_candidate(
-                f"{best_scaler['name']}__{variant}",
-                scaler=best_scaler['scaler'],
-                l1_variant=variant,
-            ))
-        l1_runs = screen_stage('l1_normalization', l1_candidates)
-        best_pre_augmentation = min(
-            [next(run for run in scaler_runs if run['candidate'] == best_scaler)] + l1_runs,
-            key=robustness_run_rank_key,
-        )['candidate']
-
-    feature_candidates = [
-        _robustness_candidate(
-            f"{best_pre_augmentation['name']}__feature_{suffix}",
-            scaler=best_pre_augmentation['scaler'],
-            l1_variant=best_pre_augmentation['l1_variant'],
-            feature_augmentation=config,
-        )
-        for suffix, config in ROBUSTNESS_FEATURE_AUGMENTATIONS
-    ]
-    feature_runs = screen_stage('feature_augmentation', feature_candidates)
-    pre_packet_run = evaluate(best_pre_augmentation, ROBUSTNESS_SCREENING_SEED)
-    top_feature_candidates = [
-        run['candidate']
-        for run in sorted([pre_packet_run] + feature_runs, key=robustness_run_rank_key)[:2]
-    ]
-
-    packet_candidates = []
-    for parent in top_feature_candidates:
-        for suffix, config in ROBUSTNESS_PACKET_AUGMENTATIONS:
-            packet_candidates.append(_robustness_candidate(
-                f"{parent['name']}__packet_{suffix}",
-                scaler=parent['scaler'],
-                l1_variant=parent['l1_variant'],
-                feature_augmentation=parent['feature_augmentation'],
-                packet_augmentation=config,
-            ))
-    packet_runs = screen_stage('packet_augmentation', packet_candidates)
-
-    all_screening = scaler_runs + l1_runs + feature_runs + packet_runs
-    unique_screening = {}
-    for run in all_screening:
-        unique_screening[candidate_key(run['candidate'])] = run
-    challengers = [
-        run for run in sorted(unique_screening.values(), key=robustness_run_rank_key)
-        if run['candidate']['name'] != baseline['name']
-    ][:2]
-    filter_candidates = [baseline] + [run['candidate'] for run in challengers]
-    filter_summaries = []
-    for candidate in filter_candidates:
-        runs = [evaluate(candidate, seed) for seed in ROBUSTNESS_FILTER_SEEDS]
-        summary = aggregate_robustness_runs(candidate, runs)
-        filter_summaries.append(summary)
-        payload['filter'] = filter_summaries
-        write_json_results(output_path, payload)
-
-    baseline_filter = next(
-        item for item in filter_summaries if item['candidate']['name'] == baseline['name'])
-    best_challenger = min(
-        (item for item in filter_summaries if item['candidate']['name'] != baseline['name']),
-        key=robustness_summary_rank_key,
-    )
-    final_candidates = [baseline, best_challenger['candidate']]
-    final_summaries = []
-    for candidate in final_candidates:
-        runs = [evaluate(candidate, seed) for seed in ROBUSTNESS_FINAL_SEEDS]
-        summary = aggregate_robustness_runs(candidate, runs)
-        final_summaries.append(summary)
-        payload['final'] = final_summaries
-        write_json_results(output_path, payload)
-
-    baseline_final = next(
-        item for item in final_summaries if item['candidate']['name'] == baseline['name'])
-    challenger_final = next(
-        item for item in final_summaries if item['candidate']['name'] != baseline['name'])
-    all_medians_pass = (
-        challenger_final['median_pass_count'] == challenger_final['holdout_count'])
-    four_of_five_pass = all(row['seed_passes'] >= 4 for row in challenger_final['folds'])
-    non_regression = (
-        challenger_final['median_pass_count'] >= baseline_final['median_pass_count'])
-    generalization_qualified = bool(all_medians_pass and four_of_five_pass and non_regression)
-    payload['decision'] = {
-        'winner': challenger_final['candidate']['name']
-            if robustness_summary_rank_key(challenger_final) < robustness_summary_rank_key(baseline_final)
-            else baseline_final['candidate']['name'],
-        'generalization_qualified': generalization_qualified,
-        'all_holdout_medians_pass': bool(all_medians_pass),
-        'four_of_five_per_holdout': bool(four_of_five_pass),
-        'baseline_non_regression': bool(non_regression),
-        'deployment_validation': 'required',
-        'required_checks': ['paired_gate', 'gain_stress_gate', 'long_recordings', 'python_cpp_parity'],
-        'artifacts_changed': False,
-    }
-    payload['completed_at'] = datetime.now().astimezone().isoformat()
-    write_json_results(output_path, payload)
-    print("\n" + "=" * 70)
-    print("  ROBUSTNESS CAMPAIGN DECISION")
-    print("=" * 70)
-    print(f"Winner: {payload['decision']['winner']}")
-    print(f"Generalization qualified: {generalization_qualified}")
-    print("Deployment gates remain required; runtime artifacts unchanged.")
-    return payload
-
-
 def slim_cv_result(cv_results):
     """Keep only the CV fields needed by experiment payloads."""
     session_report = cv_results.get('group_reports', {}).get('session_group', {})
@@ -6011,7 +5561,7 @@ def _print_feature_ablation_comparison(baseline, candidate):
     print("\n" + "=" * 82)
     print("  TARGETED FEATURE ABLATION COMPARISON")
     print("=" * 82)
-    print(f"{'Metric':<29} {'Core-6':>14} {'Candidate':>14} {'Delta':>14}")
+    print(f"{'Metric':<29} {'Baseline':>14} {'Candidate':>14} {'Delta':>14}")
     print("-" * 82)
     for label, baseline_value, candidate_value, suffix in rows:
         delta = candidate_value - baseline_value
@@ -6096,7 +5646,7 @@ def experiment_feature_ablation(feature_name, seed=None,
                                 excluded_chips=None,
                                 positive_chip_boost=None,
                                 use_cache=True):
-    """Compare Core-6 against one feature removal without exporting artifacts."""
+    """Compare the production baseline against one feature removal without exporting artifacts."""
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
@@ -6149,7 +5699,7 @@ def experiment_feature_ablation(feature_name, seed=None,
         return 1
 
     baseline = evaluate_architecture_candidate(
-        'Core-6 baseline',
+        'production baseline',
         DEFAULT_HIDDEN_LAYERS,
         seed,
         baseline_dataset,
@@ -6168,9 +5718,9 @@ def experiment_feature_ablation(feature_name, seed=None,
     )
     _print_feature_ablation_comparison(baseline, candidate)
     if deployment_candidate_beats_baseline(candidate, baseline):
-        print("Paired-first result: candidate ranks above the Core-6 baseline for this seed.")
+        print("Paired-first result: candidate ranks above the production baseline for this seed.")
     else:
-        print("Paired-first result: candidate does not beat the Core-6 baseline for this seed.")
+        print("Paired-first result: candidate does not beat the production baseline for this seed.")
     return 0
 
 
@@ -6662,15 +6212,6 @@ def main():
     parser.add_argument('--experiment-fp-weights', type=parse_fp_weight_sweep, default=None,
                        metavar='WEIGHTS',
                        help='Run a gated multi-seed campaign over comma-separated FP weights')
-    parser.add_argument('--experiment-robustness', action='store_true',
-                       help='Run the non-destructive staged Core-6 robustness campaign')
-    parser.add_argument('--robustness-augmentation-only', action='store_true',
-                       help='With --experiment-robustness, keep standard Core-6 '
-                            'normalization and evaluate only augmentation candidates')
-    parser.add_argument('--robustness-experiment-output', type=Path,
-                       default=DEFAULT_ROBUSTNESS_EXPERIMENT_OUTPUT,
-                       help='JSON output path for --experiment-robustness '
-                            f'(default: {DEFAULT_ROBUSTNESS_EXPERIMENT_OUTPUT})')
     parser.add_argument('--fp-weight-experiment-output', type=Path,
                        default=DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT,
                        help='JSON output path for --experiment-fp-weights '
@@ -6681,7 +6222,7 @@ def main():
                             'otherwise generate a random seed. '
                             '--seed-search-until-improvement always samples fresh seeds')
     parser.add_argument('--augment', action='store_true',
-                       help='Apply the Core-6 robustness-winner train-time '
+                       help='Apply the current validated train-time '
                             'augmentation recipe (feature jitter 0.10 + moderate '
                             'packet gain/noise/loss). Inference stays unaugmented')
     parser.add_argument('--seed-search-until-improvement', type=int, default=0, metavar='MAX_TRIALS',
@@ -6716,7 +6257,7 @@ def main():
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
     parser.add_argument('--features', type=str, default=None, metavar='NAME1,NAME2,...',
                        help='Comma-separated feature set for training/evaluation '
-                            'experiments (default: production Core-6). Candidate '
+                            'experiments (default: production baseline). Candidate '
                             'features without a C++ extractor id require '
                             '--no-export or an evaluation-only flow')
     parser.add_argument('--no-export', action='store_true',
@@ -6748,7 +6289,7 @@ def main():
     parser.add_argument('--ablation', action='store_true',
                        help='Run ablation study (test removing each feature)')
     parser.add_argument('--ablation-feature', type=str, default=None,
-                       help='Compare Core-6 against one named feature removal using grouped CV '
+                       help='Compare the production baseline against one named feature removal using grouped CV '
                             'and paired validation without exporting artifacts')
     parser.add_argument('--cross-environment', action='store_true',
                        help='Leave-one-environment-out generalization check: train on all '
@@ -6794,7 +6335,6 @@ def main():
                 or args.correlation
                 or args.cross_environment
                 or args.cross_chip
-                or args.experiment_robustness
                 or args.gain_stress_gate
                 or args.experiment
                 or args.experiment_fp_weights is not None
@@ -6827,14 +6367,9 @@ def main():
     experiment_count = sum((
         bool(args.experiment),
         args.experiment_fp_weights is not None,
-        bool(args.experiment_robustness),
     ))
     if experiment_count > 1:
         print("Error: experiment campaigns are mutually exclusive")
-        return 1
-
-    if args.robustness_augmentation_only and not args.experiment_robustness:
-        print("Error: --robustness-augmentation-only requires --experiment-robustness")
         return 1
 
     if args.force_promote:
@@ -6848,7 +6383,6 @@ def main():
         if (args.seed_search_until_improvement > 0
                 or args.experiment
                 or args.experiment_fp_weights is not None
-                or args.experiment_robustness
                 or args.experiment_promote
                 or args.gain_stress_gate
                 or args.cross_environment
@@ -6863,7 +6397,6 @@ def main():
     if args.augment and (
         args.experiment
         or args.experiment_fp_weights is not None
-        or args.experiment_robustness
         or args.gain_stress_gate
         or args.ablation_feature
         or args.ablation
@@ -6876,32 +6409,9 @@ def main():
         )
         return 1
 
-    if args.experiment_robustness:
-        if args.experiment_promote:
-            print("Error: --experiment-robustness never promotes artifacts")
-            return 1
-        if args.seed is not None or args.seed_search_until_improvement > 0:
-            print("Error: --experiment-robustness uses its fixed 1/3/5-seed schedule")
-            return 1
-        if args.environment is not None or parse_chip_filter(args.exclude_chip) is not None:
-            print("Error: --experiment-robustness requires all environments and chips")
-            return 1
-        if args.positive_chip_boost is not None:
-            print("Error: --experiment-robustness keeps sample weighting fixed")
-            return 1
-        run_robustness_experiment(
-            output_path=args.robustness_experiment_output,
-            use_cache=not args.no_cache,
-            hidden_layers=args.hidden_layers,
-            fp_weight=args.fp_weight,
-            batch_size=args.batch_size,
-            augmentation_only=args.robustness_augmentation_only,
-        )
-        return 0
-
     if args.gain_stress_gate:
         if (args.experiment or args.experiment_fp_weights is not None
-                or args.experiment_robustness or args.experiment_promote):
+                or args.experiment_promote):
             print("Error: --gain-stress-gate cannot be combined with experiment flows")
             return 1
         if args.seed_search_until_improvement > 0 or args.seed is not None:
@@ -6927,7 +6437,7 @@ def main():
             print("Error: --cross-environment and --cross-chip are mutually exclusive")
             return 1
         if (args.experiment or args.experiment_fp_weights is not None
-                or args.experiment_robustness or args.experiment_promote):
+                or args.experiment_promote):
             print(f"Error: {mode} cannot be combined with experiment flows")
             return 1
         if args.shap is not None or args.ablation or args.ablation_feature or args.correlation:
