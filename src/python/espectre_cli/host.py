@@ -133,6 +133,85 @@ def _uses_legacy_dataset_collection(args) -> bool:
     return int(getattr(args, "samples", 1) or 1) != 1
 
 
+def _post_collect_quality_issue_sort_key(result) -> tuple[int, str]:
+    """Prioritize continuity gaps first in the compact post-collect summary."""
+    priorities = {
+        "stream_seq_max_gap": 0,
+        "inter_packet_gap": 1,
+        "stream_seq_gaps": 2,
+        "packet_rate": 3,
+    }
+    return priorities.get(getattr(result, "name", ""), 99), str(getattr(result, "name", ""))
+
+
+def _post_collect_quality_csi_key(data) -> str | None:
+    """Return the CSI matrix key from a materialized validation mapping."""
+    files = list(getattr(data, "files", []))
+    if "csi_data" in files:
+        return "csi_data"
+    if "csi" in files:
+        return "csi"
+    return files[0] if files else None
+
+
+def _run_post_collect_quality_checks(saved_paths) -> None:
+    """Run advisory quality checks on the just-saved capture files."""
+    try:
+        from tools.validate_dataset_quality import (
+            validate_capture_continuity,
+            validate_file_integrity,
+            validate_signal_quality,
+        )
+    except ImportError as exc:
+        print(
+            f"  {Fore.YELLOW}⚠️ Post-collect quality checks unavailable: {exc}{Style.RESET_ALL}"
+        )
+        return
+
+    print(f"  {Fore.CYAN}Post-collect quality:{Style.RESET_ALL}")
+    for filepath in saved_paths:
+        try:
+            file_results, data = validate_file_integrity(filepath)
+            if data is not None:
+                csi_key = _post_collect_quality_csi_key(data)
+                if csi_key is not None:
+                    file_results.extend(validate_signal_quality(data[csi_key]))
+                    file_results.extend(validate_capture_continuity(data, data[csi_key]))
+
+            counts = {
+                "PASS": sum(1 for result in file_results if result.status == "PASS"),
+                "WARN": sum(1 for result in file_results if result.status == "WARN"),
+                "FAIL": sum(1 for result in file_results if result.status == "FAIL"),
+            }
+            issues = sorted(
+                (result for result in file_results if result.status in ("WARN", "FAIL")),
+                key=_post_collect_quality_issue_sort_key,
+            )
+        except Exception as exc:
+            print(
+                f"    {Fore.YELLOW}⚠️ {filepath.name}: quality checks skipped ({exc}){Style.RESET_ALL}"
+            )
+            continue
+
+        if not issues:
+            print(
+                f"    {Fore.GREEN}✅ {filepath.name}: quality checks all pass "
+                f"({counts['PASS']} checks){Style.RESET_ALL}"
+            )
+            continue
+
+        print(
+            f"    {Fore.YELLOW}⚠️ {filepath.name}: "
+            f"{counts['WARN']} warn, {counts['FAIL']} fail{Style.RESET_ALL}"
+        )
+        for result in issues:
+            color = Fore.RED if result.status == "FAIL" else Fore.YELLOW
+            print(
+                f"      {color}{result.status}{Style.RESET_ALL} "
+                f"{result.name}: {result.message}"
+            )
+
+
 def _collect_dataset_csi_data(args) -> None:
     """Run the legacy timed dataset collection workflow."""
     try:
@@ -255,10 +334,13 @@ def _collect_dataset_csi_data(args) -> None:
             num_samples=args.samples,
             pacing_sender=pacing_sender,
             adaptive=bool(getattr(args, "adaptive", True)),
-            boost_allowed=target_mode in ("broadcast", "multicast"),
+            adaptive_controller_kwargs={
+                "boost_allowed": target_mode in ("broadcast", "multicast"),
+            },
             ready_stable_seconds=float(getattr(args, "ready_stable_seconds", 3.0)),
         )
         if saved:
+            _run_post_collect_quality_checks(saved)
             print(f"{Fore.GREEN}✅ Collected {len(saved)} device file(s) for label '{args.label}'{Style.RESET_ALL}")
         else:
             print(f"{Fore.RED}❌ No samples collected{Style.RESET_ALL}")
@@ -943,6 +1025,8 @@ def _run_live_collect(args) -> None:
         "summary_use_inline": supports_inline_terminal(),
         "calibration_active": bool(calibrated_kinds),
     }
+    strict_source_filter = target_mode in {"unicast", "multi-unicast"}
+    allowed_source_hosts = set(targets)
 
     def handle_sigint(_signum, _frame):
         state["interrupted"] = True
@@ -954,6 +1038,12 @@ def _run_live_collect(args) -> None:
             return
 
         now = time.monotonic()
+        if strict_source_filter:
+            source_ip = getattr(pkt, "source_ip", None)
+            if source_ip is None or str(source_ip) not in allowed_source_hosts:
+                maybe_stop_live_session(now)
+                return
+
         state["packet_count"] += 1
         if state["session_started_at"] is None:
             state["session_started_at"] = now
@@ -1104,6 +1194,7 @@ def _run_live_collect(args) -> None:
                     print(f"{Fore.RED}❌ Failed to save live capture: {e}{Style.RESET_ALL}")
                     raise SystemExit(1)
                 if saved_paths:
+                    _run_post_collect_quality_checks(saved_paths)
                     print(
                         f"{Fore.GREEN}✅ Saved {len(saved_paths)} live capture file(s) "
                         f"from {len(captured_packets)} packets{Style.RESET_ALL}"

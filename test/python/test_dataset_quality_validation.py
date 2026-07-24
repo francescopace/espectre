@@ -684,6 +684,7 @@ def test_capture_continuity_flags_low_rate_and_stream_gaps() -> None:
     assert by_name["stream_seq_gaps"].status == "FAIL"
     assert "Missing stream packets: 92.2%" in by_name["stream_seq_gaps"].message
     assert by_name["stream_seq_max_gap"].status == "FAIL"
+    assert "after packet 2 (seq 12 -> 60)" in by_name["stream_seq_max_gap"].message
 
 
 def test_capture_continuity_flags_large_inter_packet_gap() -> None:
@@ -709,6 +710,7 @@ def test_capture_continuity_flags_large_inter_packet_gap() -> None:
 
     assert by_name["inter_packet_gap"].status == "FAIL"
     assert "Largest inter-packet gap: 2480.0 ms" in by_name["inter_packet_gap"].message
+    assert "at packet 2->3" in by_name["inter_packet_gap"].message
 
 
 def test_validate_pair_uses_classic_diagnostic_activation_logic(monkeypatch) -> None:

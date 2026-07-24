@@ -1501,7 +1501,8 @@ def validate_capture_continuity(data, csi_data):
 
     missing_ratio = missing_packets / produced_packets
     nonunit_steps = int(np.sum(seq_delta != 1))
-    max_seq_gap = int(np.maximum(seq_delta - 1, 0).max(initial=0))
+    seq_gap_sizes = np.maximum(seq_delta - 1, 0)
+    max_seq_gap = int(seq_gap_sizes.max(initial=0))
 
     if missing_ratio > MAX_STREAM_SEQ_MISSING_FAIL_RATIO:
         status = "FAIL"
@@ -1527,11 +1528,23 @@ def validate_capture_continuity(data, csi_data):
     else:
         status = "PASS"
 
+    max_gap_index = int(seq_gap_sizes.argmax()) if seq_gap_sizes.size and max_seq_gap > 0 else -1
+    if max_gap_index >= 0:
+        seq_before = int(stream_seq[max_gap_index])
+        seq_after = int(stream_seq[max_gap_index + 1])
+        gap_location = (
+            f"after packet {max_gap_index} "
+            f"(seq {seq_before} -> {seq_after})"
+        )
+    else:
+        gap_location = "with no missing packets detected"
+
     results.append(ValidationResult(
         "stream_seq_max_gap",
         status,
         (
             f"Largest stream gap: {max_seq_gap} packets "
+            f"{gap_location} "
             f"(warn > {MAX_STREAM_SEQ_GAP_WARN_PACKETS}, "
             f"fail > {MAX_STREAM_SEQ_GAP_FAIL_PACKETS})"
         ),
@@ -1569,7 +1582,8 @@ def validate_capture_continuity(data, csi_data):
         ))
         return results
 
-    max_gap_ms = float(positive_delta.max()) / 1000.0
+    max_gap_index = int(timestamp_delta.argmax())
+    max_gap_ms = float(timestamp_delta[max_gap_index]) / 1000.0
     if max_gap_ms > MAX_INTER_PACKET_GAP_FAIL_MS:
         status = "FAIL"
     elif max_gap_ms > MAX_INTER_PACKET_GAP_WARN_MS:
@@ -1582,6 +1596,7 @@ def validate_capture_continuity(data, csi_data):
         status,
         (
             f"Largest inter-packet gap: {max_gap_ms:.1f} ms via {timestamp_key} "
+            f"at packet {max_gap_index}->{max_gap_index + 1} "
             f"(warn > {MAX_INTER_PACKET_GAP_WARN_MS:.1f} ms, "
             f"fail > {MAX_INTER_PACKET_GAP_FAIL_MS:.1f} ms)"
         ),

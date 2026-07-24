@@ -1055,6 +1055,26 @@ class CSICollector:
         self._ready_initial_threshold = CollectionDetectorGate.initial_threshold(self.detector_algorithm)
         self._live_status_line_count = 0
 
+    def _should_accept_source_ip(self, source_ip: Optional[str]) -> bool:
+        """Accept all broadcast/multicast sources, but pin unicast modes to targets."""
+        if not self.expected_source_hosts:
+            return True
+
+        accept_all_sources = False
+        for expected_host in self.expected_source_hosts:
+            try:
+                expected_ip = ipaddress.ip_address(str(expected_host))
+            except ValueError:
+                continue
+            if expected_ip.is_multicast or int(expected_ip) == 0xFFFFFFFF or str(expected_ip).endswith(".255"):
+                accept_all_sources = True
+                break
+        if accept_all_sources:
+            return True
+        if source_ip is None:
+            return False
+        return str(source_ip) in self.expected_source_hosts
+
     def _get_label_dir(self) -> Path:
         label_dir = dataset_metadata.DATA_DIR / self.label
         label_dir.mkdir(parents=True, exist_ok=True)
@@ -1502,6 +1522,8 @@ class CSICollector:
                     continue
                 for packet in packets:
                     packet.source_ip = addr[0]
+                    if not self._should_accept_source_ip(packet.source_ip):
+                        continue
                     if not self.receiver.accept_packet(packet):
                         continue
                     processed_packets += 1
@@ -1622,6 +1644,8 @@ class CSICollector:
                     continue
                 for packet in parsed_packets:
                     packet.source_ip = addr[0]
+                    if not self._should_accept_source_ip(packet.source_ip):
+                        continue
                     if not self.receiver.accept_packet(packet):
                         continue
                     packets.append(packet)
