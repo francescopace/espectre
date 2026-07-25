@@ -7,6 +7,10 @@
 
 # ESPectre
 
+<div align="center">
+<img src="docs/web/espectre-logo.svg" alt="ESPectre" width="96">
+</div>
+
 **ESPectre turns low-cost ESP32 devices into privacy-first Wi-Fi sensing nodes.**
 
 It detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or dedicated radar hardware.  
