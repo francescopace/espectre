@@ -32,6 +32,19 @@ std::vector<int8_t> make_constant_packet(int8_t i_value, int8_t q_value) {
     return packet;
 }
 
+// Feed enough varying packets to wrap the turbulence ring, so the detector
+// exercises the chronological reorder buffer and the feature scratch rather
+// than the still-filling shortcut.
+template <typename Detector>
+void fill_past_window(Detector& detector, uint16_t packets) {
+    for (uint16_t p = 0; p < packets; ++p) {
+        const int8_t magnitude = static_cast<int8_t>(4 + (p % 7));
+        auto packet = make_constant_packet(magnitude, static_cast<int8_t>(magnitude + 1));
+        detector.process_packet(packet.data(), packet.size(), DEFAULT_SUBCARRIERS,
+                                HT20_SELECTED_BAND_SIZE);
+    }
+}
+
 }  // namespace
 
 void test_utils_statistical_helpers_cover_edge_cases(void) {
@@ -62,12 +75,15 @@ void test_utils_statistical_helpers_cover_edge_cases(void) {
 }
 
 void test_utils_spatial_turbulence_handles_invalid_inputs(void) {
-    float magnitudes[] = {1.0f, 2.0f, 3.0f, 4.0f};
+    // max_subcarrier is the length of magnitudes: indices at or above it are
+    // dropped, so the array must be at least that long for the ones below it.
+    float magnitudes[10] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f};
     uint8_t invalid_band[] = {0, 7, 9};
 
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence(nullptr, invalid_band, 3));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence(magnitudes, nullptr, 3));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence(magnitudes, invalid_band, 0));
+    // Only index 0 is below the band limit, and one sample has no spread.
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence(magnitudes, invalid_band, 3, 4));
 
     float valid = calculate_spatial_turbulence(magnitudes, invalid_band, 3, 10);
@@ -91,6 +107,75 @@ void test_utils_spatial_turbulence_handles_invalid_inputs(void) {
     int8_t low = -5;
     int8_t high = 6;
     TEST_ASSERT_TRUE(compare_int8(&low, &high) < 0);
+}
+
+namespace {
+
+// Build a payload that is populated everywhere except the guard bins of one
+// layout, matching what the radio actually reports.
+std::vector<int8_t> make_layout_packet(const uint8_t* null_bins, uint8_t null_count) {
+    std::vector<int8_t> packet(HT20_CSI_LEN);
+    for (uint16_t bin = 0; bin < HT20_NUM_SUBCARRIERS; ++bin) {
+        packet[bin * 2] = static_cast<int8_t>(7 + (bin % 5));
+        packet[bin * 2 + 1] = static_cast<int8_t>(-3 - (bin % 4));
+    }
+    for (uint8_t i = 0; i < null_count; ++i) {
+        packet[null_bins[i] * 2] = 0;
+        packet[null_bins[i] * 2 + 1] = 0;
+    }
+    return packet;
+}
+
+}  // namespace
+
+void test_ht20_bin_layout_detection_requires_positive_evidence(void) {
+    constexpr uint8_t kNullCount = static_cast<uint8_t>(sizeof(HT20_CLASSIC_ONLY_NULL_BINS));
+
+    auto classic = make_layout_packet(HT20_CLASSIC_ONLY_NULL_BINS, kNullCount);
+    auto centered = make_layout_packet(HT20_CENTERED_ONLY_NULL_BINS, kNullCount);
+    TEST_ASSERT_TRUE(detect_ht20_bin_layout(classic.data(), classic.size()) ==
+                     Ht20BinLayout::CLASSIC);
+    TEST_ASSERT_TRUE(detect_ht20_bin_layout(centered.data(), centered.size()) ==
+                     Ht20BinLayout::CENTERED);
+
+    // An all-zero payload is null under both conventions, so neither wins.
+    std::vector<int8_t> empty(HT20_CSI_LEN, 0);
+    TEST_ASSERT_TRUE(detect_ht20_bin_layout(empty.data(), empty.size()) ==
+                     Ht20BinLayout::UNKNOWN);
+
+    // A single faded guard-adjacent tone withdraws the positive evidence rather
+    // than guessing; the capture service latches the previous answer instead.
+    auto faded = classic;
+    faded[HT20_CENTERED_ONLY_NULL_BINS[0] * 2] = 0;
+    faded[HT20_CENTERED_ONLY_NULL_BINS[0] * 2 + 1] = 0;
+    TEST_ASSERT_TRUE(detect_ht20_bin_layout(faded.data(), faded.size()) ==
+                     Ht20BinLayout::UNKNOWN);
+
+    TEST_ASSERT_TRUE(detect_ht20_bin_layout(nullptr, HT20_CSI_LEN) == Ht20BinLayout::UNKNOWN);
+    TEST_ASSERT_TRUE(detect_ht20_bin_layout(classic.data(), HT20_CSI_LEN_SHORT) ==
+                     Ht20BinLayout::UNKNOWN);
+}
+
+void test_ht20_rotation_maps_classic_onto_centered(void) {
+    constexpr uint8_t kNullCount = static_cast<uint8_t>(sizeof(HT20_CLASSIC_ONLY_NULL_BINS));
+    auto classic = make_layout_packet(HT20_CLASSIC_ONLY_NULL_BINS, kNullCount);
+
+    std::vector<int8_t> rotated(HT20_CSI_LEN);
+    rotate_ht20_classic_to_centered(classic.data(), rotated.data());
+    TEST_ASSERT_TRUE(detect_ht20_bin_layout(rotated.data(), rotated.size()) ==
+                     Ht20BinLayout::CENTERED);
+
+    // DC moves from bin 0 to HT20_DC_SUBCARRIER, which is what the band assumes.
+    for (uint16_t bin = 0; bin < HT20_NUM_SUBCARRIERS; ++bin) {
+        const uint16_t source = static_cast<uint16_t>((bin + HT20_DC_SUBCARRIER) % HT20_NUM_SUBCARRIERS);
+        TEST_ASSERT_EQUAL_INT8(classic[source * 2], rotated[bin * 2]);
+        TEST_ASSERT_EQUAL_INT8(classic[source * 2 + 1], rotated[bin * 2 + 1]);
+    }
+
+    // Rotating by half the FFT size is its own inverse.
+    std::vector<int8_t> round_trip(HT20_CSI_LEN);
+    rotate_ht20_classic_to_centered(rotated.data(), round_trip.data());
+    TEST_ASSERT_TRUE(round_trip == classic);
 }
 
 void test_threshold_helpers_cover_ranges(void) {
@@ -252,6 +337,7 @@ void test_detector_startup_gate_traits(void) {
 void test_ml_feature_helpers_cover_guard_paths(void) {
     float sample[] = {1.0f, 3.0f, 5.0f, 7.0f};
     float sorted[] = {1.0f, 3.0f, 5.0f, 7.0f};
+    float abs_devs[4];
 
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_skewness(sample, 2, 2.0f, 1.0f));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_skewness(sample, 4, 4.0f, 0.0f));
@@ -259,8 +345,26 @@ void test_ml_feature_helpers_cover_guard_paths(void) {
     TEST_ASSERT_EQUAL_FLOAT(4.0f, median_from_sorted(sorted, 4));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_autocorrelation(sample, 2, 2.0f, 1.0f, 1));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_autocorrelation(sample, 4, 4.0f, 0.0f, 1));
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_mad(sample, ML_MAX_SORT_SIZE + 1));
-    TEST_ASSERT_EQUAL_FLOAT(2.0f, calc_mad(sample, 4, sorted));
+    // MAD requires a caller-owned sorted view and a scratch that fits.
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_mad(sample, 4, nullptr, abs_devs, 4));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_mad(sample, 4, sorted, nullptr, 4));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_mad(sample, 4, sorted, abs_devs, 3));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_mad(sample, 1, sorted, abs_devs, 4));
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, calc_mad(sample, 4, sorted, abs_devs, 4));
+
+    // A scratch that cannot back the sort leaves mad and zcr at zero rather
+    // than reading past its end.
+    MLStatNeeds needs;
+    needs.sorted = true;
+    MLSeriesStats stats;
+    compute_ml_series_stats(sample, 4, &stats, needs, MLSeriesScratch{});
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stats.mad);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stats.zcr);
+
+    float sort_scratch[4];
+    const MLSeriesScratch scratch{sort_scratch, abs_devs, 4U};
+    compute_ml_series_stats(sample, 4, &stats, needs, scratch);
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, stats.mad);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_waveform_length(nullptr, 3));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_waveform_length(sample, 1));
     TEST_ASSERT_EQUAL_FLOAT(6.0f, calc_waveform_length(sample, 4));
@@ -286,13 +390,26 @@ void test_classic_detector_move_semantics_and_base_accessors(void) {
     TEST_ASSERT_EQUAL(1, moved.get_buffer_count());
     TEST_ASSERT_EQUAL_FLOAT(0.75f, moved.get_threshold());
 
+    // Keep detecting after the move: this drives the reorder buffer and the
+    // L1-delta ring, which the move had to carry over.
+    const uint16_t window = moved.get_window_size();
+    fill_past_window(moved, static_cast<uint16_t>(window + 20));
+    moved.update_state();
+    TEST_ASSERT_EQUAL(window, moved.get_buffer_count());
+    TEST_ASSERT_TRUE(moved.is_ready());
+    TEST_ASSERT_FALSE(std::isnan(moved.get_motion_metric()));
+
     ClassicDetector assigned(7, 4.0f);
     assigned = std::move(moved);
     TEST_ASSERT_NULL(moved.get_turbulence_buffer());
     TEST_ASSERT_TRUE(assigned.is_lowpass_enabled());
     TEST_ASSERT_TRUE(assigned.is_hampel_enabled());
-    TEST_ASSERT_EQUAL(1, assigned.get_total_packets());
-    TEST_ASSERT_EQUAL(1, assigned.get_buffer_count());
+    TEST_ASSERT_EQUAL(window, assigned.get_buffer_count());
+
+    fill_past_window(assigned, 30);
+    assigned.update_state();
+    TEST_ASSERT_TRUE(assigned.is_ready());
+    TEST_ASSERT_FALSE(std::isnan(assigned.get_motion_metric()));
 }
 
 void test_ml_detector_move_semantics_and_cv_state(void) {
@@ -306,17 +423,31 @@ void test_ml_detector_move_semantics_and_cv_state(void) {
     TEST_ASSERT_EQUAL_FLOAT(1.0f, moved.get_threshold());
     TEST_ASSERT_EQUAL_FLOAT(0.0f, moved.get_motion_metric());
 
+    // Run inference after the move: this drives the feature scratch block and
+    // the reorder buffer, which the move had to carry over.
+    const uint16_t window = moved.get_window_size();
+    fill_past_window(moved, static_cast<uint16_t>(window + 20));
+    moved.update_state();
+    TEST_ASSERT_EQUAL(window, moved.get_buffer_count());
+    TEST_ASSERT_FALSE(std::isnan(moved.get_motion_metric()));
+
     MLDetector assigned(10, 7.0f);
     assigned = std::move(moved);
     TEST_ASSERT_NULL(moved.get_turbulence_buffer());
     TEST_ASSERT_EQUAL_FLOAT(1.0f, assigned.get_threshold());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, assigned.get_motion_metric());
+    TEST_ASSERT_EQUAL(window, assigned.get_buffer_count());
+
+    fill_past_window(assigned, 30);
+    assigned.update_state();
+    TEST_ASSERT_FALSE(std::isnan(assigned.get_motion_metric()));
 }
 
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_utils_statistical_helpers_cover_edge_cases);
     RUN_TEST(test_utils_spatial_turbulence_handles_invalid_inputs);
+    RUN_TEST(test_ht20_bin_layout_detection_requires_positive_evidence);
+    RUN_TEST(test_ht20_rotation_maps_classic_onto_centered);
     RUN_TEST(test_threshold_helpers_cover_ranges);
     RUN_TEST(test_startup_threshold_calibrator_gate_disabled_matches_max);
     RUN_TEST(test_startup_threshold_calibrator_gate_accepts_clean_startup);

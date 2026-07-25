@@ -246,13 +246,14 @@ class MLDetector(IDetector):
         self.state_history = []
         self.track_data = False
     
-    def process_packet(self, csi_data, selected_subcarriers=None):
+    def process_packet(self, csi_data, selected_subcarriers=None, rssi_dbm=None):
         """
         Process a CSI packet.
         
         Args:
             csi_data: Raw CSI data (int8 I/Q pairs)
             selected_subcarriers: Subcarrier indices to use
+            rssi_dbm: Optional per-packet RSSI metadata (ignored by ML)
         """
         self._packet_count += 1
 

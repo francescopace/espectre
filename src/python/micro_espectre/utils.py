@@ -22,6 +22,9 @@ try:
         LAYOUT_ID_HT20_64,
         LAYOUT_ID_HT20_64_DOUBLE,
         LAYOUT_ID_UNKNOWN,
+        LAYOUT_BINS_CENTERED,
+        LAYOUT_BINS_CLASSIC,
+        LAYOUT_BINS_UNKNOWN,
         NORMALIZATION_DOUBLE_HT20,
         NORMALIZATION_DOUBLE_HT57_TO_64,
         NORMALIZATION_HT57_TO_64,
@@ -37,9 +40,11 @@ try:
         assess_ht20_sensing_frame as assess_ht20_sensing_frame,
         calculate_variance,
         csi_read_frame as csi_read_frame,
+        detect_ht20_bin_layout as detect_ht20_bin_layout,
         insertion_sort as insertion_sort,
         is_ht20_sensing_frame as is_ht20_sensing_frame,
         normalize_ht20_csi_payload as normalize_ht20_csi_payload,
+        rotate_ht20_classic_to_centered as rotate_ht20_classic_to_centered,
         to_signed_int8,
     )
 except ImportError:
@@ -55,6 +60,9 @@ except ImportError:
         LAYOUT_ID_HT20_64,
         LAYOUT_ID_HT20_64_DOUBLE,
         LAYOUT_ID_UNKNOWN,
+        LAYOUT_BINS_CENTERED,
+        LAYOUT_BINS_CLASSIC,
+        LAYOUT_BINS_UNKNOWN,
         NORMALIZATION_DOUBLE_HT20,
         NORMALIZATION_DOUBLE_HT57_TO_64,
         NORMALIZATION_HT57_TO_64,
@@ -70,9 +78,11 @@ except ImportError:
         assess_ht20_sensing_frame as assess_ht20_sensing_frame,
         calculate_variance,
         csi_read_frame as csi_read_frame,
+        detect_ht20_bin_layout as detect_ht20_bin_layout,
         insertion_sort as insertion_sort,
         is_ht20_sensing_frame as is_ht20_sensing_frame,
         normalize_ht20_csi_payload as normalize_ht20_csi_payload,
+        rotate_ht20_classic_to_centered as rotate_ht20_classic_to_centered,
         to_signed_int8,
     )
 

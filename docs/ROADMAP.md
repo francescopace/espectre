@@ -71,21 +71,29 @@ ESPectre v3 success criteria:
 - [x] Keep Classic and ML usable when RSSI drops into the roughly `-70` to `-80 dBm` range
   - [x] Add a session-centered L1 safeguard for Classic
   - [x] Add and validate an ML low-RSSI safeguard from real captures
+  - [x] Gate Classic false positives on the empty-room recordings: the alarms on static-presence baselines were not weak-link noise but the stationary occupant's own micro-motion, and they occur on the strongest links as readily as on the weakest
 - [x] Separate ML training data from reserved promotion replays, with lineage-grouped CV and a link-class stress policy for real weak-link captures
 - [x] Promote a weak-link-robust ML feature set (Coherence-6: temporal-coherence features replace the two weakest Core-6 members; promoted end-to-end by the reserved-replay protocol with a novel-hardware holdout check)
 - [x] Raise the ESP32 streamer sustained capture rate beyond the previous approximately 70 pps ceiling (stable ~80 pps via legacy broadcast pacing; L-LTF frames stay outside the HT20 sensing contract, so sensing datasets still come from HT captures)
 - [x] Add a post-collect dataset consistency check for streamer captures that at least verifies there are no recording gaps and that class separation is decent
+- [x] Make `segmentation_window_size`, detector feature windows, and `evaluation_interval` adapt automatically to the effective CSI packet rate, and keep Classic and ML features comparable across window sizes and different CSI packet rates
+  - [ ] Verify the Classic coefficients off-nominal: they remain fitted at the nominal cadence, and a refit on the current corpus lost to them at matched false positives
+- [ ] Close the remaining detector recall gap, now the only open one: Classic per-chip aggregates sit at `92.4-94.7%` against a `95%` target and ML weak-link C3 at `82.2%` against `90%`, driven by a handful of bedroom captures rather than a uniform shortfall
 - [ ] Add and validate broader PHY and band support, including Wi-Fi 6 / 802.11ax capabilities and, where supported by hardware and exposed APIs, 5 GHz operation
   - [x] Classify CSI formats before normalization and handle currently unsupported LLTF, HT40, and HE20 packets gracefully, with explicit drop-reason telemetry and detector resets on format-stream changes
-- [ ] Trigger Native firmware OTA from BLE, then resolve the manifest and download the update over HTTPS through the same OTA service used by MQTT
 - [ ] Set the runtime `motion_on_hits` and `motion_off_hits` thresholds through the Native BLE control surface
-- [ ] Make `segmentation_window_size`, detector feature windows, and `evaluation_interval` adapt automatically to the effective CSI packet rate, and keep Classic and ML features comparable across window sizes and different CSI packet rates
+- [ ] Trigger Native firmware OTA from BLE, then resolve the manifest and download the update over HTTPS through the same OTA service used by MQTT
 - [ ] Collect ESP32 data across all dataset environments
   - [ ] Retrain and validate the production model with the expanded ESP32 dataset
-- [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
+- [ ] After the current detector experiments settle, remove unused C++ and Python features, and simplify the training workflow by dropping options that are no longer useful
+- [ ] Make a final review of code. Be dry, Check responsabilities and level (core, runtime, frontend). Performance security review. Algorithm parity cpp/python
+  - [x] Restore Python/C++ performance-report parity, which had drifted on the post-reset interval fallback (mean against median), the replay timing seed, and the startup calibrator's weighted-sample accounting
+- [ ] Last check to doc. Do not repeat, simplify, every doc has his own responsibility.
+  - [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
+- [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
+  - [ ] Changelog review
 - [ ] Re-enable the `CLA Signature Check` as a required status check in GitHub branch protection for `develop`
 - [ ] Test the new GitHub issue and pull request templates end to end
-- [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
 
 ### Planned v3.x Follow-Ups
 
@@ -95,6 +103,7 @@ tagged.
 
 - [ ] Add Presence vs Empty detection
 - [ ] Optimize Micro-ESPectre to exceed its current approximately 70 pps ceiling
+- [ ] Evaluate how to improve detection quality at high CSI packet rates instead of relying on decimation as a temporary mitigation, so the platform can preserve short-timescale information for cases such as brief gesture recognition
 - [ ] Use a dedicated build directory for each chip instead of reusing the same directory across targets
 - [ ] Add Native frontend support for local TFT/LCD status displays similar to `examples/espectre-s3-touch-lcd.yaml`
 
@@ -179,7 +188,7 @@ When a microcontroller or embedded Wi-Fi platform exposes practical 802.11bf-sty
 
 ## Roadmap Updates
 
-Last update: **July 23, 2026**
+Last update: **July 25, 2026**
 
 For discussion and proposed changes:
 

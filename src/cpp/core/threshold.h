@@ -133,29 +133,31 @@ class StartupThresholdCalibrator {
    */
   void observe(bool detector_ready, float motion_metric, float floor_metric = 0.0f,
                uint16_t packet_weight = 1U) {
+    // The weight is folded in one step rather than replayed packet by packet.
+    // Replaying it re-evaluated the chunk guards on every repetition, so a
+    // chunk boundary landing inside one evaluation split differently here than
+    // in the Python calibrator and the two produced different thresholds. See
+    // threshold.py, which this mirrors.
     const uint32_t remaining = target_packets_ > packet_count_ ? target_packets_ - packet_count_ : 0U;
     const uint32_t weight = std::min<uint32_t>(std::max<uint16_t>(packet_weight, 1U), remaining);
-    for (uint32_t i = 0; i < weight; i++) {
-      observe_one_(detector_ready, motion_metric, floor_metric);
+    if (weight == 0U) {
+      return;
     }
-  }
-
- private:
-  void observe_one_(bool detector_ready, float motion_metric, float floor_metric) {
-    packet_count_++;
+    const uint32_t initial_remaining = remaining;
+    packet_count_ += weight;
     if (!detector_ready) {
       return;
     }
-    ready_packet_count_++;
+    ready_packet_count_ += weight;
     if (!has_value_ || motion_metric > max_motion_metric_) {
       max_motion_metric_ = motion_metric;
     }
     has_value_ = true;
     if (gate_enabled_ && !gate_accepted_) {
-      observe_gate_metric_(motion_metric);
+      observe_gate_metric_(motion_metric, weight, initial_remaining);
     }
     if (gate_enabled_ && !motion_accepted_ && packet_count_ <= target_packets_) {
-      observe_motion_chunk_(motion_metric, floor_metric);
+      observe_motion_chunk_(motion_metric, floor_metric, weight);
     }
     if (gate_enabled_ && !gate_accepted_ && packet_count_ >= target_packets_ &&
         chunk_count_ > 0 && ring_count_ < STARTUP_GATE_CHUNKS) {
@@ -163,7 +165,6 @@ class StartupThresholdCalibrator {
     }
   }
 
- public:
   /// True once motion-first succeeds early or the startup budget is spent.
   bool is_complete() const {
     return motion_accepted_ || packet_count_ >= target_packets_;
@@ -272,22 +273,29 @@ class StartupThresholdCalibrator {
     COMPLETE,
   };
 
-  void observe_gate_metric_(float metric) {
+  /**
+   * @param initial_remaining Budget left before this observation was counted,
+   *        which is what sizes the chunks. Measuring it after the weight was
+   *        added would shrink every chunk by the weight.
+   */
+  void observe_gate_metric_(float metric, uint32_t weight, uint32_t initial_remaining) {
     if (chunk_size_ == 0) {
-      const uint32_t remaining =
-          packet_count_ <= target_packets_ ? target_packets_ - packet_count_ + 1 : 1;
-      chunk_size_ = std::max<uint32_t>(1, remaining / STARTUP_GATE_CHUNKS);
+      chunk_size_ = std::max<uint32_t>(1U, initial_remaining / STARTUP_GATE_CHUNKS);
     }
 
-    if (chunk_count_ == 0 || metric > chunk_max_) {
-      chunk_max_ = metric;
+    uint32_t remaining_weight = weight;
+    while (remaining_weight > 0U && !gate_accepted_) {
+      if (chunk_count_ == 0 || metric > chunk_max_) {
+        chunk_max_ = metric;
+      }
+      const uint32_t available = chunk_size_ > chunk_count_ ? chunk_size_ - chunk_count_ : 0U;
+      const uint32_t take = std::min(remaining_weight, available);
+      chunk_count_ += take;
+      remaining_weight -= take;
+      if (chunk_count_ >= chunk_size_) {
+        close_gate_chunk_();
+      }
     }
-    chunk_count_++;
-    if (chunk_count_ < chunk_size_) {
-      return;
-    }
-
-    close_gate_chunk_();
   }
 
   void close_gate_chunk_() {
@@ -314,26 +322,38 @@ class StartupThresholdCalibrator {
     }
   }
 
-  void observe_motion_chunk_(float metric, float floor_metric) {
-    if (motion_chunk_count_ == 0 || metric > motion_chunk_max_) {
-      motion_chunk_max_ = metric;
-    }
-    motion_chunk_sum_ += metric;
-    motion_chunk_count_++;
-    if (chunk_floor_count_ < STARTUP_MOTION_CHUNK_SIZE) {
-      chunk_floor_[chunk_floor_count_++] = floor_metric;
-    }
-    if (motion_chunk_count_ < STARTUP_MOTION_CHUNK_SIZE) {
-      return;
-    }
+  void observe_motion_chunk_(float metric, float floor_metric, uint32_t weight) {
+    uint32_t remaining_weight = weight;
+    while (remaining_weight > 0U && !motion_accepted_) {
+      if (motion_chunk_count_ == 0 || metric > motion_chunk_max_) {
+        motion_chunk_max_ = metric;
+      }
+      const uint32_t available = STARTUP_MOTION_CHUNK_SIZE > motion_chunk_count_
+                                     ? STARTUP_MOTION_CHUNK_SIZE - motion_chunk_count_
+                                     : 0U;
+      const uint32_t take = std::min(remaining_weight, available);
+      motion_chunk_sum_ += metric * static_cast<float>(take);
+      motion_chunk_count_ = static_cast<uint8_t>(motion_chunk_count_ + take);
+      // One fill instead of `take` appends, into the fixed chunk buffer.
+      const uint32_t floor_room = STARTUP_MOTION_CHUNK_SIZE > chunk_floor_count_
+                                      ? STARTUP_MOTION_CHUNK_SIZE - chunk_floor_count_
+                                      : 0U;
+      const uint32_t floor_take = std::min(take, floor_room);
+      std::fill_n(chunk_floor_ + chunk_floor_count_, floor_take, floor_metric);
+      chunk_floor_count_ = static_cast<uint8_t>(chunk_floor_count_ + floor_take);
+      remaining_weight -= take;
+      if (motion_chunk_count_ < STARTUP_MOTION_CHUNK_SIZE) {
+        continue;
+      }
 
-    const float level = motion_chunk_sum_ / static_cast<float>(motion_chunk_count_);
-    const float peak = motion_chunk_max_;
-    consume_closed_motion_chunk_(level, peak, chunk_floor_, chunk_floor_count_);
-    motion_chunk_sum_ = 0.0f;
-    motion_chunk_max_ = 0.0f;
-    motion_chunk_count_ = 0;
-    chunk_floor_count_ = 0;
+      const float level = motion_chunk_sum_ / static_cast<float>(motion_chunk_count_);
+      const float peak = motion_chunk_max_;
+      consume_closed_motion_chunk_(level, peak, chunk_floor_, chunk_floor_count_);
+      motion_chunk_sum_ = 0.0f;
+      motion_chunk_max_ = 0.0f;
+      motion_chunk_count_ = 0;
+      chunk_floor_count_ = 0;
+    }
   }
 
   void consume_closed_motion_chunk_(float level, float peak, const float* floor_samples,

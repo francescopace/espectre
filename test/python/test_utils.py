@@ -10,10 +10,19 @@ License: GPLv3
 import pytest
 import math
 import numpy as np
+from device_utils import (
+    HT20_CENTERED_ONLY_NULL_BINS,
+    HT20_CLASSIC_ONLY_NULL_BINS,
+)
 from utils import (
     CsiFrameTimestampFilter,
     DISPOSITION_DROP,
     DISPOSITION_SENSE,
+    LAYOUT_BINS_CENTERED,
+    LAYOUT_BINS_CLASSIC,
+    LAYOUT_BINS_UNKNOWN,
+    detect_ht20_bin_layout,
+    rotate_ht20_classic_to_centered,
     NORMALIZATION_DOUBLE_HT57_TO_64,
     NORMALIZATION_HT57_TO_64,
     REASON_NONE,
@@ -88,6 +97,81 @@ class TestNormalizeHt20CsiPayload:
         assert normalized is None
         assert raw_len == 64
         assert tag is None
+
+
+def _layout_packet(null_bins):
+    """Build a payload populated everywhere except one layout's guard bins."""
+    payload = bytearray(128)
+    for bin_index in range(64):
+        payload[bin_index * 2] = 7 + (bin_index % 5)
+        payload[bin_index * 2 + 1] = 200 + (bin_index % 4)
+    for bin_index in null_bins:
+        payload[bin_index * 2] = 0
+        payload[bin_index * 2 + 1] = 0
+    return payload
+
+
+class TestHt20BinLayout:
+    """Test HT20 bin-ordering detection and rotation."""
+
+    def test_detects_both_conventions(self):
+        classic = _layout_packet(HT20_CLASSIC_ONLY_NULL_BINS)
+        centered = _layout_packet(HT20_CENTERED_ONLY_NULL_BINS)
+        assert detect_ht20_bin_layout(classic) == LAYOUT_BINS_CLASSIC
+        assert detect_ht20_bin_layout(centered) == LAYOUT_BINS_CENTERED
+
+    def test_all_zero_payload_is_inconclusive(self):
+        assert detect_ht20_bin_layout(bytearray(128)) == LAYOUT_BINS_UNKNOWN
+
+    def test_single_faded_guard_tone_withdraws_evidence(self):
+        faded = _layout_packet(HT20_CLASSIC_ONLY_NULL_BINS)
+        first = HT20_CENTERED_ONLY_NULL_BINS[0]
+        faded[first * 2] = 0
+        faded[first * 2 + 1] = 0
+        assert detect_ht20_bin_layout(faded) == LAYOUT_BINS_UNKNOWN
+
+    def test_wrong_length_is_inconclusive(self):
+        assert detect_ht20_bin_layout(bytearray(114)) == LAYOUT_BINS_UNKNOWN
+
+    def test_rotation_maps_classic_onto_centered(self):
+        classic = _layout_packet(HT20_CLASSIC_ONLY_NULL_BINS)
+        rotated = rotate_ht20_classic_to_centered(classic)
+        assert detect_ht20_bin_layout(rotated) == LAYOUT_BINS_CENTERED
+        for bin_index in range(64):
+            source = (bin_index + 32) % 64
+            assert rotated[bin_index * 2] == classic[source * 2]
+            assert rotated[bin_index * 2 + 1] == classic[source * 2 + 1]
+
+    def test_rotation_is_its_own_inverse(self):
+        classic = _layout_packet(HT20_CLASSIC_ONLY_NULL_BINS)
+        assert rotate_ht20_classic_to_centered(rotate_ht20_classic_to_centered(classic)) == classic
+
+    def test_normalize_rotates_classic_payload(self):
+        classic = _layout_packet(HT20_CLASSIC_ONLY_NULL_BINS)
+        normalized, raw_len, tag = normalize_ht20_csi_payload(classic, expected_len=128)
+        assert raw_len == 128
+        assert tag is None
+        assert detect_ht20_bin_layout(normalized) == LAYOUT_BINS_CENTERED
+
+    def test_normalize_leaves_centered_payload_alone(self):
+        centered = _layout_packet(HT20_CENTERED_ONLY_NULL_BINS)
+        normalized, _raw_len, _tag = normalize_ht20_csi_payload(centered, expected_len=128)
+        assert normalized == centered
+
+    def test_latched_layout_covers_inconclusive_packet(self):
+        faded = _layout_packet(HT20_CLASSIC_ONLY_NULL_BINS)
+        first = HT20_CENTERED_ONLY_NULL_BINS[0]
+        faded[first * 2] = 0
+        faded[first * 2 + 1] = 0
+        assert detect_ht20_bin_layout(faded) == LAYOUT_BINS_UNKNOWN
+
+        without_latch, _raw_len, _tag = normalize_ht20_csi_payload(faded, expected_len=128)
+        assert without_latch == faded
+
+        with_latch, _raw_len, _tag = normalize_ht20_csi_payload(
+            faded, expected_len=128, bin_layout=LAYOUT_BINS_CLASSIC
+        )
+        assert with_latch == rotate_ht20_classic_to_centered(faded)
 
 
 class TestIsHt20SensingFrame:

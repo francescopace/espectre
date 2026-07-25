@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <new>
 
 #include "csi_format.h"
 #include "detector_limits.h"
@@ -22,8 +23,59 @@ namespace espectre {
 
 class L1DeltaTracker {
  public:
-  void configure(uint16_t capacity) {
-    capacity_ = std::min<uint16_t>(capacity, DETECTOR_MAX_WINDOW_SIZE);
+  L1DeltaTracker() = default;
+  ~L1DeltaTracker() { delete[] delta_ring_; }
+  L1DeltaTracker(L1DeltaTracker&& other) noexcept
+      : capacity_(other.capacity_),
+        lag_(other.lag_),
+        profile_index_(other.profile_index_),
+        delta_ring_(other.delta_ring_),
+        delta_index_(other.delta_index_),
+        delta_count_(other.delta_count_),
+        delta_sum_(other.delta_sum_),
+        hampel_state_(other.hampel_state_) {
+    std::memcpy(profile_ring_, other.profile_ring_, sizeof(profile_ring_));
+    std::memcpy(profile_len_, other.profile_len_, sizeof(profile_len_));
+    other.capacity_ = 0U;
+    other.profile_index_ = 0U;
+    other.delta_ring_ = nullptr;
+    other.delta_index_ = 0U;
+    other.delta_count_ = 0U;
+    other.delta_sum_ = 0.0f;
+  }
+  L1DeltaTracker& operator=(L1DeltaTracker&& other) noexcept {
+    if (this != &other) {
+      delete[] delta_ring_;
+      capacity_ = other.capacity_;
+      std::memcpy(profile_ring_, other.profile_ring_, sizeof(profile_ring_));
+      std::memcpy(profile_len_, other.profile_len_, sizeof(profile_len_));
+      lag_ = other.lag_;
+      profile_index_ = other.profile_index_;
+      delta_ring_ = other.delta_ring_;
+      delta_index_ = other.delta_index_;
+      delta_count_ = other.delta_count_;
+      delta_sum_ = other.delta_sum_;
+      hampel_state_ = other.hampel_state_;
+      other.capacity_ = 0U;
+      other.profile_index_ = 0U;
+      other.delta_ring_ = nullptr;
+      other.delta_index_ = 0U;
+      other.delta_count_ = 0U;
+      other.delta_sum_ = 0.0f;
+    }
+    return *this;
+  }
+  L1DeltaTracker(const L1DeltaTracker&) = delete;
+  L1DeltaTracker& operator=(const L1DeltaTracker&) = delete;
+
+  /**
+   * @param capacity Delta ring capacity in packets
+   * @param lag Profile-displacement distance in packets, bounded by
+   *        L1_DELTA_LAG_MAX because the profile ring is statically sized
+   */
+  void configure(uint16_t capacity, uint16_t lag = L1_DELTA_LAG) {
+    allocate_delta_ring_(std::min<uint16_t>(capacity, DETECTOR_MAX_WINDOW_SIZE));
+    lag_ = std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX);
     clear();
   }
 
@@ -36,7 +88,9 @@ class L1DeltaTracker {
   void clear() {
     std::memset(profile_ring_, 0, sizeof(profile_ring_));
     std::memset(profile_len_, 0, sizeof(profile_len_));
-    std::memset(delta_ring_, 0, sizeof(delta_ring_));
+    if (delta_ring_ != nullptr && capacity_ > 0U) {
+      std::memset(delta_ring_, 0, capacity_ * sizeof(float));
+    }
     profile_index_ = 0U;
     delta_index_ = 0U;
     delta_count_ = 0U;
@@ -94,7 +148,7 @@ class L1DeltaTracker {
 
     std::memcpy(profile_ring_[profile_index_], profile, profile_len * sizeof(float));
     profile_len_[profile_index_] = profile_len;
-    profile_index_ = (profile_index_ + 1U) % L1_DELTA_LAG;
+    profile_index_ = static_cast<uint16_t>((profile_index_ + 1U) % lag_);
   }
 
   uint16_t count() const { return delta_count_; }
@@ -112,11 +166,30 @@ class L1DeltaTracker {
   }
 
  private:
+  void allocate_delta_ring_(uint16_t capacity) {
+    if (capacity == capacity_ && (capacity == 0U || delta_ring_ != nullptr)) {
+      return;
+    }
+    delete[] delta_ring_;
+    delta_ring_ = nullptr;
+    capacity_ = 0U;
+    if (capacity == 0U) {
+      return;
+    }
+    float* ring = new (std::nothrow) float[capacity];
+    if (ring == nullptr) {
+      return;
+    }
+    delta_ring_ = ring;
+    capacity_ = capacity;
+  }
+
   uint16_t capacity_{0U};
-  float profile_ring_[L1_DELTA_LAG][HT20_SELECTED_BAND_SIZE]{};
-  uint8_t profile_len_[L1_DELTA_LAG]{};
-  uint8_t profile_index_{0U};
-  float delta_ring_[DETECTOR_MAX_WINDOW_SIZE]{};
+  float profile_ring_[L1_DELTA_LAG_MAX][HT20_SELECTED_BAND_SIZE]{};
+  uint8_t profile_len_[L1_DELTA_LAG_MAX]{};
+  uint16_t lag_{L1_DELTA_LAG};
+  uint16_t profile_index_{0U};
+  float* delta_ring_{nullptr};
   uint16_t delta_index_{0U};
   uint16_t delta_count_{0U};
   float delta_sum_{0.0f};

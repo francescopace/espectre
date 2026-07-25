@@ -21,44 +21,59 @@ static const char *TAG = "BaseDetector";
 // CONSTRUCTOR / DESTRUCTOR
 // ============================================================================
 
+float* BaseDetector::alloc_zeroed_floats(uint16_t count) {
+    if (count == 0) {
+        return nullptr;
+    }
+    float* buffer = new (std::nothrow) float[count];
+    if (buffer != nullptr) {
+        std::memset(buffer, 0, count * sizeof(float));
+    }
+    return buffer;
+}
+
 BaseDetector::BaseDetector(uint16_t window_size)
     : turbulence_buffer_(nullptr)
+    , ordered_turbulence_(nullptr)
     , buffer_index_(0)
     , buffer_count_(0)
     , window_size_(window_size)
     , state_(MotionState::IDLE)
     , total_packets_(0)
     , packet_index_(0) {
-    
+
     // Validate and clamp window size
     if (window_size_ < DETECTOR_MIN_WINDOW_SIZE) {
         window_size_ = DETECTOR_MIN_WINDOW_SIZE;
     } else if (window_size_ > DETECTOR_MAX_WINDOW_SIZE) {
         window_size_ = DETECTOR_MAX_WINDOW_SIZE;
     }
-    
-    // Allocate turbulence buffer
-    turbulence_buffer_ = new (std::nothrow) float[window_size_];
+
+    // Allocate turbulence buffer and its chronological reorder scratch
+    turbulence_buffer_ = alloc_zeroed_floats(window_size_);
     if (!turbulence_buffer_) {
         ESP_LOGE(TAG, "Failed to allocate turbulence buffer (%d elements)", window_size_);
-    } else {
-        std::memset(turbulence_buffer_, 0, window_size_ * sizeof(float));
     }
-    
+    ordered_turbulence_ = alloc_zeroed_floats(window_size_);
+    if (!ordered_turbulence_) {
+        ESP_LOGE(TAG, "Failed to allocate reorder buffer (%d elements)", window_size_);
+    }
+
     // Initialize filters (disabled by default)
     lowpass_filter_init(&lowpass_state_, LOWPASS_CUTOFF_DEFAULT, LOWPASS_SAMPLE_RATE, false);
     hampel_turbulence_init(&hampel_state_, HAMPEL_TURBULENCE_WINDOW_DEFAULT, HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
 }
 
 BaseDetector::~BaseDetector() {
-    if (turbulence_buffer_) {
-        delete[] turbulence_buffer_;
-        turbulence_buffer_ = nullptr;
-    }
+    delete[] turbulence_buffer_;
+    turbulence_buffer_ = nullptr;
+    delete[] ordered_turbulence_;
+    ordered_turbulence_ = nullptr;
 }
 
 BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     : turbulence_buffer_(other.turbulence_buffer_)
+    , ordered_turbulence_(other.ordered_turbulence_)
     , buffer_index_(other.buffer_index_)
     , buffer_count_(other.buffer_count_)
     , window_size_(other.window_size_)
@@ -67,17 +82,20 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , packet_index_(other.packet_index_)
     , hampel_state_(other.hampel_state_)
     , lowpass_state_(other.lowpass_state_) {
-    // Transfer ownership - null out source pointer
+    // Transfer ownership - null out source pointers
     other.turbulence_buffer_ = nullptr;
+    other.ordered_turbulence_ = nullptr;
 }
 
 BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
     if (this != &other) {
         // Free existing resources
         delete[] turbulence_buffer_;
-        
+        delete[] ordered_turbulence_;
+
         // Transfer all state
         turbulence_buffer_ = other.turbulence_buffer_;
+        ordered_turbulence_ = other.ordered_turbulence_;
         buffer_index_ = other.buffer_index_;
         buffer_count_ = other.buffer_count_;
         window_size_ = other.window_size_;
@@ -86,11 +104,36 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         packet_index_ = other.packet_index_;
         lowpass_state_ = other.lowpass_state_;
         hampel_state_ = other.hampel_state_;
-        
-        // Transfer ownership - null out source pointer
+
+        // Transfer ownership - null out source pointers
         other.turbulence_buffer_ = nullptr;
+        other.ordered_turbulence_ = nullptr;
     }
     return *this;
+}
+
+const float* BaseDetector::ordered_turbulence(uint16_t& count) const {
+    count = 0;
+    if (turbulence_buffer_ == nullptr || buffer_count_ == 0) {
+        return nullptr;
+    }
+
+    // Still filling: the ring has not wrapped, so it is already chronological.
+    if (buffer_count_ < window_size_) {
+        count = buffer_count_;
+        return turbulence_buffer_;
+    }
+
+    if (ordered_turbulence_ == nullptr) {
+        return nullptr;
+    }
+
+    // buffer_index_ points to the next write slot, i.e. the oldest sample.
+    for (uint16_t i = 0; i < buffer_count_; i++) {
+        ordered_turbulence_[i] = turbulence_buffer_[(buffer_index_ + i) % window_size_];
+    }
+    count = buffer_count_;
+    return ordered_turbulence_;
 }
 
 // ============================================================================
@@ -99,7 +142,8 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
 
 void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                    const uint8_t* selected_subcarriers,
-                                   uint8_t num_subcarriers) {
+                                   uint8_t num_subcarriers,
+                                   int8_t rssi_dbm) {
     if (!csi_data) {
         ESP_LOGE(TAG, "process_packet: null CSI data");
         return;
@@ -107,6 +151,7 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
     if (!turbulence_buffer_) {
         return;
     }
+    (void) rssi_dbm;
     
     float amplitudes[HT20_SELECTED_BAND_SIZE];
     const uint8_t amplitude_count = extract_subcarrier_amplitudes(

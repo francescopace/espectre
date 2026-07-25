@@ -28,8 +28,13 @@
 #include "threshold.h"
 #include "esphome/core/log.h"
 #include "esp_system.h"
+#include "csi_replay_timing.h"
+#include "csi_replay_metrics.h"
+#include "csi_replay_summary.h"
 
 using namespace espectre;
+namespace replay = espectre::test::replay;
+namespace replay_summary = espectre::test::summary;
 
 // Include CSI data loader (loads from NPZ files)
 #include "csi_test_data.h"
@@ -41,6 +46,22 @@ using namespace espectre;
 #define num_motion csi_test_data::num_motion()
 
 static const char *TAG = "test_motion_detection";
+
+static replay::ReplayPacketMetadata static_presence_metadata() {
+    return {
+        csi_test_data::static_presence_stream_seq_num(),
+        csi_test_data::static_presence_device_ticks_us(),
+        csi_test_data::static_presence_wifi_rx_ts_us(),
+    };
+}
+
+static replay::ReplayPacketMetadata motion_metadata() {
+    return {
+        csi_test_data::motion_stream_seq_num(),
+        csi_test_data::motion_device_ticks_us(),
+        csi_test_data::motion_wifi_rx_ts_us(),
+    };
+}
 
 // ============================================================================
 // Performance Results Storage (for summary table)
@@ -71,75 +92,6 @@ inline float get_classic_recall_target();
 inline float get_ml_fp_rate_target();
 inline float get_ml_recall_target();
 
-static bool build_calibrated_classic_detector(ClassicDetector& detector, int calibration_packets,
-                                              const uint8_t* selected_band, uint8_t selected_size,
-                                              int pkt_size, float& out_threshold) {
-    StartupThresholdCalibrator calibrator;
-    calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
-    uint16_t packets_since_evaluation = 0;
-    for (int i = 0; i < calibration_packets; i++) {
-        detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
-                                selected_band, selected_size);
-        packets_since_evaluation++;
-        if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
-            continue;
-        }
-        detector.update_state();
-        calibrator.observe(detector.is_ready(), detector.get_motion_metric(),
-                           detector.get_startup_floor_metric(), packets_since_evaluation);
-        packets_since_evaluation = 0;
-        if (calibrator.is_complete()) {
-            break;
-        }
-    }
-    if (!calibrator.is_successful()) {
-        out_threshold = CLASSIC_DEFAULT_THRESHOLD;
-        return false;
-    }
-    detector.on_startup_calibration_complete();
-    detector.set_adaptive_threshold(calibrator.threshold_metric());
-    out_threshold = detector.get_threshold();
-    detector.clear_buffer();
-    return true;
-}
-
-static int count_effective_alarms(const std::vector<bool>& raw_motion_states) {
-    MotionState effective_state = MotionState::IDLE;
-    MotionState pending_state = MotionState::IDLE;
-    uint8_t pending_hits = 0;
-    int effective_alarms = 0;
-
-    for (bool raw_motion : raw_motion_states) {
-        const MotionState detector_state = raw_motion ? MotionState::MOTION : MotionState::IDLE;
-        const MotionState previous_state = effective_state;
-
-        if (detector_state == effective_state) {
-            pending_state = effective_state;
-            pending_hits = 0;
-        } else {
-            if (detector_state != pending_state) {
-                pending_state = detector_state;
-                pending_hits = 1;
-            } else if (pending_hits < UINT8_MAX) {
-                pending_hits++;
-            }
-
-            const uint8_t required_hits =
-                pending_state == MotionState::MOTION ? RUNTIME_MOTION_ON_HITS_DEFAULT
-                                                     : RUNTIME_MOTION_OFF_HITS_DEFAULT;
-            if (pending_hits >= required_hits) {
-                effective_state = pending_state;
-                pending_hits = 0;
-            }
-        }
-
-        if (effective_state != previous_state && effective_state == MotionState::MOTION) {
-            effective_alarms++;
-        }
-    }
-
-    return effective_alarms;
-}
 
 static void record_result(const char* algorithm, float recall, float fp_rate, float precision, float f1,
                           int effective_alarms) {
@@ -229,13 +181,7 @@ static void assert_metrics_are_valid(float recall, float fp_rate, float precisio
 }
 
 static void print_summary_table() {
-    printf("\n");
-    printf("================================================================================\n");
-    printf("                      PERFORMANCE SUMMARY TABLE (C++)\n");
-    printf("================================================================================\n");
-    printf("\n");
-    printf("| Chip   | Datasets | Classic                 | ML                      |\n");
-    printf("|--------|----------|-------------------------|-------------------------|\n");
+    std::vector<replay_summary::DualDetectorSummaryRow> rows;
 
     for (auto chip : csi_test_data::get_supported_chips()) {
         const char* chip_name = csi_test_data::chip_name(chip);
@@ -244,30 +190,26 @@ static void print_summary_table() {
             continue;
         }
 
-        char classic_str[32] = "N/A";
-        char ml_str[32] = "N/A";
         const PerformanceResult classic = mean_result_for_chip(chip_name, "classic", false);
         const PerformanceResult ml = mean_result_for_chip(chip_name, "ml", false);
-        
-        if (classic.valid) {
-            snprintf(classic_str, sizeof(classic_str), "%.1f%% R, %.1f%% FP",
-                     classic.recall, classic.fp_rate);
-        }
-        if (ml.valid) {
-            snprintf(ml_str, sizeof(ml_str), "%.1f%% R, %.1f%% FP",
-                     ml.recall, ml.fp_rate);
-        }
-        
-        printf("| %-6s | %8d | %-23s | %-23s |\n",
-               chip_name, dataset_count, classic_str, ml_str);
+        rows.push_back({
+            chip_name,
+            dataset_count,
+            {classic.valid, classic.recall, classic.fp_rate},
+            {ml.valid, ml.recall, ml.fp_rate},
+        });
     }
-    
-    printf("\n");
-    printf("Legend: R = Recall, FP = False Positive Rate\n");
-    printf("Targets: Classic >%.0f%% R, <%.1f%% FP | ML >%.0f%% R, <%.1f%% FP\n",
-           get_classic_recall_target(), get_classic_fp_rate_target(),
-           get_ml_recall_target(), get_ml_fp_rate_target());
-    printf("================================================================================\n");
+
+    char targets_line[128];
+    snprintf(targets_line, sizeof(targets_line),
+             "Targets: Classic >%.0f%% R, <%.1f%% FP | ML >%.0f%% R, <%.1f%% FP",
+             get_classic_recall_target(), get_classic_fp_rate_target(),
+             get_ml_recall_target(), get_ml_fp_rate_target());
+    replay_summary::print_dual_detector_summary_table(
+        "                      PERFORMANCE SUMMARY TABLE (C++)",
+        rows,
+        "Legend: R = Recall, FP = False Positive Rate",
+        targets_line);
     
     // Detailed table for PERFORMANCE.md
     printf("\n");
@@ -414,79 +356,48 @@ void test_classic_fixed_subcarriers(void) {
 
     int calibration_packets = std::min(num_static_presence, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
     float adaptive_threshold = CLASSIC_DEFAULT_THRESHOLD;
-    const bool calibrated = build_calibrated_classic_detector(
-        detector, calibration_packets, default_band, default_size, pkt_size, adaptive_threshold);
+    const bool calibrated = replay::calibrate_classic_detector(
+        detector,
+        calibration_packets,
+        static_presence_packets,
+        num_static_presence,
+        csi_test_data::static_presence_rssi_dbm(),
+        static_presence_metadata(),
+        pkt_size,
+        default_band,
+        default_size,
+        adaptive_threshold);
     const float auto_factor = detector.get_startup_threshold_factor();
 
     printf("Adaptive threshold: %.6f (%s x %.1f)\n", adaptive_threshold,
            calibrated ? "shared calibration" : "default threshold", auto_factor);
     printf("Fusion: l1_delta + turb_autocorr (double Hampel)\n\n");
 
-    const int warmup = window_size;
-    int static_presence_eval = 0;
-    int static_presence_motion = 0;
-    std::vector<bool> baseline_motion_states;
-    uint32_t packets_since_evaluation = 0;
-    for (int p = 0; p < num_static_presence; p++) {
-        detector.process_packet((const int8_t*)static_presence_packets[p], pkt_size,
-                                default_band, default_size);
-        packets_since_evaluation++;
-        if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
-            continue;
-        }
-        detector.update_state();
-        packets_since_evaluation = 0;
-        if (p < warmup) {
-            continue;
-        }
-        static_presence_eval++;
-        const bool is_motion = detector.get_state() == MotionState::MOTION;
-        baseline_motion_states.push_back(is_motion);
-        if (is_motion) {
-            static_presence_motion++;
-        }
-    }
-
-    int motion_eval = 0;
-    int motion_detected = 0;
-    packets_since_evaluation = 0;
-    for (int p = 0; p < num_motion; p++) {
-        detector.process_packet((const int8_t*)motion_packets[p], pkt_size,
-                                default_band, default_size);
-        packets_since_evaluation++;
-        if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
-            continue;
-        }
-        detector.update_state();
-        packets_since_evaluation = 0;
-        if (p < warmup) {
-            continue;
-        }
-        motion_eval++;
-        if (detector.get_state() == MotionState::MOTION) {
-            motion_detected++;
-        }
-    }
-
-    float recall = motion_eval > 0 ? (float)motion_detected / motion_eval * 100.0f : 0.0f;
-    float fp_rate =
-        static_presence_eval > 0 ? (float)static_presence_motion / static_presence_eval * 100.0f : 0.0f;
-    float precision = (motion_detected + static_presence_motion > 0) ?
-        (float)motion_detected / (motion_detected + static_presence_motion) * 100.0f : 0.0f;
-    float f1 = (precision + recall > 0) ?
-        2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
-    const int effective_alarms = count_effective_alarms(baseline_motion_states);
+    const replay::ReplayMetrics metrics = replay::evaluate_detector(
+        detector,
+        static_presence_packets,
+        num_static_presence,
+        csi_test_data::static_presence_rssi_dbm(),
+        static_presence_metadata(),
+        motion_packets,
+        num_motion,
+        csi_test_data::motion_rssi_dbm(),
+        motion_metadata(),
+        pkt_size,
+        default_band,
+        default_size);
 
     printf("Results:\n");
-    printf("  * Recall:    %.1f%% (target: >%.0f%%)\n", recall, recall_target);
-    printf("  * FP Rate:   %.1f%% (target: <%.1f%%)\n", fp_rate, fp_target);
-    printf("  * Precision: %.1f%%\n", precision);
-    printf("  * F1-Score:  %.1f%%\n", f1);
-    printf("  * Effective Alarms: %d\n\n", effective_alarms);
+    printf("  * Recall:    %.1f%% (target: >%.0f%%)\n", metrics.recall, recall_target);
+    printf("  * FP Rate:   %.1f%% (target: <%.1f%%)\n", metrics.fp_rate, fp_target);
+    printf("  * Precision: %.1f%%\n", metrics.precision);
+    printf("  * F1-Score:  %.1f%%\n", metrics.f1);
+    printf("  * Effective Alarms: %d\n\n", metrics.effective_alarms);
 
-    record_result("classic", recall, fp_rate, precision, f1, effective_alarms);
+    record_result("classic", metrics.recall, metrics.fp_rate, metrics.precision, metrics.f1,
+                  metrics.effective_alarms);
 
-    assert_metrics_are_valid(recall, fp_rate, precision, f1);
+    assert_metrics_are_valid(metrics.recall, metrics.fp_rate, metrics.precision, metrics.f1);
 }
 
 // ============================================================================
@@ -513,80 +424,32 @@ void test_ml_detection(void) {
            DEFAULT_SUBCARRIERS[8], DEFAULT_SUBCARRIERS[9], DEFAULT_SUBCARRIERS[10], DEFAULT_SUBCARRIERS[11]);
     printf("Threshold: %.1f\n\n", detector.get_threshold());
     
-    // Warmup = window_size: detector needs full buffer before producing valid predictions
-    const int warmup = DETECTOR_DEFAULT_WINDOW_SIZE;
-
-    // Process static presence at the production evaluation cadence.
-    int static_presence_eval = 0;
-    int static_presence_motion = 0;
-    std::vector<bool> baseline_motion_states;
-    uint32_t packets_since_evaluation = 0;
-    for (int i = 0; i < num_static_presence; i++) {
-        detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
-                               DEFAULT_SUBCARRIERS, 12);
-        packets_since_evaluation++;
-        if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
-            continue;
-        }
-        detector.update_state();
-        packets_since_evaluation = 0;
-        if (i < warmup) {
-            continue;
-        }
-        static_presence_eval++;
-        const bool is_motion = detector.get_state() == MotionState::MOTION;
-        baseline_motion_states.push_back(is_motion);
-        if (is_motion) {
-            static_presence_motion++;
-        }
-    }
-
-    // Process motion at the production evaluation cadence.
-    int motion_eval = 0;
-    int motion_detected = 0;
-    int motion_idle = 0;
-    packets_since_evaluation = 0;
-
-    for (int i = 0; i < num_motion; i++) {
-        detector.process_packet((const int8_t*)motion_packets[i], pkt_size,
-                               DEFAULT_SUBCARRIERS, 12);
-        packets_since_evaluation++;
-        if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
-            continue;
-        }
-        detector.update_state();
-        packets_since_evaluation = 0;
-        if (i < warmup) {
-            continue;
-        }
-        motion_eval++;
-        if (detector.get_state() == MotionState::MOTION) {
-            motion_detected++;
-        } else {
-            motion_idle++;
-        }
-    }
-
-    float recall = motion_eval > 0 ? (float)motion_detected / motion_eval * 100.0f : 0.0f;
-    float fp_rate =
-        static_presence_eval > 0 ? (float)static_presence_motion / static_presence_eval * 100.0f : 0.0f;
-    float precision = (motion_detected + static_presence_motion > 0) ?
-        (float)motion_detected / (motion_detected + static_presence_motion) * 100.0f : 0.0f;
-    float f1 = (precision + recall > 0) ?
-        2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
-    const int effective_alarms = count_effective_alarms(baseline_motion_states);
+    const replay::ReplayMetrics metrics = replay::evaluate_detector(
+        detector,
+        static_presence_packets,
+        num_static_presence,
+        nullptr,
+        static_presence_metadata(),
+        motion_packets,
+        num_motion,
+        nullptr,
+        motion_metadata(),
+        pkt_size,
+        DEFAULT_SUBCARRIERS,
+        12);
     
     printf("Results:\n");
-    printf("  * Recall:    %.1f%% (target: >%.0f%%)\n", recall, recall_target);
-    printf("  * FP Rate:   %.1f%% (target: <%.0f%%)\n", fp_rate, fp_target);
-    printf("  * Precision: %.1f%%\n", precision);
-    printf("  * F1-Score:  %.1f%%\n", f1);
-    printf("  * Effective Alarms: %d\n\n", effective_alarms);
+    printf("  * Recall:    %.1f%% (target: >%.0f%%)\n", metrics.recall, recall_target);
+    printf("  * FP Rate:   %.1f%% (target: <%.0f%%)\n", metrics.fp_rate, fp_target);
+    printf("  * Precision: %.1f%%\n", metrics.precision);
+    printf("  * F1-Score:  %.1f%%\n", metrics.f1);
+    printf("  * Effective Alarms: %d\n\n", metrics.effective_alarms);
     
     // Record for summary table
-    record_result("ml", recall, fp_rate, precision, f1, effective_alarms);
+    record_result("ml", metrics.recall, metrics.fp_rate, metrics.precision, metrics.f1,
+                  metrics.effective_alarms);
     
-    assert_metrics_are_valid(recall, fp_rate, precision, f1);
+    assert_metrics_are_valid(metrics.recall, metrics.fp_rate, metrics.precision, metrics.f1);
 }
 
 // ============================================================================

@@ -49,11 +49,11 @@ public:
     MLDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE, 
                float threshold = ML_DEFAULT_THRESHOLD);
     
-    ~MLDetector() override = default;
+    ~MLDetector() override;
     
     // Move semantics inherited from BaseDetector
-    MLDetector(MLDetector&& other) noexcept = default;
-    MLDetector& operator=(MLDetector&& other) noexcept = default;
+    MLDetector(MLDetector&& other) noexcept;
+    MLDetector& operator=(MLDetector&& other) noexcept;
     
     // Disable copy
     MLDetector(const MLDetector&) = delete;
@@ -65,7 +65,8 @@ public:
 
     void process_packet(const int8_t* csi_data, size_t csi_len,
                         const uint8_t* selected_subcarriers = nullptr,
-                        uint8_t num_subcarriers = 0) override;
+                        uint8_t num_subcarriers = 0,
+                        int8_t rssi_dbm = INT8_MIN) override;
     void update_state() override;
     void clear_buffer() override;
     float get_motion_metric() const override { return current_probability_; }
@@ -89,7 +90,24 @@ private:
      * features.l1_delta_series (window_size profiles -> window_size - lag deltas).
      */
     uint16_t l1_delta_capacity_() const;
-    
+
+    /**
+     * Total size of the single feature-scratch block, in floats.
+     */
+    uint16_t feature_scratch_size_() const;
+
+    /**
+     * Slice of the scratch block holding the rebuilt L1-delta series, or
+     * nullptr when the model has no L1 features or allocation failed.
+     */
+    float* delta_series_() const;
+
+    /**
+     * Sort and absolute-deviation views onto the scratch block. Empty (and
+     * therefore inert) when allocation failed.
+     */
+    MLSeriesScratch series_scratch_() const;
+
     /**
      * Run MLP inference on features.
      *
@@ -110,6 +128,11 @@ private:
     // features.l1_delta_series reference.
     bool uses_l1_features_;
     L1DeltaTracker l1_tracker_;
+
+    // Single heap block backing every feature-path working array, so nothing
+    // window-sized lands on the CSI callback stack. Carved by the accessors
+    // above; see feature_scratch_size_() for the layout.
+    float* feature_scratch_;
 };
 
 }  // namespace espectre

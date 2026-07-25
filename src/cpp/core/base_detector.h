@@ -9,8 +9,8 @@
  */
 #pragma once
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include "detector_limits.h"
 #include "filters.h"
 #include "utils.h"
@@ -80,7 +80,8 @@ public:
      */
     virtual void process_packet(const int8_t* csi_data, size_t csi_len,
                                 const uint8_t* selected_subcarriers = nullptr,
-                                uint8_t num_subcarriers = 0);
+                                uint8_t num_subcarriers = 0,
+                                int8_t rssi_dbm = INT8_MIN);
     
     /**
      * Reset detector state
@@ -250,9 +251,31 @@ protected:
      * Add turbulence value to buffer (with filtering)
      */
     void add_turbulence_to_buffer(float turbulence);
-    
+
+    /**
+     * Allocate a zeroed float buffer on the heap.
+     *
+     * Shared by the detectors so no feature helper puts a window-sized
+     * array on the CSI callback stack.
+     *
+     * @return nullptr when count is 0 or the allocation fails
+     */
+    static float* alloc_zeroed_floats(uint16_t count);
+
+    /**
+     * View the turbulence ring in chronological order.
+     *
+     * Returns the ring itself while it is still filling (already in order),
+     * and the base-owned reorder buffer once it wraps. Returns nullptr when
+     * there is nothing to read or the reorder buffer could not be allocated.
+     *
+     * @param count Receives the number of valid samples
+     */
+    const float* ordered_turbulence(uint16_t& count) const;
+
     // Buffer state
     float* turbulence_buffer_;
+    float* ordered_turbulence_;
     uint16_t buffer_index_;
     uint16_t buffer_count_;
     uint16_t window_size_;

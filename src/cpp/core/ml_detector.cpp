@@ -11,7 +11,6 @@
 #include "threshold.h"
 #include <cmath>
 #include <algorithm>
-#include <cstring>
 #include "espectre_log.h"
 
 namespace espectre {
@@ -28,7 +27,8 @@ MLDetector::MLDetector(uint16_t window_size, float threshold)
     : BaseDetector(window_size)
     , threshold_(threshold)
     , current_probability_(0.0f)
-    , uses_l1_features_(false) {
+    , uses_l1_features_(false)
+    , feature_scratch_(nullptr) {
     threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
 
     // Maintain the L1-delta rings only when the exported model needs them.
@@ -38,10 +38,68 @@ MLDetector::MLDetector(uint16_t window_size, float threshold)
             break;
         }
     }
+
+    // One block holds every working array the feature path needs; the
+    // accessors below carve it into the sort view, the absolute-deviation
+    // view, and the rebuilt L1-delta series.
+    feature_scratch_ = alloc_zeroed_floats(feature_scratch_size_());
+    if (feature_scratch_ == nullptr) {
+        ESP_LOGE(TAG, "Failed to allocate feature scratch (%u floats)",
+                 static_cast<unsigned>(feature_scratch_size_()));
+    }
     l1_tracker_.configure(uses_l1_features_ ? l1_delta_capacity_() : 0U);
 
     ESP_LOGI(TAG, "Initialized (window=%d, threshold=%.2f, l1=%d)",
              window_size_, threshold_, uses_l1_features_ ? 1 : 0);
+}
+
+MLDetector::~MLDetector() {
+    delete[] feature_scratch_;
+}
+
+MLDetector::MLDetector(MLDetector&& other) noexcept
+    : BaseDetector(std::move(other))
+    , threshold_(other.threshold_)
+    , current_probability_(other.current_probability_)
+    , uses_l1_features_(other.uses_l1_features_)
+    , l1_tracker_(std::move(other.l1_tracker_))
+    , feature_scratch_(other.feature_scratch_) {
+    other.feature_scratch_ = nullptr;
+}
+
+MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
+    if (this != &other) {
+        BaseDetector::operator=(std::move(other));
+        threshold_ = other.threshold_;
+        current_probability_ = other.current_probability_;
+        uses_l1_features_ = other.uses_l1_features_;
+        l1_tracker_ = std::move(other.l1_tracker_);
+        delete[] feature_scratch_;
+        feature_scratch_ = other.feature_scratch_;
+        other.feature_scratch_ = nullptr;
+    }
+    return *this;
+}
+
+uint16_t MLDetector::feature_scratch_size_() const {
+    // Sort view + absolute-deviation view, plus the L1-delta series when the
+    // exported model uses it.
+    return static_cast<uint16_t>(2U * window_size_ +
+                                 (uses_l1_features_ ? l1_delta_capacity_() : 0U));
+}
+
+float* MLDetector::delta_series_() const {
+    if (feature_scratch_ == nullptr || !uses_l1_features_) {
+        return nullptr;
+    }
+    return feature_scratch_ + 2U * window_size_;
+}
+
+MLSeriesScratch MLDetector::series_scratch_() const {
+    if (feature_scratch_ == nullptr) {
+        return MLSeriesScratch{};
+    }
+    return MLSeriesScratch{feature_scratch_, feature_scratch_ + window_size_, window_size_};
 }
 
 void MLDetector::configure_hampel(bool enabled, uint8_t window_size,
@@ -67,16 +125,10 @@ void MLDetector::update_state() {
     // Run MLP inference
     current_probability_ = predict(features);
     
-    // State machine
-    if (state_ == MotionState::IDLE) {
-        if (current_probability_ > threshold_) {
-            state_ = MotionState::MOTION;
-        }
-    } else {
-        if (current_probability_ <= threshold_) {
-            state_ = MotionState::IDLE;
-        }
-    }
+    // Keep Python/C++ parity: ML state is decided directly from the
+    // probability threshold at each evaluation tick, without hysteresis.
+    state_ = current_probability_ > threshold_ ? MotionState::MOTION
+                                               : MotionState::IDLE;
 }
 
 bool MLDetector::set_threshold(float threshold) {
@@ -97,26 +149,21 @@ bool MLDetector::set_threshold(float threshold) {
 
 void MLDetector::extract_features(float* features_out) {
     // Reconstruct the L1-delta series (chronological) when the model uses it.
-    float delta_series[DETECTOR_MAX_WINDOW_SIZE];
-    const uint16_t delta_len = uses_l1_features_ ? l1_tracker_.build_series(delta_series) : 0;
+    float* delta_series = delta_series_();
+    const uint16_t delta_len =
+        delta_series != nullptr ? l1_tracker_.build_series(delta_series) : 0U;
 
-    if (buffer_count_ < window_size_) {
-        extract_ml_features_by_id(turbulence_buffer_, buffer_count_,
-                                  delta_series, delta_len,
-                                  ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features_out);
+    uint16_t turb_count = 0U;
+    const float* turb_series = ordered_turbulence(turb_count);
+    if (turb_series == nullptr) {
+        std::fill(features_out, features_out + ML_NUM_FEATURES, 0.0f);
         return;
     }
 
-    // Reconstruct chronological order from the circular buffer.
-    // buffer_index_ points to the next write slot, i.e. the oldest sample.
-    float ordered_buffer[DETECTOR_MAX_WINDOW_SIZE];
-    for (uint16_t i = 0; i < buffer_count_; i++) {
-        ordered_buffer[i] = turbulence_buffer_[(buffer_index_ + i) % window_size_];
-    }
-
-    extract_ml_features_by_id(ordered_buffer, buffer_count_,
+    extract_ml_features_by_id(turb_series, turb_count,
                               delta_series, delta_len,
-                              ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features_out);
+                              ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features_out,
+                              series_scratch_());
 }
 
 // ============================================================================
@@ -133,11 +180,13 @@ uint16_t MLDetector::l1_delta_capacity_() const {
 
 void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                 const uint8_t* selected_subcarriers,
-                                uint8_t num_subcarriers) {
+                                uint8_t num_subcarriers,
+                                int8_t rssi_dbm) {
     if (csi_data == nullptr) {
         ESP_LOGE(TAG, "process_packet: null CSI data");
         return;
     }
+    (void) rssi_dbm;
 
     float amplitudes[HT20_SELECTED_BAND_SIZE];
     const uint8_t amplitude_count = extract_subcarrier_amplitudes(

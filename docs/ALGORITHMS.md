@@ -11,7 +11,9 @@ decision context now live in ADRs, especially:
 - [`2026-07-07-use-core-6-as-the-production-ml-feature-set.md`](adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md)
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
 - [`2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md`](adr/2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md)
-- [`2026-07-20-keep-the-12-tone-ht20-classic-band.md`](adr/2026-07-20-keep-the-12-tone-ht20-classic-band.md)
+- [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md)
+- [`2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md`](adr/2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md)
+- [`2026-07-25-gate-classic-false-positives-on-empty-rooms.md`](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md)
 - [`2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md`](adr/2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md)
 
 ## Overview
@@ -57,6 +59,52 @@ At boot:
 With the default `window_size=100`, the `classic` startup budget is
 `10 x window_size = 1000` packets. This is a maximum, not a mandatory wait.
 
+## Detector Timing
+
+The detector's contract is expressed in microseconds, not packets, and resolved
+into packet counts from the cadence the stream actually delivers:
+
+| quantity | duration | packets at 100 pps |
+| --- | --- | --- |
+| detector window | `1 s` | 100 |
+| evaluation interval | `250 ms` | 25 |
+| L1 profile-displacement lag | `100 ms` | 10 |
+| turbulence autocorrelation lag | `10 ms` | 1 |
+
+A packet count only means what it is supposed to mean at exactly `100 pps`, and
+real streams do not run there: the recorded corpus spans `90` to `120`, and
+ESP32 tops out near `70-80 pps` delivered in bursts. `derive_detector_timing()`
+resolves the table above from the measured cadence, and it is defined once per
+language in [runtime_policy.py](../src/python/micro_espectre/runtime_policy.py)
+and [detector_timing.h](../src/cpp/core/detector_timing.h).
+
+Two rules govern the resolution, and they are deliberately asymmetric:
+
+- **The lags follow physical time.** They measure how far the channel moved over
+  an interval, so they have to track that interval. This dominates at high
+  rates: at `1000 pps` a lag-1 autocorrelation spans under a millisecond, where
+  consecutive packets are nearly identical, and the feature leaves the range its
+  coefficients were fitted over.
+- **The window follows sample count.** Its features are estimator averages, so
+  what matters is how many samples they average. Holding a one-second span at
+  `25 pps` leaves 25 samples, the estimates get noisier, startup calibration
+  raises the threshold to hold false positives, and recall collapses instead.
+
+Inside `+/-25%` of the nominal cadence nothing adapts: rounding a duration into
+packets flips between neighbouring counts across streams that are all
+essentially nominal, which costs feature homogeneity for no gain.
+
+Cadence advances on the packet arrival timestamp, never on the loop clock. The
+loop clock measures how fast packets are processed, which matches arrival on
+hardware but not on replay, and would let host scheduling reach a detector
+decision. Wall-clock time is reserved for staleness detection, which arrival
+time cannot do because a dead stream delivers no timestamps. Sources with no
+arrival timestamp fall back to counting packets.
+
+See
+[2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md](adr/2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md)
+for the measurements behind each rule.
+
 ## AGC-Active Normalization
 
 The shared turbulence signal is:
@@ -84,16 +132,24 @@ same AGC-active normalization model is used across:
 Both detectors use the same fixed 12-subcarrier set:
 
 ```text
-[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]
+[4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60]
 ```
+
+These bins are subcarriers `+/-4, +/-9, +/-14, +/-19, +/-24, +/-28`, and they
+assume the centered convention where bin `32` is DC. Classic-MAC parts deliver
+CSI in Espressif's native `0~31, -32~-1` order instead, so the capture path
+rotates those payloads before band selection; see
+[`csi_format.h`](../src/cpp/core/csi_format.h) and
+[`device_utils.py`](../src/python/micro_espectre/device_utils.py).
 
 The active runtime no longer performs per-session runtime subcarrier selection.
 This set is part of the detector definition for the current project surface.
-It was kept intentionally after a locked real-data `N=10..16` sweep and an
-iso-FP pair-averaging follow-up showed no durable production gain from changing
-either the count or the adjacent-tone policy. For the full rationale behind
-keeping exactly 12 HT20 tones, and exactly these indices, see
-[`2026-07-20-keep-the-12-tone-ht20-classic-band.md`](adr/2026-07-20-keep-the-12-tone-ht20-classic-band.md).
+The indices come from measured channel coherence rather than from a
+detection-metric search: the motion perturbation stays coherent over about 10
+subcarriers while quiet noise is nearly per-tone independent, so span is what
+buys independent looks. For the full rationale behind the band and the count,
+see
+[`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md).
 
 Why HT20 stays the preferred active contract:
 
@@ -224,6 +280,14 @@ This keeps both upward and downward changes as positive motion evidence. The
 normal fitted path remains unchanged while the startup floor is within its
 training range.
 
+The safeguard engages rarely but decisively. It activates above an L1 floor of
+`0.0996`; eight of the nine real weak-link pairs measure `0.030` to `0.089` and
+never reach it, while the ninth sits at `0.2719` and saturates the blend. On that
+pair the safeguard is what keeps the detector usable: without it the startup
+calibration lifts the threshold to `0.984` and recall falls from `97.2%` to
+`77.5%`. Removing it as dead code was tried on 2026-07-25 and reverted for
+exactly this reason.
+
 ### Startup Threshold Calibration
 
 At startup, Classic begins from the validated global probability threshold
@@ -235,6 +299,39 @@ move in either direction. When the weak-link safeguard is fully active, the
 session-centered feature uses the validated global threshold instead of the
 saturated raw-logit threshold. Runtime adjustments use the same `0.0-1.0`
 probability scale and remain active until recalibration or reboot.
+
+### Known Limits
+
+Classic misses the project recall target on two chips, narrowly. On normal-link
+recordings the aggregates are `93.7%` on C3, `95.5%` on C5, `95.4%` on C6,
+`94.2%` on ESP32 from a single pair, and `98.3%` on S3, with false positives
+between `0.1%` and `3.4%`. So C3 and ESP32 sit about a point under the `95%`
+target while every chip stays well inside the false-positive ceiling.
+
+Recall, not spurious motion, is the remaining Classic gap. Alarms on
+static-presence baselines were long read as weak-link false positives, but that
+diagnosis did not survive measurement: they occur on the strongest links as
+readily as on the weakest, and the empty-room recordings raise none at all. They
+are the stationary occupant's own micro-motion. False positives are now gated on
+the empty-room recordings, which are the only streams in the corpus with nobody
+in the room. See [2026-07-25-gate-classic-false-positives-on-empty-rooms.md](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md).
+
+The recall gap is a separability limit rather than a tuning one. The threshold is
+a single global value, so moving it trades recall on one chip for false positives
+on another instead of lifting the curve. ML reaches `94.1-100%` recall on the
+same recordings, so the information is present in the CSI and two features are
+not enough to extract it uniformly.
+
+Use `ml` where either recall or alarm quietness matters more than startup cost.
+Classic remains the default because it needs no training set, no exported
+weights, and no per-deployment data.
+
+Raising the Classic ceiling is open feature-side research. The most promising
+direction is a third feature or a different pair: an offline sweep on
+2026-07-23 found a coherence-oriented candidate (`turb_zcr` plus
+`l1_delta_autocorr`) that cut replay false positives sharply against the
+current set, and its feature ids already exist in `csi_features.h`. That work
+needs its own fit and gate run before anything moves into the runtime.
 
 ### Implementation Status
 

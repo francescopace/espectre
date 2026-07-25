@@ -22,6 +22,7 @@ from tools.lib.performance_report import (
     STRESS_TARGET_FP_RATE,
     STRESS_TARGET_RECALL,
     compute_classic_dataset_result as _compute_classic_dataset_result,
+    compute_classic_empty_fp_result as _compute_classic_empty_fp_result,
     compute_ml_dataset_result as _compute_ml_dataset_result,
     compute_ml_empty_fp_result as _compute_ml_empty_fp_result,
     evaluate_detector_packets,
@@ -562,6 +563,35 @@ class TestPerformanceMetrics:
         assert fp_rate < fp_rate_target, (
             f"ML empty-room FP Rate too high for {empty_dataset_path.name}: "
             f"{fp_rate:.1f}% (target: <{fp_rate_target}%)"
+        )
+
+    @pytest.mark.parametrize("empty_dataset_path", get_available_empty_datasets())
+    def test_classic_empty_false_positive_rate(self, empty_dataset_path):
+        """Validate that empty-room recordings raise no Classic alarm.
+
+        Empty rooms are the corpus ground truth for "nothing is moving", so this
+        is the assertion that has to hold exactly. Static-presence recordings
+        cannot serve the same purpose: a stationary person still breathes and
+        shifts, and the detector sees it.
+        """
+        from config import DEFAULT_SUBCARRIERS
+
+        result = _compute_classic_empty_fp_result(
+            empty_dataset_path,
+            tuple(DEFAULT_SUBCARRIERS),
+        )
+        assert result, f"Classic startup calibration failed for {empty_dataset_path.name}"
+        assert result["eval_count"] > 0
+        assert result["effective_alarms"] == 0, (
+            f"Classic raised an empty-room alarm for {empty_dataset_path.name}: "
+            f"{result['effective_alarms']}"
+        )
+        # Secondary regression guard on the raw per-evaluation rate. The corpus
+        # maximum is 5.14%, so this bounds drift without tracking noise.
+        fp_rate_target = 6.0
+        assert result["fp_rate"] < fp_rate_target, (
+            f"Classic empty-room FP Rate too high for {empty_dataset_path.name}: "
+            f"{result['fp_rate']:.1f}% (target: <{fp_rate_target}%)"
         )
 
 

@@ -209,8 +209,9 @@ class StartupThresholdCalibrator:
             take = min(remaining_weight, available)
             self._motion_chunk_sum += metric * take
             self._motion_chunk_count += take
-            for _ in range(take):
-                self._chunk_floor_samples.append(floor_metric)
+            # One extend instead of `take` interpreted appends; the chunk caps
+            # the list at STARTUP_MOTION_CHUNK_SIZE, so this stays bounded.
+            self._chunk_floor_samples.extend([floor_metric] * take)
             remaining_weight -= take
 
             if self._motion_chunk_count < STARTUP_MOTION_CHUNK_SIZE:

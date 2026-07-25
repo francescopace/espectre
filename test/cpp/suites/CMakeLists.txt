@@ -123,6 +123,16 @@ add_espectre_test(test_low_rssi
     LIBRARIES espectre_runtime_testlib
 )
 
+add_espectre_test(test_empty_rooms
+    "${CMAKE_CURRENT_SOURCE_DIR}/integration/test_empty_rooms.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_packet_rate_adaptation
+    "${CMAKE_CURRENT_SOURCE_DIR}/integration/test_packet_rate_adaptation.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
 add_espectre_test(test_sensor_publisher
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_sensor_publisher.cpp"
     LIBRARIES espectre_frontend_esphome_testlib
