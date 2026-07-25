@@ -437,14 +437,15 @@ bool EspIdfRuntime::start_calibration_() {
   return true;
 }
 
-bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len) {
+bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len,
+                                                         int8_t rssi_dbm) {
   if (!threshold_calibration_active_.load(std::memory_order_relaxed) || detector_ == nullptr ||
       !threshold_calibrator_) {
     return false;
   }
 
   detector_->process_packet(csi_data, csi_len, snapshot_.fixed_subcarriers.data(),
-                            HT20_SELECTED_BAND_SIZE);
+                            HT20_SELECTED_BAND_SIZE, rssi_dbm);
   calibration_packets_since_evaluation_++;
   const uint32_t evaluation_interval = std::max<uint32_t>(config_.evaluation_interval, 1U);
   if (calibration_packets_since_evaluation_ < evaluation_interval) {
@@ -478,9 +479,11 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
 
 bool EspIdfRuntime::threshold_calibration_packet_callback_(void *context,
                                                            const int8_t *csi_data,
-                                                           size_t csi_len) {
+                                                           size_t csi_len,
+                                                           int8_t rssi_dbm) {
   auto *runtime = static_cast<EspIdfRuntime *>(context);
-  return runtime != nullptr && runtime->handle_threshold_calibration_packet_(csi_data, csi_len);
+  return runtime != nullptr &&
+         runtime->handle_threshold_calibration_packet_(csi_data, csi_len, rssi_dbm);
 }
 
 void EspIdfRuntime::finish_threshold_calibration_(bool success) {

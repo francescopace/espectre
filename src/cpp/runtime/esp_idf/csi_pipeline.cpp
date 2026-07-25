@@ -62,6 +62,7 @@ void CsiPipeline::clear_detector_buffer_deferred_() {
     // Required after channel switch and post-calibration to avoid stale samples.
     detector_->clear_buffer();
     packets_since_evaluation_ = 0;
+    elapsed_since_evaluation_us_ = 0U;
     reset_motion_state_filter_();
     request_motion_state_callback_(previous_state, effective_motion_state_);
   }
@@ -165,18 +166,51 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   const int8_t *csi_data = normalized.data;
   const size_t csi_len = normalized.len;
 
-  if (packet_interceptor_ && packet_interceptor_(packet_interceptor_context_, csi_data, csi_len)) {
+  const int8_t rssi_dbm = data != nullptr ? data->rx_ctrl.rssi : INT8_MIN;
+  if (packet_interceptor_ &&
+      packet_interceptor_(packet_interceptor_context_, csi_data, csi_len, rssi_dbm)) {
     return;
   }
 
-  detector_->process_packet(csi_data, csi_len, DEFAULT_SUBCARRIERS, NUM_SUBCARRIERS);
+  detector_->process_packet(csi_data, csi_len, DEFAULT_SUBCARRIERS, NUM_SUBCARRIERS, rssi_dbm);
   
   // Evaluate state on the internal cadence, but always refresh before a periodic publish.
   const uint32_t processed_count = packets_processed_ + 1U;
   packets_processed_ = processed_count;
   packets_since_evaluation_++;
+
+  // Cadence advances on packet arrival time, taken from the MAC receive
+  // timestamp rather than from the loop clock. The loop clock measures how fast
+  // packets are *processed*, which matches arrival on hardware but not on
+  // synchronous replay paths, and it would make the cadence depend on host
+  // scheduling. The arrival timestamp is an input, so a caller that supplies it
+  // gets the same cadence every run. Note this timestamp only ever moves *when*
+  // an evaluation fires; feature values are never timed from a clock.
+  const uint32_t arrival_us = data->rx_ctrl.timestamp;
+  if (arrival_us != 0U && last_packet_us_ != 0U) {
+    const uint32_t delta_us = elapsed_since_timestamp_us(arrival_us, last_packet_us_);
+    if (delta_us > 0U && delta_us < SEG_WINDOW_US) {
+      packet_rate_.observe_interval(delta_us);
+      elapsed_since_evaluation_us_ += delta_us;
+    } else if (delta_us >= SEG_WINDOW_US) {
+      // A hole longer than one window leaves the detector holding stale
+      // history, so drop the accumulated coverage rather than counting it.
+      elapsed_since_evaluation_us_ = 0U;
+    }
+  }
+  if (arrival_us != 0U) {
+    last_packet_us_ = arrival_us;
+  }
+
+  // Elapsed time is authoritative once the stream has shown a plausible
+  // cadence. Until then, and on sources that carry no arrival timestamp, the
+  // packet counter is the fallback.
   const bool should_publish = processed_count >= publish_rate_;
-  const bool should_evaluate = should_publish || packets_since_evaluation_ >= evaluation_interval_;
+  const bool cadence_due =
+      packet_rate_.ready()
+          ? elapsed_since_evaluation_us_ >= EVALUATION_INTERVAL_US
+          : packets_since_evaluation_ >= evaluation_interval_;
+  const bool should_evaluate = should_publish || cadence_due;
   
   if (should_evaluate) {
     const int64_t start_us = esp_timer_get_time();
@@ -186,6 +220,7 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     MotionState current_state = update_effective_motion_state_(detector_->get_state());
     request_motion_state_callback_(previous_state, current_state);
     packets_since_evaluation_ = 0;
+    elapsed_since_evaluation_us_ = 0U;
     
     const int64_t elapsed_us = esp_timer_get_time() - start_us;
     detection_timing_.record(static_cast<uint32_t>(elapsed_us));

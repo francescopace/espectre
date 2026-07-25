@@ -14,7 +14,9 @@ class TrafficRateController:
 
     CONTROL_WINDOW_US = 2000000
     MIN_RATE_PPS = 5
-    MAX_RATE_PPS = 1000
+    # No absolute ceiling: what the adaptive loop may chase is already bounded
+    # relative to the configured target by MAX_RATE_NUMERATOR/DENOMINATOR, and
+    # the real ceiling is the hardware.
     MAX_RATE_NUMERATOR = 5
     MAX_RATE_DENOMINATOR = 4
     TOLERANCE_PERCENT = 5
@@ -90,12 +92,11 @@ class TrafficRateController:
             min(self.MIN_RATE_PPS, self.target_pps),
             (self.target_pps * self.PACING_FLOOR_PERCENT + 99) // 100,
         )
-        maximum_rate = min(
-            self.MAX_RATE_PPS,
-            max(
-                minimum_rate,
+        maximum_rate = max(
+            minimum_rate,
+            (
                 (self.target_pps * self.MAX_RATE_NUMERATOR + self.MAX_RATE_DENOMINATOR - 1)
-                // self.MAX_RATE_DENOMINATOR,
+                // self.MAX_RATE_DENOMINATOR
             ),
         )
         next_rate = self.current_pps

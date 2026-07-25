@@ -21,8 +21,13 @@
 #include "ml_detector.h"
 #include "runtime_sensing_schema.h"
 #include "threshold.h"
+#include "csi_replay_timing.h"
+#include "csi_replay_metrics.h"
+#include "csi_replay_summary.h"
 
 using namespace espectre;
+namespace replay = espectre::test::replay;
+namespace replay_summary = espectre::test::summary;
 
 #include "csi_test_data.h"
 
@@ -54,6 +59,22 @@ struct DatasetLongRunResults {
 };
 
 static std::vector<DatasetLongRunResults> g_results;
+
+static replay::ReplayPacketMetadata static_presence_metadata() {
+  return {
+      csi_test_data::static_presence_stream_seq_num(),
+      csi_test_data::static_presence_device_ticks_us(),
+      csi_test_data::static_presence_wifi_rx_ts_us(),
+  };
+}
+
+static replay::ReplayPacketMetadata motion_metadata() {
+  return {
+      csi_test_data::motion_stream_seq_num(),
+      csi_test_data::motion_device_ticks_us(),
+      csi_test_data::motion_wifi_rx_ts_us(),
+  };
+}
 
 struct LongRunAggregate {
   int count{0};
@@ -204,82 +225,9 @@ static void assert_metrics_are_valid(const LongRunMetrics &metrics) {
   TEST_ASSERT_TRUE(metrics.f1 >= 0.0f && metrics.f1 <= 100.0f);
 }
 
-static void apply_runtime_policy_metrics(const std::vector<bool> &raw_motion_states, LongRunMetrics &metrics) {
-  MotionState effective_state = MotionState::IDLE;
-  MotionState pending_state = MotionState::IDLE;
-  uint8_t pending_hits = 0;
-
-  for (bool raw_motion : raw_motion_states) {
-    const MotionState detector_state = raw_motion ? MotionState::MOTION : MotionState::IDLE;
-    const MotionState previous_state = effective_state;
-
-    if (detector_state == effective_state) {
-      pending_state = effective_state;
-      pending_hits = 0;
-    } else {
-      if (detector_state != pending_state) {
-        pending_state = detector_state;
-        pending_hits = 1;
-      } else if (pending_hits < UINT8_MAX) {
-        pending_hits++;
-      }
-
-      const uint8_t required_hits =
-          pending_state == MotionState::MOTION ? RUNTIME_MOTION_ON_HITS_DEFAULT : RUNTIME_MOTION_OFF_HITS_DEFAULT;
-      if (pending_hits >= required_hits) {
-        effective_state = pending_state;
-        pending_hits = 0;
-      }
-    }
-
-    const bool changed = effective_state != previous_state;
-    if (changed && effective_state == MotionState::MOTION) {
-      metrics.effective_alarms++;
-    }
-    if (effective_state == MotionState::MOTION) {
-      metrics.false_motion_evaluations++;
-    }
-  }
-}
-
-static bool build_calibrated_classic_detector(ClassicDetector& detector, int calibration_packets,
-                                              int pkt_size, float& out_threshold) {
-  StartupThresholdCalibrator calibrator;
-  calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
-  uint16_t packets_since_evaluation = 0;
-  for (int i = 0; i < calibration_packets; i++) {
-    detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
-                            HT20_SELECTED_BAND_SIZE);
-    packets_since_evaluation++;
-    if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
-      continue;
-    }
-    detector.update_state();
-    calibrator.observe(detector.is_ready(), detector.get_motion_metric(),
-                       detector.get_startup_floor_metric(), packets_since_evaluation);
-    packets_since_evaluation = 0;
-    if (calibrator.is_complete()) {
-      break;
-    }
-  }
-  if (!calibrator.is_successful()) {
-    out_threshold = CLASSIC_DEFAULT_THRESHOLD;
-    return false;
-  }
-  detector.on_startup_calibration_complete();
-  detector.set_adaptive_threshold(calibrator.threshold_metric());
-  out_threshold = detector.get_threshold();
-  detector.clear_buffer();
-  return true;
-}
 
 static void print_summary_table() {
-  printf("\n");
-  printf("========================================================================================================================\n");
-  printf("                                   LONG RECORDING SUMMARY (C++, all datasets)\n");
-  printf("========================================================================================================================\n");
-  printf("| Chip   | Datasets | Classic                 | ML                      |\n");
-  printf("|--------|----------|-------------------------|-------------------------|\n");
+  std::vector<replay_summary::DualDetectorSummaryRow> rows;
 
   for (auto chip : csi_test_data::get_supported_chips()) {
     const char *chip_name = csi_test_data::chip_name(chip);
@@ -287,87 +235,59 @@ static void print_summary_table() {
     if (dataset_count == 0) {
       continue;
     }
-    char classic_str[32] = "N/A";
-    char ml_str[32] = "N/A";
     bool has_classic = false;
     bool has_ml = false;
     const LongRunMetrics classic = mean_result_for_chip(chip_name, "classic", has_classic);
     const LongRunMetrics ml = mean_result_for_chip(chip_name, "ml", has_ml);
-
-    if (has_classic) {
-      std::snprintf(classic_str, sizeof(classic_str), "%.1f%% R, %.1f%% FP",
-                    classic.recall, classic.fp_rate);
-    }
-    if (has_ml) {
-      std::snprintf(ml_str, sizeof(ml_str), "%.1f%% R, %.1f%% FP",
-                    ml.recall, ml.fp_rate);
-    }
-
-    printf("| %-6s | %8d | %-23s | %-23s |\n", chip_name, dataset_count, classic_str, ml_str);
+    rows.push_back({
+        chip_name,
+        dataset_count,
+        {has_classic, classic.recall, classic.fp_rate},
+        {has_ml, ml.recall, ml.fp_rate},
+    });
   }
-
-  printf("------------------------------------------------------------------------------------------------------------------------\n");
-  printf("Legend: R = Recall, FP = False Positive Rate\n");
+  replay_summary::print_dual_detector_summary_table(
+      "                                   LONG RECORDING SUMMARY (C++, all datasets)",
+      rows);
 }
 
 static LongRunMetrics evaluate_ml_long_recording() {
   LongRunMetrics metrics;
-  const int warmup = DETECTOR_DEFAULT_WINDOW_SIZE;
   const int pkt_size = csi_test_data::packet_size();
-  std::vector<bool> baseline_motion_states;
 
   MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
   detector.configure_hampel(true);
-
-  uint32_t packets_since_evaluation = 0;
-
-  for (int i = 0; i < csi_test_data::num_static_presence(); i++) {
-    detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS, 12);
-    packets_since_evaluation++;
-    if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
-      continue;
-    }
-    detector.update_state();
-    packets_since_evaluation = 0;
-    if (i >= warmup) {
-      metrics.static_presence_eval_count++;
-      const bool raw_motion = detector.get_state() == MotionState::MOTION;
-      baseline_motion_states.push_back(raw_motion);
-      if (raw_motion) {
-        metrics.fp++;
-      }
-    }
-  }
-
-  for (int i = 0; i < csi_test_data::num_motion(); i++) {
-    detector.process_packet(csi_test_data::motion_packets()[i], pkt_size, DEFAULT_SUBCARRIERS, 12);
-    packets_since_evaluation++;
-    if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
-      continue;
-    }
-    detector.update_state();
-    packets_since_evaluation = 0;
-    if (i >= warmup) {
-      metrics.motion_eval_count++;
-      if (detector.get_state() == MotionState::MOTION) {
-        metrics.tp++;
-      } else {
-        metrics.fn++;
-      }
-    }
-  }
-
-  metrics.tn = std::max(metrics.static_presence_eval_count - metrics.fp, 0);
-  compute_derived_metrics(metrics);
-  apply_runtime_policy_metrics(baseline_motion_states, metrics);
+  const replay::ReplayMetrics replay_metrics = replay::evaluate_detector(
+      detector,
+      csi_test_data::static_presence_packets(),
+      csi_test_data::num_static_presence(),
+      nullptr,
+      static_presence_metadata(),
+      csi_test_data::motion_packets(),
+      csi_test_data::num_motion(),
+      nullptr,
+      motion_metadata(),
+      pkt_size,
+      DEFAULT_SUBCARRIERS,
+      12);
+  metrics.static_presence_eval_count = replay_metrics.static_presence_eval_count;
+  metrics.motion_eval_count = replay_metrics.motion_eval_count;
+  metrics.tp = replay_metrics.tp;
+  metrics.fn = replay_metrics.fn;
+  metrics.fp = replay_metrics.fp;
+  metrics.tn = replay_metrics.tn;
+  metrics.effective_alarms = replay_metrics.effective_alarms;
+  metrics.false_motion_evaluations = replay_metrics.false_motion_evaluations;
+  metrics.recall = replay_metrics.recall;
+  metrics.precision = replay_metrics.precision;
+  metrics.fp_rate = replay_metrics.fp_rate;
+  metrics.f1 = replay_metrics.f1;
   return metrics;
 }
 
 static LongRunMetrics evaluate_classic_long_recording() {
   LongRunMetrics metrics;
-  const int warmup = DETECTOR_DEFAULT_WINDOW_SIZE;
   const int pkt_size = csi_test_data::packet_size();
-  std::vector<bool> baseline_motion_states;
 
   ClassicDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, CLASSIC_DEFAULT_THRESHOLD);
   detector.configure_lowpass(false);
@@ -376,54 +296,46 @@ static LongRunMetrics evaluate_classic_long_recording() {
   const int calibration_packets = std::min(csi_test_data::num_static_presence(),
                                            static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
   float calibrated_threshold = CLASSIC_DEFAULT_THRESHOLD;
-  build_calibrated_classic_detector(detector, calibration_packets, pkt_size, calibrated_threshold);
+  replay::calibrate_classic_detector(
+      detector,
+      calibration_packets,
+      csi_test_data::static_presence_packets(),
+      csi_test_data::num_static_presence(),
+      csi_test_data::static_presence_rssi_dbm(),
+      static_presence_metadata(),
+      pkt_size,
+      DEFAULT_SUBCARRIERS,
+      HT20_SELECTED_BAND_SIZE,
+      calibrated_threshold);
 
   metrics.selected_band_size = HT20_SELECTED_BAND_SIZE;
   std::copy(DEFAULT_SUBCARRIERS, DEFAULT_SUBCARRIERS + HT20_SELECTED_BAND_SIZE, metrics.selected_band.begin());
   metrics.adaptive_threshold = calibrated_threshold;
-  uint32_t packets_since_evaluation = 0;
-
-  for (int i = 0; i < csi_test_data::num_static_presence(); i++) {
-    detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
-                            HT20_SELECTED_BAND_SIZE);
-    packets_since_evaluation++;
-    if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
-      continue;
-    }
-    detector.update_state();
-    packets_since_evaluation = 0;
-    if (i >= warmup) {
-      metrics.static_presence_eval_count++;
-      const bool raw_motion = detector.get_state() == MotionState::MOTION;
-      baseline_motion_states.push_back(raw_motion);
-      if (raw_motion) {
-        metrics.fp++;
-      }
-    }
-  }
-
-  for (int i = 0; i < csi_test_data::num_motion(); i++) {
-    detector.process_packet(csi_test_data::motion_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
-                            HT20_SELECTED_BAND_SIZE);
-    packets_since_evaluation++;
-    if (packets_since_evaluation < RUNTIME_EVALUATION_INTERVAL_DEFAULT) {
-      continue;
-    }
-    detector.update_state();
-    packets_since_evaluation = 0;
-    if (i >= warmup) {
-      metrics.motion_eval_count++;
-      if (detector.get_state() == MotionState::MOTION) {
-        metrics.tp++;
-      } else {
-        metrics.fn++;
-      }
-    }
-  }
-
-  metrics.tn = std::max(metrics.static_presence_eval_count - metrics.fp, 0);
-  compute_derived_metrics(metrics);
-  apply_runtime_policy_metrics(baseline_motion_states, metrics);
+  const replay::ReplayMetrics replay_metrics = replay::evaluate_detector(
+      detector,
+      csi_test_data::static_presence_packets(),
+      csi_test_data::num_static_presence(),
+      csi_test_data::static_presence_rssi_dbm(),
+      static_presence_metadata(),
+      csi_test_data::motion_packets(),
+      csi_test_data::num_motion(),
+      csi_test_data::motion_rssi_dbm(),
+      motion_metadata(),
+      pkt_size,
+      DEFAULT_SUBCARRIERS,
+      HT20_SELECTED_BAND_SIZE);
+  metrics.static_presence_eval_count = replay_metrics.static_presence_eval_count;
+  metrics.motion_eval_count = replay_metrics.motion_eval_count;
+  metrics.tp = replay_metrics.tp;
+  metrics.fn = replay_metrics.fn;
+  metrics.fp = replay_metrics.fp;
+  metrics.tn = replay_metrics.tn;
+  metrics.effective_alarms = replay_metrics.effective_alarms;
+  metrics.false_motion_evaluations = replay_metrics.false_motion_evaluations;
+  metrics.recall = replay_metrics.recall;
+  metrics.precision = replay_metrics.precision;
+  metrics.fp_rate = replay_metrics.fp_rate;
+  metrics.f1 = replay_metrics.f1;
   return metrics;
 }
 

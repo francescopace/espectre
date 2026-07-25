@@ -47,15 +47,23 @@ constexpr float RUNTIME_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_ML_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT = 1.0f;
 
-constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN = 10;
+constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN = 100;
 constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX = 200;
 constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT = 100;
 
 constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MIN = 0;
-constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MAX = 1000;
+// Arithmetic-safety bound, not a capability claim: the real ceiling is the
+// hardware, which tops out far below this. Pacing math multiplies the target
+// by small percentages, so the bound only has to keep that in range.
+constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MAX = 100000;
 constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT = 100;
 constexpr bool RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT = true;
 
+// Evaluation cadence in packets. This is now the fallback path: the runtime
+// evaluates on elapsed packet arrival time (EVALUATION_INTERVAL_US) and only
+// falls back to counting packets during estimator warmup, or on sources that
+// report no arrival timestamp. Kept configurable because that fallback still
+// governs the first second of every session.
 constexpr uint32_t RUNTIME_INTERVAL_MIN = 1;
 constexpr uint32_t RUNTIME_INTERVAL_MAX = 1000;
 constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_DEFAULT = 100;

@@ -17,6 +17,7 @@
 
 #include "base_detector.h"
 #include "csi_capture_service.h"
+#include "detector_timing.h"
 #include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_wifi.h"
@@ -77,7 +78,7 @@ using motion_state_callback_t = std::function<void(MotionState)>;
 using live_telemetry_callback_t = std::function<void(float movement, float threshold)>;
 
 // Callback type for intercepting normalized CSI packets before detector processing.
-using csi_packet_interceptor_t = bool (*)(void *, const int8_t *, size_t);
+using csi_packet_interceptor_t = bool (*)(void *, const int8_t *, size_t, int8_t);
 
 /**
  * CSI Pipeline
@@ -203,6 +204,13 @@ class CsiPipeline {
   live_telemetry_callback_t live_telemetry_callback_;
   uint32_t publish_rate_{100};
   uint32_t evaluation_interval_{25};
+  // Evaluation advances on elapsed packet time, not on packet count, so a
+  // window keeps its deploy-time meaning when the stream runs off-nominal.
+  // The packet counter stays as the fallback for the first packets, before the
+  // estimator has seen enough of the stream to be trusted.
+  PacketRateEstimator packet_rate_{};
+  uint32_t last_packet_us_{0U};
+  uint32_t elapsed_since_evaluation_us_{0};
   volatile uint32_t packets_processed_{0};
   std::atomic<uint64_t> accepted_packets_total_{0U};
   uint32_t packets_since_evaluation_{0};

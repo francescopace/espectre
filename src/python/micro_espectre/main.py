@@ -608,6 +608,7 @@ def main():
         evaluation_interval=getattr(config, 'EVALUATION_INTERVAL', 25),
         motion_on_hits=getattr(config, 'MOTION_ON_HITS', 4),
         motion_off_hits=getattr(config, 'MOTION_OFF_HITS', 3),
+        evaluation_interval_us=getattr(config, 'EVALUATION_INTERVAL_US', None),
     )
        
     try:
@@ -727,7 +728,11 @@ def main():
                         mqtt_poll_counter = 0
                 
                 publish_counter += 1
-                runtime_policy.note_packet()
+                # Cadence advances on packet arrival time, so a window keeps its
+                # deploy-time meaning when the link runs off the nominal rate.
+                # frame[4] is the Wi-Fi RX timestamp, the same source the C++
+                # pipeline reads from rx_ctrl.
+                runtime_policy.note_arrival(frame_result[4] if len(frame_result) > 4 else 0)
                 should_publish = publish_counter >= publish_rate
                 
                 if runtime_policy.should_evaluate(should_publish):

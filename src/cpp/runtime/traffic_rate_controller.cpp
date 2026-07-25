@@ -61,10 +61,9 @@ bool TrafficRateController::observe(uint64_t accepted_csi_total,
   const uint32_t minimum_rate = std::max(
       std::min(MIN_RATE_PPS, target_pps_),
       (target_pps_ * PACING_FLOOR_PERCENT + 99U) / 100U);
-  const uint32_t maximum_rate = std::min(
-      MAX_RATE_PPS,
+  const uint32_t maximum_rate =
       std::max(minimum_rate,
-               (target_pps_ * MAX_RATE_NUMERATOR + MAX_RATE_DENOMINATOR - 1U) / MAX_RATE_DENOMINATOR));
+               (target_pps_ * MAX_RATE_NUMERATOR + MAX_RATE_DENOMINATOR - 1U) / MAX_RATE_DENOMINATOR);
   uint32_t next_rate = current_pps_;
   const uint64_t send_attempt_delta = send_success_delta + send_error_delta;
   const uint64_t backpressure_threshold = std::max<uint64_t>(

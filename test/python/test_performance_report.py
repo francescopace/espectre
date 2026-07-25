@@ -10,9 +10,22 @@ License: GPLv3
 import sys
 from pathlib import Path
 
+import numpy as np
 import tools.generate_performance_report as generate_report
 from tools.lib import cpp_parity
 from tools.lib import performance_report as report
+
+
+class _FakeTimingTracker:
+    def __init__(self, coverage_us: int, contaminated: bool = False) -> None:
+        self.coverage_us = coverage_us
+        self.contaminated = contaminated
+
+    def observe_packet(self, _packet):
+        return {
+            "coverage_us": self.coverage_us,
+            "contaminated": self.contaminated,
+        }
 
 
 def _fake_report_data():
@@ -184,6 +197,19 @@ def _fake_execution_info():
     }
 
 
+def test_note_evaluation_tick_resets_time_aware_cadence() -> None:
+    cadence = report.RuntimeMotionPolicy(
+        evaluation_interval=25,
+        evaluation_interval_us=30,
+    )
+    tracker = _FakeTimingTracker(coverage_us=10)
+
+    assert report.note_evaluation_tick(cadence, packet={}, timing_tracker=tracker) == (False, False)
+    assert report.note_evaluation_tick(cadence, packet={}, timing_tracker=tracker) == (False, False)
+    assert report.note_evaluation_tick(cadence, packet={}, timing_tracker=tracker) == (True, False)
+    assert report.note_evaluation_tick(cadence, packet={}, timing_tracker=tracker) == (False, False)
+
+
 def test_render_performance_report_markdown_formats_missing_values_as_na() -> None:
     markdown = report.render_performance_report_markdown(_fake_report_data())
 
@@ -216,6 +242,32 @@ def test_render_performance_report_markdown_splits_ml_by_provenance() -> None:
     train_section = markdown[train_index:markdown.index("## Low-RSSI Stress Validation")]
     assert "| Recall | 99.8% | N/A | N/A | N/A | 100.0% |" in reserved_section
     assert "| Recall | 99.9% | N/A | N/A | N/A | N/A |" in train_section
+
+
+def test_load_long_test_dataset_uses_zero_copy_packet_view(monkeypatch, tmp_path) -> None:
+    csi_matrix = np.arange(6 * 128, dtype=np.int8).reshape(6, 128)
+    rssi_dbm = np.array([-80, -79, -78, -77, -76, -75], dtype=np.int16)
+
+    monkeypatch.setattr(
+        report,
+        "load_npz_arrays",
+        lambda _path: {"csi_data": csi_matrix, "rssi_dbm": rssi_dbm},
+    )
+    monkeypatch.setattr(report, "filter_npz_arrays_sensing", lambda arrays: arrays)
+    report._load_long_test_packets_cached.cache_clear()
+
+    spec = (tmp_path / "long_test.npz", 4, 6, "C3", {"chip": "C3"})
+    _, baseline_packets, movement_packets, motion_start_packet, chip, _entry = report.load_long_test_dataset(spec)
+
+    first_packet = baseline_packets[0]
+    assert motion_start_packet == 4
+    assert chip == "C3"
+    assert len(baseline_packets) == 4
+    assert len(movement_packets) == 2
+    assert isinstance(first_packet, dict)
+    assert isinstance(first_packet["csi_data"], memoryview)
+    assert first_packet["rssi_dbm"] == -80
+    assert movement_packets[0]["rssi_dbm"] == -76
 
 
 def test_render_performance_report_markdown_reports_link_class_split() -> None:
@@ -443,3 +495,48 @@ def test_generate_performance_report_main_runs_cpp_parity_before_write(monkeypat
 
     assert generate_report.main() == 0
     assert calls == ["compute", "verify", "write"]
+
+
+def test_generate_performance_report_main_can_skip_cpp_parity(monkeypatch, tmp_path) -> None:
+    calls = []
+    output_path = tmp_path / "PERFORMANCE.md"
+    fake_report = _fake_report_data()
+
+    def _fake_compute(*, progress=None):
+        calls.append("compute")
+        return fake_report
+
+    def _fake_verify(report_data, *, progress=None, build_dir=None):
+        calls.append("verify")
+        assert report_data is fake_report
+        return {"paired": {}, "long_quiet": {}}
+
+    def _fake_write(path, *, report_data=None, progress=None, execution_info=None):
+        calls.append("write")
+        assert path == output_path
+        assert report_data is fake_report
+        return output_path
+
+    monkeypatch.setattr(generate_report, "compute_performance_report_data", _fake_compute)
+    monkeypatch.setattr(generate_report, "verify_cpp_report_parity", _fake_verify)
+    monkeypatch.setattr(generate_report, "write_performance_report", _fake_write)
+    monkeypatch.setattr(
+        generate_report,
+        "get_available_paired_datasets",
+        lambda *, synthetic=None: [1, 2] if synthetic is False else [],
+    )
+    monkeypatch.setattr(generate_report, "get_available_long_test_datasets", lambda: [1])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generate_performance_report.py",
+            "--output",
+            str(output_path),
+            "--quiet",
+            "--skip-cpp-parity-check",
+        ],
+    )
+
+    assert generate_report.main() == 0
+    assert calls == ["compute", "write"]

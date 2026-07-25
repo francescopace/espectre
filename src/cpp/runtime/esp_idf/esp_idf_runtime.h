@@ -53,10 +53,12 @@ class EspIdfRuntime : public IEspectreRuntime {
   void on_wifi_connected_(const esp_netif_ip_info_t &ip_info);
   void on_wifi_disconnected_();
   bool start_calibration_();
-  bool handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len);
+  bool handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len,
+                                            int8_t rssi_dbm);
   static bool threshold_calibration_packet_callback_(void *context,
                                                      const int8_t *csi_data,
-                                                     size_t csi_len);
+                                                     size_t csi_len,
+                                                     int8_t rssi_dbm);
   void finish_threshold_calibration_(bool success);
   void notify_fault_(const char *message);
   void refresh_csi_local_identity_(uint32_t local_ip_addr);

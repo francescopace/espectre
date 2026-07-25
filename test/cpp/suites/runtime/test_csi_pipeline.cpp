@@ -566,6 +566,43 @@ void test_csi_pipeline_periodic_callback_uses_filtered_motion_state(void) {
     TEST_ASSERT_EQUAL(MotionState::IDLE, periodic_state);
 }
 
+/** Replay one stream at a chosen cadence and count evaluation ticks. */
+static int count_evaluations_at_cadence_(uint32_t interval_us, int packets) {
+    TransitionDetectorMock detector;
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
+    manager.set_motion_on_hits(1);
+    manager.set_motion_off_hits(1);
+
+    int evaluations = 0;
+    manager.set_live_telemetry_callback([&](float, float) { evaluations++; });
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    uint32_t arrival_us = 1000000U;
+    for (int i = 0; i < packets; i++) {
+        csi_info.rx_ctrl.timestamp = arrival_us;
+        manager.process_packet(&csi_info);
+        arrival_us += interval_us;
+    }
+    return evaluations;
+}
+
+void test_csi_pipeline_evaluates_on_elapsed_packet_time(void) {
+    // Arrival time is an input, so the cadence is reproducible run to run.
+    // 3000 packets at 100 pps is 30 s, which is 120 ticks at the 250 ms
+    // contract, and that is what a packet count of 25 also gives at this rate.
+    TEST_ASSERT_EQUAL(120, count_evaluations_at_cadence_(10000U, 3000));
+
+    // Same 30 s delivered five times faster. On the packet-count contract this
+    // would be 600 ticks; on elapsed time it stays near 120, bounded from below
+    // by the publish rate, which forces a refresh every 100 packets regardless.
+    const int at_500_pps = count_evaluations_at_cadence_(2000U, 15000);
+    TEST_ASSERT_TRUE(at_500_pps >= 120 && at_500_pps <= 150);
+}
+
 void test_csi_pipeline_live_telemetry_callback_does_not_force_every_packet_evaluation(void) {
     TransitionDetectorMock detector;
     CsiPipeline manager;
@@ -901,6 +938,7 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_motion_state_callback_honors_motion_on_hits);
     RUN_TEST(test_csi_pipeline_motion_state_callback_honors_motion_off_hits);
     RUN_TEST(test_csi_pipeline_periodic_callback_uses_filtered_motion_state);
+    RUN_TEST(test_csi_pipeline_evaluates_on_elapsed_packet_time);
     RUN_TEST(test_csi_pipeline_live_telemetry_callback_does_not_force_every_packet_evaluation);
     
     // STBC packet tests (issue #76)

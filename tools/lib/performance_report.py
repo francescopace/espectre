@@ -19,11 +19,16 @@ from typing import Any, Callable, Dict, Iterable, Optional, Sequence
 import numpy as np
 
 from .bootstrap import setup_paths
-from .dataset_metadata import build_calibrated_classic_detector
+from .dataset_metadata import (
+    build_calibrated_classic_detector,
+    derive_detector_timing,
+    measure_packet_interval_us,
+)
 from .repo_paths import data_dir, repo_root
 
 setup_paths()
 
+import config
 from config import (
     DEFAULT_SUBCARRIERS,
     EVALUATION_INTERVAL,
@@ -33,8 +38,13 @@ from config import (
 )
 from detector_interface import MotionState
 from csi_features import FEATURE_NAMES as RUNTIME_FEATURE_NAMES
-from runtime_policy import RuntimeMotionPolicy, make_evaluation_cadence as _make_evaluation_cadence
-from tools.lib.csi_io import load_npz_as_packets, load_npz_csi_data
+from runtime_policy import (
+    PacketTimingTracker,
+    RuntimeMotionPolicy,
+    make_evaluation_cadence as _make_evaluation_cadence,
+    nominal_packet_interval_us,
+)
+from tools.lib.csi_io import filter_npz_arrays_sensing, load_npz_arrays, load_npz_as_packets
 
 
 DATA_DIR = data_dir()
@@ -53,9 +63,47 @@ def make_evaluation_cadence(evaluation_interval: int = EVALUATION_INTERVAL) -> R
     return _make_evaluation_cadence(evaluation_interval)
 
 
-def note_evaluation_tick(cadence: RuntimeMotionPolicy) -> bool:
+def _timing_cadence_for_window(
+    window_packets: int = DETECTOR_DEFAULT_WINDOW_SIZE,
+    interval_us: Optional[int] = None,
+) -> tuple[PacketTimingTracker, RuntimeMotionPolicy]:
+    """Return the shared packet-timing helpers used by replay workflows.
+
+    ``interval_us`` is the measured cadence when the caller knows it. Without
+    it the nominal interval is assumed, which is only correct at 100 pps.
+    """
+    nominal_interval_us = (
+        nominal_packet_interval_us(window_packets)
+        if interval_us is None
+        else max(1, int(interval_us))
+    )
+    evaluation_interval = max(
+        1, int(round(config.EVALUATION_INTERVAL_US / float(nominal_interval_us)))
+    )
+    cadence = _make_evaluation_cadence(
+        evaluation_interval=evaluation_interval,
+        evaluation_interval_us=config.EVALUATION_INTERVAL_US,
+    )
+    return PacketTimingTracker(nominal_interval_us), cadence
+
+
+def note_evaluation_tick(
+    cadence: RuntimeMotionPolicy,
+    *,
+    packet: Any = None,
+    timing_tracker: Optional[PacketTimingTracker] = None,
+) -> tuple[bool, bool]:
     """Record one packet and return True when a deploy-time evaluation is due."""
-    return cadence.note_evaluation_tick()
+    timing = (
+        timing_tracker.observe_packet(packet)
+        if timing_tracker is not None
+        else {"coverage_us": 0, "contaminated": False}
+    )
+    cadence.note_packet(elapsed_us=timing["coverage_us"])
+    should_evaluate = cadence.should_evaluate()
+    if should_evaluate:
+        cadence.after_evaluation()
+    return should_evaluate, bool(timing["contaminated"])
 
 
 def evaluate_idle_runtime_policy(raw_motion_states: Sequence[bool]) -> Dict[str, int]:
@@ -134,6 +182,97 @@ class _CsiRowView(Sequence[Any]):
             raise IndexError("CSI row index out of range")
         byte_start = (self._start + row_index) * self._row_size
         return self._bytes[byte_start:byte_start + self._row_size]
+
+
+def _coerce_long_test_rssi_series(
+    rssi_dbm: Any,
+    expected_length: int,
+) -> Optional[np.ndarray]:
+    """Normalize optional long-recording RSSI metadata to one aligned array."""
+    if rssi_dbm is None:
+        return None
+    series = np.asarray(rssi_dbm)
+    if series.ndim == 0:
+        return np.full(int(expected_length), int(series.item()), dtype=np.int16)
+    if len(series) != int(expected_length):
+        return None
+    return series
+
+
+def _coerce_long_test_int_series(
+    values: Any,
+    expected_length: int,
+    *,
+    dtype: Any,
+) -> Optional[np.ndarray]:
+    """Normalize optional long-recording integer metadata to one aligned array."""
+    if values is None:
+        return None
+    series = np.asarray(values, dtype=dtype)
+    if series.ndim == 0:
+        return np.full(int(expected_length), int(series.item()), dtype=dtype)
+    if len(series) != int(expected_length):
+        return None
+    return series
+
+
+class _LongTestPacketView(Sequence[Any]):
+    """Zero-copy packet dictionaries over CSI rows plus optional RSSI metadata."""
+
+    def __init__(
+        self,
+        csi_rows: _CsiRowView,
+        rssi_dbm: Optional[np.ndarray] = None,
+        seq_num: Optional[np.ndarray] = None,
+        device_ticks_us: Optional[np.ndarray] = None,
+        wifi_rx_ts_us: Optional[np.ndarray] = None,
+    ):
+        self._csi_rows = csi_rows
+        self._rssi_dbm = rssi_dbm
+        self._seq_num = seq_num
+        self._device_ticks_us = device_ticks_us
+        self._wifi_rx_ts_us = wifi_rx_ts_us
+
+    def __len__(self) -> int:
+        return len(self._csi_rows)
+
+    def __getitem__(self, index: int | slice) -> Any:
+        if isinstance(index, slice):
+            start, stop, step = index.indices(len(self))
+            if step != 1:
+                return [self[i] for i in range(start, stop, step)]
+            sliced_rssi = None if self._rssi_dbm is None else self._rssi_dbm[start:stop]
+            sliced_seq = None if self._seq_num is None else self._seq_num[start:stop]
+            sliced_ticks = (
+                None if self._device_ticks_us is None else self._device_ticks_us[start:stop]
+            )
+            sliced_wifi = (
+                None if self._wifi_rx_ts_us is None else self._wifi_rx_ts_us[start:stop]
+            )
+            return _LongTestPacketView(
+                self._csi_rows[index],
+                sliced_rssi,
+                sliced_seq,
+                sliced_ticks,
+                sliced_wifi,
+            )
+
+        row_index = int(index)
+        if row_index < 0:
+            row_index += len(self)
+        if row_index < 0 or row_index >= len(self):
+            raise IndexError("packet index out of range")
+
+        packet = {"csi_data": self._csi_rows[row_index]}
+        if self._rssi_dbm is not None:
+            packet["rssi_dbm"] = int(self._rssi_dbm[row_index])
+        if self._seq_num is not None:
+            packet["seq_num"] = int(self._seq_num[row_index])
+        if self._device_ticks_us is not None:
+            packet["device_ticks_us"] = int(self._device_ticks_us[row_index])
+        if self._wifi_rx_ts_us is not None:
+            packet["wifi_rx_ts_us"] = int(self._wifi_rx_ts_us[row_index])
+        return packet
 
 
 def _emit_progress(progress: Optional[ProgressCallback], message: str) -> None:
@@ -304,13 +443,41 @@ def evaluate_detector_packets(
     movement_eval_count = 0
     static_presence_motion_packets = 0
     baseline_motion_states = []
-    cadence = make_evaluation_cadence()
-    for i, pkt in enumerate(static_presence_packets):
-        detector.process_packet(pkt["csi_data"], selected_band)
-        if not note_evaluation_tick(cadence):
+    # The detector was built for the cadence this stream actually runs at, so
+    # the replay has to advance it on the same cadence rather than the nominal
+    # one, and warm up over the window the detector really holds.
+    interval_us = measure_packet_interval_us(static_presence_packets)
+    detector_window = getattr(detector, "get_window_size", None)
+    if callable(detector_window):
+        warmup = max(1, int(detector_window()))
+    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    packets_since_reset = 0
+    for pkt in static_presence_packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=pkt,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=pkt,
+                timing_tracker=timing_tracker,
+            )
+            packets_since_reset = 0
+        detector.process_packet(
+            pkt["csi_data"],
+            selected_band,
+            rssi_dbm=pkt.get("rssi_dbm"),
+        )
+        packets_since_reset += 1
+        if not should_evaluate:
             continue
         detector.update_state()
-        if i < warmup:
+        if packets_since_reset < warmup:
             continue
         baseline_eval_count += 1
         is_motion = detector.get_state() == MotionState.MOTION
@@ -320,13 +487,34 @@ def evaluate_detector_packets(
 
     motion_with_motion = 0
     motion_without_motion = 0
-    cadence = make_evaluation_cadence()
-    for i, pkt in enumerate(motion_packets):
-        detector.process_packet(pkt["csi_data"], selected_band)
-        if not note_evaluation_tick(cadence):
+    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    packets_since_reset = 0
+    for pkt in motion_packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=pkt,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=pkt,
+                timing_tracker=timing_tracker,
+            )
+            packets_since_reset = 0
+        detector.process_packet(
+            pkt["csi_data"],
+            selected_band,
+            rssi_dbm=pkt.get("rssi_dbm"),
+        )
+        packets_since_reset += 1
+        if not should_evaluate:
             continue
         detector.update_state()
-        if i < warmup:
+        if packets_since_reset < warmup:
             continue
         movement_eval_count += 1
         if detector.get_state() == MotionState.MOTION:
@@ -422,6 +610,10 @@ def compute_ml_packet_result(
 
     assert tuple(EXPORTED_FEATURE_NAMES) == tuple(RUNTIME_FEATURE_NAMES)
 
+    # ML replays advance on the same measured cadence as Classic, otherwise the
+    # two detectors are reported under different timing contracts and their
+    # numbers are not comparable on any stream that is not at the nominal rate.
+    interval_us = measure_packet_interval_us(static_presence_packets)
     detector = MLDetector(window_size=window_size, threshold=threshold)
 
     feature_indices = {
@@ -435,13 +627,29 @@ def compute_ml_packet_result(
     static_presence_motion_packets = 0
     static_presence_eval_count = 0
     baseline_motion_states = []
-
-    cadence = make_evaluation_cadence()
-    for i, pkt in enumerate(static_presence_packets):
+    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    packets_since_reset = 0
+    for pkt in static_presence_packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=pkt,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=pkt,
+                timing_tracker=timing_tracker,
+            )
+            packets_since_reset = 0
         detector.process_packet(pkt["csi_data"], selected_subcarriers)
-        if not note_evaluation_tick(cadence):
+        packets_since_reset += 1
+        if not should_evaluate:
             continue
-        if not detector.is_ready() or i < warmup:
+        if not detector.is_ready() or packets_since_reset < warmup:
             continue
 
         values = detector._extract_features()
@@ -461,12 +669,29 @@ def compute_ml_packet_result(
     motion_with_motion = 0
     motion_without_motion = 0
     motion_eval_count = 0
-    cadence = make_evaluation_cadence()
-    for i, pkt in enumerate(motion_packets):
+    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    packets_since_reset = 0
+    for pkt in motion_packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=pkt,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=pkt,
+                timing_tracker=timing_tracker,
+            )
+            packets_since_reset = 0
         detector.process_packet(pkt["csi_data"], selected_subcarriers)
-        if not note_evaluation_tick(cadence):
+        packets_since_reset += 1
+        if not should_evaluate:
             continue
-        if i < warmup or not detector.is_ready():
+        if packets_since_reset < warmup or not detector.is_ready():
             continue
         values = detector._extract_features()
         probability = predict(values)
@@ -540,6 +765,87 @@ def compute_ml_dataset_result(
     )
 
 
+def replay_idle_stream(
+    detector: Any,
+    packets: Sequence[dict[str, Any]],
+    selected_subcarriers: Sequence[int],
+    window_size: int,
+) -> list[bool]:
+    """Replay one motion-free stream, returning the raw state per evaluation.
+
+    Empty-room recordings are the only ground truth in the corpus that contains
+    no person at all, which makes them the reference both detectors are gated
+    on. See the empty-room false-positive ADR.
+    """
+    timing_tracker, cadence = _timing_cadence_for_window(
+        window_size, measure_packet_interval_us(packets)
+    )
+    packets_since_reset = 0
+    raw_motion_states: list[bool] = []
+    for pkt in packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=pkt,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=pkt,
+                timing_tracker=timing_tracker,
+            )
+            packets_since_reset = 0
+        detector.process_packet(
+            pkt["csi_data"],
+            selected_subcarriers,
+            rssi_dbm=pkt.get("rssi_dbm"),
+        )
+        packets_since_reset += 1
+        if not should_evaluate:
+            continue
+        detector.update_state()
+        if packets_since_reset < window_size:
+            continue
+        raw_motion_states.append(detector.get_state() == MotionState.MOTION)
+    return raw_motion_states
+
+
+def _idle_stream_metrics(raw_motion_states: Sequence[bool]) -> Dict[str, float]:
+    """Summarise an idle replay as raw rate plus debounced alarm count."""
+    eval_count = len(raw_motion_states)
+    motion_packets = sum(1 for state in raw_motion_states if state)
+    policy = _evaluate_idle_runtime_policy_evaluations(raw_motion_states)
+    return {
+        "motion_packets": motion_packets,
+        "eval_count": eval_count,
+        "fp_rate": motion_packets / eval_count * 100.0 if eval_count > 0 else 0.0,
+        "effective_alarms": policy["effective_alarms"],
+    }
+
+
+@lru_cache(maxsize=None)
+def compute_classic_empty_fp_result(
+    empty_dataset_path: str | Path,
+    selected_subcarriers: tuple[int, ...],
+) -> Dict[str, float]:
+    """Run the empty-room Classic FP replay once per dataset and cache it."""
+    packets = load_empty_room_packets(empty_dataset_path)
+    calibrated = build_calibrated_classic_detector(
+        packets, selected_subcarriers=selected_subcarriers
+    )
+    if calibrated is None:
+        return {}
+    detector, _threshold = calibrated
+    timing = derive_detector_timing(measure_packet_interval_us(packets))
+    window_size = timing["window_packets"]
+    return _idle_stream_metrics(
+        replay_idle_stream(detector, packets, selected_subcarriers, window_size)
+    )
+
+
 @lru_cache(maxsize=None)
 def compute_ml_empty_fp_result(
     empty_dataset_path: str | Path,
@@ -552,27 +858,9 @@ def compute_ml_empty_fp_result(
 
     packets = load_empty_room_packets(empty_dataset_path)
     detector = MLDetector(window_size=window_size, threshold=threshold)
-
-    eval_count = 0
-    motion_packets = 0
-    cadence = make_evaluation_cadence()
-    for i, pkt in enumerate(packets):
-        detector.process_packet(pkt["csi_data"], selected_subcarriers)
-        if not note_evaluation_tick(cadence):
-            continue
-        detector.update_state()
-        if i < window_size:
-            continue
-        eval_count += 1
-        if detector.get_state() == MotionState.MOTION:
-            motion_packets += 1
-
-    fp_rate = motion_packets / eval_count * 100.0 if eval_count > 0 else 0.0
-    return {
-        "motion_packets": motion_packets,
-        "eval_count": eval_count,
-        "fp_rate": fp_rate,
-    }
+    return _idle_stream_metrics(
+        replay_idle_stream(detector, packets, selected_subcarriers, window_size)
+    )
 
 
 def extract_motion_start_from_description(description: Optional[str]) -> Optional[int]:
@@ -661,20 +949,52 @@ def get_available_long_test_dataset_specs(
 
 
 @lru_cache(maxsize=None)
-def _load_long_test_csi_cached(path_value: str) -> np.ndarray:
-    """Load one compact CSI matrix per worker process."""
-    return load_npz_csi_data(Path(path_value))
+def _load_long_test_packets_cached(path_value: str) -> _LongTestPacketView:
+    """Load one long-recording packet stream as a zero-copy packet+metadata view."""
+    arrays = filter_npz_arrays_sensing(load_npz_arrays(Path(path_value)))
+    if "csi_data" in arrays:
+        csi_key = "csi_data"
+    elif "csi" in arrays:
+        csi_key = "csi"
+    else:
+        raise ValueError(f"No CSI data found in {path_value}")
+
+    csi_matrix = np.asarray(arrays[csi_key], dtype=np.int8)
+    if csi_matrix.ndim != 2 or not csi_matrix.flags.c_contiguous:
+        csi_matrix = np.ascontiguousarray(csi_matrix, dtype=np.int8)
+    rssi_dbm = _coerce_long_test_rssi_series(arrays.get("rssi_dbm"), len(csi_matrix))
+    seq_num = _coerce_long_test_int_series(
+        arrays.get("stream_seq_num"),
+        len(csi_matrix),
+        dtype=np.uint32,
+    )
+    device_ticks_us = _coerce_long_test_int_series(
+        arrays.get("device_ticks_us"),
+        len(csi_matrix),
+        dtype=np.uint64,
+    )
+    wifi_rx_ts_us = _coerce_long_test_int_series(
+        arrays.get("wifi_rx_ts_us"),
+        len(csi_matrix),
+        dtype=np.uint32,
+    )
+    return _LongTestPacketView(
+        _CsiRowView(csi_matrix),
+        rssi_dbm,
+        seq_num,
+        device_ticks_us,
+        wifi_rx_ts_us,
+    )
 
 
 def load_long_test_dataset(spec: tuple[Any, ...]) -> tuple[Any, ...]:
     """Materialize one long-recording spec as baseline and movement views."""
     test_path, motion_start_packet, num_packets, chip, entry = spec
-    matrix = _load_long_test_csi_cached(str(test_path))
-    if len(matrix) != num_packets:
+    packets = _load_long_test_packets_cached(str(test_path))
+    if len(packets) != num_packets:
         raise ValueError(
-            f"Packet count mismatch for {test_path}: metadata={num_packets}, npz={len(matrix)}"
+            f"Packet count mismatch for {test_path}: metadata={num_packets}, npz={len(packets)}"
         )
-    packets = _CsiRowView(matrix)
     return (
         test_path,
         packets[:motion_start_packet],
@@ -698,6 +1018,13 @@ def _packet_csi_data(packet: Any) -> Any:
     return packet["csi_data"] if isinstance(packet, dict) else packet
 
 
+def _packet_rssi_dbm(packet: Any) -> Any:
+    """Return optional RSSI metadata from a packet dictionary or packet object."""
+    if isinstance(packet, dict):
+        return packet.get("rssi_dbm")
+    return getattr(packet, "rssi_dbm", None)
+
+
 def evaluate_ml_long_recording(
     baseline_packets: Sequence[Any],
     movement_packets: Sequence[Any],
@@ -718,26 +1045,69 @@ def evaluate_ml_long_recording(
     movement_with_motion = 0
     movement_without_motion = 0
 
-    cadence = make_evaluation_cadence()
-    for i, pkt in enumerate(baseline_packets):
-        detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
-        if not note_evaluation_tick(cadence):
+    interval_us = measure_packet_interval_us(baseline_packets)
+    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    packets_since_reset = 0
+    for pkt in baseline_packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=pkt,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=pkt,
+                timing_tracker=timing_tracker,
+            )
+            packets_since_reset = 0
+        detector.process_packet(
+            _packet_csi_data(pkt),
+            DEFAULT_SUBCARRIERS,
+            rssi_dbm=_packet_rssi_dbm(pkt),
+        )
+        packets_since_reset += 1
+        if not should_evaluate:
             continue
         detector.update_state()
-        if i >= warmup:
+        if packets_since_reset >= warmup:
             baseline_eval_count += 1
-        if i >= warmup and detector.get_state() == MotionState.MOTION:
+        if packets_since_reset >= warmup and detector.get_state() == MotionState.MOTION:
             baseline_motion_packets += 1
-        if i >= warmup:
+        if packets_since_reset >= warmup:
             baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
 
-    cadence = make_evaluation_cadence()
-    for i, pkt in enumerate(movement_packets):
-        detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
-        if not note_evaluation_tick(cadence):
+    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    packets_since_reset = 0
+    for pkt in movement_packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=pkt,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=pkt,
+                timing_tracker=timing_tracker,
+            )
+            packets_since_reset = 0
+        detector.process_packet(
+            _packet_csi_data(pkt),
+            DEFAULT_SUBCARRIERS,
+            rssi_dbm=_packet_rssi_dbm(pkt),
+        )
+        packets_since_reset += 1
+        if not should_evaluate:
             continue
         detector.update_state()
-        if i >= warmup:
+        if packets_since_reset >= warmup:
             movement_eval_count += 1
             if detector.get_state() == MotionState.MOTION:
                 movement_with_motion += 1
@@ -794,26 +1164,69 @@ def evaluate_classic_long_recording(
 
     baseline_motion_states = []
 
-    cadence = make_evaluation_cadence()
-    for i, pkt in enumerate(baseline_packets):
-        detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
-        if not note_evaluation_tick(cadence):
+    interval_us = measure_packet_interval_us(baseline_packets)
+    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    packets_since_reset = 0
+    for pkt in baseline_packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=pkt,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=pkt,
+                timing_tracker=timing_tracker,
+            )
+            packets_since_reset = 0
+        detector.process_packet(
+            _packet_csi_data(pkt),
+            DEFAULT_SUBCARRIERS,
+            rssi_dbm=_packet_rssi_dbm(pkt),
+        )
+        packets_since_reset += 1
+        if not should_evaluate:
             continue
         detector.update_state()
-        if i >= warmup:
+        if packets_since_reset >= warmup:
             baseline_eval_count += 1
-        if i >= warmup and detector.get_state() == MotionState.MOTION:
+        if packets_since_reset >= warmup and detector.get_state() == MotionState.MOTION:
             baseline_motion_packets += 1
-        if i >= warmup:
+        if packets_since_reset >= warmup:
             baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
 
-    cadence = make_evaluation_cadence()
-    for i, pkt in enumerate(movement_packets):
-        detector.process_packet(_packet_csi_data(pkt), DEFAULT_SUBCARRIERS)
-        if not note_evaluation_tick(cadence):
+    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    packets_since_reset = 0
+    for pkt in movement_packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=pkt,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=pkt,
+                timing_tracker=timing_tracker,
+            )
+            packets_since_reset = 0
+        detector.process_packet(
+            _packet_csi_data(pkt),
+            DEFAULT_SUBCARRIERS,
+            rssi_dbm=_packet_rssi_dbm(pkt),
+        )
+        packets_since_reset += 1
+        if not should_evaluate:
             continue
         detector.update_state()
-        if i >= warmup:
+        if packets_since_reset >= warmup:
             movement_eval_count += 1
             if detector.get_state() == MotionState.MOTION:
                 movement_with_motion += 1

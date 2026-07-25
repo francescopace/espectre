@@ -85,7 +85,14 @@ espectre:
 | Algorithm | Best for | Startup behavior |
 |-----------|----------|------------------|
 | `classic` | default adaptive non-ML path | startup threshold calibration |
-| `ml` | calibration-free startup | fixed probability threshold |
+| `ml` | calibration-free startup, highest recall | fixed probability threshold |
+
+`classic` keeps false positives low on every supported chip, but its recall
+varies by chip and drops on weak links. If you miss real motion and the false
+positives are already rare, switch to `ml` before tuning anything else: on the
+project corpus it recovers most of that gap without giving the false positives
+back. See the Known Limits section in [ALGORITHMS.md](ALGORITHMS.md) and the
+per-chip tables in [README.md](performance/README.md).
 
 ### Window Size
 
@@ -94,11 +101,18 @@ espectre:
   segmentation_window_size: 100
 ```
 
+The window is a duration, not a packet count: the runtime measures the effective
+packet rate and resizes it so it keeps spanning about one second, and it does the
+same for the detector's two feature lags. A link that settles at `80 pps` instead
+of `100` therefore needs no retuning. What the setting still controls is how many
+samples land in that second, and below roughly 100 the features get noisy enough
+that recall drops while false positives stay low; that is why the minimum is 100.
+See the Detector Timing section in [ALGORITHMS.md](ALGORITHMS.md).
+
 Rules of thumb:
 
-- `50-100`: best starting range
-- smaller window: faster, noisier
-- larger window: slower, steadier
+- `100`: the default, the minimum, and the value the coefficients were fitted at
+- larger window: steadier, slower to react, and further from the fitted point
 
 Start with `100` unless you have a clear reason to change it.
 
@@ -152,8 +166,10 @@ espectre:
 The detector still processes every CSI packet into its sliding window, but the
 published motion state updates only on a coarser cadence:
 
-1. every `evaluation_interval` packets, the runtime evaluates the detector and
-   gets a raw `IDLE` or `MOTION` reading
+1. every `250 ms` of packet arrival time, the runtime evaluates the detector
+   and gets a raw `IDLE` or `MOTION` reading; `evaluation_interval` is the
+   equivalent in packets and is what the runtime falls back to during startup,
+   or on sources that report no arrival timestamp
 2. that raw reading must repeat for `motion_on_hits` consecutive evaluations
    before the published state becomes `MOTION`
 3. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
@@ -174,12 +190,12 @@ false edges, at the cost of a short confirmation delay.
 
 Rules of thumb:
 
-- lower `evaluation_interval`: faster response, more evaluations
-- higher `evaluation_interval`: cheaper, more latency
 - more hit filtering: steadier state changes, slower transitions
-- expected publish latency is roughly
-  `(evaluation_interval / traffic_generator_rate) * motion_on_hits` seconds
-  when CSI is near the configured rate
+- expected publish latency is roughly `0.25 s * motion_on_hits`, and it no longer
+  depends on the packet rate: a link running at `80 pps` confirms motion in the
+  same wall-clock time as one at `100`
+- `evaluation_interval` now only shapes the startup fallback, so tuning it has
+  little effect once the cadence estimate settles
 
 ## Filters
 
@@ -234,6 +250,7 @@ Recommended operating range:
 Practical advice:
 
 - keep the node roughly `3-8 m` from the AP when possible
+- face the device toward the AP or router, not side-on to the link
 - avoid putting it behind heavy obstacles if you want strong motion contrast
 - if the node is too close to the AP, move it away before retuning thresholds
 

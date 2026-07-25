@@ -29,7 +29,9 @@ class TrafficRateController {
  private:
   static constexpr int64_t CONTROL_WINDOW_US = 2000000;
   static constexpr uint32_t MIN_RATE_PPS = 5U;
-  static constexpr uint32_t MAX_RATE_PPS = 1000U;
+  // No absolute ceiling: what the adaptive loop may chase is already bounded
+  // relative to the configured target by MAX_RATE_NUMERATOR/DENOMINATOR, and
+  // the real ceiling is the hardware.
   static constexpr uint32_t MAX_RATE_NUMERATOR = 5U;
   static constexpr uint32_t MAX_RATE_DENOMINATOR = 4U;
   static constexpr uint32_t TOLERANCE_PERCENT = 5U;

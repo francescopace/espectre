@@ -88,14 +88,22 @@ def main() -> int:
         action="store_true",
         help="Suppress progress logs on stderr.",
     )
+    parser.add_argument(
+        "--skip-cpp-parity-check",
+        action="store_true",
+        help="Skip the host-side C++ parity verification step.",
+    )
     args = parser.parse_args()
 
     progress, get_elapsed = _build_progress_logger(enabled=not args.quiet)
     started_at = datetime.now().astimezone()
     progress("starting report generation")
     report_data = compute_performance_report_data(progress=progress)
-    progress("starting C++ parity verification")
-    verify_cpp_report_parity(report_data, progress=progress)
+    if args.skip_cpp_parity_check:
+        progress("skipping C++ parity verification")
+    else:
+        progress("starting C++ parity verification")
+        verify_cpp_report_parity(report_data, progress=progress)
     progress("collecting execution metadata")
     execution_info = {
         "last_update": datetime.now().astimezone().date().isoformat(),
