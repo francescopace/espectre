@@ -76,7 +76,11 @@ from config import (  # noqa: E402
     EVALUATION_INTERVAL,
     SEG_WINDOW_SIZE,
 )
-from runtime_policy import make_evaluation_cadence  # noqa: E402
+from runtime_policy import (  # noqa: E402
+    PacketTimingTracker,
+    make_evaluation_cadence,
+    nominal_packet_interval_us,
+)
 # ------------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------------
@@ -942,6 +946,17 @@ def _entry_matches_chip(entry, chip_filter):
     return entry_chip == chip or chip in filename
 
 
+def _dataset_role(entry):
+    """Return the normalized dataset role for one dataset_info entry."""
+    role = str(entry.get("dataset_role", "train")).strip().lower()
+    return role or "train"
+
+
+def _is_excluded_entry(entry):
+    """Return True when an entry is explicitly excluded from validation."""
+    return _dataset_role(entry) == "exclude"
+
+
 def _extract_motion_start_from_description(description):
     """Extract motion start packet index from free-text test metadata."""
     if not description:
@@ -1015,15 +1030,23 @@ def refresh_pair_metadata(files, *, selected_chips=None):
     synthetic_group_cache = {}
 
     for entry in static_entries:
-        if _entry_matches_selected_chips(entry, selected_chips):
+        if (
+            _entry_matches_selected_chips(entry, selected_chips)
+            and not _is_excluded_entry(entry)
+        ):
             entry.pop("optimal_pair_motion_file", None)
     for entry in motion_entries:
-        if _entry_matches_selected_chips(entry, selected_chips):
+        if (
+            _entry_matches_selected_chips(entry, selected_chips)
+            and not _is_excluded_entry(entry)
+        ):
             entry.pop("optimal_pair_static_presence_file", None)
 
     candidates = []
     for static_index, static_entry in enumerate(static_entries):
         if not _entry_matches_selected_chips(static_entry, selected_chips):
+            continue
+        if _is_excluded_entry(static_entry):
             continue
         static_name = static_entry.get("filename")
         static_ts = parse_iso_timestamp(static_entry.get("collected_at"))
@@ -1034,6 +1057,8 @@ def refresh_pair_metadata(files, *, selected_chips=None):
 
         for motion_index, motion_entry in enumerate(motion_entries):
             if not _entry_matches_selected_chips(motion_entry, selected_chips):
+                continue
+            if _is_excluded_entry(motion_entry):
                 continue
             motion_name = motion_entry.get("filename")
             motion_ts = parse_iso_timestamp(motion_entry.get("collected_at"))
@@ -1126,6 +1151,23 @@ def refresh_metadata(info, chip_filter=None):
             selected_chips = {str(chip).upper() for chip in chip_filter}
     else:
         selected_chips = None
+    for label, entries in files.items():
+        for entry in entries:
+            if selected_chips and str(entry.get("chip", "")).upper() not in selected_chips:
+                continue
+            average_packet_rate = _estimate_average_packet_rate_from_capture(label, entry)
+            if average_packet_rate is not None:
+                entry["average_packet_rate"] = round(float(average_packet_rate), 3)
+            try:
+                explicit_nominal_packet_rate = int(entry.get("nominal_packet_rate", 0) or 0)
+            except (TypeError, ValueError):
+                explicit_nominal_packet_rate = 0
+            if explicit_nominal_packet_rate > 0:
+                entry["nominal_packet_rate"] = explicit_nominal_packet_rate
+            elif average_packet_rate is not None and abs(float(average_packet_rate) - 100.0) <= 10.0:
+                entry["nominal_packet_rate"] = 100
+            else:
+                entry.pop("nominal_packet_rate", None)
     pair_rows = refresh_pair_metadata(files, selected_chips=selected_chips)
     return refreshed, pair_rows
 
@@ -1155,6 +1197,7 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
         entries = [
             entry for entry in files_by_label.get(label, [])
             if _entry_matches_chip(entry, chip_filter)
+            and not _is_excluded_entry(entry)
         ]
         filtered_entries[label] = entries
         filename_index[label] = {
@@ -1248,6 +1291,13 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
         metadata_names = {
             str(entry.get('filename')) for entry in entries if entry.get('filename')
         }
+        excluded_metadata_names = {
+            str(entry.get('filename'))
+            for entry in files_by_label.get(label, [])
+            if entry.get('filename')
+            and _entry_matches_chip(entry, chip_filter)
+            and _is_excluded_entry(entry)
+        }
         label_dir = DATA_DIR / label
         if not label_dir.exists():
             continue
@@ -1255,7 +1305,7 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
             path.name for path in label_dir.glob('*.npz')
             if _entry_matches_chip({'filename': path.name}, chip_filter)
         }
-        for orphan_name in sorted(disk_names - metadata_names):
+        for orphan_name in sorted(disk_names - metadata_names - excluded_metadata_names):
             results.append(ValidationResult(
                 f"metadata_orphan/{label}/{orphan_name}",
                 "FAIL",
@@ -1496,6 +1546,56 @@ def _read_scalar_metadata(data, key):
     return value
 
 
+def _estimate_average_packet_rate_from_capture(label, entry):
+    """Estimate capture packet rate from replay timing metadata when possible."""
+    path = dataset_metadata.resolve_entry_path(label, entry)
+    if not path.exists():
+        return dataset_metadata.estimate_average_packet_rate(
+            entry.get("num_packets"),
+            entry.get("duration_ms"),
+        )
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            csi_data = data.get("csi_data")
+            if csi_data is None:
+                return dataset_metadata.estimate_average_packet_rate(
+                    entry.get("num_packets"),
+                    entry.get("duration_ms"),
+                )
+            num_packets = int(csi_data.shape[0])
+            if num_packets < 2:
+                return dataset_metadata.estimate_average_packet_rate(
+                    entry.get("num_packets"),
+                    entry.get("duration_ms"),
+                )
+
+            stream_seq_num = data.get("stream_seq_num")
+            device_ticks_us = data.get("device_ticks_us")
+            wifi_rx_ts_us = data.get("wifi_rx_ts_us")
+            packet_views = []
+            for index in range(num_packets):
+                packet_view = {}
+                if stream_seq_num is not None and index < len(stream_seq_num):
+                    seq_num = int(stream_seq_num[index])
+                    packet_view["seq_num"] = seq_num
+                    packet_view["stream_seq_num"] = seq_num
+                if device_ticks_us is not None and index < len(device_ticks_us):
+                    packet_view["device_ticks_us"] = int(device_ticks_us[index])
+                if wifi_rx_ts_us is not None and index < len(wifi_rx_ts_us):
+                    packet_view["wifi_rx_ts_us"] = int(wifi_rx_ts_us[index])
+                packet_views.append(packet_view)
+
+            interval_us = dataset_metadata.measure_packet_interval_us(packet_views)
+            if interval_us > 0:
+                return 1_000_000.0 / float(interval_us)
+    except (OSError, KeyError, ValueError, TypeError, IndexError):
+        pass
+    return dataset_metadata.estimate_average_packet_rate(
+        entry.get("num_packets"),
+        entry.get("duration_ms"),
+    )
+
+
 def validate_capture_continuity(data, csi_data):
     """Check packet cadence and stream continuity metadata when available."""
     results = []
@@ -1668,7 +1768,21 @@ def validate_capture_continuity(data, csi_data):
     return results
 
 
-def validate_pair(bl_csi, mv_csi, *, calibration_cache=None, cache_key=None):
+def validate_pair(
+    bl_csi,
+    mv_csi,
+    *,
+    bl_rssi_dbm=None,
+    mv_rssi_dbm=None,
+    bl_stream_seq_num=None,
+    mv_stream_seq_num=None,
+    bl_device_ticks_us=None,
+    mv_device_ticks_us=None,
+    bl_wifi_rx_ts_us=None,
+    mv_wifi_rx_ts_us=None,
+    calibration_cache=None,
+    cache_key=None,
+):
     """Classic indicative replay for a static-presence/motion pair.
 
     Results are non-blocking: soft misses become WARN and never veto admission.
@@ -1688,7 +1802,15 @@ def validate_pair(bl_csi, mv_csi, *, calibration_cache=None, cache_key=None):
         )
     """
     results = []
-    calibrated = _calibrated_classic_for(bl_csi, calibration_cache, cache_key)
+    calibrated = _calibrated_classic_for(
+        bl_csi,
+        rssi_dbm=bl_rssi_dbm,
+        stream_seq_num=bl_stream_seq_num,
+        device_ticks_us=bl_device_ticks_us,
+        wifi_rx_ts_us=bl_wifi_rx_ts_us,
+        calibration_cache=calibration_cache,
+        cache_key=cache_key,
+    )
     if calibrated is None:
         results.append(ValidationResult(
             "classic_pair_activation",
@@ -1698,8 +1820,22 @@ def validate_pair(bl_csi, mv_csi, *, calibration_cache=None, cache_key=None):
         return results, 0.0, 0.0, 0.0, 0.0
 
     detector, threshold = calibrated
-    bl_replay = _replay_classic_metrics(bl_csi, detector)
-    mv_replay = _replay_classic_metrics(mv_csi, detector)
+    bl_replay = _call_replay_classic_metrics(
+        bl_csi,
+        detector,
+        rssi_dbm=bl_rssi_dbm,
+        stream_seq_num=bl_stream_seq_num,
+        device_ticks_us=bl_device_ticks_us,
+        wifi_rx_ts_us=bl_wifi_rx_ts_us,
+    )
+    mv_replay = _call_replay_classic_metrics(
+        mv_csi,
+        detector,
+        rssi_dbm=mv_rssi_dbm,
+        stream_seq_num=mv_stream_seq_num,
+        device_ticks_us=mv_device_ticks_us,
+        wifi_rx_ts_us=mv_wifi_rx_ts_us,
+    )
     mv_metric = mv_replay["score_series"]
     bl_states = bl_replay["state_series"]
     mv_states = mv_replay["state_series"]
@@ -1772,6 +1908,7 @@ def validate_ml_readiness(dataset_info, chip_filter=None):
         label: [
             entry for entry in files_by_label.get(label, [])
             if _entry_matches_chip(entry, chip_filter)
+            and not _is_excluded_entry(entry)
             and not bool(entry.get('synthetic'))
         ]
         for label in ('empty', 'static_presence', 'motion')
@@ -1886,7 +2023,100 @@ def _resolve_dataset_entry_path(entry, label_group):
     return dataset_metadata.resolve_entry_path(str(label_group), entry)
 
 
-def _replay_classic_metrics(csi_data, detector):
+def _coerce_rssi_series(rssi_dbm, expected_length):
+    """Normalize optional per-packet RSSI metadata to one aligned series."""
+    if rssi_dbm is None:
+        return None
+    series = np.asarray(rssi_dbm)
+    if series.ndim == 0:
+        return np.full(int(expected_length), int(series.item()), dtype=np.int16)
+    if len(series) != int(expected_length):
+        return None
+    return series
+
+
+def _packet_rssi_at(rssi_dbm, index):
+    """Return one optional RSSI sample from a normalized series."""
+    if rssi_dbm is None:
+        return None
+    if index < 0 or index >= len(rssi_dbm):
+        return None
+    value = rssi_dbm[index]
+    if value is None:
+        return None
+    return int(value)
+
+
+def _mapping_optional_value(data, key):
+    """Return one optional field from a mapping-like NPZ container."""
+    if hasattr(data, "get"):
+        return data.get(key)
+    try:
+        return data[key]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _call_classic_self_baseline_stats(csi_data, packet_rate_pps, **kwargs):
+    """Call the idle-baseline helper with compatibility for older test doubles."""
+    try:
+        return _classic_self_baseline_stats(csi_data, packet_rate_pps, **kwargs)
+    except TypeError:
+        legacy_kwargs = dict(kwargs)
+        legacy_kwargs.pop("stream_seq_num", None)
+        legacy_kwargs.pop("device_ticks_us", None)
+        legacy_kwargs.pop("wifi_rx_ts_us", None)
+        return _classic_self_baseline_stats(csi_data, packet_rate_pps, **legacy_kwargs)
+
+
+def _call_replay_classic_metrics(csi_data, detector, **kwargs):
+    """Call the Classic replay helper with compatibility for older test doubles."""
+    try:
+        return _replay_classic_metrics(csi_data, detector, **kwargs)
+    except TypeError:
+        legacy_kwargs = dict(kwargs)
+        legacy_kwargs.pop("stream_seq_num", None)
+        legacy_kwargs.pop("device_ticks_us", None)
+        legacy_kwargs.pop("wifi_rx_ts_us", None)
+        return _replay_classic_metrics(csi_data, detector, **legacy_kwargs)
+
+
+def _calibration_packets(
+    csi_data,
+    rssi_dbm=None,
+    *,
+    stream_seq_num=None,
+    device_ticks_us=None,
+    wifi_rx_ts_us=None,
+):
+    """Yield calibration packets with optional RSSI metadata."""
+    normalized_rssi = _coerce_rssi_series(rssi_dbm, len(csi_data))
+    normalized_seq = None if stream_seq_num is None else np.asarray(stream_seq_num)
+    normalized_ticks = None if device_ticks_us is None else np.asarray(device_ticks_us)
+    normalized_wifi = None if wifi_rx_ts_us is None else np.asarray(wifi_rx_ts_us)
+    for index, packet in enumerate(csi_data):
+        rssi_value = _packet_rssi_at(normalized_rssi, index)
+        payload = {"csi_data": packet}
+        if rssi_value is not None:
+            payload["rssi_dbm"] = rssi_value
+        if normalized_seq is not None and index < len(normalized_seq):
+            payload["seq_num"] = int(normalized_seq[index])
+        if normalized_ticks is not None and index < len(normalized_ticks):
+            payload["device_ticks_us"] = int(normalized_ticks[index])
+        if normalized_wifi is not None and index < len(normalized_wifi):
+            payload["wifi_rx_ts_us"] = int(normalized_wifi[index])
+        yield payload
+
+
+def _replay_classic_metrics(
+    csi_data,
+    detector,
+    *,
+    rssi_dbm=None,
+    stream_seq_num=None,
+    device_ticks_us=None,
+    wifi_rx_ts_us=None,
+):
     """Replay one capture through ClassicDetector at evaluation cadence.
 
     The detector is reset first so every replay starts from a clean window,
@@ -1895,12 +2125,43 @@ def _replay_classic_metrics(csi_data, detector):
     detector.reset()
     score_series = []
     state_series = []
-    cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
-    for packet in csi_data:
-        detector.process_packet(packet, DEFAULT_SUBCARRIERS)
-        if not cadence.note_evaluation_tick():
+    nominal_interval_us = nominal_packet_interval_us(SEG_WINDOW_SIZE)
+    cadence = make_evaluation_cadence(
+        EVALUATION_INTERVAL,
+        evaluation_interval_us=nominal_interval_us * EVALUATION_INTERVAL,
+    )
+    timing_tracker = PacketTimingTracker(nominal_interval_us)
+    normalized_rssi = _coerce_rssi_series(rssi_dbm, len(csi_data))
+    normalized_seq = None if stream_seq_num is None else np.asarray(stream_seq_num)
+    normalized_ticks = None if device_ticks_us is None else np.asarray(device_ticks_us)
+    normalized_wifi = None if wifi_rx_ts_us is None else np.asarray(wifi_rx_ts_us)
+    for index, packet in enumerate(csi_data):
+        packet_view = {
+            "csi_data": packet,
+            "rssi_dbm": _packet_rssi_at(normalized_rssi, index),
+        }
+        if normalized_seq is not None and index < len(normalized_seq):
+            packet_view["seq_num"] = int(normalized_seq[index])
+        if normalized_ticks is not None and index < len(normalized_ticks):
+            packet_view["device_ticks_us"] = int(normalized_ticks[index])
+        if normalized_wifi is not None and index < len(normalized_wifi):
+            packet_view["wifi_rx_ts_us"] = int(normalized_wifi[index])
+        timing = timing_tracker.observe_packet(packet_view)
+        if timing["contaminated"]:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            timing = timing_tracker.observe_packet(packet_view)
+        detector.process_packet(
+            packet,
+            DEFAULT_SUBCARRIERS,
+            rssi_dbm=packet_view["rssi_dbm"],
+        )
+        cadence.note_packet(elapsed_us=timing["coverage_us"])
+        if not cadence.should_evaluate():
             continue
         metrics = detector.update_state()
+        cadence.after_evaluation()
         if detector.is_ready():
             score_series.append(float(metrics.get("motion_metric", 0.0)))
             state_series.append(int(detector.get_state() == MotionState.MOTION))
@@ -1912,13 +2173,27 @@ def _replay_classic_metrics(csi_data, detector):
     }
 
 
-def _calibrated_classic_for(csi_data, calibration_cache=None, cache_key=None):
+def _calibrated_classic_for(
+    csi_data,
+    *,
+    rssi_dbm=None,
+    stream_seq_num=None,
+    device_ticks_us=None,
+    wifi_rx_ts_us=None,
+    calibration_cache=None,
+    cache_key=None,
+):
     """Return a (detector, threshold) tuple calibrated on a capture's startup.
 
     The startup calibration replays packets through the detector in Python and
     is the expensive step, so a pristine calibrated detector snapshot is
     memoized per capture. The full snapshot matters because low-RSSI calibration
     also sets the session L1 floor and noise blend, not only the threshold.
+
+    Keep this path aligned with ``tools.lib.dataset_metadata``: let the
+    production-like calibrator walk the full stream so gap-aware restarts can
+    recover from a contaminated prefix instead of failing on the first
+    ``CALIBRATION_BUFFER_SIZE`` packets only.
     """
     if calibration_cache is not None and cache_key in calibration_cache:
         calibrated = calibration_cache[cache_key]
@@ -1927,7 +2202,13 @@ def _calibrated_classic_for(csi_data, calibration_cache=None, cache_key=None):
         return deepcopy(calibrated)
 
     calibrated = build_calibrated_classic_detector(
-        csi_data[:CALIBRATION_BUFFER_SIZE],
+        _calibration_packets(
+            csi_data,
+            rssi_dbm=rssi_dbm,
+            stream_seq_num=stream_seq_num,
+            device_ticks_us=device_ticks_us,
+            wifi_rx_ts_us=wifi_rx_ts_us,
+        ),
         selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
     )
     if calibration_cache is not None and cache_key is not None:
@@ -1955,18 +2236,29 @@ def _probability_logit(values):
 
 def _packet_rate_from_entry(entry):
     """Estimate capture packet rate from metadata, falling back to 100 pps."""
-    duration_ms = float(entry.get("duration_ms", 0.0) or 0.0)
-    num_packets = int(entry.get("num_packets", 0) or 0)
-    if duration_ms > 0.0 and num_packets > 0:
-        return num_packets * 1000.0 / duration_ms
+    average_packet_rate = entry.get("average_packet_rate")
+    if average_packet_rate is not None:
+        try:
+            resolved = float(average_packet_rate)
+        except (TypeError, ValueError):
+            resolved = 0.0
+        if resolved > 0.0:
+            return resolved
+    estimated = dataset_metadata.estimate_average_packet_rate(
+        entry.get("num_packets"),
+        entry.get("duration_ms"),
+    )
+    if estimated is not None:
+        return estimated
     return 100.0
 
 
 def _active_burst_metrics(states, packet_rate_pps):
     """Return active burst count/rate and longest duration.
 
-    ``states`` are sampled at the production evaluation cadence, so durations
-    use ``packet_rate_pps / EVALUATION_INTERVAL`` as the sample rate.
+    ``states`` are sampled at the production evaluation cadence, which is now
+    treated as elapsed-time driven (about one sample every 250 ms) instead of
+    depending on the raw packet rate of the capture.
     """
     padded = np.concatenate([[0], np.asarray(states, dtype=np.int8), [0]])
     edges = np.diff(padded)
@@ -1975,7 +2267,10 @@ def _active_burst_metrics(states, packet_rate_pps):
     burst_count = int(burst_starts.size)
     longest = int(burst_lengths.max()) if burst_count else 0
 
-    eval_rate_hz = max(float(packet_rate_pps), 1e-6) / float(EVALUATION_INTERVAL)
+    del packet_rate_pps
+    eval_rate_hz = 1_000_000.0 / float(
+        nominal_packet_interval_us(SEG_WINDOW_SIZE) * EVALUATION_INTERVAL
+    )
     eval_seconds = len(states) / eval_rate_hz
     bursts_per_minute = (
         burst_count * 60.0 / eval_seconds if eval_seconds > 0.0 else 0.0
@@ -1992,6 +2287,10 @@ def _classic_self_baseline_stats(
     csi_data,
     packet_rate_pps=100.0,
     *,
+    rssi_dbm=None,
+    stream_seq_num=None,
+    device_ticks_us=None,
+    wifi_rx_ts_us=None,
     calibration_cache=None,
     cache_key=None,
 ):
@@ -1999,11 +2298,42 @@ def _classic_self_baseline_stats(
     if len(csi_data) <= CALIBRATION_BUFFER_SIZE:
         return None
 
-    calibrated = _calibrated_classic_for(csi_data, calibration_cache, cache_key)
+    calibrated = _calibrated_classic_for(
+        csi_data,
+        rssi_dbm=rssi_dbm,
+        stream_seq_num=stream_seq_num,
+        device_ticks_us=device_ticks_us,
+        wifi_rx_ts_us=wifi_rx_ts_us,
+        calibration_cache=calibration_cache,
+        cache_key=cache_key,
+    )
     if calibrated is None:
         return None
     detector, threshold = calibrated
-    replay = _replay_classic_metrics(csi_data[CALIBRATION_BUFFER_SIZE:], detector)
+    replay = _replay_classic_metrics(
+        csi_data[CALIBRATION_BUFFER_SIZE:],
+        detector,
+        rssi_dbm=(
+            None
+            if rssi_dbm is None
+            else rssi_dbm[CALIBRATION_BUFFER_SIZE:]
+        ),
+        stream_seq_num=(
+            None
+            if stream_seq_num is None
+            else stream_seq_num[CALIBRATION_BUFFER_SIZE:]
+        ),
+        device_ticks_us=(
+            None
+            if device_ticks_us is None
+            else device_ticks_us[CALIBRATION_BUFFER_SIZE:]
+        ),
+        wifi_rx_ts_us=(
+            None
+            if wifi_rx_ts_us is None
+            else wifi_rx_ts_us[CALIBRATION_BUFFER_SIZE:]
+        ),
+    )
     scores = replay["score_series"]
     if len(scores) == 0:
         return None
@@ -2104,10 +2434,15 @@ def _compute_idle_evidence_for_entry(entry, label, npz_cache, calibration_cache=
         filepath = _resolve_dataset_entry_path(entry, label)
         data, csi_key = _load_cached_or_npz(filepath, npz_cache)
         csi_data = data[csi_key]
+        rssi_dbm = _coerce_rssi_series(_mapping_optional_value(data, "rssi_dbm"), len(csi_data))
         packet_rate_pps = _packet_rate_from_entry(entry)
-        baseline = _classic_self_baseline_stats(
+        baseline = _call_classic_self_baseline_stats(
             csi_data,
             packet_rate_pps,
+            rssi_dbm=rssi_dbm,
+            stream_seq_num=_mapping_optional_value(data, "stream_seq_num"),
+            device_ticks_us=_mapping_optional_value(data, "device_ticks_us"),
+            wifi_rx_ts_us=_mapping_optional_value(data, "wifi_rx_ts_us"),
             calibration_cache=calibration_cache,
             cache_key=str(filepath),
         )
@@ -2193,11 +2528,13 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None, calibration
     empty_files = [
         entry for entry in dataset_info.get('files', {}).get('empty', [])
         if _entry_matches_chip(entry, chip_filter)
+        and not _is_excluded_entry(entry)
         and not bool(entry.get('synthetic'))
     ]
     static_presence_files = [
         entry for entry in dataset_info.get('files', {}).get('static_presence', [])
         if _entry_matches_chip(entry, chip_filter)
+        and not _is_excluded_entry(entry)
         and not bool(entry.get('synthetic'))
     ]
 
@@ -2260,6 +2597,7 @@ def validate_quiet_test_recordings(
     test_entries = [
         entry for entry in dataset_info.get("files", {}).get("test", [])
         if _entry_matches_chip(entry, chip_filter)
+        and not _is_excluded_entry(entry)
     ]
 
     idle_candidates = []
@@ -2400,6 +2738,14 @@ def run_validation(chip_filter=None, generate_report=True):
     # so Classic pair and idle-baseline replays calibrate each capture once.
     npz_cache = {}
     calibration_cache = {}
+    excluded_filenames_by_label = {
+        label: {
+            str(entry.get("filename"))
+            for entry in dataset_info.get("files", {}).get(label, [])
+            if entry.get("filename") and _is_excluded_entry(entry)
+        }
+        for label in PER_FILE_QUALITY_LABELS
+    }
 
     for label in PER_FILE_QUALITY_LABELS:
         label_dir = DATA_DIR / label
@@ -2409,6 +2755,8 @@ def run_validation(chip_filter=None, generate_report=True):
 
         for npz_file in sorted(label_dir.glob("*.npz")):
             if not _entry_matches_chip({'filename': npz_file.name}, chip_filter):
+                continue
+            if npz_file.name in excluded_filenames_by_label.get(label, set()):
                 continue
 
             file_results = []
@@ -2440,10 +2788,15 @@ def run_validation(chip_filter=None, generate_report=True):
     motion_dir = DATA_DIR / "motion"
 
     if static_presence_dir.exists() and motion_dir.exists():
-        static_entries = dataset_info.get("files", {}).get("static_presence", [])
+        static_entries = [
+            entry
+            for entry in dataset_info.get("files", {}).get("static_presence", [])
+            if not _is_excluded_entry(entry)
+        ]
         motion_entries_by_name = {
             str(item.get("filename", "")): item
             for item in dataset_info.get("files", {}).get("motion", [])
+            if not _is_excluded_entry(item)
         }
         for entry in static_entries:
             if not _entry_matches_chip(entry, chip_filter):
@@ -2509,7 +2862,22 @@ def run_validation(chip_filter=None, generate_report=True):
                 continue
 
             pair_res, static_active_ratio, motion_active_ratio, pair_threshold, pair_ratio = validate_pair(
-                bl_data[bl_key], mv_data[mv_key],
+                bl_data[bl_key],
+                mv_data[mv_key],
+                bl_rssi_dbm=_coerce_rssi_series(
+                    _mapping_optional_value(bl_data, "rssi_dbm"),
+                    len(bl_data[bl_key]),
+                ),
+                mv_rssi_dbm=_coerce_rssi_series(
+                    _mapping_optional_value(mv_data, "rssi_dbm"),
+                    len(mv_data[mv_key]),
+                ),
+                bl_stream_seq_num=_mapping_optional_value(bl_data, "stream_seq_num"),
+                mv_stream_seq_num=_mapping_optional_value(mv_data, "stream_seq_num"),
+                bl_device_ticks_us=_mapping_optional_value(bl_data, "device_ticks_us"),
+                mv_device_ticks_us=_mapping_optional_value(mv_data, "device_ticks_us"),
+                bl_wifi_rx_ts_us=_mapping_optional_value(bl_data, "wifi_rx_ts_us"),
+                mv_wifi_rx_ts_us=_mapping_optional_value(mv_data, "wifi_rx_ts_us"),
                 calibration_cache=calibration_cache,
                 cache_key=str(bl_file),
             )

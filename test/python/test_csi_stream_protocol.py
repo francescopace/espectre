@@ -27,8 +27,54 @@ from tools.lib.csi_io import (
     STREAM_FLAG_WIFI_RX_TS_VALID,
     STREAM_VERSION,
     build_pacing_datagram,
+    load_npz_arrays,
     load_npz_as_packets,
+    normalize_stored_csi_bin_layout,
 )
+
+from device_utils import (
+    HT20_CENTERED_ONLY_NULL_BINS,
+    HT20_CLASSIC_ONLY_NULL_BINS,
+)
+
+
+def _layout_rows(null_bins, num_rows=3):
+    """Build CSI rows populated everywhere except one layout's guard bins."""
+    rows = np.zeros((num_rows, 128), dtype=np.int8)
+    for bin_index in range(64):
+        rows[:, bin_index * 2] = 7 + (bin_index % 5)
+        rows[:, bin_index * 2 + 1] = -3 - (bin_index % 4)
+    for bin_index in null_bins:
+        rows[:, bin_index * 2] = 0
+        rows[:, bin_index * 2 + 1] = 0
+    return rows
+
+
+def test_stored_classic_layout_is_rotated_to_centered():
+    classic = _layout_rows(HT20_CLASSIC_ONLY_NULL_BINS)
+    rotated = normalize_stored_csi_bin_layout(classic)
+    np.testing.assert_array_equal(rotated, np.roll(classic, 64, axis=1))
+
+
+def test_stored_centered_layout_is_left_alone():
+    centered = _layout_rows(HT20_CENTERED_ONLY_NULL_BINS)
+    np.testing.assert_array_equal(normalize_stored_csi_bin_layout(centered), centered)
+
+
+def test_sparse_rows_are_left_alone():
+    """Rows null under both conventions carry no evidence either way."""
+    sparse = np.zeros((3, 128), dtype=np.int8)
+    sparse[:, :4] = np.array([1, 2, 3, 4], dtype=np.int8)
+    np.testing.assert_array_equal(normalize_stored_csi_bin_layout(sparse), sparse)
+
+
+def test_load_npz_arrays_rotates_classic_recordings(tmp_path):
+    filepath = tmp_path / "classic_layout.npz"
+    classic = _layout_rows(HT20_CLASSIC_ONLY_NULL_BINS)
+    np.savez_compressed(filepath, csi_data=classic, num_subcarriers=64, label="motion", chip="c3")
+
+    loaded = load_npz_arrays(filepath)["csi_data"]
+    np.testing.assert_array_equal(loaded, np.roll(classic, 64, axis=1))
 
 
 def build_packet(

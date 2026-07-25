@@ -113,9 +113,9 @@ The latest diagnostic snapshot and interpretation live in
 [ALGORITHMS.md](ALGORITHMS.md). Recompute the values after changing the dataset,
 feature set, preprocessing, model architecture, or training policy.
 The production ML path also stays aligned with the same fixed 12-tone HT20 band
-used by Classic. For why the project keeps exactly that band, instead of
-switching count or adopting adjacent-tone averaging, see
-[`2026-07-20-keep-the-12-tone-ht20-classic-band.md`](adr/2026-07-20-keep-the-12-tone-ht20-classic-band.md).
+used by Classic, so retrain and re-export whenever that band changes. For how
+the band was derived from channel coherence, and why the count stays at 12, see
+[`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md).
 
 ## Default Behavior
 
@@ -317,16 +317,6 @@ replay and should not be used for training. The `shared_session` mode fits
 parameters for paired `motion`; use this mode for ML augmentation. Synthetic
 files live in the standard `data/<label>/` directories and are therefore
 consumed by the current trainer alongside real captures.
-
-Generate the complete compatible augmentation set with:
-
-```bash
-python tools/generate_all_low_rssi_datasets.py --dry-run
-python tools/generate_all_low_rssi_datasets.py
-```
-
-The batch does not synthesize `static_presence` or `motion` for a chip already
-covered by a real pair marked `low_rssi: true`.
 
 ## Cross-Environment And Cross-Chip Generalization Checks
 

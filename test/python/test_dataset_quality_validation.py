@@ -53,8 +53,9 @@ def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> No
         csi = empty_csi if path.name.startswith("empty") else static_csi
         return {"csi_data": csi}, "csi_data"
 
-    def fake_stats(csi_data, packet_rate_pps=100.0, *, calibration_cache=None, cache_key=None):
+    def fake_stats(csi_data, packet_rate_pps=100.0, *, rssi_dbm=None, calibration_cache=None, cache_key=None):
         assert packet_rate_pps == 100.0
+        assert rssi_dbm is None
         if csi_data is empty_csi:
             margins = np.array([-2.0, -1.0, -2.0, -1.0])
             threshold = 0.3
@@ -135,16 +136,17 @@ def test_validate_file_integrity_rejects_object_arrays(tmp_path) -> None:
 
 def test_active_burst_metrics_reports_duration_and_rate() -> None:
     module = _load_validator_module()
-    # States are evaluation ticks; with EVALUATION_INTERVAL=25 and 50 pps,
-    # the eval sample rate is 2 Hz (one tick every 0.5 s).
+    # States are evaluation ticks; the replay now treats Classic cadence as the
+    # production 250 ms wall-clock step rather than scaling durations with raw
+    # packet rate.
     metrics = module._active_burst_metrics(
         np.array([0, 1, 1, 0, 1, 1, 1, 0], dtype=np.int8),
         packet_rate_pps=50.0,
     )
 
     assert metrics["burst_count"] == 2
-    assert metrics["longest_burst_seconds"] == pytest.approx(1.5)
-    assert metrics["bursts_per_minute"] == pytest.approx(30.0)
+    assert metrics["longest_burst_seconds"] == pytest.approx(0.75)
+    assert metrics["bursts_per_minute"] == pytest.approx(60.0)
 
 
 def test_classic_calibration_cache_preserves_full_detector_state(monkeypatch) -> None:
@@ -167,11 +169,15 @@ def test_classic_calibration_cache_preserves_full_detector_state(monkeypatch) ->
     )
     cache = {}
     first = module._calibrated_classic_for(
-        np.zeros((10, 128), dtype=np.int8), cache, "low-rssi"
+        np.zeros((10, 128), dtype=np.int8),
+        calibration_cache=cache,
+        cache_key="low-rssi",
     )
     first[0].startup_l1_floor = 99.0
     second = module._calibrated_classic_for(
-        np.zeros((10, 128), dtype=np.int8), cache, "low-rssi"
+        np.zeros((10, 128), dtype=np.int8),
+        calibration_cache=cache,
+        cache_key="low-rssi",
     )
 
     assert len(calibration_calls) == 1
@@ -179,6 +185,57 @@ def test_classic_calibration_cache_preserves_full_detector_state(monkeypatch) ->
     assert second[0].threshold == pytest.approx(0.8)
     assert second[0].startup_l1_floor == pytest.approx(0.12)
     assert second[0].l1_noise_blend == pytest.approx(0.75)
+
+
+def test_calibrated_classic_for_passes_rssi_into_calibration(monkeypatch) -> None:
+    module = _load_validator_module()
+    captured_packets = []
+
+    def fake_calibrate(packets, **_kwargs):
+        captured_packets.extend(list(packets))
+        return object(), 0.5
+
+    monkeypatch.setattr(module, "build_calibrated_classic_detector", fake_calibrate)
+
+    csi_data = np.zeros((3, 128), dtype=np.int8)
+    rssi_dbm = np.array([-80, -79, -78], dtype=np.int16)
+    module._calibrated_classic_for(csi_data, rssi_dbm=rssi_dbm)
+
+    assert [pkt["rssi_dbm"] for pkt in captured_packets] == [-80, -79, -78]
+
+
+def test_replay_classic_metrics_passes_rssi_into_detector() -> None:
+    module = _load_validator_module()
+
+    class FakeDetector:
+        def __init__(self):
+            self.calls = []
+
+        def reset(self):
+            return None
+
+        def process_packet(self, packet, subcarriers, rssi_dbm=None):
+            self.calls.append((packet, tuple(subcarriers), rssi_dbm))
+
+        def update_state(self):
+            return {"motion_metric": 0.0}
+
+        def is_ready(self):
+            return True
+
+        def get_state(self):
+            return module.MotionState.IDLE
+
+        def get_threshold(self):
+            return 0.5
+
+    detector = FakeDetector()
+    csi_data = np.zeros((3, 128), dtype=np.int8)
+    rssi_dbm = np.array([-77, -76, -75], dtype=np.int16)
+
+    module._replay_classic_metrics(csi_data, detector, rssi_dbm=rssi_dbm)
+
+    assert [call[2] for call in detector.calls] == [-77, -76, -75]
 
 
 def test_empty_and_presence_verdicts_use_classic_baseline_only() -> None:
@@ -222,6 +279,8 @@ def test_refresh_metadata_respects_chip_filter() -> None:
                     "chip": "C3",
                     "subcarriers": 64,
                     "collected_at": "2026-07-12T10:00:00.000000",
+                    "duration_ms": 4000,
+                    "num_packets": 2000,
                 },
                 {
                     "filename": "static_presence_c6_64sc_dev2_20260712_100000_0001.npz",
@@ -237,6 +296,8 @@ def test_refresh_metadata_respects_chip_filter() -> None:
                     "chip": "C3",
                     "subcarriers": 64,
                     "collected_at": "2026-07-12T10:05:00.000000",
+                    "duration_ms": 4000,
+                    "num_packets": 2000,
                 },
                 {
                     "filename": "motion_c6_64sc_dev2_20260712_100500_0001.npz",
@@ -254,9 +315,13 @@ def test_refresh_metadata_respects_chip_filter() -> None:
     assert refreshed["files"]["static_presence"][0]["optimal_pair_motion_file"] == (
         "motion_c3_64sc_dev1_20260712_100500_0001.npz"
     )
+    assert refreshed["files"]["static_presence"][0]["average_packet_rate"] == 500.0
     assert refreshed["files"]["motion"][0]["optimal_pair_static_presence_file"] == (
         "static_presence_c3_64sc_dev1_20260712_100000_0001.npz"
     )
+    assert refreshed["files"]["motion"][0]["average_packet_rate"] == 500.0
+    assert "nominal_packet_rate" not in refreshed["files"]["static_presence"][0]
+    assert "nominal_packet_rate" not in refreshed["files"]["motion"][0]
     assert refreshed["files"]["static_presence"][1]["optimal_pair_motion_file"] == "keep_motion.npz"
     assert refreshed["files"]["motion"][1]["optimal_pair_static_presence_file"] == "keep_static.npz"
     assert len(pair_rows) == 1
@@ -321,6 +386,27 @@ def test_refresh_metadata_never_pairs_real_with_synthetic(
     assert refreshed["files"]["static_presence"][1]["optimal_pair_motion_file"] == (
         "synthetic_motion.npz"
     )
+
+
+def test_metadata_completeness_skips_excluded_entries() -> None:
+    module = _load_validator_module()
+
+    dataset_info = {
+        "files": {
+            "static_presence": [
+                {
+                    "filename": "excluded_static.npz",
+                    "chip": "C5",
+                    "dataset_role": "exclude",
+                },
+            ],
+            "motion": [],
+        }
+    }
+
+    results = module.validate_metadata_completeness(dataset_info)
+
+    assert all("excluded_static.npz" not in result.name for result in results)
 
 
 def test_run_validation_refresh_metadata_writes_dataset_info(monkeypatch, tmp_path) -> None:
@@ -513,6 +599,114 @@ def test_ml_readiness_respects_chip_filter() -> None:
     assert sample_count.value == 200
 
 
+def test_ml_readiness_skips_excluded_entries() -> None:
+    module = _load_validator_module()
+    dataset_info = {
+        "files": {
+            "empty": [
+                {"filename": "empty_train.npz", "chip": "C3", "num_packets": 200},
+            ],
+            "static_presence": [
+                {
+                    "filename": "static_excluded.npz",
+                    "chip": "C3",
+                    "num_packets": 400,
+                    "dataset_role": "exclude",
+                },
+            ],
+            "motion": [
+                {
+                    "filename": "motion_excluded.npz",
+                    "chip": "C3",
+                    "num_packets": 500,
+                    "dataset_role": "exclude",
+                },
+            ],
+        }
+    }
+
+    results = module.validate_ml_readiness(dataset_info)
+    by_name = {result.name: result for result in results}
+
+    assert by_name["sample_count"].value == 100
+    assert "empty=100" in by_name["label_balance"].message
+    assert "static_presence=0" in by_name["label_balance"].message
+    assert "28.7%" not in by_name["label_balance"].message
+
+
+def test_run_validation_skips_excluded_files_in_directory_scan(
+    monkeypatch, tmp_path
+) -> None:
+    module = _load_validator_module()
+
+    dataset_info_path = tmp_path / "dataset_info.json"
+    dataset_info_path.write_text(
+        """
+{
+  "updated_at": "2026-07-12T10:00:00",
+  "files": {
+    "static_presence": [
+      {
+        "filename": "included_static.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "collected_at": "2026-07-12T10:00:00.000000",
+        "environment": "lab"
+      },
+      {
+        "filename": "excluded_static.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "collected_at": "2026-07-12T10:01:00.000000",
+        "environment": "lab",
+        "dataset_role": "exclude"
+      }
+    ],
+    "motion": []
+  }
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    static_dir = tmp_path / "static_presence"
+    static_dir.mkdir()
+    (static_dir / "included_static.npz").touch()
+    (static_dir / "excluded_static.npz").touch()
+
+    processed = []
+
+    def fake_validate_file_integrity(path):
+        processed.append(path.name)
+        return [module.ValidationResult("file_load", "PASS", "ok")], {
+            "csi_data": np.zeros((1, 128), dtype=np.int8),
+        }
+
+    monkeypatch.setattr(module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(module, "DATASET_INFO", dataset_info_path)
+    monkeypatch.setattr(module, "validate_metadata_completeness", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "validate_file_integrity", fake_validate_file_integrity)
+    monkeypatch.setattr(module, "validate_signal_quality", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        module, "validate_capture_continuity", lambda *_args, **_kwargs: []
+    )
+    monkeypatch.setattr(module, "validate_empty_sanity", lambda *args, **kwargs: ([], [], []))
+    monkeypatch.setattr(
+        module, "validate_quiet_test_recordings", lambda *args, **kwargs: ([], [])
+    )
+    monkeypatch.setattr(module, "validate_ml_readiness", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        module,
+        "should_recommend_dataset_metadata_refresh",
+        lambda *args, **kwargs: False,
+    )
+
+    exit_code = module.run_validation(generate_report=False)
+
+    assert exit_code == 0
+    assert processed == ["included_static.npz"]
+
+
 def test_file_integrity_rejects_subcarrier_shape_mismatch(tmp_path) -> None:
     module = _load_validator_module()
     path = tmp_path / "bad.npz"
@@ -608,7 +802,7 @@ def test_long_recording_coverage_warns_without_annotated_motion() -> None:
     module._resolve_dataset_entry_path = lambda entry, label: Path("/tmp/quiet.npz")
     module._load_cached_or_npz = lambda filepath, cache: (FakeNpz(), "csi_data")
     module._classic_self_baseline_stats = (
-        lambda csi, packet_rate_pps=100.0, *, calibration_cache=None, cache_key=None: {
+        lambda csi, packet_rate_pps=100.0, *, rssi_dbm=None, calibration_cache=None, cache_key=None: {
             "score": 100.0,
             "fp_rate": 0.0,
             "margin_mad": 0.5,
@@ -734,8 +928,9 @@ def test_validate_pair_uses_classic_diagnostic_activation_logic(monkeypatch) -> 
         lambda packets, selected_subcarriers=None: (detector, threshold),
     )
 
-    def fake_replay(csi_data, replay_detector):
+    def fake_replay(csi_data, replay_detector, *, rssi_dbm=None):
         assert replay_detector is detector
+        assert rssi_dbm is None
         if csi_data is static_csi:
             return {
                 "score_series": np.array([0.10, 0.20, 0.30], dtype=np.float64),
@@ -777,8 +972,9 @@ def test_validate_pair_warns_when_motion_stays_below_threshold(monkeypatch) -> N
         lambda packets, selected_subcarriers=None: (detector, threshold),
     )
 
-    def fake_replay(csi_data, replay_detector):
+    def fake_replay(csi_data, replay_detector, *, rssi_dbm=None):
         assert replay_detector is detector
+        assert rssi_dbm is None
         if csi_data is static_csi:
             return {
                 "score_series": np.array([0.10, 0.15, 0.20], dtype=np.float64),

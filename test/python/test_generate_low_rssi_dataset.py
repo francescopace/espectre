@@ -248,6 +248,10 @@ def test_shared_session_reuses_quiet_calibration_and_registers_provenance(
     )
     assert registered_static["optimal_pair_motion_file"] == "motion_syn.npz"
     assert registered_motion["optimal_pair_static_presence_file"] == "static_syn.npz"
+    assert registered_static["average_packet_rate"] == pytest.approx(100.0)
+    assert registered_static["nominal_packet_rate"] == 100
+    assert registered_motion["average_packet_rate"] == pytest.approx(100.0)
+    assert registered_motion["nominal_packet_rate"] == 100
 
     with np.load(static_output, allow_pickle=False) as generated:
         generated_packets = len(generated["csi_data"])

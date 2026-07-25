@@ -35,7 +35,9 @@ def test_refresh_metadata_writes_pair_fields():
                     "filename": "empty_s3_64sc_dev1_20260704_100000_0001.npz",
                     "chip": "S3",
                     "subcarriers": 64,
-                    "collected_at": "2026-07-04T10:00:00.000000"
+                    "collected_at": "2026-07-04T10:00:00.000000",
+                    "duration_ms": 4000,
+                    "num_packets": 400,
                 }
             ],
             "static_presence": [
@@ -43,7 +45,9 @@ def test_refresh_metadata_writes_pair_fields():
                     "filename": "static_presence_s3_64sc_dev1_20260704_113202_0001.npz",
                     "chip": "S3",
                     "subcarriers": 64,
-                    "collected_at": "2026-07-04T11:32:02.000000"
+                    "collected_at": "2026-07-04T11:32:02.000000",
+                    "duration_ms": 4000,
+                    "num_packets": 2000,
                 }
             ],
             "motion": [
@@ -51,7 +55,9 @@ def test_refresh_metadata_writes_pair_fields():
                     "filename": "motion_s3_64sc_dev1_20260704_113807_0001.npz",
                     "chip": "S3",
                     "subcarriers": 64,
-                    "collected_at": "2026-07-04T11:38:07.000000"
+                    "collected_at": "2026-07-04T11:38:07.000000",
+                    "duration_ms": 4000,
+                    "num_packets": 2000,
                 }
             ],
             "test": [],
@@ -66,6 +72,10 @@ def test_refresh_metadata_writes_pair_fields():
 
     assert static_entry["optimal_pair_motion_file"] == motion_entry["filename"]
     assert motion_entry["optimal_pair_static_presence_file"] == static_entry["filename"]
+    assert static_entry["average_packet_rate"] == 500.0
+    assert motion_entry["average_packet_rate"] == 500.0
+    assert "nominal_packet_rate" not in static_entry
+    assert "nominal_packet_rate" not in motion_entry
     assert pair_rows == [
         {
             "static_presence": static_entry["filename"],

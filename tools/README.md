@@ -243,21 +243,6 @@ Generate `static_presence` before `motion` in `shared_session` mode. The second
 command finds the quiet calibration in the paired synthetic NPZ,
 registers reciprocal pair metadata, and prints a production Classic replay.
 
-Use the batch entry point to generate every compatible derivative.
-It processes `empty` and `static_presence` before `motion`, defaults to
-`shared_session`, skips already registered outputs, and continues after an
-individual failure:
-
-```bash
-python generate_all_low_rssi_datasets.py --dry-run
-python generate_all_low_rssi_datasets.py
-```
-
-Use `--labels static_presence motion` to omit `empty`, `--chips C3`, or
-`--chips C6` to restrict the source chip, and `--force` to regenerate the
-deterministic outputs. The batch skips `static_presence` and `motion` groups
-whose chip already has a real pair marked `low_rssi: true`.
-
 Outputs live in the standard `data/<label>/` directories. Their
 `data/dataset_info.json` entries use the compact `low_rssi: true` and
 `synthetic: true` markers alongside the normal dataset and reciprocal-pair
@@ -354,6 +339,7 @@ datasets
 python generate_performance_report.py
 python generate_performance_report.py --stdout
 python generate_performance_report.py --output /tmp/PERFORMANCE.md
+python generate_performance_report.py --skip-cpp-parity-check
 ```
 
 ---

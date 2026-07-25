@@ -826,6 +826,17 @@ def _build_output_entry(
     generation_group: str,
     generation_mode: str,
 ) -> Dict[str, Any]:
+    average_packet_rate = dataset_metadata.estimate_average_packet_rate(
+        packet_count,
+        int(source_entry.get("duration_ms", 0) or 0),
+    )
+    try:
+        nominal_packet_rate = int(source_entry.get("nominal_packet_rate", 0) or 0)
+    except (TypeError, ValueError):
+        nominal_packet_rate = 0
+    if nominal_packet_rate <= 0 and average_packet_rate is not None:
+        if abs(float(average_packet_rate) - 100.0) <= 10.0:
+            nominal_packet_rate = 100
     description = (
         f"Synthetic low-RSSI derivative of {source_path.name} using the "
         f"{profile.name} profile. Not a real capture."
@@ -849,6 +860,10 @@ def _build_output_entry(
         "generation_mode": generation_mode,
         "dataset_role": "train",
     }
+    if average_packet_rate is not None:
+        entry["average_packet_rate"] = round(float(average_packet_rate), 3)
+    if nominal_packet_rate > 0:
+        entry["nominal_packet_rate"] = nominal_packet_rate
     return entry
 
 

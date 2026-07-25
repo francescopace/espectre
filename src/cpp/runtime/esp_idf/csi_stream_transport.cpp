@@ -321,6 +321,15 @@ bool fill_rx_timestamp_metadata(const wifi_pkt_rx_ctrl_t &rx_ctrl, CsiStreamHead
 #endif
 }
 
+// Every ESP-IDF Wi-Fi target reports the RF noise floor: classic MACs expose it
+// through `wifi_pkt_rx_ctrl_t`, Wi-Fi 6 parts through `esp_wifi_rxctrl_t`, which
+// `wifi_pkt_rx_ctrl_t` aliases when `SOC_WIFI_HE_SUPPORT` is set. Selecting it
+// from a hand-maintained target list silently reported the invalid sentinel on
+// C5 and C6, so read it unconditionally instead.
+int8_t rx_ctrl_noise_floor_dbm(const wifi_pkt_rx_ctrl_t &rx_ctrl) {
+  return static_cast<int8_t>(rx_ctrl.noise_floor);
+}
+
 uint64_t counter_delta(uint64_t current, uint64_t previous) {
   return current >= previous ? current - previous : current;
 }
@@ -794,12 +803,7 @@ size_t CsiStreamTransport::build_stream_packet_from_live_csi_(const wifi_pkt_rx_
   header->wifi_rx_start_ts_ns = 0U;
   header->channel = rx_ctrl.channel;
   header->rssi_dbm = rx_ctrl.rssi;
-#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || \
-    CONFIG_IDF_TARGET_ESP32C2
-  header->noise_floor_dbm = rx_ctrl.noise_floor;
-#else
-  header->noise_floor_dbm = -128;
-#endif
+  header->noise_floor_dbm = rx_ctrl_noise_floor_dbm(rx_ctrl);
   header->tx_backpressure_total = static_cast<uint32_t>(stream_tx_backpressure_total_.load(std::memory_order_relaxed));
   header->stream_fresh_total =
       static_cast<uint32_t>(stream_fresh_total_.load(std::memory_order_relaxed) + 1U);
@@ -852,12 +856,7 @@ size_t CsiStreamTransport::build_stream_packet_from_sample_(const LatestCsiSampl
   header->wifi_rx_start_ts_ns = 0U;
   header->channel = sample.rx_ctrl.channel;
   header->rssi_dbm = sample.rx_ctrl.rssi;
-#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || \
-    CONFIG_IDF_TARGET_ESP32C2
-  header->noise_floor_dbm = sample.rx_ctrl.noise_floor;
-#else
-  header->noise_floor_dbm = -128;
-#endif
+  header->noise_floor_dbm = rx_ctrl_noise_floor_dbm(sample.rx_ctrl);
   header->tx_backpressure_total = static_cast<uint32_t>(stream_tx_backpressure_total_.load(std::memory_order_relaxed));
   header->stream_fresh_total =
       static_cast<uint32_t>(stream_fresh_total_.load(std::memory_order_relaxed) + 1U);

@@ -204,12 +204,30 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   assessment.reset_detector_before_consume = should_reset_detector;
   consecutive_format_drops_ = 0U;
 
-  NormalizedCSIPayload normalized{data->buf, HT20_CSI_LEN, NormalizedCSIPayloadTag::NONE};
   int8_t csi_remapped[HT20_CSI_LEN];
+  NormalizedCSIPayload normalized{data->buf, HT20_CSI_LEN, NormalizedCSIPayloadTag::NONE};
   if (assessment.requires_normalization()) {
     normalized = normalize_ht20_csi_payload(data->buf, data->len, csi_remapped, sizeof(csi_remapped));
   } else {
     normalized = {data->buf, HT20_CSI_LEN, NormalizedCSIPayloadTag::NONE};
+  }
+
+  // Bin ordering is independent of payload length: classic MACs deliver
+  // "0~31, -32~-1" while Wi-Fi 6 parts deliver the centered convention that
+  // DEFAULT_SUBCARRIERS assumes. Latch the first confident detection so a single
+  // packet with a fully faded guard-adjacent tone cannot leave one frame
+  // unrotated in an otherwise rotated stream.
+  int8_t csi_rotated[HT20_CSI_LEN];
+  if (normalized.valid() && normalized.len == HT20_CSI_LEN) {
+    const Ht20BinLayout detected = detect_ht20_bin_layout(normalized.data, normalized.len);
+    if (detected != Ht20BinLayout::UNKNOWN) {
+      bin_layout_ = detected;
+    }
+    if (bin_layout_ == Ht20BinLayout::CLASSIC) {
+      rotate_ht20_classic_to_centered(normalized.data, csi_rotated);
+      normalized.data = csi_rotated;
+      normalized.rotated_to_centered = true;
+    }
   }
 
   if (normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT20 ||

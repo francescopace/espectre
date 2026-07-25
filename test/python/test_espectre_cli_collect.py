@@ -2111,7 +2111,7 @@ def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None
 
     capsys.readouterr()
     assert CapturingClassicDetector.windows == [42, 42]
-    assert CapturingRuntimeMotionPolicy.evaluation_intervals == [10]
+    assert CapturingRuntimeMotionPolicy.evaluation_intervals == [10, 10]
 
 
 def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, capsys) -> None:

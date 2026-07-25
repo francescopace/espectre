@@ -41,6 +41,21 @@ except ImportError:
     from src.serial_sequence import SerialSequenceTracker
 
 try:
+    from device_utils import (
+        HT20_CENTERED_ONLY_NULL_BINS,
+        HT20_CLASSIC_ONLY_NULL_BINS,
+        HT20_CSI_LEN,
+        HT20_NUM_SUBCARRIERS,
+    )
+except ImportError:
+    from src.device_utils import (
+        HT20_CENTERED_ONLY_NULL_BINS,
+        HT20_CLASSIC_ONLY_NULL_BINS,
+        HT20_CSI_LEN,
+        HT20_NUM_SUBCARRIERS,
+    )
+
+try:
     from detector_interface import (
         detector_needs_startup_calibration,
         load_detector_class,
@@ -72,12 +87,21 @@ STREAM_FLAG_FIRST_WORD_INVALID = 1 << 0
 STREAM_FLAG_WIFI_RX_TS_VALID = 1 << 1
 STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1 << 2
 STREAM_FLAG_CSI_FRESH = 1 << 3
+# Firmware older than the capability-based noise-floor read reported this
+# sentinel on targets it did not cover. It is far below thermal noise for a
+# 20 MHz channel, so it can never be a genuine measurement.
+NOISE_FLOOR_INVALID_DBM = -128
 CSI_HEADER_FORMAT = "<HBBBBIHHQQIQBbbQIIBBB"
 CSI_HEADER_STRUCT = struct.Struct(CSI_HEADER_FORMAT)
 MAX_STREAM_DATAGRAM_BYTES = 2048
 DEFAULT_SOCKET_RCVBUF_BYTES = 1024 * 1024
 DEFAULT_PACING_PORT = 9999
 DEFAULT_PACING_INTERVAL_SECONDS = 5.0
+
+
+def _valid_noise_floor(value: Optional[int]) -> Optional[int]:
+    """Return the noise floor, or None when it carries the invalid sentinel."""
+    return None if value is None or int(value) == NOISE_FLOOR_INVALID_DBM else int(value)
 DEFAULT_PACING_PAYLOAD = b"ESPE"
 
 CHIP_CODES = {
@@ -130,8 +154,37 @@ def _raise_unsafe_npz_object_array(filepath: Path, key: str | None = None, exc: 
     raise error
 
 
+def normalize_stored_csi_bin_layout(csi: np.ndarray) -> np.ndarray:
+    """Rotate stored classic-order HT20 rows into the centered convention.
+
+    Captures taken before the firmware rotated classic-MAC payloads kept
+    Espressif's native ``0~31, -32~-1`` order, while Wi-Fi 6 captures were
+    already centered on DC. ``DEFAULT_SUBCARRIERS`` assumes the centered
+    convention, so correct the stored rows on load and leave the files alone.
+
+    Identification requires positive evidence in both directions: one guard set
+    entirely null across the recording and the other populated in every one of
+    its bins. Absence of energy alone is not enough, because sparse or synthetic
+    rows are null under both conventions. Recordings whose layout cannot be
+    identified are returned untouched.
+    """
+    if csi.ndim != 2 or csi.shape[1] != HT20_CSI_LEN or csi.shape[0] == 0:
+        return csi
+
+    bins = csi.reshape(csi.shape[0], HT20_NUM_SUBCARRIERS, 2)
+    classic_populated = bins[:, list(HT20_CLASSIC_ONLY_NULL_BINS), :].any(axis=(0, 2))
+    centered_populated = bins[:, list(HT20_CENTERED_ONLY_NULL_BINS), :].any(axis=(0, 2))
+    if not classic_populated.any() and centered_populated.all():
+        return np.roll(csi, HT20_CSI_LEN // 2, axis=1)
+    return csi
+
+
 def load_npz_arrays(filepath: Path) -> Dict[str, np.ndarray]:
-    """Materialize a dataset NPZ without enabling pickle-backed object arrays."""
+    """Materialize a dataset NPZ without enabling pickle-backed object arrays.
+
+    CSI rows are returned in the centered bin convention regardless of which
+    ordering the capturing chip used; see ``normalize_stored_csi_bin_layout``.
+    """
     arrays: Dict[str, np.ndarray] = {}
     with np.load(filepath, allow_pickle=False) as data:
         for key in data.files:
@@ -144,6 +197,9 @@ def load_npz_arrays(filepath: Path) -> Dict[str, np.ndarray]:
             if value.dtype.kind == "O":
                 _raise_unsafe_npz_object_array(filepath, key)
             arrays[key] = value
+    for csi_key in ("csi_data", "csi"):
+        if csi_key in arrays:
+            arrays[csi_key] = normalize_stored_csi_bin_layout(arrays[csi_key])
     return arrays
 
 
@@ -746,7 +802,7 @@ class CSIReceiver:
             wifi_rx_start_ts_ns=wifi_rx_start_ts_ns if (flags & STREAM_FLAG_WIFI_RX_START_TS_NS_VALID) else None,
             channel=int(channel),
             rssi_dbm=int(rssi_dbm),
-            noise_floor_dbm=int(noise_floor_dbm),
+            noise_floor_dbm=_valid_noise_floor(int(noise_floor_dbm)),
             tx_backpressure_total=int(tx_backpressure_total),
             stream_fresh_total=int(stream_fresh_total),
             pacing_rx_total=int(pacing_rx_total),
@@ -1054,6 +1110,7 @@ class CSICollector:
         self._ready_window_size = CollectionDetectorGate.default_window_size()
         self._ready_initial_threshold = CollectionDetectorGate.initial_threshold(self.detector_algorithm)
         self._live_status_line_count = 0
+        self._nominal_packet_rate: Optional[int] = None
 
     def _should_accept_source_ip(self, source_ip: Optional[str]) -> bool:
         """Accept all broadcast/multicast sources, but pin unicast modes to targets."""
@@ -1135,6 +1192,13 @@ class CSICollector:
         csi_data = np.array([packet.iq_raw for packet in packets], dtype=np.int8)
         timestamps = np.array([packet.timestamp for packet in packets])
         duration_ms = (timestamps[-1] - timestamps[0]) * 1000 if len(timestamps) > 1 else 0
+        interval_us = dataset_metadata.measure_packet_interval_us(packets)
+        average_packet_rate = (
+            1_000_000.0 / float(interval_us)
+            if interval_us > 0
+            else dataset_metadata.estimate_average_packet_rate(len(packets), duration_ms)
+        )
+        nominal_packet_rate = self._nominal_packet_rate
         sample = {
             "csi_data": csi_data,
             "num_subcarriers": packets[0].num_subcarriers,
@@ -1165,7 +1229,14 @@ class CSICollector:
         add_optional_array("wifi_rx_start_ts_ns", [packet.wifi_rx_start_ts_ns for packet in packets], np.uint64)
         add_optional_array("channel", [packet.channel for packet in packets], np.uint8)
         add_optional_array("rssi_dbm", [packet.rssi_dbm for packet in packets], np.int16)
-        add_optional_array("noise_floor_dbm", [packet.noise_floor_dbm for packet in packets], np.int16)
+        # Keep the sentinel rather than the generic 0 fill: 0 dBm would read as a
+        # plausible measurement, NOISE_FLOOR_INVALID_DBM cannot.
+        add_optional_array(
+            "noise_floor_dbm",
+            [packet.noise_floor_dbm for packet in packets],
+            np.int16,
+            missing_value=NOISE_FLOOR_INVALID_DBM,
+        )
 
         label_dir = self._get_label_dir()
         filename = self._generate_filename(packets[0].num_subcarriers, device_id)
@@ -1180,6 +1251,8 @@ class CSICollector:
             collected_at=sample["collected_at"],
             description=self.description,
             device_id=device_id,
+            average_packet_rate=average_packet_rate,
+            nominal_packet_rate=nominal_packet_rate,
         )
         return filepath
 
@@ -1192,6 +1265,8 @@ class CSICollector:
         collected_at: str = None,
         description: str = None,
         device_id: Optional[int] = None,
+        average_packet_rate: Optional[float] = None,
+        nominal_packet_rate: Optional[int] = None,
     ) -> None:
         info = dataset_metadata.load_dataset_info()
         if self.label not in info["labels"]:
@@ -1213,6 +1288,10 @@ class CSICollector:
                     "description": description or self._build_default_description(),
                     "device_id": format_device_id_hex(device_id) if device_id is not None else "",
                 }
+                if average_packet_rate is not None:
+                    file_info["average_packet_rate"] = round(float(average_packet_rate), 3)
+                if nominal_packet_rate is not None:
+                    file_info["nominal_packet_rate"] = int(nominal_packet_rate)
                 info["files"][self.label].append(file_info)
         dataset_metadata.save_dataset_info(info)
 
@@ -1726,6 +1805,9 @@ class CSICollector:
                 initial_pacing_pps = float(pacing_sender.get_rate_pps())
             except (TypeError, ValueError):
                 initial_pacing_pps = 0.0
+        self._nominal_packet_rate = (
+            int(round(initial_pacing_pps)) if initial_pacing_pps > 0.0 else None
+        )
         controller_kwargs = dict(adaptive_controller_kwargs or {})
         pacing_controller = AdaptivePacingController(
             initial_pps=max(1.0, initial_pacing_pps),
@@ -1783,6 +1865,7 @@ class CSICollector:
         finally:
             if self.receiver.sock:
                 self.receiver.sock.close()
+            self._nominal_packet_rate = None
         if not quiet:
             print(f'\n{"=" * 60}')
             print(f"  Collection complete: {len(saved_files)} device file(s) saved")
@@ -2256,7 +2339,7 @@ def load_npz_as_packets(
                 "device_id": optional_scalar(device_ids, index, int),
                 "channel": optional_scalar(channels, index, int),
                 "rssi_dbm": optional_scalar(rssi_dbm, index, int),
-                "noise_floor_dbm": optional_scalar(noise_floor_dbm, index, int),
+                "noise_floor_dbm": _valid_noise_floor(optional_scalar(noise_floor_dbm, index, int)),
                 "phy_format": phy_format,
                 "phy_mode": phy_mode,
                 "ltf_type": ltf_type,

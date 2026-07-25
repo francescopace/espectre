@@ -22,6 +22,19 @@ HT20_CSI_SHORT_RIGHT_PAD = HT20_CSI_LEN - HT20_CSI_SHORT_COPY_END
 HT20_CSI_SHORT_LEFT_ZEROS = b"\x00" * HT20_CSI_SHORT_LEFT_PAD
 HT20_CSI_SHORT_RIGHT_ZEROS = b"\x00" * HT20_CSI_SHORT_RIGHT_PAD
 HT20_NUM_SUBCARRIERS = 64
+HT20_CSI_HALF_LEN = HT20_CSI_LEN // 2
+# Wi-Fi 6 parts deliver HT20 CSI centered on DC (bin = subcarrier + 32), classic
+# MACs deliver Espressif's native "0~31, -32~-1" order with DC in bin 0.
+# DEFAULT_SUBCARRIERS assumes the centered convention, so classic payloads have to
+# be rotated before the band selects the same physical subcarriers on every chip.
+# The layouts are told apart by their guard nulls, which the radio reports as
+# exactly zero; bins 0 and 32 are null under both conventions and carry no
+# information, so only the bins null under exactly one layout are checked.
+HT20_CLASSIC_ONLY_NULL_BINS = (29, 30, 31, 33, 34, 35)
+HT20_CENTERED_ONLY_NULL_BINS = (1, 2, 3, 61, 62, 63)
+LAYOUT_BINS_UNKNOWN = "unknown"
+LAYOUT_BINS_CENTERED = "centered"
+LAYOUT_BINS_CLASSIC = "classic"
 FORMAT_ID_UNKNOWN = "unknown"
 FORMAT_ID_HT20 = "ht20"
 LAYOUT_ID_UNKNOWN = "unknown"
@@ -304,8 +317,59 @@ def is_ht20_sensing_frame(frame):
     return is_ht20_sensing_phy_fields(frame[7], frame[9])
 
 
-def normalize_ht20_csi_payload(csi_data, expected_len=128, remap_buffer=None):
-    """Normalize supported CSI payload layouts to one HT20 payload."""
+def _ht20_bins_with_energy(csi_data, bins):
+    populated = 0
+    for bin_index in bins:
+        byte_index = bin_index * 2
+        if csi_data[byte_index] != 0 or csi_data[byte_index + 1] != 0:
+            populated += 1
+    return populated
+
+
+def detect_ht20_bin_layout(csi_data, expected_len=HT20_CSI_LEN):
+    """Identify which HT20 bin ordering a full-width payload uses.
+
+    Requires positive evidence in both directions: one guard set entirely null
+    and the other entirely populated. Absence of energy alone is not enough,
+    because a sparse or degenerate payload is null under both conventions.
+    """
+    try:
+        if len(csi_data) != expected_len or expected_len != HT20_CSI_LEN:
+            return LAYOUT_BINS_UNKNOWN
+    except TypeError:
+        return LAYOUT_BINS_UNKNOWN
+
+    classic_energy = _ht20_bins_with_energy(csi_data, HT20_CLASSIC_ONLY_NULL_BINS)
+    centered_energy = _ht20_bins_with_energy(csi_data, HT20_CENTERED_ONLY_NULL_BINS)
+    if classic_energy == 0 and centered_energy == len(HT20_CENTERED_ONLY_NULL_BINS):
+        return LAYOUT_BINS_CLASSIC
+    if centered_energy == 0 and classic_energy == len(HT20_CLASSIC_ONLY_NULL_BINS):
+        return LAYOUT_BINS_CENTERED
+    return LAYOUT_BINS_UNKNOWN
+
+
+def rotate_ht20_classic_to_centered(csi_data, remap_buffer=None):
+    """Rotate a classic-order HT20 payload into the centered convention.
+
+    Rotating by half the FFT size is its own inverse, so swapping the payload
+    halves maps ``0~31, -32~-1`` onto ``-32~+31``.
+    """
+    if remap_buffer is None or len(remap_buffer) != HT20_CSI_LEN:
+        remap_buffer = bytearray(HT20_CSI_LEN)
+    view = memoryview(csi_data)
+    remap_buffer[:HT20_CSI_HALF_LEN] = view[HT20_CSI_HALF_LEN:]
+    remap_buffer[HT20_CSI_HALF_LEN:] = view[:HT20_CSI_HALF_LEN]
+    return remap_buffer
+
+
+def normalize_ht20_csi_payload(csi_data, expected_len=128, remap_buffer=None,
+                               bin_layout=None):
+    """Normalize supported CSI payload layouts to one HT20 payload.
+
+    ``bin_layout`` carries the caller's latched ordering. Detection needs a fully
+    populated guard set, so it can be inconclusive on an individual packet;
+    passing the last confident answer keeps the stream internally consistent.
+    """
     try:
         input_len = len(csi_data)
     except TypeError:
@@ -316,13 +380,32 @@ def normalize_ht20_csi_payload(csi_data, expected_len=128, remap_buffer=None):
     if assessment["reason_code"] != REASON_NONE:
         return None, raw_len, None
 
+    def _resolve_layout(payload):
+        detected = detect_ht20_bin_layout(payload, expected_len)
+        if detected != LAYOUT_BINS_UNKNOWN:
+            return detected
+        return bin_layout if bin_layout is not None else LAYOUT_BINS_UNKNOWN
+
     if normalization_id == NORMALIZATION_DOUBLE_HT20:
+        collapsed = memoryview(csi_data)[:expected_len]
+        if _resolve_layout(collapsed) == LAYOUT_BINS_CLASSIC:
+            # Rotate straight from the source so the collapse and the rotation
+            # share one pass and never alias the destination buffer.
+            return (
+                rotate_ht20_classic_to_centered(collapsed, remap_buffer),
+                raw_len,
+                NORMALIZATION_DOUBLE_HT20,
+            )
         if remap_buffer is not None and len(remap_buffer) == expected_len:
-            remap_buffer[:] = memoryview(csi_data)[:expected_len]
+            remap_buffer[:] = collapsed
             return remap_buffer, raw_len, NORMALIZATION_DOUBLE_HT20
         return csi_data[:expected_len], raw_len, NORMALIZATION_DOUBLE_HT20
 
     if raw_len == expected_len:
+        # A full-width payload still has to be checked for bin ordering: classic
+        # MACs deliver "0~31, -32~-1" while Wi-Fi 6 parts deliver it centered.
+        if _resolve_layout(csi_data) == LAYOUT_BINS_CLASSIC:
+            return rotate_ht20_classic_to_centered(csi_data, remap_buffer), raw_len, None
         return csi_data, raw_len, None
 
     if expected_len != HT20_CSI_LEN:

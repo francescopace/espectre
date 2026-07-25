@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .bootstrap import setup_paths
 from .repo_paths import data_dir
@@ -27,6 +27,12 @@ except ImportError:
 
 try:
     from classic_detector import ClassicDetector
+    from runtime_policy import (
+        PacketTimingTracker,
+        RuntimeMotionPolicy,
+        derive_detector_timing,
+        nominal_packet_interval_us,
+    )
     from threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
@@ -34,6 +40,12 @@ try:
     )
 except ImportError:  # pragma: no cover
     from src.classic_detector import ClassicDetector
+    from src.runtime_policy import (
+        PacketTimingTracker,
+        RuntimeMotionPolicy,
+        derive_detector_timing,
+        nominal_packet_interval_us,
+    )
     from src.threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
@@ -161,10 +173,74 @@ def resolve_entry_path(label: str, entry: Dict[str, Any]) -> Path:
     return DATA_DIR / str(label) / str(filename)
 
 
+def estimate_average_packet_rate(
+    num_packets: Optional[int],
+    duration_ms: Optional[float],
+) -> Optional[float]:
+    """Estimate the effective capture packet rate from stored metadata."""
+    try:
+        packets = int(num_packets or 0)
+    except (TypeError, ValueError):
+        packets = 0
+    try:
+        duration = float(duration_ms or 0.0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    if packets <= 0 or duration <= 0.0:
+        return None
+    return float(packets) * 1000.0 / duration
+
+
+def measure_packet_interval_us(
+    packets: Sequence[Dict[str, Any]],
+    *,
+    samples: int = 4096,
+) -> int:
+    """Return the effective packet interval of a whole capture, in microseconds.
+
+    This is the host-side counterpart of the runtime estimator, and it answers a
+    different question. On device the estimator has to report the cadence right
+    now, so it keeps a short rolling window. Here the whole capture is available
+    and the answer has to describe all of it: a capture that opens with a burst
+    would otherwise be characterised by its first moments and be given a window
+    sized for a rate it never sustains.
+
+    Deltas are collected across the entire stream and averaged, excluding only
+    the ones already judged to be holes. The mean rather than the median is
+    deliberate: sizing a window of N packets is a throughput question, and real
+    captures are bursty rather than evenly paced. One C6 capture delivers a
+    quarter of its packets about 71 us apart with 65-70 ms pauses between the
+    bursts; its median interval claims 215 pps while its actual throughput is
+    the declared 97.9. Excluding contaminated deltas keeps a pathological stall
+    from inflating the answer, which is the robustness the median was there for.
+    """
+    nominal = nominal_packet_interval_us(config.SEG_WINDOW_SIZE)
+    total = len(packets)
+    if total < 2:
+        return nominal
+
+    tracker = PacketTimingTracker(nominal)
+    stride = max(1, total // max(1, int(samples)))
+    total_us = 0
+    counted = 0
+    for index, packet in enumerate(packets):
+        timing = tracker.observe_packet(packet)
+        if not index or index % stride:
+            continue
+        if timing["source"] == "nominal" or timing["contaminated"]:
+            continue
+        total_us += int(timing["delta_us"])
+        counted += 1
+    if not counted:
+        return nominal
+    return max(1, int(round(float(total_us) / float(counted))))
+
+
 def build_classic_detector(
     *,
     threshold: float = 1.0,
     enable_hampel: Optional[bool] = None,
+    timing: Optional[Dict[str, int]] = None,
 ) -> ClassicDetector:
     """Build a ClassicDetector with the production runtime configuration."""
     hampel_enabled = (
@@ -172,14 +248,44 @@ def build_classic_detector(
         if enable_hampel is None
         else bool(enable_hampel)
     )
+    resolved = timing or derive_detector_timing(
+        nominal_packet_interval_us(config.SEG_WINDOW_SIZE)
+    )
     return ClassicDetector(
-        window_size=config.SEG_WINDOW_SIZE,
+        window_size=resolved["window_packets"],
         threshold=threshold,
         enable_lowpass=config.ENABLE_LOWPASS_FILTER,
         lowpass_cutoff=config.LOWPASS_CUTOFF,
         enable_hampel=hampel_enabled,
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
+        lag=resolved["lag"],
+        autocorr_lag=resolved["autocorr_lag"],
+    )
+
+
+def _packet_field(packet: Any, key: str) -> Any:
+    """Return one optional packet field from dict-like packets or objects."""
+    if isinstance(packet, dict):
+        return packet.get(key)
+    return getattr(packet, key, None)
+
+
+def _calibration_runtime(
+    timing: Dict[str, int],
+) -> tuple[PacketTimingTracker, RuntimeMotionPolicy, int]:
+    """Return the shared timing helpers used by time-aware classic startup."""
+    interval_us = int(timing["interval_us"])
+    cadence = RuntimeMotionPolicy(
+        evaluation_interval=int(timing["evaluation_interval"]),
+        motion_on_hits=1,
+        motion_off_hits=1,
+        evaluation_interval_us=config.EVALUATION_INTERVAL_US,
+    )
+    return (
+        PacketTimingTracker(interval_us),
+        cadence,
+        interval_us,
     )
 
 
@@ -212,26 +318,46 @@ def build_calibrated_classic_detector(
     ``enable_hampel`` defaults to the runtime configuration and is exposed so
     tests can exercise both branches without mutating global configuration.
     """
-    detector = build_classic_detector(threshold=threshold, enable_hampel=enable_hampel)
+    packets = list(packets)
+    timing = derive_detector_timing(measure_packet_interval_us(packets))
+    detector = build_classic_detector(
+        threshold=threshold, enable_hampel=enable_hampel, timing=timing
+    )
+    band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)
+    detector.on_startup_calibration_begin()
+    timing_tracker, cadence, nominal_interval_us = _calibration_runtime(timing)
     calibrator = StartupThresholdCalibrator(
         config.CALIBRATION_BUFFER_SIZE,
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
-    band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)
-    packets_since_evaluation = 0
     for pkt in packets:
         csi_data = pkt["csi_data"] if isinstance(pkt, dict) else pkt
-        detector.process_packet(csi_data, band)
-        packets_since_evaluation += 1
-        if packets_since_evaluation < config.EVALUATION_INTERVAL:
+        rssi_dbm = _packet_field(pkt, "rssi_dbm")
+        timing = timing_tracker.observe_packet(pkt)
+        if timing["contaminated"]:
+            detector.reset()
+            detector.on_startup_calibration_begin()
+            calibrator = StartupThresholdCalibrator(
+                config.CALIBRATION_BUFFER_SIZE,
+                auto_factor=get_detector_auto_factor(detector),
+                gate_enabled=get_detector_startup_gate(detector),
+            )
+            cadence.reset()
+            timing_tracker.reset()
+            timing = timing_tracker.observe_packet(pkt)
+        detector.process_packet(csi_data, band, rssi_dbm=rssi_dbm)
+        cadence.note_packet(elapsed_us=timing["coverage_us"])
+        if not cadence.should_evaluate():
             continue
         detector.update_state()
         calibrator.observe_detector(
             detector,
-            packet_weight=packets_since_evaluation,
+            packet_weight=cadence.equivalent_packets_since_evaluation(
+                nominal_interval_us
+            ),
         )
-        packets_since_evaluation = 0
+        cadence.after_evaluation()
         if calibrator.is_complete():
             break
     if not calibrator.is_successful():

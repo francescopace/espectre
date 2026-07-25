@@ -24,7 +24,13 @@ enum class NormalizedCSIPayloadTag : uint8_t {
 struct NormalizedCSIPayload {
   const int8_t *data{nullptr};
   size_t len{0};
+  // Describes how the payload length was normalized. Bin ordering is tracked
+  // separately because the two are independent: any length can arrive in either
+  // ordering.
   NormalizedCSIPayloadTag tag{NormalizedCSIPayloadTag::NONE};
+  // True when the payload arrived in Espressif's classic bin order and was
+  // rotated into the centered convention that `DEFAULT_SUBCARRIERS` assumes.
+  bool rotated_to_centered{false};
 
   bool valid() const { return data != nullptr; }
 };

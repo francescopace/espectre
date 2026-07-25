@@ -118,6 +118,10 @@ class CsiCaptureService {
   CsiFormatAssessment last_assessment_{};
   uint32_t consecutive_format_drops_{0U};
   NormalizedCSIPayloadTag last_accepted_normalization_tag_{NormalizedCSIPayloadTag::NONE};
+  // Latched HT20 bin ordering for this radio. Detection needs a fully populated
+  // guard set, so it can come back UNKNOWN on an individual packet; reusing the
+  // last confident answer keeps the stream internally consistent.
+  Ht20BinLayout bin_layout_{Ht20BinLayout::UNKNOWN};
   bool has_accepted_packet_{false};
 };
 

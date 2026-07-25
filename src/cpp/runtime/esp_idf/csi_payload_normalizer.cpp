@@ -33,20 +33,22 @@ NormalizedCSIPayload normalize_ht20_csi_payload(const int8_t *csi_data,
   }
 
   if (csi_len == HT20_CSI_LEN) {
-    return {csi_data, HT20_CSI_LEN, tag};
+    return {csi_data, HT20_CSI_LEN, tag, false};
   }
 
   if (csi_len != HT20_CSI_LEN_SHORT || remap_buffer == nullptr || remap_buffer_len < HT20_CSI_LEN) {
     return {};
   }
 
+  // The short layout is already centered: 57 subcarriers spanning -28..+28 land
+  // at bins 4..60, which puts DC at bin 32.
   std::memset(remap_buffer, 0, HT20_CSI_LEN);
   std::memcpy(&remap_buffer[HT20_CSI_LEN_SHORT_LEFT_PAD], csi_data, HT20_CSI_LEN_SHORT);
   if (tag == NormalizedCSIPayloadTag::NONE) {
     tag = NormalizedCSIPayloadTag::HT57_TO_64;
   }
 
-  return {remap_buffer, HT20_CSI_LEN, tag};
+  return {remap_buffer, HT20_CSI_LEN, tag, false};
 }
 
 const char *normalized_csi_payload_tag_to_string(NormalizedCSIPayloadTag tag) {
