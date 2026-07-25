@@ -16,7 +16,8 @@ namespace espectre {
 
 static const char* TAG = "ClassicDetector";
 
-ClassicDetector::ClassicDetector(uint16_t window_size, float threshold)
+ClassicDetector::ClassicDetector(uint16_t window_size, float threshold,
+                                 uint16_t lag, uint16_t autocorr_lag)
     : BaseDetector(window_size),
       threshold_(clamp_threshold(threshold, CLASSIC_MIN_THRESHOLD, CLASSIC_MAX_THRESHOLD)),
       current_probability_(0.0f),
@@ -27,16 +28,17 @@ ClassicDetector::ClassicDetector(uint16_t window_size, float threshold)
       startup_l1_floor_(CLASSIC_L1_CENTER),
       l1_noise_blend_(0.0f),
       adapted_threshold_(CLASSIC_DEFAULT_THRESHOLD),
-      adapted_threshold_ready_(false) {
-  l1_tracker_.configure(l1_delta_capacity_());
-  ESP_LOGI(TAG, "Initialized weighted fusion (window=%u, threshold=%.3f)",
-           static_cast<unsigned>(window_size_), threshold_);
+      adapted_threshold_ready_(false),
+      lag_(lag > 0U ? lag : 1U),
+      autocorr_lag_(autocorr_lag > 0U ? autocorr_lag : 1U) {
+  l1_tracker_.configure(l1_delta_capacity_(), lag_);
+  ESP_LOGI(TAG, "Initialized weighted fusion (window=%u, threshold=%.3f, lag=%u, ac_lag=%u)",
+           static_cast<unsigned>(window_size_), threshold_,
+           static_cast<unsigned>(lag_), static_cast<unsigned>(autocorr_lag_));
 }
 
 uint16_t ClassicDetector::l1_delta_capacity_() const {
-  return window_size_ > L1_DELTA_LAG
-             ? static_cast<uint16_t>(window_size_ - L1_DELTA_LAG)
-             : 0U;
+  return window_size_ > lag_ ? static_cast<uint16_t>(window_size_ - lag_) : 0U;
 }
 
 void ClassicDetector::configure_hampel(bool enabled, uint8_t window_size,
@@ -47,11 +49,13 @@ void ClassicDetector::configure_hampel(bool enabled, uint8_t window_size,
 
 void ClassicDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                      const uint8_t* selected_subcarriers,
-                                     uint8_t num_subcarriers) {
+                                     uint8_t num_subcarriers,
+                                     int8_t rssi_dbm) {
   if (csi_data == nullptr) {
     ESP_LOGE(TAG, "process_packet: null CSI data");
     return;
   }
+  (void) rssi_dbm;
 
   float amplitudes[HT20_SELECTED_BAND_SIZE];
   const uint8_t amplitude_count = extract_subcarrier_amplitudes(
@@ -67,32 +71,25 @@ bool ClassicDetector::is_ready() const {
 }
 
 float ClassicDetector::calculate_turb_autocorr_() const {
-  if (buffer_count_ < 3U || turbulence_buffer_ == nullptr) {
+  uint16_t count = 0U;
+  const float* ordered = ordered_turbulence(count);
+  if (ordered == nullptr || count < 3U) {
     return 0.0f;
   }
 
-  float ordered[DETECTOR_MAX_WINDOW_SIZE];
-  if (buffer_count_ < window_size_) {
-    std::copy(turbulence_buffer_, turbulence_buffer_ + buffer_count_, ordered);
-  } else {
-    for (uint16_t i = 0U; i < buffer_count_; i++) {
-      ordered[i] = turbulence_buffer_[(buffer_index_ + i) % window_size_];
-    }
-  }
-
   float mean = 0.0f;
-  for (uint16_t i = 0U; i < buffer_count_; i++) {
+  for (uint16_t i = 0U; i < count; i++) {
     mean += ordered[i];
   }
-  mean /= buffer_count_;
+  mean /= count;
 
   float variance = 0.0f;
-  for (uint16_t i = 0U; i < buffer_count_; i++) {
+  for (uint16_t i = 0U; i < count; i++) {
     const float diff = ordered[i] - mean;
     variance += diff * diff;
   }
-  variance /= buffer_count_;
-  return calc_autocorrelation(ordered, buffer_count_, mean, variance, 1U);
+  variance /= count;
+  return calc_autocorrelation(ordered, count, mean, variance, autocorr_lag_);
 }
 
 float ClassicDetector::calculate_logit_(float l1_delta, float turb_autocorr) const {

@@ -67,18 +67,22 @@ def test_startup_q95_adapts_probability_threshold() -> None:
 
 def test_noisy_startup_uses_bidirectional_l1_excursion() -> None:
     detector = ClassicDetector()
+    # Derive the noisy floor from the fitted constants so the fixture keeps
+    # saturating the blend after a refit instead of silently drifting below it.
+    floor = detector.L1_NOISE_BLEND_END + detector.FEATURE_SCALE[0]
+    excursion = 0.5 * detector.FEATURE_SCALE[0]
     detector._startup_logits = [10.0] * 4
-    detector._startup_l1_deltas = [0.12] * 4
+    detector._startup_l1_deltas = [floor] * 4
 
     detector.set_adaptive_threshold(0.01)
 
-    assert detector._startup_l1_floor == pytest.approx(0.12)
+    assert detector._startup_l1_floor == pytest.approx(floor)
     assert detector._l1_noise_blend == pytest.approx(1.0)
     assert detector.get_threshold() == pytest.approx(detector.BASE_THRESHOLD)
-    upward = detector._calculate_logit(0.14, detector.FEATURE_CENTER[1])
-    downward = detector._calculate_logit(0.10, detector.FEATURE_CENTER[1])
+    upward = detector._calculate_logit(floor + excursion, detector.FEATURE_CENTER[1])
+    downward = detector._calculate_logit(floor - excursion, detector.FEATURE_CENTER[1])
     assert upward == pytest.approx(downward)
-    assert upward > detector._calculate_logit(0.12, detector.FEATURE_CENTER[1])
+    assert upward > detector._calculate_logit(floor, detector.FEATURE_CENTER[1])
 
 
 def test_manual_threshold_uses_probability_scale() -> None:

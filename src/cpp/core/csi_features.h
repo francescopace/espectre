@@ -26,9 +26,6 @@ constexpr uint8_t ML_NUM_FEATURES = ML_MODEL_INPUT_SIZE;
 static_assert(ML_MODEL_INPUT_SIZE >= 1,
               "ML model must expose at least one input feature");
 
-// Maximum buffer size for sorting (MAD)
-constexpr uint16_t ML_MAX_SORT_SIZE = 200;
-
 // Canonical ML feature identifiers, shared with the exporter in
 // tools/train_ml_model.py (CPP_FEATURE_IDS).
 enum MLFeatureId : uint8_t {
@@ -82,27 +79,32 @@ inline float calc_autocorrelation(const float* values, uint16_t count, float mea
     return autocovariance / variance;
 }
 
-inline float calc_mad(const float* values, uint16_t count, const float* sorted_values = nullptr) {
-    if (count < 2 || count > ML_MAX_SORT_SIZE) return 0.0f;
-
-    float sorted_scratch[ML_MAX_SORT_SIZE];
-    const float* sorted = sorted_values;
-    if (sorted == nullptr) {
-        for (uint16_t i = 0; i < count; i++) {
-            sorted_scratch[i] = values[i];
-        }
-        std::sort(sorted_scratch, sorted_scratch + count);
-        sorted = sorted_scratch;
+/**
+ * Median absolute deviation.
+ *
+ * Both the sorted view and the scratch are caller-owned: the only caller
+ * already sorts for the zcr center, so MAD reuses that view instead of
+ * sorting a second copy.
+ *
+ * @param sorted_values Ascending copy of `values`, `count` entries
+ * @param abs_dev_scratch Scratch of at least `count` floats, overwritten
+ * @param scratch_capacity Length of `abs_dev_scratch`
+ */
+inline float calc_mad(const float* values, uint16_t count,
+                      const float* sorted_values,
+                      float* abs_dev_scratch, uint16_t scratch_capacity) {
+    if (values == nullptr || sorted_values == nullptr ||
+        abs_dev_scratch == nullptr || count < 2 || scratch_capacity < count) {
+        return 0.0f;
     }
 
-    float median = median_from_sorted(sorted, count);
+    const float median = median_from_sorted(sorted_values, count);
 
-    float abs_devs[ML_MAX_SORT_SIZE];
     for (uint16_t i = 0; i < count; i++) {
-        abs_devs[i] = std::fabs(values[i] - median);
+        abs_dev_scratch[i] = std::fabs(values[i] - median);
     }
 
-    return calculate_median_float(abs_devs, count);
+    return calculate_median_float(abs_dev_scratch, count);
 }
 
 inline float calc_waveform_length(const float* values, uint16_t count) {
@@ -160,6 +162,19 @@ struct MLStatNeeds {
     bool waveform_length = false;
 };
 
+// Caller-owned working memory for the sorted statistics. The detectors size
+// it to their window and keep it alive for their lifetime, so no feature
+// helper allocates on the CSI callback stack.
+struct MLSeriesScratch {
+    float* sorted_values = nullptr;
+    float* abs_devs = nullptr;
+    uint16_t capacity = 0U;
+
+    bool holds(uint16_t count) const {
+        return sorted_values != nullptr && abs_devs != nullptr && capacity >= count;
+    }
+};
+
 // Derive the needs of one series (turbulence when l1 is false, L1-delta when
 // true) from the exported feature id list.
 inline MLStatNeeds ml_series_needs(const uint8_t *feature_ids, uint8_t num_features,
@@ -193,7 +208,8 @@ inline MLStatNeeds ml_series_needs(const uint8_t *feature_ids, uint8_t num_featu
 }
 
 inline void compute_ml_series_stats(const float* values, uint16_t count,
-                                    MLSeriesStats* out, const MLStatNeeds& needs) {
+                                    MLSeriesStats* out, const MLStatNeeds& needs,
+                                    const MLSeriesScratch& scratch) {
     *out = MLSeriesStats{};
     if (values == nullptr || count < 2) {
         return;
@@ -216,15 +232,15 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
     out->mean_denom = std::max(std::fabs(out->mean), 1e-6f);
 
     // Sort once; MAD and the zcr center share the sorted view.
-    if (needs.sorted && count <= ML_MAX_SORT_SIZE) {
-        float sorted_scratch[ML_MAX_SORT_SIZE];
+    if (needs.sorted && scratch.holds(count)) {
         for (uint16_t i = 0; i < count; i++) {
-            sorted_scratch[i] = values[i];
+            scratch.sorted_values[i] = values[i];
         }
-        std::sort(sorted_scratch, sorted_scratch + count);
-        out->mad = calc_mad(values, count, sorted_scratch);
+        std::sort(scratch.sorted_values, scratch.sorted_values + count);
+        out->mad = calc_mad(values, count, scratch.sorted_values,
+                            scratch.abs_devs, scratch.capacity);
         // Python zcr centers on the upper median (sorted[count // 2]).
-        out->zcr = calc_zero_crossing_rate(values, count, sorted_scratch[count / 2]);
+        out->zcr = calc_zero_crossing_rate(values, count, scratch.sorted_values[count / 2]);
     }
     if (needs.skewness) {
         out->skewness = calc_skewness(values, count, out->mean, out->std);
@@ -255,14 +271,17 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
 inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_count,
                                       const float* delta_buffer, uint16_t delta_count,
                                       const uint8_t* feature_ids, uint8_t num_features,
-                                      float* features_out) {
+                                      float* features_out,
+                                      const MLSeriesScratch& series_scratch) {
     MLSeriesStats turb;
     compute_ml_series_stats(turb_buffer, turb_count, &turb,
-                            ml_series_needs(feature_ids, num_features, /*l1=*/false));
+                            ml_series_needs(feature_ids, num_features, /*l1=*/false),
+                            series_scratch);
 
     MLSeriesStats delta;
     compute_ml_series_stats(delta_buffer, delta_count, &delta,
-                            ml_series_needs(feature_ids, num_features, /*l1=*/true));
+                            ml_series_needs(feature_ids, num_features, /*l1=*/true),
+                            series_scratch);
 
     for (uint8_t i = 0; i < num_features; i++) {
         features_out[i] = ml_feature_value_from_stats(feature_ids[i], turb, delta);

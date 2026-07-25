@@ -19,20 +19,20 @@
 
 namespace espectre {
 
-constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.6066111851930618f;
+constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.7892048221516996f;
 constexpr float CLASSIC_MIN_THRESHOLD = 0.0f;
 constexpr float CLASSIC_MAX_THRESHOLD = 1.0f;
 constexpr float CLASSIC_STARTUP_THRESHOLD_FACTOR = 1.0f;
 
-constexpr float CLASSIC_L1_CENTER = 0.03669842332601547f;
-constexpr float CLASSIC_L1_SCALE = 0.026984458789229393f;
-constexpr float CLASSIC_L1_WEIGHT = 5.572897434234619f;
-constexpr float CLASSIC_AUTOCORR_CENTER = 0.27886947989463806f;
-constexpr float CLASSIC_AUTOCORR_SCALE = 0.33479437232017517f;
-constexpr float CLASSIC_AUTOCORR_WEIGHT = 3.1952695846557617f;
-constexpr float CLASSIC_INTERCEPT = -2.1254162788391113f;
+constexpr float CLASSIC_L1_CENTER = 0.05739352783479646f;
+constexpr float CLASSIC_L1_SCALE = 0.04216339546436966f;
+constexpr float CLASSIC_L1_WEIGHT = 1.241242648072718f;
+constexpr float CLASSIC_AUTOCORR_CENTER = 0.3919767063392909f;
+constexpr float CLASSIC_AUTOCORR_SCALE = 0.37575055837461374f;
+constexpr float CLASSIC_AUTOCORR_WEIGHT = 5.032184078396507f;
+constexpr float CLASSIC_INTERCEPT = -0.26428814254089134f;
 
-constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -0.6372601389884949f;
+constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -0.06185062000916678f;
 constexpr float CLASSIC_STARTUP_QUANTILE = 0.95f;
 constexpr float CLASSIC_STARTUP_STRENGTH = 0.75f;
 constexpr uint8_t CLASSIC_STARTUP_SAMPLE_LIMIT = 64U;
@@ -43,8 +43,22 @@ constexpr float CLASSIC_L1_EXCURSION_GAIN = 1.5f;
 
 class ClassicDetector : public BaseDetector {
  public:
+  /**
+   * @param window_size Detector window in packets
+   * @param threshold Motion probability threshold
+   * @param lag Profile-displacement distance in packets
+   * @param autocorr_lag Turbulence autocorrelation distance in packets
+   *
+   * Both lags default to the nominal-rate constants. Callers that know the
+   * measured cadence pass the counts spanning L1_DELTA_LAG_US and
+   * TURB_AUTOCORR_LAG_US instead, because both quantities are functions of the
+   * elapsed interval rather than of how many packets fall inside it. See
+   * detector_timing.h.
+   */
   ClassicDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE,
-                  float threshold = CLASSIC_DEFAULT_THRESHOLD);
+                  float threshold = CLASSIC_DEFAULT_THRESHOLD,
+                  uint16_t lag = L1_DELTA_LAG,
+                  uint16_t autocorr_lag = 1U);
 
   ~ClassicDetector() override = default;
   ClassicDetector(ClassicDetector&& other) noexcept = default;
@@ -54,7 +68,8 @@ class ClassicDetector : public BaseDetector {
 
   void process_packet(const int8_t* csi_data, size_t csi_len,
                       const uint8_t* selected_subcarriers = nullptr,
-                      uint8_t num_subcarriers = 0) override;
+                      uint8_t num_subcarriers = 0,
+                      int8_t rssi_dbm = INT8_MIN) override;
   void update_state() override;
   void reset() override;
   void clear_buffer() override;
@@ -99,6 +114,8 @@ class ClassicDetector : public BaseDetector {
   float l1_noise_blend_;
   float adapted_threshold_;
   bool adapted_threshold_ready_;
+  uint16_t lag_;
+  uint16_t autocorr_lag_;
   L1DeltaTracker l1_tracker_;
 };
 

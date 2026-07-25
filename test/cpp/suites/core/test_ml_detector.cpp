@@ -271,6 +271,9 @@ void test_feature_extraction_basic(void) {
     float turb_buffer[50];
     float delta_buffer[50];
     float features[ML_NUM_FEATURES];
+    float sorted_scratch[50];
+    float abs_devs[50];
+    const MLSeriesScratch scratch{sorted_scratch, abs_devs, 50U};
 
     // Fill both series with synthetic data.
     for (int i = 0; i < 50; i++) {
@@ -280,7 +283,8 @@ void test_feature_extraction_basic(void) {
 
     // Extract exactly the exported feature set (turbulence and/or L1-delta).
     extract_ml_features_by_id(turb_buffer, 50, delta_buffer, 50,
-                              ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features);
+                              ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
+                              scratch);
 
     // Every exported feature must be a finite number.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
@@ -292,9 +296,13 @@ void test_feature_extraction_basic(void) {
 void test_feature_extraction_empty_buffer(void) {
     float turb_buffer[50] = {0};
     float features[ML_NUM_FEATURES];
+    float sorted_scratch[50];
+    float abs_devs[50];
+    const MLSeriesScratch scratch{sorted_scratch, abs_devs, 50U};
 
     extract_ml_features_by_id(turb_buffer, 0, nullptr, 0,
-                              ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features);
+                              ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
+                              scratch);
 
     // All features should be 0 for an empty buffer.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
@@ -314,8 +322,11 @@ void test_candidate_feature_python_parity(void) {
 
     const uint8_t candidate_ids[2] = {ML_FEAT_TURB_ZCR, ML_FEAT_L1_DELTA_AUTOCORR};
     float features[2];
+    float sorted_scratch[50];
+    float abs_devs[50];
+    const MLSeriesScratch scratch{sorted_scratch, abs_devs, 50U};
     extract_ml_features_by_id(turb_buffer, 50, delta_buffer, 50,
-                              candidate_ids, 2, features);
+                              candidate_ids, 2, features, scratch);
 
     // Expected values computed by src/python/micro_espectre/csi_features.py.
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.3877551f, features[0]);

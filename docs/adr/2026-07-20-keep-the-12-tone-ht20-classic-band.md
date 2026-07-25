@@ -1,7 +1,15 @@
 # ADR: keep the 12-tone HT20 Classic band
 
-- Status: Accepted
+- Status: Superseded by
+  [2026-07-25-select-the-classic-band-from-channel-coherence.md](2026-07-25-select-the-classic-band-from-channel-coherence.md)
 - Date: 2026-07-20
+
+> The design rules and the `N = 10..16` sweep below assume HT20 CSI arrives with
+> DC in bin 32 on every chip. Classic-MAC parts (ESP32, C3, S3) actually deliver
+> it with DC in bin 0, so on those chips the band included two identically-zero
+> bins and different `N` landed on a different number of dead tones. The sweep's
+> independent variable was not the tone count, and the band spans 36 of the 56
+> usable subcarriers rather than the full range. Kept for the historical record.
 
 ## Context
 

@@ -27,13 +27,13 @@ class ClassicDetector(IDetector):
     STARTUP_GATE = True
 
     # Grouped, de-overlapped OOF fit, balanced by class/chip/session.
-    FEATURE_CENTER = (0.03669842332601547, 0.27886947989463806)
-    FEATURE_SCALE = (0.026984458789229393, 0.33479437232017517)
-    FEATURE_WEIGHT = (5.572897434234619, 3.1952695846557617)
-    INTERCEPT = -2.1254162788391113
+    FEATURE_CENTER = (0.05739352783479646, 0.3919767063392909)
+    FEATURE_SCALE = (0.04216339546436966, 0.37575055837461374)
+    FEATURE_WEIGHT = (1.241242648072718, 5.032184078396507)
+    INTERCEPT = -0.26428814254089134
 
-    BASE_THRESHOLD = 0.6066111851930618
-    TRAIN_IDLE_Q95_LOGIT = -0.6372601389884949
+    BASE_THRESHOLD = 0.7892048221516996
+    TRAIN_IDLE_Q95_LOGIT = -0.06185062000916678
     STARTUP_QUANTILE = 0.95
     STARTUP_STRENGTH = 0.75
     STARTUP_SAMPLE_LIMIT = 64
@@ -52,7 +52,17 @@ class ClassicDetector(IDetector):
     def __init__(self, window_size=100, threshold=BASE_THRESHOLD,
                  enable_lowpass=False, lowpass_cutoff=11.0,
                  enable_hampel=True, hampel_window=7, hampel_threshold=5.0,
+                 lag=None, autocorr_lag=1,
                  **_unused):
+        # ``lag`` is the profile-displacement distance in packets and
+        # ``autocorr_lag`` the turbulence autocorrelation distance. Both default
+        # to the nominal-rate constants; callers that know the measured cadence
+        # pass the counts spanning L1_DELTA_LAG_US and TURB_AUTOCORR_LAG_US
+        # instead, because both quantities are functions of the elapsed interval
+        # rather than of how many packets happen to fall inside it.
+        lag = L1_DELTA_LAG if lag is None else max(1, int(lag))
+        self._lag = lag
+        self._autocorr_lag = max(1, int(autocorr_lag))
         self._context = SegmentationContext(
             window_size=window_size,
             enable_lowpass=enable_lowpass,
@@ -62,8 +72,8 @@ class ClassicDetector(IDetector):
             hampel_threshold=hampel_threshold,
         )
         self._l1 = L1DeltaTracker(
-            window_size=max(2, window_size - L1_DELTA_LAG),
-            lag=L1_DELTA_LAG,
+            window_size=max(2, window_size - lag),
+            lag=lag,
             allocate_amplitude_buffer=False,
             enable_hampel=enable_hampel,
             hampel_window=hampel_window,
@@ -108,7 +118,9 @@ class ClassicDetector(IDetector):
         fraction = position - lower
         return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
 
-    def process_packet(self, csi_data, selected_subcarriers=None):
+    def process_packet(self, csi_data, selected_subcarriers=None, rssi_dbm=None):
+        """Process one CSI packet. ``rssi_dbm`` is accepted for interface parity
+        and ignored: both Classic features are already invariant to link gain."""
         self._packet_count += 1
         turbulence = self._context.calculate_spatial_turbulence(
             csi_data, selected_subcarriers
@@ -135,7 +147,9 @@ class ClassicDetector(IDetector):
             diff = values[i] - mean
             variance += diff * diff
         variance = variance / count if count else 0.0
-        return calc_autocorrelation(values, count, mean=mean, variance=variance)
+        return calc_autocorrelation(
+            values, count, mean=mean, variance=variance, lag=self._autocorr_lag
+        )
 
     def _calculate_logit(self, l1_delta, turb_autocorr):
         l1_norm = (l1_delta - self.FEATURE_CENTER[0]) / self.FEATURE_SCALE[0]
