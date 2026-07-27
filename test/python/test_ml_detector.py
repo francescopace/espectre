@@ -438,6 +438,22 @@ class TestExtractFeaturesIntegration:
         assert len(features) == 1
         assert features[0] > 0.0
 
+    def test_extract_features_supports_l1_delta_lag_ratio(self, monkeypatch):
+        """MLDetector forwards the tracker's floor-invariant lag ratio."""
+        monkeypatch.setattr(
+            ml_detector_module,
+            "FEATURE_NAMES",
+            ["l1_delta_lag_ratio"],
+        )
+        detector = MLDetector(window_size=20)
+        monkeypatch.setattr(detector._l1_tracker, "delta_lag_ratio", lambda: 1.75)
+
+        quiet = _make_csi_payload(_make_band_profile(offset=0))
+        for _ in range(30):
+            detector.process_packet(quiet, DEFAULT_SUBCARRIERS)
+
+        assert detector._extract_features() == pytest.approx([1.75])
+
     def test_hampel_configuration_covers_l1_feature_stream(self, monkeypatch):
         """The ML Hampel flag configures both turbulence and L1 streams."""
         monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta"])

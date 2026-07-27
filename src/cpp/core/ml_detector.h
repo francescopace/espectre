@@ -125,8 +125,10 @@ private:
     // L1-delta profile-displacement state, maintained only when the exported
     // model actually uses L1-delta features (checked against ML_FEATURE_IDS).
     // Mirrors the shared L1-delta tracker rings; keep aligned with the Python
-    // features.l1_delta_series reference.
-    bool uses_l1_features_;
+    // features.l1_delta_series reference. The two flags differ for the lag
+    // ratio, which needs the rings running but not the rebuilt series.
+    bool uses_l1_tracker_;
+    bool uses_l1_series_;
     L1DeltaTracker l1_tracker_;
 
     // Single heap block backing every feature-path working array, so nothing

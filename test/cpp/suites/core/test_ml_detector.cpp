@@ -284,7 +284,7 @@ void test_feature_extraction_basic(void) {
     // Extract exactly the exported feature set (turbulence and/or L1-delta).
     extract_ml_features_by_id(turb_buffer, 50, delta_buffer, 50,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
-                              scratch);
+                              scratch, 1.75f);
 
     // Every exported feature must be a finite number.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
@@ -300,12 +300,19 @@ void test_feature_extraction_empty_buffer(void) {
     float abs_devs[50];
     const MLSeriesScratch scratch{sorted_scratch, abs_devs, 50U};
 
+    // The tracker reports 1.0 when it holds no deltas, which is what the
+    // detector would pass here, so the lag ratio is the one exported feature
+    // whose empty-buffer value is not zero.
     extract_ml_features_by_id(turb_buffer, 0, nullptr, 0,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
-                              scratch);
+                              scratch, 1.0f);
 
-    // All features should be 0 for an empty buffer.
+    // Every series-derived feature should be 0 for an empty buffer.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
+        if (ML_FEATURE_IDS[i] == ML_FEAT_L1_DELTA_LAG_RATIO) {
+            TEST_ASSERT_EQUAL_FLOAT(1.0f, features[i]);
+            continue;
+        }
         TEST_ASSERT_EQUAL_FLOAT(0.0f, features[i]);
     }
 }
@@ -320,17 +327,22 @@ void test_candidate_feature_python_parity(void) {
         delta_buffer[i] = 0.01f + (i % 7) * 0.002f;
     }
 
-    const uint8_t candidate_ids[2] = {ML_FEAT_TURB_ZCR, ML_FEAT_L1_DELTA_AUTOCORR};
-    float features[2];
+    const uint8_t candidate_ids[3] = {
+        ML_FEAT_TURB_ZCR,
+        ML_FEAT_L1_DELTA_AUTOCORR,
+        ML_FEAT_L1_DELTA_LAG_RATIO,
+    };
+    float features[3];
     float sorted_scratch[50];
     float abs_devs[50];
     const MLSeriesScratch scratch{sorted_scratch, abs_devs, 50U};
     extract_ml_features_by_id(turb_buffer, 50, delta_buffer, 50,
-                              candidate_ids, 2, features, scratch);
+                              candidate_ids, 3, features, scratch, 1.75f);
 
     // Expected values computed by src/python/micro_espectre/csi_features.py.
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.3877551f, features[0]);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.2449956f, features[1]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.75f, features[2]);
 }
 
 void test_zero_crossing_rate_alternating_signal(void) {
@@ -372,6 +384,29 @@ void test_ml_series_needs_tracks_only_referenced_stats(void) {
     TEST_ASSERT_TRUE(ml_series_needs(core6, 6, /*l1=*/true).waveform_length);
 }
 
+void test_ml_feature_source_separates_tracker_from_series(void) {
+    // The lag ratio needs the profile rings but not the rebuilt delta series;
+    // classifying it by id magnitude would reserve a buffer it never reads.
+    TEST_ASSERT_TRUE(ml_feature_needs_l1_tracker(ML_FEAT_L1_DELTA_LAG_RATIO));
+    TEST_ASSERT_FALSE(ml_feature_needs_l1_series(ML_FEAT_L1_DELTA_LAG_RATIO));
+
+    TEST_ASSERT_TRUE(ml_feature_needs_l1_tracker(ML_FEAT_L1_DELTA));
+    TEST_ASSERT_TRUE(ml_feature_needs_l1_series(ML_FEAT_L1_DELTA));
+
+    TEST_ASSERT_FALSE(ml_feature_needs_l1_tracker(ML_FEAT_TURB_ZCR));
+    TEST_ASSERT_FALSE(ml_feature_needs_l1_series(ML_FEAT_TURB_ZCR));
+
+    // A tracker-sourced id contributes no series statistics on either side.
+    const uint8_t ratio_only[1] = {ML_FEAT_L1_DELTA_LAG_RATIO};
+    for (bool l1 : {false, true}) {
+        const MLStatNeeds needs = ml_series_needs(ratio_only, 1, l1);
+        TEST_ASSERT_FALSE(needs.sorted);
+        TEST_ASSERT_FALSE(needs.autocorr);
+        TEST_ASSERT_FALSE(needs.skewness);
+        TEST_ASSERT_FALSE(needs.waveform_length);
+    }
+}
+
 // ============================================================================
 // ML SUBCARRIERS TESTS
 // ============================================================================
@@ -407,15 +442,12 @@ void test_ml_inference_performance(void) {
         run_inference(test_features[0].data());
     }
     
-    // Benchmark (note: on native platform, not on actual ESP32)
-    uint32_t start = 0;  // Would use micros() on ESP32
-    
+    // Benchmark (note: on native platform, not on actual ESP32, so this only
+    // checks that the loop runs; timing would need micros() on device)
     for (int i = 0; i < NUM_ITERATIONS; i++) {
         run_inference(test_features[i % num_test_samples].data());
     }
-    
-    uint32_t elapsed = 0;  // Would calculate elapsed time
-    
+
     // Just verify it completes without error
     ESP_LOGI(TEST_TAG, "Completed %d inference iterations", NUM_ITERATIONS);
     TEST_PASS();
@@ -452,6 +484,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_candidate_feature_python_parity);
     RUN_TEST(test_zero_crossing_rate_alternating_signal);
     RUN_TEST(test_ml_series_needs_tracks_only_referenced_stats);
+    RUN_TEST(test_ml_feature_source_separates_tracker_from_series);
     
     // Subcarriers tests
     RUN_TEST(test_ml_subcarriers_count);

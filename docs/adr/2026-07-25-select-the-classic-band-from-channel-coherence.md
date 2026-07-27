@@ -101,6 +101,41 @@ rise. Accepting the edge tones costs 15-20% jitter there and buys 45% more
 independent information than the previous band, which is the trade the coherence
 measurement says to make.
 
+**The count was later re-tested end to end, and 12 held.** On 2026-07-26 the
+tone count was swept at `16`, `20`, `24`, and `32` against the `12`-tone
+control, each band refitted with the production recipe, because comparing bands
+under one coefficient set measures the mismatch rather than the band.
+
+Per-chip aggregates on the healthy corpus flattered the wider bands: at `16`
+tones the single ESP32 capture went from `91.9%` to `99.4%` recall and the
+worst per-chip recall rose from `91.9%` to `97.1%`. Two checks removed the
+illusion.
+
+Per-pair gates, which the aggregates hide: at the operating point where `16`
+tones keep the empty-room recordings silent, individual pairs fall to
+`89.3-92.2%` recall, well under the `95%` target the aggregate suggested it had
+cleared.
+
+The high-rate stress capture, which is `exclude` and therefore absent from the
+corpus the sweep scored. Recall on it degrades monotonically with the count:
+
+| decimated rate | 12 tones | 16 tones | 32 tones |
+| --- | --- | --- | --- |
+| 500 pps | 88.2% | 79.6% | 49.6% |
+| 400 pps | 93.3% | 85.2% | 54.1% |
+| 300 pps | 96.0% | 92.3% | 61.6% |
+| 100 pps | 97.5% | 93.5% | 67.9% |
+
+This is the independent-looks table above, seen from the detection side. Tighter
+spacing raises the neighbour correlation (`0.787` at 12 tones, `0.881` at 24),
+so the extra tones add correlated information and compress the dynamic range of
+the spatial-variance feature. The one thing they do buy, averaging down the
+per-tone quiet noise, is small: the quiet coefficient of variation moves only
+from `0.1219` at 12 tones to `0.1135` at 32, and it does not compensate.
+
+The channel statistics predicted this and the detection measurement confirmed
+it, so the count stays at 12 on two independent grounds rather than one.
+
 ## Alternatives Considered
 
 ### Keep the previous band

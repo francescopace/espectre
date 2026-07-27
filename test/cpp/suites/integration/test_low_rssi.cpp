@@ -30,7 +30,7 @@ bool calibrate(ClassicDetector& detector, const csi_test_data::CsiData& baseline
   uint16_t packets_since_evaluation = 0U;
   for (int i = 0; i < calibration_packets; i++) {
     detector.process_packet(baseline.packets[static_cast<size_t>(i)].data(),
-                            baseline.packet_size, DEFAULT_SUBCARRIERS, 12U,
+                            baseline.packet_size, DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE,
                             baseline.rssi_dbm.empty() ? INT8_MIN
                                                       : baseline.rssi_dbm[static_cast<size_t>(i)]);
     packets_since_evaluation++;
@@ -99,7 +99,7 @@ void replay_phase(ClassicDetector& detector, const csi_test_data::CsiData& data,
   uint16_t packets_since_evaluation = 0U;
   for (int i = 0; i < data.num_packets; i++) {
     detector.process_packet(data.packets[static_cast<size_t>(i)].data(),
-                            data.packet_size, DEFAULT_SUBCARRIERS, 12U,
+                            data.packet_size, DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE,
                             data.rssi_dbm.empty() ? INT8_MIN
                                                   : data.rssi_dbm[static_cast<size_t>(i)]);
     packets_since_evaluation++;

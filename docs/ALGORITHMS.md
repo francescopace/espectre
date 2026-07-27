@@ -13,6 +13,7 @@ decision context now live in ADRs, especially:
 - [`2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md`](adr/2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md)
 - [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md)
 - [`2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md`](adr/2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md)
+- [`2026-07-26-recover-the-startup-threshold-once-a-session-settles.md`](adr/2026-07-26-recover-the-startup-threshold-once-a-session-settles.md)
 - [`2026-07-25-gate-classic-false-positives-on-empty-rooms.md`](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md)
 - [`2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md`](adr/2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md)
 
@@ -36,7 +37,7 @@ The current production detector definition is:
 - the shared fixed 12-subcarrier set is used
 - the classic path uses weighted L1-delta and turbulence-autocorrelation fusion
 - the classic runtime has no voting or variance-recovery branch
-- the ML path uses the Coherence-6 feature set
+- the ML path uses the Coherence-7 feature set
 
 ## Processing Pipeline
 
@@ -233,9 +234,32 @@ d_i = mean_k |p_i[k] - p_(i-lag)[k]|
 
 Default `lag = 10`, which is roughly 100 ms at 100 packets per second.
 
-The detector metric is the running mean of `d_i` over the active detection
-window. Hampel filtering is applied to the per-packet `d_i` stream before the
-window mean.
+The same comparison also runs at `lag = 1`, and Classic's feature is the ratio
+of the two window means:
+
+```text
+ratio = mean(d_i at lag) / mean(d_i at lag 1)
+```
+
+Noise saturates the displacement immediately: adjacent packets already differ by
+the full noise amount, so both means carry it and the ratio sits near `1.0`.
+Real channel evolution keeps accumulating with the lag and lifts the numerator
+alone. Because both terms share a unit, the noise floor divides out.
+
+That matters because the profile normalization above removes per-packet gain but
+not the floor, so a plain mean displacement rises whenever the link weakens,
+motion or not. Measured across the corpus the mean separates motion from idle at
+`1.0000` AUC on normal links and `0.8705` on weak ones, inverting on two of
+eight; the ratio holds `1.0000` and `0.9984` and never inverts. Its idle level
+also varies `1.82x` across quiet captures against `14.29x` for the mean, which
+is what makes startup calibration land closer to where the session actually
+sits.
+
+Hampel filtering is applied to each per-packet displacement stream before its
+window mean, both alike, since an outlier surviving only in the denominator
+would depress the ratio and read as less motion. The lag-1 reference is the ring
+slot behind the lagged one, so the pair costs one running sum and no second
+normalization. ML still consumes the plain mean as `l1_delta`.
 
 ### Turbulence Autocorrelation
 
@@ -268,25 +292,11 @@ The coefficients come from grouped, de-overlapped out-of-fold training balanced
 by class, chip, and session. The runtime contains no majority vote or recovery
 branch.
 
-When the startup L1 floor is above the fitted range, weak-link noise can make
-raw profile displacement unreliable. Classic then fades continuously from raw
-`l1_delta` to a session-centered absolute excursion:
-
-```text
-l1_excursion = gain * |l1_delta - median(startup_l1_delta)|
-```
-
-This keeps both upward and downward changes as positive motion evidence. The
-normal fitted path remains unchanged while the startup floor is within its
-training range.
-
-The safeguard engages rarely but decisively. It activates above an L1 floor of
-`0.0996`; eight of the nine real weak-link pairs measure `0.030` to `0.089` and
-never reach it, while the ninth sits at `0.2719` and saturates the blend. On that
-pair the safeguard is what keeps the detector usable: without it the startup
-calibration lifts the threshold to `0.984` and recall falls from `97.2%` to
-`77.5%`. Removing it as dead code was tried on 2026-07-25 and reverted for
-exactly this reason.
+Startup adaptation now always thresholds the fitted two-feature logit directly.
+The older low-RSSI L1 noise-blend safeguard was retired after the lag-ratio
+feature replaced the plain mean: on the current corpus it no longer changes any
+decision, and keeping it would only preserve dead state around startup
+calibration.
 
 ### Startup Threshold Calibration
 
@@ -302,11 +312,11 @@ probability scale and remain active until recalibration or reboot.
 
 ### Known Limits
 
-Classic misses the project recall target on two chips, narrowly. On normal-link
-recordings the aggregates are `93.7%` on C3, `95.5%` on C5, `95.4%` on C6,
-`94.2%` on ESP32 from a single pair, and `98.3%` on S3, with false positives
-between `0.1%` and `3.4%`. So C3 and ESP32 sit about a point under the `95%`
-target while every chip stays well inside the false-positive ceiling.
+Classic misses the project recall target on one chip. On normal-link recordings
+the aggregates are `97.6%` on C3, `99.8%` on C5, `99.8%` on C6, `94.2%` on ESP32
+from a single pair, and `99.5%` on S3, with false positives between `0.0%` and
+`3.6%`. Only ESP32 sits under the `95%` target, and it is one capture rather
+than a trend.
 
 Recall, not spurious motion, is the remaining Classic gap. Alarms on
 static-presence baselines were long read as weak-link false positives, but that
@@ -316,11 +326,81 @@ are the stationary occupant's own micro-motion. False positives are now gated on
 the empty-room recordings, which are the only streams in the corpus with nobody
 in the room. See [2026-07-25-gate-classic-false-positives-on-empty-rooms.md](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md).
 
-The recall gap is a separability limit rather than a tuning one. The threshold is
-a single global value, so moving it trades recall on one chip for false positives
-on another instead of lifting the curve. ML reaches `94.1-100%` recall on the
-same recordings, so the information is present in the CSI and two features are
-not enough to extract it uniformly.
+On the remaining ESP32 capture the gap is threshold placement, not separability.
+Its quiet distribution never exceeds a probability of `0.110` while the
+calibrated threshold sits at `0.421`, and the motion it misses sits at
+`0.32-0.41`: above every idle sample, below the threshold. Placing the threshold
+at that session's idle `p99` would take recall from `94.2%` to `99.1%` at `1%`
+false positives.
+
+No global knob can collect that, and three were measured. Refitting the
+coefficients on the current corpus loses on every chip, ESP32 worst at `-2.3`
+points. Raising the startup shift strength above `0.75` lifts ESP32 recall but
+starts producing alarms in empty rooms at `0.78`, so the shipped value is
+already the largest safe one. Capping the calibrated threshold at the session's
+own quiet ceiling hits the same wall: by the margin that moves ESP32, empty
+rooms alarm and S3 false positives breach the ceiling.
+
+The reason they all fail together is that ESP32 and the marginal empty rooms
+respond to the same knob. What distinguishes them is the strength of the motion
+response itself: ESP32 motion peaks near `0.4` where other chips reach `1.0`.
+
+The information is not missing. Measured threshold-free, the window features
+separate motion from idle almost perfectly on that capture: `0.9999` AUC for
+`l1_delta` and `0.9994` for `turb_autocorr`. Widening the band does not help
+because there is nothing left to collect; across `12` to `32` tones the mean AUC
+moves from `0.9943` to `0.9959`.
+
+What loses the recall is where the threshold lands, and only on that capture.
+Comparing the calibrated threshold against the best any threshold could do at
+the same false-positive cost, the corpus leaves `+0.34` points on the table on
+average, and `16` of `17` pairs leave `0.0-0.3`. ESP32 leaves `+4.7`.
+
+The cause is an unrepresentative calibration prefix. Startup calibration takes
+its quantile over the opening of the session, and on that capture the opening is
+`4.14x` noisier than the rest of it, so the threshold settles at `3.82x` the
+highest idle value the session ever produces. Most pairs have a prefix that is
+representative or quieter, which is why they lose nothing.
+
+### Settled-Level Threshold Recovery
+
+The runtime therefore revisits the threshold once a session proves itself
+quieter than its own opening. Every `20` evaluations it records the maximum
+metric logit in that block, keeps the last `12` blocks, and once the ring is
+full compares the median of those maxima against the live threshold. If that
+level plus `CLASSIC_SETTLE_MARGIN_LOGITS` sits below the threshold, the
+threshold drops to it.
+
+Three properties make this safe rather than a drift toward the noise floor:
+
+- **It only ever lowers.** Nothing here can raise a threshold, so it cannot
+  hide motion that the calibrated threshold would have caught.
+- **Motion holds it up.** A stretch of real activity puts the block maxima high,
+  the candidate lands above the current threshold, and nothing happens. The rule
+  moves only after a long quiet stretch, which is exactly the evidence that the
+  threshold is too high.
+- **A median of block maxima, not a mean or a global maximum.** One spike cannot
+  pull the level down, and one quiet block cannot either. Using the maximum
+  instead costs `1.8` points of the recovery, because a single spike then
+  governs the whole dwell.
+
+The dwell is `60 s` at the nominal cadence. Measured on the corpus, the rule
+takes the ESP32 capture from `94.2%` to `98.0%` recall, raises the worst
+per-chip recall from `94.2%` to `97.7%`, and leaves every other chip, the
+weak-link slice, and the empty-room gate unchanged.
+
+The margin is the safety knob, and the wall is below the shipped value rather
+than next to it. Swept on the corpus, `4.0` moves only one pair by `0.9` points
+and leaves ESP32 untouched; `2.0` and `1.5` recover more (`98.8%` and `99.1%`)
+for `0.05` and `0.15` points of mean false-positive rate; `1.0` is where the
+worst pair breaches the weak-link ceiling at `12.3%`; and the empty-room
+recordings stay silent all the way down to `1.0`, first alarming at `0.5`.
+`3.0` ships as the conservative end of a usable range that extends to about
+`1.5`, not as the last value that works.
+
+Its limit is the mirror of its safety. A room that grows genuinely noisier after
+the threshold has come down cannot push it back up; only a recalibration does
+that.
 
 Use `ml` where either recall or alarm quietness matters more than startup cost.
 Classic remains the default because it needs no training set, no exported
@@ -376,9 +456,9 @@ Total parameter count: 769
 The runtime accepts exported hidden-layer layouts generated by the training
 script, but the committed production artifact currently uses the topology above.
 
-### Coherence-6 Feature Set
+### Coherence-7 Feature Set
 
-The current production feature set contains six features:
+The current production feature set contains seven features:
 
 | # | Feature | Formula | Meaning |
 |---|---------|---------|---------|
@@ -388,13 +468,21 @@ The current production feature set contains six features:
 | 3 | `l1_delta` | `mean(d_i)` | Mean profile displacement |
 | 4 | `l1_delta_std` | `std(d_i)` | Spread of the L1-delta series |
 | 5 | `l1_delta_autocorr` | `C(1) / C(0)` of `d_i` | Lag-1 L1-delta coherence |
+| 6 | `l1_delta_lag_ratio` | `mean(d_i) / mean(d_i at lag 1)` | Displacement growth with lag |
 
-Three features come from the turbulence series, and three come from the
-L1-delta series derived from mean-normalized amplitude profiles. Coherence-6
-replaces the two energy-based Core-6 members (`turb_skewness`,
+Three features come from the turbulence series and four from the L1-delta
+series derived from mean-normalized amplitude profiles. Coherence-6 first
+replaced the two energy-based Core-6 members (`turb_skewness`,
 `l1_delta_waveform_length`) with shift/scale-invariant temporal-coherence
 statistics that stay separable at low RSSI; see the
 [Coherence-6 ADR](adr/2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md).
+Coherence-7 then added the lag ratio Classic runs on, which divides the floor
+out instead of carrying it, taking reserved effective alarms from `8` to `3`;
+see the [Coherence-7 ADR](adr/2026-07-27-add-the-lag-ratio-to-the-production-ml-feature-set.md).
+
+Unlike the other six, `l1_delta_lag_ratio` is not derived from a series the
+extractor holds: it comes from the L1 tracker, so every caller passing the
+production set must supply it.
 
 ### Feature Diagnostics Snapshot
 

@@ -20,6 +20,7 @@ from csi_features import (
     ALL_FEATURES,
     CANDIDATE_FEATURES,
     COHERENCE6_FEATURES,
+    COHERENCE7_FEATURES,
     DEFAULT_FEATURES,
     CORE6_FEATURES,
     FEATURE_NAMES,
@@ -236,25 +237,34 @@ class TestExtractAllFeatures:
         """Test that the default feature count is returned"""
         buffer = [float(i) for i in range(50)]
         features = extract_features_by_name(
-            buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer
+            buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer,
+            l1_delta_lag_ratio=1.0,
         )
         assert len(features) == len(DEFAULT_FEATURES)
     
     def test_empty_buffer_returns_zeros(self):
         """Test that empty buffer returns zeros"""
-        features = extract_features_by_name([], 0, feature_names=DEFAULT_FEATURES)
+        features = extract_features_by_name(
+            [], 0, feature_names=DEFAULT_FEATURES, l1_delta_lag_ratio=0.0
+        )
         assert features == [0.0] * len(DEFAULT_FEATURES)
     
     def test_single_value_returns_zeros(self):
         """Test that single-value buffer returns zeros"""
-        features = extract_features_by_name([5.0], 1, feature_names=DEFAULT_FEATURES)
+        features = extract_features_by_name(
+            [5.0], 1, feature_names=DEFAULT_FEATURES, l1_delta_lag_ratio=0.0
+        )
         assert features == [0.0] * len(DEFAULT_FEATURES)
     
     def test_feature_names_match(self):
-        """Test that FEATURE_NAMES matches DEFAULT_FEATURES (production = Coherence-6)"""
+        """Test that FEATURE_NAMES matches DEFAULT_FEATURES (production = Coherence-7)"""
         assert len(FEATURE_NAMES) == len(DEFAULT_FEATURES)
         assert FEATURE_NAMES == DEFAULT_FEATURES
-        assert DEFAULT_FEATURES == COHERENCE6_FEATURES
+        assert DEFAULT_FEATURES == COHERENCE7_FEATURES
+        # Coherence-7 is Coherence-6 plus the lag ratio Classic adopted.
+        assert set(COHERENCE7_FEATURES) - set(COHERENCE6_FEATURES) == {
+            'l1_delta_lag_ratio',
+        }
         # Coherence-6 is Core-6 with skewness and waveform length swapped for
         # the temporal-coherence statistics.
         assert set(CORE6_FEATURES) - set(COHERENCE6_FEATURES) == {
@@ -299,7 +309,8 @@ class TestExtractAllFeatures:
         np.random.seed(42)
         buffer = list(np.random.normal(5, 2, 50))
         features = extract_features_by_name(
-            buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer
+            buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer,
+            l1_delta_lag_ratio=1.0,
         )
         for i, f in enumerate(features):
             assert isinstance(f, (int, float)), f"Feature {i} ({FEATURE_NAMES[i]}) is {type(f)}"
@@ -313,10 +324,12 @@ class TestExtractAllFeatures:
         motion_buffer = list(np.random.normal(5, 3, 50))
         
         idle_features = extract_features_by_name(
-            idle_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=idle_buffer
+            idle_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=idle_buffer,
+            l1_delta_lag_ratio=1.0,
         )
         motion_features = extract_features_by_name(
-            motion_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=motion_buffer
+            motion_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=motion_buffer,
+            l1_delta_lag_ratio=2.0,
         )
 
         # turb_mad_over_mean is part of the production Core-6 set and rises with
@@ -408,6 +421,31 @@ class TestCandidateFeatures:
             turb, 50, feature_names=['l1_delta_autocorr'], l1_series=series
         )[0]
         assert value == pytest.approx(calc_autocorrelation(series, len(series)))
+
+    def test_l1_delta_lag_ratio_uses_preprocessed_tracker_metric(self):
+        turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
+        series = [0.1 + 0.01 * (i % 3) for i in range(40)]
+
+        value = extract_features_by_name(
+            turb,
+            50,
+            feature_names=['l1_delta_lag_ratio'],
+            l1_series=series,
+            l1_delta_lag_ratio=1.75,
+        )[0]
+
+        assert value == pytest.approx(1.75)
+
+    def test_l1_delta_lag_ratio_requires_preprocessed_tracker_metric(self):
+        turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
+
+        with pytest.raises(ValueError, match="l1_delta_lag_ratio is required"):
+            extract_features_by_name(
+                turb,
+                50,
+                feature_names=['l1_delta_lag_ratio'],
+                l1_series=[0.1] * 40,
+            )
 
     def test_l1_candidates_return_zero_without_series_samples(self):
         turb = [5.0 + 0.1 * (i % 5) for i in range(50)]

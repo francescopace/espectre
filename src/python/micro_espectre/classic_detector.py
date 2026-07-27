@@ -20,6 +20,10 @@ except ImportError:
     from segmentation import SegmentationContext
 
 
+# Lower than any reachable logit, so the first sample of a block wins.
+_SETTLE_FLOOR = -1e9
+
+
 class ClassicDetector(IDetector):
     """Weighted ``l1_delta + turb_autocorr`` production detector."""
 
@@ -27,23 +31,26 @@ class ClassicDetector(IDetector):
     STARTUP_GATE = True
 
     # Grouped, de-overlapped OOF fit, balanced by class/chip/session.
-    FEATURE_CENTER = (0.05739352783479646, 0.3919767063392909)
-    FEATURE_SCALE = (0.04216339546436966, 0.37575055837461374)
-    FEATURE_WEIGHT = (1.241242648072718, 5.032184078396507)
-    INTERCEPT = -0.26428814254089134
+    FEATURE_CENTER = (1.4372828727159759, 0.3899157842282158)
+    FEATURE_SCALE = (0.5846221043293537, 0.3789361406116048)
+    FEATURE_WEIGHT = (2.807005032259383, 4.0307753529344765)
+    INTERCEPT = 0.7924447436944712
 
-    BASE_THRESHOLD = 0.7892048221516996
-    TRAIN_IDLE_Q95_LOGIT = -0.06185062000916678
+    BASE_THRESHOLD = 0.8090618336447031
+    TRAIN_IDLE_Q95_LOGIT = -0.6116129330770868
     STARTUP_QUANTILE = 0.95
     STARTUP_STRENGTH = 0.75
     STARTUP_SAMPLE_LIMIT = 64
 
-    # A quiet L1 floor above the fitted domain means profile displacement is
-    # dominated by weak-link noise. Fade to a session-centered, bidirectional
-    # excursion so both increases and decreases remain useful motion evidence.
-    L1_NOISE_BLEND_START = FEATURE_CENTER[0] + FEATURE_SCALE[0]
-    L1_NOISE_BLEND_END = FEATURE_CENTER[0] + 2.5 * FEATURE_SCALE[0]
-    L1_EXCURSION_GAIN = 1.5
+    # Settled-level rule: how long the stream has to stay quiet before the
+    # startup threshold is allowed to come down, and by how much margin above
+    # the level it settled at. 12 blocks of 20 evaluations is 60 s at the
+    # nominal cadence. The margin is in logit units; 3.0 is the largest value
+    # that still recovers the ESP32 capture, and below 2.0 the empty-room
+    # recordings start to alarm.
+    SETTLE_BLOCKS = 12
+    SETTLE_BLOCK_EVALUATIONS = 20
+    SETTLE_MARGIN_LOGITS = 3.0
 
     # The detector owns its startup threshold formula; the shared multiplier is
     # retained only for the generic calibrator's progress/fallback machinery.
@@ -88,9 +95,10 @@ class ClassicDetector(IDetector):
         self._current_l1_delta = 0.0
         self._current_turb_autocorr = 0.0
         self._startup_logits = []
-        self._startup_l1_deltas = []
-        self._startup_l1_floor = self.FEATURE_CENTER[0]
-        self._l1_noise_blend = 0.0
+        self._adapted_threshold_ready = False
+        self._settle_blocks = []
+        self._settle_block_max = _SETTLE_FLOOR
+        self._settle_block_count = 0
 
     @staticmethod
     def _clamp_probability(value):
@@ -156,26 +164,10 @@ class ClassicDetector(IDetector):
         autocorr_norm = (
             (turb_autocorr - self.FEATURE_CENTER[1]) / self.FEATURE_SCALE[1]
         )
-        raw_logit = (
+        return (
             self.INTERCEPT
             + self.FEATURE_WEIGHT[0] * l1_norm
             + self.FEATURE_WEIGHT[1] * autocorr_norm
-        )
-        if self._l1_noise_blend <= 0.0:
-            return raw_logit
-
-        l1_excursion = abs(l1_delta - self._startup_l1_floor)
-        robust_l1_norm = (
-            self.L1_EXCURSION_GAIN * l1_excursion / self.FEATURE_SCALE[0]
-        )
-        robust_logit = (
-            self.INTERCEPT
-            + self.FEATURE_WEIGHT[0] * robust_l1_norm
-            + self.FEATURE_WEIGHT[1] * autocorr_norm
-        )
-        return (
-            (1.0 - self._l1_noise_blend) * raw_logit
-            + self._l1_noise_blend * robust_logit
         )
 
     def update_state(self):
@@ -183,7 +175,7 @@ class ClassicDetector(IDetector):
             self._current_probability = 0.0
             self._state = MotionState.IDLE
         else:
-            self._current_l1_delta = self._l1.mean()
+            self._current_l1_delta = self._l1.delta_lag_ratio()
             self._current_turb_autocorr = self._turb_autocorr()
             self._current_logit = self._calculate_logit(
                 self._current_l1_delta,
@@ -192,7 +184,7 @@ class ClassicDetector(IDetector):
             self._current_probability = self._sigmoid(self._current_logit)
             if len(self._startup_logits) < self.STARTUP_SAMPLE_LIMIT:
                 self._startup_logits.append(self._current_logit)
-                self._startup_l1_deltas.append(self._current_l1_delta)
+            self._observe_settled_level()
             self._state = (
                 MotionState.MOTION
                 if self._current_probability > self._threshold
@@ -208,34 +200,68 @@ class ClassicDetector(IDetector):
             "threshold": self._threshold,
         }
 
+    def _observe_settled_level(self):
+        """Lower the threshold once the session proves itself quieter than startup.
+
+        Startup calibration reads the opening of a session. When that opening is
+        not representative the threshold stays too high for the whole run, and
+        nothing revisits it: on one ESP32 capture the prefix is 4.1x noisier than
+        the rest, leaving the threshold at 3.8x the highest level the session
+        ever reaches, and 4.7 points of recall on the table.
+
+        The rule only ever lowers. It reads the median of per-block maxima, so a
+        single spike cannot move it and a stretch of real motion holds it high,
+        which is what keeps it from chasing the metric downward during activity.
+        Blocks rather than a full history keep it to `SETTLE_BLOCKS` floats.
+        """
+        if not self._adapted_threshold_ready:
+            return
+        if self._current_logit > self._settle_block_max:
+            self._settle_block_max = self._current_logit
+        self._settle_block_count += 1
+        if self._settle_block_count < self.SETTLE_BLOCK_EVALUATIONS:
+            return
+
+        self._settle_blocks.append(self._settle_block_max)
+        self._settle_block_max = _SETTLE_FLOOR
+        self._settle_block_count = 0
+        if len(self._settle_blocks) > self.SETTLE_BLOCKS:
+            del self._settle_blocks[0]
+        if len(self._settle_blocks) < self.SETTLE_BLOCKS:
+            return
+
+        ordered = sorted(self._settle_blocks)
+        settled = ordered[len(ordered) // 2]
+        candidate = self._sigmoid(settled + self.SETTLE_MARGIN_LOGITS)
+        if candidate < self._threshold:
+            self._threshold = self._clamp_probability(candidate)
+
+    def _reset_settled_level(self):
+        """Drop the settled-level evidence, so a lowering has to be re-earned."""
+        self._settle_blocks = []
+        self._settle_block_max = _SETTLE_FLOOR
+        self._settle_block_count = 0
+
     def set_adaptive_threshold(self, _shared_threshold):
+        self._reset_settled_level()
+        self._adapted_threshold_ready = True
         session_q95 = self._quantile(self._startup_logits, self.STARTUP_QUANTILE)
         if session_q95 is None:
             self._threshold = self.BASE_THRESHOLD
             return
-        l1_floor = self._quantile(self._startup_l1_deltas, 0.5)
-        if l1_floor is not None:
-            self._startup_l1_floor = l1_floor
-        blend_span = self.L1_NOISE_BLEND_END - self.L1_NOISE_BLEND_START
-        self._l1_noise_blend = self._clamp_probability(
-            (self._startup_l1_floor - self.L1_NOISE_BLEND_START) / blend_span
-        )
         base_logit = math.log(self.BASE_THRESHOLD / (1.0 - self.BASE_THRESHOLD))
-        normal_adapted_logit = base_logit + self.STARTUP_STRENGTH * (
+        adapted_logit = base_logit + self.STARTUP_STRENGTH * (
             session_q95 - self.TRAIN_IDLE_Q95_LOGIT
-        )
-        adapted_logit = (
-            (1.0 - self._l1_noise_blend) * normal_adapted_logit
-            + self._l1_noise_blend * base_logit
         )
         self._threshold = self._sigmoid(adapted_logit)
 
     def on_startup_calibration_begin(self):
         """Discard stale runtime logits before a fresh calibration session."""
         self._startup_logits = []
-        self._startup_l1_deltas = []
-        self._startup_l1_floor = self.FEATURE_CENTER[0]
-        self._l1_noise_blend = 0.0
+        self._adapted_threshold_ready = False
+        self._settle_blocks = []
+        self._settle_block_max = _SETTLE_FLOOR
+        self._settle_block_count = 0
 
     def set_threshold(self, threshold):
         value = float(threshold)
@@ -269,7 +295,7 @@ class ClassicDetector(IDetector):
         self._current_l1_delta = 0.0
         self._current_turb_autocorr = 0.0
         self._startup_logits = []
-        self._startup_l1_deltas = []
+        self._reset_settled_level()
 
     def get_name(self):
         return "Classic"

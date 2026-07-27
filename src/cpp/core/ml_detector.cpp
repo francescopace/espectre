@@ -27,16 +27,17 @@ MLDetector::MLDetector(uint16_t window_size, float threshold)
     : BaseDetector(window_size)
     , threshold_(threshold)
     , current_probability_(0.0f)
-    , uses_l1_features_(false)
+    , uses_l1_tracker_(false)
+    , uses_l1_series_(false)
     , feature_scratch_(nullptr) {
     threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
 
-    // Maintain the L1-delta rings only when the exported model needs them.
+    // Maintain the L1-delta rings only when the exported model needs them, and
+    // reserve the rebuilt series only for the features that read it.
     for (uint8_t i = 0; i < ML_MODEL_INPUT_SIZE; i++) {
-        if (ml_feature_is_l1(ML_FEATURE_IDS[i])) {
-            uses_l1_features_ = true;
-            break;
-        }
+        const uint8_t id = ML_FEATURE_IDS[i];
+        uses_l1_tracker_ = uses_l1_tracker_ || ml_feature_needs_l1_tracker(id);
+        uses_l1_series_ = uses_l1_series_ || ml_feature_needs_l1_series(id);
     }
 
     // One block holds every working array the feature path needs; the
@@ -47,10 +48,11 @@ MLDetector::MLDetector(uint16_t window_size, float threshold)
         ESP_LOGE(TAG, "Failed to allocate feature scratch (%u floats)",
                  static_cast<unsigned>(feature_scratch_size_()));
     }
-    l1_tracker_.configure(uses_l1_features_ ? l1_delta_capacity_() : 0U);
+    l1_tracker_.configure(uses_l1_tracker_ ? l1_delta_capacity_() : 0U);
 
-    ESP_LOGI(TAG, "Initialized (window=%d, threshold=%.2f, l1=%d)",
-             window_size_, threshold_, uses_l1_features_ ? 1 : 0);
+    ESP_LOGI(TAG, "Initialized (window=%d, threshold=%.2f, l1=%d, l1_series=%d)",
+             window_size_, threshold_, uses_l1_tracker_ ? 1 : 0,
+             uses_l1_series_ ? 1 : 0);
 }
 
 MLDetector::~MLDetector() {
@@ -61,7 +63,8 @@ MLDetector::MLDetector(MLDetector&& other) noexcept
     : BaseDetector(std::move(other))
     , threshold_(other.threshold_)
     , current_probability_(other.current_probability_)
-    , uses_l1_features_(other.uses_l1_features_)
+    , uses_l1_tracker_(other.uses_l1_tracker_)
+    , uses_l1_series_(other.uses_l1_series_)
     , l1_tracker_(std::move(other.l1_tracker_))
     , feature_scratch_(other.feature_scratch_) {
     other.feature_scratch_ = nullptr;
@@ -72,7 +75,8 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
         BaseDetector::operator=(std::move(other));
         threshold_ = other.threshold_;
         current_probability_ = other.current_probability_;
-        uses_l1_features_ = other.uses_l1_features_;
+        uses_l1_tracker_ = other.uses_l1_tracker_;
+        uses_l1_series_ = other.uses_l1_series_;
         l1_tracker_ = std::move(other.l1_tracker_);
         delete[] feature_scratch_;
         feature_scratch_ = other.feature_scratch_;
@@ -85,11 +89,11 @@ uint16_t MLDetector::feature_scratch_size_() const {
     // Sort view + absolute-deviation view, plus the L1-delta series when the
     // exported model uses it.
     return static_cast<uint16_t>(2U * window_size_ +
-                                 (uses_l1_features_ ? l1_delta_capacity_() : 0U));
+                                 (uses_l1_series_ ? l1_delta_capacity_() : 0U));
 }
 
 float* MLDetector::delta_series_() const {
-    if (feature_scratch_ == nullptr || !uses_l1_features_) {
+    if (feature_scratch_ == nullptr || !uses_l1_series_) {
         return nullptr;
     }
     return feature_scratch_ + 2U * window_size_;
@@ -163,7 +167,8 @@ void MLDetector::extract_features(float* features_out) {
     extract_ml_features_by_id(turb_series, turb_count,
                               delta_series, delta_len,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features_out,
-                              series_scratch_());
+                              series_scratch_(),
+                              l1_tracker_.delta_lag_ratio());
 }
 
 // ============================================================================
@@ -194,7 +199,7 @@ void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
         amplitudes, HT20_SELECTED_BAND_SIZE);
     process_amplitudes(amplitudes, amplitude_count);
 
-    if (!uses_l1_features_) {
+    if (!uses_l1_tracker_) {
         return;
     }
     l1_tracker_.process(amplitudes, amplitude_count);
@@ -209,7 +214,29 @@ void MLDetector::clear_buffer() {
 // MLP INFERENCE
 // ============================================================================
 
+// Inference runs without floating-point contraction.
+//
+// The accumulation below is a long chain of `val += input * weight` in float,
+// and a compiler that is free to fuse each pair into an FMA rounds it
+// differently. The difference is tiny per step, but the MLP output feeds a
+// threshold, so on recordings whose probabilities sit near `0.5` it flips whole
+// decisions: with contraction on, ten of the twenty-eight paired replays moved,
+// the worst by `3.2` points of recall, and the report parity gate failed on ML
+// while Classic stayed clean. Contraction also made the result depend on the
+// compiler and the surrounding code rather than on the model.
+//
+// Both runtimes must decide the same way, so contraction is disabled here
+// rather than in one build system, which keeps ESP-IDF, PlatformIO, and the
+// host tests on the same arithmetic.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC push_options
+#pragma GCC optimize("fp-contract=off")
+#endif
+
 float MLDetector::predict(const float* features) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
     constexpr size_t kBufferSize =
         (ML_MAX_LAYER_WIDTH > ML_MODEL_INPUT_SIZE) ? ML_MAX_LAYER_WIDTH : ML_MODEL_INPUT_SIZE;
     float buffer_a[kBufferSize] = {0.0f};
@@ -254,5 +281,9 @@ float MLDetector::predict(const float* features) {
     if (out > 20.0f) return ML_METRIC_SCALE;
     return (1.0f / (1.0f + std::exp(-out))) * ML_METRIC_SCALE;
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC pop_options
+#endif
 
 }  // namespace espectre

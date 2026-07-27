@@ -170,7 +170,6 @@ python train_ml_model.py                # Train and export if the paired gate pa
 python train_ml_model.py --no-export    # Evaluate without replacing runtime artifacts
 python train_ml_model.py --info         # Show dataset and split info
 python train_ml_model.py --experiment   # Run the FP-first MLP topology campaign
-python train_ml_model.py --experiment --experiment-promote  # Promote the winner if it beats the baseline
 python train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"  # Custom shortlist
 python train_ml_model.py --experiment-fp-weights "1,1.5,2,2.5,3"  # Gated multi-seed FP-weight campaign
 python train_ml_model.py --fp-weight 1.5  # Penalize false positives 1.5x
@@ -183,6 +182,7 @@ python train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python train_ml_model.py --seed-search-until-improvement 20  # Evaluate all seeds and keep the best robust improvement
 python train_ml_model.py --seed 12345 --force-promote  # Deliberate baseline reset: export even if the gates fail
 python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta,l1_delta_std,l1_delta_autocorr --no-export  # Evaluate a candidate feature set
+python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta,l1_delta_lag_ratio,l1_delta_autocorr --experiment  # Multi-seed lag-ratio candidate sweep
 python train_ml_model.py --augment            # Robustness-winner train-time augmentation
 python train_ml_model.py --augment --seed-search-until-improvement 10
 python train_ml_model.py --cross-environment  # LOEO using the exported model seed by default

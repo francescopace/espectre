@@ -19,12 +19,18 @@ import math
 try:
     from src.detector_interface import IDetector, MotionState
     from src.segmentation import SegmentationContext
-    from src.csi_features import L1_DELTA_LAG, L1DeltaTracker, extract_features_by_name
+    from src.csi_features import (
+        L1_DELTA_LAG, L1_SERIES_FEATURES, L1_TRACKER_FEATURES,
+        L1DeltaTracker, extract_features_by_name,
+    )
     from src.config import DEFAULT_SUBCARRIERS
 except ImportError:
     from detector_interface import IDetector, MotionState
     from segmentation import SegmentationContext
-    from csi_features import L1_DELTA_LAG, L1DeltaTracker, extract_features_by_name
+    from csi_features import (
+        L1_DELTA_LAG, L1_SERIES_FEATURES, L1_TRACKER_FEATURES,
+        L1DeltaTracker, extract_features_by_name,
+    )
     from config import DEFAULT_SUBCARRIERS
 
 try:
@@ -215,8 +221,13 @@ class MLDetector(IDetector):
         self._motion_count = 0
         self._state = MotionState.IDLE
         self._current_probability = 0.0
+        # The lag ratio needs the tracker but not the rebuilt series, so the
+        # two questions are asked separately; mirrors MLDetector in C++.
         self._use_amplitude_history = any(
-            str(name).startswith('l1_') for name in FEATURE_NAMES
+            name in L1_TRACKER_FEATURES for name in FEATURE_NAMES
+        )
+        self._use_l1_series = any(
+            name in L1_SERIES_FEATURES for name in FEATURE_NAMES
         )
         if self._use_amplitude_history:
             delta_window = max(2, window_size - L1_DELTA_LAG)
@@ -228,7 +239,9 @@ class MLDetector(IDetector):
                 hampel_window=hampel_window,
                 hampel_threshold=hampel_threshold,
             )
-            self._l1_series_buffer = [0.0] * delta_window
+            self._l1_series_buffer = (
+                [0.0] * delta_window if self._use_l1_series else None
+            )
         else:
             self._l1_tracker = None
             self._l1_series_buffer = None
@@ -343,13 +356,21 @@ class MLDetector(IDetector):
                 turb_list[i] = ctx.turbulence_buffer[(idx + i) % count]
 
         l1_count = 0
-        if self._l1_tracker is not None:
+        if self._l1_series_buffer is not None:
             l1_count = self._l1_tracker.copy_deltas_into(self._l1_series_buffer)
         return extract_features_by_name(
             turb_list, count,
             feature_names=FEATURE_NAMES,
             l1_series=self._l1_series_buffer,
             l1_series_count=l1_count,
+            l1_delta_lag_ratio=(
+                self._l1_tracker.delta_lag_ratio()
+                if (
+                    self._l1_tracker is not None
+                    and "l1_delta_lag_ratio" in FEATURE_NAMES
+                )
+                else None
+            ),
             out=self._feature_buffer,
             reuse_turbulence_buffer=True,
         )

@@ -755,7 +755,10 @@ class TestEndToEndWithCalibration:
         
         # Verify calibration results
         assert selected_band is not None, f"[{calibration_algorithm}] Band calibration failed"
-        assert len(selected_band) == 12, f"[{calibration_algorithm}] Expected 12 subcarriers, got {len(selected_band)}"
+        assert len(selected_band) == len(DEFAULT_SUBCARRIERS), (
+            f"[{calibration_algorithm}] Expected {len(DEFAULT_SUBCARRIERS)} subcarriers, "
+            f"got {len(selected_band)}"
+        )
         
         # All subcarriers should be valid (within valid range for this SC count)
         for sc in selected_band:

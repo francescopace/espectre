@@ -18,8 +18,6 @@ Usage:
     python tools/train_ml_model.py --no-export        # Evaluate without replacing runtime artifacts
     python tools/train_ml_model.py --info             # Show dataset info
     python tools/train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
-    python tools/train_ml_model.py --experiment --experiment-promote
-                                                    # Promote the winner if it beats the baseline
     python tools/train_ml_model.py --fp-weight 1.5    # Penalize FP 1.5x more
     python tools/train_ml_model.py --scaler clipped_standard
                                                     # Robust clipping + z-score
@@ -371,15 +369,26 @@ from csi_features import (
     ALL_FEATURES,
     DEFAULT_FEATURES,
     L1_DELTA_LAG,
+    L1_SERIES_FEATURES,
+    L1_TRACKER_FEATURES,
     L1DeltaTracker,
     extract_features_by_name,
 )
 from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES, MLDetector  # noqa: F401 (re-exported for tests)
 
 
+def _needs_l1_tracker(feature_names):
+    """Return whether any requested feature needs the L1-delta tracker."""
+    return any(name in L1_TRACKER_FEATURES for name in feature_names)
+
+
 def _needs_l1_series(feature_names):
-    """Return whether any requested feature is computed from L1 deltas."""
-    return any(str(name).startswith('l1_delta') for name in feature_names)
+    """Return whether any requested feature reads the rebuilt L1-delta series.
+
+    The lag ratio needs the tracker but not the series, so the two questions
+    are asked separately; mirrors MLFeatureSource in csi_features.h.
+    """
+    return any(name in L1_SERIES_FEATURES for name in feature_names)
 
 # ============================================================================
 # Feature Selection
@@ -1483,7 +1492,7 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
         )
-        needs_l1_series = _needs_l1_series(feature_names)
+        needs_l1_tracker = _needs_l1_tracker(feature_names)
         l1_capacity = max(2, window_size - L1_DELTA_LAG)
         l1_tracker = (
             L1DeltaTracker(
@@ -1494,9 +1503,11 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
                 hampel_window=hampel_window,
                 hampel_threshold=hampel_threshold,
             )
-            if needs_l1_series else None
+            if needs_l1_tracker else None
         )
-        l1_series = [0.0] * l1_capacity if needs_l1_series else None
+        l1_series = (
+            [0.0] * l1_capacity if _needs_l1_series(feature_names) else None
+        )
         window_index = 0
         for pkt in file_packets:
             csi_data = pkt['csi_data']
@@ -1517,12 +1528,20 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             turb_list = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
             n = len(turb_list)
 
-            l1_count = l1_tracker.copy_deltas_into(l1_series) if l1_tracker is not None else 0
+            l1_count = l1_tracker.copy_deltas_into(l1_series) if l1_series is not None else 0
             features = extract_features_by_name(
                 turb_list, n,
                 feature_names=feature_names,
                 l1_series=l1_series,
                 l1_series_count=l1_count,
+                l1_delta_lag_ratio=(
+                    l1_tracker.delta_lag_ratio()
+                    if (
+                        l1_tracker is not None
+                        and 'l1_delta_lag_ratio' in feature_names
+                    )
+                    else None
+                ),
             )
 
             X.append(features)
@@ -3199,6 +3218,7 @@ CPP_FEATURE_IDS = {
     'l1_delta_std': 18,
     'l1_delta_waveform_length': 23,
     'l1_delta_autocorr': 24,
+    'l1_delta_lag_ratio': 25,
 }
 
 
@@ -4418,6 +4438,7 @@ class StreamingFeatureExtractor:
         )
         # L1 features share the Hampel-filtered delta stream used by training
         # and both runtimes; skip the tracker when the model has no L1 inputs.
+        self.needs_l1_tracker = _needs_l1_tracker(self.feature_names)
         self.needs_l1_series = _needs_l1_series(self.feature_names)
         l1_capacity = max(2, SEG_WINDOW_SIZE - L1_DELTA_LAG)
         self.l1_tracker = (
@@ -4429,7 +4450,7 @@ class StreamingFeatureExtractor:
                 hampel_window=HAMPEL_WINDOW,
                 hampel_threshold=HAMPEL_THRESHOLD,
             )
-            if self.needs_l1_series else None
+            if self.needs_l1_tracker else None
         )
         self.l1_series = [0.0] * l1_capacity if self.needs_l1_series else None
 
@@ -4452,7 +4473,7 @@ class StreamingFeatureExtractor:
         )
         l1_count = (
             self.l1_tracker.copy_deltas_into(self.l1_series)
-            if self.l1_tracker is not None else 0
+            if self.l1_series is not None else 0
         )
         return extract_features_by_name(
             turb_list,
@@ -4460,6 +4481,14 @@ class StreamingFeatureExtractor:
             feature_names=self.feature_names,
             l1_series=self.l1_series,
             l1_series_count=l1_count,
+            l1_delta_lag_ratio=(
+                self.l1_tracker.delta_lag_ratio()
+                if (
+                    self.l1_tracker is not None
+                    and 'l1_delta_lag_ratio' in self.feature_names
+                )
+                else None
+            ),
         )
 
 
@@ -5727,17 +5756,18 @@ def experiment_feature_ablation(feature_name, seed=None,
 def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
                              batch_size=DEFAULT_BATCH_SIZE,
                              fp_weight=DEFAULT_FP_WEIGHT,
+                             feature_names=None,
                              environment_filter=None,
                              excluded_chips=None,
                              architectures=None,
                              positive_chip_boost=None,
                              output_path=DEFAULT_EXPERIMENT_OUTPUT,
-                             promote_winner=False,
                              use_cache=True):
-    """Run the FP-first architecture campaign and optionally promote a winner."""
+    """Run the FP-first architecture campaign without changing artifacts."""
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
+    feature_names = list(feature_names or TRAINING_FEATURES)
     architectures = normalize_architecture_specs(architectures or DEFAULT_ARCHITECTURE_SWEEP)
 
     static_presence_layers = tuple(DEFAULT_HIDDEN_LAYERS)
@@ -5773,6 +5803,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     print(f"Batch size: {batch_size}")
     print(f"Torch device: {torch_device_label}")
     print(f"FP weight: {fp_weight}")
+    print(f"Feature set: {', '.join(feature_names)}")
     print(f"Screening seed: {screening_seed}")
     print(
         "Architectures: "
@@ -5792,7 +5823,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     matrix, _ = load_training_matrix(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
-        feature_names=TRAINING_FEATURES,
+        feature_names=feature_names,
         use_cache=use_cache,
     )
     stats = matrix['stats']
@@ -5839,7 +5870,6 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
             'screening_seed': screening_seed,
             'initial_seeds': list(DEFAULT_EXPERIMENT_INITIAL_SEEDS),
             'final_seeds': list(DEFAULT_EXPERIMENT_FINAL_SEEDS),
-            'promote_winner': bool(promote_winner),
             'architectures': architectures,
             'feature_names': list(feature_names),
         },
@@ -5962,71 +5992,16 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         return 0
 
     print(f"\nDecision: {winner['name']} beats {static_presence_name} on paired ranking")
-    if not promote_winner:
-        print("Promotion disabled (--experiment-promote not set), leaving current artifacts unchanged")
-        return 0
-
-    print("\n== Exporting promoted architecture ==")
-    backup_dir, saved_files = _backup_artifacts()
-    spec = specs_by_name[winner['name']]
-    export_rc, used_seed, export_metrics = train_all(
-        fp_weight=fp_weight,
-        seed=winner['best_single_run']['seed'],
-        feature_names=TRAINING_FEATURES,
-        feature_importance=False,
-        ablation=False,
-        hidden_layers=spec['layers'],
-        scaler_mode=scaler_mode,
-        batch_size=batch_size,
-        export_artifacts=True,
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        positive_chip_boost=positive_chip_boost,
-        use_cache=use_cache,
-    )
-    if export_rc != 0 or export_metrics is None:
-        _restore_artifacts(saved_files)
-        results['promotion']['final_export'] = {
-            'status': 'export_failed',
-            'backup_dir': str(backup_dir),
-        }
-        write_json_results(output_path, results)
-        print("Promotion export failed, restored previous artifacts")
-        return 1
-
-    final_gate = run_exported_ml_gates()
-    if not final_gate.passed:
-        _restore_artifacts(saved_files)
-        results['promotion']['final_export'] = {
-            'status': 'verification_failed',
-            'seed': int(used_seed),
-            'paired_returncode': int(final_gate.paired_returncode),
-            'backup_dir': str(backup_dir),
-        }
-        write_json_results(output_path, results)
-        print("Promotion verification failed, restored previous artifacts")
-        if final_gate.paired_output.strip():
-            print(final_gate.paired_output.strip())
-        return 1
-
-    results['promotion']['final_export'] = {
-        'status': 'promoted',
-        'seed': int(used_seed),
-        'paired_returncode': int(final_gate.paired_returncode),
-        'backup_dir': str(backup_dir),
-        'paired_output': final_gate.paired_output,
-    }
-    write_json_results(output_path, results)
-    print(f"Promoted architecture: {winner['name']} (seed {used_seed})")
     return 0
 
 
 def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
                           batch_size=DEFAULT_BATCH_SIZE, hidden_layers=None,
+                          feature_names=None,
                           environment_filter=None, excluded_chips=None,
                           positive_chip_boost=None,
                           output_path=DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT,
-                          promote_winner=False, use_cache=True):
+                          use_cache=True):
     """Run a gated, multi-seed FP-weight campaign."""
     weights = parse_fp_weight_sweep(fp_weights or DEFAULT_FP_WEIGHT_SWEEP)
     if DEFAULT_FP_WEIGHT not in weights:
@@ -6034,6 +6009,7 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
     else:
         weights = [DEFAULT_FP_WEIGHT] + [value for value in weights if value != DEFAULT_FP_WEIGHT]
     hidden_layers = list(hidden_layers or DEFAULT_HIDDEN_LAYERS)
+    feature_names = list(feature_names or TRAINING_FEATURES)
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
@@ -6055,12 +6031,13 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
     print(f"Torch device: {torch_device_label}")
     print(f"Screening seed: {screening_seed}")
     print(f"FP weights: {', '.join(map(str, weights))}")
+    print(f"Feature set: {', '.join(feature_names)}")
     print("Artifacts: unchanged during evaluation")
 
     matrix, _ = load_training_matrix(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
-        feature_names=TRAINING_FEATURES,
+        feature_names=feature_names,
         use_cache=use_cache,
     )
     if not matrix['stats']['chips']:
@@ -6091,10 +6068,10 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
             'hidden_layers': hidden_layers,
             'scaler': scaler_mode,
             'batch_size': batch_size,
+            'feature_names': list(feature_names),
             'screening_seed': screening_seed,
             'initial_seeds': list(DEFAULT_EXPERIMENT_INITIAL_SEEDS),
             'final_seeds': list(DEFAULT_EXPERIMENT_FINAL_SEEDS),
-            'promote_winner': bool(promote_winner),
         },
         'screening': [],
         'seed_filter': [],
@@ -6154,40 +6131,6 @@ def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
     }
     write_json_results(output_path, results)
     print(f"\nDecision: {results['promotion']['decision']}")
-    if not promote_candidate or not promote_winner:
-        if promote_candidate:
-            print("Promotion disabled (--experiment-promote not set); artifacts unchanged")
-        return 0
-
-    backup_dir, saved_files = _backup_artifacts()
-    export_rc, used_seed, _ = train_all(
-        fp_weight=winner['fp_weight'],
-        seed=winner['best_single_run']['seed'],
-        feature_names=TRAINING_FEATURES,
-        hidden_layers=hidden_layers,
-        scaler_mode=scaler_mode,
-        batch_size=batch_size,
-        export_artifacts=True,
-        evaluate_deployment=True,
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        positive_chip_boost=positive_chip_boost,
-        use_cache=use_cache,
-    )
-    final_gate = run_exported_ml_gates() if export_rc == 0 else None
-    if final_gate is None or not final_gate.passed:
-        _restore_artifacts(saved_files)
-        results['promotion']['final_export'] = {'status': 'verification_failed'}
-        write_json_results(output_path, results)
-        print(f"Promotion failed; previous artifacts restored from {backup_dir}")
-        return 1
-    results['promotion']['final_export'] = {
-        'status': 'promoted',
-        'seed': int(used_seed),
-        'fp_weight': float(winner['fp_weight']),
-    }
-    write_json_results(output_path, results)
-    print(f"Promoted fp_weight={winner['fp_weight']:g} (seed {used_seed})")
     return 0
 
 
@@ -6201,8 +6144,6 @@ def main():
                        help='Show dataset information')
     parser.add_argument('--experiment', action='store_true',
                        help='Run the FP-first MLP topology campaign')
-    parser.add_argument('--experiment-promote', action='store_true',
-                       help='With an experiment campaign, export its winner if it beats the baseline')
     parser.add_argument('--experiment-output', type=Path, default=DEFAULT_EXPERIMENT_OUTPUT,
                        help='JSON output path for --experiment results '
                             f'(default: {DEFAULT_EXPERIMENT_OUTPUT})')
@@ -6326,7 +6267,6 @@ def main():
         # feature; candidate features are evaluation-only until they are ported.
         will_export = (
             args.seed_search_until_improvement > 0
-            or args.experiment_promote
             or not (
                 args.no_export
                 or args.shap is not None
@@ -6359,11 +6299,6 @@ def main():
         show_info()
         return 0
 
-    if args.experiment_promote and not (
-        args.experiment or args.experiment_fp_weights is not None
-    ):
-        print("Error: --experiment-promote requires an experiment campaign")
-        return 1
     experiment_count = sum((
         bool(args.experiment),
         args.experiment_fp_weights is not None,
@@ -6383,7 +6318,6 @@ def main():
         if (args.seed_search_until_improvement > 0
                 or args.experiment
                 or args.experiment_fp_weights is not None
-                or args.experiment_promote
                 or args.gain_stress_gate
                 or args.cross_environment
                 or args.cross_chip
@@ -6410,8 +6344,7 @@ def main():
         return 1
 
     if args.gain_stress_gate:
-        if (args.experiment or args.experiment_fp_weights is not None
-                or args.experiment_promote):
+        if args.experiment or args.experiment_fp_weights is not None:
             print("Error: --gain-stress-gate cannot be combined with experiment flows")
             return 1
         if args.seed_search_until_improvement > 0 or args.seed is not None:
@@ -6436,8 +6369,7 @@ def main():
         if args.cross_environment and args.cross_chip:
             print("Error: --cross-environment and --cross-chip are mutually exclusive")
             return 1
-        if (args.experiment or args.experiment_fp_weights is not None
-                or args.experiment_promote):
+        if args.experiment or args.experiment_fp_weights is not None:
             print(f"Error: {mode} cannot be combined with experiment flows")
             return 1
         if args.shap is not None or args.ablation or args.ablation_feature or args.correlation:
@@ -6470,12 +6402,12 @@ def main():
             scaler_mode=args.scaler,
             batch_size=args.batch_size,
             fp_weight=args.fp_weight,
+            feature_names=selected_training_features,
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
             architectures=args.experiment_architectures,
             positive_chip_boost=args.positive_chip_boost,
             output_path=args.experiment_output,
-            promote_winner=args.experiment_promote,
             use_cache=not args.no_cache,
         )
 
@@ -6485,11 +6417,11 @@ def main():
             scaler_mode=args.scaler,
             batch_size=args.batch_size,
             hidden_layers=args.hidden_layers,
+            feature_names=selected_training_features,
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
             positive_chip_boost=args.positive_chip_boost,
             output_path=args.fp_weight_experiment_output,
-            promote_winner=args.experiment_promote,
             use_cache=not args.no_cache,
         )
 

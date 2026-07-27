@@ -37,13 +37,52 @@ enum MLFeatureId : uint8_t {
     ML_FEAT_L1_DELTA_STD = 18,
     ML_FEAT_L1_DELTA_WAVEFORM_LENGTH = 23,
     ML_FEAT_L1_DELTA_AUTOCORR = 24,
+    ML_FEAT_L1_DELTA_LAG_RATIO = 25,
 };
 
-// First L1-delta feature id: ids >= this are computed from the delta series.
-constexpr uint8_t ML_FEAT_L1_FIRST = ML_FEAT_L1_DELTA;
+// Where a feature's value comes from. Ids carry no ordering: a new turbulence
+// feature may take any free number, so the mapping is spelled out rather than
+// inferred from magnitude.
+enum class MLFeatureSource : uint8_t {
+    TURBULENCE_SERIES,
+    L1_DELTA_SERIES,
+    L1_TRACKER,
+};
 
-// True when the id is an L1-delta feature (needs the profile/delta rings).
-inline bool ml_feature_is_l1(uint8_t id) { return id >= ML_FEAT_L1_FIRST; }
+inline MLFeatureSource ml_feature_source(MLFeatureId id) {
+    switch (id) {
+        case ML_FEAT_TURB_SKEWNESS:
+        case ML_FEAT_TURB_AUTOCORR:
+        case ML_FEAT_TURB_MAD_OVER_MEAN:
+        case ML_FEAT_TURB_ZCR:
+            return MLFeatureSource::TURBULENCE_SERIES;
+        case ML_FEAT_L1_DELTA:
+        case ML_FEAT_L1_DELTA_STD:
+        case ML_FEAT_L1_DELTA_WAVEFORM_LENGTH:
+        case ML_FEAT_L1_DELTA_AUTOCORR:
+            return MLFeatureSource::L1_DELTA_SERIES;
+        case ML_FEAT_L1_DELTA_LAG_RATIO:
+            return MLFeatureSource::L1_TRACKER;
+    }
+    // No default label above, so -Wswitch reports a new enumerator here
+    // instead of letting it inherit a neighbour's buffers. An id the enum does
+    // not know needs nothing beyond the turbulence series.
+    return MLFeatureSource::TURBULENCE_SERIES;
+}
+
+// True when the id needs the L1 profile rings running: the delta-series
+// members do, and so does the lag ratio, which the tracker derives itself.
+inline bool ml_feature_needs_l1_tracker(uint8_t id) {
+    return ml_feature_source(static_cast<MLFeatureId>(id)) !=
+           MLFeatureSource::TURBULENCE_SERIES;
+}
+
+// True when the id needs the rebuilt L1-delta series. The lag ratio does not:
+// it arrives ready-made from the tracker.
+inline bool ml_feature_needs_l1_series(uint8_t id) {
+    return ml_feature_source(static_cast<MLFeatureId>(id)) ==
+           MLFeatureSource::L1_DELTA_SERIES;
+}
 
 inline float calc_skewness(const float* values, uint16_t count, float mean, float std_dev) {
     if (count < 3 || std_dev < 1e-10f) return 0.0f;
@@ -180,9 +219,11 @@ struct MLSeriesScratch {
 inline MLStatNeeds ml_series_needs(const uint8_t *feature_ids, uint8_t num_features,
                                    bool l1) {
     MLStatNeeds needs;
+    const MLFeatureSource wanted = l1 ? MLFeatureSource::L1_DELTA_SERIES
+                                      : MLFeatureSource::TURBULENCE_SERIES;
     for (uint8_t i = 0; i < num_features; i++) {
         const uint8_t id = feature_ids[i];
-        if (ml_feature_is_l1(id) != l1) {
+        if (ml_feature_source(static_cast<MLFeatureId>(id)) != wanted) {
             continue;
         }
         switch (id) {
@@ -253,8 +294,16 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
     }
 }
 
+/**
+ * @param l1_delta_lag_ratio Preprocessed tracker metric for
+ *        ML_FEAT_L1_DELTA_LAG_RATIO. Deliberately without a default: the
+ *        no-motion value of the ratio is 1.0, so a forgotten argument would
+ *        read as a plausible measurement rather than as an error. The Python
+ *        extractor raises for the same reason; here the compiler does it.
+ */
 inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
-                                         const MLSeriesStats& delta) {
+                                         const MLSeriesStats& delta,
+                                         float l1_delta_lag_ratio) {
     switch (id) {
         case ML_FEAT_TURB_SKEWNESS: return turb.skewness;
         case ML_FEAT_TURB_AUTOCORR: return turb.autocorr;
@@ -264,6 +313,7 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
         case ML_FEAT_L1_DELTA_STD: return delta.std;
         case ML_FEAT_L1_DELTA_WAVEFORM_LENGTH: return delta.waveform_length;
         case ML_FEAT_L1_DELTA_AUTOCORR: return delta.autocorr;
+        case ML_FEAT_L1_DELTA_LAG_RATIO: return l1_delta_lag_ratio;
         default: return 0.0f;
     }
 }
@@ -272,7 +322,8 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
                                       const float* delta_buffer, uint16_t delta_count,
                                       const uint8_t* feature_ids, uint8_t num_features,
                                       float* features_out,
-                                      const MLSeriesScratch& series_scratch) {
+                                      const MLSeriesScratch& series_scratch,
+                                      float l1_delta_lag_ratio) {
     MLSeriesStats turb;
     compute_ml_series_stats(turb_buffer, turb_count, &turb,
                             ml_series_needs(feature_ids, num_features, /*l1=*/false),
@@ -284,7 +335,8 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
                             series_scratch);
 
     for (uint8_t i = 0; i < num_features; i++) {
-        features_out[i] = ml_feature_value_from_stats(feature_ids[i], turb, delta);
+        features_out[i] = ml_feature_value_from_stats(
+            feature_ids[i], turb, delta, l1_delta_lag_ratio);
     }
 }
 

@@ -176,6 +176,7 @@ L1_DELTA_FEATURES = [
     'l1_delta_std',
     'l1_delta_waveform_length',
     'l1_delta_autocorr',
+    'l1_delta_lag_ratio',
 ]
 
 # Historical Core-6 production set (2026-07-07 to 2026-07-23); kept for
@@ -189,12 +190,13 @@ CORE6_FEATURES = [
     'l1_delta_waveform_length',
 ]
 
-# Coherence-6 production set: Core-6 with the two weakest members swapped for
-# shift/scale-invariant temporal-coherence statistics. On real weak-link pairs
-# the absolute L1 features lose (or invert) their motion separation, while the
-# noise floor is white in time and human motion is not; the coherence swap
-# collapses seed-to-seed variance on out-of-sample false positives (see the
-# temporal-coherence promotion ADR).
+# Coherence-6 production set (2026-07-23 to 2026-07-27): Core-6 with the two
+# weakest members swapped for shift/scale-invariant temporal-coherence
+# statistics. On real weak-link pairs the absolute L1 features lose (or invert)
+# their motion separation, while the noise floor is white in time and human
+# motion is not; the coherence swap collapses seed-to-seed variance on
+# out-of-sample false positives (see the temporal-coherence promotion ADR).
+# Kept for reference and experiments. Superseded by Coherence-7 (see below).
 COHERENCE6_FEATURES = [
     'turb_mad_over_mean',
     'turb_autocorr',
@@ -204,11 +206,21 @@ COHERENCE6_FEATURES = [
     'l1_delta_autocorr',
 ]
 
+# Coherence-7 production set: Coherence-6 plus the lag ratio Classic adopted,
+# which divides the lagged profile displacement by the adjacent one. The plain
+# mean carries the link's noise floor, so it degrades and sometimes inverts on
+# weak links; the ratio shares a unit with its denominator and drops the floor.
+# Adding it removed five effective alarms across the reserved replays and added
+# none.
+COHERENCE7_FEATURES = COHERENCE6_FEATURES + [
+    'l1_delta_lag_ratio',
+]
+
 # Production feature set.
-DEFAULT_FEATURES = COHERENCE6_FEATURES
+DEFAULT_FEATURES = COHERENCE7_FEATURES
 
 # Non-production features available to training experiments: the two members
-# demoted from Core-6 plus the never-promoted coefficient of variation.
+# demoted from Core-6 and the never-promoted coefficient of variation.
 CANDIDATE_FEATURES = [
     'turb_skewness',
     'l1_delta_waveform_length',
@@ -216,6 +228,22 @@ CANDIDATE_FEATURES = [
 ]
 
 ALL_FEATURES = tuple(DEFAULT_FEATURES + CANDIDATE_FEATURES)
+
+# Features computed from the rebuilt L1-delta series. The lag ratio is
+# deliberately absent: it shares the l1_ prefix but the tracker hands it over
+# ready-made, so requesting it alone must not demand a series. Mirrors
+# MLFeatureSource in csi_features.h; keep the two in step.
+L1_SERIES_FEATURES = frozenset({
+    'l1_delta',
+    'l1_delta_std',
+    'l1_delta_autocorr',
+    'l1_delta_waveform_length',
+    'l1_delta_cv',
+})
+
+# Features that need the L1 tracker running at all. The lag ratio belongs here
+# but not above: it needs the profile rings, not the rebuilt series.
+L1_TRACKER_FEATURES = L1_SERIES_FEATURES | {'l1_delta_lag_ratio'}
 
 
 def normalize_amplitude_profile_into(amplitudes, count, out):
@@ -331,12 +359,26 @@ class L1DeltaTracker:
         self._delta_index = 0
         self._delta_count = 0
         self._delta_sum = 0.0
+        # Lag-1 displacement over the same window. Both references live in the
+        # profile ring already, so the pair costs one extra running sum and no
+        # extra normalization.
+        self._delta1_ring = [0.0] * self.window_size
+        self._delta1_index = 0
+        self._delta1_count = 0
+        self._delta1_sum = 0.0
 
         self._packet_count = 0
         self._state = MotionState.IDLE
         self._current_metric = 0.0
         self.last_delta = 0.0
         self._hampel_filter = (
+            HampelFilter(hampel_window, hampel_threshold)
+            if enable_hampel else None
+        )
+        # The ratio divides one displacement by the other, so they must be
+        # filtered alike: an outlier surviving only in the denominator would
+        # depress the ratio and read as less motion.
+        self._hampel_filter1 = (
             HampelFilter(hampel_window, hampel_threshold)
             if enable_hampel else None
         )
@@ -351,6 +393,17 @@ class L1DeltaTracker:
         self._delta_index += 1
         if self._delta_index >= self.window_size:
             self._delta_index = 0
+
+    def _push_delta1(self, delta):
+        if self._delta1_count < self.window_size:
+            self._delta1_count += 1
+        else:
+            self._delta1_sum -= self._delta1_ring[self._delta1_index]
+        self._delta1_ring[self._delta1_index] = delta
+        self._delta1_sum += delta
+        self._delta1_index += 1
+        if self._delta1_index >= self.window_size:
+            self._delta1_index = 0
 
     def process_packet(self, csi_data, selected_subcarriers=None):
         if self._amplitude_buffer is None:
@@ -367,6 +420,11 @@ class L1DeltaTracker:
         ring_slot = self._profile_index
         reference = self._profile_ring[ring_slot]
         reference_len = self._profile_len[ring_slot]
+        # The packet before this one is the slot behind the lagged reference,
+        # so the lag-1 displacement needs no storage of its own.
+        prev_slot = ring_slot - 1 if ring_slot > 0 else self.lag - 1
+        previous = self._profile_ring[prev_slot]
+        previous_len = self._profile_len[prev_slot]
         profile_len = 0
         if amplitudes is not None and 2 <= amplitude_count <= len(profile):
             total = 0.0
@@ -375,17 +433,30 @@ class L1DeltaTracker:
             if total > 0.0:
                 mean = total / amplitude_count
                 profile_len = amplitude_count
-                if reference_len == profile_len:
+                lagged = reference_len == profile_len
+                adjacent = previous_len == profile_len
+                if lagged or adjacent:
                     delta_total = 0.0
+                    delta1_total = 0.0
                     for i in range(profile_len):
                         value = amplitudes[i] / mean
                         profile[i] = value
-                        diff = value - reference[i]
-                        delta_total += diff if diff >= 0 else -diff
-                    self.last_delta = delta_total / profile_len
-                    if self._hampel_filter is not None:
-                        self.last_delta = self._hampel_filter.filter(self.last_delta)
-                    self._push_delta(self.last_delta)
+                        if lagged:
+                            diff = value - reference[i]
+                            delta_total += diff if diff >= 0 else -diff
+                        if adjacent:
+                            diff1 = value - previous[i]
+                            delta1_total += diff1 if diff1 >= 0 else -diff1
+                    if lagged:
+                        self.last_delta = delta_total / profile_len
+                        if self._hampel_filter is not None:
+                            self.last_delta = self._hampel_filter.filter(self.last_delta)
+                        self._push_delta(self.last_delta)
+                    if adjacent:
+                        delta1 = delta1_total / profile_len
+                        if self._hampel_filter1 is not None:
+                            delta1 = self._hampel_filter1.filter(delta1)
+                        self._push_delta1(delta1)
                 else:
                     for i in range(profile_len):
                         profile[i] = amplitudes[i] / mean
@@ -396,6 +467,21 @@ class L1DeltaTracker:
         self._profile_index += 1
         if self._profile_index >= self.lag:
             self._profile_index = 0
+
+    def delta_lag_ratio(self):
+        """Return mean(lag displacement) / mean(lag-1 displacement).
+
+        Noise saturates the displacement immediately, so its ratio sits near
+        `1.0`; real channel evolution keeps growing with the lag and lifts it.
+        Both terms share the same units, so the ratio drops the noise floor that
+        makes the raw mean unusable when the link is weak.
+        """
+        if self._delta_count == 0 or self._delta1_count == 0:
+            return 1.0
+        adjacent_mean = self._delta1_sum / self._delta1_count
+        if adjacent_mean <= 0.0:
+            return 1.0
+        return (self._delta_sum / self._delta_count) / adjacent_mean
 
     def copy_deltas_into(self, out):
         """Copy the current delta window into ``out`` in chronological order."""
@@ -457,6 +543,9 @@ class L1DeltaTracker:
         self._delta_index = 0
         self._delta_count = 0
         self._delta_sum = 0.0
+        self._delta1_index = 0
+        self._delta1_count = 0
+        self._delta1_sum = 0.0
         self._amplitude_count = 0
         self._profile_index = 0
         self._packet_count = 0
@@ -465,6 +554,8 @@ class L1DeltaTracker:
         self.last_delta = 0.0
         if self._hampel_filter is not None:
             self._hampel_filter.reset()
+        if self._hampel_filter1 is not None:
+            self._hampel_filter1.reset()
 
     def get_state(self):
         return self._state
@@ -485,6 +576,7 @@ def extract_features_by_name(
     l1_series_count=None,
     out=None,
     reuse_turbulence_buffer=False,
+    l1_delta_lag_ratio=None,
 ):
     """Extract configured features from explicitly preprocessed streams."""
     if feature_names is None:
@@ -493,6 +585,11 @@ def extract_features_by_name(
     for name in feature_names:
         if name not in ALL_FEATURES:
             raise ValueError(f"Unknown feature: {name}")
+    if 'l1_delta_lag_ratio' in feature_names and l1_delta_lag_ratio is None:
+        raise ValueError(
+            "l1_delta_lag_ratio is required when that feature is selected; "
+            "pass the explicitly preprocessed tracker metric"
+        )
 
     if out is not None and len(out) < len(feature_names):
         raise ValueError("Output feature buffer is too small")
@@ -539,7 +636,7 @@ def extract_features_by_name(
     needs_l1 = False
     needs_mad = False
     for name in feature_names:
-        if str(name).startswith("l1_"):
+        if name in L1_SERIES_FEATURES:
             needs_l1 = True
         elif name == "turb_mad_over_mean":
             needs_mad = True
@@ -607,6 +704,8 @@ def extract_features_by_name(
                 calc_autocorrelation(_l1_series, _l1_n, mean=_l1_mean, variance=_l1_var)
                 if _l1_n else 0.0
             )
+        elif name == 'l1_delta_lag_ratio':
+            value = l1_delta_lag_ratio
         elif name == 'l1_delta_cv':
             value = _l1_std / (_l1_mean if _l1_mean > 1e-9 else 1e-9) if _l1_n else 0.0
         else:

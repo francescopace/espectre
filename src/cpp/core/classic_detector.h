@@ -19,27 +19,32 @@
 
 namespace espectre {
 
-constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.7892048221516996f;
+constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.8090618336447031f;
 constexpr float CLASSIC_MIN_THRESHOLD = 0.0f;
 constexpr float CLASSIC_MAX_THRESHOLD = 1.0f;
 constexpr float CLASSIC_STARTUP_THRESHOLD_FACTOR = 1.0f;
 
-constexpr float CLASSIC_L1_CENTER = 0.05739352783479646f;
-constexpr float CLASSIC_L1_SCALE = 0.04216339546436966f;
-constexpr float CLASSIC_L1_WEIGHT = 1.241242648072718f;
-constexpr float CLASSIC_AUTOCORR_CENTER = 0.3919767063392909f;
-constexpr float CLASSIC_AUTOCORR_SCALE = 0.37575055837461374f;
-constexpr float CLASSIC_AUTOCORR_WEIGHT = 5.032184078396507f;
-constexpr float CLASSIC_INTERCEPT = -0.26428814254089134f;
+constexpr float CLASSIC_L1_CENTER = 1.4372828727159759f;
+constexpr float CLASSIC_L1_SCALE = 0.5846221043293537f;
+constexpr float CLASSIC_L1_WEIGHT = 2.807005032259383f;
+constexpr float CLASSIC_AUTOCORR_CENTER = 0.3899157842282158f;
+constexpr float CLASSIC_AUTOCORR_SCALE = 0.3789361406116048f;
+constexpr float CLASSIC_AUTOCORR_WEIGHT = 4.0307753529344765f;
+constexpr float CLASSIC_INTERCEPT = 0.7924447436944712f;
 
-constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -0.06185062000916678f;
+constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -0.6116129330770868f;
 constexpr float CLASSIC_STARTUP_QUANTILE = 0.95f;
 constexpr float CLASSIC_STARTUP_STRENGTH = 0.75f;
 constexpr uint8_t CLASSIC_STARTUP_SAMPLE_LIMIT = 64U;
-constexpr float CLASSIC_L1_NOISE_BLEND_START = CLASSIC_L1_CENTER + CLASSIC_L1_SCALE;
-constexpr float CLASSIC_L1_NOISE_BLEND_END =
-    CLASSIC_L1_CENTER + 2.5f * CLASSIC_L1_SCALE;
-constexpr float CLASSIC_L1_EXCURSION_GAIN = 1.5f;
+
+// Settled-level rule: how long the stream has to stay quiet before the startup
+// threshold is allowed to come down, and by how much margin above the level it
+// settled at. 12 blocks of 20 evaluations is 60 s at the nominal cadence. The
+// margin is in logit units; 3.0 is the largest value that still recovers the
+// ESP32 capture, and below 2.0 the empty-room recordings start to alarm.
+constexpr uint8_t CLASSIC_SETTLE_BLOCKS = 12U;
+constexpr uint8_t CLASSIC_SETTLE_BLOCK_EVALUATIONS = 20U;
+constexpr float CLASSIC_SETTLE_MARGIN_LOGITS = 3.0f;
 
 class ClassicDetector : public BaseDetector {
  public:
@@ -100,7 +105,8 @@ class ClassicDetector : public BaseDetector {
   static float sigmoid_(float value);
   static float quantile_(const float* values, uint8_t count, float quantile);
   float startup_quantile_() const;
-  float startup_l1_median_() const;
+  void observe_settled_level_();
+  void reset_settled_level_();
 
   float threshold_;
   float current_probability_;
@@ -108,14 +114,16 @@ class ClassicDetector : public BaseDetector {
   float current_l1_delta_;
   float current_turb_autocorr_;
   float startup_logits_[CLASSIC_STARTUP_SAMPLE_LIMIT]{};
-  float startup_l1_deltas_[CLASSIC_STARTUP_SAMPLE_LIMIT]{};
   uint8_t startup_logit_count_;
-  float startup_l1_floor_;
-  float l1_noise_blend_;
   float adapted_threshold_;
   bool adapted_threshold_ready_;
   uint16_t lag_;
   uint16_t autocorr_lag_;
+  float settle_blocks_[CLASSIC_SETTLE_BLOCKS]{};
+  float settle_block_max_;
+  uint8_t settle_block_evaluations_;
+  uint8_t settle_block_count_;
+  uint8_t settle_block_index_;
   L1DeltaTracker l1_tracker_;
 };
 

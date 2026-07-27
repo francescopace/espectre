@@ -1134,6 +1134,7 @@ def test_fp_weight_campaign_is_multi_seed_and_non_promoting_by_default(monkeypat
         "stats": {"chips": ["C3"]},
     }
     observed = []
+    loaded_feature_sets = []
 
     def fake_candidate(name, layers, seed, dataset, scaler, batch_size, fp_weight):
         observed.append((fp_weight, seed))
@@ -1160,7 +1161,11 @@ def test_fp_weight_campaign_is_multi_seed_and_non_promoting_by_default(monkeypat
     monkeypatch.setattr(module, "ensure_torch_available", lambda: None)
     monkeypatch.setattr(module, "describe_torch_device", lambda: "cpu")
     monkeypatch.setattr(module, "read_exported_seed", lambda: 123)
-    monkeypatch.setattr(module, "load_training_matrix", lambda **kwargs: (matrix, None))
+    def fake_load_training_matrix(**kwargs):
+        loaded_feature_sets.append(kwargs.get("feature_names"))
+        return matrix, None
+
+    monkeypatch.setattr(module, "load_training_matrix", fake_load_training_matrix)
     monkeypatch.setattr(
         module,
         "apply_positive_chip_boost",
@@ -1177,15 +1182,23 @@ def test_fp_weight_campaign_is_multi_seed_and_non_promoting_by_default(monkeypat
     result = module.experiment_fp_weights(
         fp_weights=[2.0, 3.0],
         hidden_layers=[2],
+        feature_names=["l1_delta_lag_ratio"],
         output_path=output_path,
-        promote_winner=False,
     )
 
     payload = json.loads(output_path.read_text())
     assert result == 0
     assert payload["promotion"]["winner"] == "fp_weight=3"
     assert payload["promotion"]["clear_winner"] is True
+    assert payload["config"]["feature_names"] == ["l1_delta_lag_ratio"]
+    assert loaded_feature_sets == [["l1_delta_lag_ratio"]]
     assert {seed for _, seed in observed} >= set(module.DEFAULT_EXPERIMENT_FINAL_SEEDS)
+
+
+def test_l1_delta_lag_ratio_has_cpp_extractor_id():
+    module = _load_train_module()
+
+    assert module.resolve_cpp_feature_ids(["l1_delta_lag_ratio"]) == [25]
 
 
 def test_normal_training_evaluates_deployment_without_exporting(monkeypatch):
@@ -1403,6 +1416,32 @@ def test_features_cli_rejects_duplicates(monkeypatch, capsys):
 
     assert module.main() == 1
     assert "duplicate" in capsys.readouterr().out
+
+
+def test_features_cli_propagates_candidate_set_to_architecture_campaign(monkeypatch):
+    module = _load_train_module()
+    observed = {}
+
+    def fake_experiment(**kwargs):
+        observed.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(module, "experiment_architectures", fake_experiment)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "train_ml_model.py",
+            "--features",
+            "l1_delta,l1_delta_lag_ratio",
+            "--experiment",
+        ],
+    )
+
+    assert module.main() == 0
+    assert observed["feature_names"] == [
+        "l1_delta",
+        "l1_delta_lag_ratio",
+    ]
 
 
 def test_force_promote_cli_requires_explicit_seed(monkeypatch, capsys):

@@ -50,7 +50,6 @@ def test_hampel_master_switch_controls_both_feature_streams() -> None:
 def test_startup_q95_adapts_probability_threshold() -> None:
     detector = ClassicDetector()
     detector._startup_logits = [-1.0, -0.8, -0.6, -0.4]
-    detector._startup_l1_deltas = [detector.FEATURE_CENTER[0]] * 4
 
     detector.set_adaptive_threshold(0.01)
 
@@ -65,24 +64,22 @@ def test_startup_q95_adapts_probability_threshold() -> None:
     assert detector.get_threshold() == pytest.approx(expected)
 
 
-def test_noisy_startup_uses_bidirectional_l1_excursion() -> None:
+def test_noisy_startup_still_uses_the_shifted_logit_threshold() -> None:
     detector = ClassicDetector()
-    # Derive the noisy floor from the fitted constants so the fixture keeps
-    # saturating the blend after a refit instead of silently drifting below it.
-    floor = detector.L1_NOISE_BLEND_END + detector.FEATURE_SCALE[0]
-    excursion = 0.5 * detector.FEATURE_SCALE[0]
     detector._startup_logits = [10.0] * 4
-    detector._startup_l1_deltas = [floor] * 4
 
     detector.set_adaptive_threshold(0.01)
 
-    assert detector._startup_l1_floor == pytest.approx(floor)
-    assert detector._l1_noise_blend == pytest.approx(1.0)
-    assert detector.get_threshold() == pytest.approx(detector.BASE_THRESHOLD)
-    upward = detector._calculate_logit(floor + excursion, detector.FEATURE_CENTER[1])
-    downward = detector._calculate_logit(floor - excursion, detector.FEATURE_CENTER[1])
-    assert upward == pytest.approx(downward)
-    assert upward > detector._calculate_logit(floor, detector.FEATURE_CENTER[1])
+    q95 = detector._quantile(detector._startup_logits, 0.95)
+    base_logit = math.log(
+        detector.BASE_THRESHOLD / (1.0 - detector.BASE_THRESHOLD)
+    )
+    expected = detector._sigmoid(
+        base_logit
+        + detector.STARTUP_STRENGTH * (q95 - detector.TRAIN_IDLE_Q95_LOGIT)
+    )
+    assert detector.get_threshold() == pytest.approx(expected)
+    assert detector.get_threshold() > detector.BASE_THRESHOLD
 
 
 def test_manual_threshold_uses_probability_scale() -> None:
@@ -97,7 +94,7 @@ def test_manual_threshold_uses_probability_scale() -> None:
 def test_update_state_uses_weighted_probability(monkeypatch) -> None:
     detector = ClassicDetector(window_size=20, threshold=0.5)
     monkeypatch.setattr(detector, "is_ready", lambda: True)
-    monkeypatch.setattr(detector._l1, "mean", lambda: detector.FEATURE_CENTER[0])
+    monkeypatch.setattr(detector._l1, "delta_lag_ratio", lambda: detector.FEATURE_CENTER[0])
     monkeypatch.setattr(detector, "_turb_autocorr", lambda: detector.FEATURE_CENTER[1])
 
     metrics = detector.update_state()
@@ -106,19 +103,21 @@ def test_update_state_uses_weighted_probability(monkeypatch) -> None:
     assert metrics["probability"] == pytest.approx(expected)
     assert metrics["l1_delta"] == pytest.approx(detector.FEATURE_CENTER[0])
     assert metrics["turb_autocorr"] == pytest.approx(detector.FEATURE_CENTER[1])
-    assert metrics["state"] == MotionState.IDLE
+    # Derived from the probability rather than pinned, so a refit that moves the
+    # intercept across the threshold does not read as a state-machine fault.
+    assert metrics["state"] == (
+        MotionState.MOTION if expected > detector.get_threshold() else MotionState.IDLE
+    )
 
 
 def test_reset_preserves_threshold_and_clears_feature_state() -> None:
     detector = ClassicDetector(threshold=0.7)
     detector._current_probability = 0.9
     detector._startup_logits = [1.0]
-    detector._startup_l1_deltas = [0.1]
 
     detector.reset()
 
     assert detector.get_threshold() == pytest.approx(0.7)
     assert detector.get_motion_metric() == 0.0
     assert detector._startup_logits == []
-    assert detector._startup_l1_deltas == []
     assert detector.get_state() == MotionState.IDLE

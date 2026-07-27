@@ -61,19 +61,19 @@ python tools/train_ml_model.py --gain-stress-gate
 python tools/train_ml_model.py --gain-stress-gate --environment bedroom
 python tools/train_ml_model.py --seed-search-until-improvement 20
 python tools/train_ml_model.py --features turb_autocorr,turb_zcr,l1_delta --no-export
+python tools/train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta,l1_delta_lag_ratio,l1_delta_autocorr --experiment
 ```
 
-`--features` selects the training feature set for experiments. Candidate
-features from `csi_features.CANDIDATE_FEATURES` have no C++ extractor yet, so
-they are accepted only by evaluation flows (`--no-export`, diagnostics);
-exporting flows reject them until the winning set is ported to
-`csi_features.h`.
+`--features` selects the training feature set for experiments and is propagated
+to architecture and FP-weight campaigns. Candidate features remain outside the
+production default; exporting flows accept only candidates with a C++ extractor
+id and reject the rest. `l1_delta_lag_ratio` is available end to end for
+floor-robust L1 experiments, while `l1_delta_cv` remains evaluation-only.
 
 For exploratory architecture campaigns:
 
 ```bash
 python tools/train_ml_model.py --experiment
-python tools/train_ml_model.py --experiment --experiment-promote
 python tools/train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"
 ```
 
@@ -81,12 +81,12 @@ For a gated FP-weight campaign:
 
 ```bash
 python tools/train_ml_model.py --experiment-fp-weights "1,1.5,2,2.5,3"
-python tools/train_ml_model.py --experiment-fp-weights "1.5,2,2.5,3" --experiment-promote
 ```
 
 Both campaigns use the exported seed for single-seed screening, retain the
 baseline among the finalists, and then apply three- and five-seed robustness
-comparisons. Without `--experiment-promote`, they only write their JSON report.
+comparisons. They only write their JSON report and never replace the exported
+runtime artifacts.
 
 For feature diagnostics:
 
@@ -166,7 +166,7 @@ The training pipeline:
    backward compatibility.
 2. Uses the shared CV-normalized turbulence path (`std/mean`) across all files.
 3. Extracts the selected ML feature set per sliding window. The production
-   default is the Coherence-6 set. When Hampel is enabled, the trainer filters both
+   default is the Coherence-7 set. When Hampel is enabled, the trainer filters both
    base streams before feature extraction: turbulence for all `turb_*`
    features and per-packet L1 deltas for all `l1_delta*` features.
    Feature extraction uses the same fixed HT20 subcarrier band as the runtime,
@@ -215,13 +215,11 @@ For production artifact updates, prefer one of these gated flows:
 
 - `python tools/train_ml_model.py`
 - `python tools/train_ml_model.py --seed-search-until-improvement <N>`
-- `python tools/train_ml_model.py --experiment --experiment-promote`
-- `python tools/train_ml_model.py --experiment-fp-weights "..." --experiment-promote`
 
 A normal training run exports when the deployment replay gates pass and do not
 regress against the exported baseline. Use `--no-export` to leave runtime
-artifacts unchanged. Experiment campaigns leave artifacts unchanged unless
-`--experiment-promote` is supplied.
+artifacts unchanged. Experiment campaigns are always read-only and leave
+artifacts unchanged.
 
 The train/evaluation separation, dataset roles, and link-class policy are a
 durable decision; see
@@ -274,7 +272,7 @@ promotable artifacts should still pass the validation checks below.
 
 The production ML path deliberately keeps Python/C++ runtime inference aligned
 by deriving all neural-detector inputs from the same raw turbulence signal. The
-exported Coherence-6 feature set uses gain-invariant, temporally-coherent
+exported Coherence-7 feature set uses gain-invariant, temporally-coherent
 turbulence and L1-delta
 statistics, so the model is structurally less sensitive to absolute amplitude
 gain changes.
