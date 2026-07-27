@@ -1281,10 +1281,14 @@ def augment_csi_packets(packets, config, seed):
     """Return a deterministic packet-level augmented copy for training only."""
     if not config:
         return list(packets)
-    gain_sigma = float(config.get('gain_sigma', 0.0))
     noise_sigma = float(config.get('noise_sigma', 0.0))
     packet_loss = float(config.get('packet_loss', 0.0))
-    if min(gain_sigma, noise_sigma, packet_loss) < 0.0 or packet_loss >= 1.0:
+    stutter_probability = float(config.get('stutter_probability', 0.0))
+    if (
+        min(noise_sigma, packet_loss, stutter_probability) < 0.0
+        or packet_loss >= 1.0
+        or stutter_probability > 1.0
+    ):
         raise ValueError("invalid packet augmentation parameters")
 
     grouped = {}
@@ -1294,34 +1298,30 @@ def augment_csi_packets(packets, config, seed):
     for source in sorted(grouped):
         rng = np.random.default_rng(derive_seed(seed, _stable_text_seed(source)))
         source_packets = grouped[source]
-        sample_len = len(source_packets[0].get('csi_data', ())) if source_packets else 0
-        subcarriers = max(1, sample_len // 2)
-        if gain_sigma > 0.0:
-            knots = rng.normal(0.0, gain_sigma, size=4)
-            smooth_log_gain = np.interp(
-                np.linspace(0.0, 1.0, subcarriers),
-                np.linspace(0.0, 1.0, len(knots)),
-                knots,
-            )
-            gains = np.exp(smooth_log_gain)
-            gains /= np.mean(gains)
-        else:
-            gains = np.ones(subcarriers, dtype=np.float64)
-
+        previous_emitted = None
         for packet in source_packets:
             if packet_loss > 0.0 and rng.random() < packet_loss:
                 continue
-            raw = np.asarray(packet['csi_data'], dtype=np.float64).copy()
-            usable = min(len(raw) // 2, len(gains))
+            raw = np.asarray(packet['csi_data'], dtype=np.float64)
+            if (
+                stutter_probability > 0.0
+                and previous_emitted is not None
+                and rng.random() < stutter_probability
+            ):
+                raw = previous_emitted.copy()
+            else:
+                raw = raw.copy()
+            usable = len(raw) // 2
             for sc in range(usable):
                 pair = slice(2 * sc, 2 * sc + 2)
-                raw[pair] *= gains[sc]
                 if noise_sigma > 0.0:
                     magnitude = max(1.0, float(np.linalg.norm(raw[pair])))
                     raw[pair] += rng.normal(0.0, noise_sigma * magnitude / np.sqrt(2.0), size=2)
             copied = dict(packet)
-            copied['csi_data'] = np.clip(np.rint(raw), -128, 127).astype(np.int8)
+            emitted = np.clip(np.rint(raw), -128, 127).astype(np.int8)
+            copied['csi_data'] = emitted
             augmented.append(copied)
+            previous_emitted = emitted.astype(np.float64)
     return augmented
 
 
@@ -1691,7 +1691,7 @@ def normalized_feature_bounds(preprocessor, feature_names):
     center, scale = get_preprocessor_arrays(preprocessor)
     lower = np.full(len(feature_names), -np.inf, dtype=np.float32)
     upper = np.full(len(feature_names), np.inf, dtype=np.float32)
-    for name in ('turb_mad_over_mean', 'l1_delta', 'l1_delta_std'):
+    for name in ('turb_mad_over_mean',):
         if name in feature_names:
             idx = feature_names.index(name)
             lower[idx] = (0.0 - center[idx]) / scale[idx]
@@ -2779,7 +2779,7 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
         detail_group_key: Secondary sample-context key reported as the worst
             sub-group inside each held-out fold (e.g. ``chip`` for rooms).
         skip_values: Group values treated as missing metadata and ignored.
-        augment: If True, apply the current validated train-time augmentation.
+        augment: If True, apply the current non-scale train-time augmentation.
 
     This is a diagnostic only: it never trains a promotable model or exports
     runtime artifacts. Held-out scoring reuses the same block subsampling as
@@ -3032,16 +3032,16 @@ def cross_chip_validation(**kwargs):
     )
 
 
-# Production shortcut for --augment: the validated augmentation recipe
-# (feature jitter 0.10 + moderate packet combined augmentation).
+# Production shortcut for --augment: the current non-scale augmentation recipe
+# (feature jitter 0.10 + moderate packet noise/loss/stutter).
 ROBUSTNESS_WINNER_NAME = (
-    'baseline_standard__feature_jitter_010__packet_packet_combined_moderate'
+    'baseline_standard__feature_jitter_010__packet_noise_loss_stutter_moderate'
 )
 ROBUSTNESS_WINNER_FEATURE_AUGMENTATION = {'jitter_sigma': 0.10}
 ROBUSTNESS_WINNER_PACKET_AUGMENTATION = {
-    'gain_sigma': 0.05,
     'noise_sigma': 0.01,
     'packet_loss': 0.05,
+    'stutter_probability': 0.08,
 }
 
 
@@ -3214,8 +3214,6 @@ CPP_FEATURE_IDS = {
     'turb_autocorr': 6,
     'turb_mad_over_mean': 13,
     'turb_zcr': 14,
-    'l1_delta': 17,
-    'l1_delta_std': 18,
     'l1_delta_autocorr': 24,
     'l1_delta_lag_ratio': 25,
 }
@@ -3932,8 +3930,8 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         positive_chip_boost: Optional {CHIP: factor} boost applied to motion
                              samples after feature extraction.
         use_cache: If True, reuse the cached feature matrix.
-        augment: If True, apply the current validated train-time
-                 augmentation recipe (feature jitter + packet combined).
+        augment: If True, apply the current non-scale train-time
+                 augmentation recipe (feature jitter + packet noise/loss/stutter).
 
     Returns:
         tuple[int, int | None, dict | None]:

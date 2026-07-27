@@ -2,8 +2,11 @@
  * ESPectre - Shared Feature Support
  *
  * Shared L1-delta constants plus C++ feature extraction helpers for the
- * production Coherence-7 ML detector, and for the two members Classic reads
- * directly. Port of src/python/micro_espectre/csi_features.py.
+ * production scale-invariant ML feature set, and for the two members Classic
+ * reads directly. Every feature is a ratio, a correlation, or a crossing rate:
+ * the per-packet CSI scaling factor is never recorded, so anything carrying
+ * absolute magnitude carries the link's noise floor with it.
+ * Port of src/python/micro_espectre/csi_features.py.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -33,8 +36,6 @@ enum MLFeatureId : uint8_t {
     ML_FEAT_TURB_AUTOCORR = 6,
     ML_FEAT_TURB_MAD_OVER_MEAN = 13,
     ML_FEAT_TURB_ZCR = 14,
-    ML_FEAT_L1_DELTA = 17,
-    ML_FEAT_L1_DELTA_STD = 18,
     ML_FEAT_L1_DELTA_AUTOCORR = 24,
     ML_FEAT_L1_DELTA_LAG_RATIO = 25,
 };
@@ -54,8 +55,6 @@ inline MLFeatureSource ml_feature_source(MLFeatureId id) {
         case ML_FEAT_TURB_MAD_OVER_MEAN:
         case ML_FEAT_TURB_ZCR:
             return MLFeatureSource::TURBULENCE_SERIES;
-        case ML_FEAT_L1_DELTA:
-        case ML_FEAT_L1_DELTA_STD:
         case ML_FEAT_L1_DELTA_AUTOCORR:
             return MLFeatureSource::L1_DELTA_SERIES;
         case ML_FEAT_L1_DELTA_LAG_RATIO:
@@ -263,8 +262,6 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
         case ML_FEAT_TURB_AUTOCORR: return turb.autocorr;
         case ML_FEAT_TURB_MAD_OVER_MEAN: return turb.mad / turb.mean_denom;
         case ML_FEAT_TURB_ZCR: return turb.zcr;
-        case ML_FEAT_L1_DELTA: return delta.mean;
-        case ML_FEAT_L1_DELTA_STD: return delta.std;
         case ML_FEAT_L1_DELTA_AUTOCORR: return delta.autocorr;
         case ML_FEAT_L1_DELTA_LAG_RATIO: return l1_delta_lag_ratio;
         default: return 0.0f;

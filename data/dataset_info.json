@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-27T01:43:01.123733",
+  "updated_at": "2026-07-27T23:29:52.243908",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -231,6 +231,22 @@
         "average_packet_rate": 99.265,
         "nominal_packet_rate": 100,
         "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz"
+      },
+      {
+        "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260712_172816_395303_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-12T17:28:16.385626",
+        "duration_ms": 179922,
+        "num_packets": 18000,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64ae708",
+        "dataset_role": "train",
+        "average_packet_rate": 99.453,
+        "nominal_packet_rate": 100,
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260712_173027_716425_0001.npz"
       },
       {
         "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz",
@@ -588,6 +604,23 @@
         "nominal_packet_rate": 1000
       },
       {
+        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260724_154215_755817_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T15:42:15.738237",
+        "duration_ms": 179983,
+        "num_packets": 17914,
+        "description": "HT20 low-RSSI static presence sample. AP is in hobby room.",
+        "low_rssi": true,
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
+        "dataset_role": "selection",
+        "average_packet_rate": 99.493,
+        "nominal_packet_rate": 100,
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260724_154440_361170_0001.npz"
+      },
+      {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260724_155953_837027_0001.npz",
         "chip": "C6",
         "subcarriers": 64,
@@ -754,6 +787,22 @@
         "average_packet_rate": 99.84,
         "nominal_packet_rate": 100,
         "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz"
+      },
+      {
+        "filename": "motion_c3_64sc_dev0000acebe64ae708_20260712_173027_716425_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-12T17:30:27.708717",
+        "duration_ms": 89995,
+        "num_packets": 9008,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x0000acebe64ae708",
+        "dataset_role": "train",
+        "average_packet_rate": 99.93,
+        "nominal_packet_rate": 100,
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260712_172816_395303_0001.npz"
       },
       {
         "filename": "motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz",
@@ -1109,6 +1158,23 @@
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260724_153301_148544_0001.npz",
         "average_packet_rate": 1029.866,
         "nominal_packet_rate": 1000
+      },
+      {
+        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260724_154440_361170_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-24T15:44:40.349333",
+        "duration_ms": 89996,
+        "num_packets": 8972,
+        "description": "HT20 low-RSSI motion sample. AP is in hobby room.",
+        "low_rssi": true,
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
+        "dataset_role": "selection",
+        "average_packet_rate": 98.678,
+        "nominal_packet_rate": 100,
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260724_154215_755817_0001.npz"
       },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260724_160150_405763_0001.npz",

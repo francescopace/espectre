@@ -101,7 +101,7 @@ def test_update_state_uses_weighted_probability(monkeypatch) -> None:
 
     expected = detector._sigmoid(detector.INTERCEPT)
     assert metrics["probability"] == pytest.approx(expected)
-    assert metrics["l1_delta"] == pytest.approx(detector.FEATURE_CENTER[0])
+    assert metrics["lag_ratio"] == pytest.approx(detector.FEATURE_CENTER[0])
     assert metrics["turb_autocorr"] == pytest.approx(detector.FEATURE_CENTER[1])
     # Derived from the probability rather than pinned, so a refit that moves the
     # intercept across the threshold does not read as a state-machine fault.

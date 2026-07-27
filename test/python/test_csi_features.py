@@ -16,7 +16,7 @@ from csi_features import (
     calc_zero_crossing_rate,
     extract_features_by_name,
     ALL_FEATURES,
-    COHERENCE7_FEATURES,
+    INVARIANT5_FEATURES,
     DEFAULT_FEATURES,
     FEATURE_NAMES,
 )
@@ -151,7 +151,7 @@ class TestExtractAllFeatures:
         """Test that FEATURE_NAMES matches DEFAULT_FEATURES (production = Coherence-7)"""
         assert len(FEATURE_NAMES) == len(DEFAULT_FEATURES)
         assert FEATURE_NAMES == DEFAULT_FEATURES
-        assert DEFAULT_FEATURES == COHERENCE7_FEATURES
+        assert DEFAULT_FEATURES == INVARIANT5_FEATURES
 
     def test_production_set_is_the_only_feature_surface(self):
         """There is no candidate tier: what trains is what ships.
@@ -160,7 +160,7 @@ class TestExtractAllFeatures:
         code, so nothing here can drift out of the exported model.
         """
         assert ALL_FEATURES == tuple(DEFAULT_FEATURES)
-        assert len(DEFAULT_FEATURES) == 7
+        assert len(DEFAULT_FEATURES) == 5
 
     def test_unknown_feature_raises(self):
         """Removed legacy features are no longer accepted."""
@@ -284,17 +284,29 @@ class TestCandidateFeatures:
         assert combined[0] == pytest.approx(alone[0])
         assert combined[0] == pytest.approx(1.0)
 
-    def test_l1_candidates_are_scale_invariant_unlike_l1_delta(self):
+    def test_every_production_feature_is_scale_invariant(self):
+        """The reason the production set is what it is.
+
+        The per-packet CSI scaling factor is never recorded, so a feature that
+        carries absolute magnitude carries the link's noise floor with it. On
+        weak links that floor can exceed the motion it is meant to measure,
+        which is how l1_delta and l1_delta_std took a weak pair from 0% to
+        100% false positives on 2026-07-27.
+        """
         np.random.seed(13)
         turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
         series = [abs(v) + 0.05 for v in np.random.normal(0.1, 0.03, 40)]
-        scaled = [v * 10.0 for v in series]
-        names = ['l1_delta', 'l1_delta_autocorr']
-        base = extract_features_by_name(turb, 50, feature_names=names, l1_series=series)
-        boosted = extract_features_by_name(turb, 50, feature_names=names, l1_series=scaled)
-        # The mean carries the link's scale; the autocorrelation does not.
-        assert boosted[0] == pytest.approx(base[0] * 10.0)
-        assert boosted[1] == pytest.approx(base[1])
+
+        base = extract_features_by_name(
+            turb, 50, feature_names=DEFAULT_FEATURES,
+            l1_series=series, l1_delta_lag_ratio=1.4)
+        boosted = extract_features_by_name(
+            [v * 10.0 for v in turb], 50, feature_names=DEFAULT_FEATURES,
+            l1_series=[v * 10.0 for v in series], l1_delta_lag_ratio=1.4)
+
+        for name, before, after in zip(DEFAULT_FEATURES, base, boosted):
+            assert after == pytest.approx(before, abs=1e-9), (
+                f"{name} moved when both streams were scaled by 10")
 
     def test_l1_delta_autocorr_matches_direct_computation(self):
         turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
@@ -333,7 +345,7 @@ class TestCandidateFeatures:
         turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
         values = extract_features_by_name(
             turb, 50,
-            feature_names=['l1_delta_autocorr', 'l1_delta_std'],
+            feature_names=['l1_delta_autocorr'],
             l1_series=[],
         )
-        assert values == [0.0, 0.0]
+        assert values == [0.0]

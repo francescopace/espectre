@@ -22,7 +22,7 @@ ClassicDetector::ClassicDetector(uint16_t window_size, float threshold,
       threshold_(clamp_threshold(threshold, CLASSIC_MIN_THRESHOLD, CLASSIC_MAX_THRESHOLD)),
       current_probability_(0.0f),
       current_logit_(0.0f),
-      current_l1_delta_(0.0f),
+      current_lag_ratio_(0.0f),
       current_turb_autocorr_(0.0f),
       startup_logit_count_(0U),
       adapted_threshold_(CLASSIC_DEFAULT_THRESHOLD),
@@ -95,8 +95,8 @@ float ClassicDetector::calculate_turb_autocorr_() const {
   return calc_autocorrelation(ordered, count, mean, variance, autocorr_lag_);
 }
 
-float ClassicDetector::calculate_logit_(float l1_delta, float turb_autocorr) const {
-  const float normalized_l1 = (l1_delta - CLASSIC_L1_CENTER) / CLASSIC_L1_SCALE;
+float ClassicDetector::calculate_logit_(float lag_ratio, float turb_autocorr) const {
+  const float normalized_l1 = (lag_ratio - CLASSIC_L1_CENTER) / CLASSIC_L1_SCALE;
   const float normalized_autocorr =
       (turb_autocorr - CLASSIC_AUTOCORR_CENTER) / CLASSIC_AUTOCORR_SCALE;
   return CLASSIC_INTERCEPT + CLASSIC_L1_WEIGHT * normalized_l1 +
@@ -116,9 +116,9 @@ void ClassicDetector::update_state() {
     return;
   }
 
-  current_l1_delta_ = l1_tracker_.delta_lag_ratio();
+  current_lag_ratio_ = l1_tracker_.delta_lag_ratio();
   current_turb_autocorr_ = calculate_turb_autocorr_();
-  current_logit_ = calculate_logit_(current_l1_delta_, current_turb_autocorr_);
+  current_logit_ = calculate_logit_(current_lag_ratio_, current_turb_autocorr_);
   current_probability_ = sigmoid_(current_logit_);
   if (!adapted_threshold_ready_ && startup_logit_count_ < CLASSIC_STARTUP_SAMPLE_LIMIT) {
     startup_logits_[startup_logit_count_] = current_logit_;
@@ -240,7 +240,7 @@ void ClassicDetector::reset() {
   reset_settled_level_();
   current_probability_ = 0.0f;
   current_logit_ = 0.0f;
-  current_l1_delta_ = 0.0f;
+  current_lag_ratio_ = 0.0f;
   current_turb_autocorr_ = 0.0f;
   state_ = MotionState::IDLE;
 }
@@ -251,7 +251,7 @@ void ClassicDetector::clear_buffer() {
   l1_tracker_.clear();
   current_probability_ = 0.0f;
   current_logit_ = 0.0f;
-  current_l1_delta_ = 0.0f;
+  current_lag_ratio_ = 0.0f;
   current_turb_autocorr_ = 0.0f;
 }
 

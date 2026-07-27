@@ -95,7 +95,7 @@ For feature diagnostics:
 ```bash
 python tools/train_ml_model.py --correlation
 python tools/train_ml_model.py --shap 500 --seed 1386543369 --no-export
-python tools/train_ml_model.py --ablation-feature l1_delta_std --seed 1386543369
+python tools/train_ml_model.py --ablation-feature l1_delta_autocorr --seed 1386543369
 ```
 
 Correlation is a fast marginal screen over the full training matrix. SHAP runs
@@ -329,13 +329,6 @@ links. Validate low-RSSI behavior separately with real captures registered in
 a startup-centered safeguard for this case; ML low-RSSI behavior remains a
 separate promotion problem that requires additional real-data evidence.
 
-Use `tools/generate_low_rssi_dataset.py` for synthetic weak-link derivatives.
-The generator models RSSI and packet loss from the retained C3, C5, C6, or S3
-low-RSSI pair, then jointly fits the six production ML feature medians through
-temporal profile deformation and controlled spatial turbulence. The exported
-NPZ includes its source, target, and achieved production-feature medians, normalized fit
-errors, and fitted parameters.
-
 The `reference_match` mode reproduces each phase independently for detector
 replay and should not be used for training. The `shared_session` mode fits
 `static_presence`, preserves source dynamics, and reuses the same impairment
@@ -378,24 +371,22 @@ feature-analysis flags.
 
 ## Training Augmentation
 
-`--augment` enables a train-time augmentation recipe: feature jitter
-(`jitter_sigma=0.10`) plus moderate packet augmentation (`gain_sigma=0.05`,
-`noise_sigma=0.01`, `packet_loss=0.05`). Inference stays clean; the exported
-runtime does not apply augmentation.
+`--augment` enables a train-time non-scale augmentation recipe: feature jitter
+(`jitter_sigma=0.10`) plus moderate packet perturbation (`noise_sigma=0.01`,
+`packet_loss=0.05`, `stutter_probability=0.08`). The packet path no longer
+applies gain scaling; instead it injects value noise, random drops, and a
+stale-packet timing artifact that repeats the previous emitted frame.
+Inference stays clean; the exported runtime does not apply augmentation.
 
-**The exported Coherence-7 model is trained without it, and augmentation
-currently costs more than it returns.** Measured on 2026-07-27, twenty
-augmented seeds put worst-session recall between `43.8%` and `91.0%` against
-`84.3%` to `95.4%` for ten unaugmented seeds, failed the paired gate three
-times where the unaugmented run failed none, and produced no promotable
-candidate. The recipe perturbs gain, and two of the seven production features
-are gain-invariant by construction, so part of what it teaches is no longer
-information the model can use. Re-measure before assuming it helps a new
-feature set.
+**The current five-feature export and seed search still train without it.**
+The recipe has been retuned away from scale perturbations because
+gain-invariant features now carry more of the signal, but it is not yet
+re-baselined as a promotion-default path on the present corpus. Re-measure
+before assuming it helps a new feature set.
 
 Use it on normal training runs, seed search, and the `--cross-environment` /
-`--cross-chip` diagnostics when you want to measure whether the augmented
-training recipe improves generalization for the set you are testing:
+`--cross-chip` diagnostics when you want to measure whether the non-scale
+augmentation recipe improves generalization for the set you are testing:
 
 ```bash
 python tools/train_ml_model.py --augment

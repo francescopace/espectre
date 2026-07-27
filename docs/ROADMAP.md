@@ -53,53 +53,29 @@ clearly documenting current sensing characteristics.
 
 ESPectre v3 success criteria:
 
-- [x] Keep C++ and Python real-data performance validation green
-- [x] Keep C++ long-recording validation green
-- [x] Keep Python long-recording validation green
-- [x] Document multi-frontend setup, architecture, and protocol boundaries
-- [x] Run local firmware smoke tests for ESPHome, native, and Matter C3 release paths
-- [x] Run hardware flash/monitor smoke tests for the release targets, published factory images, and Native OTA images
-- [x] Reduce long-recording false-positive caveats on C5/C6
-- [x] Define local-first shared protocol baseline for BLE and MQTT derived telemetry
-- [x] Implement BLE-assisted Wi-Fi and MQTT provisioning
-- [x] Persist Wi-Fi and ESPectre Protocol settings on the native firmware path
-- [x] Move ESPectre Protocol helpers and ESP-IDF protocol services into shared runtime layers
-- [x] Keep the streamer firmware on a narrow Wi-Fi-only streaming path without a separate BLE, MQTT, or OTA control surface
-- [x] Publish MQTT telemetry, status, info, stats, and command results from native firmware
-- [x] Align `micro-espectre` MQTT payloads and commands with the ESPectre Protocol baseline
-- [x] Adapt the existing web monitor into a protocol validation and MQTT dashboard client
-- [x] Keep Classic and ML usable when RSSI drops into the roughly `-70` to `-80 dBm` range
-  - [x] Add a session-centered L1 safeguard for Classic
-  - [x] Add and validate an ML low-RSSI safeguard from real captures
-  - [x] Gate Classic false positives on the empty-room recordings: the alarms on static-presence baselines were not weak-link noise but the stationary occupant's own micro-motion, and they occur on the strongest links as readily as on the weakest
-- [x] Separate ML training data from reserved promotion replays, with lineage-grouped CV and a link-class stress policy for real weak-link captures
-- [x] Promote a weak-link-robust ML feature set (Coherence-6: temporal-coherence features replace the two weakest Core-6 members; promoted end-to-end by the reserved-replay protocol with a novel-hardware holdout check). Now Coherence-7: the Classic lag ratio joined as a seventh input, taking reserved effective alarms from `8` to `3` and the worst reserved F1 from `92.92%` to `95.30%`
-  - [x] Set the per-replay non-regression margin from measured seed noise instead of pinning it at one evaluation. Done 2026-07-27: `fp_rate` moves to five evaluations against a measured spread of four across fifteen seeds, `recall` keeps one evaluation because it did not move at all, and `effective_alarms` keeps a zero margin. See [2026-07-27-set-the-non-regression-margin-from-seed-noise.md](adr/2026-07-27-set-the-non-regression-margin-from-seed-noise.md)
-    - Still open: the `low_rssi` exemption. Every weak pair sits in `train`, `holdout`, or `exclude`, and none in `selection`, so its dispersion can only be measured by contaminating training or by burning the holdout. `COLLECTION_PLAN.md` asks for a reserved weak selection pair; leave the exemption alone until one lands
-    - Re-measure the margin once the C5 and S3 replacement captures land: it is a claim about this corpus, not about arithmetic
-- [x] Test whether augmentation still helps at seven features: it does not. Twenty augmented seeds put worst-session recall between `43.8%` and `91.0%` against `84.3%` to `95.4%` unaugmented, failed the paired gate three times, and found no candidate worth promoting, while ten unaugmented seeds passed every time with zero alarms. Two of the seven features are scale-invariant by construction now, which is the obvious suspect for why a gain-perturbing augmentation stopped paying
-- [x] Raise the ESP32 streamer sustained capture rate beyond the previous approximately 70 pps ceiling (stable ~80 pps via legacy broadcast pacing; L-LTF frames stay outside the HT20 sensing contract, so sensing datasets still come from HT captures)
-- [x] Add a post-collect dataset consistency check for streamer captures that at least verifies there are no recording gaps and that class separation is decent
-- [x] Make `segmentation_window_size`, detector feature windows, and `evaluation_interval` adapt automatically to the effective CSI packet rate, and keep Classic and ML features comparable across window sizes and different CSI packet rates
-  - [ ] Verify the Classic coefficients off-nominal: they remain fitted at the nominal cadence, and a refit on the current corpus lost to them at matched false positives
-- [x] Close the remaining detector recall gap. Every chip now clears the `95%` target, worst per-chip recall `97.7%`, after the settled-level rule recovered the ESP32 capture from `94.2%` to `98.0%`. Five bedroom pairs judged toxic are marked `[TO BE REPLACED]` and excluded pending re-collection, so this rests on a reduced corpus
+- [ ] Finish post-promotion validation for the five-feature ML set
+  - [x] Run a seed search over the five-feature set. The exported model now comes from a ten-trial search, not a force-promotion: seed `1876849819` ranked `robust_best` with `98.2%` blocked OOF F1, `92.39%` worst selection replay recall, `3.79%` max selection FP, and `0` selection alarms, then cleared the reserved holdout at `96.55%` worst replay recall, `2.19%` max FP, and `1` alarm. The open cost versus the seven-feature line remains the weaker worst-replay recall (`96.55%` versus `99.14%`)
+  - [ ] Measure the `low_rssi` exemption across seeds now that one recovered weak-link selection pair exists. The first seed search kept the recovered S3 weak-link pair in family with the rest of the winners, but one recording is still not enough to tell a dispersion from that pair's own quirk, so collect a second weak selection pair first
+  - [ ] Re-measure the non-regression margin once the specific holdout replacements in `COLLECTION_PLAN.md` land: the C5 bedroom normal-link holdout pair from `2026-07-24 12:59/13:05` is still the active C5 holdout, and the S3 bedroom weak-link holdout pair from `2026-07-22 17:20/17:23` is still the active S3 weak-link holdout. The report is current again, but the margin is still a claim about this corpus, not about arithmetic, so it should be re-derived on the replacement corpus rather than carried forward
+- [x] Rework `--augment` around non-scale perturbations and re-validate it on the five-feature corpus. Gain scaling is no longer part of the recipe; the remaining question is whether feature jitter plus packet noise, packet loss, and timing-artifact stutter can earn a place back in promotion rather than stay experiment-only
+- [ ] Finish detector follow-ups on the reduced corpus
   - [ ] Re-measure once the replacement captures land
-  - [x] Remove the now-dead L1 noise-blend safeguard. It engaged only for the plain-mean L1 feature; once Classic moved to the lag ratio it no longer changed any outcome on the 27 paired and 12 empty-room recordings, so the extra startup L1 floor state, excursion gain, and blend branch were removed from both runtimes with parity re-checked
   - [ ] Revisit why Classic still pins its calibrated threshold near `1.0` on some captures, now that it no longer costs recall. Under the plain-mean L1 feature the two worst pinned captures managed `69%` while ML managed `100%`; with the lag ratio they calibrate at `0.980` and `0.996` and reach `96.8%` and `99.1%`, and five captures now sit above `0.90` without a recall penalty. So the symptom is unexplained but no longer harmful: the open question is whether a threshold that close to the ceiling leaves enough headroom on rooms the corpus does not cover, not whether it costs detections today
   - [ ] Explain the two excluded C3 bedroom pairs, which are the hardest Classic cases in the corpus and stayed hard after the lag ratio: `2026-07-22 19:58` reaches `82.5%` recall at `0.9852` separation and `2026-07-25 13:58` reaches `74.2%` at `0.9872`, both at `0.0%` false positives. Neither is a weak link, and the first sits at `-39/-38 dBm`, the strongest link in the corpus, so this is not the low-RSSI failure mode and not a separability failure either: the features separate, the detector does not follow. ML clears the same captures
   - [ ] Broaden ESP32 coverage: the chip still rests on a single capture, so nothing there distinguishes a chip characteristic from one recording
-  - [x] Sweep the selected tone count at 16, 20, 24, and 32 with a refit per band: all regress against 12 once per-pair gates and the high-rate stress capture are included, so the count stays at 12 on detection evidence as well as channel statistics
-  - [x] Revisit the startup threshold once a session has settled: measured threshold-free, the ESP32 features separate at `0.9999` AUC while the detector reaches `94.2%`, because the calibration prefix on that capture is `4.14x` noisier than the rest of the session. The settled-level rule now recovers it to `98.0%` and lifts the worst per-chip recall to `97.7%` at no cost to false positives or the empty-room gate
-- [x] Restore Python/C++ performance-report parity, which had drifted on the post-reset interval fallback (mean against median), the replay timing seed, and the startup calibrator's weighted-sample accounting
 - [ ] Add and validate broader PHY and band support, including Wi-Fi 6 / 802.11ax capabilities and, where supported by hardware and exposed APIs, 5 GHz operation
-  - [x] Classify CSI formats before normalization and handle currently unsupported LLTF, HT40, and HE20 packets gracefully, with explicit drop-reason telemetry and detector resets on format-stream changes
 - [ ] Set the runtime `motion_on_hits` and `motion_off_hits` thresholds through the Native BLE control surface
 - [ ] Trigger Native firmware OTA from BLE, then resolve the manifest and download the update over HTTPS through the same OTA service used by MQTT
 - [ ] Collect ESP32 data across all dataset environments
   - [ ] Retrain and validate the production model with the expanded ESP32 dataset
 - [ ] Consent manager and cookies
-- [x] Remove unused C++ and Python features once the detector experiments settled. Done 2026-07-27: exactly the seven Coherence-7 features exist in both runtimes, there is no candidate tier, and `ALL_FEATURES == DEFAULT_FEATURES` is asserted by a test. `turb_skewness`, `l1_delta_waveform_length`, and `l1_delta_cv` are gone with their helpers, ids, and struct members, along with three helpers no feature ever used (`calc_iqr`, `calc_l1_delta`, and a duplicate `normalize_features` that allocated where the device path reuses a buffer). Those three had survived an earlier scan because a helper no production path calls still looks alive when its own tests reference it. See [2026-07-27-reduce-the-feature-surface-to-the-production-set.md](adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md), which records every removed feature and the measurement that rejected it
 - [ ] Simplify the training workflow by dropping options that are no longer useful. Not started: the feature cleanup above documented the three undocumented flags (`--experiment-output`, `--fp-weight-experiment-output`, `--hidden-layers`) rather than removing them, because all three work and one writes the report the dispersion analysis reads. `train_ml_model.py` still exposes `30` options, and the candidates worth assessing are the ones whose purpose narrowed when the feature surface did: `--ablation` (documented as unusable for promotion on its own), `--features` (now only subsets of seven), and `--positive-chip-boost`. Judge each against a run that used it, not against the help text
+- [ ] Evaluate removing the `test` label and moving the long recordings under `empty`, with an explicit role in training. All twelve captures in `data/test/` are quiet-room recordings of roughly `48k` packets each, and both long-recording suites already read them as the empty-room false-positive gate, so the label claims a mixed session while the content is `empty`; `ML_DATA_COLLECTION.md` reserves `test` for captures that are not label-homogeneous, and the only genuinely mixed captures were removed and live in history at `48c9cce^`, so the label currently has no user. The decision worth making is not the rename but the role: today these recordings are gate-only and never enter training, and the question is whether their length is a reason to keep them out, since one continuous session is one lineage group and admitting a whole recording shifts the group balance in CV, or whether a segmented share belongs in the idle class. Scope the loaders, the label list, dataset metadata, and the `data/test` paths in the long-recording suites, and re-run the quiet gate afterwards to confirm the empty-room floor is unchanged
+- [ ] Evaluate three new host-side features, all scale-invariant, each reading a physical aspect the production five do not. The current set is five amplitude-domain time statistics over one window (turbulence dispersion, turbulence autocorrelation, turbulence zero-crossing rate, L1-delta autocorrelation, and the L1-delta lag ratio), so it describes how much the channel moves and how fast, and nothing else. Enrich that physical profile without restating it. Scale invariance is a membership rule, not a preference; see [2026-07-28-drop-the-absolute-l1-features.md](adr/2026-07-28-drop-the-absolute-l1-features.md). Keep the work in Python and host tooling only, and port to C++ only if a candidate is promoted
+  - [ ] A spectral axis: where the movement energy sits in frequency rather than how large it is, as a normalized statistic over the movement series such as a band power ratio or a spectral centroid expressed in bins. This separates fast limb motion from slow whole-body motion, which the amplitude statistics conflate. `band_power_ratio` was measured before as the one noise-robust candidate of an earlier sweep, so start from that measurement rather than from scratch
+  - [ ] A spatial axis across the selected tones: how coherently movement acts on the band, as a correlation across subcarriers rather than a per-tone magnitude. Multipath change and common-mode gain drift look identical in a per-tone amplitude statistic and separate here, which is the one thing the unrecorded per-packet gain makes hard to distinguish
+  - [ ] A phase axis. Phase is untouched by the real int8 scaling factor, so it is scale-invariant by construction, but it is not usable raw: STO adds a linear ramp across subcarriers and CFO a common offset, both varying per packet. Sanitize first, by differencing across adjacent subcarriers or removing a linear fit, then build the statistic on the temporal behaviour of the residual. Confirm the sanitization holds across chips before trusting the feature, because the subcarrier layout differs between the shifted and unshifted families
+  - [ ] Gate each candidate on incremental value, not standalone value: report its correlation against all five production features first, and accept only what survives the promotion protocol, lineage-grouped CV to lead, paired and quiet gates for safety, and the holdout sealed
 - [ ] Make a final review of code. Be dry, Check responsabilities and level (core, runtime, frontend). Performance security review. 
 - [ ] Last check to doc. Do not repeat, simplify, every doc has his own responsibility.
   - [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
@@ -108,30 +84,30 @@ ESPectre v3 success criteria:
 - [ ] Re-enable the `CLA Signature Check` as a required status check in GitHub branch protection for `develop`
 - [ ] Test the new GitHub issue and pull request templates end to end
 
+- [ ] Measure how much the unrecorded per-packet gain moves each production feature. Scale invariance is currently a way around the problem rather than a measurement of it. The gain-locked captures in history do not answer it: they carry no matched AGC-running capture of the same scene, so they show what locked-gain data looks like rather than what locking changes. This needs a deliberate collection, the same scene captured both ways
+- [ ] Test detector behaviour across a scene change inside one continuous stream. Every capture in the corpus is one state end to end, so a transition is only ever observed across two files, which is not what a device experiences. Four mixed captures exist in history at `48c9cce^` and were measured on 2026-07-27: the transition is one evaluation wide, so `motion_on_hits` and not detector responsiveness owns the latency, and C6 shows Classic and ML disagreeing outright against a verified-quiet baseline. Recover them when the question comes up again; using them as corpus pairs first needs the motion onset recorded by the collector. See [2026-07-27-keep-the-mixed-transition-captures.md](adr/2026-07-27-keep-the-mixed-transition-captures.md)
+
 ### Planned v3.x Follow-Ups
 
 These items belong to the v3 series but do not all need to block `v3.0.0`; they
 may ship in later v3.x minor releases after the modular platform baseline is
 tagged.
 
-- [ ] Add Presence vs Empty detection
-  - [ ] Find a feature that reads a stationary occupant's own micro-motion, because presence needs the signal that motion detection currently spends its effort suppressing. The evidence is already in the corpus: the `empty` recordings stay silent under every candidate, `quietMaxFP` holding at `0.00%` across a full seed search, while the static-presence captures activate in short scattered episodes, `17` of them on the S3 weak-link holdout with the longest running `4` evaluations. Those episodes are the occupant, not noise, which is why they were gated out of motion detection; see [2026-07-25-gate-classic-false-positives-on-empty-rooms.md](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md). Reading them as evidence rather than error needs a statistic tuned to brief low-amplitude excursions above a quiet floor, distinct from the window-level features both detectors use today
-- [ ] Research whether breathing-related micro-motion can become a reliable local sensing signal, keeping the work explicitly non-medical and validating it separately from presence and motion detection
+- [ ] Use a dedicated build directory for each chip instead of reusing the same directory across targets
+- [ ] Evaluate LAN discovery for the streamer workflow via DNS-SD/mDNS so `./espectre collect` can browse reachable streamer nodes and optionally select a subset by `device_id`, while keeping explicit `--target` as the deterministic fallback and preserving CSI demultiplexing by `device_id`
+- [ ] Evaluate promoting the web BLE client (`docs/web/espectre-ble.js`) to a standalone integration artifact for third-party web apps; the Apache-2.0 licensing, event API, validated command builders, and unit tests are in place, and the remaining steps are dual ESM/IIFE packaging with npm publication and TypeScript definitions. This would also give the v4.x Web Bluetooth device claim flow a reusable foundation
+- [ ] Validate and document Matter commissioning across additional controllers (Samsung SmartThings, Home Assistant Matter, and the Tuya app where occupancy sensors are supported), keeping a verified-controller matrix in the Matter frontend README
+- [ ] Evaluate a future Matter OTA design for a later 3.x or post-v3 release, including Requestor-plus-Provider ownership and release artifact expectations
+- [ ] Evaluate Matter certification readiness for manufacturer-oriented builds, mapping the gap between the current Matter firmware and a CSA-certifiable product across vendor ID allocation, device attestation certificates, factory provisioning, and certification test coverage; commercial Apple Home and SmartThings reach flows through certified Matter rather than the non-commercial HomeKit ADK
 - [ ] Optimize Micro-ESPectre to exceed its current approximately 70 pps ceiling
 - [ ] Evaluate how to improve detection quality at high CSI packet rates instead of relying on decimation as a temporary mitigation, so the platform can preserve short-timescale information for cases such as brief gesture recognition
   - [ ] Prototype brief gesture detection only after the higher-rate sensing path preserves enough short-timescale information, and define a validation corpus distinct from motion and presence
-- [ ] Use a dedicated build directory for each chip instead of reusing the same directory across targets
+- [ ] Add Presence vs Empty detection
+  - [ ] Find a feature that reads a stationary occupant's own micro-motion, because presence needs the signal that motion detection currently spends its effort suppressing. The evidence is already in the corpus: the `empty` recordings stay silent under every candidate, `quietMaxFP` holding at `0.00%` across a full seed search, while the static-presence captures activate in short scattered episodes, `17` of them on the S3 weak-link holdout with the longest running `4` evaluations. Those episodes are the occupant, not noise, which is why they were gated out of motion detection; see [2026-07-25-gate-classic-false-positives-on-empty-rooms.md](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md). Reading them as evidence rather than error needs a statistic tuned to brief low-amplitude excursions above a quiet floor, distinct from the window-level features both detectors use today
+- [ ] Research whether breathing-related micro-motion can become a reliable local sensing signal, keeping the work explicitly non-medical and validating it separately from presence and motion detection
 - [ ] Add Native frontend support for local TFT/LCD status displays similar to `examples/espectre-s3-touch-lcd.yaml`
-
-### Deferred Follow-Ups
-
-- Evaluate LAN discovery for the streamer workflow via DNS-SD/mDNS so `./espectre collect` can browse reachable streamer nodes and optionally select a subset by `device_id`, while keeping explicit `--target` as the deterministic fallback and preserving CSI demultiplexing by `device_id`
-- Evaluate a future Matter OTA design for a later 3.x or post-v3 release, including Requestor-plus-Provider ownership and release artifact expectations
-- Validate and document Matter commissioning across additional controllers (Samsung SmartThings, Home Assistant Matter, and the Tuya app where occupancy sensors are supported), keeping a verified-controller matrix in the Matter frontend README
-- Evaluate a Zigbee occupancy-sensor frontend on ESP32-C6 via `esp-zigbee-sdk`, starting with a coexistence spike to measure how 802.11 CSI capture behaves next to 802.15.4 time-slicing on the shared 2.4 GHz radio
-- Evaluate Matter certification readiness for manufacturer-oriented builds, mapping the gap between the current Matter firmware and a CSA-certifiable product across vendor ID allocation, device attestation certificates, factory provisioning, and certification test coverage; commercial Apple Home and SmartThings reach flows through certified Matter rather than the non-commercial HomeKit ADK
-- Evaluate a TuyaOpen reference integration that embeds the shared `core` and `runtime` into a TuyaOS application, aimed at manufacturers that already operate Tuya product pipelines, with per-device licensing and cloud coupling documented as integrator-side prerequisites
-- Evaluate promoting the web BLE client (`docs/web/espectre-ble.js`) to a standalone integration artifact for third-party web apps; the Apache-2.0 licensing, event API, validated command builders, and unit tests are in place, and the remaining steps are dual ESM/IIFE packaging with npm publication and TypeScript definitions — this would also give the v4.x Web Bluetooth device claim flow a reusable foundation
+- [ ] Evaluate a Zigbee occupancy-sensor frontend on ESP32-C6 via `esp-zigbee-sdk`, starting with a coexistence spike to measure how 802.11 CSI capture behaves next to 802.15.4 time-slicing on the shared 2.4 GHz radio
+- [ ] Evaluate a TuyaOpen reference integration that embeds the shared `core` and `runtime` into a TuyaOS application, aimed at manufacturers that already operate Tuya product pipelines, with per-device licensing and cloud coupling documented as integrator-side prerequisites
 
 ---
 
@@ -162,7 +138,6 @@ sensitive radio data to leave the user environment.
 
 ### Implementation Checklist
 
-- [x] Define web orchestration profiles, per-device service credentials, MQTT-over-TLS policy, and privacy boundary for device telemetry (documented in `ESPECTRE_PROTOCOL.md`)
 - [ ] Design tenant, home/location, room, and device ownership model
 - [ ] Implement social login and account management
 - [ ] Implement secure Web Bluetooth assisted device claim flow
@@ -205,7 +180,7 @@ When a microcontroller or embedded Wi-Fi platform exposes practical 802.11bf-sty
 
 ## Roadmap Updates
 
-Last update: **July 27, 2026**
+Last update: **July 28, 2026**
 
 For discussion and proposed changes:
 

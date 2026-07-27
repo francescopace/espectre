@@ -81,14 +81,14 @@ void test_classic_detector_noisy_startup_still_uses_shifted_logit_threshold(void
 void test_classic_detector_clear_buffer_resets_feature_state(void) {
   ClassicDetector detector(10U);
   detector.current_probability_ = 0.9f;
-  detector.current_l1_delta_ = 0.2f;
+  detector.current_lag_ratio_ = 0.2f;
   detector.current_turb_autocorr_ = 0.5f;
   detector.startup_logit_count_ = 3U;
 
   detector.clear_buffer();
 
   TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_motion_metric());
-  TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_l1_delta());
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_lag_ratio());
   TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_turb_autocorr());
   TEST_ASSERT_EQUAL(3, detector.startup_logit_count_);
   TEST_ASSERT_TRUE(detector.get_state() == MotionState::IDLE);

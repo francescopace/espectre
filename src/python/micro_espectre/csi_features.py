@@ -103,22 +103,28 @@ def calc_zero_crossing_rate(values, count, center):
     return crossings / (count - 1)
 
 
-# Production feature set, and the only one. Classic reads two of these members
-# directly (the lag ratio and the turbulence autocorrelation); the MLP reads all
-# seven. Every removed predecessor and candidate is recorded in
-# docs/adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md, so a
-# future experiment can find what was already rejected and why.
-COHERENCE7_FEATURES = [
+# Production feature set, and the only one. Every member is scale-invariant:
+# a ratio, a correlation, or a crossing rate. That is the point, not a
+# coincidence. The int8 CSI scaling factor varies per packet and is never
+# recorded, so a feature carrying absolute magnitude carries the link's noise
+# floor with it, and on weak links that floor can exceed the motion it is
+# meant to measure.
+#
+# `l1_delta` and `l1_delta_std` were dropped on 2026-07-28 for exactly that.
+# See docs/adr/2026-07-28-drop-the-absolute-l1-features.md: adding one
+# strong-link capture to training took a weak-link pair from 0% to 100% false
+# positives, because its idle displacement (0.2653) sat above its own motion
+# (0.1830) and above the added capture's motion (0.0587). Classic reads two of
+# these members directly; the MLP reads all five.
+INVARIANT5_FEATURES = [
     'turb_mad_over_mean',
     'turb_autocorr',
     'turb_zcr',
-    'l1_delta',
-    'l1_delta_std',
     'l1_delta_autocorr',
     'l1_delta_lag_ratio',
 ]
 
-DEFAULT_FEATURES = COHERENCE7_FEATURES
+DEFAULT_FEATURES = INVARIANT5_FEATURES
 ALL_FEATURES = tuple(DEFAULT_FEATURES)
 
 # Features computed from the rebuilt L1-delta series. The lag ratio is
@@ -126,8 +132,6 @@ ALL_FEATURES = tuple(DEFAULT_FEATURES)
 # ready-made, so requesting it alone must not demand a series. Mirrors
 # MLFeatureSource in csi_features.h; keep the two in step.
 L1_SERIES_FEATURES = frozenset({
-    'l1_delta',
-    'l1_delta_std',
     'l1_delta_autocorr',
 })
 
@@ -562,10 +566,6 @@ def extract_features_by_name(
             value = turb_autocorr
         elif name == 'turb_zcr':
             value = turb_zcr
-        elif name == 'l1_delta':
-            value = _l1_mean
-        elif name == 'l1_delta_std':
-            value = _l1_std
         elif name == 'l1_delta_autocorr':
             value = (
                 calc_autocorrelation(_l1_series, _l1_n, mean=_l1_mean, variance=_l1_var)

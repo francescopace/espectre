@@ -13,7 +13,7 @@ every row is data the candidate never trained on.
 
 Usage:
     .venv/bin/python tools/compare_reserved_selection.py --seed 20260519 \
-        --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta,l1_delta_std,l1_delta_autocorr,l1_delta_lag_ratio
+        --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr
     .venv/bin/python tools/compare_reserved_selection.py --seed 20260519 --augment \
         --features ...
 

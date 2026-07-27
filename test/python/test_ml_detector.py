@@ -400,9 +400,9 @@ class TestExtractFeaturesIntegration:
         assert len(features) == len(FEATURE_NAMES)
         assert all(isinstance(f, (int, float)) for f in features)
 
-    def test_extract_features_supports_l1_delta_runtime_path(self, monkeypatch):
-        """MLDetector keeps amplitude history when exported features require l1_delta."""
-        monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta"])
+    def test_extract_features_supports_l1_series_runtime_path(self, monkeypatch):
+        """MLDetector keeps amplitude history when a feature needs the L1 series."""
+        monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta_autocorr"])
         detector = MLDetector(window_size=20)
 
         quiet = _make_csi_payload(_make_band_profile(offset=0))
@@ -415,8 +415,10 @@ class TestExtractFeaturesIntegration:
 
         features = detector._extract_features()
 
+        # An autocorrelation may be negative; what this pins is that the
+        # tracker ran at all, which a missing amplitude history would prevent.
         assert len(features) == 1
-        assert features[0] > 0.0
+        assert features[0] != 0.0
 
     def test_extract_features_supports_l1_delta_lag_ratio(self, monkeypatch):
         """MLDetector forwards the tracker's floor-invariant lag ratio."""
@@ -436,7 +438,7 @@ class TestExtractFeaturesIntegration:
 
     def test_hampel_configuration_covers_l1_feature_stream(self, monkeypatch):
         """The ML Hampel flag configures both turbulence and L1 streams."""
-        monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta"])
+        monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta_autocorr"])
 
         enabled = MLDetector(window_size=20, enable_hampel=True)
         disabled = MLDetector(window_size=20, enable_hampel=False)

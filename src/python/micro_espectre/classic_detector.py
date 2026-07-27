@@ -92,7 +92,7 @@ class ClassicDetector(IDetector):
         self._packet_count = 0
         self._current_probability = 0.0
         self._current_logit = 0.0
-        self._current_l1_delta = 0.0
+        self._current_lag_ratio = 0.0
         self._current_turb_autocorr = 0.0
         self._startup_logits = []
         self._adapted_threshold_ready = False
@@ -159,8 +159,8 @@ class ClassicDetector(IDetector):
             values, count, mean=mean, variance=variance, lag=self._autocorr_lag
         )
 
-    def _calculate_logit(self, l1_delta, turb_autocorr):
-        l1_norm = (l1_delta - self.FEATURE_CENTER[0]) / self.FEATURE_SCALE[0]
+    def _calculate_logit(self, lag_ratio, turb_autocorr):
+        l1_norm = (lag_ratio - self.FEATURE_CENTER[0]) / self.FEATURE_SCALE[0]
         autocorr_norm = (
             (turb_autocorr - self.FEATURE_CENTER[1]) / self.FEATURE_SCALE[1]
         )
@@ -175,10 +175,10 @@ class ClassicDetector(IDetector):
             self._current_probability = 0.0
             self._state = MotionState.IDLE
         else:
-            self._current_l1_delta = self._l1.delta_lag_ratio()
+            self._current_lag_ratio = self._l1.delta_lag_ratio()
             self._current_turb_autocorr = self._turb_autocorr()
             self._current_logit = self._calculate_logit(
-                self._current_l1_delta,
+                self._current_lag_ratio,
                 self._current_turb_autocorr,
             )
             self._current_probability = self._sigmoid(self._current_logit)
@@ -195,7 +195,7 @@ class ClassicDetector(IDetector):
             "state": self._state,
             "motion_metric": self._current_probability,
             "probability": self._current_probability,
-            "l1_delta": self._current_l1_delta,
+            "lag_ratio": self._current_lag_ratio,
             "turb_autocorr": self._current_turb_autocorr,
             "threshold": self._threshold,
         }
@@ -292,7 +292,7 @@ class ClassicDetector(IDetector):
         self._packet_count = 0
         self._current_probability = 0.0
         self._current_logit = 0.0
-        self._current_l1_delta = 0.0
+        self._current_lag_ratio = 0.0
         self._current_turb_autocorr = 0.0
         self._startup_logits = []
         self._reset_settled_level()

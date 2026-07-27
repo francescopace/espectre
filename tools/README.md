@@ -152,8 +152,8 @@ The main repository workflow and this training stack target Python `3.14`.
 - Caches the derived feature matrix for repeated local runs; use `--no-cache` to rebuild
 - Reuses the seed embedded in the current exported weights when `--seed` is omitted
   (`--seed-search-until-improvement` still samples fresh seeds)
-- Optional `--augment` applies the current validated train-time augmentation recipe
-  (feature jitter + moderate packet augmentation; inference stays clean)
+- Optional `--augment` applies the current non-scale train-time augmentation recipe
+  (feature jitter + packet noise/loss/stutter; inference stays clean)
 - Reports blocked out-of-fold metrics plus worst and worst-five-tail session,
   lineage, chip, and source-file groups, splitting session metrics by real and
   synthetic provenance when synthetic derivatives are present
@@ -181,9 +181,9 @@ python train_ml_model.py --no-cache       # Rebuild cached training matrix
 python train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python train_ml_model.py --seed-search-until-improvement 20  # Evaluate all seeds and keep the best robust improvement
 python train_ml_model.py --seed 12345 --force-promote  # Deliberate baseline reset: export even if the gates fail
-python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta,l1_delta_std,l1_delta_autocorr --no-export  # Evaluate a candidate feature set
+python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr --no-export  # Evaluate a feature subset
 python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta,l1_delta_lag_ratio,l1_delta_autocorr --experiment  # Multi-seed lag-ratio candidate sweep
-python train_ml_model.py --augment            # Robustness-winner train-time augmentation
+python train_ml_model.py --augment            # Non-scale train-time augmentation
 python train_ml_model.py --augment --seed-search-until-improvement 10
 python train_ml_model.py --cross-environment  # LOEO using the exported model seed by default
 python train_ml_model.py --cross-chip         # LOCO using the exported model seed by default
@@ -191,7 +191,7 @@ python train_ml_model.py --gain-stress-gate  # Stress exported model with artifi
 python train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25  # Custom stress multipliers
 python train_ml_model.py --shap         # Grouped OOF SHAP (200 samples)
 python train_ml_model.py --shap 500     # Grouped OOF SHAP (500 samples)
-python train_ml_model.py --ablation-feature l1_delta_std --seed 1386543369  # Targeted CV and real-data ablation
+python train_ml_model.py --ablation-feature l1_delta_autocorr --seed 1386543369  # Targeted CV and real-data ablation
 ```
 
 For the complete ML training workflow, promotion guidance, gain-stress
@@ -201,56 +201,7 @@ see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md). For the host CLI
 entry points that drive collection and related workflows, see
 [CLI.md](../docs/CLI.md).
 
-### 8. Synthetic Low-RSSI Dataset Generation (`generate_low_rssi_dataset.py`)
-
-Generates a reproducible weak-link derivative from one registered real NPZ
-capture. The C3, C5, C6, and S3 profiles are anchored to retained real low-RSSI
-pairs and report the resulting production feature medians against their
-reference values. Calibration jointly fits all six production ML features,
-using sensing-band profile deformation and controlled spatial turbulence rather
-than matching only the L1 floor.
-
-`reference_match` independently matches the observed static and motion phases
-for Classic detector testing. `shared_session` calibrates the quiet L1 floor
-and reuses the same impairment strength for motion, avoiding label-conditioned
-generation in datasets that may later be considered for training.
-
-```bash
-python generate_low_rssi_dataset.py \
-  static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz \
-  --profile c3_weak_link --mode reference_match --seed 42
-python generate_low_rssi_dataset.py \
-  motion_c3_64sc_dev0000acebe64adb64_20260716_003708_700607_0001.npz \
-  --profile c3_weak_link --mode reference_match --seed 42
-
-python generate_low_rssi_dataset.py \
-  static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz \
-  --profile c5_moderate_link --mode shared_session --seed 43
-python generate_low_rssi_dataset.py \
-  motion_c5_64sc_dev000030eda0e46278_20260716_010414_615480_0001.npz \
-  --profile c5_moderate_link --mode shared_session --seed 43
-
-python generate_low_rssi_dataset.py \
-  empty_s3_64sc_dev000010b41de8ec00_20260712_203314_805494_0001.npz \
-  --profile s3_weak_link --mode shared_session --seed 44
-
-python generate_low_rssi_dataset.py \
-  empty_c6_64sc_dev00007c2c6742bbac_20260712_215645_774938_0001.npz \
-  --profile c6_moderate_link --mode shared_session --seed 45
-```
-
-Generate `static_presence` before `motion` in `shared_session` mode. The second
-command finds the quiet calibration in the paired synthetic NPZ,
-registers reciprocal pair metadata, and prints a production Classic replay.
-
-Outputs live in the standard `data/<label>/` directories. Their
-`data/dataset_info.json` entries use the compact `low_rssi: true` and
-`synthetic: true` markers alongside the normal dataset and reciprocal-pair
-fields. Detailed source provenance, fitted parameters, feature targets, and
-errors remain inside the NPZ. Use `--no-register` with an explicit `--output`
-for disposable experiments.
-
-### 9. Dataset Quality Validation (`validate_dataset_quality.py`)
+### 8. Dataset Quality Validation (`validate_dataset_quality.py`)
 
 Validates the shared Classic and ML datasets for metadata completeness, file
 integrity, signal quality, pair diagnostics, training readiness, and long-recording
@@ -320,7 +271,7 @@ python validate_dataset_quality.py --no-report      # Skip markdown report
 
 ---
 
-### 10. Performance Report Generation (`generate_performance_report.py`)
+### 9. Performance Report Generation (`generate_performance_report.py`)
 
 **Purpose**: Regenerate `docs/performance/README.md` from the current validation
 datasets
@@ -344,7 +295,7 @@ python generate_performance_report.py --skip-cpp-parity-check
 
 ---
 
-### 11. Firmware Benchmark (`benchmark_firmware.py`)
+### 10. Firmware Benchmark (`benchmark_firmware.py`)
 
 **Purpose**: Run the live Native, ESPHome, Matter, and Streamer firmware
 benchmark for one connected chip and write its generated report under
@@ -391,7 +342,7 @@ writes a partial report if a build, flash, monitor, or runtime check fails.
 
 ---
 
-### 12. Seed Dispersion Analysis (`analyze_seed_dispersion.py`)
+### 11. Seed Dispersion Analysis (`analyze_seed_dispersion.py`)
 
 **Purpose**: Measure how far a paired-gate metric moves between training seeds
 of the same model on the same recordings

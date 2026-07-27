@@ -356,28 +356,27 @@ void test_zero_crossing_rate_alternating_signal(void) {
 }
 
 void test_ml_series_needs_tracks_only_referenced_stats(void) {
-    // Production Coherence-7 ids: turb {mad, autocorr, zcr}, delta {mean, std,
-    // autocorr}, plus the tracker-sourced lag ratio. The delta series needs no
-    // sort, which is the whole point of asking per series.
-    const uint8_t coherence7[7] = {
+    // Production ids: turb {mad, autocorr, zcr}, delta {autocorr}, plus the
+    // tracker-sourced lag ratio. The delta series needs no sort, which is the
+    // whole point of asking per series.
+    const uint8_t production[5] = {
         ML_FEAT_TURB_MAD_OVER_MEAN, ML_FEAT_TURB_AUTOCORR, ML_FEAT_TURB_ZCR,
-        ML_FEAT_L1_DELTA, ML_FEAT_L1_DELTA_STD, ML_FEAT_L1_DELTA_AUTOCORR,
-        ML_FEAT_L1_DELTA_LAG_RATIO,
+        ML_FEAT_L1_DELTA_AUTOCORR, ML_FEAT_L1_DELTA_LAG_RATIO,
     };
 
-    const MLStatNeeds turb = ml_series_needs(coherence7, 7, /*l1=*/false);
+    const MLStatNeeds turb = ml_series_needs(production, 5, /*l1=*/false);
     TEST_ASSERT_TRUE(turb.sorted);       // mad + zcr
     TEST_ASSERT_TRUE(turb.autocorr);
 
-    const MLStatNeeds delta = ml_series_needs(coherence7, 7, /*l1=*/true);
+    const MLStatNeeds delta = ml_series_needs(production, 5, /*l1=*/true);
     TEST_ASSERT_FALSE(delta.sorted);     // no mad/zcr on the delta series
     TEST_ASSERT_TRUE(delta.autocorr);
 
-    // Mean and std alone ask for nothing extra on either series.
-    const uint8_t means_only[2] = {ML_FEAT_L1_DELTA, ML_FEAT_L1_DELTA_STD};
-    const MLStatNeeds plain = ml_series_needs(means_only, 2, /*l1=*/true);
-    TEST_ASSERT_FALSE(plain.sorted);
-    TEST_ASSERT_FALSE(plain.autocorr);
+    // Turbulence ids alone ask nothing of the delta series.
+    const uint8_t turb_only[2] = {ML_FEAT_TURB_MAD_OVER_MEAN, ML_FEAT_TURB_ZCR};
+    const MLStatNeeds none = ml_series_needs(turb_only, 2, /*l1=*/true);
+    TEST_ASSERT_FALSE(none.sorted);
+    TEST_ASSERT_FALSE(none.autocorr);
 }
 
 void test_ml_feature_source_separates_tracker_from_series(void) {
@@ -386,8 +385,8 @@ void test_ml_feature_source_separates_tracker_from_series(void) {
     TEST_ASSERT_TRUE(ml_feature_needs_l1_tracker(ML_FEAT_L1_DELTA_LAG_RATIO));
     TEST_ASSERT_FALSE(ml_feature_needs_l1_series(ML_FEAT_L1_DELTA_LAG_RATIO));
 
-    TEST_ASSERT_TRUE(ml_feature_needs_l1_tracker(ML_FEAT_L1_DELTA));
-    TEST_ASSERT_TRUE(ml_feature_needs_l1_series(ML_FEAT_L1_DELTA));
+    TEST_ASSERT_TRUE(ml_feature_needs_l1_tracker(ML_FEAT_L1_DELTA_AUTOCORR));
+    TEST_ASSERT_TRUE(ml_feature_needs_l1_series(ML_FEAT_L1_DELTA_AUTOCORR));
 
     TEST_ASSERT_FALSE(ml_feature_needs_l1_tracker(ML_FEAT_TURB_ZCR));
     TEST_ASSERT_FALSE(ml_feature_needs_l1_series(ML_FEAT_TURB_ZCR));

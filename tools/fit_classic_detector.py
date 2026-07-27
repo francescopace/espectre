@@ -135,7 +135,7 @@ def extract_window_features(
             continue
         since_evaluation = 0
         metrics = detector.update_state()
-        rows.append((metrics["l1_delta"], metrics["turb_autocorr"]))
+        rows.append((metrics["lag_ratio"], metrics["turb_autocorr"]))
         deoverlapped.append(since_window >= window)
         if since_window >= window:
             since_window = 0

@@ -94,14 +94,16 @@ class ClassicDetector : public BaseDetector {
                         uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
                         float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT) override;
 
-  float get_l1_delta() const { return current_l1_delta_; }
+  // Named for what it holds: the L1 lag ratio, not the L1 mean it replaced
+  // on 2026-07-26. The mean carried the link's noise floor.
+  float get_lag_ratio() const { return current_lag_ratio_; }
   float get_turb_autocorr() const { return current_turb_autocorr_; }
   float get_logit() const { return current_logit_; }
 
  private:
   uint16_t l1_delta_capacity_() const;
   float calculate_turb_autocorr_() const;
-  float calculate_logit_(float l1_delta, float turb_autocorr) const;
+  float calculate_logit_(float lag_ratio, float turb_autocorr) const;
   static float sigmoid_(float value);
   static float quantile_(const float* values, uint8_t count, float quantile);
   float startup_quantile_() const;
@@ -111,7 +113,7 @@ class ClassicDetector : public BaseDetector {
   float threshold_;
   float current_probability_;
   float current_logit_;
-  float current_l1_delta_;
+  float current_lag_ratio_;
   float current_turb_autocorr_;
   float startup_logits_[CLASSIC_STARTUP_SAMPLE_LIMIT]{};
   uint8_t startup_logit_count_;
