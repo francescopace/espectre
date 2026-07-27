@@ -391,6 +391,34 @@ writes a partial report if a build, flash, monitor, or runtime check fails.
 
 ---
 
+### 12. Seed Dispersion Analysis (`analyze_seed_dispersion.py`)
+
+**Purpose**: Measure how far a paired-gate metric moves between training seeds
+of the same model on the same recordings
+
+A non-regression margin is only defensible above that dispersion. Below it, the
+gate rejects candidates over the noise of weight initialization rather than
+over behavior a user would notice, which has happened.
+
+Reads the JSON written by `train_ml_model.py --seed-search-until-improvement`,
+and the older `--experiment` reports. Reports per replay the range of the
+metric in evaluations rather than percent, because the gate margin is one
+evaluation and percentages hide that scale, and reports alarm movement
+separately: rate jitter and a new effective alarm are different findings.
+
+Chip-level fallback rows are labeled `n/a` and excluded from the verdict. They
+appear when a chip owns no reserved pair and the gate falls back to an
+aggregate over training data, which cannot answer a reserved question. Weak and
+normal links are counted apart, since the `low_rssi` exemption is its own
+question.
+
+```bash
+python analyze_seed_dispersion.py ../data/auto_generated/mlp_seed_search.json
+python analyze_seed_dispersion.py report.json --metric recall
+```
+
+---
+
 ## Usage Examples
 
 ### Basic Analysis Workflow

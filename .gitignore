@@ -24,6 +24,12 @@ data/auto_generated/training_matrix_*.npz
 data/auto_generated/training_features_*.npz
 data/auto_generated/training_weights_*.npz
 
+# Training run reports: per-run evidence, kept out of the tree so the numbers
+# quoted in docs and ADRs stay the reviewed ones
+data/auto_generated/mlp_seed_search.json
+data/auto_generated/mlp_architecture_experiment.json
+data/auto_generated/mlp_fp_weight_experiment.json
+
 # Python
 __pycache__/
 *.pyc

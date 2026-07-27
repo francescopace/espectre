@@ -6,7 +6,7 @@
 |---------|------|--------|---------|
 | **v1.x** | 2025-11-09 | Released | First release demonstrating motion detection capabilities using a brand-new algorithm |
 | **v2.x** | 2025-12-06 | Released | Home Assistant integration via ESPHome plus custom MicroPython-based firmware |
-| **v3.x** | 2026-08 (target) | In progress | New detectors based on spectral features. Add Matter preview support, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
+| **v3.x** | 2026-08 (target) | In progress | New detectors based on spectral features. Add Matter support with limited controller validation, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
 | **v4.x** | 2026-12 (target) | Planned | Privacy-first web orchestration layer for multi-node sensing, secure onboarding, fleet visibility, history, alerting, and remote management |
 | **v5.x** | Future | Exploratory | Standards-ready sensing platform prepared for practical IEEE 802.11bf / Wi-Fi Sensing hardware support when embedded vendors expose it |
 
@@ -27,7 +27,7 @@ frontend paths, and an embeddable foundation for custom firmware and OEM product
 | **ESPHome frontend** | Production Home Assistant path kept on top of the shared platform |
 | **Native frontend** | Standalone custom GATT surface for generic BLE clients and web integrations, including runtime tuning and BLE-triggered HTTPS OTA |
 | **ESPectre Protocol** | Shared BLE+MQTT Protocol baseline for provisioning, telemetry, status, info, commands, monitor integration, and reusable runtime protocol services |
-| **Matter frontend** | Preview Matter occupancy surface proving a second ecosystem-facing frontend |
+| **Matter frontend** | Available Matter occupancy surface with limited controller validation |
 | **Streamer frontend** | Standalone CSI UDP streamer for dataset collection, host tooling, and realtime fusion experiments |
 | **SDK-oriented firmware path** | Ability to assemble alternate firmware targets from shared platform layers for custom devices and OEM products |
 | **Practical sensing** | Presence and occupancy baselines, plus reusable inference/tooling foundations |
@@ -44,7 +44,7 @@ clearly documenting current sensing characteristics.
 | Area | State | Notes |
 |------|-------|-------|
 | **Shared architecture** | Ready | `core`, `runtime`, ESP-IDF runtime services, and frontend adapters are split and documented |
-| **Frontend coverage** | Ready | ESPHome remains the production Home Assistant path; native and streamer firmware paths are present on the shared platform, and Matter remains a published preview path |
+| **Frontend coverage** | Ready | ESPHome remains the most mature production Home Assistant path; native and streamer firmware paths are available on the shared platform, and Matter firmware is available with limited controller validation |
 | **Firmware smoke coverage** | Ready | ESPHome dev config passes for C3/C5/C6/S3; ESPHome C3 build, native C3 Docker build, and Matter C3 Docker build pass; hardware flash/monitor smoke completed for the release targets |
 | **Protocol baseline** | Ready | BLE+MQTT payloads, provisioning, telemetry, status, info, commands, and monitor tooling are documented in `ESPECTRE_PROTOCOL.md` |
 | **Detection validation** | Ready | Current C++ and Python real-data and long-recording suites pass across supported chips; C5/C6 long-quiet false-positive rates remain below the 5% target |
@@ -73,21 +73,33 @@ ESPectre v3 success criteria:
   - [x] Add and validate an ML low-RSSI safeguard from real captures
   - [x] Gate Classic false positives on the empty-room recordings: the alarms on static-presence baselines were not weak-link noise but the stationary occupant's own micro-motion, and they occur on the strongest links as readily as on the weakest
 - [x] Separate ML training data from reserved promotion replays, with lineage-grouped CV and a link-class stress policy for real weak-link captures
-- [x] Promote a weak-link-robust ML feature set (Coherence-6: temporal-coherence features replace the two weakest Core-6 members; promoted end-to-end by the reserved-replay protocol with a novel-hardware holdout check)
+- [x] Promote a weak-link-robust ML feature set (Coherence-6: temporal-coherence features replace the two weakest Core-6 members; promoted end-to-end by the reserved-replay protocol with a novel-hardware holdout check). Now Coherence-7: the Classic lag ratio joined as a seventh input, taking reserved effective alarms from `8` to `3` and the worst reserved F1 from `92.92%` to `95.30%`
+  - [x] Set the per-replay non-regression margin from measured seed noise instead of pinning it at one evaluation. Done 2026-07-27: `fp_rate` moves to five evaluations against a measured spread of four across fifteen seeds, `recall` keeps one evaluation because it did not move at all, and `effective_alarms` keeps a zero margin. See [2026-07-27-set-the-non-regression-margin-from-seed-noise.md](adr/2026-07-27-set-the-non-regression-margin-from-seed-noise.md)
+    - Still open: the `low_rssi` exemption. Every weak pair sits in `train`, `holdout`, or `exclude`, and none in `selection`, so its dispersion can only be measured by contaminating training or by burning the holdout. `COLLECTION_PLAN.md` asks for a reserved weak selection pair; leave the exemption alone until one lands
+    - Re-measure the margin once the C5 and S3 replacement captures land: it is a claim about this corpus, not about arithmetic
+- [x] Test whether augmentation still helps at seven features: it does not. Twenty augmented seeds put worst-session recall between `43.8%` and `91.0%` against `84.3%` to `95.4%` unaugmented, failed the paired gate three times, and found no candidate worth promoting, while ten unaugmented seeds passed every time with zero alarms. Two of the seven features are scale-invariant by construction now, which is the obvious suspect for why a gain-perturbing augmentation stopped paying
 - [x] Raise the ESP32 streamer sustained capture rate beyond the previous approximately 70 pps ceiling (stable ~80 pps via legacy broadcast pacing; L-LTF frames stay outside the HT20 sensing contract, so sensing datasets still come from HT captures)
 - [x] Add a post-collect dataset consistency check for streamer captures that at least verifies there are no recording gaps and that class separation is decent
 - [x] Make `segmentation_window_size`, detector feature windows, and `evaluation_interval` adapt automatically to the effective CSI packet rate, and keep Classic and ML features comparable across window sizes and different CSI packet rates
   - [ ] Verify the Classic coefficients off-nominal: they remain fitted at the nominal cadence, and a refit on the current corpus lost to them at matched false positives
-- [ ] Close the remaining detector recall gap, now the only open one: Classic per-chip aggregates sit at `92.4-94.7%` against a `95%` target and ML weak-link C3 at `82.2%` against `90%`, driven by a handful of bedroom captures rather than a uniform shortfall
+- [x] Close the remaining detector recall gap. Every chip now clears the `95%` target, worst per-chip recall `97.7%`, after the settled-level rule recovered the ESP32 capture from `94.2%` to `98.0%`. Five bedroom pairs judged toxic are marked `[TO BE REPLACED]` and excluded pending re-collection, so this rests on a reduced corpus
+  - [ ] Re-measure once the replacement captures land
+  - [x] Remove the now-dead L1 noise-blend safeguard. It engaged only for the plain-mean L1 feature; once Classic moved to the lag ratio it no longer changed any outcome on the 27 paired and 12 empty-room recordings, so the extra startup L1 floor state, excursion gain, and blend branch were removed from both runtimes with parity re-checked
+  - [ ] Revisit why Classic still pins its calibrated threshold near `1.0` on some captures, now that it no longer costs recall. Under the plain-mean L1 feature the two worst pinned captures managed `69%` while ML managed `100%`; with the lag ratio they calibrate at `0.980` and `0.996` and reach `96.8%` and `99.1%`, and five captures now sit above `0.90` without a recall penalty. So the symptom is unexplained but no longer harmful: the open question is whether a threshold that close to the ceiling leaves enough headroom on rooms the corpus does not cover, not whether it costs detections today
+  - [ ] Explain the two excluded C3 bedroom pairs, which are the hardest Classic cases in the corpus and stayed hard after the lag ratio: `2026-07-22 19:58` reaches `82.5%` recall at `0.9852` separation and `2026-07-25 13:58` reaches `74.2%` at `0.9872`, both at `0.0%` false positives. Neither is a weak link, and the first sits at `-39/-38 dBm`, the strongest link in the corpus, so this is not the low-RSSI failure mode and not a separability failure either: the features separate, the detector does not follow. ML clears the same captures
+  - [ ] Broaden ESP32 coverage: the chip still rests on a single capture, so nothing there distinguishes a chip characteristic from one recording
+  - [x] Sweep the selected tone count at 16, 20, 24, and 32 with a refit per band: all regress against 12 once per-pair gates and the high-rate stress capture are included, so the count stays at 12 on detection evidence as well as channel statistics
+  - [x] Revisit the startup threshold once a session has settled: measured threshold-free, the ESP32 features separate at `0.9999` AUC while the detector reaches `94.2%`, because the calibration prefix on that capture is `4.14x` noisier than the rest of the session. The settled-level rule now recovers it to `98.0%` and lifts the worst per-chip recall to `97.7%` at no cost to false positives or the empty-room gate
+- [x] Restore Python/C++ performance-report parity, which had drifted on the post-reset interval fallback (mean against median), the replay timing seed, and the startup calibrator's weighted-sample accounting
 - [ ] Add and validate broader PHY and band support, including Wi-Fi 6 / 802.11ax capabilities and, where supported by hardware and exposed APIs, 5 GHz operation
   - [x] Classify CSI formats before normalization and handle currently unsupported LLTF, HT40, and HE20 packets gracefully, with explicit drop-reason telemetry and detector resets on format-stream changes
 - [ ] Set the runtime `motion_on_hits` and `motion_off_hits` thresholds through the Native BLE control surface
 - [ ] Trigger Native firmware OTA from BLE, then resolve the manifest and download the update over HTTPS through the same OTA service used by MQTT
 - [ ] Collect ESP32 data across all dataset environments
   - [ ] Retrain and validate the production model with the expanded ESP32 dataset
+- [ ] Consent manager and cookies
 - [ ] After the current detector experiments settle, remove unused C++ and Python features, and simplify the training workflow by dropping options that are no longer useful
-- [ ] Make a final review of code. Be dry, Check responsabilities and level (core, runtime, frontend). Performance security review. Algorithm parity cpp/python
-  - [x] Restore Python/C++ performance-report parity, which had drifted on the post-reset interval fallback (mean against median), the replay timing seed, and the startup calibrator's weighted-sample accounting
+- [ ] Make a final review of code. Be dry, Check responsabilities and level (core, runtime, frontend). Performance security review. 
 - [ ] Last check to doc. Do not repeat, simplify, every doc has his own responsibility.
   - [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
 - [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
@@ -102,8 +114,11 @@ may ship in later v3.x minor releases after the modular platform baseline is
 tagged.
 
 - [ ] Add Presence vs Empty detection
+  - [ ] Find a feature that reads a stationary occupant's own micro-motion, because presence needs the signal that motion detection currently spends its effort suppressing. The evidence is already in the corpus: the `empty` recordings stay silent under every candidate, `quietMaxFP` holding at `0.00%` across a full seed search, while the static-presence captures activate in short scattered episodes, `17` of them on the S3 weak-link holdout with the longest running `4` evaluations. Those episodes are the occupant, not noise, which is why they were gated out of motion detection; see [2026-07-25-gate-classic-false-positives-on-empty-rooms.md](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md). Reading them as evidence rather than error needs a statistic tuned to brief low-amplitude excursions above a quiet floor, distinct from the window-level features both detectors use today
+- [ ] Research whether breathing-related micro-motion can become a reliable local sensing signal, keeping the work explicitly non-medical and validating it separately from presence and motion detection
 - [ ] Optimize Micro-ESPectre to exceed its current approximately 70 pps ceiling
 - [ ] Evaluate how to improve detection quality at high CSI packet rates instead of relying on decimation as a temporary mitigation, so the platform can preserve short-timescale information for cases such as brief gesture recognition
+  - [ ] Prototype brief gesture detection only after the higher-rate sensing path preserves enough short-timescale information, and define a validation corpus distinct from motion and presence
 - [ ] Use a dedicated build directory for each chip instead of reusing the same directory across targets
 - [ ] Add Native frontend support for local TFT/LCD status displays similar to `examples/espectre-s3-touch-lcd.yaml`
 
@@ -151,6 +166,7 @@ sensitive radio data to leave the user environment.
 - [ ] Implement social login and account management
 - [ ] Implement secure Web Bluetooth assisted device claim flow
 - [ ] Build telemetry ingestion path for derived sensing state and device status
+- [ ] Evaluate privacy-preserving multisensing by combining Wi-Fi CSI motion detection with passive BLE presence and motion cues, without device pairing, identity binding, or tracking
 - [ ] Build near-realtime dashboard with home map and device placement
 - [ ] Add movement score, motion state, online/offline status, and firmware version views
 - [ ] Add configurable threshold updates through the device control plane
@@ -188,7 +204,7 @@ When a microcontroller or embedded Wi-Fi platform exposes practical 802.11bf-sty
 
 ## Roadmap Updates
 
-Last update: **July 25, 2026**
+Last update: **July 27, 2026**
 
 For discussion and proposed changes:
 

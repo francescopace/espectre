@@ -915,29 +915,117 @@ def test_quiet_gate_keeps_zero_alarm_requirement():
     assert module.summarize_quiet_gate({"C3": quiet_row(1)})["passed"] is False
 
 
-def test_paired_non_regression_uses_one_evaluation_per_recording_margin():
+def _margin_summary(fp_rate, recall=99.0):
+    row = {
+        "fp_rate": fp_rate,
+        "recall": recall,
+        "static_presence_eval_count": 100,
+        "motion_eval_count": 100,
+        "effective_alarms": 0,
+    }
+    return {
+        "pass_count": 1,
+        "max_fp_rate": fp_rate,
+        "worst_chip_recall": recall,
+        "worst_chip_f1": 99.0,
+        "by_chip": {"C3:selection:capture.npz": row},
+    }
+
+
+def test_paired_non_regression_allows_measured_fp_seed_noise():
+    """Below the measured dispersion the gate rejects weight initialisation."""
     module = _load_train_module()
 
-    def summary(fp_rate):
-        row = {
-            "fp_rate": fp_rate,
-            "recall": 99.0,
-            "static_presence_eval_count": 100,
-            "motion_eval_count": 100,
-            "effective_alarms": 0,
-        }
+    baseline = _margin_summary(1.0)
+
+    # Five evaluations out of 100 is the FP margin; the sixth is a real change.
+    assert module.paired_result_non_regression(_margin_summary(6.0), baseline)
+    assert not module.paired_result_non_regression(_margin_summary(7.0), baseline)
+
+
+def test_paired_non_regression_keeps_recall_at_one_evaluation():
+    """Recall did not move at all across seeds, so nothing asks for headroom."""
+    module = _load_train_module()
+
+    baseline = _margin_summary(1.0, recall=99.0)
+
+    assert module.paired_result_non_regression(_margin_summary(1.0, recall=98.0), baseline)
+    assert not module.paired_result_non_regression(_margin_summary(1.0, recall=97.0), baseline)
+
+
+def test_paired_non_regression_never_grants_alarms_a_margin():
+    """The alarm ratchet is what catches a candidate whose aggregates improve."""
+    module = _load_train_module()
+
+    baseline = _margin_summary(5.0)
+    candidate = _margin_summary(1.0)
+    candidate["by_chip"]["C3:selection:capture.npz"]["effective_alarms"] = 1
+
+    assert not module.paired_result_non_regression(candidate, baseline)
+
+
+def test_paired_non_regression_names_the_blocking_recording():
+    """A rejection that does not say which replay moved cannot be argued with."""
+    module = _load_train_module()
+
+    def summary(fp_rate, weak_fp_rate):
         return {
-            "pass_count": 1,
-            "max_fp_rate": fp_rate,
+            "pass_count": 2,
+            "max_fp_rate": max(fp_rate, weak_fp_rate),
             "worst_chip_recall": 99.0,
             "worst_chip_f1": 99.0,
-            "by_chip": {"C3:selection:capture.npz": row},
+            "by_chip": {
+                "C6:selection:normal.npz": {
+                    "fp_rate": fp_rate, "recall": 99.0,
+                    "static_presence_eval_count": 685, "motion_eval_count": 350,
+                    "effective_alarms": 0,
+                },
+                "S3:holdout:weak.npz": {
+                    "fp_rate": weak_fp_rate, "recall": 99.0,
+                    "static_presence_eval_count": 685, "motion_eval_count": 350,
+                    "effective_alarms": 0, "low_rssi": True,
+                },
+            },
         }
 
-    baseline = summary(1.0)
+    baseline = summary(0.44, 0.15)
+    assert module.paired_non_regression_failures(baseline, baseline) == []
 
-    assert module.paired_result_non_regression(summary(2.0), baseline)
-    assert not module.paired_result_non_regression(summary(3.0), baseline)
+    # 3 -> 7 evaluations is the Coherence-7 blocker, and sits inside measured
+    # seed dispersion: it needed --force-promote under the old margin and must
+    # not block anything now.
+    assert module.paired_non_regression_failures(summary(1.02, 9.0), baseline) == []
+
+    # The weak replay moves far more than the normal one, and is still exempt.
+    failures = module.paired_non_regression_failures(summary(1.46, 9.0), baseline)
+    assert [item["replay"] for item in failures] == ["C6:selection:normal.npz"]
+
+    failure = failures[0]
+    assert failure["metric"] == "fp_rate"
+    # Percentages hide the scale of the disagreement; evaluations do not.
+    assert failure["candidate_evaluations"] == 10
+    assert failure["baseline_evaluations"] == 3
+    assert failure["eval_count"] == 685
+
+    rendered = module.format_non_regression_failures(failures)
+    assert "C6:selection:normal.npz" in rendered
+    assert "10 vs 3 of 685 evaluations" in rendered
+
+
+def test_paired_non_regression_reports_aggregate_blockers_without_rows():
+    """The fallback path has no replays to name, so it names the metric."""
+    module = _load_train_module()
+
+    baseline = {
+        "pass_count": 2, "max_fp_rate": 1.0, "worst_chip_recall": 99.0,
+        "worst_chip_f1": 99.0, "total_effective_alarms": 0,
+    }
+    candidate = dict(baseline, max_fp_rate=5.0, total_effective_alarms=2)
+
+    failures = module.paired_non_regression_failures(candidate, baseline)
+    assert {item["metric"] for item in failures} == {"max_fp_rate", "total_effective_alarms"}
+    assert all(item["replay"] == "<aggregate>" for item in failures)
+    assert not module.paired_result_non_regression(candidate, baseline)
 
 
 def test_paired_non_regression_weak_rows_ratchet_alarms_only():
@@ -1455,7 +1543,7 @@ def test_force_promote_cli_requires_explicit_seed(monkeypatch, capsys):
     assert "--force-promote requires an explicit --seed" in capsys.readouterr().out
 
 
-def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkeypatch):
+def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkeypatch, tmp_path):
     module = _load_train_module()
 
     baseline_cv = _cv_metrics(session_recall=60.0, chip_recall=70.0, session_fp=15.0, oof_f1=80.0, f1_mean=79.0)
@@ -1538,7 +1626,12 @@ def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkey
     monkeypatch.setattr(module, "_backup_artifacts", fake_backup)
     monkeypatch.setattr(module, "_restore_artifacts", fake_restore)
 
-    result = module.train_until_improvement(max_trials=2, use_cache=True)
+    # Keep the search report inside the test's own directory: the default
+    # path writes into data/auto_generated/ in the working tree.
+    result = module.train_until_improvement(
+        max_trials=2, use_cache=True,
+        search_output_path=tmp_path / "seed_search.json",
+    )
 
     assert result == 0
     assert restore_calls[-1] == ("snapshot-2",)

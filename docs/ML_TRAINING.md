@@ -145,12 +145,29 @@ If no exported seed is available, the trainer falls back to a random seed.
 Use `--augment` to train with:
 feature jitter (`0.10`) plus moderate packet gain/noise/loss. Augmentation is
 train-only; paired validation and runtime inference stay on clean features.
-Combine it with seed search when promoting a new export:
+It does not currently help the production feature set; see
+[Training Augmentation](#training-augmentation) before reaching for it.
 
 ```bash
-python tools/train_ml_model.py --augment
+python tools/train_ml_model.py --seed-search-until-improvement 10
 python tools/train_ml_model.py --augment --seed-search-until-improvement 10
 ```
+
+Seed search writes `data/auto_generated/mlp_seed_search.json` after every
+trial, so a run that crashes or is interrupted still leaves its evidence
+behind. Override the location with `--seed-search-output`. The report holds
+the per-replay rows for the baseline and for each candidate, and, for any
+candidate the gate rejected, the exact comparisons that blocked it:
+
+```json
+{"replay": "C6:selection:normal.npz", "metric": "fp_rate",
+ "candidate": 1.02, "baseline": 0.44, "margin": 0.146,
+ "candidate_evaluations": 7, "baseline_evaluations": 3, "eval_count": 685}
+```
+
+The same lines are printed to the console. Percentages hide how small these
+differences are, so the report carries the evaluation counts that produced
+them: the margin above is one evaluation out of `685`.
 
 CUDA and Apple MPS are available only when requested explicitly through
 `--device cuda` or `--device mps`; this small MLP usually runs fastest and most
@@ -351,14 +368,24 @@ feature-analysis flags.
 
 ## Training Augmentation
 
-`--augment` enables the current production train-time augmentation recipe:
-feature jitter (`jitter_sigma=0.10`) plus moderate packet augmentation
-(`gain_sigma=0.05`, `noise_sigma=0.01`, `packet_loss=0.05`). Inference stays
-clean; the exported runtime does not apply augmentation.
+`--augment` enables a train-time augmentation recipe: feature jitter
+(`jitter_sigma=0.10`) plus moderate packet augmentation (`gain_sigma=0.05`,
+`noise_sigma=0.01`, `packet_loss=0.05`). Inference stays clean; the exported
+runtime does not apply augmentation.
+
+**The exported Coherence-7 model is trained without it, and augmentation
+currently costs more than it returns.** Measured on 2026-07-27, twenty
+augmented seeds put worst-session recall between `43.8%` and `91.0%` against
+`84.3%` to `95.4%` for ten unaugmented seeds, failed the paired gate three
+times where the unaugmented run failed none, and produced no promotable
+candidate. The recipe perturbs gain, and two of the seven production features
+are gain-invariant by construction, so part of what it teaches is no longer
+information the model can use. Re-measure before assuming it helps a new
+feature set.
 
 Use it on normal training runs, seed search, and the `--cross-environment` /
 `--cross-chip` diagnostics when you want to measure whether the augmented
-training recipe improves generalization:
+training recipe improves generalization for the set you are testing:
 
 ```bash
 python tools/train_ml_model.py --augment

@@ -424,6 +424,7 @@ DEFAULT_ARCHITECTURE_SWEEP = (
 )
 DEFAULT_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'mlp_architecture_experiment.json'
 DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'mlp_fp_weight_experiment.json'
+DEFAULT_SEED_SEARCH_OUTPUT = GENERATED_DATA_DIR / 'mlp_seed_search.json'
 DEFAULT_FP_WEIGHT_SWEEP = (1.0, 1.5, 2.0, 2.5, 3.0)
 DEFAULT_EXPERIMENT_SCREENING_SEED = 20260519
 DEFAULT_EXPERIMENT_INITIAL_SEEDS = (20260518, 20260519, 20260520)
@@ -4238,7 +4239,11 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
                     f"maxFP={baseline_paired['max_fp_rate']:.2f}% "
                     f"worstRecall={baseline_paired['worst_chip_recall']:.2f}%"
                 )
-                if not paired_result_non_regression(paired_gate, baseline_paired):
+                paired_failures = paired_non_regression_failures(
+                    paired_gate, baseline_paired)
+                if paired_failures:
+                    print("  Blocked by per-recording non-regression on:")
+                    print(format_non_regression_failures(paired_failures, indent='    '))
                     if force_export:
                         print(
                             "WARNING: candidate regresses the paired deployment "
@@ -5046,7 +5051,8 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                             hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
                             batch_size=DEFAULT_BATCH_SIZE, environment_filter=None,
                             excluded_chips=None, positive_chip_boost=None,
-                            use_cache=True, augment=False):
+                            use_cache=True, augment=False,
+                            search_output_path=DEFAULT_SEED_SEARCH_OUTPUT):
     """
     Train all requested seeds and keep the strongest robust improvement.
 
@@ -5162,6 +5168,42 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             "running all trials and ranking candidates against the broken baseline"
         )
 
+    search_results = {
+        'config': {
+            'max_trials': max_trials,
+            'fp_weight': fp_weight,
+            'feature_names': list(feature_names),
+            'hidden_layers': list(hidden_layers),
+            'scaler_mode': scaler_mode,
+            'batch_size': batch_size,
+            'augment': bool(augment),
+            'augmentation': format_augmentation_config(
+                feature_augmentation, packet_augmentation),
+            'environment_filter': environment_filter,
+            'excluded_chips': sorted(excluded_chips) if excluded_chips else None,
+            'started_at': datetime.now().isoformat(timespec='seconds'),
+        },
+        'baseline': {
+            'seed': static_presence_seed,
+            'oof_f1': static_presence_metrics.get('oof_f1'),
+            'session_min_recall': static_presence_session.get('recall'),
+            'selection_paired_metrics': static_presence_gate.paired_metrics,
+            'selection_quiet_metrics': static_presence_gate.quiet_metrics,
+            'holdout_paired_metrics': baseline_holdout_gate.paired_metrics,
+        },
+        'trials': [],
+        'final_holdout': None,
+    }
+
+    def _write_search_results():
+        """Persist after every trial: a search that crashes at trial 9 of 10
+        still leaves the per-replay rows behind."""
+        if search_output_path is None:
+            return
+        write_json_results(Path(search_output_path), search_results)
+
+    _write_search_results()
+
     backup_dir, saved_files = _backup_artifacts()
     print(f"Artifacts backup: {backup_dir}")
 
@@ -5189,6 +5231,12 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             print(f"  Candidate train/export failed (exit={export_rc})")
             _restore_artifacts(saved_files)
             trial_summaries.append((used_seed, final_metrics or {}, None, 'export_failed'))
+            search_results['trials'].append({
+                'seed': used_seed,
+                'status': 'export_failed',
+                'returncode': export_rc,
+            })
+            _write_search_results()
             continue
 
         session_summary = final_metrics.get('group_reports', {}).get('session_group', {}).get('worst_recall', {})
@@ -5263,11 +5311,34 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             static_presence_gate.paired_metrics,
         ):
             print("  Per-recording paired non-regression rejected candidate")
+            print(format_non_regression_failures(paired_non_regression_failures(
+                candidate_gate.paired_metrics, static_presence_gate.paired_metrics)))
         elif comparison['regressions']:
             print("  Robust CV rejected candidate due to material regression")
         else:
             print("  Robust CV found no material improvement")
         trial_summaries.append((used_seed, final_metrics, candidate_gate, status))
+        search_results['trials'].append({
+            'seed': used_seed,
+            'status': status,
+            'oof_f1': final_metrics.get('oof_f1'),
+            'session_min_recall': session_summary.get('recall'),
+            'session_max_fp_rate': fp_summary.get('fp_rate'),
+            'cv': final_metrics.get('cv'),
+            'paired_passed': bool(candidate_gate.passed) if candidate_gate else None,
+            'paired_metrics': candidate_gate.paired_metrics if candidate_gate else None,
+            'quiet_metrics': candidate_gate.quiet_metrics if candidate_gate else None,
+            'non_regression_failures': (
+                paired_non_regression_failures(
+                    candidate_gate.paired_metrics,
+                    static_presence_gate.paired_metrics)
+                if candidate_gate is not None
+                and candidate_gate.paired_metrics is not None
+                and static_presence_gate.paired_metrics is not None
+                else []
+            ),
+        })
+        _write_search_results()
         _restore_artifacts(saved_files)
 
     print("\n" + "=" * 70)
@@ -5295,33 +5366,53 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                     "Final reserved holdout: "
                     f"{_format_exported_gate_summary(final_holdout_gate)}"
                 )
-                holdout_non_regression = (
-                    baseline_holdout_gate.paired_metrics is None
-                    or final_holdout_gate.paired_metrics is None
-                    or paired_result_non_regression(
+                holdout_failures = (
+                    []
+                    if (baseline_holdout_gate.paired_metrics is None
+                        or final_holdout_gate.paired_metrics is None)
+                    else paired_non_regression_failures(
                         final_holdout_gate.paired_metrics,
                         baseline_holdout_gate.paired_metrics,
                     )
                 )
-                if not final_holdout_gate.passed or not holdout_non_regression:
+                search_results['final_holdout'] = {
+                    'seed': improved_seed,
+                    'passed': bool(final_holdout_gate.passed),
+                    'paired_metrics': final_holdout_gate.paired_metrics,
+                    'quiet_metrics': final_holdout_gate.quiet_metrics,
+                    'non_regression_failures': holdout_failures,
+                }
+                _write_search_results()
+                if not final_holdout_gate.passed or holdout_failures:
                     _restore_artifacts(saved_files)
+                    if holdout_failures:
+                        print("Blocked by per-recording non-regression on:")
+                        print(format_non_regression_failures(holdout_failures))
                     print(
                         "Final reserved holdout rejected the selected candidate; "
                         "current artifacts were restored"
                     )
                     return 1
+            search_results['selected_seed'] = improved_seed
+            _write_search_results()
             print(
                 f"\nSelected seed after full robust ranking: {improved_seed} "
                 f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "
                 f"{_format_exported_gate_summary(improved_gate)})"
             )
+            if search_output_path is not None:
+                print(f"Seed search results: {search_output_path}")
             return 0
 
+    search_results['selected_seed'] = None
+    _write_search_results()
+    if search_output_path is not None:
+        print(f"\nSeed search results: {search_output_path}")
     if broken_baseline_mode:
-        print("\nNo candidate beat the current broken baseline; current artifacts remain unchanged")
+        print("No candidate beat the current broken baseline; current artifacts remain unchanged")
         return 1
 
-    print("\nNo improvement found within max trials; current artifacts remain unchanged")
+    print("No improvement found within max trials; current artifacts remain unchanged")
     return 1
 
 
@@ -5619,45 +5710,129 @@ def _feature_ablation_rank_key(result):
     )
 
 
-def paired_result_non_regression(candidate, baseline, tolerance=0.25):
-    """Preserve each paired replay within one changed-evaluation margin."""
+def _non_regression_failure(replay, metric, candidate_value, baseline_value,
+                            margin=0.0, eval_count=None):
+    """Describe one blocking comparison, in the units the gate reasons about."""
+    entry = {
+        'replay': replay,
+        'metric': metric,
+        'candidate': candidate_value,
+        'baseline': baseline_value,
+        'margin': margin,
+    }
+    if eval_count:
+        # Percentages hide how small these differences are; the gate margin is
+        # one evaluation, so report the evaluation count that produced them.
+        entry['eval_count'] = int(eval_count)
+        entry['candidate_evaluations'] = round(candidate_value * eval_count / 100.0)
+        entry['baseline_evaluations'] = round(baseline_value * eval_count / 100.0)
+    return entry
+
+
+# Per-recording non-regression margins, in evaluations, set from measured
+# seed-to-seed dispersion: a margin below the noise floor rejects candidates
+# over weight initialisation rather than over behaviour a user would notice.
+#
+# Measured with tools/analyze_seed_dispersion.py across fifteen seeds of one
+# feature set on one corpus: false-positive evaluations on the hardest
+# normal-link replay ranged over four, while recall did not move at all and
+# effective alarms never moved on any replay. FP carries one evaluation of
+# headroom because a maximum over fifteen samples understates the range;
+# recall keeps the original single evaluation, since nothing measured asks for
+# more. Effective alarms stay at zero margin deliberately: that ratchet has
+# already caught a candidate whose aggregates looked strictly better.
+FP_SEED_NOISE_EVALUATIONS = 5
+RECALL_SEED_NOISE_EVALUATIONS = 1
+
+
+def paired_non_regression_failures(candidate, baseline, tolerance=0.25):
+    """List every comparison blocking a candidate; empty when nothing does.
+
+    Reported rather than merely counted, because a rejection that does not say
+    which replay moved cannot be argued with.
+    """
     if candidate['pass_count'] != baseline['pass_count']:
-        return candidate['pass_count'] > baseline['pass_count']
+        if candidate['pass_count'] > baseline['pass_count']:
+            return []
+        return [_non_regression_failure(
+            '<paired>', 'pass_count', candidate['pass_count'], baseline['pass_count'])]
     candidate_rows = candidate.get('by_chip') or {}
     baseline_rows = baseline.get('by_chip') or {}
     shared_keys = sorted(set(candidate_rows).intersection(baseline_rows))
+    failures = []
     if shared_keys and len(shared_keys) == len(candidate_rows) == len(baseline_rows):
         for key in shared_keys:
             candidate_row = candidate_rows[key]
             baseline_row = baseline_rows[key]
             if candidate_row.get('effective_alarms', 0) > baseline_row.get('effective_alarms', 0):
-                return False
+                failures.append(_non_regression_failure(
+                    key, 'effective_alarms',
+                    candidate_row.get('effective_alarms', 0),
+                    baseline_row.get('effective_alarms', 0)))
+                continue
             if candidate_row.get('low_rssi') or baseline_row.get('low_rssi'):
                 # Weak-link replays are stress diagnostics: at -75/-77 dBm
                 # recall and FP jitter by whole events between equally healthy
                 # models, so within the absolute stress targets only the alarm
                 # count ratchets against the baseline.
                 continue
-            fp_margin = max(
-                100.0 / max(int(candidate_row.get('static_presence_eval_count', 0)), 1),
-                100.0 / max(int(baseline_row.get('static_presence_eval_count', 0)), 1),
+            fp_evals = max(
+                int(candidate_row.get('static_presence_eval_count', 0)),
+                int(baseline_row.get('static_presence_eval_count', 0)),
             )
-            recall_margin = max(
-                100.0 / max(int(candidate_row.get('motion_eval_count', 0)), 1),
-                100.0 / max(int(baseline_row.get('motion_eval_count', 0)), 1),
+            recall_evals = max(
+                int(candidate_row.get('motion_eval_count', 0)),
+                int(baseline_row.get('motion_eval_count', 0)),
             )
+            fp_margin = FP_SEED_NOISE_EVALUATIONS * 100.0 / max(fp_evals, 1)
+            recall_margin = RECALL_SEED_NOISE_EVALUATIONS * 100.0 / max(recall_evals, 1)
             if candidate_row.get('fp_rate', 100.0) > baseline_row.get('fp_rate', 100.0) + fp_margin + 1e-9:
-                return False
+                failures.append(_non_regression_failure(
+                    key, 'fp_rate', candidate_row.get('fp_rate', 100.0),
+                    baseline_row.get('fp_rate', 100.0), fp_margin, fp_evals))
             if candidate_row.get('recall', 0.0) < baseline_row.get('recall', 0.0) - recall_margin - 1e-9:
-                return False
-        return True
-    return (
-        candidate['max_fp_rate'] <= baseline['max_fp_rate'] + tolerance
-        and candidate['worst_chip_recall'] >= baseline['worst_chip_recall'] - tolerance
-        and candidate['worst_chip_f1'] >= baseline['worst_chip_f1'] - tolerance
-        and candidate.get('total_effective_alarms', 0)
-        <= baseline.get('total_effective_alarms', 0)
+                failures.append(_non_regression_failure(
+                    key, 'recall', candidate_row.get('recall', 0.0),
+                    baseline_row.get('recall', 0.0), recall_margin, recall_evals))
+        return failures
+    aggregate_checks = (
+        ('max_fp_rate', candidate['max_fp_rate'], baseline['max_fp_rate'] + tolerance,
+         candidate['max_fp_rate'] <= baseline['max_fp_rate'] + tolerance),
+        ('worst_chip_recall', candidate['worst_chip_recall'], baseline['worst_chip_recall'] - tolerance,
+         candidate['worst_chip_recall'] >= baseline['worst_chip_recall'] - tolerance),
+        ('worst_chip_f1', candidate['worst_chip_f1'], baseline['worst_chip_f1'] - tolerance,
+         candidate['worst_chip_f1'] >= baseline['worst_chip_f1'] - tolerance),
+        ('total_effective_alarms', candidate.get('total_effective_alarms', 0),
+         baseline.get('total_effective_alarms', 0),
+         candidate.get('total_effective_alarms', 0) <= baseline.get('total_effective_alarms', 0)),
     )
+    for metric, candidate_value, limit, ok in aggregate_checks:
+        if not ok:
+            failures.append(_non_regression_failure(
+                '<aggregate>', metric, candidate_value, limit, tolerance))
+    return failures
+
+
+def paired_result_non_regression(candidate, baseline, tolerance=0.25):
+    """Preserve each paired replay within its measured seed-noise margin."""
+    return not paired_non_regression_failures(candidate, baseline, tolerance)
+
+
+def format_non_regression_failures(failures, indent='    '):
+    """Render blocking comparisons as one readable line each."""
+    lines = []
+    for item in failures:
+        detail = (
+            f"{item['candidate']:.4g} vs {item['baseline']:.4g} "
+            f"(margin {item['margin']:.4g})"
+        )
+        if 'candidate_evaluations' in item:
+            detail += (
+                f" = {item['candidate_evaluations']} vs "
+                f"{item['baseline_evaluations']} of {item['eval_count']} evaluations"
+            )
+        lines.append(f"{indent}{item['replay']} | {item['metric']}: {detail}")
+    return '\n'.join(lines)
 
 
 def deployment_candidate_beats_baseline(candidate, baseline):
@@ -6172,6 +6347,11 @@ def main():
                             'then keep the strongest material worst/tail grouped-CV '
                             'improvement. A reserved holdout, when configured, is '
                             'opened only for the selected winner')
+    parser.add_argument('--seed-search-output', type=Path, default=DEFAULT_SEED_SEARCH_OUTPUT,
+                       help='JSON output path for --seed-search-until-improvement, '
+                            'holding the per-replay rows and the exact comparisons '
+                            'that blocked each candidate. Written after every trial. '
+                            f'(default: {DEFAULT_SEED_SEARCH_OUTPUT})')
     parser.add_argument('--gain-stress-gate', action='store_true',
                        help='Evaluate current exported ML artifacts under '
                             'artificial gain scaling without training/exporting')
@@ -6469,6 +6649,7 @@ def main():
             positive_chip_boost=args.positive_chip_boost,
             use_cache=not args.no_cache,
             augment=args.augment,
+            search_output_path=args.seed_search_output,
         )
 
     train_rc, _, _ = train_all(
