@@ -57,11 +57,13 @@ def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> No
         assert packet_rate_pps == 100.0
         assert rssi_dbm is None
         if csi_data is empty_csi:
-            margins = np.array([-2.0, -1.0, -2.0, -1.0])
+            margins = np.array([-0.5, 0.0, -0.5, 0.5])
             threshold = 0.3
             motion_count = 0
         else:
-            margins = np.array([-1.0, 0.5, -1.0, 0.5])
+            # A tall upper tail above this capture's own median is what marks it
+            # as contaminated now; the threshold plays no part.
+            margins = np.array([0.0, 0.0, 0.0, 8.0])
             threshold = 0.6
             motion_count = 2
         median = float(np.median(margins))
@@ -72,8 +74,8 @@ def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> No
             "fp_rate": motion_count / len(margins),
             "margin_median": median,
             "margin_mad": float(np.median(np.abs(margins - median))),
-            "margin_q95": float(np.quantile(margins, 0.95)),
-            "margin_q99": float(np.quantile(margins, 0.99)),
+            "margin_q95": float(np.quantile(margins, 0.95)) - median,
+            "margin_q99": float(np.quantile(margins, 0.99)) - median,
             "margin_drift": 0.0,
             "margin_drift_abs": 0.0,
             "margin_series": margins,
@@ -107,12 +109,19 @@ def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> No
     assert presence_rows[0]["verdict"] == "motion-contaminated"
 
 
-def test_classic_baseline_score_weights_cleanliness_and_bursts() -> None:
+def test_classic_baseline_score_weights_tail_height_and_bursts() -> None:
     module = _load_validator_module()
 
-    assert module.classic_baseline_score(0.0, 0.0) == 100.0
-    assert module.classic_baseline_score(0.10, 5.0) == 0.0
-    assert module.classic_baseline_score(0.05, 2.5) == 50.0
+    # The first argument is the capture's own q95 above its own median, in
+    # logits, so the score no longer moves with the calibrated threshold.
+    assert module.classic_baseline_score(2.0, 0.0) == 100.0
+    assert module.classic_baseline_score(6.0, 5.0) == 0.0
+    assert module.classic_baseline_score(4.0, 2.5) == 50.0
+
+    # A uniformly noisy capture must not score well. This is what an excursion
+    # rate normalized by the capture's own spread would have missed, because a
+    # wide MAD lifts its own bound.
+    assert module.classic_baseline_score(7.5, 0.0) < 40.0
 
 
 def test_validate_file_integrity_rejects_object_arrays(tmp_path) -> None:
@@ -155,8 +164,8 @@ def test_classic_calibration_cache_preserves_full_detector_state(monkeypatch) ->
     class FakeDetector:
         def __init__(self):
             self.threshold = 0.8
-            self.startup_l1_floor = 0.12
-            self.l1_noise_blend = 0.75
+            self.adapted_threshold_ready = True
+            self.settle_blocks = [1.0, 2.0]
 
     calibration_calls = []
 
@@ -173,7 +182,7 @@ def test_classic_calibration_cache_preserves_full_detector_state(monkeypatch) ->
         calibration_cache=cache,
         cache_key="low-rssi",
     )
-    first[0].startup_l1_floor = 99.0
+    first[0].settle_blocks.append(99.0)
     second = module._calibrated_classic_for(
         np.zeros((10, 128), dtype=np.int8),
         calibration_cache=cache,
@@ -183,8 +192,8 @@ def test_classic_calibration_cache_preserves_full_detector_state(monkeypatch) ->
     assert len(calibration_calls) == 1
     assert second[0] is not first[0]
     assert second[0].threshold == pytest.approx(0.8)
-    assert second[0].startup_l1_floor == pytest.approx(0.12)
-    assert second[0].l1_noise_blend == pytest.approx(0.75)
+    assert second[0].adapted_threshold_ready is True
+    assert second[0].settle_blocks == [1.0, 2.0]
 
 
 def test_calibrated_classic_for_passes_rssi_into_calibration(monkeypatch) -> None:
@@ -243,7 +252,7 @@ def test_empty_and_presence_verdicts_use_classic_baseline_only() -> None:
     baseline = {
         "fp_rate": 0.0,
         "margin_mad": 0.7,
-        "margin_q95": -0.4,
+        "margin_q95": 2.0,
         "margin_drift": 0.0,
         "margin_drift_abs": 0.0,
         "longest_burst_seconds": 0.0,
@@ -252,9 +261,15 @@ def test_empty_and_presence_verdicts_use_classic_baseline_only() -> None:
     assert module._empty_quality_verdict(baseline) == "clean"
     assert module._presence_quality_verdict(baseline) == "clean"
 
-    motion_baseline = dict(baseline, fp_rate=0.08)
+    # The verdict turns on the threshold-free tail, not on how often the
+    # capture crossed a calibrated threshold.
+    motion_baseline = dict(baseline, margin_q95=7.0)
     assert module._empty_quality_verdict(motion_baseline) == "motion-like"
     assert module._presence_quality_verdict(motion_baseline) == "motion-contaminated"
+
+    # A capture that alarms constantly under a badly placed threshold is still
+    # clean data when its own tail is low.
+    assert module._empty_quality_verdict(dict(baseline, fp_rate=0.9)) == "clean"
 
     unstable_baseline = dict(baseline, margin_mad=1.25, longest_burst_seconds=2.0)
     assert module._empty_quality_verdict(unstable_baseline) == "unstable"
@@ -943,7 +958,15 @@ def test_validate_pair_uses_classic_diagnostic_activation_logic(monkeypatch) -> 
 
     monkeypatch.setattr(module, "_replay_classic_metrics", fake_replay)
 
-    results, static_active, motion_active, returned_threshold, pair_ratio = module.validate_pair(
+    (
+        results,
+        static_active,
+        motion_active,
+        returned_threshold,
+        pair_separation,
+        _idle_tail,
+        _motion_coverage,
+    ) = module.validate_pair(
         static_csi,
         motion_csi,
     )
@@ -954,8 +977,8 @@ def test_validate_pair_uses_classic_diagnostic_activation_logic(monkeypatch) -> 
     assert static_active == 0.0
     assert motion_active == 1.0
     assert returned_threshold == threshold
-    # p95([0.55, 0.70, 0.80]) / 0.5
-    assert pair_ratio == pytest.approx(1.58)
+    # Every motion score outranks every idle score.
+    assert pair_separation == pytest.approx(1.0)
 
 
 def test_validate_pair_warns_when_motion_stays_below_threshold(monkeypatch) -> None:
@@ -987,7 +1010,15 @@ def test_validate_pair_warns_when_motion_stays_below_threshold(monkeypatch) -> N
 
     monkeypatch.setattr(module, "_replay_classic_metrics", fake_replay)
 
-    results, static_active, motion_active, returned_threshold, pair_ratio = module.validate_pair(
+    (
+        results,
+        static_active,
+        motion_active,
+        returned_threshold,
+        pair_separation,
+        _idle_tail,
+        _motion_coverage,
+    ) = module.validate_pair(
         static_csi,
         motion_csi,
     )
@@ -999,16 +1030,25 @@ def test_validate_pair_warns_when_motion_stays_below_threshold(monkeypatch) -> N
     assert static_active == 0.0
     assert motion_active == 0.0
     assert returned_threshold == threshold
-    # p95([0.25, 0.30, 0.40]) / 0.5
-    assert pair_ratio == pytest.approx(0.78)
+    # This is the case the separation metric exists for. Not one motion
+    # evaluation crosses the threshold, so the Classic diagnostic warns, yet the
+    # two halves are perfectly ordered and the recording itself is fine.
+    assert pair_separation == pytest.approx(1.0)
 
 
-def test_classic_pair_score_rewards_clean_idle_and_full_motion() -> None:
+def test_classic_pair_score_uses_only_threshold_free_terms() -> None:
     module = _load_validator_module()
-    assert module.classic_pair_score(0.0, 1.0, 4.0) == 100.0
-    assert module.classic_pair_score(0.10, 0.0, 1.0) == 0.0
-    mid = module.classic_pair_score(0.05, 0.95, 2.5)
-    assert 49.0 <= mid <= 76.0
+    # (idle tail in logits, motion coverage above the idle p95, idle/motion AUC)
+    assert module.classic_pair_score(2.0, 1.0, 1.0) == 100.0
+    assert module.classic_pair_score(6.0, 0.0, 0.90) == 0.0
+    mid = module.classic_pair_score(4.0, 0.95, 0.995)
+    assert 49.0 <= mid <= 90.0
+
+    # Separation leads, so a pair that separates cleanly outscores one that does
+    # not, even when the second covers more of its motion half.
+    assert module.classic_pair_score(2.0, 0.70, 0.9990) > module.classic_pair_score(
+        2.0, 1.0, 0.9200
+    )
 
 
 def test_ratio_cells_mark_soft_warn_and_fail_thresholds() -> None:
@@ -1019,8 +1059,8 @@ def test_ratio_cells_mark_soft_warn_and_fail_thresholds() -> None:
     assert "⚠️" in module._format_motion_above_cell(0.94)
     assert "❌" in module._format_motion_above_cell(0.85)
     assert module._format_quiet_fp_cell(0.01) == "1.0%"
-    assert "⚠️" in module._format_quiet_fp_cell(0.03)
-    assert "❌" in module._format_quiet_fp_cell(0.06)
+    assert "⚠️" in module._format_quiet_fp_cell(0.09)
+    assert "❌" in module._format_quiet_fp_cell(0.14)
     assert "**" in module._format_static_above_cell(0.08, markdown=True)
     assert module._format_score_cell(99.0) == "99.0"
     assert "⚠️" in module._format_score_cell(80.0, "warn")
@@ -1039,19 +1079,32 @@ def test_ratio_cells_mark_soft_warn_and_fail_thresholds() -> None:
     assert module._score_value_severity(90.0) is None
     assert module._score_value_severity(89.9) is None
     assert module._score_value_severity(98.9) is None
-    assert module._pair_ratio_severity(3.0) is None
-    assert module._pair_ratio_severity(2.9) == "warn"
-    assert module._pair_ratio_severity(2.0) == "warn"
-    assert module._pair_ratio_severity(1.9) == "fail"
-    assert "❌" in module._format_pair_ratio_cell(1.73)
-    assert module._pair_ratio(
+    assert module._pair_separation_severity(0.995) is None
+    assert module._pair_separation_severity(0.985) == "warn"
+    assert module._pair_separation_severity(0.971) == "warn"
+    assert module._pair_separation_severity(0.969) == "fail"
+    assert "❌" in module._format_pair_separation_cell(0.9678)
+
+    # Disjoint series separate perfectly whatever the scale.
+    assert module._pair_separation(
+        np.array([0.10, 0.20, 0.30]),
         np.array([0.55, 0.70, 0.80]),
-        threshold=0.5,
-    ) == pytest.approx(1.58)
-    assert module._pair_ratio(
+    ) == pytest.approx(1.0)
+    # The same ordering far below any plausible threshold scores the same.
+    assert module._pair_separation(
+        np.array([0.10, 0.15, 0.20]),
         np.array([0.25, 0.30, 0.40]),
-        threshold=0.5,
-    ) == pytest.approx(0.78)
+    ) == pytest.approx(1.0)
+    # Identical series carry no separation at all.
+    assert module._pair_separation(
+        np.array([0.4, 0.4, 0.4]),
+        np.array([0.4, 0.4, 0.4]),
+    ) == pytest.approx(0.5)
+    # Fully reversed order is the opposite extreme.
+    assert module._pair_separation(
+        np.array([0.8, 0.9, 1.0]),
+        np.array([0.1, 0.2, 0.3]),
+    ) == pytest.approx(0.0)
 
 
 def test_idle_evidence_results_never_fail_the_run() -> None:
@@ -1088,20 +1141,24 @@ def test_idle_evidence_results_never_fail_the_run() -> None:
     assert rows[0]["baseline"] is dirty_baseline
 
 
-def test_pair_review_profile_derives_empirical_ratio_and_score_thresholds() -> None:
+def test_pair_separation_keeps_absolute_floors_instead_of_empirical_ones() -> None:
     module = _load_validator_module()
     pair_rows = [
-        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.8, "classic_score": 99.8},
-        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.4, "classic_score": 98.9},
-        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.0, "classic_score": 98.0},
-        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 3.6, "classic_score": 97.2},
+        {"chip": "C3", "classic_status": "PASS", "pair_separation": 1.0000, "classic_score": 99.8},
+        {"chip": "C3", "classic_status": "PASS", "pair_separation": 0.9998, "classic_score": 98.9},
+        {"chip": "C3", "classic_status": "PASS", "pair_separation": 0.9995, "classic_score": 98.0},
+        {"chip": "C3", "classic_status": "PASS", "pair_separation": 0.9990, "classic_score": 97.2},
     ]
 
     profile_map = module._table_review_profiles(pair_rows, [], [], [])
-    severity_profile = profile_map["pair"]["C3"]
 
-    assert module._pair_ratio_severity(3.7, severity_profile) == "warn"
-    assert module._score_value_severity(97.3, severity_profile) is None
+    # AUC saturates against its own ceiling, so a peer-relative outlier rule
+    # would mark the bottom of a set of near-perfect pairs. The pair table
+    # therefore derives no empirical thresholds at all.
+    assert profile_map["pair"] == {}
+    severity_profile = module._row_severity_profile(profile_map, "pair", "C3")
+    assert module._review_basis_label(severity_profile) == "fixed"
+    assert module._pair_separation_severity(0.9990, severity_profile) is None
 
 
 def test_idle_review_profile_derives_empirical_burst_q95_and_drift_thresholds() -> None:
@@ -1164,7 +1221,12 @@ def test_idle_review_profile_derives_empirical_burst_q95_and_drift_thresholds() 
 
     assert module._review_basis_label(severity_profile) == "chip"
     assert "⚠️" in module._format_burst_cell(0.28, severity_profile=severity_profile)
-    assert "⚠️" in module._format_margin_q95_cell(-0.37, severity_profile=severity_profile)
+    # Tail height is absolute and shared with the verdict, so no peer-relative
+    # profile can mark a low tail or leave a high one clean.
+    assert module._format_margin_q95_cell(-0.37, severity_profile=severity_profile) == "-0.37"
+    assert "⚠️" in module._format_margin_q95_cell(4.5, severity_profile=severity_profile)
+    assert "❌" in module._format_margin_q95_cell(6.5, severity_profile=severity_profile)
+    assert "q95" not in severity_profile
     assert "⚠️" in module._format_margin_drift_cell(0.095, severity_profile=severity_profile)
     assert module._score_value_severity(95.4, severity_profile) is None
 
@@ -1218,21 +1280,21 @@ def test_idle_review_profile_uses_fixed_basis_without_same_chip_references() -> 
     assert module.EMPIRICAL_PROFILE_GLOBAL_KEY not in profile_map["static_presence"]
 
 
-def test_pair_rows_can_fall_back_to_global_empirical_profile() -> None:
+def test_pair_rows_report_fixed_basis_for_every_chip() -> None:
     module = _load_validator_module()
     pair_rows = [
-        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.8, "classic_score": 99.8},
-        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.4, "classic_score": 98.9},
-        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 4.0, "classic_score": 98.0},
-        {"chip": "C3", "classic_status": "PASS", "pair_ratio": 3.6, "classic_score": 97.2},
-        {"chip": "C6", "classic_status": "PASS", "pair_ratio": 3.5, "classic_score": 96.1},
+        {"chip": "C3", "classic_status": "PASS", "pair_separation": 1.0000, "classic_score": 99.8},
+        {"chip": "C3", "classic_status": "PASS", "pair_separation": 0.9998, "classic_score": 98.9},
+        {"chip": "C3", "classic_status": "PASS", "pair_separation": 0.9995, "classic_score": 98.0},
+        {"chip": "C3", "classic_status": "PASS", "pair_separation": 0.9990, "classic_score": 97.2},
+        {"chip": "C6", "classic_status": "PASS", "pair_separation": 0.9988, "classic_score": 96.1},
     ]
 
     profile_map = module._table_review_profiles(pair_rows, [], [], [])
     severity_profile = module._row_severity_profile(profile_map, "pair", "C6")
 
-    assert module._review_basis_label(severity_profile) == "global"
-    assert module._pair_ratio_severity(3.53, severity_profile) == "warn"
+    assert module._review_basis_label(severity_profile) == "fixed"
+    assert module._pair_separation_severity(0.9988, severity_profile) is None
 
 
 def test_idle_score_row_reports_basis_and_alternative_metrics() -> None:

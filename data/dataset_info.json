@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-25T21:15:16.647369",
+  "updated_at": "2026-07-27T01:43:01.123733",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -437,7 +437,7 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64adb64",
-        "dataset_role": "selection",
+        "dataset_role": "exclude",
         "average_packet_rate": 100.03,
         "nominal_packet_rate": 100,
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260722_200102_757740_0001.npz"
@@ -522,6 +522,22 @@
         "average_packet_rate": 97.982,
         "nominal_packet_rate": 100,
         "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260723_133515_742709_0001.npz"
+      },
+      {
+        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T14:35:40.170749",
+        "duration_ms": 179931,
+        "num_packets": 17944,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x000030eda0e46278",
+        "dataset_role": "train",
+        "average_packet_rate": 99.641,
+        "nominal_packet_rate": 100,
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260723_143809_984640_0001.npz"
       },
       {
         "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260724_125917_826283_0001.npz",
@@ -651,7 +667,7 @@
         "low_rssi": true,
         "environment": "bedroom",
         "device_id": "0x0000acebe64ae708",
-        "dataset_role": "holdout",
+        "dataset_role": "exclude",
         "average_packet_rate": 99.612,
         "nominal_packet_rate": 100,
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260725_140045_734811_0001.npz"
@@ -944,7 +960,7 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64adb64",
-        "dataset_role": "selection",
+        "dataset_role": "exclude",
         "average_packet_rate": 100.573,
         "nominal_packet_rate": 100,
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260722_195858_502587_0001.npz"
@@ -1029,6 +1045,22 @@
         "average_packet_rate": 96.59,
         "nominal_packet_rate": 100,
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260723_133317_279759_0001.npz"
+      },
+      {
+        "filename": "motion_c5_64sc_dev000030eda0e46278_20260723_143809_984640_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-23T14:38:09.973700",
+        "duration_ms": 89985,
+        "num_packets": 8976,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x000030eda0e46278",
+        "dataset_role": "train",
+        "average_packet_rate": 100.12,
+        "nominal_packet_rate": 100,
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz"
       },
       {
         "filename": "motion_c5_64sc_dev000030eda0e46278_20260724_130555_313579_0001.npz",
@@ -1158,7 +1190,7 @@
         "low_rssi": true,
         "environment": "bedroom",
         "device_id": "0x0000acebe64ae708",
-        "dataset_role": "holdout",
+        "dataset_role": "exclude",
         "average_packet_rate": 99.85,
         "nominal_packet_rate": 100,
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260725_135809_478030_0001.npz"

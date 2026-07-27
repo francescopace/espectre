@@ -35,16 +35,20 @@ def _fake_report_data():
                 "C3": {
                     "count": 1,
                     "recall": 98.0,
+                    "min_recall": 98.0,
                     "precision": 99.3,
                     "fp_rate": 0.3,
+                    "max_fp_rate": 0.3,
                     "f1": 98.6,
                     "effective_alarms": 1,
                 },
                 "C5": {
                     "count": 1,
                     "recall": 99.9,
+                    "min_recall": 99.9,
                     "precision": 100.0,
                     "fp_rate": 0.0,
+                    "max_fp_rate": 0.0,
                     "f1": 100.0,
                     "effective_alarms": 0,
                 },
@@ -53,16 +57,20 @@ def _fake_report_data():
                 "C3": {
                     "count": 1,
                     "recall": 99.8,
+                    "min_recall": 99.8,
                     "precision": 100.0,
                     "fp_rate": 0.0,
+                    "max_fp_rate": 0.0,
                     "f1": 99.9,
                     "effective_alarms": 0,
                 },
                 "S3": {
                     "count": 1,
                     "recall": 100.0,
+                    "min_recall": 100.0,
                     "precision": 100.0,
                     "fp_rate": 0.0,
+                    "max_fp_rate": 0.0,
                     "f1": 100.0,
                     "effective_alarms": 2,
                 },
@@ -73,16 +81,20 @@ def _fake_report_data():
                 "C3": {
                     "count": 1,
                     "recall": 99.8,
+                    "min_recall": 99.8,
                     "precision": 100.0,
                     "fp_rate": 0.0,
+                    "max_fp_rate": 0.0,
                     "f1": 99.9,
                     "effective_alarms": 0,
                 },
                 "S3": {
                     "count": 1,
                     "recall": 100.0,
+                    "min_recall": 100.0,
                     "precision": 100.0,
                     "fp_rate": 0.0,
+                    "max_fp_rate": 0.0,
                     "f1": 100.0,
                     "effective_alarms": 2,
                 },
@@ -91,8 +103,10 @@ def _fake_report_data():
                 "C3": {
                     "count": 2,
                     "recall": 99.9,
+                    "min_recall": 99.9,
                     "precision": 99.8,
                     "fp_rate": 0.2,
+                    "max_fp_rate": 0.2,
                     "f1": 99.8,
                     "effective_alarms": 0,
                 },
@@ -102,16 +116,20 @@ def _fake_report_data():
             "C3": {
                 "count": 1,
                 "recall": 98.0,
+                "min_recall": 98.0,
                 "precision": 99.3,
                 "fp_rate": 0.3,
+                "max_fp_rate": 0.3,
                 "f1": 98.6,
                 "effective_alarms": 1,
             },
             "C5": {
                 "count": 1,
                 "recall": 99.9,
+                "min_recall": 99.9,
                 "precision": 100.0,
                 "fp_rate": 0.0,
+                "max_fp_rate": 0.0,
                 "f1": 100.0,
                 "effective_alarms": 0,
             },
@@ -121,8 +139,10 @@ def _fake_report_data():
                 "S3": {
                     "count": 1,
                     "recall": 96.3,
+                    "min_recall": 96.3,
                     "precision": 94.0,
                     "fp_rate": 6.3,
+                    "max_fp_rate": 6.3,
                     "f1": 92.2,
                     "effective_alarms": 7,
                 },
@@ -131,8 +151,10 @@ def _fake_report_data():
                 "S3": {
                     "count": 1,
                     "recall": 92.8,
+                    "min_recall": 92.8,
                     "precision": 95.5,
                     "fp_rate": 4.4,
+                    "max_fp_rate": 4.4,
                     "f1": 92.0,
                     "effective_alarms": 7,
                 },
@@ -143,8 +165,10 @@ def _fake_report_data():
                 "C3": {
                     "count": 1,
                     "recall": 87.0,
+                    "min_recall": 87.0,
                     "precision": 99.0,
                     "fp_rate": 0.5,
+                    "max_fp_rate": 0.5,
                     "f1": 92.6,
                     "effective_alarms": 1,
                 },
@@ -155,12 +179,14 @@ def _fake_report_data():
             "classic": {
                 "C3": {
                     "count": 1,
+                    "min_recall": 97.5,
                     "avg_fp_rate": 0.30,
                     "max_fp_rate": 0.42,
                     "effective_alarms": 2,
                 },
                 "S3": {
                     "count": 1,
+                    "min_recall": 94.0,
                     "avg_fp_rate": 1.20,
                     "max_fp_rate": 1.20,
                     "effective_alarms": 1,
@@ -169,12 +195,14 @@ def _fake_report_data():
             "ml": {
                 "C3": {
                     "count": 1,
+                    "min_recall": 99.0,
                     "avg_fp_rate": 0.00,
                     "max_fp_rate": 0.00,
                     "effective_alarms": 0,
                 },
                 "S3": {
                     "count": 1,
+                    "min_recall": 98.7,
                     "avg_fp_rate": 0.13,
                     "max_fp_rate": 0.13,
                     "effective_alarms": 0,
@@ -216,9 +244,12 @@ def test_render_performance_report_markdown_formats_missing_values_as_na() -> No
     assert markdown.startswith("<!-- Generated file. Do not edit manually. -->\n")
     assert "\n# Performance Metrics\n" in markdown
     assert "| Recall | 98.0% | 99.9% | N/A | N/A | N/A |" in markdown
+    assert "| Min Recall | 98.0% | 99.9% | N/A | N/A | N/A |" in markdown
     assert "| Recall | 99.8% | N/A | N/A | N/A | 100.0% |" in markdown
+    assert "| Max FP Rate | 0.3% | 0.0% | N/A | N/A | N/A |" in markdown
     assert "| Effective Alarms | 1 | 0 | N/A | N/A | N/A |" in markdown
     assert "| Effective Alarms | 0 | N/A | N/A | N/A | 2 |" in markdown
+    assert "| Min Recall | 99.0% | N/A | N/A | N/A | 98.7% |" in markdown
     assert "| Avg FP Rate | 0.30% | N/A | N/A | N/A | 1.20% |" in markdown
     assert "| Max FP Rate | 0.00% | N/A | N/A | N/A | 0.13% |" in markdown
     assert "| Effective Alarms | 2 | N/A | N/A | N/A | 1 |" in markdown
@@ -339,16 +370,20 @@ def test_compare_cpp_and_python_report_data_accepts_matching_payloads() -> None:
                 "C3": {
                     "count": 1,
                     "recall": 98.0,
+                    "min_recall": 98.0,
                     "precision": 99.3,
                     "fp_rate": 0.3,
+                    "max_fp_rate": 0.3,
                     "f1": 98.6,
                     "effective_alarms": 1,
                 },
                 "C5": {
                     "count": 1,
                     "recall": 99.9,
+                    "min_recall": 99.9,
                     "precision": 100.0,
                     "fp_rate": 0.0,
+                    "max_fp_rate": 0.0,
                     "f1": 100.0,
                     "effective_alarms": 0,
                 },
@@ -357,16 +392,20 @@ def test_compare_cpp_and_python_report_data_accepts_matching_payloads() -> None:
                 "C3": {
                     "count": 1,
                     "recall": 99.8,
+                    "min_recall": 99.8,
                     "precision": 100.0,
                     "fp_rate": 0.0,
+                    "max_fp_rate": 0.0,
                     "f1": 99.9,
                     "effective_alarms": 0,
                 },
                 "S3": {
                     "count": 1,
                     "recall": 100.0,
+                    "min_recall": 100.0,
                     "precision": 100.0,
                     "fp_rate": 0.0,
+                    "max_fp_rate": 0.0,
                     "f1": 100.0,
                     "effective_alarms": 2,
                 },
@@ -377,8 +416,10 @@ def test_compare_cpp_and_python_report_data_accepts_matching_payloads() -> None:
                 "C3": {
                     "count": 1,
                     "recall": 87.0,
+                    "min_recall": 87.0,
                     "precision": 99.0,
                     "fp_rate": 0.5,
+                    "max_fp_rate": 0.5,
                     "f1": 92.6,
                     "effective_alarms": 1,
                 },
@@ -389,12 +430,14 @@ def test_compare_cpp_and_python_report_data_accepts_matching_payloads() -> None:
             "classic": {
                 "C3": {
                     "count": 1,
+                    "min_recall": 97.5,
                     "avg_fp_rate": 0.30,
                     "max_fp_rate": 0.42,
                     "effective_alarms": 2,
                 },
                 "S3": {
                     "count": 1,
+                    "min_recall": 94.0,
                     "avg_fp_rate": 1.20,
                     "max_fp_rate": 1.20,
                     "effective_alarms": 1,
@@ -403,12 +446,14 @@ def test_compare_cpp_and_python_report_data_accepts_matching_payloads() -> None:
             "ml": {
                 "C3": {
                     "count": 1,
+                    "min_recall": 99.0,
                     "avg_fp_rate": 0.00,
                     "max_fp_rate": 0.00,
                     "effective_alarms": 0,
                 },
                 "S3": {
                     "count": 1,
+                    "min_recall": 98.7,
                     "avg_fp_rate": 0.13,
                     "max_fp_rate": 0.13,
                     "effective_alarms": 0,
@@ -427,8 +472,10 @@ def test_compare_cpp_and_python_report_data_reports_drift() -> None:
                 "C3": {
                     "count": 1,
                     "recall": 97.0,
+                    "min_recall": 97.0,
                     "precision": 99.3,
                     "fp_rate": 0.3,
+                    "max_fp_rate": 0.3,
                     "f1": 98.6,
                     "effective_alarms": 1,
                 },
@@ -439,6 +486,7 @@ def test_compare_cpp_and_python_report_data_reports_drift() -> None:
             "classic": {
                 "C3": {
                     "count": 1,
+                    "min_recall": 97.5,
                     "avg_fp_rate": 0.30,
                     "max_fp_rate": 0.42,
                     "effective_alarms": 3,

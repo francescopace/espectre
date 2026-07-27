@@ -107,8 +107,21 @@ MAX_INTER_PACKET_GAP_FAIL_MS = 250.0
 BASELINE_BLOCK_SECONDS = 5.0
 BASELINE_LONGEST_BURST_WARN_SECONDS = 1.0
 BASELINE_LONGEST_BURST_ZERO_SECONDS = 5.0
-QUIET_TEST_CLASSIC_FP_WARN_RATIO = 0.02
-QUIET_TEST_CLASSIC_FP_FAIL_RATIO = 0.05
+# Idle captures are judged on how high their upper tail rises above their own
+# typical level, in logits, never against the calibrated threshold. A threshold
+# can be miscalibrated or recomputed from new data, and a dataset verdict that
+# moves with it is a verdict about the detector.
+#
+# The tail is absolute where an excursion *rate* would not be: a capture that is
+# uniformly noisy widens its own MAD, lifts any self-normalized bound with it,
+# and then reports few excursions while being exactly the recording to reject.
+BASELINE_TAIL_WARN_LOGITS = 4.0
+BASELINE_TAIL_FAIL_LOGITS = 6.0
+# The excursion rate stays as a burstiness diagnostic, counted against
+# median + BASELINE_EXCURSION_MADS x MAD of the capture itself.
+BASELINE_EXCURSION_MADS = 3.0
+QUIET_TEST_CLASSIC_FP_WARN_RATIO = 0.08
+QUIET_TEST_CLASSIC_FP_FAIL_RATIO = 0.13
 MAX_STATIC_ACTIVE_RATIO = 0.05
 MIN_MOTION_ACTIVE_RATIO = 0.95
 MIN_ACTIVE_RATIO_MARGIN = 0.90
@@ -116,14 +129,25 @@ MIN_ACTIVE_RATIO_MARGIN = 0.90
 FAIL_STATIC_ACTIVE_RATIO = 0.10
 FAIL_MOTION_ACTIVE_RATIO = 0.90
 # Indicative dataset-score anchors (not admission gates).
-CLASSIC_SCORE_STATIC_ZERO = 0.10
 CLASSIC_SCORE_MOTION_FULL = 0.95
-CLASSIC_SCORE_RATIO_FULL = 4.0
-CLASSIC_SCORE_QUIET_ZERO = 0.10
-# Ratio (Motion Scores) = p95(motion) / threshold. Soft marks for weak
-# separation; more robust than max(motion) / threshold.
-RATIO_WARN_BELOW = 3.0
-RATIO_FAIL_BELOW = 2.0
+CLASSIC_SCORE_SEPARATION_FULL = 0.999
+CLASSIC_SCORE_SEPARATION_ZERO = 0.900
+CLASSIC_SCORE_TAIL_FULL = 2.0
+CLASSIC_SCORE_TAIL_ZERO = 6.0
+# Sep (Motion Scores) is the rank-based AUC between the idle and motion
+# probability series, so it answers the only question this table should ask of a
+# recording: do the two halves look different at all?
+#
+# It replaced `p95(motion) / threshold`, which was circular. Motion saturates the
+# Classic probability on every pair in the corpus, `p95(motion)` measured between
+# 0.9920 and 0.9999, so that ratio reduced to `1 / threshold` and reported the
+# detector's own calibration as a property of the recording. Two captures were
+# marked as weakly separated at `1.03x` and `1.16x` while separating at `0.9922`
+# and `0.9947` AUC; the threshold had simply calibrated near `1.0`. AUC is
+# invariant under any monotone transform of the metric, so no threshold
+# placement can move it.
+SEPARATION_WARN_BELOW = 0.990
+SEPARATION_FAIL_BELOW = 0.970
 EMPIRICAL_WARN_QUANTILE_ABOVE = 0.90
 EMPIRICAL_FAIL_QUANTILE_ABOVE = 0.98
 EMPIRICAL_WARN_QUANTILE_BELOW = 0.10
@@ -166,38 +190,47 @@ def _clamp_score(value):
     return float(max(0.0, min(100.0, value)))
 
 
-def classic_pair_score(static_active_ratio, motion_active_ratio, pair_ratio):
+def classic_pair_score(idle_tail, motion_coverage, pair_separation):
     """Return an indicative 0-100 Classic score for one static/motion pair.
 
-    Weights favor idle cleanliness and motion coverage; p95 Ratio is a light
-    tie-breaker. This is review guidance, not an admission veto.
+    All three terms are threshold-free. Separation is the idle/motion AUC, idle
+    cleanliness is the idle half's own q95 above its own median in logits, and
+    motion coverage is the share of the motion half rising above the idle half's
+    p95. The calibrated threshold enters none of them, so recalibrating the
+    detector cannot restate what the data is. This is review guidance, not an
+    admission veto.
     """
     idle_clean = _clamp_score(
-        100.0 * (1.0 - float(static_active_ratio) / CLASSIC_SCORE_STATIC_ZERO)
+        100.0
+        * (CLASSIC_SCORE_TAIL_ZERO - float(idle_tail))
+        / (CLASSIC_SCORE_TAIL_ZERO - CLASSIC_SCORE_TAIL_FULL)
     )
     motion_cover = _clamp_score(
-        100.0 * float(motion_active_ratio) / CLASSIC_SCORE_MOTION_FULL
+        100.0 * float(motion_coverage) / CLASSIC_SCORE_MOTION_FULL
     )
-    ratio_value = float(pair_ratio)
-    if not np.isfinite(ratio_value):
-        ratio_value = CLASSIC_SCORE_RATIO_FULL
-    ratio_score = _clamp_score(
+    separation_value = float(pair_separation)
+    if not np.isfinite(separation_value):
+        separation_value = CLASSIC_SCORE_SEPARATION_FULL
+    separation_score = _clamp_score(
         100.0
-        * (min(ratio_value, CLASSIC_SCORE_RATIO_FULL) - 1.0)
-        / (CLASSIC_SCORE_RATIO_FULL - 1.0)
+        * (separation_value - CLASSIC_SCORE_SEPARATION_ZERO)
+        / (CLASSIC_SCORE_SEPARATION_FULL - CLASSIC_SCORE_SEPARATION_ZERO)
     )
-    return round(0.5 * idle_clean + 0.4 * motion_cover + 0.1 * ratio_score, 1)
+    return round(0.5 * separation_score + 0.3 * idle_clean + 0.2 * motion_cover, 1)
 
 
-def classic_baseline_score(fp_rate, longest_burst_seconds):
-    """Return a 0-100 self-calibrated idle-baseline score.
+def classic_baseline_score(margin_q95, longest_burst_seconds):
+    """Return a 0-100 idle-baseline score from threshold-free evidence.
 
-    Cleanliness carries most of the score, and sustained activation covers the
-    remainder. This remains a review-only Classic diagnostic, not a
-    dataset-admission gate.
+    Tail height carries most of the score. It is the capture's own q95 above its
+    own median, in logits, so it neither depends on where the threshold sits nor
+    normalizes away a uniformly noisy recording. This remains a review-only
+    diagnostic, not a dataset-admission gate.
     """
     cleanliness = _clamp_score(
-        100.0 * (1.0 - float(fp_rate) / CLASSIC_SCORE_QUIET_ZERO)
+        100.0
+        * (CLASSIC_SCORE_TAIL_ZERO - float(margin_q95))
+        / (CLASSIC_SCORE_TAIL_ZERO - CLASSIC_SCORE_TAIL_FULL)
     )
     burst_clean = _clamp_score(
         100.0
@@ -301,14 +334,23 @@ def _default_thresholds_for_metric(metric_name):
             "warn_above": BASELINE_LONGEST_BURST_WARN_SECONDS,
             "fail_above": BASELINE_LONGEST_BURST_ZERO_SECONDS,
         }
-    if metric_name == "ratio":
+    if metric_name == "separation":
         return {
-            "warn_below": RATIO_WARN_BELOW,
-            "fail_below": RATIO_FAIL_BELOW,
+            "warn_below": SEPARATION_WARN_BELOW,
+            "fail_below": SEPARATION_FAIL_BELOW,
         }
     if metric_name == "score":
         return {}
-    if metric_name in {"q95", "drift", "mad"}:
+    if metric_name == "q95":
+        # Absolute, and shared with the idle verdict so the table mark and the
+        # verdict cannot disagree. A peer-relative rule here marked a `2.57`
+        # tail while leaving `3.09` clean, purely because they came from
+        # different chips.
+        return {
+            "warn_above": BASELINE_TAIL_WARN_LOGITS,
+            "fail_above": BASELINE_TAIL_FAIL_LOGITS,
+        }
+    if metric_name in {"drift", "mad"}:
         return {}
     raise KeyError(f"Unknown review metric: {metric_name}")
 
@@ -410,20 +452,20 @@ def _chip_review_profile(
 
 
 def _pair_review_profile(pair_rows):
-    """Return empirical Ratio review thresholds from passing pairs."""
-    reference_rows = [
-        row for row in pair_rows
-        if row.get("classic_status") == "PASS"
-    ]
-    return _chip_review_profile(
-        reference_rows,
-        {
-            "ratio": {
-                "extract": lambda row: row["pair_ratio"],
-                "direction": "below",
-            },
-        },
-    )
+    """Return empirical review thresholds for the pair table.
+
+    Separation is deliberately excluded, and stays on its absolute floors.
+
+    The empirical mechanism marks the bottom decile of a metric as an outlier,
+    which suits a quantity with room to spread. AUC has neither: it is bounded
+    at `1.0` and good pairs sit against that ceiling, so the bottom decile of
+    this corpus lands near `0.998` and near-perfect recordings get marked. That
+    reintroduces the failure this metric was written to remove. AUC also has an
+    absolute meaning that a ratio never had, `0.5` being no separation at all,
+    so fixed floors say something real.
+    """
+    del pair_rows
+    return {}
 
 
 def _idle_review_profile(rows):
@@ -437,10 +479,6 @@ def _idle_review_profile(rows):
         {
             "burst": {
                 "extract": lambda row: row["baseline"]["longest_burst_seconds"],
-                "direction": "above",
-            },
-            "q95": {
-                "extract": lambda row: row["baseline"]["margin_q95"],
                 "direction": "above",
             },
             "drift": {
@@ -530,29 +568,58 @@ def _format_margin_drift_cell(value, *, markdown=False, severity_profile=None):
     return _mark_cell(f"{float(value):.2f}", severity, markdown=markdown)
 
 
-def _pair_ratio(motion_scores, threshold):
-    """Return p95(motion) / threshold from Classic probability series."""
+def _pair_separation(baseline_scores, motion_scores):
+    """Return the rank-based AUC between idle and motion probability series.
+
+    This is the Mann-Whitney statistic: the probability that a random motion
+    evaluation scores above a random idle one. It reads only the ordering of the
+    two series, so it is unchanged by where the threshold sits and by any other
+    monotone rescaling of the metric.
+    """
+    baseline_scores = np.asarray(baseline_scores, dtype=np.float64)
     motion_scores = np.asarray(motion_scores, dtype=np.float64)
-    if motion_scores.size == 0 or float(threshold) <= 0.0:
-        return 0.0
-    motion_p95 = float(np.percentile(motion_scores, 95))
-    return float(motion_p95 / float(threshold))
+    if baseline_scores.size == 0 or motion_scores.size == 0:
+        return float("nan")
 
+    combined = np.concatenate([baseline_scores, motion_scores])
+    order = combined.argsort(kind="mergesort")
+    ranks = np.empty(combined.size, dtype=np.float64)
+    ranks[order] = np.arange(1, combined.size + 1, dtype=np.float64)
 
-def _pair_ratio_severity(pair_ratio, severity_profile=None):
-    """Return soft review severity for Ratio on Motion Scores."""
-    return _threshold_severity(
-        pair_ratio,
-        **_metric_thresholds("ratio", severity_profile),
+    # Ties share their average rank, otherwise a flat stretch of the metric
+    # would score as separation purely from input order.
+    sorted_values = combined[order]
+    start = 0
+    for stop in range(1, sorted_values.size + 1):
+        if stop == sorted_values.size or sorted_values[stop] != sorted_values[start]:
+            if stop - start > 1:
+                ranks[order[start:stop]] = ranks[order[start:stop]].mean()
+            start = stop
+
+    motion_rank_sum = float(ranks[baseline_scores.size:].sum())
+    motion_count = float(motion_scores.size)
+    baseline_count = float(baseline_scores.size)
+    return float(
+        (motion_rank_sum - motion_count * (motion_count + 1.0) / 2.0)
+        / (baseline_count * motion_count)
     )
 
 
-def _format_pair_ratio_cell(pair_ratio, *, markdown=False, severity_profile=None):
-    """Format Ratio as p95(motion)/threshold with soft marks."""
-    text = f"{float(pair_ratio):.2f}x" if markdown else f"{float(pair_ratio):.1f}x"
+def _pair_separation_severity(pair_separation, severity_profile=None):
+    """Return soft review severity for Sep on Motion Scores."""
+    return _threshold_severity(
+        pair_separation,
+        **_metric_thresholds("separation", severity_profile),
+    )
+
+
+def _format_pair_separation_cell(pair_separation, *, markdown=False, severity_profile=None):
+    """Format Sep as an idle/motion AUC with soft marks."""
+    value = float(pair_separation)
+    text = "n/a" if not np.isfinite(value) else f"{value:.4f}"
     return _mark_cell(
         text,
-        _pair_ratio_severity(pair_ratio, severity_profile),
+        _pair_separation_severity(pair_separation, severity_profile),
         markdown=markdown,
     )
 
@@ -622,7 +689,7 @@ def _format_pair_packet_rate_cell(static_packet_rate_pps, motion_packet_rate_pps
 # Presence/Empty/Long-test share the idle-evidence schema and expose every
 # baseline-score component plus exploratory tail/drift signals next to Score.
 _IDLE_EVIDENCE_SCORE_HEADER = (
-    "| Chip | Env | File | RSSI | PPS | FP | Burst | Q95 | Drift | Score |"
+    "| Chip | Env | File | RSSI | PPS | Exc | Burst | Tail | Drift | Score |"
 )
 _IDLE_EVIDENCE_SCORE_SEPARATOR = (
     "|---|---|---|---:|---:|---:|---:|---:|---:|---:|"
@@ -759,7 +826,7 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
             f"{row['threshold']:.2e} | "
             f"{_format_static_above_cell(row['static_active_ratio'], markdown=True)} | "
             f"{_format_motion_above_cell(row['motion_active_ratio'], markdown=True)} | "
-            f"{_format_pair_ratio_cell(row['pair_ratio'], markdown=True, severity_profile=severity_profile)} | "
+            f"{_format_pair_separation_cell(row['pair_separation'], markdown=True, severity_profile=severity_profile)} | "
             f"{_format_score_cell(score_value, severity, markdown=True)} |"
         )
     return (
@@ -769,7 +836,7 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
         f"{_format_pair_packet_rate_cell(row.get('static_packet_rate_pps'), row.get('motion_packet_rate_pps')):>13} | "
         f"{_format_static_above_cell(row['static_active_ratio']):>5} | "
         f"{_format_motion_above_cell(row['motion_active_ratio']):>5} | "
-        f"{_format_pair_ratio_cell(row['pair_ratio'], severity_profile=severity_profile):>6} | "
+        f"{_format_pair_separation_cell(row['pair_separation'], severity_profile=severity_profile):>6} | "
         f"{_format_score_cell(score_value, severity):>8} |"
     )
 
@@ -779,11 +846,11 @@ _PAIR_SCORE_TABLE = {
     "table_key": "pair",
     "header": (
         "| Chip | Env | static_presence / motion | RSSI | PPS | Threshold | "
-        "FP | TP | Ratio | Score |"
+        "FP | TP | Sep | Score |"
     ),
     "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
     "console_header": (
-        "| Chip | Env | static_presence / motion | RSSI | PPS | FP | TP | Ratio | Score |"
+        "| Chip | Env | static_presence / motion | RSSI | PPS | FP | TP | Sep | Score |"
     ),
     "console_separator": (
         "  |------|-----|-------------------------|-----------------:|-------------:|-----:|-----:|------:|------:|"
@@ -829,13 +896,13 @@ def _pair_files_cell(
     return f"{static_date} / {motion_date}"
 
 
-def _baseline_severity(fp_rate, longest_burst_seconds):
+def _baseline_severity(margin_q95, longest_burst_seconds):
     """Return soft severity for one self-calibrated idle baseline."""
     severities = (
         _threshold_severity(
-            fp_rate,
-            warn_above=QUIET_TEST_CLASSIC_FP_WARN_RATIO,
-            fail_above=QUIET_TEST_CLASSIC_FP_FAIL_RATIO,
+            margin_q95,
+            warn_above=BASELINE_TAIL_WARN_LOGITS,
+            fail_above=BASELINE_TAIL_FAIL_LOGITS,
         ),
         _threshold_severity(
             longest_burst_seconds,
@@ -1798,7 +1865,7 @@ def validate_pair(
             static_active_ratio,
             motion_active_ratio,
             threshold,
-            pair_ratio,  # p95(motion) / threshold
+            pair_separation,  # idle/motion AUC, threshold-free
         )
     """
     results = []
@@ -1817,7 +1884,7 @@ def validate_pair(
             "WARN",
             "Could not calibrate the classic startup threshold from the static capture",
         ))
-        return results, 0.0, 0.0, 0.0, 0.0
+        return results, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
     detector, threshold = calibrated
     bl_replay = _call_replay_classic_metrics(
@@ -1845,11 +1912,20 @@ def validate_pair(
             "WARN",
             "Insufficient full-window Classic samples for pair diagnostic",
         ))
-        return results, 0.0, 0.0, threshold, 0.0
+        return results, 0.0, 0.0, threshold, 0.0, 0.0, 0.0
 
     static_active_ratio = float(bl_states.mean())
     motion_active_ratio = float(mv_states.mean())
-    pair_ratio = _pair_ratio(mv_metric, threshold)
+    pair_separation = _pair_separation(bl_replay["score_series"], mv_metric)
+
+    # Threshold-free companions to the two activation ratios above. The idle
+    # half is judged by its own tail, and motion coverage is measured against
+    # the idle half's p95 rather than against the calibrated threshold.
+    bl_metric = bl_replay["score_series"]
+    bl_logits = _probability_logit(bl_metric)
+    idle_tail = float(np.quantile(bl_logits, 0.95) - np.median(bl_logits))
+    idle_p95 = float(np.quantile(bl_metric, 0.95))
+    motion_coverage = float((np.asarray(mv_metric, dtype=np.float64) > idle_p95).mean())
     active_ratio_delta = motion_active_ratio - static_active_ratio
 
     passes = (
@@ -1862,7 +1938,7 @@ def validate_pair(
         f"static_above={static_active_ratio:.1%}, "
         f"motion_above={motion_active_ratio:.1%}, "
         f"delta={active_ratio_delta:+.1%}, "
-        f"ratio={pair_ratio:.2f}x p95(motion)/threshold, "
+        f"separation={pair_separation:.4f} idle/motion AUC, "
         f"threshold={threshold:.6f}"
     )
     results.append(ValidationResult(
@@ -1871,7 +1947,15 @@ def validate_pair(
         message,
         round(motion_active_ratio, 4),
     ))
-    return results, static_active_ratio, motion_active_ratio, threshold, pair_ratio
+    return (
+        results,
+        static_active_ratio,
+        motion_active_ratio,
+        threshold,
+        pair_separation,
+        idle_tail,
+        motion_coverage,
+    )
 
 
 def _training_session_group(label, entry):
@@ -2338,11 +2422,21 @@ def _classic_self_baseline_stats(
     if len(scores) == 0:
         return None
 
-    states = replay["state_series"]
-    threshold_logit = float(_probability_logit([threshold])[0])
-    margins = _probability_logit(scores) - threshold_logit
+    # Every quantity below is measured against this capture's own typical
+    # level, never against the calibrated threshold. A startup calibration can
+    # land badly, or be recomputed later from the data, and a dataset verdict
+    # must not move when it does.
+    score_logits = _probability_logit(scores)
+    margin_center = float(np.median(score_logits))
+    margins = score_logits - margin_center
     margin_median = float(np.median(margins))
     margin_mad = float(np.median(np.abs(margins - margin_median)))
+
+    # Excursions are read against a robust bound built from the capture itself,
+    # so "how often does this idle recording leave its own baseline" replaces
+    # "how often does it cross the detector's threshold".
+    excursion_bound = margin_median + BASELINE_EXCURSION_MADS * max(margin_mad, 1e-9)
+    states = (margins > excursion_bound).astype(np.int8)
 
     eval_rate_hz = max(float(packet_rate_pps), 1e-6) / float(EVALUATION_INTERVAL)
     block_size = max(1, int(round(eval_rate_hz * BASELINE_BLOCK_SECONDS)))
@@ -2363,8 +2457,9 @@ def _classic_self_baseline_stats(
     )
     burst_metrics = _active_burst_metrics(states, packet_rate_pps)
     fp_rate = float(states.mean())
+    margin_q95 = float(np.quantile(margins, 0.95))
     score = classic_baseline_score(
-        fp_rate,
+        margin_q95,
         burst_metrics["longest_burst_seconds"],
     )
     return {
@@ -2373,9 +2468,11 @@ def _classic_self_baseline_stats(
         "eval_count": int(len(scores)),
         "motion_count": int(states.sum()),
         "fp_rate": fp_rate,
+        "excursion_bound": float(excursion_bound),
+        "margin_center": margin_center,
         "margin_median": margin_median,
         "margin_mad": margin_mad,
-        "margin_q95": float(np.quantile(margins, 0.95)),
+        "margin_q95": margin_q95,
         "margin_q99": float(np.quantile(margins, 0.99)),
         "margin_drift": margin_drift,
         "margin_drift_abs": float(abs(margin_drift)),
@@ -2388,14 +2485,14 @@ def _classic_self_baseline_stats(
 
 def _idle_quality_verdict(baseline, *, motion_verdict, gate_on_burst):
     """Classify one idle capture from its self-calibrated Classic baseline."""
-    motion_like = baseline["fp_rate"] > QUIET_TEST_CLASSIC_FP_FAIL_RATIO or (
+    motion_like = baseline["margin_q95"] > BASELINE_TAIL_FAIL_LOGITS or (
         gate_on_burst
         and baseline["longest_burst_seconds"] > BASELINE_LONGEST_BURST_ZERO_SECONDS
     )
     if motion_like:
         return motion_verdict
     if _baseline_severity(
-        baseline["fp_rate"],
+        baseline["margin_q95"],
         baseline["longest_burst_seconds"],
     ):
         return "unstable"
@@ -2861,7 +2958,15 @@ def run_validation(chip_filter=None, generate_report=True):
                 )
                 continue
 
-            pair_res, static_active_ratio, motion_active_ratio, pair_threshold, pair_ratio = validate_pair(
+            (
+                pair_res,
+                static_active_ratio,
+                motion_active_ratio,
+                pair_threshold,
+                pair_separation,
+                pair_idle_tail,
+                pair_motion_coverage,
+            ) = validate_pair(
                 bl_data[bl_key],
                 mv_data[mv_key],
                 bl_rssi_dbm=_coerce_rssi_series(
@@ -2883,7 +2988,7 @@ def run_validation(chip_filter=None, generate_report=True):
             )
             _tag_results(pair_res, 'classic')
             score = classic_pair_score(
-                static_active_ratio, motion_active_ratio, pair_ratio
+                pair_idle_tail, pair_motion_coverage, pair_separation
             )
             classic_status = (
                 'WARN' if any(r.status == 'WARN' for r in pair_res)
@@ -2915,7 +3020,7 @@ def run_validation(chip_filter=None, generate_report=True):
                 'threshold': pair_threshold,
                 'static_active_ratio': static_active_ratio,
                 'motion_active_ratio': motion_active_ratio,
-                'pair_ratio': pair_ratio,
+                'pair_separation': pair_separation,
                 'classic_score': score,
                 'classic_status': classic_status,
                 'status': classic_status,
@@ -3088,6 +3193,29 @@ def _generate_report(
             )
         )
 
+    lines.append("\n## Reading these tables\n")
+    lines.append(
+        "Two families of metric appear side by side, and only one of them "
+        "judges the recording."
+    )
+    lines.append(
+        "- **Threshold-free**, so they describe the capture itself, and every "
+        "mark in this report comes from one of them: `Sep` (idle/motion AUC), "
+        "`Tail` (q95 above the capture's own median, in logits), `Exc` "
+        "(excursions past median + 3 MAD), `Burst`, `MAD`, and `Drift`."
+    )
+    lines.append(
+        "- **Threshold-relative**, kept for context and never marked: `FP` and "
+        "`TP` on Motion Scores, and the `Threshold` column itself. They say "
+        "how Classic behaved on the capture under its own startup calibration, "
+        "which can be miscalibrated or recomputed later, so they are read as "
+        "detector diagnostics rather than as facts about the recording."
+    )
+    lines.append(
+        "When a pair carries a mark on `TP` but none on `Sep`, the motion is "
+        "there and the threshold is what missed it. Do not drop such a capture: "
+        "it is evidence about the detector, not about the data."
+    )
     lines.append("\n## Validation rule\n")
     lines.append(
         f"- `FP` (Motion Scores): ⚠️ `>{MAX_STATIC_ACTIVE_RATIO:.0%}`, "
@@ -3098,21 +3226,27 @@ def _generate_report(
         f"❌ `<{FAIL_MOTION_ACTIVE_RATIO:.0%}`"
     )
     lines.append(
-        f"- `FP` (Presence/Empty/Long-test): "
+        f"- `Exc` (Presence/Empty/Long-test, past median + "
+        f"{BASELINE_EXCURSION_MADS:.0f} MAD): "
         f"⚠️ `>{QUIET_TEST_CLASSIC_FP_WARN_RATIO:.0%}`, "
         f"❌ `>{QUIET_TEST_CLASSIC_FP_FAIL_RATIO:.0%}`"
     )
-    if _has_empirical_metric(review_profiles, "pair", "ratio"):
+    lines.append(
+        f"- `Tail` (Presence/Empty/Long-test, q95 above own median in logits): "
+        f"⚠️ `>{BASELINE_TAIL_WARN_LOGITS:.1f}`, "
+        f"❌ `>{BASELINE_TAIL_FAIL_LOGITS:.1f}`"
+    )
+    if _has_empirical_metric(review_profiles, "pair", "separation"):
         lines.append(
-            "- `Ratio` (Motion Scores): peer-relative empirical outlier threshold "
+            "- `Sep` (Motion Scores): peer-relative empirical outlier threshold "
             "derived from passing pairs in this run, per chip when enough "
             "references exist, otherwise global fallback"
         )
     else:
         lines.append(
-            f"- `Ratio` (Motion Scores, p95(motion)/threshold): "
-            f"⚠️ `<{RATIO_WARN_BELOW:.0f}x`, "
-            f"❌ `<{RATIO_FAIL_BELOW:.0f}x`"
+            f"- `Sep` (Motion Scores, idle/motion AUC): "
+            f"⚠️ `<{SEPARATION_WARN_BELOW:.3f}`, "
+            f"❌ `<{SEPARATION_FAIL_BELOW:.3f}`"
         )
     if any(
         _has_empirical_metric(review_profiles, table_key, "burst")

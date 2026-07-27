@@ -45,7 +45,6 @@ namespace replay_summary = espectre::test::summary;
 #define num_static_presence csi_test_data::num_static_presence()
 #define num_motion csi_test_data::num_motion()
 
-static const char *TAG = "test_motion_detection";
 
 static replay::ReplayPacketMetadata static_presence_metadata() {
     return {
@@ -69,7 +68,9 @@ static replay::ReplayPacketMetadata motion_metadata() {
 
 struct PerformanceResult {
     float recall;
+    float min_recall;
     float fp_rate;
+    float max_fp_rate;
     float precision;
     float f1;
     int effective_alarms;
@@ -101,21 +102,21 @@ static void record_result(const char* algorithm, float recall, float fp_rate, fl
         row.dataset_name = current_label;
         row.chip_name = csi_test_data::chip_name(csi_test_data::current_chip());
         row.synthetic = csi_test_data::current_pair_is_synthetic();
-        row.classic = {0, 0, 0, 0, 0, false};
-        row.ml = {0, 0, 0, 0, 0, false};
+        row.classic = {0, 0, 0, 0, 0, 0, 0, false};
+        row.ml = {0, 0, 0, 0, 0, 0, 0, false};
         g_results.push_back(row);
     }
     
     DatasetResults& current = g_results.back();
     if (strcmp(algorithm, "classic") == 0) {
-        current.classic = {recall, fp_rate, precision, f1, effective_alarms, true};
+        current.classic = {recall, recall, fp_rate, fp_rate, precision, f1, effective_alarms, true};
     } else if (strcmp(algorithm, "ml") == 0) {
-        current.ml = {recall, fp_rate, precision, f1, effective_alarms, true};
+        current.ml = {recall, recall, fp_rate, fp_rate, precision, f1, effective_alarms, true};
     }
 }
 
 static PerformanceResult mean_result_for_chip(const char* chip_name, const char* algorithm, bool synthetic) {
-    PerformanceResult mean{0, 0, 0, 0, 0, false};
+    PerformanceResult mean{0, 0, 0, 0, 0, 0, 0, false};
     int count = 0;
     for (const auto& r : g_results) {
         if (strcmp(r.chip_name, chip_name) != 0 || r.synthetic != synthetic) {
@@ -129,7 +130,9 @@ static PerformanceResult mean_result_for_chip(const char* chip_name, const char*
             continue;
         }
         mean.recall += value.recall;
+        mean.min_recall = count == 0 ? value.recall : std::min(mean.min_recall, value.recall);
         mean.fp_rate += value.fp_rate;
+        mean.max_fp_rate = count == 0 ? value.fp_rate : std::max(mean.max_fp_rate, value.fp_rate);
         mean.precision += value.precision;
         mean.f1 += value.f1;
         mean.effective_alarms += value.effective_alarms;
@@ -255,13 +258,16 @@ static void write_algorithm_json(FILE* handle, const char* algorithm, bool synth
         first_chip = false;
         fprintf(
             handle,
-            "\"%s\":{\"count\":%d,\"recall\":%.6f,\"precision\":%.6f,\"fp_rate\":%.6f,\"f1\":%.6f,"
+            "\"%s\":{\"count\":%d,\"recall\":%.6f,\"min_recall\":%.6f,\"precision\":%.6f,"
+            "\"fp_rate\":%.6f,\"max_fp_rate\":%.6f,\"f1\":%.6f,"
             "\"effective_alarms\":%d}",
             chip_name,
             count,
             metrics.recall,
+            metrics.min_recall,
             metrics.precision,
             metrics.fp_rate,
+            metrics.max_fp_rate,
             metrics.f1,
             metrics.effective_alarms);
     }
@@ -316,7 +322,7 @@ inline uint16_t get_window_size() { return DETECTOR_DEFAULT_WINDOW_SIZE; }
 inline bool get_enable_hampel() { return true; }
 
 // Classic targets
-inline float get_classic_fp_rate_target() { return 5.0f; }
+inline float get_classic_fp_rate_target() { return 3.0f; }
 inline float get_classic_recall_target() { return 95.0f; }
 inline float get_ml_fp_rate_target() { return 5.0f; }
 inline float get_ml_recall_target() { return 95.0f; }

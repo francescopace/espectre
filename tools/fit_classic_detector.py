@@ -19,8 +19,8 @@ Only `train` datasets are fitted. `holdout` stays sealed, `selection` is left fo
 operating-point work, and `exclude` is dropped.
 
 Usage:
-    ./espectre python tools/fit_classic_detector.py
-    ./espectre python tools/fit_classic_detector.py --apply
+    python tools/fit_classic_detector.py
+    python tools/fit_classic_detector.py --apply
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -301,7 +301,9 @@ def choose_base_threshold(
     scores: np.ndarray,
     y: np.ndarray,
     weights: np.ndarray,
-    fp_target: float = 5.0,
+    session: Optional[np.ndarray] = None,
+    fp_target: float = 3.0,
+    min_session_recall: float = 0.0,
 ) -> Tuple[float, Dict[str, float]]:
     """Pick the operating point the production promotion gate actually asks for.
 
@@ -309,6 +311,13 @@ def choose_base_threshold(
     best F1. Maximizing F1 lands well above the ceiling, because F1 trades recall
     against precision on equal terms while the runtime contract does not. Falls
     back to best F1 only when no candidate clears the ceiling.
+
+    Every rate here is pooled over the whole corpus, and a pooled rate hides the
+    one recording that fails. A single-feature experiment scored `98.0%` recall
+    on this sweep while one capture sat at `62%`, because twenty-six good pairs
+    outvoted it; the per-pair replay caught what the sweep could not. So the
+    chosen point now also carries `worst_session_recall`, and `min_session_recall`
+    can make it binding. Report it, and do not read the pooled recall alone.
     """
     probabilities = 1.0 / (1.0 + np.exp(-scores))
     candidates = np.unique(np.quantile(probabilities, np.linspace(0.001, 0.999, 999)))
@@ -334,7 +343,27 @@ def choose_base_threshold(
             continue
         f1 = 2.0 * precision * recall / (precision + recall)
         fp_rate = 100.0 * fp / (fp + tn) if (fp + tn) > 0.0 else 0.0
-        point = {"f1": 100.0 * f1, "recall": 100.0 * recall, "fp_rate": fp_rate}
+        worst_session_recall = 100.0 * recall
+        if session is not None:
+            motion = y == MOTION_LABEL
+            per_session = []
+            for name in np.unique(session[motion]):
+                rows = motion & (session == name)
+                hit = float(weights[rows & predicted].sum())
+                total = float(weights[rows].sum())
+                if total > 0.0:
+                    per_session.append(100.0 * hit / total)
+            if per_session:
+                worst_session_recall = float(min(per_session))
+        point = {
+            "f1": 100.0 * f1,
+            "recall": 100.0 * recall,
+            "fp_rate": fp_rate,
+            "worst_session_recall": worst_session_recall,
+        }
+
+        if worst_session_recall < min_session_recall:
+            continue
 
         if fp_rate <= fp_target and recall > gated_recall:
             gated_recall = recall
@@ -412,8 +441,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--apply", action="store_true", help="write the constants into both runtimes")
     parser.add_argument("--splits", type=int, default=5, help="grouped OOF folds (default: 5)")
-    parser.add_argument("--fp-target", type=float, default=5.0,
-                        help="false-positive ceiling for the operating point (default: 5.0)")
+    parser.add_argument("--fp-target", type=float, default=3.0,
+                        help="false-positive ceiling for the operating point (default: 3.0)")
+    parser.add_argument("--min-session-recall", type=float, default=0.0,
+                        help="reject operating points whose worst single session falls below "
+                             "this recall (default: 0.0, report only)")
     parser.add_argument("--quiet", action="store_true", help="suppress per-dataset progress")
     args = parser.parse_args()
 
@@ -456,7 +488,12 @@ def main() -> int:
     # back into the constant the runtime stores.
     centered = session_centered_scores(oof, y, corpus["session"], window_size)
     centered_threshold, metrics = choose_base_threshold(
-        centered, y, weights, fp_target=args.fp_target
+        centered,
+        y,
+        weights,
+        session=corpus["session"],
+        fp_target=args.fp_target,
+        min_session_recall=args.min_session_recall,
     )
     centered_logit = float(np.log(centered_threshold / (1.0 - centered_threshold)))
     base_threshold = base_threshold_from_centered(centered_logit, idle_q95)
@@ -465,6 +502,15 @@ def main() -> int:
     weight, intercept = coefficients["weight"], coefficients["intercept"]
     print(f"\nOperating point from {source}:")
     print(f"  F1={metrics['f1']:.3f}%  recall={metrics['recall']:.3f}%  fp_rate={metrics['fp_rate']:.3f}%")
+    worst_session = metrics.get("worst_session_recall")
+    if worst_session is not None:
+        print(f"  worst session recall={worst_session:.3f}%")
+        if metrics["recall"] - worst_session > 10.0:
+            print(
+                f"WARNING: pooled recall {metrics['recall']:.1f}% hides a session at "
+                f"{worst_session:.1f}%; check the per-pair replay before trusting this point",
+                file=sys.stderr,
+            )
     print("\nFitted constants:")
     print(f"  FEATURE_CENTER       = ({center[0]!r}, {center[1]!r})")
     print(f"  FEATURE_SCALE        = ({scale[0]!r}, {scale[1]!r})")

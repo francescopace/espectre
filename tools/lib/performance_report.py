@@ -1269,8 +1269,10 @@ def _average_detector_metrics(entries: Sequence[Dict[str, float]]) -> Optional[D
     return {
         "count": len(entries),
         "recall": sum(entry["recall"] for entry in entries) / len(entries),
+        "min_recall": min(entry["recall"] for entry in entries),
         "precision": sum(entry["precision"] for entry in entries) / len(entries),
         "fp_rate": sum(entry["fp_rate"] for entry in entries) / len(entries),
+        "max_fp_rate": max(entry["fp_rate"] for entry in entries),
         "f1": sum(entry["f1"] for entry in entries) / len(entries),
         "effective_alarms": sum(entry["effective_alarms"] for entry in entries),
     }
@@ -1427,9 +1429,11 @@ def compute_performance_report_data(
         for chip, entries in by_chip.items():
             if not entries:
                 continue
+            recalls = [entry["recall"] for entry in entries]
             fp_rates = [entry["fp_rate"] for entry in entries]
             long_summary[algorithm][chip] = {
                 "count": len(entries),
+                "min_recall": min(recalls),
                 "avg_fp_rate": sum(fp_rates) / len(fp_rates),
                 "max_fp_rate": max(fp_rates),
                 "effective_alarms": sum(entry["effective_alarms"] for entry in entries),
@@ -1548,8 +1552,10 @@ def render_performance_report_markdown(
     paired_divider = "|--------|" + "|".join("----------" for _ in CHIP_ORDER) + "|"
     paired_row_specs = (
         ("recall", "Recall", lambda value: f"{value:.1f}%"),
+        ("min_recall", "Min Recall", lambda value: f"{value:.1f}%"),
         ("precision", "Precision", lambda value: f"{value:.1f}%"),
         ("fp_rate", "FP Rate", lambda value: f"{value:.1f}%"),
+        ("max_fp_rate", "Max FP Rate", lambda value: f"{value:.1f}%"),
         ("f1", "F1-Score", lambda value: f"{value:.1f}%"),
         ("effective_alarms", "Effective Alarms", lambda value: f"{int(value)}"),
     )
@@ -1632,6 +1638,7 @@ def render_performance_report_markdown(
 
     long_quiet = report_data["long_quiet"]
     long_row_specs = (
+        ("min_recall", "Min Recall", lambda value: f"{value:.1f}%"),
         ("avg_fp_rate", "Avg FP Rate", lambda value: f"{value:.2f}%"),
         ("max_fp_rate", "Max FP Rate", lambda value: f"{value:.2f}%"),
         ("effective_alarms", "Effective Alarms", lambda value: f"{int(value)}"),

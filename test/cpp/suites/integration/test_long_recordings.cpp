@@ -78,28 +78,13 @@ static replay::ReplayPacketMetadata motion_metadata() {
 
 struct LongRunAggregate {
   int count{0};
+  float min_recall{0.0f};
   float avg_fp_rate{0.0f};
   float max_fp_rate{0.0f};
   int effective_alarms{0};
   int false_motion_evaluations{0};
   bool valid{false};
 };
-
-static void compute_derived_metrics(LongRunMetrics &metrics) {
-  metrics.recall = (metrics.tp + metrics.fn) > 0
-                       ? static_cast<float>(metrics.tp) / static_cast<float>(metrics.tp + metrics.fn) * 100.0f
-                       : 0.0f;
-  metrics.precision = (metrics.tp + metrics.fp) > 0
-                          ? static_cast<float>(metrics.tp) / static_cast<float>(metrics.tp + metrics.fp) * 100.0f
-                          : 0.0f;
-  metrics.fp_rate = metrics.static_presence_eval_count > 0
-                        ? static_cast<float>(metrics.fp) / static_cast<float>(metrics.static_presence_eval_count) * 100.0f
-                        : 0.0f;
-  metrics.f1 = (metrics.precision + metrics.recall) > 0.0f
-                   ? 2.0f * (metrics.precision / 100.0f) * (metrics.recall / 100.0f) /
-                         ((metrics.precision + metrics.recall) / 100.0f) * 100.0f
-                   : 0.0f;
-}
 
 static void record_result(const char *algorithm, const LongRunMetrics &metrics) {
   const char *dataset_name = csi_test_data::current_long_recording_name();
@@ -175,6 +160,8 @@ static LongRunAggregate summarize_long_metrics_for_chip(const char *chip_name, c
       continue;
     }
     const LongRunMetrics &value = std::strcmp(algorithm, "classic") == 0 ? result.classic : result.ml;
+    aggregate.min_recall =
+        aggregate.count == 0 ? value.recall : std::min(aggregate.min_recall, value.recall);
     aggregate.avg_fp_rate += value.fp_rate;
     aggregate.max_fp_rate = aggregate.count == 0 ? value.fp_rate : std::max(aggregate.max_fp_rate, value.fp_rate);
     aggregate.effective_alarms += value.effective_alarms;
@@ -352,10 +339,11 @@ static void write_algorithm_json(FILE *handle, const char *algorithm) {
     }
     first_chip = false;
     fprintf(handle,
-            "\"%s\":{\"count\":%d,\"avg_fp_rate\":%.6f,\"max_fp_rate\":%.6f,"
+            "\"%s\":{\"count\":%d,\"min_recall\":%.6f,\"avg_fp_rate\":%.6f,\"max_fp_rate\":%.6f,"
             "\"effective_alarms\":%d}",
             chip_name,
             aggregate.count,
+            aggregate.min_recall,
             aggregate.avg_fp_rate,
             aggregate.max_fp_rate,
             aggregate.effective_alarms);
