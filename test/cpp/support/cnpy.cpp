@@ -77,8 +77,7 @@ template<> std::vector<char>& cnpy::operator+=(std::vector<char>& lhs, const cha
 
 void cnpy::parse_npy_header(unsigned char* buffer,size_t& word_size, std::vector<size_t>& shape, bool& fortran_order) {
     //std::string magic_string(buffer,6);
-    uint8_t major_version = *reinterpret_cast<uint8_t*>(buffer+6);
-    uint8_t minor_version = *reinterpret_cast<uint8_t*>(buffer+7);
+    //bytes 6 and 7 hold the major and minor format version, which we accept as-is
     uint16_t header_len = read_unaligned<uint16_t>(buffer+8);
     std::string header(reinterpret_cast<char*>(buffer+9),header_len);
 
@@ -247,6 +246,8 @@ cnpy::NpyArray load_the_npz_array(FILE* fp, uint32_t compr_bytes, uint32_t uncom
     d_stream.avail_in = 0;
     d_stream.next_in = Z_NULL;
     err = inflateInit2(&d_stream, -MAX_WBITS);
+    if(err != Z_OK)
+        throw std::runtime_error("load_the_npz_array: inflateInit2 failed");
 
     d_stream.avail_in = compr_bytes;
     d_stream.next_in = &buffer_compr[0];
@@ -254,7 +255,13 @@ cnpy::NpyArray load_the_npz_array(FILE* fp, uint32_t compr_bytes, uint32_t uncom
     d_stream.next_out = &buffer_uncompr[0];
 
     err = inflate(&d_stream, Z_FINISH);
+    if(err != Z_STREAM_END) {
+        inflateEnd(&d_stream);
+        throw std::runtime_error("load_the_npz_array: inflate failed");
+    }
     err = inflateEnd(&d_stream);
+    if(err != Z_OK)
+        throw std::runtime_error("load_the_npz_array: inflateEnd failed");
 
     std::vector<size_t> shape;
     size_t word_size;

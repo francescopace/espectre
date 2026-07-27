@@ -40,7 +40,6 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.stream";
-constexpr size_t kStreamRecordMaxBytes = sizeof(CsiStreamHeaderV7) + HT20_CSI_LEN;
 // Upper bound on how long a partial batch may wait for more pacing slots
 // before it is flushed, so low pacing rates keep bounded record latency.
 constexpr uint64_t kStreamBatchFlushMs = 100U;

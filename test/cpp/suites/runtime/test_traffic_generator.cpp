@@ -14,7 +14,6 @@
 
 using namespace espectre;
 
-static const char *TAG = "test_traffic_generator";
 
 void setUp(void) {
     // Nothing to set up

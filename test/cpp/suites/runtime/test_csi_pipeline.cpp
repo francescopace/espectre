@@ -19,7 +19,6 @@
 
 using namespace espectre;
 
-static const char *TAG = "test_csi_pipeline";
 
 static constexpr uint32_t TEST_PUBLISH_RATE = 100;
 static constexpr uint32_t TEST_EVALUATION_INTERVAL = 25;
