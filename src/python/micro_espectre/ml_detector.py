@@ -92,18 +92,6 @@ def sigmoid(x):
     return 1.0 / (1.0 + math.exp(-x))
 
 
-def normalize_features(features):
-    """Normalize features using pre-computed mean and scale."""
-    if len(features) != len(FEATURE_MEAN):
-        raise ValueError(
-            f"Expected {len(FEATURE_MEAN)} features, got {len(features)}"
-        )
-    normalized = []
-    for i in range(len(features)):
-        normalized.append((features[i] - FEATURE_MEAN[i]) / FEATURE_SCALE[i])
-    return normalized
-
-
 def predict(features):
     """
     Predict motion probability from the exported feature vector.

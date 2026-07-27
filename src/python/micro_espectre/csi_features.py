@@ -23,59 +23,6 @@ except ImportError:
 # (~100 ms at 100 pps).
 L1_DELTA_LAG = 10
 L1_DELTA_STARTUP_THRESHOLD_FACTOR = 1.1
-L1_DELTA_STARTUP_GATE = True
-
-
-def calc_skewness(values, count, mean, std):
-    """Calculate Fisher skewness (3rd standardized moment)."""
-    if count < 3 or std < 1e-10:
-        return 0.0
-
-    m3 = 0.0
-    for i in range(count):
-        diff = values[i] - mean
-        m3 += diff * diff * diff
-    m3 /= count
-    return m3 / (std * std * std)
-
-
-def _interpolate_sorted_percentile(sorted_values, count, percentile):
-    """Calculate percentile from an already sorted list."""
-    if count == 0:
-        return 0.0
-    if count == 1:
-        return sorted_values[0]
-
-    position = (count - 1) * (percentile / 100.0)
-    lower_idx = int(position)
-    upper_idx = lower_idx + 1
-    if upper_idx >= count:
-        return sorted_values[count - 1]
-
-    fraction = position - lower_idx
-    lower = sorted_values[lower_idx]
-    upper = sorted_values[upper_idx]
-    return lower * (1.0 - fraction) + upper * fraction
-
-
-def calc_iqr(turbulence_buffer, buffer_count, sorted_values=None):
-    """Calculate interquartile range (P75 - P25).
-
-    Args:
-        sorted_values: Pre-sorted copy to avoid redundant sorting.
-    """
-    if buffer_count < 2:
-        return 0.0
-
-    if sorted_values is None:
-        sorted_vals = turbulence_buffer[:buffer_count]
-        sorted_vals.sort()
-    else:
-        sorted_vals = sorted_values
-
-    q1 = _interpolate_sorted_percentile(sorted_vals, buffer_count, 25.0)
-    q3 = _interpolate_sorted_percentile(sorted_vals, buffer_count, 75.0)
-    return q3 - q1
 
 
 def calc_autocorrelation(turbulence_buffer, buffer_count, mean=None, variance=None, lag=1):
@@ -136,20 +83,6 @@ def calc_mad(turbulence_buffer, buffer_count, sorted_values=None):
     return sorted_vals[mid]
 
 
-def calc_waveform_length(turbulence_buffer, buffer_count):
-    """Calculate waveform length as total absolute first-difference."""
-    if buffer_count < 2:
-        return 0.0
-
-    total = 0.0
-    prev = turbulence_buffer[0]
-    for i in range(1, buffer_count):
-        curr = turbulence_buffer[i]
-        total += abs(curr - prev)
-        prev = curr
-    return total
-
-
 def calc_zero_crossing_rate(values, count, center):
     """
     Calculate the crossing rate of ``values`` around ``center``.
@@ -170,64 +103,23 @@ def calc_zero_crossing_rate(values, count, center):
     return crossings / (count - 1)
 
 
-# Supported L1-delta features available to training/export flows.
-L1_DELTA_FEATURES = [
-    'l1_delta',
-    'l1_delta_std',
-    'l1_delta_waveform_length',
-    'l1_delta_autocorr',
-    'l1_delta_lag_ratio',
-]
-
-# Historical Core-6 production set (2026-07-07 to 2026-07-23); kept for
-# reference and experiments. Superseded by Coherence-6 (see below).
-CORE6_FEATURES = [
-    'turb_mad_over_mean',
-    'turb_skewness',
-    'turb_autocorr',
-    'l1_delta',
-    'l1_delta_std',
-    'l1_delta_waveform_length',
-]
-
-# Coherence-6 production set (2026-07-23 to 2026-07-27): Core-6 with the two
-# weakest members swapped for shift/scale-invariant temporal-coherence
-# statistics. On real weak-link pairs the absolute L1 features lose (or invert)
-# their motion separation, while the noise floor is white in time and human
-# motion is not; the coherence swap collapses seed-to-seed variance on
-# out-of-sample false positives (see the temporal-coherence promotion ADR).
-# Kept for reference and experiments. Superseded by Coherence-7 (see below).
-COHERENCE6_FEATURES = [
+# Production feature set, and the only one. Classic reads two of these members
+# directly (the lag ratio and the turbulence autocorrelation); the MLP reads all
+# seven. Every removed predecessor and candidate is recorded in
+# docs/adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md, so a
+# future experiment can find what was already rejected and why.
+COHERENCE7_FEATURES = [
     'turb_mad_over_mean',
     'turb_autocorr',
     'turb_zcr',
     'l1_delta',
     'l1_delta_std',
     'l1_delta_autocorr',
-]
-
-# Coherence-7 production set: Coherence-6 plus the lag ratio Classic adopted,
-# which divides the lagged profile displacement by the adjacent one. The plain
-# mean carries the link's noise floor, so it degrades and sometimes inverts on
-# weak links; the ratio shares a unit with its denominator and drops the floor.
-# Adding it removed five effective alarms across the reserved replays and added
-# none.
-COHERENCE7_FEATURES = COHERENCE6_FEATURES + [
     'l1_delta_lag_ratio',
 ]
 
-# Production feature set.
 DEFAULT_FEATURES = COHERENCE7_FEATURES
-
-# Non-production features available to training experiments: the two members
-# demoted from Core-6 and the never-promoted coefficient of variation.
-CANDIDATE_FEATURES = [
-    'turb_skewness',
-    'l1_delta_waveform_length',
-    'l1_delta_cv',
-]
-
-ALL_FEATURES = tuple(DEFAULT_FEATURES + CANDIDATE_FEATURES)
+ALL_FEATURES = tuple(DEFAULT_FEATURES)
 
 # Features computed from the rebuilt L1-delta series. The lag ratio is
 # deliberately absent: it shares the l1_ prefix but the tracker hands it over
@@ -237,8 +129,6 @@ L1_SERIES_FEATURES = frozenset({
     'l1_delta',
     'l1_delta_std',
     'l1_delta_autocorr',
-    'l1_delta_waveform_length',
-    'l1_delta_cv',
 })
 
 # Features that need the L1 tracker running at all. The lag ratio belongs here
@@ -320,20 +210,6 @@ def l1_delta_series(amplitude_history, buffer_count, lag=L1_DELTA_LAG):
         deltas.append(total / width)
 
     return deltas
-
-
-def calc_l1_delta(amplitude_history, buffer_count, lag=L1_DELTA_LAG):
-    """
-    Calculate the mean L1 normalized profile displacement over a sliding window.
-
-    Matches the shared L1-delta motion metric used by `ClassicDetector`
-    (mean of the per-packet displacement series). See `l1_delta_series` for the underlying
-    stream.
-    """
-    deltas = l1_delta_series(amplitude_history, buffer_count, lag)
-    if not deltas:
-        return 0.0
-    return sum(deltas) / len(deltas)
 
 
 class L1DeltaTracker:
@@ -624,10 +500,8 @@ def extract_features_by_name(
     mean_denom = abs_mean if abs_mean > 1e-6 else 1e-6
 
     turb_mad = None
-    turb_skewness = None
     turb_autocorr = None
     turb_zcr = None
-    l1_waveform_length = 0.0
     _l1_series = None
     _l1_n = 0
     _l1_mean = 0.0
@@ -640,8 +514,6 @@ def extract_features_by_name(
             needs_l1 = True
         elif name == "turb_mad_over_mean":
             needs_mad = True
-        elif name == "turb_skewness":
-            turb_skewness = calc_skewness(turb_list, n, turb_mean, turb_std)
         elif name == "turb_autocorr":
             turb_autocorr = calc_autocorrelation(
                 turb_list, n, mean=turb_mean, variance=turb_var
@@ -675,7 +547,6 @@ def extract_features_by_name(
                 vs += d * d
             _l1_var = vs / _l1_n
             _l1_std = math.sqrt(_l1_var) if _l1_var > 0 else 0.0
-            l1_waveform_length = calc_waveform_length(_l1_series, _l1_n)
 
     if needs_mad and reuse_turbulence_buffer:
         turb_list.sort()
@@ -687,8 +558,6 @@ def extract_features_by_name(
             if turb_mad is None:
                 turb_mad = calc_mad(turb_list, n)
             value = turb_mad / mean_denom
-        elif name == 'turb_skewness':
-            value = turb_skewness
         elif name == 'turb_autocorr':
             value = turb_autocorr
         elif name == 'turb_zcr':
@@ -697,8 +566,6 @@ def extract_features_by_name(
             value = _l1_mean
         elif name == 'l1_delta_std':
             value = _l1_std
-        elif name == 'l1_delta_waveform_length':
-            value = l1_waveform_length if _l1_n else 0.0
         elif name == 'l1_delta_autocorr':
             value = (
                 calc_autocorrelation(_l1_series, _l1_n, mean=_l1_mean, variance=_l1_var)
@@ -706,8 +573,6 @@ def extract_features_by_name(
             )
         elif name == 'l1_delta_lag_ratio':
             value = l1_delta_lag_ratio
-        elif name == 'l1_delta_cv':
-            value = _l1_std / (_l1_mean if _l1_mean > 1e-9 else 1e-9) if _l1_n else 0.0
         else:
             raise ValueError(f"Unknown feature: {name}")
         if out is None:

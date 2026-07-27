@@ -484,6 +484,12 @@ Unlike the other six, `l1_delta_lag_ratio` is not derived from a series the
 extractor holds: it comes from the L1 tracker, so every caller passing the
 production set must supply it.
 
+These seven are the whole feature surface: no candidate tier exists in either
+runtime, and the members named below as historical no longer have code behind
+them. Every removed feature, and the measurement that rejected it, is listed in
+[2026-07-27-reduce-the-feature-surface-to-the-production-set.md](adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md);
+read it before adding one back.
+
 ### Feature Diagnostics Snapshot
 
 The Core-6 feature diagnostics below were captured on 2026-07-16 from
@@ -524,7 +530,7 @@ CSI packet
   -> turbulence path
   -> optional filters
   -> sliding window
-  -> Core-6 feature extraction
+  -> Coherence-7 feature extraction
   -> MLP inference
   -> probability threshold at 0.5
 ```

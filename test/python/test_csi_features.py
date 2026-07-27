@@ -11,18 +11,13 @@ import pytest
 import math
 import numpy as np
 from csi_features import (
-    calc_skewness,
-    calc_iqr,
     calc_autocorrelation,
     calc_mad,
     calc_zero_crossing_rate,
     extract_features_by_name,
     ALL_FEATURES,
-    CANDIDATE_FEATURES,
-    COHERENCE6_FEATURES,
     COHERENCE7_FEATURES,
     DEFAULT_FEATURES,
-    CORE6_FEATURES,
     FEATURE_NAMES,
 )
 
@@ -37,110 +32,6 @@ def _stats(values, count=None):
     var = sum((values[i] - mean) ** 2 for i in range(count)) / count
     std = math.sqrt(var) if var > 0 else 0.0
     return count, mean, std
-
-
-class TestCalcSkewness:
-    """Test skewness calculation"""
-    
-    def test_empty_list(self):
-        """Test skewness of empty list"""
-        assert calc_skewness([], 0, 0.0, 0.0) == 0.0
-    
-    def test_single_value(self):
-        """Test skewness of single value"""
-        assert calc_skewness([5.0], 1, 5.0, 0.0) == 0.0
-    
-    def test_two_values(self):
-        """Test skewness of two values (needs 3+)"""
-        n, m, s = _stats([1.0, 2.0])
-        assert calc_skewness([1.0, 2.0], n, m, s) == 0.0
-    
-    def test_symmetric_distribution(self):
-        """Test skewness of symmetric distribution (should be ~0)"""
-        values = [1.0, 2.0, 3.0, 4.0, 5.0]
-        n, m, s = _stats(values)
-        skew = calc_skewness(values, n, m, s)
-        assert abs(skew) < 0.1  # Should be close to 0
-    
-    def test_right_skewed(self):
-        """Test skewness of right-skewed distribution"""
-        # Most values low, one high -> positive skew
-        values = [1.0, 1.0, 1.0, 1.0, 10.0]
-        n, m, s = _stats(values)
-        skew = calc_skewness(values, n, m, s)
-        assert skew > 0
-    
-    def test_left_skewed(self):
-        """Test skewness of left-skewed distribution"""
-        # Most values high, one low -> negative skew
-        values = [10.0, 10.0, 10.0, 10.0, 1.0]
-        n, m, s = _stats(values)
-        skew = calc_skewness(values, n, m, s)
-        assert skew < 0
-    
-    def test_constant_values(self):
-        """Test skewness of constant values (std=0)"""
-        values = [5.0] * 10
-        n, m, s = _stats(values)
-        skew = calc_skewness(values, n, m, s)
-        assert skew == 0.0
-    
-    def test_matches_scipy(self):
-        """Test that result approximately matches scipy"""
-        np.random.seed(42)
-        values = list(np.random.exponential(2.0, 100))
-        n, m, s = _stats(values)
-        
-        our_skew = calc_skewness(values, n, m, s)
-        
-        # Exponential distribution should have positive skew
-        assert our_skew > 0
-    
-    def test_with_count_parameter(self):
-        """Test that count parameter limits values used"""
-        values = [1.0, 2.0, 3.0, 4.0, 5.0, 100.0]  # Last value is outlier
-        n_all, m_all, s_all = _stats(values)
-        n_part, m_part, s_part = _stats(values, count=5)
-        skew_all = calc_skewness(values, n_all, m_all, s_all)
-        skew_partial = calc_skewness(values, n_part, m_part, s_part)
-        # Skewness without outlier should be different
-        assert abs(skew_all) != abs(skew_partial)
-
-
-class TestCalcIQR:
-    """Test interquartile range calculation."""
-
-    def test_empty_buffer(self):
-        """Test IQR of empty buffer."""
-        assert calc_iqr([], 0) == 0.0
-
-    def test_single_value(self):
-        """Test IQR of single value."""
-        assert calc_iqr([5.0], 1) == 0.0
-
-    def test_constant_values(self):
-        """Test IQR of constant values."""
-        buffer = [5.0] * 10
-        assert calc_iqr(buffer, 10) == 0.0
-
-    def test_monotonic_values(self):
-        """Test IQR on a simple increasing sequence."""
-        buffer = [float(i) for i in range(8)]
-        iqr = calc_iqr(buffer, 8)
-        assert iqr == pytest.approx(3.5, rel=1e-6)
-
-    def test_outlier_robustness(self):
-        """Test that a single outlier has limited impact on IQR."""
-        buffer = [1.0] * 9 + [100.0]
-        iqr = calc_iqr(buffer, 10)
-        assert iqr == 0.0
-
-    def test_positive_for_spread_distribution(self):
-        """Test that wider distributions yield positive IQR."""
-        np.random.seed(42)
-        buffer = list(np.random.normal(5, 2, 100))
-        iqr = calc_iqr(buffer, 100)
-        assert iqr > 0.0
 
 
 class TestCalcAutocorrelation:
@@ -261,24 +152,15 @@ class TestExtractAllFeatures:
         assert len(FEATURE_NAMES) == len(DEFAULT_FEATURES)
         assert FEATURE_NAMES == DEFAULT_FEATURES
         assert DEFAULT_FEATURES == COHERENCE7_FEATURES
-        # Coherence-7 is Coherence-6 plus the lag ratio Classic adopted.
-        assert set(COHERENCE7_FEATURES) - set(COHERENCE6_FEATURES) == {
-            'l1_delta_lag_ratio',
-        }
-        # Coherence-6 is Core-6 with skewness and waveform length swapped for
-        # the temporal-coherence statistics.
-        assert set(CORE6_FEATURES) - set(COHERENCE6_FEATURES) == {
-            'turb_skewness', 'l1_delta_waveform_length',
-        }
-        assert set(COHERENCE6_FEATURES) - set(CORE6_FEATURES) == {
-            'turb_zcr', 'l1_delta_autocorr',
-        }
 
-    def test_candidate_features_stay_out_of_production_set(self):
-        """Demoted and experimental features are selectable but not production."""
-        for name in CANDIDATE_FEATURES:
-            assert name in ALL_FEATURES
-            assert name not in DEFAULT_FEATURES
+    def test_production_set_is_the_only_feature_surface(self):
+        """There is no candidate tier: what trains is what ships.
+
+        Predecessors and rejected candidates live in the removal ADR, not in
+        code, so nothing here can drift out of the exported model.
+        """
+        assert ALL_FEATURES == tuple(DEFAULT_FEATURES)
+        assert len(DEFAULT_FEATURES) == 7
 
     def test_unknown_feature_raises(self):
         """Removed legacy features are no longer accepted."""
@@ -407,12 +289,12 @@ class TestCandidateFeatures:
         turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
         series = [abs(v) + 0.05 for v in np.random.normal(0.1, 0.03, 40)]
         scaled = [v * 10.0 for v in series]
-        names = ['l1_delta', 'l1_delta_autocorr', 'l1_delta_cv']
+        names = ['l1_delta', 'l1_delta_autocorr']
         base = extract_features_by_name(turb, 50, feature_names=names, l1_series=series)
         boosted = extract_features_by_name(turb, 50, feature_names=names, l1_series=scaled)
+        # The mean carries the link's scale; the autocorrelation does not.
         assert boosted[0] == pytest.approx(base[0] * 10.0)
         assert boosted[1] == pytest.approx(base[1])
-        assert boosted[2] == pytest.approx(base[2])
 
     def test_l1_delta_autocorr_matches_direct_computation(self):
         turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
@@ -451,7 +333,7 @@ class TestCandidateFeatures:
         turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
         values = extract_features_by_name(
             turb, 50,
-            feature_names=['l1_delta_autocorr', 'l1_delta_cv'],
+            feature_names=['l1_delta_autocorr', 'l1_delta_std'],
             l1_series=[],
         )
         assert values == [0.0, 0.0]

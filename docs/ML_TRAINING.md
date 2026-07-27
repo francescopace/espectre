@@ -65,10 +65,12 @@ python tools/train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_
 ```
 
 `--features` selects the training feature set for experiments and is propagated
-to architecture and FP-weight campaigns. Candidate features remain outside the
-production default; exporting flows accept only candidates with a C++ extractor
-id and reject the rest. `l1_delta_lag_ratio` is available end to end for
-floor-robust L1 experiments, while `l1_delta_cv` remains evaluation-only.
+to architecture and FP-weight campaigns. There is no candidate tier: the seven
+production features are the whole surface, so a set that trains is a set that
+can ship, and `--features` serves ablation-style subsets of those seven. The
+guard that rejects a feature without a C++ extractor id stays for future
+additions. Every removed feature and the measurement that rejected it is listed
+in [2026-07-27-reduce-the-feature-surface-to-the-production-set.md](adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md).
 
 For exploratory architecture campaigns:
 
@@ -93,7 +95,7 @@ For feature diagnostics:
 ```bash
 python tools/train_ml_model.py --correlation
 python tools/train_ml_model.py --shap 500 --seed 1386543369 --no-export
-python tools/train_ml_model.py --ablation-feature turb_skewness --seed 1386543369
+python tools/train_ml_model.py --ablation-feature l1_delta_std --seed 1386543369
 ```
 
 Correlation is a fast marginal screen over the full training matrix. SHAP runs
@@ -102,8 +104,8 @@ session-balanced background from its training partition and explains only
 balanced, blocked windows from the held-out partition. Supplying `--seed` makes
 training, sampling, and permutation SHAP reproducible. Use `--no-export` for
 diagnostic runs so the current runtime artifacts remain unchanged.
-`--ablation-feature` compares Core-6 against one feature removal using the same
-seed, grouped CV, and paired validation. It also leaves the exported runtime
+`--ablation-feature` compares the production set against one feature removal
+using the same seed, grouped CV, and paired validation. It also leaves the exported runtime
 artifacts unchanged.
 The broader `--ablation` command remains a CV-only screening tool; do not use
 its ranking for feature promotion until the finalist passes
@@ -161,13 +163,21 @@ candidate the gate rejected, the exact comparisons that blocked it:
 
 ```json
 {"replay": "C6:selection:normal.npz", "metric": "fp_rate",
- "candidate": 1.02, "baseline": 0.44, "margin": 0.146,
- "candidate_evaluations": 7, "baseline_evaluations": 3, "eval_count": 685}
+ "candidate": 1.46, "baseline": 0.44, "margin": 0.730,
+ "candidate_evaluations": 10, "baseline_evaluations": 3, "eval_count": 685}
 ```
 
 The same lines are printed to the console. Percentages hide how small these
 differences are, so the report carries the evaluation counts that produced
-them: the margin above is one evaluation out of `685`.
+them: the margin above is five evaluations out of `685`, set from measured
+seed-to-seed dispersion rather than chosen. Analyse a finished run with
+`tools/analyze_seed_dispersion.py` and re-derive it when the corpus changes.
+
+Architecture and false-positive-weight campaigns write their own reports, to
+`data/auto_generated/mlp_architecture_experiment.json` and
+`mlp_fp_weight_experiment.json`; override either with `--experiment-output` or
+`--fp-weight-experiment-output`. Both are gitignored. `--hidden-layers` sets
+the MLP widths for a single run, for example `--hidden-layers 64,32`.
 
 CUDA and Apple MPS are available only when requested explicitly through
 `--device cuda` or `--device mps`; this small MLP usually runs fastest and most
@@ -323,7 +333,7 @@ Use `tools/generate_low_rssi_dataset.py` for synthetic weak-link derivatives.
 The generator models RSSI and packet loss from the retained C3, C5, C6, or S3
 low-RSSI pair, then jointly fits the six production ML feature medians through
 temporal profile deformation and controlled spatial turbulence. The exported
-NPZ includes its source, target, and achieved Core-6 medians, normalized fit
+NPZ includes its source, target, and achieved production-feature medians, normalized fit
 errors, and fitted parameters.
 
 The `reference_match` mode reproduces each phase independently for detector
@@ -436,7 +446,7 @@ Add `--plot` to `compare_detection_methods.py` to visualize the comparison.
 ## Runtime Notes
 
 The ML pipeline matches the runtime's AGC-active design. Turbulence is always
-normalized before the same Core-6 features are extracted for the neural
+normalized before the same production features are extracted for the neural
 detector.
 
 To switch the Python runtime to ML detection:

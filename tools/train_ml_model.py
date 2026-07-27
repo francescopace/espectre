@@ -1691,7 +1691,7 @@ def normalized_feature_bounds(preprocessor, feature_names):
     center, scale = get_preprocessor_arrays(preprocessor)
     lower = np.full(len(feature_names), -np.inf, dtype=np.float32)
     upper = np.full(len(feature_names), np.inf, dtype=np.float32)
-    for name in ('turb_mad_over_mean', 'l1_delta', 'l1_delta_std', 'l1_delta_waveform_length'):
+    for name in ('turb_mad_over_mean', 'l1_delta', 'l1_delta_std'):
         if name in feature_names:
             idx = feature_names.index(name)
             lower[idx] = (0.0 - center[idx]) / scale[idx]
@@ -3211,13 +3211,11 @@ FEATURE_SCALE = [{scale_csv}]
 # src/cpp/core/csi_features.h. Keep the numeric values in sync. Only features
 # with a real C++ extractor entry can be exported to firmware.
 CPP_FEATURE_IDS = {
-    'turb_skewness': 5,
     'turb_autocorr': 6,
     'turb_mad_over_mean': 13,
     'turb_zcr': 14,
     'l1_delta': 17,
     'l1_delta_std': 18,
-    'l1_delta_waveform_length': 23,
     'l1_delta_autocorr': 24,
     'l1_delta_lag_ratio': 25,
 }
@@ -6378,9 +6376,10 @@ def main():
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
     parser.add_argument('--features', type=str, default=None, metavar='NAME1,NAME2,...',
                        help='Comma-separated feature set for training/evaluation '
-                            'experiments (default: production baseline). Candidate '
-                            'features without a C++ extractor id require '
-                            '--no-export or an evaluation-only flow')
+                            'experiments (default: production baseline). Every '
+                            'selectable feature has a C++ extractor id; a new one '
+                            'without it requires --no-export or an evaluation-only '
+                            'flow until it is added to CPP_FEATURE_IDS')
     parser.add_argument('--no-export', action='store_true',
                        help='Leave runtime artifacts unchanged (CV-only for normal training; '
                             'also use with --shap / --ablation diagnostics)')

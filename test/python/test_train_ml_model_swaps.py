@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TRAIN_SCRIPT = REPO_ROOT / "tools" / "train_ml_model.py"
 
 from config import MOTION_OFF_HITS, MOTION_ON_HITS
-from csi_features import calc_l1_delta, l1_delta_series, extract_features_by_name
+from csi_features import l1_delta_series, extract_features_by_name
 
 
 def _load_train_module():
@@ -41,7 +41,7 @@ def test_extract_features_by_name_requires_explicit_l1_stream():
     turbulence = [0.1] * len(amplitude_history)
 
     l1_series = l1_delta_series(amplitude_history, len(amplitude_history))
-    expected = calc_l1_delta(amplitude_history, len(amplitude_history))
+    expected = sum(l1_series) / len(l1_series)
     features = extract_features_by_name(
         turbulence,
         len(turbulence),
@@ -140,7 +140,7 @@ def test_append_augmented_training_rows_keeps_train_groups_only():
 def test_training_cache_manifest_tracks_runtime_filter_defaults():
     module = _load_train_module()
 
-    manifest = module._feature_cache_manifest(["turb_skewness"])
+    manifest = module._feature_cache_manifest(["turb_zcr"])
 
     assert manifest["enable_lowpass"] == module.ENABLE_LOWPASS_FILTER
     assert manifest["lowpass_cutoff"] == pytest.approx(module.LOWPASS_CUTOFF)
@@ -1478,13 +1478,29 @@ def test_features_cli_rejects_unknown_names(monkeypatch, capsys):
     assert "unknown feature(s): bogus" in capsys.readouterr().out
 
 
-def test_features_cli_blocks_candidate_features_on_exporting_flows(monkeypatch, capsys):
+def test_every_selectable_feature_can_reach_firmware():
+    """A set that trains must be a set that can ship.
+
+    The export guard below stays as protection for future additions, but no
+    currently selectable feature should need it: an experiment that only
+    discovers at export time that it was never deployable has wasted the run.
+    """
     module = _load_train_module()
+
+    undeployable = [name for name in module.ALL_FEATURES
+                    if name not in module.CPP_FEATURE_IDS]
+
+    assert undeployable == []
+
+
+def test_features_cli_blocks_features_without_a_cpp_id(monkeypatch, capsys):
+    module = _load_train_module()
+    monkeypatch.setattr(module, "ALL_FEATURES", tuple(module.ALL_FEATURES) + ("turb_invented",))
     monkeypatch.setattr(
         "sys.argv",
         [
             "train_ml_model.py",
-            "--features", "l1_delta_cv,l1_delta",
+            "--features", "turb_invented,l1_delta",
             "--seed-search-until-improvement", "2",
         ],
     )
@@ -1492,7 +1508,7 @@ def test_features_cli_blocks_candidate_features_on_exporting_flows(monkeypatch, 
     assert module.main() == 1
     out = capsys.readouterr().out
     assert "without a C++ extractor id" in out
-    assert "l1_delta_cv" in out
+    assert "turb_invented" in out
 
 
 def test_features_cli_rejects_duplicates(monkeypatch, capsys):

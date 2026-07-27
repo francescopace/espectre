@@ -339,8 +339,6 @@ void test_ml_feature_helpers_cover_guard_paths(void) {
     float sorted[] = {1.0f, 3.0f, 5.0f, 7.0f};
     float abs_devs[4];
 
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_skewness(sample, 2, 2.0f, 1.0f));
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_skewness(sample, 4, 4.0f, 0.0f));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, median_from_sorted(nullptr, 0));
     TEST_ASSERT_EQUAL_FLOAT(4.0f, median_from_sorted(sorted, 4));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_autocorrelation(sample, 2, 2.0f, 1.0f, 1));
@@ -365,9 +363,6 @@ void test_ml_feature_helpers_cover_guard_paths(void) {
     const MLSeriesScratch scratch{sort_scratch, abs_devs, 4U};
     compute_ml_series_stats(sample, 4, &stats, needs, scratch);
     TEST_ASSERT_EQUAL_FLOAT(2.0f, stats.mad);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_waveform_length(nullptr, 3));
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_waveform_length(sample, 1));
-    TEST_ASSERT_EQUAL_FLOAT(6.0f, calc_waveform_length(sample, 4));
 }
 
 void test_classic_detector_move_semantics_and_base_accessors(void) {

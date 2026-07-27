@@ -2,7 +2,8 @@
  * ESPectre - Shared Feature Support
  *
  * Shared L1-delta constants plus C++ feature extraction helpers for the
- * production Core-6 ML detector. Port of src/python/micro_espectre/csi_features.py.
+ * production Coherence-7 ML detector, and for the two members Classic reads
+ * directly. Port of src/python/micro_espectre/csi_features.py.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -29,13 +30,11 @@ static_assert(ML_MODEL_INPUT_SIZE >= 1,
 // Canonical ML feature identifiers, shared with the exporter in
 // tools/train_ml_model.py (CPP_FEATURE_IDS).
 enum MLFeatureId : uint8_t {
-    ML_FEAT_TURB_SKEWNESS = 5,
     ML_FEAT_TURB_AUTOCORR = 6,
     ML_FEAT_TURB_MAD_OVER_MEAN = 13,
     ML_FEAT_TURB_ZCR = 14,
     ML_FEAT_L1_DELTA = 17,
     ML_FEAT_L1_DELTA_STD = 18,
-    ML_FEAT_L1_DELTA_WAVEFORM_LENGTH = 23,
     ML_FEAT_L1_DELTA_AUTOCORR = 24,
     ML_FEAT_L1_DELTA_LAG_RATIO = 25,
 };
@@ -51,14 +50,12 @@ enum class MLFeatureSource : uint8_t {
 
 inline MLFeatureSource ml_feature_source(MLFeatureId id) {
     switch (id) {
-        case ML_FEAT_TURB_SKEWNESS:
         case ML_FEAT_TURB_AUTOCORR:
         case ML_FEAT_TURB_MAD_OVER_MEAN:
         case ML_FEAT_TURB_ZCR:
             return MLFeatureSource::TURBULENCE_SERIES;
         case ML_FEAT_L1_DELTA:
         case ML_FEAT_L1_DELTA_STD:
-        case ML_FEAT_L1_DELTA_WAVEFORM_LENGTH:
         case ML_FEAT_L1_DELTA_AUTOCORR:
             return MLFeatureSource::L1_DELTA_SERIES;
         case ML_FEAT_L1_DELTA_LAG_RATIO:
@@ -82,19 +79,6 @@ inline bool ml_feature_needs_l1_tracker(uint8_t id) {
 inline bool ml_feature_needs_l1_series(uint8_t id) {
     return ml_feature_source(static_cast<MLFeatureId>(id)) ==
            MLFeatureSource::L1_DELTA_SERIES;
-}
-
-inline float calc_skewness(const float* values, uint16_t count, float mean, float std_dev) {
-    if (count < 3 || std_dev < 1e-10f) return 0.0f;
-
-    float m3 = 0.0f;
-    for (uint16_t i = 0; i < count; i++) {
-        float diff = values[i] - mean;
-        m3 += diff * diff * diff;
-    }
-    m3 /= count;
-
-    return m3 / (std_dev * std_dev * std_dev);
 }
 
 inline float median_from_sorted(const float* sorted_values, uint16_t count) {
@@ -146,19 +130,6 @@ inline float calc_mad(const float* values, uint16_t count,
     return calculate_median_float(abs_dev_scratch, count);
 }
 
-inline float calc_waveform_length(const float* values, uint16_t count) {
-    if (count < 2 || values == nullptr) return 0.0f;
-
-    float total = 0.0f;
-    float prev = values[0];
-    for (uint16_t i = 1; i < count; i++) {
-        float curr = values[i];
-        total += std::fabs(curr - prev);
-        prev = curr;
-    }
-    return total;
-}
-
 // Crossing rate of the series around `center`. Shift and scale invariant when
 // `center` tracks the window; matches the Python `calc_zero_crossing_rate`,
 // whose zcr center is the upper median `sorted[count / 2]`.
@@ -183,9 +154,7 @@ struct MLSeriesStats {
     float variance = 0.0f;
     float std = 0.0f;
     float mad = 0.0f;
-    float skewness = 0.0f;
     float autocorr = 0.0f;
-    float waveform_length = 0.0f;
     float zcr = 0.0f;
     float mean_denom = 1e-6f;  // max(|mean|, 1e-6), matches Python
 };
@@ -196,9 +165,7 @@ struct MLSeriesStats {
 // mean_denom are always computed: they are cheap and interdependent.
 struct MLStatNeeds {
     bool sorted = false;   // mad and/or zcr (both share one sort)
-    bool skewness = false;
     bool autocorr = false;
-    bool waveform_length = false;
 };
 
 // Caller-owned working memory for the sorted statistics. The detectors size
@@ -231,15 +198,9 @@ inline MLStatNeeds ml_series_needs(const uint8_t *feature_ids, uint8_t num_featu
             case ML_FEAT_TURB_ZCR:
                 needs.sorted = true;
                 break;
-            case ML_FEAT_TURB_SKEWNESS:
-                needs.skewness = true;
-                break;
             case ML_FEAT_TURB_AUTOCORR:
             case ML_FEAT_L1_DELTA_AUTOCORR:
                 needs.autocorr = true;
-                break;
-            case ML_FEAT_L1_DELTA_WAVEFORM_LENGTH:
-                needs.waveform_length = true;
                 break;
             default:  // mean / std features need no extra statistic
                 break;
@@ -283,14 +244,8 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
         // Python zcr centers on the upper median (sorted[count // 2]).
         out->zcr = calc_zero_crossing_rate(values, count, scratch.sorted_values[count / 2]);
     }
-    if (needs.skewness) {
-        out->skewness = calc_skewness(values, count, out->mean, out->std);
-    }
     if (needs.autocorr) {
         out->autocorr = calc_autocorrelation(values, count, out->mean, out->variance, 1);
-    }
-    if (needs.waveform_length) {
-        out->waveform_length = calc_waveform_length(values, count);
     }
 }
 
@@ -305,13 +260,11 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
                                          const MLSeriesStats& delta,
                                          float l1_delta_lag_ratio) {
     switch (id) {
-        case ML_FEAT_TURB_SKEWNESS: return turb.skewness;
         case ML_FEAT_TURB_AUTOCORR: return turb.autocorr;
         case ML_FEAT_TURB_MAD_OVER_MEAN: return turb.mad / turb.mean_denom;
         case ML_FEAT_TURB_ZCR: return turb.zcr;
         case ML_FEAT_L1_DELTA: return delta.mean;
         case ML_FEAT_L1_DELTA_STD: return delta.std;
-        case ML_FEAT_L1_DELTA_WAVEFORM_LENGTH: return delta.waveform_length;
         case ML_FEAT_L1_DELTA_AUTOCORR: return delta.autocorr;
         case ML_FEAT_L1_DELTA_LAG_RATIO: return l1_delta_lag_ratio;
         default: return 0.0f;

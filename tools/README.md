@@ -191,7 +191,7 @@ python train_ml_model.py --gain-stress-gate  # Stress exported model with artifi
 python train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25  # Custom stress multipliers
 python train_ml_model.py --shap         # Grouped OOF SHAP (200 samples)
 python train_ml_model.py --shap 500     # Grouped OOF SHAP (500 samples)
-python train_ml_model.py --ablation-feature turb_skewness --seed 1386543369  # Targeted CV and real-data ablation
+python train_ml_model.py --ablation-feature l1_delta_std --seed 1386543369  # Targeted CV and real-data ablation
 ```
 
 For the complete ML training workflow, promotion guidance, gain-stress
@@ -205,7 +205,7 @@ entry points that drive collection and related workflows, see
 
 Generates a reproducible weak-link derivative from one registered real NPZ
 capture. The C3, C5, C6, and S3 profiles are anchored to retained real low-RSSI
-pairs and report the resulting Core-6 feature medians against their
+pairs and report the resulting production feature medians against their
 reference values. Calibration jointly fits all six production ML features,
 using sensing-band profile deformation and controlled spatial turbulence rather
 than matching only the L1 floor.
@@ -310,7 +310,7 @@ How to read the review tables:
 
 Turbulence mode follows runtime conventions: CV-normalized turbulence for every
 file. ML uses the same normalized base turbulence and exports the production
-Core-6 neural-detector features.
+production neural-detector features.
 
 ```bash
 python validate_dataset_quality.py                  # Full validation (auto report + metadata refresh)

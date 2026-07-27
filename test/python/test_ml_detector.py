@@ -15,7 +15,7 @@ from tools.lib.repo_paths import generated_data_dir
 from config import DEFAULT_SUBCARRIERS
 import ml_detector as ml_detector_module
 from ml_detector import (
-    relu, sigmoid, normalize_features, predict, is_motion,
+    relu, sigmoid, predict, is_motion,
     MLDetector, ML_DEFAULT_THRESHOLD, ML_METRIC_SCALE
 )
 from detector_interface import MotionState
@@ -95,26 +95,6 @@ class TestSigmoid:
         for x in [-10, -5, -1, 0, 1, 5, 10]:
             result = sigmoid(x)
             assert 0.0 <= result <= 1.0
-
-
-class TestNormalizeFeatures:
-    """Test feature normalization."""
-    
-    def test_normalization_produces_list(self):
-        """Normalization returns a list."""
-        features = [1.0] * MODEL_INPUT_SIZE
-        result = normalize_features(features)
-        assert isinstance(result, list)
-        assert len(result) == MODEL_INPUT_SIZE
-    
-    def test_normalization_changes_values(self):
-        """Normalization changes input values."""
-        features = ([10.0, 5.0, 20.0, 1.0, 15.0, 8.0,
-                     3.0, 2.5, 0.5, -0.5, 0.1, 5.0][:MODEL_INPUT_SIZE]
-                    + [1.0] * max(0, MODEL_INPUT_SIZE - 12))
-        result = normalize_features(features)
-        # Values should be different after normalization
-        assert result != features
 
 
 class TestPredict:

@@ -582,13 +582,11 @@ def extract_feature_medians(csi_data: np.ndarray) -> Dict[str, float]:
 
 FEATURE_ERROR_FLOORS = {
     "turb_mad_over_mean": 0.02,
-    "turb_skewness": 0.25,
     "turb_autocorr": 0.10,
     # Bounded rate/correlation statistics share the autocorr floor scale.
     "turb_zcr": 0.10,
     "l1_delta": 0.02,
     "l1_delta_std": 0.01,
-    "l1_delta_waveform_length": 0.50,
     "l1_delta_autocorr": 0.10,
 }
 
@@ -678,8 +676,8 @@ def calibrate_impairment_parameters(
         turbulence_rho=min(
             0.95, max(0.0, target_metrics["turb_autocorr"])
         ),
-        # Coherence-6 dropped turb_skewness; start the skew knob neutral and
-        # let coordinate descent tune it against the fitted feature set.
+        # No production feature measures skew; start the knob neutral and let
+        # coordinate descent tune it against the fitted feature set.
         turbulence_skew=0.0,
     )
     current_metrics = measure(current)

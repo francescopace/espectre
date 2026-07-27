@@ -356,32 +356,28 @@ void test_zero_crossing_rate_alternating_signal(void) {
 }
 
 void test_ml_series_needs_tracks_only_referenced_stats(void) {
-    // Production Coherence-6 ids: turb {mad, autocorr, zcr}, delta {mean,
-    // std, autocorr}. The delta series needs no sort and no skewness/waveform.
-    const uint8_t coherence6[6] = {
+    // Production Coherence-7 ids: turb {mad, autocorr, zcr}, delta {mean, std,
+    // autocorr}, plus the tracker-sourced lag ratio. The delta series needs no
+    // sort, which is the whole point of asking per series.
+    const uint8_t coherence7[7] = {
         ML_FEAT_TURB_MAD_OVER_MEAN, ML_FEAT_TURB_AUTOCORR, ML_FEAT_TURB_ZCR,
         ML_FEAT_L1_DELTA, ML_FEAT_L1_DELTA_STD, ML_FEAT_L1_DELTA_AUTOCORR,
+        ML_FEAT_L1_DELTA_LAG_RATIO,
     };
 
-    const MLStatNeeds turb = ml_series_needs(coherence6, 6, /*l1=*/false);
+    const MLStatNeeds turb = ml_series_needs(coherence7, 7, /*l1=*/false);
     TEST_ASSERT_TRUE(turb.sorted);       // mad + zcr
     TEST_ASSERT_TRUE(turb.autocorr);
-    TEST_ASSERT_FALSE(turb.skewness);
-    TEST_ASSERT_FALSE(turb.waveform_length);
 
-    const MLStatNeeds delta = ml_series_needs(coherence6, 6, /*l1=*/true);
+    const MLStatNeeds delta = ml_series_needs(coherence7, 7, /*l1=*/true);
     TEST_ASSERT_FALSE(delta.sorted);     // no mad/zcr on the delta series
     TEST_ASSERT_TRUE(delta.autocorr);
-    TEST_ASSERT_FALSE(delta.skewness);
-    TEST_ASSERT_FALSE(delta.waveform_length);
 
-    // Historical Core-6 still resolves its extra stats for experiments/export.
-    const uint8_t core6[6] = {
-        ML_FEAT_TURB_MAD_OVER_MEAN, ML_FEAT_TURB_SKEWNESS, ML_FEAT_TURB_AUTOCORR,
-        ML_FEAT_L1_DELTA, ML_FEAT_L1_DELTA_STD, ML_FEAT_L1_DELTA_WAVEFORM_LENGTH,
-    };
-    TEST_ASSERT_TRUE(ml_series_needs(core6, 6, /*l1=*/false).skewness);
-    TEST_ASSERT_TRUE(ml_series_needs(core6, 6, /*l1=*/true).waveform_length);
+    // Mean and std alone ask for nothing extra on either series.
+    const uint8_t means_only[2] = {ML_FEAT_L1_DELTA, ML_FEAT_L1_DELTA_STD};
+    const MLStatNeeds plain = ml_series_needs(means_only, 2, /*l1=*/true);
+    TEST_ASSERT_FALSE(plain.sorted);
+    TEST_ASSERT_FALSE(plain.autocorr);
 }
 
 void test_ml_feature_source_separates_tracker_from_series(void) {
@@ -402,8 +398,6 @@ void test_ml_feature_source_separates_tracker_from_series(void) {
         const MLStatNeeds needs = ml_series_needs(ratio_only, 1, l1);
         TEST_ASSERT_FALSE(needs.sorted);
         TEST_ASSERT_FALSE(needs.autocorr);
-        TEST_ASSERT_FALSE(needs.skewness);
-        TEST_ASSERT_FALSE(needs.waveform_length);
     }
 }
 
