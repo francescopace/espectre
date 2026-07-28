@@ -50,7 +50,7 @@ datasets using the production Classic calibration path:
 The benchmark corpus for the locked decision consisted of:
 
 - 13 paired static-presence/motion datasets
-- 12 long-quiet test recordings
+- 12 long-quiet recordings
 - 12 empty-room recordings
 
 All evaluated recordings exposed full 64-subcarrier HT20 CSI, so no dataset was

@@ -552,7 +552,6 @@ def test_per_file_quality_labels_include_test_recordings() -> None:
         "empty",
         "static_presence",
         "motion",
-        "test",
     )
 
 
@@ -797,14 +796,15 @@ def test_long_recording_coverage_warns_without_annotated_motion() -> None:
     module = _load_validator_module()
     dataset_info = {
         "files": {
-            "test": [
+            "empty": [
                 {
-                    "filename": "quiet.npz",
+                    "filename": "empty_quiet.npz",
                     "chip": "C3",
                     "description": "quiet long-run",
                     "num_packets": 60000,
                     "collected_at": "2026-07-04T11:23:18.928039",
                     "environment": "bedroom",
+                    "long_recording": True,
                 },
             ],
         }
@@ -814,7 +814,7 @@ def test_long_recording_coverage_warns_without_annotated_motion() -> None:
         def __getitem__(self, key):
             return np.zeros((200, 128), dtype=np.int8)
 
-    module._resolve_dataset_entry_path = lambda entry, label: Path("/tmp/quiet.npz")
+    module._resolve_dataset_entry_path = lambda entry, label: Path("/tmp/empty_quiet.npz")
     module._load_cached_or_npz = lambda filepath, cache: (FakeNpz(), "csi_data")
     module._classic_self_baseline_stats = (
         lambda csi, packet_rate_pps=100.0, *, rssi_dbm=None, calibration_cache=None, cache_key=None: {
@@ -833,7 +833,9 @@ def test_long_recording_coverage_warns_without_annotated_motion() -> None:
 
     results, quiet_scores = module.validate_quiet_test_recordings(dataset_info, {})
     coverage = next(result for result in results if result.name == "long_test_event_coverage")
-    quiet_result = next(result for result in results if result.name == "quiet_test_idle/quiet.npz")
+    quiet_result = next(
+        result for result in results if result.name == "quiet_test_idle/empty_quiet.npz"
+    )
     assert quiet_scores and quiet_scores[0]["baseline"]["score"] == 100.0
     assert quiet_scores[0]["verdict"] == "clean"
     assert quiet_scores[0]["display_date"] == "2026-07-04 11:23"
@@ -1129,9 +1131,9 @@ def test_idle_evidence_results_never_fail_the_run() -> None:
 
     results, rows = module._evaluate_idle_evidence_files(
         [{"filename": "quiet.npz", "chip": "C3", "environment": "bedroom"}],
-        label="test",
+        label="empty",
         check_kind="quiet_test_idle",
-        kind_title="Long-test",
+        kind_title="Long-recording",
         verdict_fn=module._empty_quality_verdict,
         npz_cache={},
     )

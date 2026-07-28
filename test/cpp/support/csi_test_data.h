@@ -809,15 +809,21 @@ inline bool load_long_recording_cache() {
     }
     g_long_recording_selections.clear();
 
-    JsonArray test_entries = doc["files"]["test"].as<JsonArray>();
-    for (JsonObject entry : test_entries) {
+    JsonArray empty_entries = doc["files"]["empty"].as<JsonArray>();
+    bool loaded_explicit_long_recordings = false;
+    for (JsonObject entry : empty_entries) {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
         const char* collected_at = entry["collected_at"];
         const char* description = entry["description"];
+        const char* dataset_role = entry["dataset_role"] | "train";
         const int subcarriers = entry["subcarriers"] | 0;
+        const bool long_recording = entry["long_recording"] | false;
         const int num_packets = entry["num_packets"] | 0;
         if (filename == nullptr || chip_text == nullptr || collected_at == nullptr || subcarriers != 64) {
+            continue;
+        }
+        if (!long_recording || std::strcmp(dataset_role, "exclude") == 0) {
             continue;
         }
 
@@ -842,16 +848,75 @@ inline bool load_long_recording_cache() {
         LongRecordingSelection candidate{};
         candidate.chip = chip;
         candidate.filename = filename;
-        candidate.path = std::string("../../data/test/") + filename;
+        candidate.path = std::string("../../data/empty/") + filename;
+        {
+            std::ifstream current_layout(candidate.path.c_str());
+            if (!current_layout.good()) {
+                candidate.path = std::string("../../data/test/") + filename;
+            }
+        }
         candidate.collected_at = collected_at;
         candidate.motion_start_packet = motion_start_packet;
         candidate.num_packets = num_packets;
         candidate.valid = true;
         g_long_recording_selections.push_back(candidate);
+        loaded_explicit_long_recordings = true;
 
         LongRecordingSelection& selected = g_long_selected_by_chip[idx];
         if (!selected.valid || candidate.collected_at > selected.collected_at) {
             selected = candidate;
+        }
+    }
+
+    if (!loaded_explicit_long_recordings) {
+        JsonArray test_entries = doc["files"]["test"].as<JsonArray>();
+        for (JsonObject entry : test_entries) {
+            const char* filename = entry["filename"];
+            const char* chip_text = entry["chip"];
+            const char* collected_at = entry["collected_at"];
+            const char* description = entry["description"];
+            const char* dataset_role = entry["dataset_role"] | "train";
+            const int subcarriers = entry["subcarriers"] | 0;
+            const int num_packets = entry["num_packets"] | 0;
+            if (filename == nullptr || chip_text == nullptr || collected_at == nullptr || subcarriers != 64) {
+                continue;
+            }
+            if (std::strcmp(dataset_role, "exclude") == 0) {
+                continue;
+            }
+
+            ChipType chip{};
+            if (!chip_from_string(chip_text, chip)) {
+                continue;
+            }
+            const int idx = chip_index(chip);
+            if (idx < 0) {
+                continue;
+            }
+
+            int motion_start_packet = 0;
+            if (description == nullptr || !extract_motion_start_from_description(description, motion_start_packet)) {
+                motion_start_packet = num_packets;
+            }
+
+            if (num_packets <= 1 || motion_start_packet <= 0 || motion_start_packet > num_packets) {
+                continue;
+            }
+
+            LongRecordingSelection candidate{};
+            candidate.chip = chip;
+            candidate.filename = filename;
+            candidate.path = std::string("../../data/test/") + filename;
+            candidate.collected_at = collected_at;
+            candidate.motion_start_packet = motion_start_packet;
+            candidate.num_packets = num_packets;
+            candidate.valid = true;
+            g_long_recording_selections.push_back(candidate);
+
+            LongRecordingSelection& selected = g_long_selected_by_chip[idx];
+            if (!selected.valid || candidate.collected_at > selected.collected_at) {
+                selected = candidate;
+            }
         }
     }
 
@@ -904,8 +969,13 @@ inline bool load_empty_room_cache() {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
         const char* environment = entry["environment"];
+        const char* dataset_role = entry["dataset_role"] | "train";
         const int subcarriers = entry["subcarriers"] | 0;
+        const bool long_recording = entry["long_recording"] | false;
         if (filename == nullptr || chip_text == nullptr || subcarriers != 64) {
+            continue;
+        }
+        if (long_recording || std::strcmp(dataset_role, "exclude") == 0) {
             continue;
         }
 

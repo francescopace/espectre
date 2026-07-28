@@ -9,7 +9,7 @@ Dual-purpose validator with an explicit anti-circularity rule:
    readiness. These checks do not use Classic's decision boundary.
 
 2. Classic indicative scores (never veto admission)
-   Replay the production ClassicDetector on pairs and quiet tests to produce a
+   Replay the production ClassicDetector on pairs and quiet long recordings to produce a
    0-100 indicative score per capture/pair. Useful for human review and detector
    trend-watching; not a hard filter of which files exist in the corpus.
 
@@ -155,7 +155,7 @@ EMPIRICAL_FAIL_QUANTILE_BELOW = 0.02
 EMPIRICAL_MIN_GLOBAL_ROWS = 4
 EMPIRICAL_MIN_CHIP_ROWS = 4
 EMPIRICAL_PROFILE_GLOBAL_KEY = "__all__"
-METADATA_LABELS = ('empty', 'static_presence', 'motion', 'test')
+METADATA_LABELS = ('empty', 'static_presence', 'motion')
 PER_FILE_QUALITY_LABELS = METADATA_LABELS
 REQUIRED_PAIR_FIELD_BY_LABEL = {
     'static_presence': 'optimal_pair_motion_file',
@@ -501,7 +501,7 @@ def _table_review_profiles(
         "pair": _pair_review_profile(pair_rows),
         "static_presence": _idle_review_profile(presence_rows),
         "empty": _idle_review_profile(empty_rows),
-        "test": _idle_review_profile(quiet_rows),
+        "long_test": _idle_review_profile(quiet_rows),
     }
 
 
@@ -686,7 +686,7 @@ def _format_pair_packet_rate_cell(static_packet_rate_pps, motion_packet_rate_pps
 
 
 # Indicative score tables share one renderer; each table keeps its own schema.
-# Presence/Empty/Long-test share the idle-evidence schema and expose every
+# Presence/Empty/Long-recording share the idle-evidence schema and expose every
 # baseline-score component plus exploratory tail/drift signals next to Score.
 _IDLE_EVIDENCE_SCORE_HEADER = (
     "| Chip | Env | File | RSSI | PPS | Exc | Burst | Tail | Drift | Score |"
@@ -780,18 +780,18 @@ def _render_score_table(rows, table_spec, *, markdown=False, review_profiles=Non
     return lines
 
 
-def _idle_evidence_table_spec(title, label):
+def _idle_evidence_table_spec(title, table_key, *, file_label=None):
     """Build one idle-evidence score-table spec for the shared renderer."""
     return {
         "title": title,
-        "table_key": label,
+        "table_key": table_key,
         "header": _IDLE_EVIDENCE_SCORE_HEADER,
         "separator": _IDLE_EVIDENCE_SCORE_SEPARATOR,
         "console_separator": _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR,
         "sort_key": lambda item: -item["baseline"]["score"],
         "format_row": lambda row, *, markdown=False, review_profiles=None: _format_idle_evidence_score_row(
             row,
-            label=label,
+            label=file_label or table_key,
             markdown=markdown,
             review_profiles=review_profiles,
         ),
@@ -800,7 +800,11 @@ def _idle_evidence_table_spec(title, label):
 
 _PRESENCE_SCORE_TABLE = _idle_evidence_table_spec("Presence Scores", "static_presence")
 _EMPTY_SCORE_TABLE = _idle_evidence_table_spec("Empty Scores", "empty")
-_LONG_TEST_SCORE_TABLE = _idle_evidence_table_spec("Long-test scores", "test")
+_LONG_TEST_SCORE_TABLE = _idle_evidence_table_spec(
+    "Long-recording scores",
+    "long_test",
+    file_label="empty",
+)
 
 
 def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
@@ -858,6 +862,17 @@ _PAIR_SCORE_TABLE = {
     "console_heading": False,
     "sort_key": lambda item: -item.get("classic_score", 0.0),
     "format_row": _format_pair_score_row,
+}
+
+_EXCLUDED_PAIR_SCORE_TABLE = {
+    **_PAIR_SCORE_TABLE,
+    "title": "Excluded Pair Diagnostics",
+    "intro": (
+        "These pairs keep `dataset_role: exclude` and stay outside the validation "
+        "summary. The rows below are informational replays of the same Classic "
+        "startup-calibrated path, useful when a capture is detector evidence "
+        "rather than admission material."
+    ),
 }
 
 
@@ -1022,6 +1037,35 @@ def _dataset_role(entry):
 def _is_excluded_entry(entry):
     """Return True when an entry is explicitly excluded from validation."""
     return _dataset_role(entry) == "exclude"
+
+
+def _is_long_recording_entry(entry):
+    """Return True when an empty-room entry is reserved for long-recording replay."""
+    return bool(entry.get("long_recording"))
+
+
+def _long_recording_entry_records(dataset_info, chip_filter=None):
+    """Return (label_group, entry) pairs for long-recording replay validation.
+
+    Preferred layout stores quiet long-runs under `empty` with `long_recording:
+    true`. Older datasets may still keep them under `test`.
+    """
+    files = dataset_info.get("files", {})
+    explicit = [
+        ("empty", entry)
+        for entry in files.get("empty", [])
+        if _is_long_recording_entry(entry)
+        and _entry_matches_chip(entry, chip_filter)
+        and not _is_excluded_entry(entry)
+    ]
+    if explicit:
+        return explicit
+    return [
+        ("test", entry)
+        for entry in files.get("test", [])
+        if _entry_matches_chip(entry, chip_filter)
+        and not _is_excluded_entry(entry)
+    ]
 
 
 def _extract_motion_start_from_description(description):
@@ -1958,6 +2002,134 @@ def validate_pair(
     )
 
 
+def _evaluate_pair_capture(
+    static_entry,
+    motion_entry,
+    *,
+    npz_cache,
+    calibration_cache=None,
+):
+    """Replay one static_presence/motion pair into results plus a score row."""
+    bl_file = dataset_metadata.resolve_entry_path("static_presence", static_entry)
+    mv_file = dataset_metadata.resolve_entry_path("motion", motion_entry)
+
+    try:
+        bl_data, bl_key = _load_cached_or_npz(bl_file, npz_cache)
+        mv_data, mv_key = _load_cached_or_npz(mv_file, npz_cache)
+    except Exception as exc:
+        return (
+            [ValidationResult("pair_load", "FAIL", f"Cannot load pair: {exc}")],
+            None,
+            bl_file,
+            mv_file,
+        )
+
+    (
+        pair_res,
+        static_active_ratio,
+        motion_active_ratio,
+        pair_threshold,
+        pair_separation,
+        pair_idle_tail,
+        pair_motion_coverage,
+    ) = validate_pair(
+        bl_data[bl_key],
+        mv_data[mv_key],
+        bl_rssi_dbm=_coerce_rssi_series(
+            _mapping_optional_value(bl_data, "rssi_dbm"),
+            len(bl_data[bl_key]),
+        ),
+        mv_rssi_dbm=_coerce_rssi_series(
+            _mapping_optional_value(mv_data, "rssi_dbm"),
+            len(mv_data[mv_key]),
+        ),
+        bl_stream_seq_num=_mapping_optional_value(bl_data, "stream_seq_num"),
+        mv_stream_seq_num=_mapping_optional_value(mv_data, "stream_seq_num"),
+        bl_device_ticks_us=_mapping_optional_value(bl_data, "device_ticks_us"),
+        mv_device_ticks_us=_mapping_optional_value(mv_data, "device_ticks_us"),
+        bl_wifi_rx_ts_us=_mapping_optional_value(bl_data, "wifi_rx_ts_us"),
+        mv_wifi_rx_ts_us=_mapping_optional_value(mv_data, "wifi_rx_ts_us"),
+        calibration_cache=calibration_cache,
+        cache_key=str(bl_file),
+    )
+    score = classic_pair_score(
+        pair_idle_tail, pair_motion_coverage, pair_separation
+    )
+    classic_status = (
+        "WARN" if any(r.status == "WARN" for r in pair_res) else "PASS"
+    )
+    for result in pair_res:
+        if result.name == "classic_pair_activation" and result.status in ("PASS", "WARN"):
+            result.message = (
+                f"Classic indicative pair score={score:.1f}/100; " + result.message
+            )
+            result.value = score
+
+    pair_row = {
+        "static_presence": bl_file.name,
+        "motion": mv_file.name,
+        "static_date": _entry_display_date(static_entry, bl_file.name),
+        "motion_date": _entry_display_date(motion_entry, mv_file.name),
+        "static_rssi_dbm": _median_rssi_dbm(bl_data),
+        "motion_rssi_dbm": _median_rssi_dbm(mv_data),
+        "static_packet_rate_pps": _packet_rate_from_entry(static_entry),
+        "motion_packet_rate_pps": _packet_rate_from_entry(motion_entry),
+        "chip": str(static_entry.get("chip", "unknown")).upper(),
+        "environment": _entry_environment(static_entry),
+        "threshold": pair_threshold,
+        "static_active_ratio": static_active_ratio,
+        "motion_active_ratio": motion_active_ratio,
+        "pair_separation": pair_separation,
+        "classic_score": score,
+        "classic_status": classic_status,
+        "status": classic_status,
+    }
+    return pair_res, pair_row, bl_file, mv_file
+
+
+def _collect_excluded_pair_rows(
+    dataset_info,
+    npz_cache,
+    *,
+    chip_filter=None,
+    calibration_cache=None,
+):
+    """Return informational score rows for pairs whose role is `exclude`."""
+    excluded_rows = []
+    static_entries = [
+        entry
+        for entry in dataset_info.get("files", {}).get("static_presence", [])
+        if _is_excluded_entry(entry) and _entry_matches_chip(entry, chip_filter)
+    ]
+    motion_entries_by_name = {
+        str(item.get("filename", "")): item
+        for item in dataset_info.get("files", {}).get("motion", [])
+        if _is_excluded_entry(item)
+    }
+
+    for entry in static_entries:
+        motion_entry = motion_entries_by_name.get(
+            str(entry.get("optimal_pair_motion_file", ""))
+        )
+        if motion_entry is None or not _entry_matches_chip(motion_entry, chip_filter):
+            continue
+        bl_file = dataset_metadata.resolve_entry_path("static_presence", entry)
+        mv_file = dataset_metadata.resolve_entry_path("motion", motion_entry)
+        if not bl_file.exists() or not mv_file.exists():
+            continue
+        _pair_res, pair_row, _bl_file, _mv_file = _evaluate_pair_capture(
+            entry,
+            motion_entry,
+            npz_cache=npz_cache,
+            calibration_cache=calibration_cache,
+        )
+        if pair_row is None:
+            continue
+        excluded_rows.append(pair_row)
+
+    return excluded_rows
+
+
 def _training_session_group(label, entry):
     """Mirror the trainer's explicit-session, pair, then file grouping policy."""
     for field in ('session', 'session_id', 'session_name'):
@@ -1994,6 +2166,7 @@ def validate_ml_readiness(dataset_info, chip_filter=None):
             if _entry_matches_chip(entry, chip_filter)
             and not _is_excluded_entry(entry)
             and not bool(entry.get('synthetic'))
+            and not (label == 'empty' and _is_long_recording_entry(entry))
         ]
         for label in ('empty', 'static_presence', 'motion')
     }
@@ -2627,6 +2800,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None, calibration
         if _entry_matches_chip(entry, chip_filter)
         and not _is_excluded_entry(entry)
         and not bool(entry.get('synthetic'))
+        and not _is_long_recording_entry(entry)
     ]
     static_presence_files = [
         entry for entry in dataset_info.get('files', {}).get('static_presence', [])
@@ -2691,20 +2865,16 @@ def validate_quiet_test_recordings(
 ):
     """Validate long-recording coverage and score idle-only Classic baselines."""
     results = []
-    test_entries = [
-        entry for entry in dataset_info.get("files", {}).get("test", [])
-        if _entry_matches_chip(entry, chip_filter)
-        and not _is_excluded_entry(entry)
-    ]
-
     idle_candidates = []
     mixed_candidates = []
-    for entry in test_entries:
+    for label_group, entry in _long_recording_entry_records(
+        dataset_info, chip_filter=chip_filter
+    ):
         motion_start = _extract_motion_start_from_description(entry.get("description"))
         if motion_start is None:
-            idle_candidates.append(entry)
+            idle_candidates.append((label_group, entry))
         else:
-            mixed_candidates.append((entry, motion_start))
+            mixed_candidates.append((label_group, entry, motion_start))
 
     results.append(ValidationResult(
         "long_test_event_coverage",
@@ -2717,7 +2887,7 @@ def validate_quiet_test_recordings(
         len(mixed_candidates),
     ))
 
-    for entry, motion_start in mixed_candidates:
+    for _label_group, entry, motion_start in mixed_candidates:
         filename = str(entry.get("filename", "<missing filename>"))
         try:
             num_packets = int(entry.get("num_packets", 0) or 0)
@@ -2742,26 +2912,52 @@ def validate_quiet_test_recordings(
         results.append(ValidationResult(
             "quiet_test_presence",
             "WARN",
-            "No idle-only test recordings available for validation",
+            "No idle-only long recordings available for validation",
         ))
         return results, quiet_score_rows
 
     results.append(ValidationResult(
         "quiet_test_presence",
         "PASS",
-        f"{len(idle_candidates)} idle-only test file(s) available",
+        f"{len(idle_candidates)} idle-only long-recording file(s) available",
         len(idle_candidates),
     ))
 
-    idle_results, quiet_score_rows = _evaluate_idle_evidence_files(
-        idle_candidates,
-        label="test",
-        check_kind="quiet_test_idle",
-        kind_title="Long-test",
-        verdict_fn=_empty_quality_verdict,
-        npz_cache=npz_cache,
-        calibration_cache=calibration_cache,
-    )
+    idle_results = []
+    quiet_score_rows = []
+    for label_group, entry in idle_candidates:
+        filename = str(entry.get("filename", "?"))
+        baseline, rssi_dbm, error = _compute_idle_evidence_for_entry(
+            entry,
+            label_group,
+            npz_cache,
+            calibration_cache,
+        )
+        if baseline is None:
+            idle_results.append(ValidationResult(
+                f"quiet_test_idle/{filename}",
+                "WARN",
+                (
+                    "Could not compute long-recording quality diagnostics: "
+                    f"{error or 'insufficient data'}"
+                ),
+            ))
+            continue
+
+        verdict = _empty_quality_verdict(baseline)
+        idle_results.append(ValidationResult(
+            f"quiet_test_idle/{filename}",
+            "PASS" if verdict == "clean" else "WARN",
+            (
+                f"Long-recording quality: verdict={verdict}, "
+                f"baseline_score={baseline['score']:.1f}, "
+                f"self_fp={baseline['fp_rate']:.1%}"
+            ),
+            baseline["score"],
+        ))
+        quiet_score_rows.append(
+            _idle_evidence_score_row(entry, baseline, verdict, rssi_dbm)
+        )
     results.extend(idle_results)
     return results, quiet_score_rows
 
@@ -2770,7 +2966,11 @@ def validate_quiet_test_recordings(
 # Main validation pipeline
 # ------------------------------------------------------------------
 
-def run_validation(chip_filter=None, generate_report=True):
+def run_validation(
+    chip_filter=None,
+    generate_report=True,
+    include_excluded_pairs=False,
+):
     """Run full dataset validation."""
 
     print("ESPectre Dataset Quality Validation")
@@ -2937,94 +3137,25 @@ def run_validation(chip_filter=None, generate_report=True):
                 )
                 continue
 
-            chip = str(entry.get("chip", "unknown")).upper()
-            mv_file = best_mv
             motion_entry = motion_entry or {}
-
-            try:
-                bl_data, bl_key = _load_cached_or_npz(bl_file, npz_cache)
-                mv_data, mv_key = _load_cached_or_npz(mv_file, npz_cache)
-            except Exception as e:
+            pair_res, pair_row, bl_file, mv_file = _evaluate_pair_capture(
+                entry,
+                motion_entry,
+                npz_cache=npz_cache,
+                calibration_cache=calibration_cache,
+            )
+            if pair_row is None:
                 _emit_issues(
-                    _tag_results(
-                        [ValidationResult(
-                            "pair_load",
-                            "FAIL",
-                            f"Cannot load pair: {e}",
-                        )],
-                        "classic",
-                    ),
+                    _tag_results(pair_res, "classic"),
                     heading=f"Pair {bl_file.name} ↔ {mv_file.name}",
                 )
                 continue
-
-            (
-                pair_res,
-                static_active_ratio,
-                motion_active_ratio,
-                pair_threshold,
-                pair_separation,
-                pair_idle_tail,
-                pair_motion_coverage,
-            ) = validate_pair(
-                bl_data[bl_key],
-                mv_data[mv_key],
-                bl_rssi_dbm=_coerce_rssi_series(
-                    _mapping_optional_value(bl_data, "rssi_dbm"),
-                    len(bl_data[bl_key]),
-                ),
-                mv_rssi_dbm=_coerce_rssi_series(
-                    _mapping_optional_value(mv_data, "rssi_dbm"),
-                    len(mv_data[mv_key]),
-                ),
-                bl_stream_seq_num=_mapping_optional_value(bl_data, "stream_seq_num"),
-                mv_stream_seq_num=_mapping_optional_value(mv_data, "stream_seq_num"),
-                bl_device_ticks_us=_mapping_optional_value(bl_data, "device_ticks_us"),
-                mv_device_ticks_us=_mapping_optional_value(mv_data, "device_ticks_us"),
-                bl_wifi_rx_ts_us=_mapping_optional_value(bl_data, "wifi_rx_ts_us"),
-                mv_wifi_rx_ts_us=_mapping_optional_value(mv_data, "wifi_rx_ts_us"),
-                calibration_cache=calibration_cache,
-                cache_key=str(bl_file),
-            )
             _tag_results(pair_res, 'classic')
-            score = classic_pair_score(
-                pair_idle_tail, pair_motion_coverage, pair_separation
-            )
-            classic_status = (
-                'WARN' if any(r.status == 'WARN' for r in pair_res)
-                else 'PASS'
-            )
-            for r in pair_res:
-                if r.name == "classic_pair_activation" and r.status in ("PASS", "WARN"):
-                    r.message = (
-                        f"Classic indicative pair score={score:.1f}/100; "
-                        + r.message
-                    )
-                    r.value = score
             _emit_issues(
                 pair_res,
                 heading=f"Pair {bl_file.name} ↔ {mv_file.name}",
             )
-
-            pair_results.append({
-                'static_presence': bl_file.name,
-                'motion': mv_file.name,
-                'static_date': _entry_display_date(entry, bl_file.name),
-                'motion_date': _entry_display_date(motion_entry, mv_file.name),
-                'static_rssi_dbm': _median_rssi_dbm(bl_data),
-                'motion_rssi_dbm': _median_rssi_dbm(mv_data),
-                'static_packet_rate_pps': _packet_rate_from_entry(entry),
-                'motion_packet_rate_pps': _packet_rate_from_entry(motion_entry),
-                'chip': chip.upper(),
-                'environment': _entry_environment(entry),
-                'threshold': pair_threshold,
-                'static_active_ratio': static_active_ratio,
-                'motion_active_ratio': motion_active_ratio,
-                'pair_separation': pair_separation,
-                'classic_score': score,
-                'classic_status': classic_status,
-                'status': classic_status,
-            })
+            pair_results.append(pair_row)
 
     # ------------------------------------------------------------------
     # Phase 4: Empty sanity
@@ -3118,6 +3249,23 @@ def run_validation(chip_filter=None, generate_report=True):
             ):
                 print(line)
 
+    excluded_pair_rows = []
+    if include_excluded_pairs:
+        excluded_pair_rows = _collect_excluded_pair_rows(
+            dataset_info,
+            npz_cache,
+            chip_filter=chip_filter,
+            calibration_cache=calibration_cache,
+        )
+        if excluded_pair_rows:
+            print("\nExcluded pair diagnostics (informational only)")
+            for line in _render_score_table(
+                excluded_pair_rows,
+                _EXCLUDED_PAIR_SCORE_TABLE,
+                review_profiles=review_profiles,
+            ):
+                print(line)
+
     if should_recommend_dataset_metadata_refresh(
         all_results,
         missing_motion_pair_count=missing_motion_pair_count,
@@ -3133,6 +3281,7 @@ def run_validation(chip_filter=None, generate_report=True):
             quiet_score_rows,
             empty_score_rows,
             presence_score_rows,
+            excluded_pair_rows,
             review_profiles,
         )
         print(f"\nReport: {REPORT_OUTPUT}")
@@ -3150,6 +3299,7 @@ def _generate_report(
     quiet_score_rows,
     empty_score_rows,
     presence_score_rows,
+    excluded_pair_rows,
     review_profiles,
 ):
     """Generate markdown report."""
@@ -3183,6 +3333,7 @@ def _generate_report(
         (presence_score_rows, _PRESENCE_SCORE_TABLE),
         (empty_score_rows, _EMPTY_SCORE_TABLE),
         (quiet_score_rows, _LONG_TEST_SCORE_TABLE),
+        (excluded_pair_rows, _EXCLUDED_PAIR_SCORE_TABLE),
     ):
         lines.extend(
             _render_score_table(
@@ -3226,13 +3377,13 @@ def _generate_report(
         f"❌ `<{FAIL_MOTION_ACTIVE_RATIO:.0%}`"
     )
     lines.append(
-        f"- `Exc` (Presence/Empty/Long-test, past median + "
+        f"- `Exc` (Presence/Empty/Long-recording, past median + "
         f"{BASELINE_EXCURSION_MADS:.0f} MAD): "
         f"⚠️ `>{QUIET_TEST_CLASSIC_FP_WARN_RATIO:.0%}`, "
         f"❌ `>{QUIET_TEST_CLASSIC_FP_FAIL_RATIO:.0%}`"
     )
     lines.append(
-        f"- `Tail` (Presence/Empty/Long-test, q95 above own median in logits): "
+        f"- `Tail` (Presence/Empty/Long-recording, q95 above own median in logits): "
         f"⚠️ `>{BASELINE_TAIL_WARN_LOGITS:.1f}`, "
         f"❌ `>{BASELINE_TAIL_FAIL_LOGITS:.1f}`"
     )
@@ -3253,14 +3404,14 @@ def _generate_report(
         for table_key in ("static_presence", "empty", "test")
     ):
         lines.append(
-            "- `Burst` (Presence/Empty/Long-test): peer-relative empirical "
+            "- `Burst` (Presence/Empty/Long-recording): peer-relative empirical "
             "outlier threshold derived from clean idle captures of the same chip "
             "in this run; without enough same-chip references, cells fall back "
             "to fixed review thresholds"
         )
     else:
         lines.append(
-            f"- `Burst` (Presence/Empty/Long-test): "
+            f"- `Burst` (Presence/Empty/Long-recording): "
             f"⚠️ `>{BASELINE_LONGEST_BURST_WARN_SECONDS:.1f}s`, "
             f"❌ `>{BASELINE_LONGEST_BURST_ZERO_SECONDS:.1f}s`"
         )
@@ -3269,14 +3420,14 @@ def _generate_report(
         for table_key in ("static_presence", "empty", "test")
     ):
         lines.append(
-            "- `Q95` (Presence/Empty/Long-test): exploratory peer-relative "
+            "- `Q95` (Presence/Empty/Long-recording): exploratory peer-relative "
             "same-chip outlier threshold on the 95th percentile post-bootstrap "
             "logit margin; no mark is shown when same-chip references are "
             "insufficient"
         )
     else:
         lines.append(
-            "- `Q95` (Presence/Empty/Long-test): exploratory same-chip signal, "
+            "- `Q95` (Presence/Empty/Long-recording): exploratory same-chip signal, "
             "shown without soft marks until enough clean references exist"
         )
     if any(
@@ -3284,14 +3435,14 @@ def _generate_report(
         for table_key in ("static_presence", "empty", "test")
     ):
         lines.append(
-            "- `Drift` (Presence/Empty/Long-test): exploratory peer-relative "
+            "- `Drift` (Presence/Empty/Long-recording): exploratory peer-relative "
             "same-chip outlier threshold on the absolute half-to-half median "
             "margin drift; no mark is shown when same-chip references are "
             "insufficient"
         )
     else:
         lines.append(
-            "- `Drift` (Presence/Empty/Long-test): exploratory same-chip signal, "
+            "- `Drift` (Presence/Empty/Long-recording): exploratory same-chip signal, "
             "shown without soft marks until enough clean references exist"
         )
     lines.append(
@@ -3315,9 +3466,9 @@ def _generate_report(
         "ticks classified as motion on `motion` (true positives)"
     )
     lines.append(
-        "- `FP` (Presence/Empty/Long-test): `ClassicDetector` false-positive "
+        "- `FP` (Presence/Empty/Long-recording): `ClassicDetector` false-positive "
         "share of evaluation ticks on a self-calibrated idle capture or "
-        "idle-only quiet test"
+        "idle-only quiet long recording"
     )
     lines.append(
         "- `PPS`: observed packets per second from dataset metadata "
@@ -3328,20 +3479,20 @@ def _generate_report(
         "probabilities"
     )
     lines.append(
-        "- `Burst` (Presence/Empty/Long-test): longest sustained activation "
+        "- `Burst` (Presence/Empty/Long-recording): longest sustained activation "
         "episode in seconds"
     )
     lines.append(
-        "- `Q95` (Presence/Empty/Long-test): 95th percentile of the post-bootstrap "
+        "- `Q95` (Presence/Empty/Long-recording): 95th percentile of the post-bootstrap "
         "logit margin `logit(probability) - logit(threshold)`"
     )
     lines.append(
-        "- `Drift` (Presence/Empty/Long-test): absolute difference between the "
+        "- `Drift` (Presence/Empty/Long-recording): absolute difference between the "
         "first-half and second-half median post-bootstrap logit margins"
     )
     lines.append(
         "- `Score`: indicative 0-100 score from `ClassicDetector` replay, "
-        "tables sorted descending; on Presence/Empty/Long-test it is the "
+        "tables sorted descending; on Presence/Empty/Long-recording it is the "
         "self-calibrated idle score (0.7×cleanliness from `FP` + 0.3×burst_clean "
         "from `Burst`); score is shown as an "
         "absolute ranking value without soft review icons"
@@ -3365,18 +3516,25 @@ Examples:
   python validate_dataset_quality.py              # Full validation (auto report + metadata refresh)
   python validate_dataset_quality.py --chip C6    # Validate C6 only
   python validate_dataset_quality.py --no-report  # Skip markdown report
+  python validate_dataset_quality.py --include-excluded-pairs --chip C3
         """
     )
     parser.add_argument('--chip', type=str, default=None,
                        help='Filter by chip type (e.g., C6, S3, C3, ESP32)')
     parser.add_argument('--no-report', action='store_true',
                        help='Skip writing DATASET_QUALITY_CHECK.md')
+    parser.add_argument(
+        '--include-excluded-pairs',
+        action='store_true',
+        help='Replay exclude-role static_presence/motion pairs as informational diagnostics',
+    )
 
     args = parser.parse_args()
 
     exit_code = run_validation(
         chip_filter=args.chip,
         generate_report=not args.no_report,
+        include_excluded_pairs=args.include_excluded_pairs,
     )
     sys.exit(exit_code)
 

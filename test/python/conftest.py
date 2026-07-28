@@ -121,17 +121,17 @@ def extract_motion_start_from_description(description):
 
 
 def get_available_long_test_datasets(chips=None):
-    """Return cached long test recordings with validated split metadata."""
+    """Return cached long-recording replays with validated split metadata."""
     return _shared_get_available_long_test_datasets(chips=chips)
 
 
 def load_long_test_dataset(spec):
-    """Load one long test recording from a lightweight parameter spec."""
+    """Load one long-recording replay from a lightweight parameter spec."""
     return _shared_load_long_test_dataset(spec)
 
 
 def build_long_test_params(chips=None):
-    """Build stable pytest params for available long test recordings."""
+    """Build stable pytest params for available long-recording replays."""
     params = []
     for spec in _shared_get_available_long_test_dataset_specs(chips=chips):
         _, motion_start_packet, num_packets, chip, _ = spec
@@ -149,7 +149,7 @@ def build_long_test_params(chips=None):
         params.append(
             pytest.param(
                 None,
-                marks=pytest.mark.skip(reason="No long test recordings available in data/test"),
+                marks=pytest.mark.skip(reason="No long-recording replays available in dataset_info.json"),
                 id="no_long_test_recordings",
             )
         )
@@ -161,7 +161,7 @@ def build_long_test_params(chips=None):
 
 @pytest.fixture(params=build_long_test_params())
 def long_test_config(request):
-    """Validated long test recording split from data/test/."""
+    """Validated long-recording replay split from the current dataset layout."""
     return load_long_test_dataset(request.param)
 
 @pytest.fixture

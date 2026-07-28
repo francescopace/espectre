@@ -374,6 +374,14 @@ from csi_features import (
     L1DeltaTracker,
     extract_features_by_name,
 )
+from tools.lib.candidate_features import (
+    CANDIDATE_FEATURES,
+    ChannelCoherenceTracker,
+    assemble_feature_vector,
+    candidate_values,
+    needs_channel_coherence,
+    split_feature_names,
+)
 from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES, MLDetector  # noqa: F401 (re-exported for tests)
 
 
@@ -399,6 +407,17 @@ def _needs_l1_series(feature_names):
 # ============================================================================
 
 TRAINING_FEATURES = DEFAULT_FEATURES
+
+
+def selectable_features():
+    """Names `--features` accepts.
+
+    Host-side candidates widen the selectable set without touching the
+    production surface the two runtimes share; the export guard still rejects
+    them because they have no C++ extractor id. Resolved per call so tests can
+    substitute the production surface.
+    """
+    return tuple(ALL_FEATURES) + tuple(CANDIDATE_FEATURES)
 BINARY_TRAINING_LABELS = ('empty', 'static_presence', 'motion')
 # Directories
 GENERATED_DATA_DIR = generated_data_dir()
@@ -1518,6 +1537,11 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         l1_series = (
             [0.0] * l1_capacity if _needs_l1_series(feature_names) else None
         )
+        production_names, candidate_names = split_feature_names(feature_names)
+        coherence_tracker = (
+            ChannelCoherenceTracker(window_size=l1_capacity, lag=L1_DELTA_LAG)
+            if needs_channel_coherence(feature_names) else None
+        )
         window_index = 0
         for pkt in file_packets:
             csi_data = pkt['csi_data']
@@ -1529,6 +1553,8 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             ctx.add_turbulence(turb)
             if l1_tracker is not None:
                 l1_tracker.process_amplitudes(amps, len(amps))
+            if coherence_tracker is not None:
+                coherence_tracker.process_packet(csi_data)
 
             if ctx.buffer_count < window_size:
                 continue
@@ -1541,18 +1567,23 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             l1_count = l1_tracker.copy_deltas_into(l1_series) if l1_series is not None else 0
             features = extract_features_by_name(
                 turb_list, n,
-                feature_names=feature_names,
+                feature_names=production_names,
                 l1_series=l1_series,
                 l1_series_count=l1_count,
                 l1_delta_lag_ratio=(
                     l1_tracker.delta_lag_ratio()
                     if (
                         l1_tracker is not None
-                        and 'l1_delta_lag_ratio' in feature_names
+                        and 'l1_delta_lag_ratio' in production_names
                     )
                     else None
                 ),
             )
+            if candidate_names:
+                features = assemble_feature_vector(
+                    feature_names, production_names, features,
+                    candidate_values(candidate_names, coherence_tracker),
+                )
 
             X.append(features)
             y.append(1 if pkt.get('is_motion', False) else 0)
@@ -3455,8 +3486,53 @@ def calculate_correlation_importance(feature_names=None, use_cache=True):
     
     # Sort by absolute correlation
     sorted_corr = dict(sorted(correlations.items(), key=lambda x: abs(x[1]), reverse=True))
-    
+
+    print_candidate_redundancy(X, actual_features)
+
     return sorted_corr
+
+
+def print_candidate_redundancy(X, feature_names, baseline_features=None):
+    """Report how much of each candidate the production set already explains.
+
+    A candidate earns its place by what it adds, not by how well it separates on
+    its own, so the screening question is redundancy: its strongest pairwise
+    correlation against the production members, and the share of its variance a
+    least-squares fit on all of them removes.
+    """
+    if baseline_features is None:
+        baseline_features = DEFAULT_FEATURES
+    names = list(feature_names)
+    baseline_index = [i for i, name in enumerate(names) if name in baseline_features]
+    candidate_index = [i for i, name in enumerate(names) if name not in baseline_features]
+    if not candidate_index or not baseline_index:
+        return
+
+    design = np.column_stack(
+        [X[:, baseline_index], np.ones(len(X), dtype=X.dtype)]
+    )
+    print("\n" + "=" * 74)
+    print("  Candidate Redundancy Against The Production Set")
+    print("=" * 74)
+    print(f"{'Candidate':<22} {'max |r| vs production':>22} {'closest':>16} {'R2':>8}")
+    print("-" * 74)
+    for i in candidate_index:
+        values = X[:, i]
+        strongest, closest = 0.0, "-"
+        for j in baseline_index:
+            if values.std() < 1e-12 or X[:, j].std() < 1e-12:
+                continue
+            r = abs(float(np.corrcoef(values, X[:, j])[0, 1]))
+            if r > strongest:
+                strongest, closest = r, names[j]
+        coefficients, *_ = np.linalg.lstsq(design, values, rcond=None)
+        residual = values - design @ coefficients
+        variance = float(values.var())
+        r_squared = 1.0 - float(residual.var()) / variance if variance > 0 else 0.0
+        print(f"{names[i]:<22} {strongest:>22.4f} {closest:>16} {r_squared:>8.4f}")
+    print("-" * 74)
+    print("  Lower is better: a candidate the production set can reconstruct "
+          "adds nothing.")
 
 
 def print_correlation_table(correlations, current_features=None):
@@ -4272,7 +4348,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
                         return 1, seed, cv_results
 
     if not export_artifacts:
-        print("\nArtifacts unchanged (--no-export).")
+        print("\nArtifacts unchanged.")
         return 0, seed, cv_results
 
     regression_indices = select_regression_subset_indices(
@@ -4472,6 +4548,15 @@ class StreamingFeatureExtractor:
             if self.needs_l1_tracker else None
         )
         self.l1_series = [0.0] * l1_capacity if self.needs_l1_series else None
+        # Candidate features run through the same streaming path as production
+        # ones, so the replay gates measure a candidate the way a runtime would.
+        self.production_names, self.candidate_names = split_feature_names(
+            self.feature_names
+        )
+        self.coherence_tracker = (
+            ChannelCoherenceTracker(window_size=l1_capacity, lag=L1_DELTA_LAG)
+            if needs_channel_coherence(self.feature_names) else None
+        )
 
     def process_packet(self, csi_data):
         turbulence, amplitudes = self.context.calculate_spatial_turbulence(
@@ -4482,6 +4567,8 @@ class StreamingFeatureExtractor:
         self.context.add_turbulence(turbulence)
         if self.l1_tracker is not None:
             self.l1_tracker.process_amplitudes(amplitudes, len(amplitudes))
+        if self.coherence_tracker is not None:
+            self.coherence_tracker.process_packet(csi_data)
         if self.context.buffer_count < self.context.window_size:
             return None
 
@@ -4494,20 +4581,28 @@ class StreamingFeatureExtractor:
             self.l1_tracker.copy_deltas_into(self.l1_series)
             if self.l1_series is not None else 0
         )
-        return extract_features_by_name(
+        features = extract_features_by_name(
             turb_list,
             len(turb_list),
-            feature_names=self.feature_names,
+            feature_names=self.production_names,
             l1_series=self.l1_series,
             l1_series_count=l1_count,
             l1_delta_lag_ratio=(
                 self.l1_tracker.delta_lag_ratio()
                 if (
                     self.l1_tracker is not None
-                    and 'l1_delta_lag_ratio' in self.feature_names
+                    and 'l1_delta_lag_ratio' in self.production_names
                 )
                 else None
             ),
+        )
+        if not self.candidate_names:
+            return features
+        return assemble_feature_vector(
+            self.feature_names,
+            self.production_names,
+            features,
+            candidate_values(self.candidate_names, self.coherence_tracker),
         )
 
 
@@ -5216,6 +5311,39 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             return
         write_json_results(Path(search_output_path), search_results)
 
+    def _record_trial(trial_seed_value, status, cv_metrics, gate):
+        """Record one evaluated trial in both the summary and the results file.
+
+        Every branch that evaluates a candidate goes through here, including the
+        broken-baseline ranking path: a search that promotes nothing still has to
+        leave its per-replay rows behind, and that is the run whose rows matter
+        most.
+        """
+        trial_summaries.append((trial_seed_value, cv_metrics, gate, status))
+        session_summary = cv_metrics.get('group_reports', {}).get('session_group', {}).get('worst_recall', {})
+        fp_summary = cv_metrics.get('group_reports', {}).get('session_group', {}).get('worst_fp_rate', {})
+        search_results['trials'].append({
+            'seed': trial_seed_value,
+            'status': status,
+            'oof_f1': cv_metrics.get('oof_f1'),
+            'session_min_recall': session_summary.get('recall'),
+            'session_max_fp_rate': fp_summary.get('fp_rate'),
+            'cv': cv_metrics.get('cv'),
+            'paired_passed': bool(gate.passed) if gate else None,
+            'paired_metrics': gate.paired_metrics if gate else None,
+            'quiet_metrics': gate.quiet_metrics if gate else None,
+            'non_regression_failures': (
+                paired_non_regression_failures(
+                    gate.paired_metrics,
+                    static_presence_gate.paired_metrics)
+                if gate is not None
+                and gate.paired_metrics is not None
+                and static_presence_gate.paired_metrics is not None
+                else []
+            ),
+        })
+        _write_search_results()
+
     _write_search_results()
 
     backup_dir, saved_files = _backup_artifacts()
@@ -5284,7 +5412,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                 print("  Broken baseline mode: candidate still fails deployment safety")
             else:
                 print("  Broken baseline mode: candidate did not beat current best")
-            trial_summaries.append((used_seed, final_metrics, candidate_gate, status))
+            _record_trial(used_seed, status, final_metrics, candidate_gate)
             _restore_artifacts(saved_files)
             continue
 
@@ -5331,28 +5459,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             print("  Robust CV rejected candidate due to material regression")
         else:
             print("  Robust CV found no material improvement")
-        trial_summaries.append((used_seed, final_metrics, candidate_gate, status))
-        search_results['trials'].append({
-            'seed': used_seed,
-            'status': status,
-            'oof_f1': final_metrics.get('oof_f1'),
-            'session_min_recall': session_summary.get('recall'),
-            'session_max_fp_rate': fp_summary.get('fp_rate'),
-            'cv': final_metrics.get('cv'),
-            'paired_passed': bool(candidate_gate.passed) if candidate_gate else None,
-            'paired_metrics': candidate_gate.paired_metrics if candidate_gate else None,
-            'quiet_metrics': candidate_gate.quiet_metrics if candidate_gate else None,
-            'non_regression_failures': (
-                paired_non_regression_failures(
-                    candidate_gate.paired_metrics,
-                    static_presence_gate.paired_metrics)
-                if candidate_gate is not None
-                and candidate_gate.paired_metrics is not None
-                and static_presence_gate.paired_metrics is not None
-                else []
-            ),
-        })
-        _write_search_results()
+        _record_trial(used_seed, status, final_metrics, candidate_gate)
         _restore_artifacts(saved_files)
 
     print("\n" + "=" * 70)
@@ -6392,10 +6499,16 @@ def main():
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
     parser.add_argument('--features', type=str, default=None, metavar='NAME1,NAME2,...',
                        help='Comma-separated feature set for training/evaluation '
-                            'experiments (default: production baseline). Every '
-                            'selectable feature has a C++ extractor id; a new one '
-                            'without it requires --no-export or an evaluation-only '
-                            'flow until it is added to CPP_FEATURE_IDS')
+                            'experiments (default: production baseline). Host-side '
+                            'candidates from tools/lib/candidate_features.py are '
+                            'selectable too; they have no C++ extractor id, so they '
+                            'require --no-export or an evaluation-only flow until '
+                            'they are promoted and added to CPP_FEATURE_IDS')
+    parser.add_argument('--evaluate-gates', action='store_true',
+                       help='Run the deployment replay gates and report them without '
+                            'exporting runtime artifacts. This is how a host-side '
+                            'candidate feature is measured against the paired and '
+                            'quiet gates, since a candidate cannot be exported')
     parser.add_argument('--no-export', action='store_true',
                        help='Leave runtime artifacts unchanged (CV-only for normal training; '
                             'also use with --shap / --ablation-feature diagnostics)')
@@ -6443,12 +6556,16 @@ def main():
             return 1
         unknown = [
             name for name in selected_training_features
-            if name not in ALL_FEATURES
+            if name not in selectable_features()
         ]
         if unknown:
             print(
                 f"Error: unknown feature(s): {', '.join(unknown)}. "
                 f"Available: {', '.join(ALL_FEATURES)}"
+                + (
+                    f" (host-side candidates: {', '.join(CANDIDATE_FEATURES)})"
+                    if CANDIDATE_FEATURES else ""
+                )
             )
             return 1
         if len(set(selected_training_features)) != len(selected_training_features):
@@ -6460,6 +6577,7 @@ def main():
             args.seed_search_until_improvement > 0
             or not (
                 args.no_export
+                or args.evaluate_gates
                 or args.shap is not None
                 or args.ablation_feature
                 or args.correlation
@@ -6671,10 +6789,11 @@ def main():
         augment=args.augment,
         export_artifacts=(
             not args.no_export
+            and not args.evaluate_gates
             and args.shap is None
         ),
         evaluate_deployment=(
-            not args.no_export
+            (args.evaluate_gates or not args.no_export)
             and args.shap is None
         ),
         force_export=args.force_promote,

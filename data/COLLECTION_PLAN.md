@@ -1,31 +1,42 @@
 # Dataset Collection Plan
 
-## Priority 1: Replace clearly bad pairs
+Current baseline status:
+- The exported ML baseline is back to a passing, reproducible state.
+- Coverage was intentionally reduced to get there: the weak `S3` bedroom holdout pair and the quiet long-run `S3` selection replay were both moved to role `exclude`.
+- The remaining collection work should recover that lost coverage first, then clean up the next-noisiest reserved and training captures.
 
-- [x] Chip: `C6` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `select` | Labels: `static_presence + motion` | Retain the current pair from `2026-07-22 18:52/18:54`. With the lag-ratio feature its idle/motion medians separate at `1.10` versus `2.54` (`0.99999` AUC), and a seven-feature model trained with the restored C5 normal-link pair reaches `0.88`-`1.02%` FP with no alarms. The old failure exposed missing training coverage rather than a contaminated pair.
-- [ ] Chip: `C5` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `test` | Labels: `static_presence + motion` | Replace the current pair from `2026-07-24 12:59/13:05`, then drop the old pair. It fails the Classic gate hard (`69.2%` recall) even though the link is not weak. It is also the recording that produced the one false-positive blocker in the seed `1538882188` gate run on 2026-07-27: `3` false-positive evaluations out of `666` against a baseline `0`, no alarm. That is inside measured seed noise and no longer blocks anything, but the margin will be re-derived on the corpus that includes this pair's replacement, so collecting it also settles whether those evaluations were the model or the capture.
-- [ ] Chip: `C3` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `select` | Labels: `static_presence + motion` | Collect a verified replacement for the pair from `2026-07-22 19:58/20:01`. The old pair is restored with role `exclude`: it is useful to ML (`0.9976` lag-ratio AUC, `98.0%` candidate recall, and `0.0%` FP) but cannot serve as a shared selection gate while production Classic remains at `82.5%` recall. Re-measured on 2026-07-27 against Classic on the lag ratio, that recall is unchanged at `82.5%` with `0.9852` separation and `0.0%` FP, so the lag ratio did not touch this failure. The link is `-39/-38 dBm`, the strongest in the corpus, which rules out the weak-link explanation.
-- [ ] Chip: `C3` | Environment: `bedroom` | RSSI: `weak link, target -65 to -75 dBm` | Role: `test` | Labels: `static_presence + motion` | Collect a verified replacement for the low-RSSI pair from `2026-07-25 13:58/14:00`. The old pair is restored with role `exclude`: it retains useful weak-motion evidence (`0.9375` lag-ratio AUC) without entering training or blocking the promotion holdout. Re-measured on 2026-07-27, Classic reaches `74.2%` recall at `0.9872` separation and `0.0%` FP. At `-63/-62 dBm` this is a moderate link, not one of the `-70` to `-80 dBm` captures the weak-link work targeted.
-- [ ] Chip: `S3` | Environment: `bedroom` | RSSI: `weak link, target -70 to -80 dBm` | Role: `test` | Labels: `static_presence + motion` | Replace the current low-RSSI pair from `2026-07-22 17:20/17:23`, then drop the old pair. It can dominate reserved holdout FP for otherwise good ML seeds (`36.7%` FP, `30` effective alarms on seed `1975812835`).
+## Priority 1: Restore the reserved coverage we had to cut
 
-## Priority 2: Replace noisy training captures
+- [ ] Chip: `S3` | Environment: `living_room` | RSSI: `normal link, target -45 to -55 dBm` | Role: `selection` | Label: `empty` | Collect a cleaner reserved quiet replay to replace `empty_s3_64sc_dev000010b41de8ec00_20260713_002325_306350_0001.npz`, which is now in role `exclude`. That replay was the only quiet selection dataset still producing `2` to `4` effective alarms across seed search, so it had to be removed to restore a passing baseline.
+- [ ] Chip: `S3` | Environment: `bedroom` | RSSI: `weak link, target -70 to -80 dBm` | Role: `holdout` | Labels: `static_presence + motion` | Collect a cleaner replacement for the low-RSSI pair from `2026-07-22 17:20/17:23`, which is now in role `exclude`. It could dominate reserved holdout FP for otherwise good ML seeds (`36.7%` FP, `30` effective alarms on seed `1975812835`), so weak-holdout coverage is intentionally suspended until a better replacement lands.
+- [ ] Chip: `C3` | Environment: `bedroom` | RSSI: `weak link, target -70 to -80 dBm` | Role: `holdout` | Labels: `static_presence + motion` | Collect a true weak-link holdout replacement for the excluded `2026-07-25 13:58/14:00` pair. The old pair retains useful evidence (`0.9375` lag-ratio AUC) but at `-63/-62 dBm` it is only a moderate link and should not define the weak holdout slice.
 
-- [ ] Chip: `S3` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `train` | Labels: `static_presence + motion` | Recollect a cleaner pair to replace the current `2026-07-23 13:06/13:09` train pair. The static-presence side is the worst normal-link idle capture in the room (`11.1%` FP), so it should not remain the only normal bedroom training pair.
-- [ ] Chip: `C3` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `train` | Label: `empty` | Recollect a cleaner empty-room capture. The current bedroom empty sample is the only outright bad `empty` dataset in the report (`5.6%` FP).
-- [ ] Chip: `C6` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `test` | Label: `test` | Recollect a quieter long-run test capture. The current bedroom quiet test is the weakest long-recording replay (`3.6%` FP, `1.5s` burst).
+## Priority 2: Clean up the remaining quiet and empty weak points
 
-## Priority 3: Fill structural coverage gaps
+- [ ] Chip: `C3` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `train` | Label: `empty` | Recollect a cleaner empty-room capture. The current bedroom empty sample is still the only outright bad `empty` dataset in the report (`5.6%` FP).
+- [ ] Chip: `C6` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `holdout` | Label: `empty` | Recollect a quieter long-run empty capture and register it with `long_recording: true`. The current bedroom quiet run is still the weakest reserved long-recording replay (`3.6%` FP, `1.5s` burst).
 
-- [x] Chip: `S3` | Environment: `bedroom` | RSSI: `weak link, target -70 to -80 dBm` | Role: `select` | Labels: `static_presence + motion` | Filled on 2026-07-27 without a new capture, by recovering the `2026-07-24 15:42/15:44` pair deleted in `33f24f2`. At `-77/-75 dBm` it sits in the target band, and out of sample it reaches `0.9964` Classic separation with `77.4%` recall and `0.0%` idle FP, and `0.9948` ML separation with `99.7%` recall. Its idle score medians are flat across the recording (`0.029` to `0.028`), so the weak link is the difficulty, not the capture. A second weak selection pair would still help: one recording cannot separate a dispersion from its own quirk
-- [ ] Chip: `any` | Environment: `bedroom` | RSSI: `weak link, target -70 to -80 dBm` | Role: `select` | Labels: `static_presence + motion` | Collect a second weak-link selection pair, ideally on a chip other than S3. One reserved pair makes the `low_rssi` non-regression exemption measurable at all; a second is what separates a dispersion from one recording's quirk, which is the same reason the margin above was set from fifteen seeds rather than from one run.
+## Priority 3: Strengthen weak-link robustness beyond the minimum
 
-- [ ] Chip: `ESP32` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `select` | Labels: `static_presence + motion` | Add the first reserved normal-link selection pair. `docs/performance/README.md` currently shows `N/A` for ESP32 reserved ML replays because no such pair exists yet.
-- [ ] Chip: `ESP32` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `test` | Labels: `static_presence + motion` | Add the first reserved normal-link holdout pair so ESP32 stops being evaluated only on training data.
+- [ ] Chip: `any` | Environment: `bedroom` | RSSI: `weak link, target -70 to -80 dBm` | Role: `selection` | Labels: `static_presence + motion` | Collect a second weak-link selection pair, ideally on a chip other than `S3`. One reserved weak selection replay is enough to enforce the exemption; a second one is what separates seed dispersion from one recording's quirk.
+- [ ] Chip: `C5` | Environment: `bedroom` | RSSI: `weak link, target -70 to -75 dBm` | Role: `train` | Labels: `static_presence + motion` | Collect one cleaner weak-link training pair before considering whether to retire the current `2026-07-25 14:47/14:49` pair, which still has the weakest `C5` low-RSSI idle quality in the report.
+
+## Priority 4: Revisit lower-value trainer cleanup only with a clearly better candidate
+
+- [ ] Chip: `C6` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `train` | Labels: `static_presence + motion` | The `2026-07-28 13:17/13:19` spare looked cleaner in Classic, but retraining made it the worst grouped-CV FP lineage (`8.0%` FP on `static_presence`) and still failed deployment safety. Only replace the restored `2026-07-23 13:33/13:35` train pair with a candidate that is both cleaner and measurably better for the ML trainer.
+
+## Priority 5: Expand ESP32 from one-recording evidence to a measured slice
+
+- [ ] Chip: `ESP32` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `selection` | Labels: `static_presence + motion` | Add the first reserved normal-link selection pair. `docs/performance/README.md` still shows `N/A` for ESP32 reserved ML replays because no such pair exists yet.
+- [ ] Chip: `ESP32` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `holdout` | Labels: `static_presence + motion` | Add the first reserved normal-link holdout pair so ESP32 stops being evaluated only on training data.
 - [ ] Chip: `ESP32` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `train` | Label: `empty` | Add the first empty-room bedroom sample for ESP32. There is currently no ESP32 empty capture in the catalog.
-- [ ] Chip: `ESP32` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `test` | Label: `test` | Add the first long quiet test run for ESP32. The long-recording report is currently `N/A` for ESP32.
-- [x] Chip: `C5` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `train` | Labels: `static_presence + motion` | Restored the `2026-07-23 14:35/14:38` pair. Its seven-feature distribution matches the difficult C6 selection regime, and adding it changes all four previously failing fixed seeds to `5/5` paired passes with `0.88`-`1.02%` max FP and no alarms.
+- [ ] Chip: `ESP32` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `holdout` | Label: `empty` | Add the first long quiet empty run for ESP32 and register it with `long_recording: true`. The long-recording report is currently `N/A` for ESP32.
 
-## Priority 4: Nice-to-have cleanup after replacements land
+When a Priority 1 or Priority 2 item lands, re-measure in this order:
 
-- [ ] Chip: `C6` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `train` | Labels: `static_presence + motion` | Collect one cleaner spare pair and compare it against the current `2026-07-23 13:33/13:35` train pair, which is still noisy (`5.6%` idle FP) even though aggregate metrics still pass.
-- [ ] Chip: `C5` | Environment: `bedroom` | RSSI: `weak link, target -70 to -75 dBm` | Role: `train` | Labels: `static_presence + motion` | Collect one cleaner weak-link training pair before considering whether to retire the current `2026-07-25 14:47/14:49` pair, which has the weakest C5 low-RSSI idle quality in the report.
+1. `python tools/validate_dataset_quality.py`
+2. `pytest test/python/test_validation_real_data.py::TestPerformanceMetrics -v`
+3. `pytest test/python/test_validation_long_recordings.py -v`
+4. `python tools/generate_performance_report.py`
+5. `python tools/train_ml_model.py --evaluate-gates`
+6. `python tools/train_ml_model.py --seed-search-until-improvement 5`

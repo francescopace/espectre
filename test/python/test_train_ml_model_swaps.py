@@ -1675,3 +1675,11 @@ def test_train_until_improvement_ranks_candidates_when_baseline_is_broken(monkey
 
     assert result == 0
     assert restore_calls[-1] == ("snapshot-2",)
+
+    # The broken-baseline path must persist its trials as well. A search that
+    # promotes nothing is exactly the run whose per-replay rows are worth
+    # keeping, since they are the evidence for why nothing passed.
+    report = json.loads((tmp_path / "seed_search.json").read_text(encoding="utf-8"))
+    assert [trial["seed"] for trial in report["trials"]] == [201, 202]
+    assert [trial["status"] for trial in report["trials"]] == ["ranked_best", "ranked_best"]
+    assert [trial["paired_metrics"]["worst_chip_recall"] for trial in report["trials"]] == [81.0, 84.0]

@@ -60,7 +60,6 @@ def test_refresh_metadata_writes_pair_fields():
                     "num_packets": 2000,
                 }
             ],
-            "test": [],
         },
     }
 

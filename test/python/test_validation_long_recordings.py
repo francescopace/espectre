@@ -55,9 +55,9 @@ class TestLongRecordings:
 
     @pytest.mark.parametrize("long_dataset", build_long_test_params(), indirect=False)
     def test_ml_vs_test_recordings(self, long_dataset):
-        """Evaluate the ML detector on the 60-second test recordings."""
+        """Evaluate the ML detector on the curated long-recording replays."""
         if long_dataset is None:
-            pytest.skip("No long test recordings available in data/test")
+            pytest.skip("No long-recording replays available in dataset_info.json")
 
         long_dataset = load_long_test_dataset(long_dataset)
         _, baseline_packets, movement_packets, motion_start_packet, chip, entry = long_dataset
@@ -118,9 +118,9 @@ class TestLongRecordingsClassic:
 
     @pytest.mark.parametrize("long_dataset", build_long_test_params(), indirect=False)
     def test_classic_vs_test_recordings(self, long_dataset):
-        """Evaluate startup-calibrated ClassicDetector on the 60-second test recordings."""
+        """Evaluate startup-calibrated ClassicDetector on the curated long-recording replays."""
         if long_dataset is None:
-            pytest.skip("No long test recordings available in data/test")
+            pytest.skip("No long-recording replays available in dataset_info.json")
 
         long_dataset = load_long_test_dataset(long_dataset)
         _, baseline_packets, movement_packets, motion_start_packet, chip, entry = long_dataset
@@ -175,12 +175,12 @@ class TestLongRecordingHelpers:
     @pytest.mark.parametrize("long_dataset", build_long_test_params(), indirect=False)
     def test_long_test_loader_splits_stream_consistently(self, long_dataset):
         if long_dataset is None:
-            pytest.skip("No long test recordings available in data/test")
+            pytest.skip("No long-recording replays available in dataset_info.json")
 
         long_dataset = load_long_test_dataset(long_dataset)
         test_path, baseline_packets, movement_packets, motion_start_packet, chip, entry = long_dataset
 
-        assert test_path.parent == DATA_DIR / "test"
+        assert test_path.parent in {DATA_DIR / "empty", DATA_DIR / "test"}
         assert test_path.exists()
         assert len(baseline_packets) == motion_start_packet
         if extract_motion_start_from_description(entry.get("description")) is None:

@@ -385,7 +385,7 @@ def _get_available_empty_datasets_cached() -> tuple[Path, ...]:
     empty_paths = []
     for entry in dataset_info.get("files", {}).get("empty", []):
         role = str(entry.get("dataset_role", "train")).lower() or "train"
-        if role == "exclude":
+        if role == "exclude" or bool(entry.get("long_recording")):
             continue
         filename = entry.get("filename")
         if not filename:
@@ -399,6 +399,28 @@ def _get_available_empty_datasets_cached() -> tuple[Path, ...]:
 def get_available_empty_datasets() -> list[Path]:
     """Return the empty-room recordings used by the ML FP gate."""
     return list(_get_available_empty_datasets_cached())
+
+
+def _long_recording_entry_records(dataset_info: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Return (label_group, entry) records for explicit long-recording replays.
+
+    Preferred layout stores quiet long-runs under `empty` with `long_recording:
+    true`. Older datasets may still keep them under `test`.
+    """
+    files = dataset_info.get("files", {})
+    explicit = [
+        ("empty", entry)
+        for entry in files.get("empty", [])
+        if bool(entry.get("long_recording"))
+        and str(entry.get("dataset_role", "train")).lower() != "exclude"
+    ]
+    if explicit:
+        return explicit
+    return [
+        ("test", entry)
+        for entry in files.get("test", [])
+        if str(entry.get("dataset_role", "train")).lower() != "exclude"
+    ]
 
 
 def get_available_chip_types() -> list[str]:
@@ -892,14 +914,14 @@ def _get_available_long_test_dataset_specs_cached(
 ) -> tuple[tuple[Any, ...], ...]:
     """Return long-recording metadata without loading packet payloads."""
     dataset_info = _load_dataset_info()
-    test_entries = dataset_info.get("files", {}).get("test", [])
-    if not test_entries:
+    long_recording_records = _long_recording_entry_records(dataset_info)
+    if not long_recording_records:
         return tuple()
 
     requested = set(chips_key) if chips_key else None
     datasets = []
 
-    for entry in test_entries:
+    for label_group, entry in long_recording_records:
         chip = str(entry.get("chip", "")).upper()
         if requested and chip not in requested:
             continue
@@ -908,7 +930,7 @@ def _get_available_long_test_dataset_specs_cached(
         if not filename:
             continue
 
-        test_path = DATA_DIR / "test" / filename
+        test_path = DATA_DIR / label_group / str(filename)
         if not test_path.exists():
             continue
 
@@ -1006,7 +1028,7 @@ def load_long_test_dataset(spec: tuple[Any, ...]) -> tuple[Any, ...]:
 
 
 def get_available_long_test_datasets(chips: Optional[Iterable[str]] = None) -> list[tuple[Any, ...]]:
-    """Load long test recordings with validated split metadata."""
+    """Load long-recording replays with validated split metadata."""
     return [
         load_long_test_dataset(spec)
         for spec in get_available_long_test_dataset_specs(chips=chips)

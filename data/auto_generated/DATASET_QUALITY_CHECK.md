@@ -8,19 +8,19 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 
 ## Quality Check Summary
 
-- Total checks: 1269
-- ✅ PASS: 1192
-- ⚠️ WARN: 77
+- Total checks: 1074
+- ✅ PASS: 1016
+- ⚠️ WARN: 58
 - ❌ FAIL: 0
 
 ## Validation Domains
 
 | Domain | PASS | WARN | FAIL |
 |---|---:|---:|---:|
-| Common integrity | 1124 | 52 | 0 |
-| Empty/static presence | 21 | 11 | 0 |
-| ClassicDetector indicative scores | 42 | 12 | 0 |
-| ML readiness | 4 | 1 | 0 |
+| Common integrity | 955 | 39 | 0 |
+| Empty/static presence | 23 | 10 | 0 |
+| ClassicDetector indicative scores | 32 | 8 | 0 |
+| ML readiness | 5 | 0 | 0 |
 | Long-recording coverage | 1 | 1 | 0 |
 
 ## Motion Scores
@@ -35,6 +35,7 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 | C3 | bedroom | [2026-07-25 14:20](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260725_142002_522602_0001.npz) / [2026-07-25 14:22](../motion/motion_c3_64sc_dev0000acebe64ae708_20260725_142210_772024_0001.npz) | -44 / -41 | 99.9 / 100.3 | 4.88e-01 | 0.0% | 100.0% | 1.0000 | 100.0 |
 | C3 | bedroom | [2026-07-23 12:00](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260723_120030_769423_0001.npz) / [2026-07-23 12:02](../motion/motion_c3_64sc_dev0000acebe64ae708_20260723_120227_676445_0001.npz) | -43 / -42 | 98.6 / 100.3 | 7.49e-01 | 0.0% | 96.6% | 0.9986 | 99.8 |
 | ESP32 | bedroom | [2026-07-19 17:13](../static_presence/static_presence_esp32_64sc_dev00004c11aeb86eb8_20260719_171301_344381_0001.npz) / [2026-07-19 17:15](../motion/motion_esp32_64sc_dev00004c11aeb86eb8_20260719_171516_472716_0001.npz) | -47 / -47 | 99.3 / 99.8 | 5.82e-01 | 0.0% | 98.8% | 1.0000 | 99.7 |
+| C3 | bedroom | [2026-07-28 12:11](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260728_121127_735859_0001.npz) / [2026-07-28 12:13](../motion/motion_c3_64sc_dev0000acebe64ae708_20260728_121351_713841_0001.npz) | -42 / -42 | 100.0 / 99.8 | 4.91e-01 | 0.1% | 98.3% | 0.9996 | 99.7 |
 | C5 | bedroom | [2026-07-22 20:51](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz) / [2026-07-22 20:53](../motion/motion_c5_64sc_dev000030eda0e46278_20260722_205350_355335_0001.npz) | -75 / -71 | 96.4 / 96.2 | 2.78e-01 | 1.2% | 100.0% | 1.0000 | 99.6 |
 | C6 | bedroom | [2026-07-22 19:16](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz) / [2026-07-22 19:19](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260722_191914_560463_0001.npz) | -69 / -66 | 97.2 / 97.0 | 3.19e-01 | 1.0% | 99.7% | 0.9985 | 99.1 |
 | C5 | bedroom | [2026-07-12 19:04](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz) / [2026-07-12 19:26](../motion/motion_c5_64sc_dev000030eda0e46278_20260712_192653_576724_0001.npz) | -46 / -44 | 96.2 / 97.2 | 5.77e-01 | 0.1% | 100.0% | 1.0000 | 99.0 |
@@ -46,13 +47,13 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 | S3 | bedroom | [2026-07-11 19:57](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz) / [2026-07-11 20:04](../motion/motion_s3_64sc_dev000010b41de8ec00_20260711_200403_160376_0001.npz) | -47 / -48 | 99.3 / 99.8 | 4.45e-01 | 0.3% | 98.9% | 0.9998 | 96.6 |
 | S3 | bedroom | [2026-07-22 17:20](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz) / [2026-07-22 17:23](../motion/motion_s3_64sc_dev000010b41de8ec00_20260722_172305_879358_0001.npz) | -77 / -75 | 96.3 / 97.1 | 3.08e-01 | 2.0% | **90.8% ⚠️** | 0.9927 | 94.9 |
 | C6 | hobby_room | [2026-07-04 15:32](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz) / [2026-07-04 15:36](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz) | -50 / -51 | 97.5 / 95.8 | 6.33e-01 | 0.8% | 100.0% | 1.0000 | 94.8 |
+| S3 | bedroom | [2026-07-28 12:39](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260728_123906_230383_0001.npz) / [2026-07-28 12:41](../motion/motion_s3_64sc_dev000010b41de8ec00_20260728_124148_676675_0001.npz) | -42 / -41 | 95.9 / 97.6 | 9.66e-01 | 0.6% | 100.0% | 1.0000 | 90.5 |
 | S3 | living_room | [2026-07-16 10:10](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz) / [2026-07-16 10:22](../motion/motion_s3_64sc_dev000010b41de8ec00_20260716_102200_622276_0001.npz) | -54 / -53 | 97.9 / 98.5 | 1.02e-01 | 0.0% | 100.0% | 1.0000 | 90.4 |
 | S3 | bedroom | [2026-07-23 12:10](../static_presence/static_presence_s3_64sc_dev000080b54ef1ee78_20260723_121059_606276_0001.npz) / [2026-07-23 12:12](../motion/motion_s3_64sc_dev000080b54ef1ee78_20260723_121259_714810_0001.npz) | -63 / -62 | 96.9 / 96.0 | 9.25e-01 | 0.4% | 100.0% | 1.0000 | 90.4 |
 | S3 | bedroom | [2026-07-24 15:42](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260724_154215_755817_0001.npz) / [2026-07-24 15:44](../motion/motion_s3_64sc_dev000010b41de8ec00_20260724_154440_361170_0001.npz) | -77 / -75 | 99.5 / 98.7 | 2.97e-01 | **5.8% ⚠️** | 98.9% | 0.9953 | 90.0 |
 | C6 | bedroom | [2026-07-24 15:59](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260724_155953_837027_0001.npz) / [2026-07-24 16:01](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260724_160150_405763_0001.npz) | -69 / -71 | 99.7 / 99.4 | 8.43e-01 | 2.6% | 98.9% | 0.9962 | 86.9 |
+| C5 | bedroom | [2026-07-28 11:47](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260728_114729_552051_0001.npz) / [2026-07-28 11:50](../motion/motion_c5_64sc_dev000030eda0e46278_20260728_115025_188167_0001.npz) | -44 / -44 | 99.3 / 99.7 | 8.98e-01 | **5.6% ⚠️** | 100.0% | 1.0000 | 85.9 |
 | C6 | bedroom | [2026-07-24 12:59](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260724_125917_926272_0002.npz) / [2026-07-24 13:05](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260724_130555_377748_0002.npz) | -41 / -41 | 91.7 / 94.7 | 7.05e-01 | 3.5% | 100.0% | 0.9997 | 83.8 |
-| C5 | bedroom | [2026-07-24 12:59](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260724_125917_826283_0001.npz) / [2026-07-24 13:05](../motion/motion_c5_64sc_dev000030eda0e46278_20260724_130555_313579_0001.npz) | -43 / -42 | 93.0 / 96.9 | 9.80e-01 | 0.0% | 96.8% | 0.9999 | 80.7 |
-| S3 | bedroom | [2026-07-23 13:06](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260723_130651_930086_0001.npz) / [2026-07-23 13:09](../motion/motion_s3_64sc_dev000010b41de8ec00_20260723_130900_697661_0001.npz) | -42 / -45 | 96.1 / 96.3 | 8.25e-01 | **6.0% ⚠️** | 100.0% | 1.0000 | 80.4 |
 | C6 | bedroom | [2026-07-22 18:52](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz) / [2026-07-22 18:54](../motion/motion_c6_64sc_dev00007c2c6742bbac_20260722_185456_839511_0001.npz) | -42 / -42 | 95.8 / 94.8 | 9.96e-01 | 1.3% | 99.1% | 0.9996 | 77.7 |
 | C5 | bedroom | [2026-07-23 14:35](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz) / [2026-07-23 14:38](../motion/motion_c5_64sc_dev000030eda0e46278_20260723_143809_984640_0001.npz) | -48 / -45 | 99.6 / 100.1 | 9.83e-01 | **7.7% ⚠️** | 100.0% | 0.9995 | 70.0 |
 | C5 | bedroom | [2026-07-25 14:47](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260725_144740_601726_0001.npz) / [2026-07-25 14:49](../motion/motion_c5_64sc_dev000030eda0e46278_20260725_144939_908125_0001.npz) | -70 / -69 | 100.2 / 99.7 | 8.14e-01 | **7.0% ⚠️** | 100.0% | 0.9987 | 69.8 |
@@ -65,6 +66,7 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 | C6 | living_room | [2026-07-16 10:43](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260716_104311_877726_0002.npz) | -53 | 101.1 | 1.9% | 0.5s | 1.62 | 0.25 | 97.0 |
 | ESP32 | bedroom | [2026-07-19 17:13](../static_presence/static_presence_esp32_64sc_dev00004c11aeb86eb8_20260719_171301_344381_0001.npz) | -47 | 99.3 | 2.9% | 0.8s | 1.98 | 0.34 | 95.5 |
 | C3 | living_room | [2026-07-19 22:41](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz) | -52 | 93.3 | 1.7% | 0.8s | 1.84 | 0.30 | 95.5 |
+| C3 | bedroom | [2026-07-28 12:11](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260728_121127_735859_0001.npz) | -42 | 100.0 | 0.6% | 0.8s | 1.99 | 0.14 | 95.5 |
 | C3 | bedroom | [2026-07-12 17:28](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260712_172816_395303_0001.npz) | -42 | 99.5 | 3.0% | 1.0s | 1.99 | 0.27 | 94.0 |
 | C3 | hobby_room | [2026-07-16 00:33](../static_presence/static_presence_c3_64sc_dev0000acebe64adb64_20260716_003306_439990_0001.npz) | -57 | 98.2 | 2.0% | 0.8s | 2.09 | 0.11 | 94.0 |
 | C5 | hobby_room | [2026-07-16 00:52](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260716_005225_855502_0001.npz) | -48 | 99.5 | 2.0% | 1.0s | 1.84 | 0.03 | 94.0 |
@@ -72,12 +74,12 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 | C3 | bedroom | [2026-07-25 13:06](../static_presence/static_presence_c3_64sc_dev0000acebe64adb64_20260725_130650_915905_0001.npz) | -84 | 99.5 | 2.1% | 1.0s | 1.78 | 0.17 | 94.0 |
 | C3 | bedroom | [2026-07-25 14:20](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260725_142002_522602_0001.npz) | -44 | 99.9 | 2.6% | 1.0s | 1.82 | 0.32 | 94.0 |
 | C3 | bedroom | [2026-07-23 12:00](../static_presence/static_presence_c3_64sc_dev0000acebe64ae708_20260723_120030_769423_0001.npz) | -43 | 98.6 | 2.3% | 1.0s | 2.02 | **0.50 ❌** | 93.7 |
-| C5 | bedroom | [2026-07-12 19:04](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz) | -46 | 96.2 | 5.2% | 1.0s | 2.08 | 0.65 | 92.5 |
+| C5 | bedroom | [2026-07-12 19:04](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260712_190449_592557_0001.npz) | -46 | 96.2 | 5.2% | 1.0s | 2.08 | **0.65 ❌** | 92.5 |
 | S3 | hobby_room | [2026-07-15 23:39](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260715_233959_136113_0001.npz) | -48 | 97.9 | 1.7% | 0.5s | 2.29 | **0.75 ❌** | 92.0 |
 | C6 | bedroom | [2026-07-22 19:16](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260722_191653_148862_0001.npz) | -69 | 97.2 | 3.0% | 1.0s | 2.15 | 0.31 | 91.3 |
-| C5 | bedroom | [2026-07-22 20:51](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz) | -75 | 96.4 | 3.1% | **1.5s ⚠️** | 2.09 | 0.25 | 89.4 |
+| C5 | bedroom | [2026-07-22 20:51](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260722_205156_405317_0001.npz) | -75 | 96.4 | 3.1% | **1.5s ❌** | 2.09 | 0.25 | 89.4 |
 | S3 | bedroom | [2026-07-22 17:20](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz) | -77 | 96.3 | 3.9% | 1.0s | 2.28 | 0.07 | 89.1 |
-| C5 | bedroom | [2026-07-24 18:21](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260724_182124_554857_0001.npz) | -74 | 98.9 | 2.9% | **1.8s ⚠️** | 2.22 | 0.30 | 85.6 |
+| C5 | bedroom | [2026-07-24 18:21](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260724_182124_554857_0001.npz) | -74 | 98.9 | 2.9% | **1.8s ❌** | 2.22 | 0.30 | 85.6 |
 | C6 | hobby_room | [2026-07-04 15:32](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz) | -50 | 97.5 | 4.0% | 0.5s | 2.67 | **0.58 ❌** | 85.3 |
 | S3 | bedroom | [2026-07-25 12:49](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260725_124905_563793_0001.npz) | -77 | 94.4 | 2.7% | 1.0s | 2.50 | 0.32 | 85.3 |
 | S3 | bedroom | [2026-07-11 19:57](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260711_195741_405999_0001.npz) | -47 | 99.3 | 4.9% | **1.2s ❌** | 2.49 | 0.29 | 84.0 |
@@ -85,47 +87,32 @@ Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics
 | C6 | bedroom | [2026-07-24 15:59](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260724_155953_837027_0001.npz) | -69 | 99.7 | 4.1% | 1.0s | 3.39 | 0.35 | 69.7 |
 | S3 | bedroom | [2026-07-23 12:10](../static_presence/static_presence_s3_64sc_dev000080b54ef1ee78_20260723_121059_606276_0001.npz) | -63 | 96.9 | 5.5% | 1.0s | 3.42 | 0.66 | 69.1 |
 | S3 | living_room | [2026-07-16 10:10](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260716_101027_181260_0001.npz) | -54 | 97.9 | 7.5% | **2.0s ❌** | 3.11 | **1.36 ❌** | 68.7 |
+| S3 | bedroom | [2026-07-28 12:39](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260728_123906_230383_0001.npz) | -42 | 95.9 | 4.5% | **1.8s ❌** | 3.26 | 0.61 | 67.5 |
+| C5 | bedroom | [2026-07-28 11:47](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260728_114729_552051_0001.npz) | -44 | 99.3 | 5.9% | 1.0s | 3.97 | 0.03 | 59.6 |
 | C6 | bedroom | [2026-07-24 12:59](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260724_125917_926272_0002.npz) | -41 | 91.7 | 7.2% | 1.0s | **4.15 ⚠️** | **1.18 ❌** | 56.4 |
-| C5 | bedroom | [2026-07-24 12:59](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260724_125917_826283_0001.npz) | -43 | 93.0 | 3.6% | **1.5s ⚠️** | **4.38 ⚠️** | 0.25 | 49.3 |
-| S3 | bedroom | [2026-07-23 13:06](../static_presence/static_presence_s3_64sc_dev000010b41de8ec00_20260723_130651_930086_0001.npz) | -42 | 96.1 | 5.5% | **1.2s ❌** | **4.70 ⚠️** | 0.39 | 45.2 |
 | C6 | bedroom | [2026-07-22 18:52](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz) | -42 | 95.8 | 1.5% | 0.8s | **5.16 ⚠️** | **1.07 ❌** | 40.2 |
 | C6 | bedroom | [2026-07-23 13:33](../static_presence/static_presence_c6_64sc_dev00007c2c6742bbac_20260723_133317_279759_0001.npz) | -41 | 98.0 | **17.9% ❌** | **2.2s ❌** | **9.14 ❌** | 0.41 | 16.5 |
-| C5 | bedroom | [2026-07-23 14:35](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz) | -48 | 99.6 | **8.9% ⚠️** | **2.5s ⚠️** | **6.54 ❌** | 1.28 | 15.0 |
-| C5 | bedroom | [2026-07-25 14:47](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260725_144740_601726_0001.npz) | -70 | 100.2 | **19.5% ❌** | **3.8s ⚠️** | **6.47 ❌** | 0.23 | 7.5 |
+| C5 | bedroom | [2026-07-23 14:35](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260723_143540_186526_0001.npz) | -48 | 99.6 | **8.9% ⚠️** | **2.5s ❌** | **6.54 ❌** | **1.28 ❌** | 15.0 |
+| C5 | bedroom | [2026-07-25 14:47](../static_presence/static_presence_c5_64sc_dev000030eda0e46278_20260725_144740_601726_0001.npz) | -70 | 100.2 | **19.5% ❌** | **3.8s ❌** | **6.47 ❌** | 0.23 | 7.5 |
 
 ## Empty Scores
 
 | Chip | Env | File | RSSI | PPS | Exc | Burst | Tail | Drift | Score |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|
-| C5 | hobby_room | [2026-07-04 17:54](../empty/empty_c5_64sc_dev000030eda0e46278_20260704_175448_826137_0001.npz) | -49 | 101.3 | 0.6% | 0.2s | 1.62 | 0.19 | 98.5 |
-| C3 | hobby_room | [2026-07-04 16:15](../empty/empty_c3_64sc_dev0000acebe64ae708_20260704_161540_862193_0001.npz) | -51 | 99.0 | 4.1% | 0.8s | 1.58 | 0.12 | 95.5 |
-| C6 | bedroom | [2026-07-12 21:56](../empty/empty_c6_64sc_dev00007c2c6742bbac_20260712_215645_774938_0001.npz) | -50 | 120.5 | 2.3% | 0.8s | 1.98 | 0.07 | 95.5 |
-| S3 | living_room | [2026-07-13 00:23](../empty/empty_s3_64sc_dev000010b41de8ec00_20260713_002325_306350_0001.npz) | -50 | 99.1 | 1.6% | 0.5s | 2.11 | 0.44 | 95.0 |
-| C6 | hobby_room | [2026-07-04 15:16](../empty/empty_c6_64sc_dev00007c2c6742bbac_20260704_151620_420932_0003.npz) | -51 | 100.2 | 3.7% | 0.5s | 2.14 | 0.25 | 94.6 |
-| S3 | hobby_room | [2026-07-15 20:20](../empty/empty_s3_64sc_dev000010b41de8ec00_20260715_202019_268337_0001.npz) | -47 | 98.7 | 0.2% | 0.2s | 2.23 | 0.90 | 94.6 |
-| C3 | living_room | [2026-07-12 23:50](../empty/empty_c3_64sc_dev0000acebe64ae708_20260712_235052_800678_0001.npz) | -48 | 101.7 | 3.3% | 1.0s | 2.05 | 0.41 | 93.0 |
 | S3 | bedroom | [2026-07-12 20:33](../empty/empty_s3_64sc_dev000010b41de8ec00_20260712_203314_805494_0001.npz) | -45 | 115.9 | 1.4% | 0.5s | 2.56 | 0.06 | 87.2 |
 | C5 | bedroom | [2026-07-04 15:16](../empty/empty_c5_64sc_dev000030eda0e46278_20260704_151620_081075_0002.npz) | -48 | 98.6 | 2.3% | 1.0s | 2.50 | 0.61 | 85.2 |
-| C5 | living_room | [2026-07-04 19:21](../empty/empty_c5_64sc_dev000030eda0e46278_20260704_192116_870146_0001.npz) | -41 | 96.9 | 1.4% | 0.2s | 2.80 | 1.07 | 84.5 |
 | C6 | living_room | [2026-07-04 11:23](../empty/empty_c6_64sc_dev00007c2c6742bbac_20260704_112318_971151_0002.npz) | -49 | 98.8 | 4.1% | 0.8s | 2.69 | 0.23 | 83.4 |
 | C3 | bedroom | [2026-07-04 11:23](../empty/empty_c3_64sc_dev0000acebe64ae708_20260704_112319_314055_0003.npz) | -48 | 102.4 | **10.4% ⚠️** | **1.5s ⚠️** | **4.26 ⚠️** | 0.20 | 51.4 |
 
-## Long-test scores
+## Long-recording scores
 
 | Chip | Env | File | RSSI | PPS | Exc | Burst | Tail | Drift | Score |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|
-| S3 | hobby_room | [2026-07-15 20:22](../test/test_s3_64sc_dev000010b41de8ec00_20260715_202219_234292_0001.npz) | -47 | 102.4 | 1.7% | 0.8s | 1.87 | 0.36 | 95.5 |
-| C3 | hobby_room | [2026-07-04 16:17](../test/test_c3_64sc_dev0000acebe64ae708_20260704_161740_831577_0001.npz) | -51 | 97.1 | 3.2% | 1.0s | 1.82 | 0.02 | 94.0 |
-| C3 | living_room | [2026-07-12 23:52](../test/test_c3_64sc_dev0000acebe64ae708_20260712_235252_773547_0001.npz) | -48 | 103.0 | 2.1% | 1.0s | 1.83 | 0.09 | 94.0 |
-| C5 | hobby_room | [2026-07-04 17:56](../test/test_c5_64sc_dev000030eda0e46278_20260704_175648_806841_0001.npz) | -49 | 100.1 | 2.9% | 1.0s | 2.17 | 0.55 | 91.0 |
-| C3 | bedroom | [2026-07-04 11:25](../test/test_c3_64sc_dev0000acebe64ae708_20260704_112519_283723_0003.npz) | -48 | 98.7 | 3.8% | 0.8s | 2.35 | 0.09 | 89.3 |
-| S3 | bedroom | [2026-07-12 20:35](../test/test_s3_64sc_dev000010b41de8ec00_20260712_203514_779438_0001.npz) | -45 | 119.0 | 1.0% | 0.8s | 2.57 | 0.35 | 85.6 |
-| C6 | hobby_room | [2026-07-04 15:18](../test/test_c6_64sc_dev00007c2c6742bbac_20260704_151820_395340_0003.npz) | -50 | 100.2 | 3.8% | 1.0s | 2.52 | 0.36 | 84.8 |
-| C5 | bedroom | [2026-07-04 15:18](../test/test_c5_64sc_dev000030eda0e46278_20260704_151820_059431_0002.npz) | -48 | 100.8 | 3.9% | 0.8s | 2.90 | 0.08 | 79.8 |
-| C6 | living_room | [2026-07-04 11:25](../test/test_c6_64sc_dev00007c2c6742bbac_20260704_112518_941288_0002.npz) | -49 | 102.4 | 5.9% | **1.8s ⚠️** | 2.58 | 0.14 | 79.3 |
-| S3 | living_room | [2026-07-13 00:25](../test/test_s3_64sc_dev000010b41de8ec00_20260713_002525_284455_0001.npz) | -50 | 100.2 | 4.3% | **4.2s ⚠️** | 2.54 | 0.16 | 65.0 |
-| C6 | bedroom | [2026-07-12 21:58](../test/test_c6_64sc_dev00007c2c6742bbac_20260712_215845_742467_0001.npz) | -50 | 124.6 | 6.1% | **2.8s ⚠️** | 3.29 | 0.41 | 60.8 |
-| C5 | living_room | [2026-07-04 19:23](../test/test_c5_64sc_dev000030eda0e46278_20260704_192316_855582_0001.npz) | -41 | 95.3 | 7.2% | **1.2s ⚠️** | **4.15 ⚠️** | 0.20 | 54.9 |
+| C3 | hobby_room | [2026-07-04 16:15](../empty/empty_c3_64sc_dev0000acebe64ae708_20260704_161540_862193_0001.npz) | -51 | 101.2 | 3.2% | 1.0s | 1.83 | 0.09 | 94.0 |
+| C3 | living_room | [2026-07-12 23:50](../empty/empty_c3_64sc_dev0000acebe64ae708_20260712_235052_800678_0001.npz) | -48 | 102.2 | 2.2% | 1.0s | 1.86 | 0.01 | 94.0 |
+| S3 | hobby_room | [2026-07-15 20:20](../empty/empty_s3_64sc_dev000010b41de8ec00_20260715_202019_268337_0001.npz) | -47 | 101.7 | 1.8% | 1.0s | 2.15 | 0.30 | 91.4 |
+| C5 | hobby_room | [2026-07-04 17:54](../empty/empty_c5_64sc_dev000030eda0e46278_20260704_175448_826137_0001.npz) | -49 | 102.2 | 2.9% | 1.0s | 2.16 | 0.91 | 91.2 |
+| C6 | hobby_room | [2026-07-04 15:16](../empty/empty_c6_64sc_dev00007c2c6742bbac_20260704_151620_420932_0003.npz) | -50 | 98.7 | 3.9% | 1.0s | 2.48 | 0.12 | 85.6 |
 
 ## Reading these tables
 
@@ -138,12 +125,12 @@ When a pair carries a mark on `TP` but none on `Sep`, the motion is there and th
 
 - `FP` (Motion Scores): ⚠️ `>5%`, ❌ `>10%`
 - `TP` (Motion Scores): ⚠️ `<95%`, ❌ `<90%`
-- `Exc` (Presence/Empty/Long-test, past median + 3 MAD): ⚠️ `>8%`, ❌ `>13%`
-- `Tail` (Presence/Empty/Long-test, q95 above own median in logits): ⚠️ `>4.0`, ❌ `>6.0`
+- `Exc` (Presence/Empty/Long-recording, past median + 3 MAD): ⚠️ `>8%`, ❌ `>13%`
+- `Tail` (Presence/Empty/Long-recording, q95 above own median in logits): ⚠️ `>4.0`, ❌ `>6.0`
 - `Sep` (Motion Scores, idle/motion AUC): ⚠️ `<0.990`, ❌ `<0.970`
-- `Burst` (Presence/Empty/Long-test): peer-relative empirical outlier threshold derived from clean idle captures of the same chip in this run; without enough same-chip references, cells fall back to fixed review thresholds
-- `Q95` (Presence/Empty/Long-test): exploratory same-chip signal, shown without soft marks until enough clean references exist
-- `Drift` (Presence/Empty/Long-test): exploratory peer-relative same-chip outlier threshold on the absolute half-to-half median margin drift; no mark is shown when same-chip references are insufficient
+- `Burst` (Presence/Empty/Long-recording): peer-relative empirical outlier threshold derived from clean idle captures of the same chip in this run; without enough same-chip references, cells fall back to fixed review thresholds
+- `Q95` (Presence/Empty/Long-recording): exploratory same-chip signal, shown without soft marks until enough clean references exist
+- `Drift` (Presence/Empty/Long-recording): exploratory peer-relative same-chip outlier threshold on the absolute half-to-half median margin drift; no mark is shown when same-chip references are insufficient
 - `Score`: absolute 0-100 ranking only; it does not carry peer-relative soft marks
 
 Computed metrics:
@@ -153,10 +140,10 @@ Computed metrics:
 - `RSSI`: median per-packet `rssi_dbm`; pair rows show `static_presence / motion`
 - `FP` (Motion Scores): share of replayed `ClassicDetector` evaluation ticks classified as motion on `static_presence` (false positives)
 - `TP` (Motion Scores): share of replayed `ClassicDetector` evaluation ticks classified as motion on `motion` (true positives)
-- `FP` (Presence/Empty/Long-test): `ClassicDetector` false-positive share of evaluation ticks on a self-calibrated idle capture or idle-only quiet test
+- `FP` (Presence/Empty/Long-recording): `ClassicDetector` false-positive share of evaluation ticks on a self-calibrated idle capture or idle-only quiet long recording
 - `PPS`: observed packets per second from dataset metadata (`num_packets / duration_ms`); pair rows show `static_presence / motion`
 - `Ratio`: `p95(motion) / threshold` on replayed `ClassicDetector` probabilities
-- `Burst` (Presence/Empty/Long-test): longest sustained activation episode in seconds
-- `Q95` (Presence/Empty/Long-test): 95th percentile of the post-bootstrap logit margin `logit(probability) - logit(threshold)`
-- `Drift` (Presence/Empty/Long-test): absolute difference between the first-half and second-half median post-bootstrap logit margins
-- `Score`: indicative 0-100 score from `ClassicDetector` replay, tables sorted descending; on Presence/Empty/Long-test it is the self-calibrated idle score (0.7×cleanliness from `FP` + 0.3×burst_clean from `Burst`); score is shown as an absolute ranking value without soft review icons
+- `Burst` (Presence/Empty/Long-recording): longest sustained activation episode in seconds
+- `Q95` (Presence/Empty/Long-recording): 95th percentile of the post-bootstrap logit margin `logit(probability) - logit(threshold)`
+- `Drift` (Presence/Empty/Long-recording): absolute difference between the first-half and second-half median post-bootstrap logit margins
+- `Score`: indicative 0-100 score from `ClassicDetector` replay, tables sorted descending; on Presence/Empty/Long-recording it is the self-calibrated idle score (0.7×cleanliness from `FP` + 0.3×burst_clean from `Burst`); score is shown as an absolute ranking value without soft review icons

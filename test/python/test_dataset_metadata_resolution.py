@@ -16,9 +16,9 @@ from tools.lib import dataset_metadata, ui
 def _write_dataset_info(tmp_path: Path, payload: dict) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "empty").mkdir(exist_ok=True)
     (data_dir / "static_presence").mkdir(exist_ok=True)
     (data_dir / "motion").mkdir(exist_ok=True)
-    (data_dir / "test").mkdir(exist_ok=True)
     (data_dir / "dataset_info.json").write_text(json.dumps(payload), encoding="utf-8")
 
 

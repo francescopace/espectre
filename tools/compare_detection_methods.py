@@ -35,6 +35,10 @@ from tools.lib.dataset_metadata import (
     resolve_explicit_pair,
     select_dataset_interactively,
 )
+from tools.lib.performance_report import (
+    get_available_long_test_dataset_specs,
+    load_long_test_dataset,
+)
 from tools.lib.ui import show_plot_window
 from config import (
     SEG_WINDOW_SIZE,
@@ -86,56 +90,26 @@ def load_test_dataset(chip=None, motion_start_packet=None):
     - Else parse packet index from test description in dataset_info.json
     - Else use the full stream as quiet baseline
     """
-    dataset_info = load_dataset_info()
-    test_entries = dataset_info.get('files', {}).get('test', [])
-    if not test_entries:
-        raise FileNotFoundError("No test datasets found in dataset_info.json")
-
-    chip_upper = chip.upper() if chip else None
-    if chip_upper:
-        candidates = [
-            entry for entry in test_entries
-            if str(entry.get('chip', '')).upper() == chip_upper
-        ]
-        if not candidates:
-            raise FileNotFoundError(
-                f"No test dataset found for chip {chip_upper} in dataset_info.json"
-            )
-    else:
-        candidates = list(test_entries)
+    specs = get_available_long_test_dataset_specs(
+        chips=[chip] if chip else None
+    )
+    if not specs:
+        suffix = f" for chip {chip.upper()}" if chip else ""
+        raise FileNotFoundError(
+            f"No long-recording dataset found{suffix} in dataset_info.json"
+        )
 
     selected = sorted(
-        candidates,
-        key=lambda e: (str(e.get('collected_at', '')), str(e.get('filename', ''))),
+        specs,
+        key=lambda item: (
+            str(item[4].get('collected_at', '')),
+            str(item[4].get('filename', '')),
+        ),
     )[-1]
-    filename = selected.get('filename')
-    selected_chip = str(selected.get('chip', 'unknown')).upper()
-    test_path = DATA_DIR / 'test' / filename
-    if not test_path.exists():
-        raise FileNotFoundError(f"Test dataset file not found: {test_path}")
-
-    packets = load_npz_as_packets(test_path)
-    if len(packets) < 2:
-        raise ValueError(f"Test dataset too small: {len(packets)} packets")
-
-    if motion_start_packet is None:
-        motion_start_packet = _extract_motion_start_from_description(
-            str(selected.get('description', ''))
-        )
-
-    if motion_start_packet is None:
-        motion_start_packet = len(packets)
-
-    if motion_start_packet <= 0 or motion_start_packet > len(packets):
-        raise ValueError(
-            f"Invalid motion start packet {motion_start_packet} "
-            f"for {len(packets)} packets"
-        )
-
-    static_presence_packets = packets[:motion_start_packet]
-    motion_packets = packets[motion_start_packet:]
-
-    return test_path, static_presence_packets, motion_packets, motion_start_packet, selected_chip, selected
+    if motion_start_packet is not None:
+        test_path, _old_start, num_packets, selected_chip, entry = selected
+        selected = (test_path, motion_start_packet, num_packets, selected_chip, entry)
+    return load_long_test_dataset(selected)
 
 
 def resolve_context_aware_config_for_test(test_entry, static_presence_packets):
@@ -730,7 +704,7 @@ def main():
                         help='Choose the dataset interactively from dataset_info.json')
     parser.add_argument('--all', action='store_true', help='Run on all available chips and show summary')
     parser.add_argument('--use-test-dataset', action='store_true',
-                        help='Use latest data/test dataset for selected chip and split by motion start packet')
+                        help='Use the latest long-recording replay for the selected chip and split by motion start packet')
     parser.add_argument('--test-motion-start-packet', type=int, default=None,
                         help='Override motion start packet index when using --use-test-dataset')
     parser.add_argument('--plot', action='store_true', help='Show visualization plots')

@@ -292,6 +292,39 @@ For exploratory retrains, `--scaler clipped_standard`, alternate `--device`
 choices, `--no-cache`, and smaller `--batch-size` values are available, but
 promotable artifacts should still pass the validation checks below.
 
+## Evaluating A Candidate Feature
+
+Candidate features live in `tools/lib/candidate_features.py`, on the host side
+only. They are selectable through `--features` but are absent from
+`CPP_FEATURE_IDS`, so any flow that would export runtime artifacts refuses to
+run until the candidate is ported; use `--no-export` or one of the read-only
+flows. The production surface in `csi_features.py` stays exactly the exported
+set, as decided in
+[2026-07-27-reduce-the-feature-surface-to-the-production-set.md](adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md).
+
+Screen redundancy before anything else, because a candidate earns its place by
+what it adds rather than by how well it separates alone:
+
+```bash
+python tools/train_ml_model.py --features "turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio,chan_coh_lag_ratio" --correlation
+```
+
+The report prints each candidate's strongest pairwise correlation against the
+production members and the `R2` of a least-squares fit on all of them. A high
+`R2` means the production set already reconstructs the candidate, and no
+downstream gate will recover value it does not carry.
+
+Candidates run through the same streaming path as production features, so
+`--cross-chip`, `--gain-stress-gate`, and the replay gates measure them the way
+a runtime would. Only a candidate that survives the promotion protocol above
+earns a calc function in both languages, an `MLFeatureId`, and a
+`CPP_FEATURE_IDS` entry.
+
+Currently available: `chan_coh_lag_ratio` and `chan_coh_mean`, the
+delay-compensated complex coherence of the channel over the live HT20 band.
+Both are scale-invariant, and the tracker compensates the per-packet sampling
+delay and carrier offset before comparing profiles.
+
 ## Gain-Shift Robustness Check
 
 The production ML path deliberately keeps Python/C++ runtime inference aligned

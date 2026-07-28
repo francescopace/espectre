@@ -333,7 +333,7 @@ def test_collect_parser_accepts_live_options() -> None:
             "--target",
             "192.168.1.15",
             "--label",
-            "test",
+            "empty",
             "--duration",
             "45",
             "--description",
@@ -343,7 +343,7 @@ def test_collect_parser_accepts_live_options() -> None:
 
     assert args.namespace == "collect"
     assert args.detector == "classic"
-    assert args.label == "test"
+    assert args.label == "empty"
     assert args.duration == 45.0
     assert args.pps == 100
     assert args.description == "live collect ML, idle-motion-idle"
@@ -356,6 +356,20 @@ def test_collect_parser_rejects_removed_legacy_collection_options() -> None:
         parser.parse_args(["collect", "--target", "192.168.1.15", "--reference-every", "2"])
     with pytest.raises(SystemExit):
         parser.parse_args(["collect", "--target", "192.168.1.15", "--control-rate", "1"])
+
+
+def test_collect_timed_allows_test_label(monkeypatch) -> None:
+    routed_labels: list[str] = []
+
+    monkeypatch.setattr(
+        host,
+        "_collect_dataset_csi_data",
+        lambda args: routed_labels.append(args.label),
+    )
+
+    host.collect_csi_data(_make_collect_args(target="192.168.1.15", label="test"))
+
+    assert routed_labels == ["test"]
 
 
 def test_collect_parser_accepts_pps() -> None:
@@ -1089,7 +1103,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
 
         def save_samples_by_device(self, packets):
             events.append(("save_sample", [p.seq_num for p in packets]))
-            return [Path("test_c3_64sc_dev0000000000abc123_20260630_120000_000001_0001.npz")]
+            return [Path("empty_c3_64sc_dev0000000000abc123_20260630_120000_000001_0001.npz")]
 
     class FakeReceiver:
         def __init__(self, **kwargs):
@@ -1194,14 +1208,14 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     host.collect_csi_data(
         _make_live_collect_args(
             target="192.168.1.29",
-            label="test",
+            label="empty",
             description="live collect ML, idle-motion-idle",
             detector="ml",
         )
     )
 
     output = capsys.readouterr().out
-    assert ("collector_init", "test", "live collect ML, idle-motion-idle", 1) in events
+    assert ("collector_init", "empty", "live collect ML, idle-motion-idle", 1) in events
     assert ("sender_init", ["192.168.1.29"]) in events
     assert ("save_sample", [4, 5]) in events
     assert "STATUS: RECORDING 1/1" in output
@@ -1450,7 +1464,7 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
 
         def save_samples_by_device(self, packets):
             events.append(("save_sample", [p.seq_num for p in packets]))
-            return [Path("test_c3_64sc_dev0000000000abc123_20260630_120000_000001_0001.npz")]
+            return [Path("empty_c3_64sc_dev0000000000abc123_20260630_120000_000001_0001.npz")]
 
     class FakeReceiver:
         def __init__(self, **kwargs):
@@ -1543,7 +1557,7 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
     host.collect_csi_data(
         _make_live_collect_args(
             target="192.168.1.29",
-            label="test",
+            label="empty",
             detector="ml",
             ready_stable_seconds=0.0,
         )
@@ -1684,7 +1698,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
     host.collect_csi_data(
         _make_live_collect_args(
             target="192.168.1.29",
-            label="test",
+            label="empty",
             duration=10,
             description="interrupted run",
             detector="ml",
@@ -1692,7 +1706,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
     )
 
     output = capsys.readouterr().out
-    assert ("collector_init", "test") in events
+    assert ("collector_init", "empty") in events
     assert ("save_sample", [4, 5]) not in events
     assert "Live capture interrupted before duration elapsed; nothing saved" in output
 

@@ -108,8 +108,6 @@ Then record labeled data:
 ./espectre collect --label motion --duration 60 --target 192.168.1.50
 ```
 
-Use `test` only for mixed sessions that are not label-homogeneous.
-
 ## `espectre collect`
 
 `./espectre collect` is the host-side entry point for live inspection and
@@ -144,6 +142,13 @@ Current canonical room-state labels:
 - `motion`: ordinary room movement
 
 Use these labels only when the whole capture is homogeneous.
+
+Quiet long-run replays also live under `empty`. Mark them in
+`dataset_info.json` with `long_recording: true` so validation and
+long-recording suites can find them while ML training keeps them out of the
+binary IDLE class.
+
+Mixed sessions are not part of the current v3 mainline dataset contract.
 
 Suggested workflow for one session:
 
@@ -211,6 +216,9 @@ metadata instead.
 - `low_rssi: true` for real and synthetic weak-link datasets stored under their
   semantic labels
 - `synthetic: true` for generated captures that are not real measurements
+- `long_recording: true` for quiet long-run `empty` captures reserved for the
+  long-recording replay suites; these stay evaluation-only and do not enter ML
+  training or the standard empty-room admission table
 - `dataset_role: train | selection | holdout | exclude` to reserve recordings
   for the deployment safety replays; entries without a role default to
   `train`. `selection` recordings gate candidate selection, `holdout`
