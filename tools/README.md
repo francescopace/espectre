@@ -110,7 +110,7 @@ python plot_constellation.py --grid       # One subplot per subcarrier
 ```bash
 python plot_heatmap.py
 python plot_heatmap.py --chip S3 --environment bedroom
-python plot_heatmap.py --labels empty,static_presence,motion,test
+python plot_heatmap.py --labels empty,static_presence,motion
 python plot_heatmap.py --files data/empty/foo.npz data/motion/bar.npz
 python plot_heatmap.py --packets 400 --offset 100 --detrend
 python plot_heatmap.py --output /tmp/csi_heatmaps.png --no-show
@@ -187,7 +187,7 @@ python train_ml_model.py --augment            # Non-scale train-time augmentatio
 python train_ml_model.py --augment --seed-search-until-improvement 10
 python train_ml_model.py --cross-environment  # LOEO using the exported model seed by default
 python train_ml_model.py --cross-chip         # LOCO using the exported model seed by default
-python train_ml_model.py --gain-stress-gate  # Stress exported model with artificial feature gain shifts
+python train_ml_model.py --gain-stress-gate  # Check exported model for gain-sensitive feature regressions
 python train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25  # Custom stress multipliers
 python train_ml_model.py --shap         # Grouped OOF SHAP (200 samples)
 python train_ml_model.py --shap 500     # Grouped OOF SHAP (500 samples)
@@ -251,7 +251,7 @@ How to read the review tables:
 - Presence quality — each `static_presence` capture uses the same self-calibrated
   Classic idle baseline to flag motion-contaminated or unstable files, without
   requiring a paired `empty` capture
-- Quiet-test sanity — idle-only `test` recordings stay quiet under Classic replay
+- Long-recording sanity — idle-only quiet long runs stay quiet under Classic replay
 - ML readiness — binary balance with `empty + static_presence` mapped to IDLE,
   usable windows after per-file warm-up, chip/environment coverage, and grouped
   session coverage for three-fold CV
@@ -267,7 +267,12 @@ production neural-detector features.
 python validate_dataset_quality.py                  # Full validation (auto report + metadata refresh)
 python validate_dataset_quality.py --chip C6        # Validate C6 only
 python validate_dataset_quality.py --no-report      # Skip markdown report
+python validate_dataset_quality.py --include-excluded-pairs --chip C3
 ```
+
+`--include-excluded-pairs` keeps `dataset_role: exclude` out of the admission
+summary, but appends an informational replay table for those paired captures so
+detector-only evidence can still be re-measured without changing dataset roles.
 
 ---
 

@@ -36,8 +36,7 @@ Concretely:
 
 Follow-up (2026-07-17): `--sample-weight-mode` and the L1-guided / hard-negative
 weighting paths were removed from `tools/train_ml_model.py`. The trainer now
-always starts from uniform sample weights (optional `--positive-chip-boost`
-remains).
+always starts from uniform sample weights.
 
 ## Alternatives Considered
 

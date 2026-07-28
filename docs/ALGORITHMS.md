@@ -213,7 +213,7 @@ the operational trade-off between false-positive reduction and responsiveness.
 
 `ClassicDetector` is the production non-ML path. It combines:
 
-- mean L1 displacement between normalized amplitude profiles
+- lag-ratio of mean L1 displacement between normalized amplitude profiles
 - lag-1 autocorrelation of the gain-invariant turbulence stream
 - a fixed, weighted logistic fusion with no voting branches
 
@@ -310,13 +310,21 @@ session-centered feature uses the validated global threshold instead of the
 saturated raw-logit threshold. Runtime adjustments use the same `0.0-1.0`
 probability scale and remain active until recalibration or reboot.
 
+The settled-level rule cannot create a high threshold. It only ever lowers one
+after a long quiet dwell, so any threshold that lands near `1.0` came from the
+startup `q95` shift, not from later recovery. On the current corpus that still
+happens on several otherwise healthy captures: the lag ratio fixed the recall
+loss that had motivated this work, but it did not eliminate ceiling-hugging
+startup thresholds outright. What remains open is headroom on unseen rooms, not
+measured recall on the current pairs.
+
 ### Known Limits
 
-Classic misses the project recall target on one chip. On normal-link recordings
-the aggregates are `97.6%` on C3, `99.8%` on C5, `99.8%` on C6, `94.2%` on ESP32
-from a single pair, and `99.5%` on S3, with false positives between `0.0%` and
-`3.6%`. Only ESP32 sits under the `95%` target, and it is one capture rather
-than a trend.
+On the current normal-link corpus Classic clears the project recall target on
+every chip. The published aggregates are `98.6%` on C3, `99.2%` on C5, `99.8%`
+on C6, `98.8%` on ESP32, and `99.1%` on S3, with per-chip false positives from
+`0.0%` to `2.1%`. ESP32 still rests on one bedroom pair only, so that number is
+evidence about one recording, not yet a chip trend.
 
 Recall, not spurious motion, is the remaining Classic gap. Alarms on
 static-presence baselines were long read as weak-link false positives, but that
@@ -326,12 +334,37 @@ are the stationary occupant's own micro-motion. False positives are now gated on
 the empty-room recordings, which are the only streams in the corpus with nobody
 in the room. See [2026-07-25-gate-classic-false-positives-on-empty-rooms.md](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md).
 
-On the remaining ESP32 capture the gap is threshold placement, not separability.
-Its quiet distribution never exceeds a probability of `0.110` while the
-calibrated threshold sits at `0.421`, and the motion it misses sits at
-`0.32-0.41`: above every idle sample, below the threshold. Placing the threshold
-at that session's idle `p99` would take recall from `94.2%` to `99.1%` at `1%`
-false positives.
+The threshold-pinning symptom is now mostly diagnostic rather than harmful.
+After the lag-ratio swap, the two pairs that had motivated the ceiling concern
+still calibrate near `1.0` (`0.980` on C5 bedroom `2026-07-24 12:59`, `0.996`
+on C6 bedroom `2026-07-22 18:52`), yet they now reach `96.8%` and `99.1%`
+recall. A near-ceiling threshold therefore no longer implies missed motion on
+the current corpus; it means the startup prefix ran high enough to push the
+q95-shifted threshold close to the probability ceiling.
+
+The two excluded C3 bedroom pairs are a different question, and they are kept
+out of the generated validation surfaces on purpose because both sides carry
+`dataset_role: exclude`. They are detector evidence, not admission material.
+They also are not one failure mode:
+
+- `2026-07-22 19:58` is the strongest link in the corpus at `-39/-38 dBm`, yet
+  Classic still reaches only `82.5%` recall on `0.9852` idle/motion AUC with
+  `0.0%` false positives.
+- `2026-07-25 13:58` is moderate RSSI at `-63/-62 dBm`, not one of the
+  `-70` to `-80 dBm` weak-link captures, yet Classic reaches `74.2%` recall on
+  `0.9872` AUC with `0.0%` false positives.
+
+In both cases the threshold-free separation says the motion is present while the
+Classic decision path still misses a material share of it. That is why the
+captures stay useful to ML and to detector analysis while still being excluded
+from shared selection or holdout duty.
+
+The historical ESP32 failure that had motivated settled-threshold recovery was
+also threshold placement, not separability. Its quiet distribution never
+exceeded a probability of `0.110` while the calibrated threshold sat at
+`0.421`, and the motion it missed sat at `0.32-0.41`: above every idle sample,
+below the threshold. Placing the threshold at that session's idle `p99` would
+have taken recall from `94.2%` to `99.1%` at `1%` false positives.
 
 No global knob can collect that, and three were measured. Refitting the
 coefficients on the current corpus loses on every chip, ESP32 worst at `-2.3`

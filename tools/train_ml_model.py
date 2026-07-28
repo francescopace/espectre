@@ -822,6 +822,7 @@ def _build_file_context(label, file_info, dataset_info=None):
         'lineage_group': lineage_group,
         'dataset_role': dataset_role,
         'synthetic': bool(file_info.get('synthetic', False)),
+        'long_recording': bool(file_info.get('long_recording', False)),
         # Keep a dedicated environment field so future datasets can report
         # room/environment worst-groups without changing the training code again.
         'environment_group': explicit_environment or 'unknown-environment',
@@ -836,6 +837,7 @@ def _fallback_file_context(filename, label, packet):
         'collected_at': packet.get('collected_at', ''),
         'dataset_role': packet.get('dataset_role', 'train'),
         'synthetic': packet.get('synthetic', False),
+        'long_recording': packet.get('long_recording', False),
     }
     return _build_file_context(label, fallback)
 
@@ -966,6 +968,7 @@ def load_all_data(environment_filter=None, excluded_chips=None,
         'excluded_environments': set(),
         'excluded_missing_sync_metadata': set(),
         'excluded_dataset_roles': set(),
+        'excluded_long_recordings': set(),
         'session_groups': set(),
         'lineage_groups': set(),
         'environment_groups': set(),
@@ -1010,6 +1013,10 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                 meta = file_metadata.get(npz_file.name)
                 if meta is None:
                     meta = _fallback_file_context(npz_file.name, label_lc, packets[0])
+
+                if label_lc == 'empty' and bool(meta.get('long_recording', False)):
+                    stats['excluded_long_recordings'].add(npz_file.name)
+                    continue
 
                 dataset_role = meta.get('dataset_role', 'train')
                 if dataset_role not in dataset_roles:
@@ -1060,6 +1067,7 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                     p['lineage_group'] = meta.get('lineage_group', p['session_group'])
                     p['dataset_role'] = dataset_role
                     p['synthetic'] = bool(meta.get('synthetic', False))
+                    p['long_recording'] = bool(meta.get('long_recording', False))
                     p['environment_group'] = environment_group
                 
                 all_packets.extend(packets)
@@ -1078,6 +1086,7 @@ def load_all_data(environment_filter=None, excluded_chips=None,
     stats['excluded_environments'] = sorted(stats['excluded_environments'])
     stats['excluded_missing_sync_metadata'] = sorted(stats['excluded_missing_sync_metadata'])
     stats['excluded_dataset_roles'] = sorted(stats['excluded_dataset_roles'])
+    stats['excluded_long_recordings'] = sorted(stats['excluded_long_recordings'])
     stats['session_groups'] = sorted(stats['session_groups'])
     stats['lineage_groups'] = sorted(stats['lineage_groups'])
     stats['environment_groups'] = sorted(stats['environment_groups'])
@@ -2054,6 +2063,10 @@ def print_gain_stress_summary(results):
         print(f"Environments: {', '.join(stats['environment_groups'])}")
     print(f"Scaled features: {', '.join(results['scaled_features']) or 'none'}")
     print(f"Invariant features: {', '.join(results['invariant_features']) or 'none'}")
+    if not results['scaled_features']:
+        print("Note: current export has no gain-sensitive feature dimensions; this")
+        print("gate is informational and acts as a regression guard against")
+        print("reintroducing them.")
     print()
     print(
         "  scale | recall  precision  FP rate      F1 | "
@@ -4017,6 +4030,11 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         print(
             "  Reserved roles excluded from training: "
             + ', '.join(stats['excluded_dataset_roles'])
+        )
+    if stats.get('excluded_long_recordings'):
+        print(
+            "  Long-recording empty replays excluded from training: "
+            + str(len(stats['excluded_long_recordings']))
         )
     if stats.get('environment_groups'):
         print(f"  Named environments: {len(stats['environment_groups'])}")
@@ -6380,7 +6398,7 @@ def main():
                             'flow until it is added to CPP_FEATURE_IDS')
     parser.add_argument('--no-export', action='store_true',
                        help='Leave runtime artifacts unchanged (CV-only for normal training; '
-                            'also use with --shap / --ablation diagnostics)')
+                            'also use with --shap / --ablation-feature diagnostics)')
     parser.add_argument('--force-promote', action='store_true',
                        help='Export runtime artifacts even when the deployment '
                             'safety gates fail or regress. Gates still run and '
@@ -6396,16 +6414,12 @@ def main():
                        help='Exclude one or more chips from training/evaluation '
                             '(comma-separated, e.g. ESP32 or ESP32,S3; '
                             f'default: {",".join(DEFAULT_EXCLUDED_CHIPS)})')
-    parser.add_argument('--positive-chip-boost', type=parse_positive_chip_boost, default=None,
-                       help='Boost motion samples for specific chips, e.g. ESP32=1.2 or ESP32=1.2,S3=1.1')
     parser.add_argument('--shap', type=int, nargs='?', const=200, default=None,
                        metavar='SAMPLES',
                        help='Calculate grouped out-of-fold SHAP importance '
                             '(default: 200 balanced held-out samples)')
     parser.add_argument('--correlation', action='store_true',
                        help='Calculate correlation of selected training features with motion label')
-    parser.add_argument('--ablation', action='store_true',
-                       help='Run ablation study (test removing each feature)')
     parser.add_argument('--ablation-feature', type=str, default=None,
                        help='Compare the production baseline against one named feature removal using grouped CV '
                             'and paired validation without exporting artifacts')
@@ -6447,7 +6461,6 @@ def main():
             or not (
                 args.no_export
                 or args.shap is not None
-                or args.ablation
                 or args.ablation_feature
                 or args.correlation
                 or args.cross_environment
@@ -6499,7 +6512,6 @@ def main():
                 or args.cross_environment
                 or args.cross_chip
                 or args.shap is not None
-                or args.ablation
                 or args.ablation_feature
                 or args.correlation):
             print("Error: --force-promote applies only to a plain single-seed "
@@ -6510,7 +6522,6 @@ def main():
         or args.experiment_fp_weights is not None
         or args.gain_stress_gate
         or args.ablation_feature
-        or args.ablation
         or args.shap is not None
         or args.correlation
     ):
@@ -6527,11 +6538,8 @@ def main():
         if args.seed_search_until_improvement > 0 or args.seed is not None:
             print("Error: --gain-stress-gate evaluates exported artifacts and cannot use --seed or seed-search")
             return 1
-        if args.shap is not None or args.ablation or args.ablation_feature or args.correlation:
-            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation, or --correlation")
-            return 1
-        if args.positive_chip_boost is not None:
-            print("Error: --positive-chip-boost is a training option and cannot be used with --gain-stress-gate")
+        if args.shap is not None or args.ablation_feature or args.correlation:
+            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation-feature, or --correlation")
             return 1
         results = evaluate_gain_stress_gate(
             environment_filter=args.environment,
@@ -6549,8 +6557,8 @@ def main():
         if args.experiment or args.experiment_fp_weights is not None:
             print(f"Error: {mode} cannot be combined with experiment flows")
             return 1
-        if args.shap is not None or args.ablation or args.ablation_feature or args.correlation:
-            print(f"Error: {mode} cannot be combined with --shap, --ablation, or --correlation")
+        if args.shap is not None or args.ablation_feature or args.correlation:
+            print(f"Error: {mode} cannot be combined with --shap, --ablation-feature, or --correlation")
             return 1
         if args.seed_search_until_improvement > 0:
             print(f"Error: {mode} cannot be combined with seed search")
@@ -6583,7 +6591,7 @@ def main():
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
             architectures=args.experiment_architectures,
-            positive_chip_boost=args.positive_chip_boost,
+            positive_chip_boost=None,
             output_path=args.experiment_output,
             use_cache=not args.no_cache,
         )
@@ -6597,15 +6605,12 @@ def main():
             feature_names=selected_training_features,
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
-            positive_chip_boost=args.positive_chip_boost,
+            positive_chip_boost=None,
             output_path=args.fp_weight_experiment_output,
             use_cache=not args.no_cache,
         )
 
     if args.ablation_feature:
-        if args.ablation:
-            print("Error: --ablation and --ablation-feature are mutually exclusive")
-            return 1
         return experiment_feature_ablation(
             feature_name=args.ablation_feature,
             seed=args.seed,
@@ -6614,7 +6619,7 @@ def main():
             fp_weight=args.fp_weight,
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
-            positive_chip_boost=args.positive_chip_boost,
+            positive_chip_boost=None,
             use_cache=not args.no_cache,
         )
     
@@ -6631,8 +6636,8 @@ def main():
         if args.seed is not None:
             print("Error: --seed and --seed-search-until-improvement are mutually exclusive")
             return 1
-        if args.shap is not None or args.ablation or args.ablation_feature:
-            print("Error: --seed-search-until-improvement cannot be combined with --shap or --ablation")
+        if args.shap is not None or args.ablation_feature:
+            print("Error: --seed-search-until-improvement cannot be combined with --shap or --ablation-feature")
             return 1
         return train_until_improvement(
             max_trials=args.seed_search_until_improvement,
@@ -6643,7 +6648,7 @@ def main():
             batch_size=args.batch_size,
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
-            positive_chip_boost=args.positive_chip_boost,
+            positive_chip_boost=None,
             use_cache=not args.no_cache,
             augment=args.augment,
             search_output_path=args.seed_search_output,
@@ -6654,25 +6659,23 @@ def main():
         seed=args.seed,
         feature_names=selected_training_features,
         feature_importance=args.shap is not None,
-        ablation=args.ablation,
+        ablation=False,
         shap_samples=args.shap if args.shap is not None else 200,
         hidden_layers=args.hidden_layers,
         scaler_mode=args.scaler,
         batch_size=args.batch_size,
         environment_filter=args.environment,
         excluded_chips=args.exclude_chip,
-        positive_chip_boost=args.positive_chip_boost,
+        positive_chip_boost=None,
         use_cache=not args.no_cache,
         augment=args.augment,
         export_artifacts=(
             not args.no_export
             and args.shap is None
-            and not args.ablation
         ),
         evaluate_deployment=(
             not args.no_export
             and args.shap is None
-            and not args.ablation
         ),
         force_export=args.force_promote,
     )

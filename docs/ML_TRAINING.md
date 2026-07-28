@@ -107,9 +107,6 @@ diagnostic runs so the current runtime artifacts remain unchanged.
 `--ablation-feature` compares the production set against one feature removal
 using the same seed, grouped CV, and paired validation. It also leaves the exported runtime
 artifacts unchanged.
-The broader `--ablation` command remains a CV-only screening tool; do not use
-its ranking for feature promotion until the finalist passes
-`--ablation-feature`.
 
 The latest diagnostic snapshot and interpretation live in
 [ALGORITHMS.md](ALGORITHMS.md). Recompute the values after changing the dataset,
@@ -123,7 +120,8 @@ the band was derived from channel coherence, and why the count stays at 12, see
 
 The binary production trainer loads `empty`, `static_presence`, and `motion`.
 `empty` and `static_presence` are both IDLE targets; `motion` is the MOTION
-target.
+target. Quiet long-run `empty` captures marked with `long_recording: true` stay
+evaluation-only and do not enter the training matrix.
 
 If format filtering removes every packet from a selected file, training stops
 with an explicit error so incompatible captures cannot contaminate the dataset.
@@ -213,9 +211,8 @@ The training pipeline:
 9. Exports Python and C++ runtime artifacts plus a regression dataset unless
    `--no-export` is set or the paired gate rejects the candidate.
 
-Training uses uniform sample weights by default. Optional `--positive-chip-boost`
-can still reweight motion windows for specific chips. Detector-guided sample
-weighting was evaluated and rejected; see the related ADR.
+Training uses uniform sample weights. Detector-guided sample weighting was
+evaluated and rejected; see the related ADR.
 
 ## Exported Artifacts
 
@@ -315,13 +312,15 @@ python tools/train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,
 
 `--gain-stress-gate` does not train or export. It loads the current exported
 `src/python/micro_espectre/ml_weights.py`, scales only the amplitude-gain-sensitive input
-features, and reports recall/FP degradation overall plus worst chip,
-environment, session, and source-file groups.
+features when present, and reports recall/FP degradation overall plus worst
+chip, environment, session, and source-file groups.
 
-Current finding for the exported model: all-environment gain stress is
-flat at `1.00x`, `1.25x`, and `1.50x`. The remaining worst-session weakness is
-nominal dataset difficulty, not gain-shift sensitivity. Treat this gate as the
-primary diagnostic before promoting future retrains.
+Current finding for the exported model: the table is flat at `1.00x`, `1.25x`,
+and `1.50x`, and the summary reports `Scaled features: none`. That means the
+current export has no gain-sensitive feature dimensions left, so this gate is
+now mainly an informational regression guard against reintroducing them. The
+remaining worst-session weakness is nominal dataset difficulty, not
+gain-shift sensitivity.
 
 Amplitude-gain stress does not model the feature-floor drift seen on weak Wi-Fi
 links. Validate low-RSSI behavior separately with real captures registered in
