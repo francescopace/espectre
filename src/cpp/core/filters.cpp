@@ -89,8 +89,6 @@ void hampel_turbulence_init(hampel_turbulence_state_t *state, uint8_t window_siz
     }
     
     std::memset(state->buffer, 0, sizeof(state->buffer));
-    std::memset(state->sorted_buffer, 0, sizeof(state->sorted_buffer));
-    std::memset(state->deviations, 0, sizeof(state->deviations));
     state->window_size = window_size;
     state->index = 0;
     state->count = 0;
@@ -98,36 +96,38 @@ void hampel_turbulence_init(hampel_turbulence_state_t *state, uint8_t window_siz
     state->enabled = enabled;
 }
 
-float hampel_filter(const float *window, size_t window_size, 
+float hampel_filter(const float *window, size_t window_size,
                     float current_value, float threshold) {
     if (!window || window_size < 3) {
         return current_value;
     }
-    
-    // Stack allocation - window_size is bounded (3-11 max)
-    float sorted[HAMPEL_TURBULENCE_WINDOW_MAX];
-    float abs_deviations[HAMPEL_TURBULENCE_WINDOW_MAX];
-    
+
     // Clamp to max supported window size
     if (window_size > HAMPEL_TURBULENCE_WINDOW_MAX) {
         window_size = HAMPEL_TURBULENCE_WINDOW_MAX;
     }
-    
+
+    // Stack allocation - window_size is bounded (3-11 max)
+    float sorted[HAMPEL_TURBULENCE_WINDOW_MAX];
+    float abs_deviations[HAMPEL_TURBULENCE_WINDOW_MAX];
+
     std::memcpy(sorted, window, window_size * sizeof(float));
     float median = calculate_median_float(sorted, window_size);
-    
+
     for (size_t i = 0; i < window_size; i++) {
         abs_deviations[i] = std::abs(window[i] - median);
     }
     float mad = calculate_median_float(abs_deviations, window_size);
-    
-    float mad_scaled = MAD_SCALE_FACTOR * mad;
+
     float deviation = std::abs(current_value - median);
-    
-    if (mad > 1e-6f && deviation > threshold * mad_scaled) {
+
+    // Kept as a single left-to-right product rather than pre-scaling the MAD:
+    // float multiplication is not associative, and this expression decides a
+    // threshold comparison that the C++/Python parity gate covers.
+    if (mad > 1e-6f && deviation > threshold * MAD_SCALE_FACTOR * mad) {
         return median;
     }
-    
+
     return current_value;
 }
 
@@ -135,33 +135,16 @@ float hampel_filter_turbulence(hampel_turbulence_state_t *state, float turbulenc
     if (!state || !state->enabled) {
         return turbulence;
     }
-    
+
     state->buffer[state->index] = turbulence;
     state->index = (state->index + 1) % state->window_size;
     if (state->count < state->window_size) {
         state->count++;
     }
-    
-    if (state->count < 3) {
-        return turbulence;
-    }
-    
-    size_t n = state->count;
-    std::memcpy(state->sorted_buffer, state->buffer, n * sizeof(float));
-    float median = calculate_median_float(state->sorted_buffer, n);
-    
-    for (size_t i = 0; i < n; i++) {
-        state->deviations[i] = std::abs(state->buffer[i] - median);
-    }
-    float mad = calculate_median_float(state->deviations, n);
-    
-    float deviation = std::abs(turbulence - median);
-    
-    if (mad > 1e-6f && deviation > state->threshold * MAD_SCALE_FACTOR * mad) {
-        return median;
-    }
-    
-    return turbulence;
+
+    // The value was just pushed, so the ring already contains it; hampel_filter
+    // still takes it separately because the stateless entry point does not.
+    return hampel_filter(state->buffer, state->count, turbulence, state->threshold);
 }
 
 }  // namespace espectre

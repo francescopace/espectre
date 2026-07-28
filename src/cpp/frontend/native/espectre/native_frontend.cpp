@@ -166,25 +166,36 @@ NativeFrontend::~NativeFrontend() { shutdown(); }
 
 void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
   runtime_.record_snapshot(snapshot);
+  // State-change callbacks contain filtered motion edges, not every detector
+  // evaluation. Publish them immediately while retaining periodic telemetry as
+  // a heartbeat and current-metrics update.
+  if (!snapshot.ready_to_publish) {
+    return;
+  }
+  publish_mqtt_telemetry_(snapshot, now_ms_());
 }
 
 void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   runtime_.record_snapshot(snapshot);
+  // The snapshot is recorded either way, but nothing is published before the
+  // runtime declares itself ready, matching ESPHome and Matter. Native used to
+  // ignore the flag and emit MQTT telemetry during the not-ready window.
+  if (!snapshot.ready_to_publish) {
+    return;
+  }
   const uint32_t now = now_ms_();
   publish_mqtt_telemetry_(snapshot, now);
   status_logger_.log_status(TAG, snapshot, packets_received);
 }
 
 void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
-  runtime_.record_snapshot(snapshot);
-  runtime_.config().segmentation_threshold = snapshot.threshold;
+  apply_threshold_snapshot(runtime_, snapshot);
   system_info_refresh_.request();
   publish_mqtt_telemetry_(snapshot, now_ms_());
 }
 
 void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
-  runtime_.record_snapshot(snapshot);
-  runtime_.config().detection_algorithm = parse_detection_algorithm(snapshot.detector_name);
+  apply_detector_snapshot(runtime_, snapshot);
   system_info_refresh_.request();
   publish_mqtt_info_();
   publish_mqtt_telemetry_(snapshot, now_ms_());

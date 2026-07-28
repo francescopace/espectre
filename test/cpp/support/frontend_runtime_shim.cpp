@@ -21,11 +21,10 @@ void reset() { state = State{}; }
 }  // namespace frontend_runtime_shim
 
 EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
-    : config_(config),
-      snapshot_(frontend_runtime_shim::state.snapshot),
-      capabilities_(frontend_runtime_shim::state.capabilities),
-      listener_(nullptr),
+    : EspIdfRuntimeBase(config, "espectre.runtime.shim", "Unknown runtime fault"),
       detector_(nullptr) {
+  snapshot_ = frontend_runtime_shim::state.snapshot;
+  capabilities_ = frontend_runtime_shim::state.capabilities;
   frontend_runtime_shim::state.last_instance = this;
   capabilities_.supports_runtime_detector_selection = config.runtime_detector_selection_enabled;
   if (frontend_runtime_shim::state.snapshot.threshold == SEGMENTATION_DEFAULT_THRESHOLD) {
@@ -33,7 +32,13 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
   }
 }
 
-bool EspIdfRuntime::setup() { return frontend_runtime_shim::state.setup_result; }
+bool EspIdfRuntime::setup() {
+  // The base owns set_listener() now, so the shim observes the registration
+  // here instead. RuntimeFrontendController always calls set_listener() before
+  // setup(), so listener_ is already the frontend by this point.
+  frontend_runtime_shim::state.last_listener = listener_;
+  return frontend_runtime_shim::state.setup_result;
+}
 
 void EspIdfRuntime::shutdown() { frontend_runtime_shim::state.shutdown_called = true; }
 
@@ -73,17 +78,6 @@ bool EspIdfRuntime::trigger_recalibration() {
 
 bool EspIdfRuntime::is_calibrating() const {
   return frontend_runtime_shim::state.calibrating;
-}
-
-RuntimeSnapshot EspIdfRuntime::get_snapshot() const { return snapshot_; }
-
-RuntimeCapabilities EspIdfRuntime::get_capabilities() const {
-  return capabilities_;
-}
-
-void EspIdfRuntime::set_listener(IRuntimeListener *listener) {
-  listener_ = listener;
-  frontend_runtime_shim::state.last_listener = listener;
 }
 
 }  // namespace espectre

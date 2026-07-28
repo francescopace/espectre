@@ -21,6 +21,7 @@
 #undef private
 #include "csi_features.h"
 #include "ml_weights.h"
+#include "detector_state_contract.h"
 #include "esphome/core/log.h"
 #include "cnpy.h"
 
@@ -450,6 +451,20 @@ void test_ml_inference_performance(void) {
 // MAIN
 // ============================================================================
 
+// Shared across every detector; see detector_state_contract.h for why the
+// metric is set directly rather than driven through synthetic traffic. This is
+// the regression guard for ML publishing a stale probability after a clear.
+void test_ml_detector_honours_shared_state_contract(void) {
+    MLDetector clear_target;
+    test_support::assert_clear_buffer_drops_evaluation_state(clear_target);
+
+    MLDetector reset_target;
+    test_support::assert_reset_drops_evaluation_state(reset_target);
+
+    MLDetector idle_target;
+    test_support::assert_not_ready_evaluation_stays_idle(idle_target);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     
@@ -457,6 +472,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ml_detector_default_constructor);
     RUN_TEST(test_ml_detector_custom_constructor);
     RUN_TEST(test_ml_detector_get_name);
+    RUN_TEST(test_ml_detector_honours_shared_state_contract);
     RUN_TEST(test_ml_detector_hampel_master_switch_controls_both_streams);
     
     // Threshold tests

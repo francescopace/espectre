@@ -20,7 +20,6 @@ from threshold import (
 class FakeDetector:
     def __init__(self):
         self.metric = 0.0
-        self.floor_metric = 0.01
         self.ready = True
 
     def is_ready(self):
@@ -28,9 +27,6 @@ class FakeDetector:
 
     def get_motion_metric(self):
         return self.metric
-
-    def get_startup_floor_metric(self):
-        return self.floor_metric
 
 
 def feed(tracker, detector, values):
@@ -98,15 +94,11 @@ def test_weighted_observation_matches_repeated_packet_observations() -> None:
     weighted_detector = FakeDetector()
     repeated_detector = FakeDetector()
 
-    for metric, floor in ((0.05, 0.01), (0.05, 0.01),
-                          (0.12, 0.50), (0.12, 0.50),
-                          (0.05, 0.01), (0.05, 0.01)):
+    for metric in (0.05, 0.05, 0.12, 0.12, 0.05, 0.05):
         weighted_detector.metric = metric
-        weighted_detector.floor_metric = floor
         weighted.observe_detector(weighted_detector, packet_weight=25)
         for _ in range(25):
             repeated_detector.metric = metric
-            repeated_detector.floor_metric = floor
             repeated.observe_detector(repeated_detector)
 
     assert weighted.packet_count == repeated.packet_count
@@ -116,7 +108,6 @@ def test_weighted_observation_matches_repeated_packet_observations() -> None:
     repeated_threshold, repeated_formula = repeated.calculate_threshold()
     assert weighted_threshold == pytest.approx(repeated_threshold)
     assert weighted_formula == repeated_formula
-    assert weighted.get_floor_snapshot() == repeated.get_floor_snapshot()
 
 
 def test_get_detector_startup_gate_reads_detector_attribute() -> None:
@@ -140,7 +131,6 @@ def test_startup_gate_accepts_clean_startup_with_max_formula() -> None:
 
     assert tracker.is_complete()
     assert tracker.gate_accepted
-    assert not tracker.is_extending()
     threshold, formula = tracker.calculate_threshold()
     assert threshold == pytest.approx(0.05 * 1.1)
     assert formula == "gated max x 1.1"
@@ -211,7 +201,14 @@ def test_motion_without_return_is_stable_at_budget_boundary(target_packets) -> N
     assert threshold == pytest.approx(0.05 * 1.5 * 1.1)
 
 
-def test_motion_first_preserves_validated_quiet_floor_samples() -> None:
+def test_motion_first_accepts_after_a_long_quiet_prefix() -> None:
+    """A long quiet prefix must not stop motion-first from accepting.
+
+    The bootstrap keeps only the last two chunks, so 300 quiet packets classify
+    the same way 50 do. This scenario used to assert on the variance-floor
+    snapshot, which was removed as dead; the calibration outcome it also
+    covered is kept here. Mirrors the C++ test of the same name.
+    """
     tracker = StartupThresholdCalibrator(
         target_packets=500,
         auto_factor=1.1,
@@ -221,11 +218,11 @@ def test_motion_first_preserves_validated_quiet_floor_samples() -> None:
 
     feed(tracker, detector, [0.05] * 300 + [0.12] * 50 + [0.05] * 50)
 
-    floor, vote_enabled, sample_count = tracker.get_floor_snapshot()
     assert tracker.is_complete()
-    assert floor == pytest.approx(0.01)
-    assert vote_enabled
-    assert sample_count >= 300
+    assert tracker.packet_count == 400
+    threshold, formula = tracker.calculate_threshold()
+    assert threshold == pytest.approx(0.085 * 1.1)
+    assert "motion gap midpoint" in formula
 
 
 def test_startup_gate_disabled_keeps_legacy_completion() -> None:
@@ -235,7 +232,6 @@ def test_startup_gate_disabled_keeps_legacy_completion() -> None:
     feed(tracker, detector, [0.05] * 50 + [0.5] * 10)
 
     assert tracker.is_complete()
-    assert not tracker.is_extending()
     threshold, formula = tracker.calculate_threshold()
     assert threshold == pytest.approx(0.5 * 1.1)
     assert formula == "max x 1.1"

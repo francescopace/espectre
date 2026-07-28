@@ -22,6 +22,11 @@ struct RuntimeSnapshot {
   MotionState motion_state{MotionState::IDLE};
   float movement_metric{0.0f};
   float threshold{SEGMENTATION_DEFAULT_THRESHOLD};
+  // Link quality of the packets that produced `movement_metric`, carried here
+  // so the shared status logger stays a formatter instead of querying the radio
+  // itself at print time.
+  int8_t link_rssi_dbm{INT8_MIN};
+  uint8_t link_channel{0};
   bool calibrating{false};
   bool ready_to_publish{false};
   float startup_threshold{0.0f};

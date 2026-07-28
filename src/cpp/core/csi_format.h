@@ -205,9 +205,8 @@ inline uint8_t extract_subcarrier_amplitudes(const int8_t* csi_data,
         }
 
         // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-        float Q = static_cast<float>(csi_data[sc_idx * 2]);
-        float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);
-        out[valid_count++] = std::sqrt(I * I + Q * Q);
+        out[valid_count++] = calculate_magnitude(csi_data[sc_idx * 2 + 1],
+                                                 csi_data[sc_idx * 2]);
     }
     return valid_count;
 }

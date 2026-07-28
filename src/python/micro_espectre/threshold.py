@@ -47,11 +47,6 @@ STARTUP_QUIET_RETURN_RATIO = 1.25
 STARTUP_MOTION_GAP_RATIO = 1.35
 STARTUP_NO_MOTION_FALLBACK_MARGIN = 1.03
 
-# Startup variance-floor snapshot used by ClassicDetector.
-STARTUP_FLOOR_SIZE = 1000
-STARTUP_FLOOR_MIN = 300
-STARTUP_FLOOR_DISPERSION_CUT = 4.0
-
 
 def get_detector_auto_factor(detector):
     """Return the detector-specific automatic startup multiplier."""
@@ -102,7 +97,6 @@ class StartupThresholdCalibrator:
         self._motion_chunk_sum = 0.0
         self._motion_chunk_max = 0.0
         self._motion_chunk_count = 0
-        self._chunk_floor_samples = []
         self._bootstrap_quiet = []
         self._quiet_levels = []
         self._motion_levels = []
@@ -113,10 +107,6 @@ class StartupThresholdCalibrator:
         self._phase = "SEEK_MOTION"
         self._consecutive_motion_chunks = 0
         self._consecutive_post_quiet_chunks = 0
-
-        self._floor_ring = [0.0] * STARTUP_FLOOR_SIZE
-        self._floor_idx = 0
-        self._floor_count = 0
 
     def observe_detector(self, detector, packet_weight=1):
         """
@@ -146,21 +136,13 @@ class StartupThresholdCalibrator:
                     initial_remaining,
                 )
             if not self._motion_accepted and self.packet_count <= self.target_packets:
-                floor_metric = self._extract_floor_metric(detector)
-                self._observe_motion_chunk(current_metric, floor_metric, weight)
+                self._observe_motion_chunk(current_metric, weight)
             if (not self.gate_accepted
                     and self.packet_count >= self.target_packets
                     and self._chunk_count > 0
                     and len(self._chunk_ring) < self.gate_chunks):
                 self._close_gate_chunk()
         return current_metric
-
-    def _extract_floor_metric(self, detector):
-        """Return the detector-specific startup floor metric when available."""
-        getter = getattr(detector, "get_startup_floor_metric", None)
-        if callable(getter):
-            return float(getter())
-        return 0.0
 
     def _observe_gate_metric(self, metric, weight=1, initial_remaining=None):
         """Fold one weighted metric into the fallback quiet-first chunk ring."""
@@ -199,7 +181,7 @@ class StartupThresholdCalibrator:
         if len(self._chunk_ring) >= self.gate_chunks and self._gate_ok():
             self.gate_accepted = True
 
-    def _observe_motion_chunk(self, metric, floor_metric, weight=1):
+    def _observe_motion_chunk(self, metric, weight=1):
         """Accumulate one weighted sample into the motion-first chunker."""
         remaining_weight = weight
         while remaining_weight > 0 and not self._motion_accepted:
@@ -209,9 +191,6 @@ class StartupThresholdCalibrator:
             take = min(remaining_weight, available)
             self._motion_chunk_sum += metric * take
             self._motion_chunk_count += take
-            # One extend instead of `take` interpreted appends; the chunk caps
-            # the list at STARTUP_MOTION_CHUNK_SIZE, so this stays bounded.
-            self._chunk_floor_samples.extend([floor_metric] * take)
             remaining_weight -= take
 
             if self._motion_chunk_count < STARTUP_MOTION_CHUNK_SIZE:
@@ -219,28 +198,23 @@ class StartupThresholdCalibrator:
 
             level = self._motion_chunk_sum / self._motion_chunk_count
             peak = self._motion_chunk_max
-            floor_samples = self._chunk_floor_samples
             self._motion_chunk_sum = 0.0
             self._motion_chunk_max = 0.0
             self._motion_chunk_count = 0
-            self._chunk_floor_samples = []
-            self._consume_closed_motion_chunk(level, peak, floor_samples)
+            self._consume_closed_motion_chunk(level, peak)
 
-    def _consume_closed_motion_chunk(self, level, peak, floor_samples):
+    def _consume_closed_motion_chunk(self, level, peak):
         """Classify a closed startup chunk for motion-first calibration."""
         if not self._quiet_anchor_ready:
-            self._bootstrap_quiet.append((level, floor_samples))
+            self._bootstrap_quiet.append(level)
             if len(self._bootstrap_quiet) > STARTUP_MOTION_MIN_QUIET_CHUNKS:
                 self._bootstrap_quiet.pop(0)
             if len(self._bootstrap_quiet) >= STARTUP_MOTION_MIN_QUIET_CHUNKS:
-                quiet_levels = [item[0] for item in self._bootstrap_quiet]
+                quiet_levels = list(self._bootstrap_quiet)
                 if self._levels_are_stable(quiet_levels):
                     self._quiet_anchor_ready = True
                     self._quiet_levels = list(quiet_levels)
                     self._phase = "SEEK_MOTION"
-                    self._clear_floor_ring()
-                    for _quiet_level, samples in self._bootstrap_quiet:
-                        self._record_floor_samples(samples)
             return
 
         quiet_ref = max(self._quiet_reference(), 1e-9)
@@ -257,23 +231,18 @@ class StartupThresholdCalibrator:
                     self._phase = "SEEK_POST_MOTION_QUIET"
                     self._consecutive_post_quiet_chunks = 0
                     self._post_quiet_levels = []
-                    # The pre-motion samples already passed the quiet
-                    # classifier. Preserve them so early motion-first success
-                    # does not discard a valid variance-floor snapshot.
                 return
 
             if motion_ratio <= STARTUP_QUIET_RETURN_RATIO:
                 self._quiet_levels.append(level)
                 if len(self._quiet_levels) > self.gate_chunks:
                     self._quiet_levels.pop(0)
-                self._record_floor_samples(floor_samples)
             self._consecutive_motion_chunks = 0
             return
 
         if motion_ratio <= STARTUP_QUIET_RETURN_RATIO:
             self._post_quiet_levels.append(level)
             self._consecutive_post_quiet_chunks += 1
-            self._record_floor_samples(floor_samples)
             if (self._consecutive_post_quiet_chunks >= STARTUP_POST_MOTION_QUIET_CHUNKS
                     and self._motion_gap_ok()):
                 self._motion_accepted = True
@@ -331,19 +300,6 @@ class StartupThresholdCalibrator:
             return False
         return motion_floor > STARTUP_MOTION_GAP_RATIO * quiet_ceiling
 
-    def _clear_floor_ring(self):
-        """Reset the startup floor snapshot being built for ClassicDetector."""
-        self._floor_idx = 0
-        self._floor_count = 0
-
-    def _record_floor_samples(self, values):
-        """Append one validated-quiet chunk of floor samples to the snapshot ring."""
-        for value in values:
-            self._floor_ring[self._floor_idx] = value
-            self._floor_idx = (self._floor_idx + 1) % STARTUP_FLOOR_SIZE
-            if self._floor_count < STARTUP_FLOOR_SIZE:
-                self._floor_count += 1
-
     def _gate_ok(self):
         """Spread and floor-anchor consistency checks on the chunk ring."""
         ring_max = max(self._chunk_ring)
@@ -357,10 +313,6 @@ class StartupThresholdCalibrator:
     def is_complete(self):
         """Return True on early motion-first success or once the startup budget is spent."""
         return self._motion_accepted or self.packet_count >= self.target_packets
-
-    def is_extending(self):
-        """Backward-compatible alias: startup no longer extends past the budget."""
-        return False
 
     def is_successful(self):
         """Return True when motion-first succeeded or fallback has at least one metric."""
@@ -425,22 +377,6 @@ class StartupThresholdCalibrator:
         if self.packet_count >= self.target_packets and not self._motion_accepted:
             return "FALLBACK"
         return self._phase
-
-    def get_floor_snapshot(self):
-        """Return a frozen startup variance-floor snapshot for ClassicDetector."""
-        if self._floor_count <= 0:
-            return 0.0, False, 0
-        ordered = self._floor_ring[:self._floor_count]
-        ordered.sort()
-        n = len(ordered)
-        median = ordered[n // 2] if n % 2 else 0.5 * (ordered[n // 2 - 1] + ordered[n // 2])
-        p99 = ordered[min(n - 1, int(0.99 * n))]
-        vote_enabled = (
-            self._floor_count >= STARTUP_FLOOR_MIN
-            and median > 0.0
-            and (p99 / median) < STARTUP_FLOOR_DISPERSION_CUT
-        )
-        return median, vote_enabled, self._floor_count
 
 
 def calculate_startup_threshold_from_max(

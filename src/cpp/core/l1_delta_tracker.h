@@ -159,43 +159,30 @@ class L1DeltaTracker {
 
     if (amplitudes != nullptr && amplitude_count >= 2U &&
         amplitude_count <= HT20_SELECTED_BAND_SIZE) {
-      float amplitude_sum = 0.0f;
-      for (uint8_t i = 0U; i < amplitude_count; i++) {
-        amplitude_sum += amplitudes[i];
-      }
-      if (amplitude_sum > 0.0f) {
-        const float mean = amplitude_sum / amplitude_count;
-        profile_len = amplitude_count;
-        const bool lagged = reference_len == profile_len;
-        const bool adjacent = previous_len == profile_len;
-        if (lagged || adjacent) {
-          // One normalization pass feeds both displacements.
-          float lagged_sum = 0.0f;
-          float adjacent_sum = 0.0f;
-          for (uint8_t i = 0U; i < profile_len; i++) {
-            const float value = amplitudes[i] / mean;
-            profile[i] = value;
-            if (lagged) {
-              lagged_sum += std::fabs(value - reference[i]);
-            }
-            if (adjacent) {
-              adjacent_sum += std::fabs(value - previous[i]);
-            }
-          }
+      profile_len = normalize_amplitude_profile(amplitudes, amplitude_count, profile);
+      const bool lagged = profile_len > 0U && reference_len == profile_len;
+      const bool adjacent = profile_len > 0U && previous_len == profile_len;
+      if (lagged || adjacent) {
+        // One pass over the normalized profile feeds both displacements.
+        float lagged_sum = 0.0f;
+        float adjacent_sum = 0.0f;
+        for (uint8_t i = 0U; i < profile_len; i++) {
           if (lagged) {
-            lagged_.push(hampel_filter_turbulence(&hampel_state_,
-                                                  lagged_sum / profile_len),
-                         capacity_);
+            lagged_sum += std::fabs(profile[i] - reference[i]);
           }
           if (adjacent) {
-            adjacent_.push(hampel_filter_turbulence(&hampel_adjacent_,
-                                                    adjacent_sum / profile_len),
-                           capacity_);
+            adjacent_sum += std::fabs(profile[i] - previous[i]);
           }
-        } else {
-          for (uint8_t i = 0U; i < profile_len; i++) {
-            profile[i] = amplitudes[i] / mean;
-          }
+        }
+        if (lagged) {
+          lagged_.push(hampel_filter_turbulence(&hampel_state_,
+                                                lagged_sum / profile_len),
+                       capacity_);
+        }
+        if (adjacent) {
+          adjacent_.push(hampel_filter_turbulence(&hampel_adjacent_,
+                                                  adjacent_sum / profile_len),
+                         capacity_);
         }
       }
     }
@@ -228,10 +215,15 @@ class L1DeltaTracker {
     if (out == nullptr || capacity_ == 0U || lagged_.count == 0U) {
       return 0U;
     }
-    const uint16_t start = lagged_.count < capacity_ ? 0U : lagged_.index;
-    for (uint16_t i = 0U; i < lagged_.count; i++) {
-      out[i] = lagged_.ring[(start + i) % capacity_];
+    // Still filling: the ring has not wrapped, so it is already chronological.
+    if (lagged_.count < capacity_) {
+      std::memcpy(out, lagged_.ring, static_cast<size_t>(lagged_.count) * sizeof(float));
+      return lagged_.count;
     }
+    // Wrapped and full: two contiguous runs, no modulo per element.
+    const uint16_t tail = static_cast<uint16_t>(capacity_ - lagged_.index);
+    std::memcpy(out, lagged_.ring + lagged_.index, static_cast<size_t>(tail) * sizeof(float));
+    std::memcpy(out + tail, lagged_.ring, static_cast<size_t>(lagged_.index) * sizeof(float));
     return lagged_.count;
   }
 

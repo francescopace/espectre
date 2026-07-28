@@ -92,6 +92,12 @@ class WiFiLifecycleManager {
   PendingEvent<> disconnected_event_;
   std::atomic<esp_err_t> started_policy_err_{ESP_ERR_INVALID_STATE};
   std::atomic<bool> started_policy_applied_{false};
+  // Distinguishes "STA_START never reached us" from "it did and the policy
+  // failed". Only the first is recoverable at GOT_IP; the second is a real
+  // radio failure that must propagate. The error code alone cannot tell them
+  // apart, because esp_wifi_set_protocol can itself return the same
+  // ESP_ERR_INVALID_STATE this is seeded with.
+  std::atomic<bool> started_policy_attempted_{false};
   bool ready_{false};
 };
 

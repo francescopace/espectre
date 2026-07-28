@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -31,25 +32,6 @@ namespace {
 
 static const char *const RUNTIME_TAG = "espectre.runtime";
 
-TrafficGeneratorMode to_traffic_mode(RuntimeTrafficMode mode) {
-  return mode == RuntimeTrafficMode::PING ? TrafficGeneratorMode::PING : TrafficGeneratorMode::DNS;
-}
-
-CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
-  CsiTrafficServiceConfig csi_traffic_config;
-  csi_traffic_config.mode =
-      (config.csi_traffic_mode == CsiTrafficMode::INTERNAL && config.traffic_generator_rate == 0U)
-          ? CsiTrafficMode::EXTERNAL
-          : config.csi_traffic_mode;
-  csi_traffic_config.rate_pps = config.traffic_generator_rate;
-  csi_traffic_config.adaptive = config.traffic_generator_adaptive;
-  csi_traffic_config.traffic_mode = to_traffic_mode(config.traffic_generator_mode);
-  csi_traffic_config.udp_port = config.csi_traffic_udp_port;
-  csi_traffic_config.multicast_group = config.csi_traffic_multicast_group;
-  csi_traffic_config.expected_payload = config.csi_traffic_expected_payload;
-  return csi_traffic_config;
-}
-
 }  // namespace
 
 void EspIdfRuntime::update_live_telemetry_callback_() {
@@ -64,9 +46,17 @@ void EspIdfRuntime::update_live_telemetry_callback_() {
   }
 }
 
-EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config) : config_(config) {
+EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
+    : EspIdfRuntimeBase(config, RUNTIME_TAG, "Unknown runtime fault") {
   snapshot_.threshold = config_.segmentation_threshold;
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
+  // The sensing runtime owns a detector, so it can retune and recalibrate it,
+  // and it drives the live-telemetry callback the BLE surface consumes.
+  capabilities_.supports_runtime_threshold_updates = true;
+  capabilities_.supports_manual_recalibration = true;
+  capabilities_.supports_ble_telemetry = true;
+  capabilities_.supports_extended_diagnostics = true;
+  capabilities_.supports_traffic_control = true;
   capabilities_.supports_runtime_detector_selection = config_.runtime_detector_selection_enabled;
 }
 
@@ -94,7 +84,9 @@ bool EspIdfRuntime::setup() {
     return false;
   }
 
-  csi_traffic_service_.init(to_csi_traffic_config(config_));
+  // Nothing local generates packets at rate 0, so sensing expects an external
+  // source; the stream runtime falls back to collector pacing instead.
+  csi_traffic_service_.init(to_csi_traffic_config(config_, CsiTrafficMode::EXTERNAL));
 
   csi_pipeline_.init(detector_.get(), config_.publish_interval);
   csi_pipeline_.set_evaluation_interval(config_.evaluation_interval);
@@ -273,12 +265,6 @@ bool EspIdfRuntime::trigger_recalibration() {
 
 bool EspIdfRuntime::is_calibrating() const { return snapshot_.calibrating; }
 
-RuntimeSnapshot EspIdfRuntime::get_snapshot() const { return snapshot_; }
-
-RuntimeCapabilities EspIdfRuntime::get_capabilities() const { return capabilities_; }
-
-void EspIdfRuntime::set_listener(IRuntimeListener *listener) { listener_ = listener; }
-
 bool EspIdfRuntime::configure_detector_() {
   const float threshold = runtime_default_threshold(config_.detection_algorithm);
   config_.segmentation_threshold = threshold;
@@ -294,13 +280,13 @@ bool EspIdfRuntime::configure_detector_() {
   return true;
 }
 
-std::unique_ptr<BaseDetector> EspIdfRuntime::make_detector_(DetectionAlgorithm algorithm, float threshold) {
+std::unique_ptr<BaseDetector> EspIdfRuntime::make_detector_(DetectionAlgorithm algorithm,
+                                                            float threshold) {
   std::unique_ptr<BaseDetector> detector;
   if (algorithm == DetectionAlgorithm::ML) {
     detector = std::make_unique<MLDetector>(config_.segmentation_window_size, threshold);
   } else if (algorithm == DetectionAlgorithm::CLASSIC) {
-    detector = std::make_unique<ClassicDetector>(config_.segmentation_window_size,
-                                                 threshold);
+    detector = std::make_unique<ClassicDetector>(config_.segmentation_window_size, threshold);
   }
   if (detector != nullptr) {
     detector->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
@@ -351,6 +337,8 @@ void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
       snapshot_.motion_state = state;
       snapshot_.movement_metric = detector_ != nullptr ? detector_->get_motion_metric() : 0.0f;
       snapshot_.threshold = detector_ != nullptr ? detector_->get_threshold() : snapshot_.threshold;
+      snapshot_.link_rssi_dbm = csi_pipeline_.last_rssi_dbm();
+      snapshot_.link_channel = csi_pipeline_.last_channel();
 
       if (snapshot_.ready_to_publish && listener_ != nullptr) {
         listener_->on_periodic_update(snapshot_, packets_received);
@@ -406,9 +394,11 @@ bool EspIdfRuntime::start_calibration_() {
     return true;
   }
 
-  snapshot_.calibrating = true;
-  if (listener_ != nullptr) {
-    listener_->on_calibration_started(snapshot_);
+  if (!snapshot_.calibrating) {
+    snapshot_.calibrating = true;
+    if (listener_ != nullptr) {
+      listener_->on_calibration_started(snapshot_);
+    }
   }
 
   // Calibrate on the runtime detector itself (cold-cleared first), so the
@@ -424,7 +414,6 @@ bool EspIdfRuntime::start_calibration_() {
                                detector_ != nullptr && detector_->startup_gate_enabled());
   calibration_finished_event_.clear();
   calibration_progress_event_.clear();
-  calibration_packets_since_evaluation_ = 0;
   next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
   threshold_calibration_active_.store(true, std::memory_order_relaxed);
   csi_pipeline_.clear_detector_buffer();
@@ -438,7 +427,8 @@ bool EspIdfRuntime::start_calibration_() {
 }
 
 bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len,
-                                                         int8_t rssi_dbm) {
+                                                         int8_t rssi_dbm, bool evaluation_due,
+                                                         uint32_t packets_in_window) {
   if (!threshold_calibration_active_.load(std::memory_order_relaxed) || detector_ == nullptr ||
       !threshold_calibrator_) {
     return false;
@@ -446,18 +436,18 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
 
   detector_->process_packet(csi_data, csi_len, snapshot_.fixed_subcarriers.data(),
                             HT20_SELECTED_BAND_SIZE, rssi_dbm);
-  calibration_packets_since_evaluation_++;
-  const uint32_t evaluation_interval = std::max<uint32_t>(config_.evaluation_interval, 1U);
-  if (calibration_packets_since_evaluation_ < evaluation_interval) {
+  // The pipeline owns the cadence, so calibration evaluates exactly when
+  // steady-state detection would and the threshold is fitted at the resolution
+  // the detector will run at.
+  if (!evaluation_due) {
     return true;
   }
 
-  const uint16_t packet_weight = static_cast<uint16_t>(
-      std::min<uint32_t>(calibration_packets_since_evaluation_, UINT16_MAX));
-  calibration_packets_since_evaluation_ = 0;
+  const uint16_t packet_weight =
+      static_cast<uint16_t>(std::min<uint32_t>(std::max<uint32_t>(packets_in_window, 1U), UINT16_MAX));
   detector_->update_state();
   threshold_calibrator_->observe(detector_->is_ready(), detector_->get_motion_metric(),
-                                 detector_->get_startup_floor_metric(), packet_weight);
+                                 packet_weight);
 
   const uint32_t packet_count = threshold_calibrator_->packet_count();
   const uint16_t target_packets = threshold_calibrator_->target_packets();
@@ -480,10 +470,13 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
 bool EspIdfRuntime::threshold_calibration_packet_callback_(void *context,
                                                            const int8_t *csi_data,
                                                            size_t csi_len,
-                                                           int8_t rssi_dbm) {
+                                                           int8_t rssi_dbm,
+                                                           bool evaluation_due,
+                                                           uint32_t packets_in_window) {
   auto *runtime = static_cast<EspIdfRuntime *>(context);
   return runtime != nullptr &&
-         runtime->handle_threshold_calibration_packet_(csi_data, csi_len, rssi_dbm);
+         runtime->handle_threshold_calibration_packet_(csi_data, csi_len, rssi_dbm, evaluation_due,
+                                                       packets_in_window);
 }
 
 void EspIdfRuntime::finish_threshold_calibration_(bool success) {
@@ -523,14 +516,6 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
   }
   ESP_LOGD(RUNTIME_TAG, "Calibration %s", success ? "completed successfully" : "failed");
   threshold_calibrator_.reset();
-}
-
-void EspIdfRuntime::notify_fault_(const char *message) {
-  last_fault_ = message != nullptr ? message : "Unknown runtime fault";
-  ESP_LOGE(RUNTIME_TAG, "Runtime fault: %s", last_fault_.c_str());
-  if (listener_ != nullptr) {
-    listener_->on_runtime_fault(last_fault_.c_str());
-  }
 }
 
 void EspIdfRuntime::refresh_csi_local_identity_(uint32_t local_ip_addr) {

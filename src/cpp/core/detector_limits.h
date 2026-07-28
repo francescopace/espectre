@@ -43,8 +43,12 @@ constexpr uint32_t TURB_AUTOCORR_LAG_US = 10000U;    // Autocorrelation lag
 // lag is capped. 32 packets covers the 100 ms contract up to ~320 pps, well
 // past what any supported chip sustains; above that the lag saturates and
 // spans less than 100 ms. Measured cost at 1000 pps is a few points of
-// recall, against 4.5 KB of static memory, and the decisive high-rate lag is
-// the autocorrelation one, which stays far below this bound.
+// recall, and the decisive high-rate lag is the autocorrelation one, which
+// stays far below this bound.
+//
+// The ring costs L1_DELTA_LAG_MAX x HT20_SELECTED_BAND_SIZE floats, i.e.
+// 32 x 12 x 4 = 1536 bytes. An earlier revision of this comment said 4.5 KB,
+// which never matched the declaration.
 constexpr uint16_t L1_DELTA_LAG_MAX = 32;
 // Rate-derived windows use the same bounds as configured ones: the floor is
 // the measured one and the ceiling is the stack one, and neither changes

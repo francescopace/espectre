@@ -58,18 +58,21 @@ inline uint32_t elapsed_since_timestamp_us(uint32_t now_us, uint32_t previous_us
   return delta < 0x80000000U ? delta : 0U;
 }
 
-inline uint32_t packets_for_duration(uint32_t duration_us, uint32_t interval_us,
-                                     uint32_t minimum) {
+constexpr uint32_t packets_for_duration(uint32_t duration_us, uint32_t interval_us,
+                                        uint32_t minimum) {
   const uint32_t interval = interval_us > 0U ? interval_us : 1U;
   const uint32_t packets = (duration_us + interval / 2U) / interval;
   return packets < minimum ? minimum : packets;
 }
 
 /**
- * Resolve the detector's duration contract into packet counts.
+ * Resolve the detector's duration contract for replay analysis.
  *
- * The lags are held in physical time and the window in sample count, which is
- * what measurement supports rather than what symmetry would suggest.
+ * Deployed runtimes deliberately keep the production lags at their nominal
+ * packet offsets. Scaling only the numerator of the L1 lag ratio changes the
+ * feature definition and regresses low-rate recall; scaling both offsets would
+ * require a Classic refit and an ML retrain. The host replay path keeps this
+ * helper so future timing candidates can be measured against shipped behavior.
  *
  * The lags describe how far the channel has moved over an interval, so they
  * track that interval. This is decisive at high rates: on the 1000 pps
@@ -85,7 +88,17 @@ inline uint32_t packets_for_duration(uint32_t duration_us, uint32_t interval_us,
  * distribution by lifting the threshold, and recall collapses while false
  * positives stay low.
  */
-inline DetectorTiming derive_detector_timing(uint32_t interval_us) {
+/**
+ * @param window_override Window in packets to use instead of the rate-derived
+ *        one, or 0 to derive it. The window is a configured sample count, not
+ *        a duration: measurement puts the floor at 100 samples, below which the
+ *        worst paired sessions fall under the production recall target (91.9%
+ *        at 80 samples, 94.2% at 90, 96.8% at 100). Replay analyses can pass a
+ *        configured window here when isolating lag behavior, or leave it 0 to
+ *        evaluate the fully derived candidate timing.
+ */
+inline DetectorTiming derive_detector_timing(uint32_t interval_us,
+                                             uint16_t window_override = 0U) {
   uint32_t interval = interval_us > 0U ? interval_us : 1U;
 
   // Near the nominal cadence, adapting buys nothing and costs homogeneity:
@@ -100,8 +113,13 @@ inline DetectorTiming derive_detector_timing(uint32_t interval_us) {
     interval = kNominal;
   }
 
-  uint32_t window = packets_for_duration(SEG_WINDOW_US, interval,
-                                         DETECTOR_MIN_WINDOW_SIZE);
+  uint32_t window = window_override > 0U
+                        ? static_cast<uint32_t>(window_override)
+                        : packets_for_duration(SEG_WINDOW_US, interval,
+                                               DETECTOR_MIN_WINDOW_SIZE);
+  if (window < DETECTOR_MIN_WINDOW_SIZE) {
+    window = DETECTOR_MIN_WINDOW_SIZE;
+  }
   if (window > DETECTOR_MAX_WINDOW_SIZE) {
     window = DETECTOR_MAX_WINDOW_SIZE;
   }
@@ -220,21 +238,6 @@ class PacketRateEstimator {
     return interval_us_raw_();
   }
 
-  /** Mean of the observed intervals, which is throughput rather than spacing. */
-  uint32_t interval_us_raw_() const {
-    if (interval_cache_ == 0U) {
-      uint64_t total = 0U;
-      for (uint8_t i = 0U; i < delta_count_; i++) {
-        total += deltas_[i];
-      }
-      interval_cache_ = static_cast<uint32_t>(total / delta_count_);
-      if (interval_cache_ == 0U) {
-        interval_cache_ = 1U;
-      }
-    }
-    return interval_cache_;
-  }
-
   /**
    * Return the cadence-normal sequence advance, or 1 until established.
    *
@@ -256,6 +259,21 @@ class PacketRateEstimator {
   }
 
  private:
+  /** Mean of the observed intervals, which is throughput rather than spacing. */
+  uint32_t interval_us_raw_() const {
+    if (interval_cache_ == 0U) {
+      uint64_t total = 0U;
+      for (uint8_t i = 0U; i < delta_count_; i++) {
+        total += deltas_[i];
+      }
+      interval_cache_ = static_cast<uint32_t>(total / delta_count_);
+      if (interval_cache_ == 0U) {
+        interval_cache_ = 1U;
+      }
+    }
+    return interval_cache_;
+  }
+
   static uint32_t median(const uint32_t* values, uint8_t count) {
     if (count == 0U) {
       return 0U;

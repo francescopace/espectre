@@ -37,6 +37,12 @@ static const char *const TAG = "espectre";
 class ESpectreComponent : public Component, public IRuntimeListener {
   friend class ESpectreDetectorSelect;
  public:
+  ESpectreComponent() {
+    // ESPHome always generates the detector select entity, so this frontend
+    // always wants the NVS-backed runtime detector store behind it.
+    this->runtime_.config().runtime_detector_selection_enabled = true;
+  }
+
   void setup() override;
   void loop() override;
   ~ESpectreComponent();
@@ -54,9 +60,12 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_traffic_generator_mode(const std::string &mode) { 
     this->runtime_.config().traffic_generator_mode = parse_traffic_mode(mode.c_str());
   }
+  // Picking the startup algorithm and enabling runtime selection are separate
+  // concerns; only the first is a YAML choice. ESPHome always exposes the
+  // detector select entity and the NVS-backed store behind it, so the second is
+  // declared once in the constructor rather than as a side effect here.
   void set_detection_algorithm(const std::string &algo) {
     this->runtime_.config().detection_algorithm = parse_detection_algorithm(algo.c_str());
-    this->runtime_.config().runtime_detector_selection_enabled = true;
   }
   void set_publish_interval(uint32_t interval) { this->runtime_.config().publish_interval = interval; }
   void set_evaluation_interval(uint32_t interval) { this->runtime_.config().evaluation_interval = interval; }

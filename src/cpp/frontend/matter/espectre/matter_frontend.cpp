@@ -73,8 +73,7 @@ void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
 }
 
 void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
-  runtime_.record_snapshot(snapshot);
-  runtime_.config().segmentation_threshold = snapshot.threshold;
+  apply_threshold_snapshot(runtime_, snapshot);
 }
 
 void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
@@ -89,7 +88,10 @@ void MatterFrontend::on_live_telemetry(float movement, float threshold) {
 }
 
 void MatterFrontend::on_runtime_fault(const char *message) {
-  if (message != nullptr && bindings_ != nullptr) {
+  // setup() refuses a null bindings_ and the runtime only calls back once
+  // setup() succeeded, so the pointer is an invariant rather than something to
+  // re-test per hook; on_motion_state_changed already relies on that.
+  if (message != nullptr) {
     bindings_->report_fault(message);
   }
 }

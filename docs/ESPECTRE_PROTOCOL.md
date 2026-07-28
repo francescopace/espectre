@@ -97,6 +97,13 @@ espectre/v1/devices/{device_id}/telemetry
 }
 ```
 
+Native MQTT telemetry uses a hybrid cadence. Filtered motion-state transitions
+are published immediately once `ready_to_publish` is true, while updates at the
+configured `publish_interval` remain as a heartbeat and current-metrics
+snapshot. Edge publishes occur only on state transitions, not on every detector
+evaluation. Native BLE live telemetry remains opt-in and low-latency for nearby
+interactive clients.
+
 ### Status
 
 Published on:

@@ -101,17 +101,28 @@ espectre:
   segmentation_window_size: 100
 ```
 
-The setting is currently a packet count. At the nominal `100 pps`, the default
-therefore spans about one second. Deployed runtimes measure arrival cadence for
-evaluation scheduling and stream-gap handling, but they do not yet resize the
-detector window or feature lags after construction. A sustained rate change can
-therefore change their physical time span.
+The setting is a packet count, and it stays one. The feature lags also remain at
+the nominal `10:1` packet offsets used for fitting; only the evaluation schedule
+follows elapsed arrival time. A slower link therefore widens both the window and
+the feature offsets in time rather than changing the fitted feature definition.
+The supported detector envelope is `80-133 pps`.
 
-The target time-based contract and its current implementation boundary are
-described in the Detector Timing section of
-[ALGORITHMS.md](ALGORITHMS.md). Below roughly 100 samples per window, feature
-estimates become noisy enough that recall drops while false positives stay low;
-that is why the minimum is 100.
+That floor is measured, not assumed. Sweeping only the window over the 22
+normal-link paired recordings at their native rate:
+
+| window | worst-session recall | median recall |
+| --- | --- | --- |
+| 80 | `91.9%` | `99.4%` |
+| 90 | `94.2%` | `100.0%` |
+| 100 | `96.8%` | `100.0%` |
+| 120 | `97.1%` | `100.0%` |
+
+The production target is `95%` recall, so 80 and 90 fail on the worst session
+while the median barely moves. That is why the minimum is 100, and why the floor
+has to be gated per session rather than on the average.
+
+See the Detector Timing section in [ALGORITHMS.md](ALGORITHMS.md) for the full
+contract and the measured reason runtime lag derivation was rejected.
 
 Rules of thumb:
 

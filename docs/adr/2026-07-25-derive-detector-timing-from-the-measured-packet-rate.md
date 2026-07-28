@@ -1,17 +1,16 @@
 # ADR: derive detector timing from the measured packet rate
 
-- Status: Accepted
+- Status: Superseded in part
 - Date: 2026-07-25
+- Superseded by: 2026-07-28-keep-production-feature-lags-at-nominal-offsets.md
 
 ## Current Implementation Status
 
-The decision remains the target contract, but deployment is partial as of
-2026-07-28. Host replay and validation paths use the full derived timing.
-Deployed C++ and MicroPython runtimes use arrival timing for evaluation cadence,
-gap detection, and state reset, while detector windows and feature lags remain
-the packet-count values selected at construction time. The remaining C++ wiring
-is tracked as `B-3` in the
-[C++ review](../review/cpp-review-2026-07-28.md).
+Arrival-time evaluation cadence, gap detection, state reset, and the
+sample-count window remain accepted. Runtime feature-lag derivation was measured
+and rejected on 2026-07-28; deployed C++ and MicroPython runtimes keep the
+nominal packet offsets. See
+[2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](2026-07-28-keep-production-feature-lags-at-nominal-offsets.md).
 
 ## Context
 

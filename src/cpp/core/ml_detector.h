@@ -46,8 +46,14 @@ public:
      * @param window_size Feature extraction window size (10-200 packets)
      * @param threshold Motion detection threshold (0.0-1.0 on the ML probability scale)
      */
-    MLDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE, 
-               float threshold = ML_DEFAULT_THRESHOLD);
+    /**
+     * @param lag Profile-displacement distance in packets. Production uses the
+     *        nominal-rate default. Alternate values are for replay experiments
+     *        and require retraining before deployment.
+     */
+    MLDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE,
+               float threshold = ML_DEFAULT_THRESHOLD,
+               uint16_t lag = L1_DELTA_LAG);
     
     ~MLDetector() override;
     
@@ -69,7 +75,7 @@ public:
                         int8_t rssi_dbm = INT8_MIN) override;
     void update_state() override;
     void clear_buffer() override;
-    float get_motion_metric() const override { return current_probability_; }
+    bool is_ready() const override;
     bool set_threshold(float threshold) override;
     float get_threshold() const override { return threshold_; }
     const char* get_name() const override { return "ML"; }
@@ -120,7 +126,6 @@ private:
     float predict(const float* features);
 
     float threshold_;
-    float current_probability_;
 
     // L1-delta profile-displacement state, maintained only when the exported
     // model actually uses L1-delta features (checked against ML_FEATURE_IDS).
@@ -129,6 +134,7 @@ private:
     // ratio, which needs the rings running but not the rebuilt series.
     bool uses_l1_tracker_;
     bool uses_l1_series_;
+    uint16_t lag_;
     L1DeltaTracker l1_tracker_;
 
     // Single heap block backing every feature-path working array, so nothing

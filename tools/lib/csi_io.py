@@ -1066,9 +1066,6 @@ class CollectionDetectorGate:
         if not self.calibrated:
             return
         threshold, _ = self.calibrator.calculate_threshold()
-        if hasattr(self.calibrator, "get_floor_snapshot") and hasattr(self.detector, "apply_startup_floor"):
-            floor, vote_enabled, sample_count = self.calibrator.get_floor_snapshot()
-            self.detector.apply_startup_floor(floor, vote_enabled, sample_count)
         self.detector.set_adaptive_threshold(threshold)
         self.detector.reset()
         self.current_metric = 0.0

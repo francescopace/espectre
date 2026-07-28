@@ -48,8 +48,6 @@ constexpr float HAMPEL_TURBULENCE_THRESHOLD_DEFAULT = 5.0f;
 
 struct hampel_turbulence_state_t {
     float buffer[HAMPEL_TURBULENCE_WINDOW_MAX];       // Circular buffer for values
-    float sorted_buffer[HAMPEL_TURBULENCE_WINDOW_MAX]; // Pre-allocated for sorting
-    float deviations[HAMPEL_TURBULENCE_WINDOW_MAX];    // Pre-allocated for MAD calc
     uint8_t window_size;  // Actual window size (3-11)
     uint8_t index;
     uint8_t count;
@@ -60,9 +58,20 @@ struct hampel_turbulence_state_t {
 // Alias for cleaner naming
 using hampel_filter_state_t = hampel_turbulence_state_t;
 
-void hampel_turbulence_init(hampel_turbulence_state_t *state, uint8_t window_size, 
+void hampel_turbulence_init(hampel_turbulence_state_t *state, uint8_t window_size,
                             float threshold, bool enabled);
-float hampel_filter(const float *window, size_t window_size, 
+
+/**
+ * Stateless Hampel decision over a caller-owned window.
+ *
+ * Shared numeric core: hampel_filter_turbulence() pushes into its ring and then
+ * defers here, so the outlier rule exists in exactly one place. The scratch is
+ * two stack arrays bounded by HAMPEL_TURBULENCE_WINDOW_MAX (11 floats each),
+ * which is small enough for the CSI callback stack.
+ *
+ * @return median when current_value is an outlier, otherwise current_value
+ */
+float hampel_filter(const float *window, size_t window_size,
                     float current_value, float threshold);
 float hampel_filter_turbulence(hampel_turbulence_state_t *state, float turbulence);
 

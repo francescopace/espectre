@@ -76,7 +76,7 @@ ESPectre v3 success criteria:
 - [ ] Consent manager and cookies
 - [ ] Evaluate whether the Wi-Fi profile `scale` field can improve data stability. The current detector path treats scale invariance as a requirement because the capture metadata does not yet provide a trusted correction for packet-to-packet gain drift. If the profile-level `scale` term is exposed consistently enough across chips and collection paths, measure whether using it reduces session drift or cross-capture instability without breaking the current C++/Python alignment
 - [ ] Test Igiene: remove redundant tests. Test only cpp, micropython and cli and cli dependencies. Avoid to test tools or scripts. Avoid to test configurations. keep coverage gate. Define this rule in agents.md
-- [x] Complete the final C++ architecture, responsibility, duplication, and performance review; remaining fixes are tracked in [cpp-review-2026-07-28.md](review/cpp-review-2026-07-28.md)
+- [x] Close the final C++ architecture, responsibility, duplication, and performance review; all findings and maintainer decisions are resolved in [cpp-review-2026-07-28.md](review/cpp-review-2026-07-28.md)
 - [ ] Complete the security review and encode the recurring review rule in `AGENTS.md`
 - [x] Close the final documentation review and its generated-report work; all 15 findings are resolved in [documentation-review-2026-07-28.md](review/documentation-review-2026-07-28.md)
 - [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization

@@ -58,14 +58,6 @@ void test_utils_statistical_helpers_cover_edge_cases(void) {
     TEST_ASSERT_EQUAL_FLOAT(3.0f, calculate_median_float(float_values_odd, 3));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_median_float(nullptr, 0));
 
-    uint8_t u8_values[] = {9, 1, 5, 3};
-    TEST_ASSERT_EQUAL_UINT8(4, calculate_median_u8(u8_values, 4));
-    TEST_ASSERT_EQUAL_UINT8(0, calculate_median_u8(nullptr, 0));
-
-    int8_t i8_values[] = {9, -3, 5, 1};
-    TEST_ASSERT_EQUAL_INT8(3, calculate_median_i8(i8_values, 4));
-    TEST_ASSERT_EQUAL_INT8(0, calculate_median_i8(nullptr, 0));
-
     TEST_ASSERT_EQUAL_FLOAT(3.0f, apply_cv_normalization(6.0f, 2.0f));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, apply_cv_normalization(6.0f, 0.0f));
 
@@ -98,15 +90,6 @@ void test_utils_spatial_turbulence_handles_invalid_inputs(void) {
 
     float from_csi = calculate_spatial_turbulence_from_csi(packet.data(), packet.size(), sparse_band, 4);
     TEST_ASSERT_TRUE(from_csi >= 0.0f);
-
-    float negative = -3.0f;
-    float positive = 2.0f;
-    TEST_ASSERT_TRUE(compare_float_abs(&negative, &positive) > 0);
-    TEST_ASSERT_TRUE(compare_float(&negative, &positive) < 0);
-
-    int8_t low = -5;
-    int8_t high = 6;
-    TEST_ASSERT_TRUE(compare_int8(&low, &high) < 0);
 }
 
 namespace {
@@ -200,7 +183,6 @@ void test_startup_threshold_calibrator_gate_disabled_matches_max(void) {
 
     TEST_ASSERT_TRUE(calibrator.is_complete());
     TEST_ASSERT_TRUE(calibrator.is_successful());
-    TEST_ASSERT_FALSE(calibrator.is_extending());
     TEST_ASSERT_EQUAL_FLOAT(0.05f, calibrator.threshold_metric());
     TEST_ASSERT_EQUAL_STRING("max", calibrator.statistic_name());
 }
@@ -224,11 +206,10 @@ void test_startup_threshold_calibrator_weighted_observation_matches_repeated(voi
     weighted.begin(200, true);
     repeated.begin(200, true);
     const float metrics[] = {0.05f, 0.05f, 0.12f, 0.12f, 0.05f, 0.05f};
-    const float floors[] = {0.01f, 0.01f, 0.50f, 0.50f, 0.01f, 0.01f};
     for (size_t i = 0; i < sizeof(metrics) / sizeof(metrics[0]); ++i) {
-        weighted.observe(true, metrics[i], floors[i], 25U);
+        weighted.observe(true, metrics[i], 25U);
         for (uint16_t packet = 0; packet < 25U; ++packet) {
-            repeated.observe(true, metrics[i], floors[i]);
+            repeated.observe(true, metrics[i]);
         }
     }
 
@@ -304,27 +285,27 @@ void test_motion_without_return_is_stable_at_budget_boundary(void) {
     }
 }
 
-void test_motion_first_preserves_validated_quiet_floor_samples(void) {
+// A long quiet prefix must not stop motion-first from accepting: the bootstrap
+// keeps only the last two chunks, so 300 quiet packets classify the same way 50
+// do. This scenario used to assert on the variance-floor snapshot, which was
+// removed as dead; the calibration outcome it also covered is kept here.
+void test_motion_first_accepts_after_a_long_quiet_prefix(void) {
     StartupThresholdCalibrator calibrator;
     calibrator.begin(500, true);
     for (int i = 0; i < 300; ++i) {
-        calibrator.observe(true, 0.05f, 0.01f);
+        calibrator.observe(true, 0.05f);
     }
     for (int i = 0; i < 50; ++i) {
-        calibrator.observe(true, 0.12f, 0.50f);
+        calibrator.observe(true, 0.12f);
     }
     for (int i = 0; i < 50; ++i) {
-        calibrator.observe(true, 0.05f, 0.01f);
+        calibrator.observe(true, 0.05f);
     }
 
-    float floor = 0.0f;
-    bool vote_enabled = false;
-    uint16_t sample_count = 0;
-    calibrator.floor_snapshot(floor, vote_enabled, sample_count);
     TEST_ASSERT_TRUE(calibrator.is_complete());
-    TEST_ASSERT_EQUAL_FLOAT(0.01f, floor);
-    TEST_ASSERT_TRUE(vote_enabled);
-    TEST_ASSERT_TRUE(sample_count >= STARTUP_FLOOR_MIN);
+    TEST_ASSERT_EQUAL_INT(400, static_cast<int>(calibrator.packet_count()));
+    TEST_ASSERT_EQUAL_FLOAT(0.085f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_STRING("motion gap midpoint", calibrator.statistic_name());
 }
 
 void test_detector_startup_gate_traits(void) {
@@ -451,7 +432,7 @@ int process(void) {
     RUN_TEST(test_motion_first_short_spike_falls_back_to_quiet_first);
     RUN_TEST(test_motion_without_return_uses_fallback_inside_budget);
     RUN_TEST(test_motion_without_return_is_stable_at_budget_boundary);
-    RUN_TEST(test_motion_first_preserves_validated_quiet_floor_samples);
+    RUN_TEST(test_motion_first_accepts_after_a_long_quiet_prefix);
     RUN_TEST(test_detector_startup_gate_traits);
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
     RUN_TEST(test_classic_detector_move_semantics_and_base_accessors);

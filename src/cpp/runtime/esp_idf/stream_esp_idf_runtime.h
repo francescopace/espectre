@@ -16,13 +16,14 @@
 #include "csi_capture_service.h"
 #include "csi_stream_transport.h"
 #include "csi_traffic_service.h"
+#include "esp_idf_runtime_base.h"
 #include "runtime_interface.h"
 #include "runtime_debug_telemetry.h"
 #include "standalone_wifi_service.h"
 
 namespace espectre {
 
-class StreamEspIdfRuntime : public IEspectreRuntime {
+class StreamEspIdfRuntime : public EspIdfRuntimeBase {
  public:
   explicit StreamEspIdfRuntime(const RuntimeConfig &config);
 
@@ -36,11 +37,6 @@ class StreamEspIdfRuntime : public IEspectreRuntime {
   bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm) override;
   bool trigger_recalibration() override;
   bool is_calibrating() const override;
-
-  RuntimeSnapshot get_snapshot() const override;
-  RuntimeCapabilities get_capabilities() const override;
-
-  void set_listener(IRuntimeListener *listener) override;
 
  private:
   enum class WorkflowState : uint8_t {
@@ -58,7 +54,6 @@ class StreamEspIdfRuntime : public IEspectreRuntime {
   void on_wifi_connected_();
   void on_wifi_disconnected_();
   void transition_to_(WorkflowState next, const char *reason);
-  void notify_fault_(const char *message);
   void handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized);
   void handle_pacing_packet_(const sockaddr_in &sender_addr, uint64_t pacing_total);
   static void capture_packet_callback_(void *context,
@@ -66,23 +61,13 @@ class StreamEspIdfRuntime : public IEspectreRuntime {
                                        const NormalizedCSIPayload &normalized);
   static void pacing_packet_callback_(void *context, const sockaddr_in &sender_addr, uint64_t pacing_total);
 
-  RuntimeConfig config_{};
-  RuntimeSnapshot snapshot_{};
-  RuntimeCapabilities capabilities_{};
-  IRuntimeListener *listener_{nullptr};
-
   CsiCaptureService capture_service_;
   CsiTrafficService csi_traffic_service_;
   CsiStreamTransport stream_transport_;
   StandaloneWifiService wifi_manager_;
-  RuntimeDebugTelemetry debug_telemetry_;
 
-  bool setup_complete_{false};
-  bool services_armed_{true};
-  bool live_telemetry_enabled_{true};
   std::atomic<bool> wifi_connected_{false};
   std::atomic<WorkflowState> state_{WorkflowState::WAIT_WIFI};
-  std::string last_fault_;
   std::array<uint8_t, 6> ap_bssid_{};
 };
 

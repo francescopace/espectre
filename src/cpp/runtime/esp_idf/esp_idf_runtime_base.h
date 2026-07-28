@@ -1,0 +1,61 @@
+/*
+ * ESPectre - ESP-IDF Runtime Base
+ *
+ * State and fault reporting shared by the ESP-IDF runtime implementations.
+ * Both the sensing and the stream runtime carried identical copies of the
+ * config/snapshot/capabilities/listener quartet and of notify_fault_(), which
+ * left two places to keep in step for every contract change.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
+#pragma once
+
+#include <string>
+
+#include "espectre_log.h"
+#include "runtime_debug_telemetry.h"
+#include "runtime_interface.h"
+
+namespace espectre {
+
+class EspIdfRuntimeBase : public IEspectreRuntime {
+ public:
+  /**
+   * @param fault_tag Log tag for runtime faults
+   * @param unknown_fault_message Reported when a caller passes a null message
+   */
+  EspIdfRuntimeBase(const RuntimeConfig &config, const char *fault_tag,
+                    const char *unknown_fault_message)
+      : config_(config), fault_tag_(fault_tag), unknown_fault_message_(unknown_fault_message) {}
+
+  RuntimeSnapshot get_snapshot() const override { return snapshot_; }
+  RuntimeCapabilities get_capabilities() const override { return capabilities_; }
+  void set_listener(IRuntimeListener *listener) override { listener_ = listener; }
+
+ protected:
+  void notify_fault_(const char *message) {
+    last_fault_ = message != nullptr ? message : unknown_fault_message_;
+    ESP_LOGE(fault_tag_, "Runtime fault: %s", last_fault_.c_str());
+    if (listener_ != nullptr) {
+      listener_->on_runtime_fault(last_fault_.c_str());
+    }
+  }
+
+  RuntimeConfig config_{};
+  RuntimeSnapshot snapshot_{};
+  RuntimeCapabilities capabilities_{};
+  IRuntimeListener *listener_{nullptr};
+  RuntimeDebugTelemetry debug_telemetry_;
+
+  bool setup_complete_{false};
+  bool services_armed_{true};
+  bool live_telemetry_enabled_{true};
+  std::string last_fault_;
+
+ private:
+  const char *fault_tag_;
+  const char *unknown_fault_message_;
+};
+
+}  // namespace espectre

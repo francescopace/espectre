@@ -118,11 +118,15 @@ public:
     
     /**
      * Get current motion metric value
-     * 
+     *
+     * Not virtual: every detector reported the same member through an identical
+     * accessor, and the two copies drifted on when they cleared it. Subclasses
+     * assign `current_metric_` at the end of their `update_state()` instead.
+     *
      * @return Primary metric (classic motion metric, ML probability, etc.)
      */
-    virtual float get_motion_metric() const = 0;
-    
+    float get_motion_metric() const { return current_metric_; }
+
     /**
      * Set detection threshold
      * 
@@ -171,13 +175,6 @@ public:
      * performs its warm clear between calibration and steady-state detection.
      */
     virtual void on_startup_calibration_complete() {}
-
-    /**
-     * Optional auxiliary startup metric for detector-specific frozen state.
-     *
-     * Detectors that do not need a startup floor can keep the default 0.0f.
-     */
-    virtual float get_startup_floor_metric() const { return 0.0f; }
 
     // ========================================================================
     // FILTER CONFIGURATION
@@ -245,6 +242,19 @@ public:
     bool is_hampel_enabled() const { return hampel_state_.enabled; }
 
 protected:
+    /**
+     * Drop the last evaluation result.
+     *
+     * Anything that invalidates the window must also invalidate what was
+     * derived from it, or the next publish ships a metric computed from
+     * samples the detector no longer holds. Owned here so a detector cannot
+     * clear one half and forget the other.
+     */
+    void clear_evaluation_state_() {
+        current_metric_ = 0.0f;
+        state_ = MotionState::IDLE;
+    }
+
     void process_amplitudes(const float* amplitudes, uint8_t count);
 
     /**
@@ -280,8 +290,10 @@ protected:
     uint16_t buffer_count_;
     uint16_t window_size_;
     
-    // Motion state
+    // Motion state. `current_metric_` is what get_motion_metric() reports and
+    // what the runtime publishes; clear_evaluation_state_() owns dropping both.
     MotionState state_;
+    float current_metric_;
     uint32_t total_packets_;
     uint32_t packet_index_;
     

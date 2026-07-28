@@ -208,7 +208,6 @@ inline bool calibrate_classic_detector(
     calibrator.observe(
         detector.is_ready(),
         detector.get_motion_metric(),
-        detector.get_startup_floor_metric(),
         cadence.packet_weight());
     cadence.after_evaluation();
     if (calibrator.is_complete()) {

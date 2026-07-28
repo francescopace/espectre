@@ -9,6 +9,9 @@ connectedhomeip tree.
 Baseline at review time: `ctest --test-dir test/cpp/build` → 27/27 passing.
 Every finding below is on a green tree; none is a currently failing test.
 
+Review status: **Complete.** All findings are resolved; rejected directions and
+deferred feature work are recorded explicitly rather than left as open fixes.
+
 ---
 
 ## 1. How To Read This Document
@@ -81,19 +84,31 @@ rather than repaired. `sizeof(StartupThresholdCalibrator)` went from 4636 to
 
 ### Batch 6 — Cadence and rate adaptation
 
-Blocked on question 2 in [§11](#open-questions).
+The time-relative design was already chosen and partly shipped: the evaluation
+cadence runs on packet timestamps on both device runtimes. Only the detector
+sizing had never left the host tooling. Batch 6 finished that port and then
+measured it, and the measurement rejected half of it.
 
-- [ ] **B-2** (High) — Align calibration and detection cadence → [§6](#b-2)
-- [ ] **B-3** (High) — Wire up or scope out `derive_detector_timing()` → [§6](#b-3)
-- [ ] **B-4** (Medium) — Gate ML readiness on the L1 ring → [§6](#b-4)
-- [ ] **B-5** (Medium) — Clamp `ClassicDetector::lag_` → [§6](#b-5)
-- [ ] **P-3** (Low) — Size `profile_ring_` to the declared rate envelope → [§7](#p-3)
+- [x] **B-2** (High) — Align calibration and detection cadence → [§6](#b-2)
+- [x] **B-3** (High) — Revert the lag derivation; measured as a regression → [§6](#b-3)
+- [x] **B-4** (Medium) — Gate ML readiness on the L1 ring → [§6](#b-4)
+- [x] **B-5** (Medium) — Clamp `ClassicDetector::lag_` → [§6](#b-5)
+- [x] **P-3** (Low) — Correct the `profile_ring_` cost comment → [§7](#p-3)
+
+### Batch 7 — Make the L1 lag ratio genuinely time-relative
+
+Follows directly from the B-3 measurement: the L1 feature cannot be made
+time-relative by scaling one lag, because it is a ratio of two. Doing it
+properly is a feature change that needs a Classic refit and an ML retrain, so it
+is its own batch rather than a fix inside batch 6.
+
+- [x] **B-8** (High) — Deferred after measurement; keep the fitted `10:1` offsets → [§6](#b-8)
 
 ### Unbatched — needs a product decision
 
 - [x] **B-6** part 2 — Native honours `ready_to_publish` → [§6](#b-6)
 - [x] **B-6** part 3 — Matter null-check made consistent → [§6](#b-6)
-- [ ] **B-6** part 1 (Medium) — Decide whether MQTT motion telemetry is edge-driven → [§6](#b-6)
+- [x] **B-6** part 1 (Medium) — Publish filtered MQTT motion edges immediately and retain periodic telemetry → [§6](#b-6)
 
 ---
 
@@ -283,9 +298,9 @@ the path is abandoned rather than parked.
 pre-change baseline, confirming the removed values never influenced any output.
 C++ 27/27, Python 1051 passed.
 
-**Still open**: an ADR recording why the variance-floor direction was rejected.
-`AGENTS.md` forbids creating `.md` files unprompted, so this is left as a
-suggestion rather than written.
+**Decision record**: the abandoned direction and the measured memory saving are
+preserved in
+[2026-07-28-drop-the-unused-startup-variance-floor.md](../adr/2026-07-28-drop-the-unused-startup-variance-floor.md).
 
 ---
 
@@ -760,13 +775,74 @@ that one in the same change.
 
 *Option B — declare the scope.*
 
-If the supported envelope is genuinely 80–133 pps, state it in
+If the supported envelope is genuinely 80-133 pps, state it in
 `detector_timing.h` and in `classic_detector.h`, remove the misleading
 constructor comment, and mark `derive_detector_timing()` as a replay-analysis
 helper. The replay suite should then also pin the nominal timing so it measures
 what ships.
 
-Either way, record the decision in `docs/adr/`.
+**Outcome: Option A was implemented, then measured, and the lag derivation is
+rejected.**
+
+The standard replay suite could not settle it: the corpus sits at 90-120 pps,
+inside the 25% dead band, so every metric is identical with and without the
+change. Two purpose-built A/B replays were run instead, both holding the window
+pinned at 100 and varying only the detector lags.
+
+*Low-rate arm* — the 22 normal-link paired recordings, each decimated to 75, 65,
+and 55 pps, 66 comparable cells:
+
+| | value |
+| --- | --- |
+| cells where derived lags are worse | 13 |
+| cells where derived lags are better | 3 |
+| recall delta, mean | `-0.76` |
+| recall delta, worst cell | `-11.0` |
+| false-positive delta, mean | `-0.14` |
+
+The sign is systematically negative and grows with the deviation from nominal:
+`-7.8`, `-7.7`, `-4.4`, `-3.1`, and `-2.3` recall points on individual sessions.
+There is no false-positive benefit to trade against it.
+
+*High-rate arm* — the two `>= 500 pps` source pairs, decimated across 500 to 50
+pps. At 500 pps the derived lags do cut false positives, from `9.2%` to `0.0%`
+on the pair that has margin, but at a cost of `16.5` recall points. That regime
+is replay-only: no supported part delivers 500 pps.
+
+**Why it fails.** `delta_lag_ratio` is not a lag, it is a *ratio of two* lags:
+
+```
+ratio = mean(|profile[t] - profile[t-lag]|) / mean(|profile[t] - profile[t-1]|)
+```
+
+Deriving from elapsed time rescales only the numerator, while the denominator
+stays pinned at "the previous packet". The coefficients were fitted on a `10:1`
+relation; at 70 pps the derived lag makes it `7:1`, which is a different feature.
+A third arm confirms it directly: deriving *only* the turbulence-autocorrelation
+lag and leaving the L1 lag at its nominal value makes the low-rate regressions
+disappear entirely, reproducing the fixed-lag numbers exactly at 70, 60, and 55
+pps.
+
+So the "lags are durations" argument holds for the autocorrelation lag and fails
+for the L1 lag, because there the physical quantity is a ratio rather than an
+interval.
+
+**Resolution**
+
+The lag derivation was reverted on both runtimes. Calibration starts on connect,
+and production constructs both detectors with the fitted nominal offsets.
+[B-2](#b-2), [B-4](#b-4), [B-5](#b-5), [P-3](#p-3), and the replay-only
+`window_override` remain because they are independently correct. The rejected
+direction and its measurement are preserved in
+[2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](../adr/2026-07-28-keep-production-feature-lags-at-nominal-offsets.md).
+
+**Reproducing the measurement.** Both arms monkeypatch
+`dataset_metadata.derive_detector_timing` to pin the window at
+`SEG_WINDOW_SIZE` and, for the control arm, the lags at `L1_DELTA_LAG` and `1`,
+then call `compute_classic_packet_result` on packets decimated with
+`_decimate_packets` from `test_packet_rate_adaptation_regression.py`. The
+throwaway scripts are not in the repository; promote them into `tools/` if
+[B-8](#b-8) is pursued, because the same harness is what validates it.
 
 ---
 
@@ -873,16 +949,13 @@ detector store *that*, so a single clamp exists.
 
 **How to fix**
 
-1. **Open.** Decide whether MQTT telemetry is edge-driven or periodic and write
-   it into `ESPECTRE_PROTOCOL.md`. If edge-driven, call
-   `publish_mqtt_telemetry_()` from `NativeFrontend::on_motion_state_changed`.
-   If deliberately periodic to bound broker traffic, say so in a comment at that
-   hook so the asymmetry reads as a decision rather than an omission. This is
-   the only part that needs a product call, so it is the only part left open.
-2. **Done.** `NativeFrontend::on_periodic_update` now returns before publishing
-   when `ready_to_publish` is false, matching ESPHome and Matter. The snapshot
-   is still recorded either way. `on_motion_state_changed` needed no guard: it
-   only records the snapshot and publishes nothing.
+1. **Done.** Native MQTT now publishes filtered motion-state transitions
+   immediately, matching ESPHome's edge-driven state behavior, while retaining
+   periodic telemetry as a heartbeat and current-metrics snapshot. The protocol
+   documents the hybrid cadence.
+2. **Done.** Both Native MQTT publication paths return before publishing when
+   `ready_to_publish` is false, matching ESPHome and Matter. The snapshot is
+   still recorded either way.
 3. **Done.** The redundant `bindings_` null check in
    `MatterFrontend::on_runtime_fault` is gone. `setup()` refuses a null
    `bindings_` and the runtime only calls back after a successful `setup()`, so
@@ -919,6 +992,83 @@ payload, so it is the only one that should set the flag. Note
 `RuntimeFrontendController` caches capabilities at setup, so the frontend would
 need to declare before `setup()` or the controller would need a post-setup
 amendment hook.
+
+---
+
+### B-8 — Scale both lags of the L1 ratio together {#b-8}
+
+**Severity**: High — this is the only route that makes the L1 feature actually
+rate-independent, and [B-3](#b-3) showed the half-measure is worse than doing
+nothing.
+
+**Where**
+
+- Feature: [l1_delta_tracker.h](../../src/cpp/core/l1_delta_tracker.h), the
+  `lagged_` and `adjacent_` window pair and `delta_lag_ratio()`
+- Python mirror: [csi_features.py](../../src/python/micro_espectre/csi_features.py)
+- Coefficients: `CLASSIC_L1_CENTER`, `CLASSIC_L1_SCALE`, `CLASSIC_L1_WEIGHT` in
+  [classic_detector.h](../../src/cpp/core/classic_detector.h) and their Python
+  counterparts
+- Exported model: `ML_FEAT_L1_DELTA_LAG_RATIO` and `ML_FEAT_L1_DELTA_AUTOCORR`
+  in [csi_features.h](../../src/cpp/core/csi_features.h)
+
+**What**
+
+The tracker measures displacement at two distances and divides them. The lagged
+distance is configurable; the adjacent one is hardcoded to the previous packet,
+which is a *packet* offset and therefore a different physical interval at every
+rate. The ratio is only meaningful when both ends scale together.
+
+At the nominal rate the pair is `100 ms / 10 ms`. Deriving only the numerator at
+70 pps gives `100 ms / 14.3 ms`; keeping both nominal gives `143 ms / 14.3 ms`,
+which preserves the `10:1` relation and is why the fixed lags measure better
+today. Neither is the contract.
+
+**How to fix**
+
+1. Make the reference distance a parameter. `L1DeltaWindow adjacent_` currently
+   reads `profile_ring_[profile_index_ - 1]`; it needs its own configurable
+   offset, and the profile ring has to be sized for the larger of the two rather
+   than for `lag_` alone.
+2. Have `derive_detector_timing()` return both, resolved from one duration pair
+   (`L1_DELTA_LAG_US` and a new `L1_DELTA_REFERENCE_LAG_US = 10000`), so the
+   ratio holds its physical meaning at any cadence and collapses to `10:1` at
+   100 pps.
+3. **Refit Classic.** The feature definition changes, so `CLASSIC_L1_CENTER`,
+   `CLASSIC_L1_SCALE`, and `CLASSIC_L1_WEIGHT` no longer describe it. The
+   fitting path is `tools/fit_classic_detector.py`, which already resolves the
+   timing per recording.
+4. **Retrain ML.** Both L1 features feed the exported model, so `ml_weights.h`
+   has to be regenerated. This is the expensive half.
+5. Validate with the same two-arm replay that rejected [B-3](#b-3): the low-rate
+   regressions must disappear, and the high-rate false-positive benefit must
+   arrive without the recall cost. Gate on the worst session per rate, not on the
+   pooled mean.
+
+**Why it is worth doing anyway**
+
+`profile_ring_` is already sized to `L1_DELTA_LAG_MAX`, so the memory is spent
+whether or not the second lag is configurable, and the autocorrelation lag —
+which is a plain interval — already benefits from derivation with no downside at
+low rates. The L1 ratio is the last quantity in the detector whose meaning still
+depends on the delivered packet rate.
+
+**Why it is not a batch 6 fix**
+
+It changes what the feature *is*, so it cannot land without new coefficients and
+a new model. Shipping the plumbing without the refit would reproduce exactly the
+regression [B-3](#b-3) measured. Treat the refit and the retrain as the work,
+and the code change as the small part.
+
+**Resolution**
+
+Deferred after measurement. The deployed C++ and MicroPython runtimes keep the
+fitted `10:1` L1 offsets and lag-1 turbulence autocorrelation, and v3 declares
+`80-133 pps` as the supported detector envelope. The consistent two-lag design
+remains a future feature change, not an open correctness fix: it must include
+the Classic refit, the ML retrain, and per-session non-regression evidence.
+The decision and the rejected partial derivation are preserved in
+[2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](../adr/2026-07-28-keep-production-feature-lags-at-nominal-offsets.md).
 
 ---
 
@@ -1156,6 +1306,7 @@ Suggested commit subjects per batch, matching the tracker in [§2](#2-progress-t
 | 4 | `perf(core): reorder the detector rings without per-element modulo`<br>`refactor(core): share the two-pass mean and variance` |
 | 5 | `refactor(core): drop the unused startup floor path`, plus an ADR if the direction is formally abandoned |
 | 6 | Split per finding; do not fold into an earlier batch, so a regression stays attributable |
+| 7 | `feat(core): scale both lags of the L1 ratio with the cadence`, plus the Classic refit and the ML retrain as their own commits, and an ADR |
 
 ---
 
@@ -1195,15 +1346,14 @@ project before. `docs/performance/README.md` holds the current targets.
 
 ---
 
-## 11. Open Questions For The Maintainer {#open-questions}
+## 11. Maintainer Decisions {#open-questions}
 
-1. **[D-1](#d-1)** — Is the startup-floor path abandoned, or parked for a future
-   variance-floor vote? The answer decides between deletion and repair of
-   [D-2](#d-2). *Blocks batch 5.*
-2. **[B-3](#b-3)** — Is off-nominal cadence a supported operating envelope? If
-   yes, the rate adaptation needs wiring; if no, the timing contract and the
-   replay suite should both be pinned to nominal. *Blocks batch 6.*
-3. **[B-6](#b-6)** — Is MQTT motion telemetry intentionally periodic rather than
-   edge-driven, to bound broker traffic? The BLE path in the same frontend is
-   edge-driven, so the two currently disagree without an explanation in the
-   protocol document.
+- **[D-1](#d-1)** — the startup-floor path was confirmed abandoned and deleted.
+- **[B-3](#b-3)** — off-nominal cadence is a supported envelope and the
+  time-relative design was already chosen, so the port was finished rather than
+  scoped out. Measurement rejected runtime lag derivation, which was reverted.
+- **[B-8](#b-8)** — the two-lag refit and retrain are deferred. Production keeps
+  the fitted `10:1` offsets inside the declared `80-133 pps` envelope.
+- **[B-6](#b-6)** — MQTT publishes filtered motion edges immediately and keeps
+  periodic telemetry as a heartbeat; BLE remains the opt-in per-evaluation
+  low-latency surface.

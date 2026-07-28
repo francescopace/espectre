@@ -17,7 +17,7 @@
 
 #include "base_detector.h"
 #include "csi_capture_service.h"
-#include "detector_timing.h"
+#include "evaluation_cadence.h"
 #include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_wifi.h"
@@ -77,8 +77,11 @@ using motion_state_callback_t = std::function<void(MotionState)>;
 // Callback type for live telemetry updates emitted on evaluation ticks.
 using live_telemetry_callback_t = std::function<void(float movement, float threshold)>;
 
-// Callback type for intercepting normalized CSI packets before detector processing.
-using csi_packet_interceptor_t = bool (*)(void *, const int8_t *, size_t, int8_t);
+// Callback type for intercepting normalized CSI packets before detector
+// processing. The interceptor is told whether this packet closes an evaluation
+// window and how many packets that window covers, so it evaluates on the same
+// cadence the detection path does instead of counting packets itself.
+using csi_packet_interceptor_t = bool (*)(void *, const int8_t *, size_t, int8_t, bool, uint32_t);
 
 /**
  * CSI Pipeline
@@ -107,7 +110,7 @@ class CsiPipeline {
    */
   bool set_threshold(float threshold);
   void set_detector(BaseDetector *detector);
-  void set_evaluation_interval(uint32_t interval) { evaluation_interval_ = interval > 0 ? interval : 1; }
+  void set_evaluation_interval(uint32_t interval) { cadence_.set_packet_interval(interval); }
   void set_motion_on_hits(uint8_t hits) { motion_on_hits_ = hits > 0 ? hits : 1; }
   void set_motion_off_hits(uint8_t hits) { motion_off_hits_ = hits > 0 ? hits : 1; }
   
@@ -159,6 +162,10 @@ class CsiPipeline {
   uint64_t rejected_out_of_order_packets_total() const {
     return capture_service_.rejected_out_of_order_packets();
   }
+  /** RSSI of the most recently accepted CSI packet. */
+  int8_t last_rssi_dbm() const { return last_rssi_dbm_; }
+  /** Channel the most recently accepted CSI packet arrived on. */
+  uint8_t last_channel() const { return last_channel_; }
   /**
    * Set callback for live telemetry updates.
    */
@@ -203,20 +210,16 @@ class CsiPipeline {
   motion_state_callback_t motion_state_callback_;
   live_telemetry_callback_t live_telemetry_callback_;
   uint32_t publish_rate_{100};
-  uint32_t evaluation_interval_{25};
   // Evaluation advances on elapsed packet time, not on packet count, so a
   // window keeps its deploy-time meaning when the stream runs off-nominal.
-  // The packet counter stays as the fallback for the first packets, before the
-  // estimator has seen enough of the stream to be trusted.
-  PacketRateEstimator packet_rate_{};
-  uint32_t last_packet_us_{0U};
-  uint32_t elapsed_since_evaluation_us_{0};
+  EvaluationCadence cadence_{};
   volatile uint32_t packets_processed_{0};
   std::atomic<uint64_t> accepted_packets_total_{0U};
-  uint32_t packets_since_evaluation_{0};
   uint8_t current_channel_{0};
+  int8_t last_rssi_dbm_{INT8_MIN};
+  uint8_t last_channel_{0};
   uint8_t motion_on_hits_{RUNTIME_MOTION_ON_HITS_DEFAULT};
-  uint8_t motion_off_hits_{3};
+  uint8_t motion_off_hits_{RUNTIME_MOTION_OFF_HITS_DEFAULT};
   uint8_t pending_state_hits_{0};
   MotionState effective_motion_state_{MotionState::IDLE};
   MotionState pending_motion_state_{MotionState::IDLE};

@@ -39,6 +39,7 @@ BaseDetector::BaseDetector(uint16_t window_size)
     , buffer_count_(0)
     , window_size_(window_size)
     , state_(MotionState::IDLE)
+    , current_metric_(0.0f)
     , total_packets_(0)
     , packet_index_(0) {
 
@@ -78,6 +79,7 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , buffer_count_(other.buffer_count_)
     , window_size_(other.window_size_)
     , state_(other.state_)
+    , current_metric_(other.current_metric_)
     , total_packets_(other.total_packets_)
     , packet_index_(other.packet_index_)
     , hampel_state_(other.hampel_state_)
@@ -100,6 +102,7 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         buffer_count_ = other.buffer_count_;
         window_size_ = other.window_size_;
         state_ = other.state_;
+        current_metric_ = other.current_metric_;
         total_packets_ = other.total_packets_;
         packet_index_ = other.packet_index_;
         lowpass_state_ = other.lowpass_state_;
@@ -128,10 +131,16 @@ const float* BaseDetector::ordered_turbulence(uint16_t& count) const {
         return nullptr;
     }
 
-    // buffer_index_ points to the next write slot, i.e. the oldest sample.
-    for (uint16_t i = 0; i < buffer_count_; i++) {
-        ordered_turbulence_[i] = turbulence_buffer_[(buffer_index_ + i) % window_size_];
-    }
+    // buffer_index_ points to the next write slot, i.e. the oldest sample. The
+    // ring is full on this branch, so the split point is known and the copy is
+    // two contiguous runs; the modulo-per-element form cost an integer division
+    // per sample on every evaluation, and integer division is not single-cycle
+    // on the Xtensa and RISC-V parts.
+    const uint16_t tail = static_cast<uint16_t>(window_size_ - buffer_index_);
+    std::memcpy(ordered_turbulence_, turbulence_buffer_ + buffer_index_,
+                static_cast<size_t>(tail) * sizeof(float));
+    std::memcpy(ordered_turbulence_ + tail, turbulence_buffer_,
+                static_cast<size_t>(buffer_index_) * sizeof(float));
     count = buffer_count_;
     return ordered_turbulence_;
 }
@@ -165,10 +174,10 @@ void BaseDetector::process_amplitudes(const float* amplitudes, uint8_t count) {
 }
 
 void BaseDetector::reset() {
-    state_ = MotionState::IDLE;
+    clear_evaluation_state_();
     packet_index_ = 0;
     total_packets_ = 0;
-    
+
     // Don't clear buffer - preserve "warm" state
 }
 
@@ -193,8 +202,8 @@ void BaseDetector::clear_buffer() {
     }
     buffer_index_ = 0;
     buffer_count_ = 0;
-    state_ = MotionState::IDLE;
-    
+    clear_evaluation_state_();
+
     // Reset filters
     lowpass_filter_reset(&lowpass_state_);
     hampel_turbulence_init(&hampel_state_, hampel_state_.window_size, 

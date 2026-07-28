@@ -184,9 +184,6 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
         def is_complete(self):
             return self.packet_count >= self.target_packets
 
-        def is_extending(self):
-            return False
-
         def is_successful(self):
             return self.max_moving_variance is not None
 
@@ -2454,9 +2451,6 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
 
         def is_complete(self):
             return self.packet_count >= self.target_packets
-
-        def is_extending(self):
-            return False
 
         def is_successful(self):
             return self.max_moving_variance is not None

@@ -151,16 +151,15 @@ class PacketRateEstimator:
         return self._seq_cache
 
 
-def derive_detector_timing(interval_us):
-    """Resolve the detector's duration contract into packet counts.
+def derive_detector_timing(interval_us, window_override=None):
+    """Resolve a candidate detector timing for replay analysis.
 
-    This is the single definition of the timing contract. The device runtime,
-    the host replay path, and the C++ port in ``core/detector_timing.h`` all
-    resolve it the same way, because a detector fitted under one resolution and
-    run under another is measuring a different feature.
-
-    The lags are held in physical time and the window in sample count, which is
-    what measurement supports rather than what symmetry would suggest.
+    Deployed runtimes deliberately keep the production lags at their nominal
+    packet offsets. Scaling only the numerator of the L1 lag ratio changes the
+    feature definition and regresses low-rate recall; scaling both offsets would
+    require a Classic refit and an ML retrain. The host replay path keeps this
+    helper, mirrored in ``core/detector_timing.h``, so future timing candidates
+    can be measured against shipped behavior.
 
     The lags describe how far the channel has moved over an interval, so they
     have to track that interval. This is decisive at high rates: on the 1000 pps
@@ -177,6 +176,13 @@ def derive_detector_timing(interval_us):
     distribution by lifting the threshold, and recall collapses to 60% while
     false positives stay low. Holding the sample count instead keeps recall at
     99% at the same cadence.
+
+    ``window_override`` supplies the window in packets instead of deriving it,
+    still bounded by the measured floor and ceiling. Replay analyses use it to
+    isolate lag behavior: a sweep over the 22 normal-link paired recordings at
+    their native rate puts the worst-session recall at 91.9% for an 80-sample
+    window and 94.2% at 90, both under the 95% production target, against 96.8%
+    at 100. Leaving it ``None`` evaluates the fully derived candidate timing.
     """
     interval = max(1, int(interval_us))
 
@@ -193,10 +199,10 @@ def derive_detector_timing(interval_us):
     def packets_for(duration_us, minimum=1):
         return max(minimum, int(round(float(duration_us) / float(interval))))
 
-    window_packets = min(
-        max(packets_for(SEG_WINDOW_US), SEG_WINDOW_MIN),
-        SEG_WINDOW_MAX,
+    derived_window = (
+        packets_for(SEG_WINDOW_US) if window_override is None else int(window_override)
     )
+    window_packets = min(max(derived_window, SEG_WINDOW_MIN), SEG_WINDOW_MAX)
     # Both lags must leave a usable series inside the window, and the L1 lag
     # also respects the bound the firmware profile ring is sized for.
     lag_ceiling = min(max(1, window_packets // 2), L1_DELTA_LAG_MAX)

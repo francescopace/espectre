@@ -170,6 +170,14 @@ struct MLStatNeeds {
 // Caller-owned working memory for the sorted statistics. The detectors size
 // it to their window and keep it alive for their lifetime, so no feature
 // helper allocates on the CSI callback stack.
+//
+// One scratch is reused across both series within a single feature extraction
+// (turbulence first, then L1-delta). That is safe only because MLSeriesStats
+// holds scalars: the first call's results are fully materialised before the
+// second call overwrites the buffers. A statistic that returned a pointer or a
+// view into the sorted values would silently read the wrong series, with no
+// compiler diagnostic and no test failure, because both produce plausible
+// numbers. Keep MLSeriesStats pointer-free, or give each series its own slice.
 struct MLSeriesScratch {
     float* sorted_values = nullptr;
     float* abs_devs = nullptr;
@@ -217,18 +225,9 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
     }
     out->count = count;
 
-    float sum = 0.0f;
-    for (uint16_t i = 0; i < count; i++) {
-        sum += values[i];
-    }
-    out->mean = sum / count;
-
-    float var_sum = 0.0f;
-    for (uint16_t i = 0; i < count; i++) {
-        float d = values[i] - out->mean;
-        var_sum += d * d;
-    }
-    out->variance = var_sum / count;
+    const MeanVariance moments = calculate_mean_variance_two_pass(values, count);
+    out->mean = moments.mean;
+    out->variance = moments.variance;
     out->std = out->variance > 0.0f ? std::sqrt(out->variance) : 0.0f;
     out->mean_denom = std::max(std::fabs(out->mean), 1e-6f);
 

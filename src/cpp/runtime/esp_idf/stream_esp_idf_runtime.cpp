@@ -42,25 +42,6 @@ static const char *const TAG = "espectre.stream.runtime";
 constexpr int kWifiConnectMaxRetry = 8;
 constexpr uint8_t kDefaultPacingPayload[] = {'E', 'S', 'P', 'E'};
 
-TrafficGeneratorMode to_traffic_mode(RuntimeTrafficMode mode) {
-  return mode == RuntimeTrafficMode::PING ? TrafficGeneratorMode::PING : TrafficGeneratorMode::DNS;
-}
-
-CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
-  CsiTrafficServiceConfig csi_traffic_config;
-  csi_traffic_config.mode =
-      (config.csi_traffic_mode == CsiTrafficMode::INTERNAL && config.traffic_generator_rate == 0U)
-          ? CsiTrafficMode::PACING
-          : config.csi_traffic_mode;
-  csi_traffic_config.rate_pps = config.traffic_generator_rate;
-  csi_traffic_config.adaptive = config.traffic_generator_adaptive;
-  csi_traffic_config.traffic_mode = to_traffic_mode(config.traffic_generator_mode);
-  csi_traffic_config.udp_port = config.csi_traffic_udp_port;
-  csi_traffic_config.multicast_group = config.csi_traffic_multicast_group;
-  csi_traffic_config.expected_payload = config.csi_traffic_expected_payload;
-  return csi_traffic_config;
-}
-
 bool check_esp(esp_err_t err, const char *what) {
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "%s failed: %s", what, esp_err_to_name(err));
@@ -71,7 +52,8 @@ bool check_esp(esp_err_t err, const char *what) {
 
 }  // namespace
 
-StreamEspIdfRuntime::StreamEspIdfRuntime(const RuntimeConfig &config) : config_(config) {
+StreamEspIdfRuntime::StreamEspIdfRuntime(const RuntimeConfig &config)
+    : EspIdfRuntimeBase(config, TAG, "Unknown stream runtime fault") {
   snapshot_.threshold = 0.0f;
   snapshot_.detector_name = "stream";
   capabilities_.supports_runtime_threshold_updates = false;
@@ -117,7 +99,7 @@ bool StreamEspIdfRuntime::setup() {
   capture_service_.init();
   capture_service_.set_packet_callback(&StreamEspIdfRuntime::capture_packet_callback_, this);
 
-  csi_traffic_service_.init(to_csi_traffic_config(config_));
+  csi_traffic_service_.init(to_csi_traffic_config(config_, CsiTrafficMode::PACING));
   csi_traffic_service_.set_packet_callback(&StreamEspIdfRuntime::pacing_packet_callback_, this);
   stream_transport_.configure(config_.device_id,
                               config_.collector_port,
@@ -219,12 +201,6 @@ bool StreamEspIdfRuntime::trigger_recalibration() { return false; }
 
 bool StreamEspIdfRuntime::is_calibrating() const { return false; }
 
-RuntimeSnapshot StreamEspIdfRuntime::get_snapshot() const { return snapshot_; }
-
-RuntimeCapabilities StreamEspIdfRuntime::get_capabilities() const { return capabilities_; }
-
-void StreamEspIdfRuntime::set_listener(IRuntimeListener *listener) { listener_ = listener; }
-
 bool StreamEspIdfRuntime::init_nvs_() {
   return check_esp(nvs_init_with_erase_fallback(), "nvs_flash_init");
 }
@@ -306,14 +282,6 @@ void StreamEspIdfRuntime::transition_to_(WorkflowState next, const char *reason)
   if (prev != next) {
     ESP_LOGI(TAG, "[STATE] %s -> %s (%s)", workflow_state_name_(prev), workflow_state_name_(next),
              reason != nullptr ? reason : "n/a");
-  }
-}
-
-void StreamEspIdfRuntime::notify_fault_(const char *message) {
-  last_fault_ = message != nullptr ? message : "Unknown stream runtime fault";
-  ESP_LOGE(TAG, "Runtime fault: %s", last_fault_.c_str());
-  if (listener_ != nullptr) {
-    listener_->on_runtime_fault(last_fault_.c_str());
   }
 }
 

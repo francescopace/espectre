@@ -53,38 +53,6 @@ inline float calculate_median_float(float* arr, size_t size) {
 }
 
 /**
- * Calculate median of a uint8 array (sorts array in-place)
- * 
- * @param arr Array of uint8 values (will be sorted)
- * @param size Number of values
- * @return Median value (0 if size == 0)
- */
-inline uint8_t calculate_median_u8(uint8_t* arr, size_t size) {
-    if (size == 0 || !arr) return 0;
-    std::sort(arr, arr + size);
-    if (size % 2 == 0) {
-        return (arr[size / 2 - 1] + arr[size / 2]) / 2;
-    }
-    return arr[size / 2];
-}
-
-/**
- * Calculate median of an int8 array (sorts array in-place)
- * 
- * @param arr Array of int8 values (will be sorted)
- * @param size Number of values
- * @return Median value (0 if size == 0)
- */
-inline int8_t calculate_median_i8(int8_t* arr, size_t size) {
-    if (size == 0 || !arr) return 0;
-    std::sort(arr, arr + size);
-    if (size % 2 == 0) {
-        return (arr[size / 2 - 1] + arr[size / 2]) / 2;
-    }
-    return arr[size / 2];
-}
-
-/**
  * Apply gain-invariant normalization to standard deviation
  * 
  * CV (Coefficient of Variation) = std / mean
@@ -116,28 +84,39 @@ inline float calculate_turbulence_from_variance(float variance,
     return apply_cv_normalization(std_dev, mean);
 }
 
+struct MeanVariance {
+    float mean{0.0f};
+    float variance{0.0f};
+};
+
 /**
- * Calculate variance using two-pass algorithm (numerically stable)
- * 
+ * Calculate mean and variance in one two-pass sweep (numerically stable)
+ *
  * Two-pass algorithm: variance = sum((x - mean)^2) / n
  * More stable than single-pass E[X²] - E[X]² for float32 arithmetic.
- * 
+ *
+ * The single definition matters beyond DRY. Both detectors feed these values
+ * into a threshold comparison, and the C++/Python parity gate requires the two
+ * runtimes to decide identically, so the accumulation order has to be fixed in
+ * exactly one place. Three hand-rolled copies of these loops used to exist.
+ *
  * @param values Array of float values
  * @param n Number of values
- * @return Variance (0.0 if n == 0)
+ * @return Mean and variance (both 0.0 if n == 0)
  */
-inline float calculate_variance_two_pass(const float *values, size_t n) {
+inline MeanVariance calculate_mean_variance_two_pass(const float *values, size_t n) {
+    MeanVariance result;
     if (n == 0 || !values) {
-        return 0.0f;
+        return result;
     }
-    
+
     // First pass: calculate mean
     float mean = 0.0f;
     for (size_t i = 0; i < n; i++) {
         mean += values[i];
     }
     mean /= n;
-    
+
     // Second pass: calculate variance
     float variance = 0.0f;
     for (size_t i = 0; i < n; i++) {
@@ -145,8 +124,21 @@ inline float calculate_variance_two_pass(const float *values, size_t n) {
         variance += diff * diff;
     }
     variance /= n;
-    
-    return variance;
+
+    result.mean = mean;
+    result.variance = variance;
+    return result;
+}
+
+/**
+ * Calculate variance using the two-pass algorithm
+ *
+ * @param values Array of float values
+ * @param n Number of values
+ * @return Variance (0.0 if n == 0)
+ */
+inline float calculate_variance_two_pass(const float *values, size_t n) {
+    return calculate_mean_variance_two_pass(values, n).variance;
 }
 
 /**
@@ -191,45 +183,6 @@ inline uint8_t normalize_amplitude_profile(const float* amplitudes,
         out[i] = amplitudes[i] / mean;
     }
     return count;
-}
-
-/**
- * Compare two float values for qsort
- * 
- * @param a Pointer to first float
- * @param b Pointer to second float
- * @return -1 if a < b, 0 if a == b, 1 if a > b
- */
-inline int compare_float(const void *a, const void *b) {
-    float fa = *(const float*)a;
-    float fb = *(const float*)b;
-    return (fa > fb) - (fa < fb);
-}
-
-/**
- * Compare two int8_t values for qsort
- * 
- * @param a Pointer to first int8_t
- * @param b Pointer to second int8_t
- * @return Difference between values
- */
-inline int compare_int8(const void *a, const void *b) {
-    return (*(const int8_t*)a - *(const int8_t*)b);
-}
-
-/**
- * Compare absolute values of two floats for qsort
- * 
- * @param a Pointer to first float
- * @param b Pointer to second float
- * @return -1 if |a| < |b|, 0 if |a| == |b|, 1 if |a| > |b|
- */
-inline int compare_float_abs(const void *a, const void *b) {
-    float fa = *(const float*)a;
-    float fb = *(const float*)b;
-    if (fa < 0) fa = -fa;
-    if (fb < 0) fb = -fb;
-    return (fa > fb) - (fa < fb);
 }
 
 }  // namespace espectre

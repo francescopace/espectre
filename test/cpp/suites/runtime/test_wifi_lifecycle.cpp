@@ -75,6 +75,50 @@ void test_wifi_lifecycle_init_reports_bgn_configuration_failure(void) {
                     g_esp_wifi_mock.last_protocol_bitmap);
 }
 
+// STA_START can fire before the handlers are registered, for instance when a
+// host frontend brings the station up first. The policy is then never
+// attempted, and failing at GOT_IP consumed the event and left CSI off with
+// nothing to retry until the next reconnect. Applying it late is valid because
+// the station is already up.
+void test_wifi_lifecycle_applies_policy_late_when_sta_start_was_missed(void) {
+  WiFiLifecycleManager manager;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {}));
+  // Deliberately no WIFI_EVENT_STA_START.
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_protocol_call_count);
+
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N,
+                    g_esp_wifi_mock.last_protocol_bitmap);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.last_bandwidth == WIFI_BW_HT20);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_ps_call_count);
+}
+
+// A policy that was attempted and failed is a radio failure, not an ordering
+// accident, so it must still propagate rather than be retried at GOT_IP.
+void test_wifi_lifecycle_does_not_retry_a_policy_that_actually_failed(void) {
+  WiFiLifecycleManager manager;
+  g_esp_wifi_mock.set_protocol_results[0] = ESP_FAIL;
+  g_esp_wifi_mock.set_protocol_result_count = 1;
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {}));
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+
+  TEST_ASSERT_EQUAL(ESP_FAIL, manager.process_pending_events());
+  // One attempt only: the mock would have succeeded on a second call.
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
+}
+
 void test_wifi_lifecycle_started_policy_skips_matching_radio_settings(void) {
   WiFiLifecycleManager manager;
   g_esp_wifi_mock.protocol_bitmap = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
@@ -407,6 +451,8 @@ int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_wifi_lifecycle_init_configures_protocol_bandwidth_and_promiscuous);
   RUN_TEST(test_wifi_lifecycle_init_reports_bgn_configuration_failure);
+  RUN_TEST(test_wifi_lifecycle_applies_policy_late_when_sta_start_was_missed);
+  RUN_TEST(test_wifi_lifecycle_does_not_retry_a_policy_that_actually_failed);
   RUN_TEST(test_wifi_lifecycle_started_policy_skips_matching_radio_settings);
   RUN_TEST(test_wifi_lifecycle_register_handlers_dispatches_and_unregisters);
   RUN_TEST(test_wifi_lifecycle_register_handlers_cleans_up_when_second_registration_fails);

@@ -261,6 +261,16 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     if callable(begin_calibration):
         begin_calibration()
     evaluation_interval = max(1, int(getattr(config, 'EVALUATION_INTERVAL', 25)))
+    # Calibration evaluates on the same cadence steady-state detection does.
+    # Counting packets here while the main loop counts elapsed time fitted the
+    # threshold at a feature resolution the detector never ran at, and starved
+    # the rate estimator for the whole calibration. Mirrors the C++
+    # EvaluationCadence shared by CsiPipeline and the calibration interceptor.
+    from src.runtime_policy import RuntimeMotionPolicy
+    calibration_cadence = RuntimeMotionPolicy(
+        evaluation_interval=evaluation_interval,
+        evaluation_interval_us=getattr(config, 'EVALUATION_INTERVAL_US', None),
+    )
 
     print('')
     print('-'*60)
@@ -339,8 +349,13 @@ def run_startup_calibration(wlan, detector, traffic_gen):
             packets_since_evaluation += 1
             last_packet_time = time.ticks_ms()
 
-            if packets_since_evaluation < evaluation_interval:
+            # frame[4] is the Wi-Fi RX timestamp, the same source the steady
+            # loop and the C++ pipeline read.
+            calibration_cadence.note_arrival(frame_result[4] if len(frame_result) > 4 else 0)
+
+            if not calibration_cadence.should_evaluate():
                 continue
+            calibration_cadence.after_evaluation()
 
             detector.update_state()
             calibration_tracker.observe_detector(

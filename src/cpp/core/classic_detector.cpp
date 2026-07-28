@@ -20,14 +20,17 @@ ClassicDetector::ClassicDetector(uint16_t window_size, float threshold,
                                  uint16_t lag, uint16_t autocorr_lag)
     : BaseDetector(window_size),
       threshold_(clamp_threshold(threshold, CLASSIC_MIN_THRESHOLD, CLASSIC_MAX_THRESHOLD)),
-      current_probability_(0.0f),
       current_logit_(0.0f),
       current_lag_ratio_(0.0f),
       current_turb_autocorr_(0.0f),
       startup_logit_count_(0U),
       adapted_threshold_(CLASSIC_DEFAULT_THRESHOLD),
       adapted_threshold_ready_(false),
-      lag_(lag > 0U ? lag : 1U),
+      // Clamped here, not only inside L1DeltaTracker::configure(): the
+      // detector derives its ring capacity and its readiness gate from this
+      // value, so an unclamped copy would measure displacement at one lag while
+      // believing another.
+      lag_(std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX)),
       autocorr_lag_(autocorr_lag > 0U ? autocorr_lag : 1U),
       settle_block_max_(0.0f),
       settle_block_evaluations_(0U),
@@ -80,19 +83,8 @@ float ClassicDetector::calculate_turb_autocorr_() const {
     return 0.0f;
   }
 
-  float mean = 0.0f;
-  for (uint16_t i = 0U; i < count; i++) {
-    mean += ordered[i];
-  }
-  mean /= count;
-
-  float variance = 0.0f;
-  for (uint16_t i = 0U; i < count; i++) {
-    const float diff = ordered[i] - mean;
-    variance += diff * diff;
-  }
-  variance /= count;
-  return calc_autocorrelation(ordered, count, mean, variance, autocorr_lag_);
+  const MeanVariance stats = calculate_mean_variance_two_pass(ordered, count);
+  return calc_autocorrelation(ordered, count, stats.mean, stats.variance, autocorr_lag_);
 }
 
 float ClassicDetector::calculate_logit_(float lag_ratio, float turb_autocorr) const {
@@ -111,21 +103,20 @@ float ClassicDetector::sigmoid_(float value) {
 
 void ClassicDetector::update_state() {
   if (!is_ready()) {
-    current_probability_ = 0.0f;
-    state_ = MotionState::IDLE;
+    clear_evaluation_state_();
     return;
   }
 
   current_lag_ratio_ = l1_tracker_.delta_lag_ratio();
   current_turb_autocorr_ = calculate_turb_autocorr_();
   current_logit_ = calculate_logit_(current_lag_ratio_, current_turb_autocorr_);
-  current_probability_ = sigmoid_(current_logit_);
+  current_metric_ = sigmoid_(current_logit_);
   if (!adapted_threshold_ready_ && startup_logit_count_ < CLASSIC_STARTUP_SAMPLE_LIMIT) {
     startup_logits_[startup_logit_count_] = current_logit_;
     startup_logit_count_++;
   }
   observe_settled_level_();
-  state_ = current_probability_ > threshold_ ? MotionState::MOTION : MotionState::IDLE;
+  state_ = current_metric_ > threshold_ ? MotionState::MOTION : MotionState::IDLE;
 }
 
 float ClassicDetector::quantile_(const float* values, uint8_t count, float quantile) {
@@ -235,21 +226,22 @@ bool ClassicDetector::set_threshold(float threshold) {
   return true;
 }
 
+// Both overrides clear only the Classic-specific derived values; the shared
+// metric and motion state are cleared by the base.
 void ClassicDetector::reset() {
   BaseDetector::reset();
   reset_settled_level_();
-  current_probability_ = 0.0f;
-  current_logit_ = 0.0f;
-  current_lag_ratio_ = 0.0f;
-  current_turb_autocorr_ = 0.0f;
-  state_ = MotionState::IDLE;
+  clear_fusion_inputs_();
 }
 
 void ClassicDetector::clear_buffer() {
   BaseDetector::clear_buffer();
   reset_settled_level_();
   l1_tracker_.clear();
-  current_probability_ = 0.0f;
+  clear_fusion_inputs_();
+}
+
+void ClassicDetector::clear_fusion_inputs_() {
   current_logit_ = 0.0f;
   current_lag_ratio_ = 0.0f;
   current_turb_autocorr_ = 0.0f;

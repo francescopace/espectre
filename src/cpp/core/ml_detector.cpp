@@ -23,12 +23,12 @@ static_assert(ML_MODEL_INPUT_SIZE == ML_NUM_FEATURES,
 // CONSTRUCTOR
 // ============================================================================
 
-MLDetector::MLDetector(uint16_t window_size, float threshold)
+MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     : BaseDetector(window_size)
     , threshold_(threshold)
-    , current_probability_(0.0f)
     , uses_l1_tracker_(false)
     , uses_l1_series_(false)
+    , lag_(std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX))
     , feature_scratch_(nullptr) {
     threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
 
@@ -48,7 +48,7 @@ MLDetector::MLDetector(uint16_t window_size, float threshold)
         ESP_LOGE(TAG, "Failed to allocate feature scratch (%u floats)",
                  static_cast<unsigned>(feature_scratch_size_()));
     }
-    l1_tracker_.configure(uses_l1_tracker_ ? l1_delta_capacity_() : 0U);
+    l1_tracker_.configure(uses_l1_tracker_ ? l1_delta_capacity_() : 0U, lag_);
 
     ESP_LOGI(TAG, "Initialized (window=%d, threshold=%.2f, l1=%d, l1_series=%d)",
              window_size_, threshold_, uses_l1_tracker_ ? 1 : 0,
@@ -62,9 +62,9 @@ MLDetector::~MLDetector() {
 MLDetector::MLDetector(MLDetector&& other) noexcept
     : BaseDetector(std::move(other))
     , threshold_(other.threshold_)
-    , current_probability_(other.current_probability_)
     , uses_l1_tracker_(other.uses_l1_tracker_)
     , uses_l1_series_(other.uses_l1_series_)
+    , lag_(other.lag_)
     , l1_tracker_(std::move(other.l1_tracker_))
     , feature_scratch_(other.feature_scratch_) {
     other.feature_scratch_ = nullptr;
@@ -74,9 +74,9 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
     if (this != &other) {
         BaseDetector::operator=(std::move(other));
         threshold_ = other.threshold_;
-        current_probability_ = other.current_probability_;
         uses_l1_tracker_ = other.uses_l1_tracker_;
         uses_l1_series_ = other.uses_l1_series_;
+        lag_ = other.lag_;
         l1_tracker_ = std::move(other.l1_tracker_);
         delete[] feature_scratch_;
         feature_scratch_ = other.feature_scratch_;
@@ -118,20 +118,20 @@ void MLDetector::configure_hampel(bool enabled, uint8_t window_size,
 
 void MLDetector::update_state() {
     if (!is_ready()) {
-        current_probability_ = 0.0f;
+        clear_evaluation_state_();
         return;
     }
-    
+
     // Extract ML features expected by the exported model
     float features[ML_NUM_FEATURES];
     extract_features(features);
     
     // Run MLP inference
-    current_probability_ = predict(features);
+    current_metric_ = predict(features);
     
     // Keep Python/C++ parity: ML state is decided directly from the
     // probability threshold at each evaluation tick, without hysteresis.
-    state_ = current_probability_ > threshold_ ? MotionState::MOTION
+    state_ = current_metric_ > threshold_ ? MotionState::MOTION
                                                : MotionState::IDLE;
 }
 
@@ -177,10 +177,22 @@ void MLDetector::extract_features(float* features_out) {
 
 uint16_t MLDetector::l1_delta_capacity_() const {
     // window_size profiles yield window_size - lag deltas, matching the Python
-    // features.l1_delta_series window semantics.
-    return window_size_ > L1_DELTA_LAG
-        ? static_cast<uint16_t>(window_size_ - L1_DELTA_LAG)
-        : 0;
+    // features.l1_delta_series window semantics. Use the configured lag rather
+    // than the nominal constant so replay experiments cannot make the ring and
+    // its readiness gate disagree.
+    return window_size_ > lag_ ? static_cast<uint16_t>(window_size_ - lag_) : 0;
+}
+
+bool MLDetector::is_ready() const {
+    if (!BaseDetector::is_ready()) {
+        return false;
+    }
+    // The L1 rings feed real features, so readiness has to wait for them too.
+    // This used to hold only by arithmetic accident: at the nominal lag both
+    // rings fill on the same packet. An alternate lag can break that, and an
+    // ungated ML would infer on a partly filled ring whose lag ratio returns its
+    // no-motion sentinel rather than signalling "not ready".
+    return !uses_l1_tracker_ || l1_tracker_.count() >= l1_delta_capacity_();
 }
 
 void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,

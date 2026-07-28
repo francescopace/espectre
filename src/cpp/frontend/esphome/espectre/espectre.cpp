@@ -98,8 +98,7 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
 }
 
 void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
-  this->runtime_.record_snapshot(snapshot);
-  this->runtime_.config().segmentation_threshold = snapshot.threshold;
+  apply_threshold_snapshot(this->runtime_, snapshot);
   if (this->threshold_number_ != nullptr) {
     this->threshold_number_->publish_state(snapshot.threshold);
   }
@@ -107,8 +106,7 @@ void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
-  this->runtime_.record_snapshot(snapshot);
-  this->runtime_.config().detection_algorithm = parse_detection_algorithm(snapshot.detector_name);
+  apply_detector_snapshot(this->runtime_, snapshot);
   if (this->detector_select_ != nullptr) {
     this->detector_select_->publish_state(detection_algorithm_name(this->runtime_.config().detection_algorithm));
   }

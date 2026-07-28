@@ -14,6 +14,8 @@
 
 #include <cmath>
 
+#include "detector_state_contract.h"
+
 using namespace espectre;
 
 void setUp(void) {}
@@ -80,7 +82,7 @@ void test_classic_detector_noisy_startup_still_uses_shifted_logit_threshold(void
 
 void test_classic_detector_clear_buffer_resets_feature_state(void) {
   ClassicDetector detector(10U);
-  detector.current_probability_ = 0.9f;
+  detector.current_metric_ = 0.9f;
   detector.current_lag_ratio_ = 0.2f;
   detector.current_turb_autocorr_ = 0.5f;
   detector.startup_logit_count_ = 3U;
@@ -98,6 +100,19 @@ void test_classic_detector_clear_buffer_resets_feature_state(void) {
   TEST_ASSERT_FALSE(detector.adapted_threshold_ready_);
 }
 
+// Shared across every detector; see detector_state_contract.h for why the
+// metric is set directly rather than driven through synthetic traffic.
+void test_classic_detector_honours_shared_state_contract(void) {
+  ClassicDetector clear_target;
+  test_support::assert_clear_buffer_drops_evaluation_state(clear_target);
+
+  ClassicDetector reset_target;
+  test_support::assert_reset_drops_evaluation_state(reset_target);
+
+  ClassicDetector idle_target;
+  test_support::assert_not_ready_evaluation_stays_idle(idle_target);
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_classic_detector_uses_probability_scale);
@@ -106,6 +121,7 @@ int process(void) {
   RUN_TEST(test_classic_detector_startup_q95_adapts_threshold);
   RUN_TEST(test_classic_detector_noisy_startup_still_uses_shifted_logit_threshold);
   RUN_TEST(test_classic_detector_clear_buffer_resets_feature_state);
+  RUN_TEST(test_classic_detector_honours_shared_state_contract);
   return UNITY_END();
 }
 

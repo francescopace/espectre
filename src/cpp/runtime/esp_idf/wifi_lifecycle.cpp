@@ -175,6 +175,21 @@ esp_err_t WiFiLifecycleManager::init() {
   }
 
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "Initializing Wi-Fi CSI lifecycle");
+  if (!started_policy_attempted_.load(std::memory_order_relaxed)) {
+    // STA_START fired before the handlers were registered, so the policy was
+    // never even attempted. Failing here consumed the GOT_IP event and left
+    // CSI off with nothing to retry until the next reconnect. The station is
+    // up by now, so applying it late is valid and strictly better than
+    // dropping the connection.
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "STA start was not observed; applying Wi-Fi CSI policy late");
+    const esp_err_t late_err = apply_started_csi_policy();
+    started_policy_attempted_.store(true, std::memory_order_relaxed);
+    started_policy_err_.store(late_err, std::memory_order_relaxed);
+    started_policy_applied_.store(late_err == ESP_OK, std::memory_order_relaxed);
+  }
+
+  // A policy that was attempted and failed is a real radio failure, not an
+  // ordering accident, so it propagates instead of being retried.
   const esp_err_t policy_err = started_policy_err_.load(std::memory_order_relaxed);
   if (policy_err != ESP_OK) {
     ESP_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI policy was not applied at STA start: %s",
@@ -206,6 +221,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
   started_policy_applied_.store(false, std::memory_order_relaxed);
+  started_policy_attempted_.store(false, std::memory_order_relaxed);
   esp_err_t err = esp_event_handler_instance_register(
       WIFI_EVENT,
       WIFI_EVENT_STA_START,
@@ -280,6 +296,7 @@ void WiFiLifecycleManager::unregister_handlers() {
   disconnected_event_.clear();
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
   started_policy_applied_.store(false, std::memory_order_relaxed);
+  started_policy_attempted_.store(false, std::memory_order_relaxed);
   ready_ = false;
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers unregistered");
 }
@@ -379,6 +396,7 @@ void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event
   if (event_id == WIFI_EVENT_STA_START) {
     if (!manager->started_policy_applied_.load(std::memory_order_relaxed)) {
       const esp_err_t err = apply_started_csi_policy();
+      manager->started_policy_attempted_.store(true, std::memory_order_relaxed);
       manager->started_policy_err_.store(err, std::memory_order_relaxed);
       if (err == ESP_OK) {
         manager->started_policy_applied_.store(true, std::memory_order_relaxed);

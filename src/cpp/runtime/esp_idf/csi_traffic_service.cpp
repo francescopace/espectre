@@ -18,6 +18,26 @@ static const char *const TAG = "CsiTrafficService";
 
 }  // namespace
 
+TrafficGeneratorMode to_traffic_generator_mode(RuntimeTrafficMode mode) {
+  return mode == RuntimeTrafficMode::PING ? TrafficGeneratorMode::PING : TrafficGeneratorMode::DNS;
+}
+
+CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config,
+                                              CsiTrafficMode idle_fallback) {
+  CsiTrafficServiceConfig csi_traffic_config;
+  csi_traffic_config.mode =
+      (config.csi_traffic_mode == CsiTrafficMode::INTERNAL && config.traffic_generator_rate == 0U)
+          ? idle_fallback
+          : config.csi_traffic_mode;
+  csi_traffic_config.rate_pps = config.traffic_generator_rate;
+  csi_traffic_config.adaptive = config.traffic_generator_adaptive;
+  csi_traffic_config.traffic_mode = to_traffic_generator_mode(config.traffic_generator_mode);
+  csi_traffic_config.udp_port = config.csi_traffic_udp_port;
+  csi_traffic_config.multicast_group = config.csi_traffic_multicast_group;
+  csi_traffic_config.expected_payload = config.csi_traffic_expected_payload;
+  return csi_traffic_config;
+}
+
 void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
   mode_ = config.mode;
   traffic_generator_.init(config.rate_pps, config.traffic_mode, config.adaptive);

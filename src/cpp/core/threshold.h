@@ -77,9 +77,6 @@ constexpr float STARTUP_MOTION_TRIGGER_RATIO = 1.80f;
 constexpr float STARTUP_QUIET_RETURN_RATIO = 1.25f;
 constexpr float STARTUP_MOTION_GAP_RATIO = 1.35f;
 constexpr float STARTUP_NO_MOTION_FALLBACK_MARGIN = 1.03f;
-constexpr uint16_t STARTUP_FLOOR_SIZE = 1000;
-constexpr uint16_t STARTUP_FLOOR_MIN = 300;
-constexpr float STARTUP_FLOOR_DISPERSION_CUT = 4.0f;
 constexpr uint8_t STARTUP_MOTION_MAX_LEVELS = 40;
 
 /**
@@ -108,7 +105,6 @@ class StartupThresholdCalibrator {
     motion_chunk_sum_ = 0.0f;
     motion_chunk_max_ = 0.0f;
     motion_chunk_count_ = 0;
-    chunk_floor_count_ = 0;
     bootstrap_count_ = 0;
     quiet_level_count_ = 0;
     motion_level_count_ = 0;
@@ -119,8 +115,6 @@ class StartupThresholdCalibrator {
     phase_ = Phase::SEEK_MOTION;
     consecutive_motion_chunks_ = 0;
     consecutive_post_quiet_chunks_ = 0;
-    floor_idx_ = 0;
-    floor_count_ = 0;
   }
 
   /**
@@ -128,11 +122,9 @@ class StartupThresholdCalibrator {
    *
    * @param detector_ready Whether the detector metric window is full
    * @param motion_metric Current detector motion metric
-   * @param floor_metric Detector-specific startup floor metric
    * @param packet_weight Number of processed packets represented by the metric
    */
-  void observe(bool detector_ready, float motion_metric, float floor_metric = 0.0f,
-               uint16_t packet_weight = 1U) {
+  void observe(bool detector_ready, float motion_metric, uint16_t packet_weight = 1U) {
     // The weight is folded in one step rather than replayed packet by packet.
     // Replaying it re-evaluated the chunk guards on every repetition, so a
     // chunk boundary landing inside one evaluation split differently here than
@@ -157,7 +149,7 @@ class StartupThresholdCalibrator {
       observe_gate_metric_(motion_metric, weight, initial_remaining);
     }
     if (gate_enabled_ && !motion_accepted_ && packet_count_ <= target_packets_) {
-      observe_motion_chunk_(motion_metric, floor_metric, weight);
+      observe_motion_chunk_(motion_metric, weight);
     }
     if (gate_enabled_ && !gate_accepted_ && packet_count_ >= target_packets_ &&
         chunk_count_ > 0 && ring_count_ < STARTUP_GATE_CHUNKS) {
@@ -169,9 +161,6 @@ class StartupThresholdCalibrator {
   bool is_complete() const {
     return motion_accepted_ || packet_count_ >= target_packets_;
   }
-
-  /// Backward-compatible alias: startup no longer extends past the nominal target.
-  bool is_extending() const { return false; }
 
   bool is_successful() const { return motion_accepted_ || has_value_; }
   bool gate_accepted() const { return gate_accepted_; }
@@ -243,29 +232,6 @@ class StartupThresholdCalibrator {
     }
   }
 
-  void floor_snapshot(float& out_floor, bool& out_vote_enabled, uint16_t& out_count) {
-    if (floor_count_ == 0) {
-      out_floor = 0.0f;
-      out_vote_enabled = false;
-      out_count = 0;
-      return;
-    }
-    const uint16_t median_index = floor_count_ / 2U;
-    std::nth_element(floor_ring_, floor_ring_ + median_index, floor_ring_ + floor_count_);
-    const float median_high = floor_ring_[median_index];
-    const float median = (floor_count_ % 2U != 0U)
-                             ? median_high
-                             : 0.5f * (*std::max_element(floor_ring_, floor_ring_ + median_index) + median_high);
-    const uint16_t p99_index = std::min<uint16_t>(
-        floor_count_ - 1, static_cast<uint16_t>(0.99f * static_cast<float>(floor_count_)));
-    std::nth_element(floor_ring_, floor_ring_ + p99_index, floor_ring_ + floor_count_);
-    const float p99 = floor_ring_[p99_index];
-    out_floor = median;
-    out_count = floor_count_;
-    out_vote_enabled = floor_count_ >= STARTUP_FLOOR_MIN && median > 0.0f &&
-                       (p99 / median) < STARTUP_FLOOR_DISPERSION_CUT;
-  }
-
  private:
   enum class Phase {
     SEEK_MOTION,
@@ -322,7 +288,7 @@ class StartupThresholdCalibrator {
     }
   }
 
-  void observe_motion_chunk_(float metric, float floor_metric, uint32_t weight) {
+  void observe_motion_chunk_(float metric, uint32_t weight) {
     uint32_t remaining_weight = weight;
     while (remaining_weight > 0U && !motion_accepted_) {
       if (motion_chunk_count_ == 0 || metric > motion_chunk_max_) {
@@ -334,13 +300,6 @@ class StartupThresholdCalibrator {
       const uint32_t take = std::min(remaining_weight, available);
       motion_chunk_sum_ += metric * static_cast<float>(take);
       motion_chunk_count_ = static_cast<uint8_t>(motion_chunk_count_ + take);
-      // One fill instead of `take` appends, into the fixed chunk buffer.
-      const uint32_t floor_room = STARTUP_MOTION_CHUNK_SIZE > chunk_floor_count_
-                                      ? STARTUP_MOTION_CHUNK_SIZE - chunk_floor_count_
-                                      : 0U;
-      const uint32_t floor_take = std::min(take, floor_room);
-      std::fill_n(chunk_floor_ + chunk_floor_count_, floor_take, floor_metric);
-      chunk_floor_count_ = static_cast<uint8_t>(chunk_floor_count_ + floor_take);
       remaining_weight -= take;
       if (motion_chunk_count_ < STARTUP_MOTION_CHUNK_SIZE) {
         continue;
@@ -348,28 +307,20 @@ class StartupThresholdCalibrator {
 
       const float level = motion_chunk_sum_ / static_cast<float>(motion_chunk_count_);
       const float peak = motion_chunk_max_;
-      consume_closed_motion_chunk_(level, peak, chunk_floor_, chunk_floor_count_);
+      consume_closed_motion_chunk_(level, peak);
       motion_chunk_sum_ = 0.0f;
       motion_chunk_max_ = 0.0f;
       motion_chunk_count_ = 0;
-      chunk_floor_count_ = 0;
     }
   }
 
-  void consume_closed_motion_chunk_(float level, float peak, const float* floor_samples,
-                                    uint8_t floor_sample_count) {
+  void consume_closed_motion_chunk_(float level, float peak) {
     if (!quiet_anchor_ready_) {
       if (bootstrap_count_ == STARTUP_MOTION_MIN_QUIET_CHUNKS) {
         bootstrap_levels_[0] = bootstrap_levels_[1];
-        bootstrap_floor_counts_[0] = bootstrap_floor_counts_[1];
-        std::copy(bootstrap_floor_[1], bootstrap_floor_[1] + bootstrap_floor_counts_[1],
-                  bootstrap_floor_[0]);
         bootstrap_count_--;
       }
       bootstrap_levels_[bootstrap_count_] = level;
-      bootstrap_floor_counts_[bootstrap_count_] = floor_sample_count;
-      std::copy(floor_samples, floor_samples + floor_sample_count,
-                bootstrap_floor_[bootstrap_count_]);
       bootstrap_count_++;
 
       if (bootstrap_count_ >= STARTUP_MOTION_MIN_QUIET_CHUNKS &&
@@ -378,10 +329,6 @@ class StartupThresholdCalibrator {
         quiet_level_count_ = bootstrap_count_;
         for (uint8_t i = 0; i < bootstrap_count_; i++) {
           quiet_levels_[i] = bootstrap_levels_[i];
-        }
-        clear_floor_ring_();
-        for (uint8_t i = 0; i < bootstrap_count_; i++) {
-          record_floor_samples_(bootstrap_floor_[i], bootstrap_floor_counts_[i]);
         }
       }
       return;
@@ -401,16 +348,12 @@ class StartupThresholdCalibrator {
           phase_ = Phase::SEEK_POST_MOTION_QUIET;
           consecutive_post_quiet_chunks_ = 0;
           post_quiet_level_count_ = 0;
-          // The pre-motion samples already passed the quiet classifier. Keep
-          // them so an early successful bootstrap does not discard a valid
-          // variance-floor snapshot.
         }
         return;
       }
 
       if (motion_ratio <= STARTUP_QUIET_RETURN_RATIO) {
         append_quiet_level_(level);
-        record_floor_samples_(floor_samples, floor_sample_count);
       }
       consecutive_motion_chunks_ = 0;
       return;
@@ -419,7 +362,6 @@ class StartupThresholdCalibrator {
     if (motion_ratio <= STARTUP_QUIET_RETURN_RATIO) {
       append_post_quiet_level_(level);
       consecutive_post_quiet_chunks_++;
-      record_floor_samples_(floor_samples, floor_sample_count);
       if (consecutive_post_quiet_chunks_ >= STARTUP_POST_MOTION_QUIET_CHUNKS &&
           motion_gap_ok_()) {
         motion_accepted_ = true;
@@ -515,21 +457,6 @@ class StartupThresholdCalibrator {
     return motion_floor_() > STARTUP_MOTION_GAP_RATIO * quiet_ceiling;
   }
 
-  void clear_floor_ring_() {
-    floor_idx_ = 0;
-    floor_count_ = 0;
-  }
-
-  void record_floor_samples_(const float* values, uint8_t count) {
-    for (uint8_t i = 0; i < count; i++) {
-      floor_ring_[floor_idx_] = values[i];
-      floor_idx_ = (floor_idx_ + 1) % STARTUP_FLOOR_SIZE;
-      if (floor_count_ < STARTUP_FLOOR_SIZE) {
-        floor_count_++;
-      }
-    }
-  }
-
   void append_quiet_level_(float value) {
     if (quiet_level_count_ < STARTUP_GATE_CHUNKS) {
       quiet_levels_[quiet_level_count_++] = value;
@@ -612,11 +539,7 @@ class StartupThresholdCalibrator {
   float motion_chunk_sum_{0.0f};
   float motion_chunk_max_{0.0f};
   uint8_t motion_chunk_count_{0};
-  float chunk_floor_[STARTUP_MOTION_CHUNK_SIZE] = {};
-  uint8_t chunk_floor_count_{0};
   float bootstrap_levels_[STARTUP_MOTION_MIN_QUIET_CHUNKS] = {};
-  float bootstrap_floor_[STARTUP_MOTION_MIN_QUIET_CHUNKS][STARTUP_MOTION_CHUNK_SIZE] = {};
-  uint8_t bootstrap_floor_counts_[STARTUP_MOTION_MIN_QUIET_CHUNKS] = {};
   uint8_t bootstrap_count_{0};
   float quiet_levels_[STARTUP_GATE_CHUNKS] = {};
   uint8_t quiet_level_count_{0};
@@ -630,9 +553,6 @@ class StartupThresholdCalibrator {
   Phase phase_{Phase::SEEK_MOTION};
   uint8_t consecutive_motion_chunks_{0};
   uint8_t consecutive_post_quiet_chunks_{0};
-  float floor_ring_[STARTUP_FLOOR_SIZE] = {};
-  uint16_t floor_idx_{0};
-  uint16_t floor_count_{0};
 };
 
 }  // namespace espectre

@@ -62,52 +62,40 @@ With the default `window_size=100`, the `classic` startup budget is
 
 ## Detector Timing
 
-The target detector contract is expressed in microseconds, not packets, and
-resolved into packet counts from the cadence the stream actually delivers:
+The deployed detector uses a time-relative evaluation cadence and fixed feature
+geometry:
 
-| quantity | duration | packets at 100 pps |
+| quantity | production setting | span at 100 pps |
 | --- | --- | --- |
-| detector window | `1 s` | 100 |
-| evaluation interval | `250 ms` | 25 |
-| L1 profile-displacement lag | `100 ms` | 10 |
-| turbulence autocorrelation lag | `10 ms` | 1 |
+| detector window | 100 packets | `1 s` |
+| evaluation interval | `250 ms` | 25 packets |
+| L1 profile-displacement ratio | `10:1` packet offsets | `100 ms / 10 ms` |
+| turbulence autocorrelation lag | 1 packet | `10 ms` |
 
-A packet count only means what it is supposed to mean at exactly `100 pps`, and
-real streams do not run there: the recorded corpus spans `90` to `120`, and
-ESP32 tops out near `70-80 pps` delivered in bursts.
-`derive_detector_timing()` resolves the table above from the measured cadence,
-and it is defined once per language in
+The fixed feature offsets are deliberate. An A/B replay found that scaling only
+the numerator of the L1 ratio regressed low-rate recall by as much as 11 points.
+Scaling both offsets would define a new feature and require a Classic refit and
+an ML retrain, so v3 keeps the fitted `10:1` relation and declares `80-133 pps`
+as the supported detector envelope. The recorded production corpus is inside
+that range.
+
+`derive_detector_timing()` remains a host replay-analysis helper, mirrored in
 [runtime_policy.py](../src/python/micro_espectre/runtime_policy.py) and
-[detector_timing.h](../src/cpp/core/detector_timing.h).
+[detector_timing.h](../src/cpp/core/detector_timing.h). It is not called by the
+deployed runtimes. See
+[2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](adr/2026-07-28-keep-production-feature-lags-at-nominal-offsets.md)
+for the measured rejection of runtime lag derivation.
 
-Current implementation status is partial:
+Calibration and steady-state detection share one cadence, so the interceptor
+that consumes packets during calibration evaluates on the same schedule the
+detection path does.
 
-- host replay and validation paths derive the full timing configuration
-- deployed C++ and MicroPython runtimes use arrival timing for evaluation
-  cadence, stream-gap detection, and state reset
-- deployed detector windows and feature lags remain the packet-count values
-  selected when the detector is constructed
-
-Until the runtime wiring is complete, changing the delivered packet rate can
-therefore change the physical span of the configured window and lags. This
-remaining work is tracked as `B-3` in the
-[C++ review](review/cpp-review-2026-07-28.md).
-
-Two rules govern the resolution, and they are deliberately asymmetric:
-
-- **The lags follow physical time.** They measure how far the channel moved over
-  an interval, so they have to track that interval. This dominates at high
-  rates: at `1000 pps` a lag-1 autocorrelation spans under a millisecond, where
-  consecutive packets are nearly identical, and the feature leaves the range its
-  coefficients were fitted over.
-- **The window follows sample count.** Its features are estimator averages, so
-  what matters is how many samples they average. Holding a one-second span at
-  `25 pps` leaves 25 samples, the estimates get noisier, startup calibration
-  raises the threshold to hold false positives, and recall collapses instead.
-
-Inside `+/-25%` of the nominal cadence nothing adapts: rounding a duration into
-packets flips between neighbouring counts across streams that are all
-essentially nominal, which costs feature homogeneity for no gain.
+The window also follows sample count. Its features are estimator averages, so
+what matters is how many samples they average. Holding a one-second span at
+`25 pps` leaves 25 samples, the estimates get noisier, startup calibration raises
+the threshold to hold false positives, and recall collapses instead. See the
+Window Size section in [TUNING.md](TUNING.md) for the sweep behind the
+100-sample floor.
 
 Cadence advances on the packet arrival timestamp, never on the loop clock. The
 loop clock measures how fast packets are processed, which matches arrival on
@@ -115,10 +103,6 @@ hardware but not on replay, and would let host scheduling reach a detector
 decision. Wall-clock time is reserved for staleness detection, which arrival
 time cannot do because a dead stream delivers no timestamps. Sources with no
 arrival timestamp fall back to counting packets.
-
-See
-[2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md](adr/2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md)
-for the measurements behind each rule.
 
 ## AGC-Active Normalization
 

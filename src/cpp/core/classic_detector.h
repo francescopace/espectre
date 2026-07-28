@@ -54,11 +54,9 @@ class ClassicDetector : public BaseDetector {
    * @param lag Profile-displacement distance in packets
    * @param autocorr_lag Turbulence autocorrelation distance in packets
    *
-   * Both lags default to the nominal-rate constants. Callers that know the
-   * measured cadence pass the counts spanning L1_DELTA_LAG_US and
-   * TURB_AUTOCORR_LAG_US instead, because both quantities are functions of the
-   * elapsed interval rather than of how many packets fall inside it. See
-   * detector_timing.h.
+   * Production uses the nominal-rate defaults. Alternate lags are exposed for
+   * replay experiments only: changing either feature offset requires validating
+   * the fitted coefficients before deployment. See detector_timing.h.
    */
   ClassicDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE,
                   float threshold = CLASSIC_DEFAULT_THRESHOLD,
@@ -79,7 +77,6 @@ class ClassicDetector : public BaseDetector {
   void reset() override;
   void clear_buffer() override;
   bool is_ready() const override;
-  float get_motion_metric() const override { return current_probability_; }
   bool set_threshold(float threshold) override;
   bool set_adaptive_threshold(float threshold) override;
   float get_threshold() const override { return threshold_; }
@@ -109,9 +106,9 @@ class ClassicDetector : public BaseDetector {
   float startup_quantile_() const;
   void observe_settled_level_();
   void reset_settled_level_();
+  void clear_fusion_inputs_();
 
   float threshold_;
-  float current_probability_;
   float current_logit_;
   float current_lag_ratio_;
   float current_turb_autocorr_;

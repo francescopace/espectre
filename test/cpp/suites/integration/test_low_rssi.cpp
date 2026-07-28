@@ -39,7 +39,7 @@ bool calibrate(ClassicDetector& detector, const csi_test_data::CsiData& baseline
     }
     detector.update_state();
     calibrator.observe(detector.is_ready(), detector.get_motion_metric(),
-                       detector.get_startup_floor_metric(), packets_since_evaluation);
+                       packets_since_evaluation);
     packets_since_evaluation = 0U;
     if (calibrator.is_complete()) {
       break;

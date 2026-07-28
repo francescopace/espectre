@@ -34,10 +34,7 @@ class TransitionDetectorMock : public BaseDetector {
     if (total_packets_ >= 2) {
       state_ = MotionState::MOTION;
     }
-  }
-
-  float get_motion_metric() const override {
-    return state_ == MotionState::MOTION ? 1.0f : 0.0f;
+    current_metric_ = state_ == MotionState::MOTION ? 1.0f : 0.0f;
   }
 
   bool set_threshold(float threshold) override {
@@ -62,10 +59,7 @@ class WindowedTransitionDetectorMock : public BaseDetector {
     } else {
       state_ = MotionState::IDLE;
     }
-  }
-
-  float get_motion_metric() const override {
-    return state_ == MotionState::MOTION ? 1.0f : 0.0f;
+    current_metric_ = state_ == MotionState::MOTION ? 1.0f : 0.0f;
   }
 
   bool set_threshold(float threshold) override {
@@ -589,6 +583,96 @@ static int count_evaluations_at_cadence_(uint32_t interval_us, int packets) {
     return evaluations;
 }
 
+namespace {
+
+struct InterceptorProbe {
+    int calls{0};
+    int evaluations_due{0};
+    uint32_t last_packets_in_window{0U};
+    uint32_t max_packets_in_window{0U};
+};
+
+bool interceptor_probe_callback_(void *context, const int8_t *csi_data, size_t csi_len,
+                                 int8_t rssi_dbm, bool evaluation_due,
+                                 uint32_t packets_in_window) {
+    (void) csi_data;
+    (void) csi_len;
+    (void) rssi_dbm;
+    auto *probe = static_cast<InterceptorProbe *>(context);
+    probe->calls++;
+    if (evaluation_due) {
+        probe->evaluations_due++;
+        probe->last_packets_in_window = packets_in_window;
+        if (packets_in_window > probe->max_packets_in_window) {
+            probe->max_packets_in_window = packets_in_window;
+        }
+    }
+    return true;  // consume, exactly like startup calibration does
+}
+
+}  // namespace
+
+// Startup calibration consumes every packet through the interceptor. The
+// cadence used to be advanced only on the detection path, so the rate estimator
+// was starved for the whole ~1000-packet calibration and calibration fell back
+// to counting packets while steady-state detection counted elapsed time. On an
+// off-nominal stream the threshold was then fitted at a resolution the detector
+// never ran at.
+void test_csi_pipeline_feeds_cadence_while_interceptor_consumes(void) {
+    TransitionDetectorMock detector;
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
+
+    InterceptorProbe probe;
+    manager.set_packet_interceptor(&interceptor_probe_callback_, &probe);
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    // 500 packets at 500 pps is one second of stream.
+    uint32_t arrival_us = 1000000U;
+    for (int i = 0; i < 500; i++) {
+        csi_info.rx_ctrl.timestamp = arrival_us;
+        manager.process_packet(&csi_info);
+        arrival_us += 2000U;
+    }
+
+    TEST_ASSERT_EQUAL(500, probe.calls);
+    // One second at the 250 ms contract is four ticks, not the twenty a packet
+    // count of 25 would have produced at this rate.
+    TEST_ASSERT_TRUE(probe.evaluations_due >= 3 && probe.evaluations_due <= 6);
+    // Each closed window carries its own weight, which is what the calibrator
+    // folds in one step.
+    TEST_ASSERT_TRUE(probe.max_packets_in_window >= 100U);
+}
+
+// The interceptor and the detection path must agree on when a window closes.
+void test_csi_pipeline_interceptor_shares_the_detection_cadence(void) {
+    const int detection_ticks = count_evaluations_at_cadence_(10000U, 1000);
+
+    TransitionDetectorMock detector;
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
+    InterceptorProbe probe;
+    manager.set_packet_interceptor(&interceptor_probe_callback_, &probe);
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+    uint32_t arrival_us = 1000000U;
+    for (int i = 0; i < 1000; i++) {
+        csi_info.rx_ctrl.timestamp = arrival_us;
+        manager.process_packet(&csi_info);
+        arrival_us += 10000U;
+    }
+
+    // The detection path also refreshes on the publish rate, so it can only
+    // ever tick at least as often as the interceptor path.
+    TEST_ASSERT_TRUE(detection_ticks >= probe.evaluations_due);
+    TEST_ASSERT_TRUE(probe.evaluations_due >= detection_ticks - 2);
+}
+
 void test_csi_pipeline_evaluates_on_elapsed_packet_time(void) {
     // Arrival time is an input, so the cadence is reproducible run to run.
     // 3000 packets at 100 pps is 30 s, which is 120 ticks at the 250 ms
@@ -938,6 +1022,8 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_motion_state_callback_honors_motion_off_hits);
     RUN_TEST(test_csi_pipeline_periodic_callback_uses_filtered_motion_state);
     RUN_TEST(test_csi_pipeline_evaluates_on_elapsed_packet_time);
+    RUN_TEST(test_csi_pipeline_feeds_cadence_while_interceptor_consumes);
+    RUN_TEST(test_csi_pipeline_interceptor_shares_the_detection_cadence);
     RUN_TEST(test_csi_pipeline_live_telemetry_callback_does_not_force_every_packet_evaluation);
     
     // STBC packet tests (issue #76)

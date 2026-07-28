@@ -19,10 +19,29 @@ class EspIdfRuntime;
 
 namespace frontend_runtime_shim {
 
+/**
+ * What the real sensing runtime declares in its constructor.
+ *
+ * RuntimeCapabilities defaults every flag to false so a runtime has to declare
+ * what it offers; the shim has to mirror the declaration rather than inherit
+ * those defaults, or the frontend tests would exercise a runtime that supports
+ * nothing. Detector selection stays false here because the real runtime derives
+ * it from the config, and the shim does the same in its constructor.
+ */
+inline RuntimeCapabilities sensing_runtime_capabilities() {
+  RuntimeCapabilities capabilities{};
+  capabilities.supports_runtime_threshold_updates = true;
+  capabilities.supports_manual_recalibration = true;
+  capabilities.supports_ble_telemetry = true;
+  capabilities.supports_extended_diagnostics = true;
+  capabilities.supports_traffic_control = true;
+  return capabilities;
+}
+
 struct State {
   bool setup_result{true};
   RuntimeSnapshot snapshot{};
-  RuntimeCapabilities capabilities{};
+  RuntimeCapabilities capabilities{sensing_runtime_capabilities()};
   bool shutdown_called{false};
   int loop_calls{0};
   int set_threshold_calls{0};

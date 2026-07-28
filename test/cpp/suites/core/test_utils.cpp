@@ -147,53 +147,6 @@ void test_turbulence_single_subcarrier(void) {
 }
 
 // ============================================================================
-// COMPARE FUNCTION TESTS
-// ============================================================================
-
-void test_compare_float_ascending(void) {
-    float data[] = {5.0f, 2.0f, 8.0f, 1.0f, 9.0f};
-    std::sort(data, data + 5);
-    
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, data[0]);
-    TEST_ASSERT_EQUAL_FLOAT(2.0f, data[1]);
-    TEST_ASSERT_EQUAL_FLOAT(5.0f, data[2]);
-    TEST_ASSERT_EQUAL_FLOAT(8.0f, data[3]);
-    TEST_ASSERT_EQUAL_FLOAT(9.0f, data[4]);
-}
-
-void test_compare_float_abs(void) {
-    float data[] = {-5.0f, 2.0f, -8.0f, 1.0f, -9.0f};
-    std::sort(data, data + 5, [](float a, float b) {
-        return std::abs(a) < std::abs(b);
-    });
-    
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, data[0]);
-    TEST_ASSERT_EQUAL_FLOAT(2.0f, data[1]);
-}
-
-void test_compare_int8_ascending(void) {
-    int8_t data[] = {5, -2, 8, -1, 9};
-    std::sort(data, data + 5);
-    
-    TEST_ASSERT_EQUAL_INT8(-2, data[0]);
-    TEST_ASSERT_EQUAL_INT8(-1, data[1]);
-    TEST_ASSERT_EQUAL_INT8(5, data[2]);
-    TEST_ASSERT_EQUAL_INT8(8, data[3]);
-    TEST_ASSERT_EQUAL_INT8(9, data[4]);
-}
-
-void test_compare_int8_with_duplicates(void) {
-    int8_t data[] = {3, 1, 3, 2, 1};
-    std::sort(data, data + 5);
-    
-    TEST_ASSERT_EQUAL_INT8(1, data[0]);
-    TEST_ASSERT_EQUAL_INT8(1, data[1]);
-    TEST_ASSERT_EQUAL_INT8(2, data[2]);
-    TEST_ASSERT_EQUAL_INT8(3, data[3]);
-    TEST_ASSERT_EQUAL_INT8(3, data[4]);
-}
-
-// ============================================================================
 // REAL DATA TESTS
 // ============================================================================
 
@@ -332,10 +285,6 @@ int process(void) {
     RUN_TEST(test_turbulence_single_subcarrier);
     
     // Compare function tests
-    RUN_TEST(test_compare_float_ascending);
-    RUN_TEST(test_compare_float_abs);
-    RUN_TEST(test_compare_int8_ascending);
-    RUN_TEST(test_compare_int8_with_duplicates);
     
     // Real data tests
     RUN_TEST(test_magnitude_from_real_csi);

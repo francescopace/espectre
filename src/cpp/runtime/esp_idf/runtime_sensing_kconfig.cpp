@@ -87,6 +87,34 @@ float parse_float_or_default_(const char *value, float default_value, float min_
   return parsed;
 }
 
+/**
+ * Range-check an integer Kconfig value the same way floats are checked.
+ *
+ * Downstream clamping partly covers a bad sdkconfig, but silently: the runtime
+ * then differs from what was asked for with nothing in the log to say so.
+ */
+uint32_t clamp_uint32_or_default_(uint32_t value, uint32_t default_value, uint32_t min_value,
+                                  uint32_t max_value, const char *key) {
+  if (validate_runtime_uint32(value, min_value, max_value)) {
+    return value;
+  }
+  ESP_LOGW(TAG, "Invalid %s=%u (allowed %u-%u), using default %u", key, static_cast<unsigned>(value),
+           static_cast<unsigned>(min_value), static_cast<unsigned>(max_value),
+           static_cast<unsigned>(default_value));
+  return default_value;
+}
+
+uint8_t clamp_uint8_or_default_(uint8_t value, uint8_t default_value, uint8_t min_value,
+                                uint8_t max_value, const char *key) {
+  if (validate_runtime_uint8(value, min_value, max_value)) {
+    return value;
+  }
+  ESP_LOGW(TAG, "Invalid %s=%u (allowed %u-%u), using default %u", key, static_cast<unsigned>(value),
+           static_cast<unsigned>(min_value), static_cast<unsigned>(max_value),
+           static_cast<unsigned>(default_value));
+  return default_value;
+}
+
 }  // namespace
 
 RuntimeConfig make_runtime_sensing_config_from_kconfig() {
@@ -100,18 +128,40 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
 
   config.segmentation_threshold = runtime_default_threshold(config.detection_algorithm);
 
-  config.segmentation_window_size = static_cast<uint16_t>(CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE);
-  config.traffic_generator_rate = static_cast<uint32_t>(CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE);
+  config.segmentation_window_size = static_cast<uint16_t>(
+      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE),
+                               RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT,
+                               RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN,
+                               RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX,
+                               "CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE"));
+  config.traffic_generator_rate =
+      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE),
+                               RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT,
+                               RUNTIME_TRAFFIC_GENERATOR_RATE_MIN,
+                               RUNTIME_TRAFFIC_GENERATOR_RATE_MAX,
+                               "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE");
   config.traffic_generator_adaptive = CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE;
 #if CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
   config.traffic_generator_mode = RuntimeTrafficMode::DNS;
 #else
   config.traffic_generator_mode = RuntimeTrafficMode::PING;
 #endif
-  config.publish_interval = static_cast<uint32_t>(CONFIG_ESPECTRE_PUBLISH_INTERVAL);
-  config.evaluation_interval = static_cast<uint32_t>(CONFIG_ESPECTRE_EVALUATION_INTERVAL);
-  config.motion_on_hits = static_cast<uint8_t>(CONFIG_ESPECTRE_MOTION_ON_HITS);
-  config.motion_off_hits = static_cast<uint8_t>(CONFIG_ESPECTRE_MOTION_OFF_HITS);
+  config.publish_interval =
+      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_PUBLISH_INTERVAL),
+                               RUNTIME_PUBLISH_INTERVAL_DEFAULT, RUNTIME_INTERVAL_MIN,
+                               RUNTIME_INTERVAL_MAX, "CONFIG_ESPECTRE_PUBLISH_INTERVAL");
+  config.evaluation_interval =
+      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_EVALUATION_INTERVAL),
+                               RUNTIME_EVALUATION_INTERVAL_DEFAULT, RUNTIME_INTERVAL_MIN,
+                               RUNTIME_INTERVAL_MAX, "CONFIG_ESPECTRE_EVALUATION_INTERVAL");
+  config.motion_on_hits =
+      clamp_uint8_or_default_(static_cast<uint8_t>(CONFIG_ESPECTRE_MOTION_ON_HITS),
+                              RUNTIME_MOTION_ON_HITS_DEFAULT, RUNTIME_MOTION_HITS_MIN,
+                              RUNTIME_MOTION_HITS_MAX, "CONFIG_ESPECTRE_MOTION_ON_HITS");
+  config.motion_off_hits =
+      clamp_uint8_or_default_(static_cast<uint8_t>(CONFIG_ESPECTRE_MOTION_OFF_HITS),
+                              RUNTIME_MOTION_OFF_HITS_DEFAULT, RUNTIME_MOTION_HITS_MIN,
+                              RUNTIME_MOTION_HITS_MAX, "CONFIG_ESPECTRE_MOTION_OFF_HITS");
   config.lowpass_enabled = CONFIG_ESPECTRE_LOWPASS_ENABLED;
   config.lowpass_cutoff = parse_float_or_default_(CONFIG_ESPECTRE_LOWPASS_CUTOFF,
                                                   RUNTIME_LOWPASS_CUTOFF_DEFAULT,

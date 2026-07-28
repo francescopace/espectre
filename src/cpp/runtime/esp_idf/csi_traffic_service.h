@@ -12,6 +12,7 @@
 #include <string>
 
 #include "csi_traffic_types.h"
+#include "runtime_interface.h"
 #include "traffic_generator_manager.h"
 #include "udp_listener.h"
 
@@ -26,6 +27,20 @@ struct CsiTrafficServiceConfig {
   std::string multicast_group;
   std::string expected_payload;
 };
+
+TrafficGeneratorMode to_traffic_generator_mode(RuntimeTrafficMode mode);
+
+/**
+ * Project a runtime config onto the traffic service config.
+ *
+ * @param idle_fallback Mode to use when the config asks for INTERNAL traffic
+ *        but sets a zero rate, i.e. when nothing local will generate packets.
+ *        The sensing runtime then expects an external source, while the stream
+ *        runtime expects collector pacing, and that is the only difference
+ *        between the two projections.
+ */
+CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config,
+                                              CsiTrafficMode idle_fallback);
 
 class CsiTrafficService {
  public:

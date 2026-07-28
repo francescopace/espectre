@@ -323,6 +323,32 @@ void test_native_frontend_periodic_update_publishes_mqtt_telemetry(void) {
                    std::string::npos);
 }
 
+void test_native_frontend_motion_edge_publishes_ready_mqtt_telemetry(void) {
+  MockBleBindings bindings;
+  MockMqttTransport mqtt;
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_host = "localhost";
+
+  NativeFrontend frontend(&bindings, &mqtt);
+  frontend.set_device_config(config);
+  TEST_ASSERT_TRUE(frontend.setup());
+  mqtt_transport_mock::state.publishes.clear();
+
+  RuntimeSnapshot snapshot = make_ready_snapshot();
+  snapshot.ready_to_publish = false;
+  frontend.on_motion_state_changed(snapshot);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.empty());
+
+  snapshot.ready_to_publish = true;
+  frontend.on_motion_state_changed(snapshot);
+  TEST_ASSERT_EQUAL(1, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/telemetry",
+                           mqtt_transport_mock::state.publishes[0].topic.c_str());
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"motion_state\":\"motion\"") !=
+                   std::string::npos);
+}
+
 void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
@@ -386,6 +412,7 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
 
   RuntimeSnapshot snapshot = make_ready_snapshot();
   frontend.on_motion_state_changed(snapshot);
+  mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_command("{\"command_id\":\"cmd-info\",\"command\":\"info\"}");
   mqtt.emit_command("{\"command_id\":\"cmd-stats\",\"command\":\"stats\"}");
 
@@ -651,6 +678,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_clear_mqtt_config_preserves_device_identity);
   RUN_TEST(test_native_frontend_set_mqtt_config_batch_command_updates_runtime_config);
   RUN_TEST(test_native_frontend_periodic_update_publishes_mqtt_telemetry);
+  RUN_TEST(test_native_frontend_motion_edge_publishes_ready_mqtt_telemetry);
   RUN_TEST(test_native_frontend_mqtt_set_threshold_command_publishes_result);
   RUN_TEST(test_native_frontend_ble_and_mqtt_detector_commands_update_runtime);
   RUN_TEST(test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads);

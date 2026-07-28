@@ -8,11 +8,6 @@
  */
 #include "periodic_sensing_status_logger.h"
 
-#if __has_include("esp_wifi.h")
-#include "esp_wifi.h"
-#define ESPECTRE_HAVE_ESP_WIFI 1
-#endif
-
 #include "espectre_log.h"
 #include "runtime_time.h"
 
@@ -45,15 +40,10 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
   }
   last_log_time_ms_ = now_ms;
 
-  int8_t rssi = -127;
-  uint8_t channel = 0;
-#ifdef ESPECTRE_HAVE_ESP_WIFI
-  wifi_ap_record_t ap_info{};
-  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-    rssi = ap_info.rssi;
-    channel = ap_info.primary;
-  }
-#endif
+  // Link quality comes from the packets that produced the metric, not from a
+  // fresh AP query taken at print time.
+  const int8_t rssi = snapshot.link_rssi_dbm;
+  const uint8_t channel = snapshot.link_channel;
 
   const float progress = (threshold > 0.0f) ? (motion_metric / threshold) : 0.0f;
   const int percent = static_cast<int>(progress * 100.0f);
