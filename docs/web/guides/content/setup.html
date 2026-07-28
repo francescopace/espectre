@@ -18,7 +18,7 @@
       <tbody>
         <tr><td>Want a standalone sensor with browser tools or MQTT</td><td><strong>Native</strong></td><td>Bluetooth setup page, MQTT telemetry, live monitor, and the browser games</td></tr>
         <tr><td>Use Home Assistant</td><td><strong>ESPHome</strong></td><td>Auto-discovered device with motion, movement level, threshold slider, and recalibrate switch</td></tr>
-        <tr><td>Use Apple Home, Google Home, Alexa, or SmartThings</td><td><strong>Matter</strong></td><td>A standard occupancy sensor you add by scanning a QR code</td></tr>
+        <tr><td>Use a controller that supports Matter occupancy sensors</td><td><strong>Matter</strong></td><td>A standard occupancy sensor; controller validation is still limited, so check the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/matter/README.md" target="_blank" rel="noopener">current validation notes</a></td></tr>
         <tr><td>Want raw CSI data for research</td><td><strong>Streamer</strong></td><td>Raw capture over UDP; not flashable from the browser, see the <a href="/guides/custom-firmware/">custom firmware guide</a></td></tr>
       </tbody>
     </table></div>
@@ -60,7 +60,7 @@
     <h3 class="subheading">Matter</h3>
     <ol class="steps-list">
       <li><h3>Get the QR code</h3><p>After flashing, the flasher shows the device's Matter QR code and manual pairing code. Each device has its own code, and reflashing does not change it, so you can save it.</p></li>
-      <li><h3>Add the device in your app</h3><p>In Apple Home, Google Home, Alexa, or SmartThings choose <em>Add device</em> and scan the QR code. Keep the phone near the board: commissioning starts over Bluetooth, then the device joins your Wi-Fi.</p></li>
+      <li><h3>Add the device in your app</h3><p>In a controller that supports Matter occupancy sensors, choose its add-device flow and scan the QR code. The exact UI varies by controller. Keep the phone near the board: commissioning starts over Bluetooth, then the device joins your Wi-Fi.</p></li>
       <li><h3>Place it in a room</h3><p>The device appears as an occupancy sensor. Use it in automations exactly like any other motion sensor.</p></li>
     </ol>
 

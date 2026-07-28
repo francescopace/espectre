@@ -1,6 +1,6 @@
 # Gate Classic false positives on empty rooms
 
-- Status: accepted
+- Status: Accepted
 - Date: 2026-07-25
 
 ## Context

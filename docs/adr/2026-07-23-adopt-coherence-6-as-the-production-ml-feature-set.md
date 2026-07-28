@@ -1,8 +1,9 @@
 # ADR: adopt Coherence-6 as the production ML feature set
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-07-23
 - Supersedes: 2026-07-07-use-core-6-as-the-production-ml-feature-set.md
+- Superseded by: 2026-07-27-add-the-lag-ratio-to-the-production-ml-feature-set.md
 
 ## Context
 
@@ -90,6 +91,7 @@ Trade-offs:
 
 ## Related
 
+- [FEATURES.md](../FEATURES.md)
 - [2026-07-07-use-core-6-as-the-production-ml-feature-set.md](2026-07-07-use-core-6-as-the-production-ml-feature-set.md)
 - [2026-07-23-separate-ml-training-data-from-promotion-replays.md](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 - Commits: `dc94003` (candidate features, C++ port, `--features`)

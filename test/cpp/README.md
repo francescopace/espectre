@@ -21,22 +21,24 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 
 ## Test Suites
 
-| Suite | Layer | Type | Data | Focus |
-|-------|-------|------|------|-------|
-| `test_utils` | Core | Unit | **Real** | Variance, magnitude, turbulence, compare functions |
-| `test_core_helpers` | Core | Unit | Synthetic | Core helper edge cases, thresholds, move semantics |
-| `test_hampel_filter` | Core | Unit | **Real** | Outlier removal filter |
-| `test_classic_detector` | Core | Unit | **Real** | Weighted Classic fusion, double Hampel, and startup adaptation |
-| `test_ml_detector` | Core | Unit | **Real** | ML detector, feature extraction, inference |
-| `test_traffic_generator` | Runtime | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
-| `test_runtime_helpers` | Runtime | Unit | Synthetic | Gain controller and WiFi CSI helper behavior |
-| `test_wifi_lifecycle` | Runtime | Unit | Synthetic | WiFi init policy, handler registration, cleanup paths |
-| `test_csi_pipeline` | Runtime | Unit | Synthetic | CsiPipeline API, enable/disable, callbacks |
-| `test_motion_detection` | Integration | Integration | **Real** | Classic/ML performance with the fixed-subcarrier runtime |
-| `test_long_recordings` | Integration | Integration | **Real** | Long-recording diagnostics for the classic and ML runtime paths |
-| `test_sensor_publisher` | Frontend | Unit | Synthetic | ESPHome sensor publishing and status logging |
-| `test_frontend_controls` | Frontend | Unit | Synthetic | ESPHome threshold number, calibrate switch, frontend runtime shim |
-| `test_matter_frontend` | Frontend | Unit | Synthetic | Matter adapter lifecycle, event mapping, threshold/recalibration controls |
+The registered targets are grouped by the layer they exercise:
+
+- Core: `test_utils`, `test_core_helpers`, `test_hampel_filter`,
+  `test_classic_detector`, and `test_ml_detector`
+- Runtime: `test_traffic_generator`, `test_runtime_helpers`,
+  `test_runtime_frontend_controller`, `test_runtime_detector_switch`,
+  `test_wifi_lifecycle`, `test_pending_event`,
+  `test_wifi_provisioning_service`, `test_device_config_store`,
+  `test_espectre_protocol`, `test_csi_pipeline`, `test_csi_frame_identity`,
+  `test_csi_traffic_service`, and `test_udp_listener`
+- Integration with real CSI: `test_motion_detection`,
+  `test_long_recordings`, `test_low_rssi`, `test_empty_rooms`, and
+  `test_packet_rate_adaptation`
+- Frontend: `test_sensor_publisher`, `test_frontend_controls`,
+  `test_native_frontend`, and `test_matter_frontend`
+
+`test/cpp/suites/CMakeLists.txt` is the executable registration source of truth;
+this list is the human-readable catalog.
 
 
 ### Target Metrics (Motion Detection)
@@ -61,11 +63,13 @@ Tests load real CSI data from NPZ files in `data/` using the [cnpy](https://gith
 | Chip | Static Presence | Motion |
 |------|-----------------|--------|
 | ESP32-C3 | `static_presence_c3_64sc_*.npz` | `motion_c3_64sc_*.npz` |
+| ESP32-C5 | `static_presence_c5_64sc_*.npz` | `motion_c5_64sc_*.npz` |
 | ESP32-C6 | `static_presence_c6_64sc_*.npz` | `motion_c6_64sc_*.npz` |
 | ESP32-S3 | `static_presence_s3_64sc_*.npz` | `motion_s3_64sc_*.npz` |
 | ESP32 | `static_presence_esp32_64sc_*.npz` | `motion_esp32_64sc_*.npz` |
 
-Tests run with **multiple chip datasets** (C3, C6, S3, ESP32) using 64 SC (HT20 mode).
+Tests run with **multiple chip datasets** (C3, C5, C6, S3, and ESP32) using
+64 SC (HT20 mode).
 
 Both Python and C++ tests use the same NPZ files, eliminating duplication.
 

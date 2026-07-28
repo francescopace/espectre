@@ -60,17 +60,17 @@ python tools/train_ml_model.py --exclude-chip ESP32
 python tools/train_ml_model.py --gain-stress-gate
 python tools/train_ml_model.py --gain-stress-gate --environment bedroom
 python tools/train_ml_model.py --seed-search-until-improvement 20
-python tools/train_ml_model.py --features turb_autocorr,turb_zcr,l1_delta --no-export
-python tools/train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta,l1_delta_lag_ratio,l1_delta_autocorr --experiment
+python tools/train_ml_model.py --features turb_autocorr,turb_zcr,l1_delta_autocorr --no-export
+python tools/train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio --experiment
 ```
 
 `--features` selects the training feature set for experiments and is propagated
-to architecture and FP-weight campaigns. There is no candidate tier: the seven
-production features are the whole surface, so a set that trains is a set that
-can ship, and `--features` serves ablation-style subsets of those seven. The
-guard that rejects a feature without a C++ extractor id stays for future
-additions. Every removed feature and the measurement that rejected it is listed
-in [2026-07-27-reduce-the-feature-surface-to-the-production-set.md](adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md).
+to architecture and FP-weight campaigns. The five production features are the
+runtime surface; host-only candidates widen the read-only experiment surface
+without becoming exportable. The export guard rejects any feature without a
+C++ extractor ID. Every removed production feature and the measurement that
+rejected it is listed in
+[2026-07-27-reduce-the-feature-surface-to-the-production-set.md](adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md).
 
 For exploratory architecture campaigns:
 
@@ -191,7 +191,7 @@ The training pipeline:
    backward compatibility.
 2. Uses the shared CV-normalized turbulence path (`std/mean`) across all files.
 3. Extracts the selected ML feature set per sliding window. The production
-   default is the Coherence-7 set. When Hampel is enabled, the trainer filters both
+   default is the Invariant-5 set. When Hampel is enabled, the trainer filters both
    base streams before feature extraction: turbulence for all `turb_*`
    features and per-packet L1 deltas for all `l1_delta*` features.
    Feature extraction uses the same fixed HT20 subcarrier band as the runtime,
@@ -299,8 +299,8 @@ only. They are selectable through `--features` but are absent from
 `CPP_FEATURE_IDS`, so any flow that would export runtime artifacts refuses to
 run until the candidate is ported; use `--no-export` or one of the read-only
 flows. The production surface in `csi_features.py` stays exactly the exported
-set, as decided in
-[2026-07-27-reduce-the-feature-surface-to-the-production-set.md](adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md).
+set. See [FEATURES.md](FEATURES.md) for the current production and candidate
+inventories.
 
 Screen redundancy before anything else, because a candidate earns its place by
 what it adds rather than by how well it separates alone:
@@ -316,20 +316,23 @@ downstream gate will recover value it does not carry.
 
 Candidates run through the same streaming path as production features, so
 `--cross-chip`, `--gain-stress-gate`, and the replay gates measure them the way
-a runtime would. Only a candidate that survives the promotion protocol above
-earns a calc function in both languages, an `MLFeatureId`, and a
-`CPP_FEATURE_IDS` entry.
+a runtime would. `--evaluate-gates --no-export` also reports the exact
+per-recording regressions against the exported baseline. Only a candidate that
+survives the promotion protocol above earns a calc function in both languages,
+an `MLFeatureId`, and a `CPP_FEATURE_IDS` entry.
 
-Currently available: `chan_coh_lag_ratio` and `chan_coh_mean`, the
-delay-compensated complex coherence of the channel over the live HT20 band.
-Both are scale-invariant, and the tracker compensates the per-packet sampling
-delay and carrier offset before comparing profiles.
+The authoritative inventory, definitions, retained metrics, verdicts, and
+future physical axes are in [FEATURES.md](FEATURES.md). All currently
+implemented candidates are scale-invariant and remain research-only until
+their incremental value and replay robustness justify a production port.
+See [LITERATURE.md](LITERATURE.md) for the primary-paper evidence behind those
+physical axes and for the hardware assumptions that limit transfer.
 
 ## Gain-Shift Robustness Check
 
 The production ML path deliberately keeps Python/C++ runtime inference aligned
 by deriving all neural-detector inputs from the same raw turbulence signal. The
-exported Coherence-7 feature set uses gain-invariant, temporally-coherent
+exported Invariant-5 feature set uses gain-invariant, temporally-coherent
 turbulence and L1-delta
 statistics, so the model is structurally less sensitive to absolute amplitude
 gain changes.
@@ -360,13 +363,6 @@ links. Validate low-RSSI behavior separately with real captures registered in
 `data/dataset_info.json` and production-path detector regressions. Classic has
 a startup-centered safeguard for this case; ML low-RSSI behavior remains a
 separate promotion problem that requires additional real-data evidence.
-
-The `reference_match` mode reproduces each phase independently for detector
-replay and should not be used for training. The `shared_session` mode fits
-`static_presence`, preserves source dynamics, and reuses the same impairment
-parameters for paired `motion`; use this mode for ML augmentation. Synthetic
-files live in the standard `data/<label>/` directories and are therefore
-consumed by the current trainer alongside real captures.
 
 ## Cross-Environment And Cross-Chip Generalization Checks
 

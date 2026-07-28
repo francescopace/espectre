@@ -1,7 +1,11 @@
 # ADR: adopt persisted runtime detector selection
 
-- Status: Accepted
+- Status: Superseded in part
 - Date: 2026-07-15
+
+The persisted runtime-selection decision remains active for ESPHome and Native.
+Matter remains read-only but changed from the ML default recorded below to the
+Classic default on 2026-07-28.
 
 ## Context
 

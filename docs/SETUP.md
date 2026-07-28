@@ -310,8 +310,8 @@ Support in this phase:
 |--------|---------------|---------|---------------|
 | `detection_algorithm` | `classic` or `ml` | `classic`, including Matter | Shared detector family |
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; adjustable from the frontend during the session |
-| `segmentation_window_size` | int | `100` | `10-200` packets |
-| `traffic_generator_rate` | int | `100` | Target valid local CSI rate, `0-1000`; `0` disables internal traffic generation |
+| `segmentation_window_size` | int | `100` | `100-200` packets |
+| `traffic_generator_rate` | int | `100` | Arithmetic validation range `0-100000`; `0` disables internal traffic generation. Supported ESP32 targets sustain much lower practical CSI rates, normally around the `100` target |
 | `traffic_generator_adaptive` | bool | `true` | Adjusts DNS or ICMP send pacing from CSI feedback and local socket backpressure; floor at `70%` of target, overshoot up to about `125%` |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
 | `publish_interval` | int | `100` | `1-1000` packets between periodic updates |

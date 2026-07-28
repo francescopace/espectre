@@ -57,7 +57,7 @@ flashing, use a BLE client that understands this protocol, such as:
 
 - [Configure](https://espectre.dev/configure/):
   Web Bluetooth provisioning and protocol test client
-- [`README.md`](../../../../docs/web/game/README.md):
+- [The Game](https://espectre.dev/game/):
   example interactive client built on the same BLE surface
 
 Each release and snapshot publishes one full-flash native image and one
@@ -292,5 +292,5 @@ not for Home Assistant-style provisioning or the Matter commissioning flow.
   NimBLE transport implementation
 - `../../../../docs/web/configure/index.html`:
   unified Web Bluetooth provisioning and protocol test client
-- `../../../../docs/web/game/README.md`:
-  example client built on this protocol
+- [The Game](https://espectre.dev/game/):
+  published example client built on this protocol

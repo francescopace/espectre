@@ -1,18 +1,12 @@
 # ESPectre Agent Rules
 
-## Project Snapshot
+## Project Workflow
 
-ESPectre is a Wi-Fi CSI sensing platform with Home Assistant and Matter integration.
-
-Main code areas:
-- `src/cpp/`: production C++ firmware platform, including core, runtime, and frontends
-- `src/python/`, `tools/`, `test/python/`: Python/MicroPython R&D, CLI, tooling, and tests
-- `src/cpp/frontend/esphome/`: ESPHome frontend
-- `src/cpp/frontend/native/`: Standalone native frontend
-- `src/cpp/frontend/matter/`: Matter frontend
-- `src/cpp/frontend/streamer/`: CSI streamer frontend
-
-Innovation flow: prototype in Python, validate, then port to the relevant shared C++ layers and frontend(s).
+- Prototype sensing and detector changes in Python, validate them, then port
+  production behavior to the relevant shared C++ layers and frontends.
+- Treat `src/cpp/` as production firmware, `src/python/micro_espectre/` as the
+  MicroPython device path, and `src/python/espectre_cli/` plus `tools/` as
+  host-side code.
 
 ## Communication And Style
 
@@ -27,21 +21,30 @@ Innovation flow: prototype in Python, validate, then port to the relevant shared
 ## Source Of Truth
 
 - `README.md`: project overview, quick start, documentation map, and public-facing context
-- `docs/SETUP.md`: shared configuration parameters, defaults, ranges, frontend chooser, and current CLI entry points
+- `docs/SETUP.md`: shared configuration parameters, defaults, ranges, and frontend chooser
+- `docs/CLI.md`: current repository CLI command map and host-tool entry points
 - `docs/TUNING.md`: tuning advice and operational guidance
 - `docs/ALGORITHMS.md`: algorithm theory and detector explanations
+- `docs/FEATURES.md`: ML feature inventory, retained metrics, verdicts, and research backlog
+- `docs/LITERATURE.md`: reviewed sensing papers, methods, reported results, hardware limits, and ESPectre research relevance
 - `docs/performance/README.md`: benchmark targets and current metrics
 - `docs/ARCHITECTURE.md`: internal architecture, runtime/frontend split, and orchestration direction
-- `docs/adr/*.md`: architecture decision records for stable technical choices, including context, decision, alternatives, and consequences
 - `docs/ESPECTRE_PROTOCOL.md`: shared device protocol, payloads, topics, and transport semantics
 - `docs/adr/*.md`: architecture decision records, including durable decisions, historically important rejected directions, and the project-level rationale behind superseded baselines
 - `src/python/micro_espectre/README.md`: Micro-ESPectre workflow, CLI, MQTT, and R&D positioning
 - `docs/ML_DATA_COLLECTION.md`: dataset collection and labeling workflow
 - `docs/ML_TRAINING.md`: ML training, export, and validation workflow
+- `data/COLLECTION_PLAN.md`: mutable dataset collection and replacement backlog
+- `data/auto_generated/DATASET_QUALITY_CHECK.md`: generated dataset admission and quality snapshot
 - `docs/ROADMAP.md`: product direction and sequencing
+- `docs/review/*.md`: dated review findings and their progress trackers, not
+  current-state product documentation
 - `src/cpp/frontend/*/README.md`: frontend-specific workflows, protocol surfaces, and firmware notes
 
-For current CLI syntax, use `docs/SETUP.md`, `src/python/micro_espectre/README.md`, the relevant frontend README, and `./espectre --help`. Avoid duplicating command examples in agent rules because the wrapper evolves often.
+For current CLI syntax, use `docs/CLI.md`,
+`src/python/micro_espectre/README.md`, the relevant frontend README, and
+`./espectre --help`. Avoid duplicating command examples in agent rules because
+the wrapper evolves often.
 
 ## Environment And Commands
 
@@ -53,8 +56,6 @@ For current CLI syntax, use `docs/SETUP.md`, `src/python/micro_espectre/README.m
 - Run `gh` commands only on explicit user request and with the required permissions.
 
 ## Testing And Validation
-
-Tests catch bugs; they are not a checkbox.
 
 When tests fail:
 1. Investigate the root cause first.
@@ -68,13 +69,14 @@ sandbox can reject `bind()` for every local address, including `127.0.0.1` and
 `0.0.0.0`; treat `PermissionError` or `EPERM` from the test socket setup as a
 sandbox restriction, not as evidence that the test should use a different IP.
 
-After changing detection/calibration logic, run the relevant C++ motion-detection test and Python performance validation when feasible:
+After changing detection or calibration logic, run the relevant C++
+motion-detection test and Python performance validation when feasible:
 
 ```bash
 cmake -S test/cpp -B test/cpp/build
 cmake --build test/cpp/build
 ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
-pytest test/python/test_validation_real_data.py::TestPerformanceMetrics -v
+.venv/bin/pytest test/python/test_validation_real_data.py::TestPerformanceMetrics -v
 ```
 
 Keep C++ and Python algorithm trends aligned; see `docs/performance/README.md`.
@@ -93,7 +95,7 @@ Keep C++ and Python algorithm trends aligned; see `docs/performance/README.md`.
 Python test baseline:
 
 ```bash
-pytest test/python -v
+.venv/bin/pytest test/python -v
 ```
 
 ## C++ Rules
@@ -107,14 +109,6 @@ pytest test/python -v
 - Do not add blocking code in firmware `loop()` paths or callbacks.
 - Do not assume ESPHome-specific patterns apply to BLE, Matter, streamer, or shared runtime code.
 
-C++ test baseline:
-
-```bash
-cmake -S test/cpp -B test/cpp/build
-cmake --build test/cpp/build
-ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
-```
-
 ## C++ File Naming And Placement
 
 - Use `snake_case` basenames; header and implementation of the same unit share the basename.
@@ -122,10 +116,41 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 - Boundary interfaces live in the shared layer as `<name>.h`; implementations as `<name>_<variant>` in the owning layer (`mqtt_transport_esp_idf`, `ble_bindings_nimble`).
 - Suffixes: `_service` (start/stop lifecycle), `_transport` (data transport), `_bindings` (mockable boundary to an external stack), `_frontend` (runtime listener adapter), `_helpers` (free functions, domain-prefixed). Do not introduce new `_manager` files.
 - Placement: algorithms and CSI format in `core/`; platform-agnostic contracts in `runtime/`; anything including ESP-IDF/FreeRTOS/lwIP in `runtime/esp_idf/`; single-frontend code in `frontend/<name>/`.
-- Placement exception: portable shims that guard SDK includes behind `ESP_PLATFORM` or `__has_include` and degrade cleanly on host builds may live in `runtime/` (`espectre_log`, `pending_event`, `runtime_time`).
+- Placement exception: portable shims that guard SDK includes behind `ESP_PLATFORM` or `__has_include` and degrade cleanly on host builds may live in `runtime/` (`pending_event`, `runtime_time`), or in `core/` when `core` itself depends on them (`espectre_log`).
 - Headers in `core/` and `runtime/` must not include headers from `runtime/esp_idf/`.
 - Generic basenames (`utils`, `helpers`, `common`) require a domain prefix or genuinely cross-cutting, homogeneous content.
 - Core files with a Python counterpart keep the same basename (`threshold`, `csi_features`, `ml_weights`).
+
+## C++ Review Rules
+
+- Review first-party C++ for correctness, duplication, responsibility,
+  performance, and consistent frontend behavior; exclude generated, build, and
+  vendored trees unless the task explicitly includes them.
+- Enforce the dependency direction `Frontend -> Runtime -> Core`. A lower layer
+  must not include, query, or call a higher layer.
+- Place shared behavior in the lowest layer that correctly owns the
+  responsibility and has the required dependencies. Do not move orchestration
+  into `core` merely to centralize it.
+- Consolidate repeated behavior only when its contract is genuinely
+  homogeneous. Preserve intentional frontend differences through explicit
+  capabilities rather than hidden branches or copied implementations.
+- Compare ESPHome, Native, Matter, and Streamer where applicable for defaults,
+  validation, lifecycle, events, reset behavior, error handling, and capability
+  semantics. A difference is intentional only when the contract or a declared
+  capability explains it.
+- Inspect CSI callbacks, runtime loops, and inference paths for blocking work,
+  allocation, copying, per-element division or modulo, repeated I/O, excessive
+  stack use, oversized buffers, and debug-only work that remains active in
+  release paths.
+- Look explicitly for stale state, incomplete reset, incorrect readiness gates,
+  missing bounds or clamps, null-handling divergence, lifecycle ordering bugs,
+  and failure-recovery gaps.
+- Test shared behavior at the shared layer. Keep frontend-specific tests focused
+  on adapter behavior and declared capability differences.
+- When the user requests a persistent review record, store it under
+  `docs/review/` with stable finding ids, severity, precise locations, and one
+  progress checklist. Treat review completion and finding resolution as
+  separate states.
 
 ## Documentation Rules
 
@@ -134,14 +159,57 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 - Use a neutral informative tone for technical docs.
 - Allow a more approachable product-facing tone in `README.md` and public entry-point docs.
 - Keep frontend-specific workflows, protocols, and firmware surfaces in the local frontend README files.
-- Document meaningful experiments in `docs/adr/` when they establish, reject, or materially clarify a durable project direction, so the project keeps a useful historical record and avoids repeating past mistakes.
-- Use ADRs under `docs/adr/` for durable architectural or project-level decisions, including historically important rejected directions. Keep ADRs concise, one decision or coherent decision thread per file, and prefer links to related ADRs or changelog snapshots over mutable narrative docs.
+- Verify current-state documentation against the implementation, runtime
+  schema, and generated artifacts. Distinguish deployed behavior, partial
+  implementation, and target direction explicitly.
+- Make public compatibility, controller-support, privacy, and security claims
+  only when repository evidence supports them. Use a validation matrix when
+  coverage is incomplete.
+- Keep one source of truth per topic. Secondary documents should summarize and
+  link to the owner instead of repeating formulas, ranges, metrics, commands,
+  or mutable corpus details.
+- Keep `docs/ROADMAP.md` at the level of outcomes, gates, and sequencing. Put
+  replay names, experiment metrics, and collection details in their owning
+  feature, performance, or dataset documents.
+- Use ADRs for durable architectural or project-level decisions, including
+  historically important rejected directions. Keep one decision or coherent
+  decision thread per ADR, preserve historical rationale, and prefer links to
+  related ADRs or versioned snapshots over mutable narrative docs.
+- When a decision changes, update the affected ADR metadata consistently:
+  `Status`, `Supersedes`, and `Superseded by`. Do not leave superseded
+  decisions marked `Accepted`.
+- Treat `docs/FEATURES.md` as the feature experiment ledger. Record every
+  seriously evaluated production, research, historical, planned, or rejected
+  feature before removing its implementation or moving to the next candidate.
+- For each measured feature, retain its physical interpretation and definition,
+  scale-invariance status, implementation scope, corpus/split/seed context,
+  primary and worst-group metrics, redundancy evidence when available, verdict,
+  and the reason for that verdict. An unavailable metric must be marked as
+  unavailable, not reconstructed from memory.
+- Keep temporary experiment detail out of ADRs, the roadmap, and the changelog.
+  Use `docs/FEATURES.md` for accumulated feature evidence, and create or update
+  an ADR only when the evidence establishes, rejects, or supersedes a durable
+  production direction.
+- Keep host-only feature candidates under `tools/`, evaluate them with
+  `--no-export`, and do not add runtime extractors until a promotion decision
+  justifies Python/C++ parity.
+- Treat `docs/LITERATURE.md` as the external research ledger. Record the source
+  URL, release date, hardware and signal assumptions, methods, reported
+  results, and ESPectre transfer limits; do not present internal ESPectre
+  research as literature.
+- Keep the active unreleased changelog focused on the final cumulative release
+  state. Put superseded intermediate experiments in `docs/FEATURES.md` or ADRs.
+- Do not edit generated performance or dataset-quality reports manually.
+  Regenerate them from the current corpus, and run each generator's
+  `--check-current` mode before describing the reports as current.
 - Entry-point docs may include product/subproject branding in the title when established style supports it.
 - Other docs should use simple descriptive titles.
 - For internal Markdown links that point to files, use only the filename as the link text rather than the full relative path.
 - Emoji should be rare and purposeful, not ornamental.
-- Update `docs/CHANGELOG.md` only in the latest active section; do not rewrite historical release entries except to fix factual errors the user explicitly asked to correct.
-- Do not edit `docs/web/sitemap.xml` or the generated guide pages under `docs/web/guides/` (`hardware/`, `setup/`, `detection/`, `custom-firmware/`); they are gitignored output of `.github/scripts/build_guide_pages.py`, and direct edits evaporate at the next generation. Edit the fragments in `docs/web/guides/content/` instead, then re-run the script to preview.
+- Update `docs/CHANGELOG.md` only in the latest active section; do not rewrite
+  historical release entries except to fix factual errors the user explicitly
+  asked to correct.
+- Update `docs/web/sitemap.xml` when public routes change. Do not edit the generated guide pages under `docs/web/guides/` (`hardware/`, `setup/`, `detection/`, `custom-firmware/`) or the generated roadmap page under `docs/web/roadmap/`; they are gitignored output of `.github/scripts/build_static_pages.py`, and direct edits evaporate at the next generation. Edit the fragments in `docs/web/guides/content/` or `docs/web/roadmap/content.html` instead, then re-run the script to preview.
 
 ## GitHub And CI Rules
 

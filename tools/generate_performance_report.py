@@ -32,6 +32,10 @@ from tools.lib.performance_report import (
     write_performance_report,
 )
 from tools.lib.cpp_parity import verify_cpp_report_parity
+from tools.lib.dataset_metadata import (
+    dataset_info_revision,
+    generated_report_is_current,
+)
 
 
 def _format_duration(seconds: float) -> str:
@@ -93,7 +97,22 @@ def main() -> int:
         action="store_true",
         help="Skip the host-side C++ parity verification step.",
     )
+    parser.add_argument(
+        "--check-current",
+        action="store_true",
+        help="Exit successfully only when the existing report matches dataset_info.json.",
+    )
     args = parser.parse_args()
+
+    if args.check_current:
+        if generated_report_is_current(args.output):
+            print(f"Current: {args.output}")
+            return 0
+        print(
+            f"Stale or missing: {args.output}; regenerate it from data/dataset_info.json",
+            file=sys.stderr,
+        )
+        return 1
 
     progress, get_elapsed = _build_progress_logger(enabled=not args.quiet)
     started_at = datetime.now().astimezone()
@@ -108,6 +127,7 @@ def main() -> int:
     execution_info = {
         "last_update": datetime.now().astimezone().date().isoformat(),
         "source": "data/dataset_info.json",
+        "dataset_revision": dataset_info_revision(),
         "generated_by": "tools/generate_performance_report.py",
         "run_started": started_at.isoformat(timespec="seconds"),
         "run_duration": _format_duration(get_elapsed()),

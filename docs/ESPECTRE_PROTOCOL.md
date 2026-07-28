@@ -16,7 +16,9 @@ the same semantics across different trust boundaries.
   history, and alerts.
 - Web orchestration profiles add identity, credentials, tenancy, retention, and
   fleet management; they do not redefine device telemetry.
-- Device identifiers are opaque protocol identifiers, not MAC addresses.
+- `device_id` is a logical protocol identifier. Current firmware derives it
+  from the station MAC, so it must be treated as a persistent hardware
+  identifier rather than anonymous data.
 - Privacy-sensitive values such as SSID, BSSID, local IP address, packet-level
   radio traces, and serial logs must not be sent to managed services by
   default.
@@ -294,7 +296,10 @@ families and semantics.
 
 Identity/config semantics for the current BLE control surface:
 
-- `device_id` is the firmware-generated MAC-packed identity rendered as a stable `0x...` hex string in BLE sysinfo, MQTT topics, and MQTT payloads
+- `device_id` is the firmware-generated station-MAC-packed identity rendered as
+  a stable `0x...` hex string in BLE sysinfo, MQTT topics, and MQTT payloads;
+  managed or privacy-sensitive profiles must pseudonymize or replace it before
+  exposing it outside the local trust boundary
 - `device_name` is the immutable protocol/device name derived from chip and `device_id`
 - `device_label` is the optional user-facing human-readable device label
 - `SET_MQTT_CONFIG:...` replaces the full persisted MQTT broker block in one write

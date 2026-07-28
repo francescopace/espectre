@@ -182,7 +182,7 @@ python train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python train_ml_model.py --seed-search-until-improvement 20  # Evaluate all seeds and keep the best robust improvement
 python train_ml_model.py --seed 12345 --force-promote  # Deliberate baseline reset: export even if the gates fail
 python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr --no-export  # Evaluate a feature subset
-python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta,l1_delta_lag_ratio,l1_delta_autocorr --experiment  # Multi-seed lag-ratio candidate sweep
+python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio,chan_coh_gap --no-export  # Evaluate a host-side coherence candidate without export
 python train_ml_model.py --augment            # Non-scale train-time augmentation
 python train_ml_model.py --augment --seed-search-until-improvement 10
 python train_ml_model.py --cross-environment  # LOEO using the exported model seed by default
@@ -261,12 +261,13 @@ How to read the review tables:
 
 Turbulence mode follows runtime conventions: CV-normalized turbulence for every
 file. ML uses the same normalized base turbulence and exports the production
-production neural-detector features.
+neural-detector features.
 
 ```bash
 python validate_dataset_quality.py                  # Full validation (auto report + metadata refresh)
 python validate_dataset_quality.py --chip C6        # Validate C6 only
 python validate_dataset_quality.py --no-report      # Skip markdown report
+python validate_dataset_quality.py --check-current  # Fail if the report does not match dataset_info.json
 python validate_dataset_quality.py --include-excluded-pairs --chip C3
 ```
 
@@ -293,10 +294,15 @@ datasets
 
 ```bash
 python generate_performance_report.py
+python generate_performance_report.py --check-current
 python generate_performance_report.py --stdout
 python generate_performance_report.py --output /tmp/PERFORMANCE.md
 python generate_performance_report.py --skip-cpp-parity-check
 ```
+
+Both generated reports embed the SHA-256 revision of
+`data/dataset_info.json`. The `--check-current` commands are lightweight
+staleness gates suitable for CI and do not replay the corpus.
 
 ---
 

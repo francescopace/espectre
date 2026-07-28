@@ -9,6 +9,7 @@ License: GPLv3
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime
@@ -112,6 +113,24 @@ def save_dataset_info(info: Dict[str, Any], path: Optional[Path] = None) -> None
     with open(info_path, "w", encoding="utf-8") as handle:
         json.dump(info, handle, indent=2)
         handle.write("\n")
+
+
+def dataset_info_revision(path: Optional[Path] = None) -> str:
+    """Return the SHA-256 revision of the exact dataset catalog bytes."""
+    info_path = DATASET_INFO_FILE if path is None else Path(path)
+    return hashlib.sha256(info_path.read_bytes()).hexdigest()
+
+
+def generated_report_is_current(
+    report_path: Path,
+    dataset_info_path: Optional[Path] = None,
+) -> bool:
+    """Return whether a generated report names the current dataset revision."""
+    output_path = Path(report_path)
+    if not output_path.exists():
+        return False
+    expected = f"Dataset revision: `sha256:{dataset_info_revision(dataset_info_path)}`"
+    return expected in output_path.read_text(encoding="utf-8").splitlines()
 
 
 def get_dataset_stats() -> Dict[str, Any]:

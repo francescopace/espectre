@@ -101,13 +101,17 @@ espectre:
   segmentation_window_size: 100
 ```
 
-The window is a duration, not a packet count: the runtime measures the effective
-packet rate and resizes it so it keeps spanning about one second, and it does the
-same for the detector's two feature lags. A link that settles at `80 pps` instead
-of `100` therefore needs no retuning. What the setting still controls is how many
-samples land in that second, and below roughly 100 the features get noisy enough
-that recall drops while false positives stay low; that is why the minimum is 100.
-See the Detector Timing section in [ALGORITHMS.md](ALGORITHMS.md).
+The setting is currently a packet count. At the nominal `100 pps`, the default
+therefore spans about one second. Deployed runtimes measure arrival cadence for
+evaluation scheduling and stream-gap handling, but they do not yet resize the
+detector window or feature lags after construction. A sustained rate change can
+therefore change their physical time span.
+
+The target time-based contract and its current implementation boundary are
+described in the Detector Timing section of
+[ALGORITHMS.md](ALGORITHMS.md). Below roughly 100 samples per window, feature
+estimates become noisy enough that recall drops while false positives stay low;
+that is why the minimum is 100.
 
 Rules of thumb:
 

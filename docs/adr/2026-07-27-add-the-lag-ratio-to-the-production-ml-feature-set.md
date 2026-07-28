@@ -1,7 +1,9 @@
 # ADR: add the lag ratio to the production ML feature set
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-07-27
+- Supersedes: 2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md
+- Superseded by: 2026-07-28-drop-the-absolute-l1-features.md
 
 ## Context
 
@@ -109,3 +111,9 @@ forgotten value would otherwise read as `1.0`, which is exactly what a
 no-motion stream produces.
 
 The model gains one input: `7 -> 32 -> 16 -> 1` against `6 -> 32 -> 16 -> 1`.
+
+## Related
+
+- [FEATURES.md](../FEATURES.md)
+- [2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md](2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md)
+- [2026-07-28-drop-the-absolute-l1-features.md](2026-07-28-drop-the-absolute-l1-features.md)

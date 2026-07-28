@@ -1,7 +1,13 @@
 # ADR: reduce the feature surface to the production set
 
-- Status: Accepted
+- Status: Superseded in part
 - Date: 2026-07-27
+- Superseded by: 2026-07-28-drop-the-absolute-l1-features.md
+
+The runtime-surface decision remains active: device code exposes only the
+features used by the exported production model. The exact seven-feature set was
+superseded by the five-feature model, and host-only research candidates have
+since been reintroduced under `tools/` without expanding the runtime surface.
 
 ## Context
 
@@ -86,3 +92,9 @@ Re-adding a feature now means a calc function in both languages, an id in
 `MLFeatureId` and `CPP_FEATURE_IDS`, a case in `ml_feature_source`, and an
 extractor branch. That is deliberate friction, proportionate to a change that
 alters what every deployed device computes.
+
+## Related
+
+- [FEATURES.md](../FEATURES.md)
+- [2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md](2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md)
+- [2026-07-28-drop-the-absolute-l1-features.md](2026-07-28-drop-the-absolute-l1-features.md)

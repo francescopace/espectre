@@ -1,7 +1,9 @@
 # ADR: defer the `l1_delta_std` Classic swap
 
-- Status: Accepted; the decision stands, the evidence below does not
+- Status: Accepted
 - Date: 2026-07-24
+
+The decision stands; the evidence below does not.
 
 > The ranking in this ADR was computed on the band
 > `DEFAULT_SUBCARRIERS = (14, 17, 20, ...)` and on the Classic coefficients of

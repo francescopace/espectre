@@ -1,47 +1,46 @@
-[License](https://github.com/francescopace/espectre/blob/main/LICENSING.md)
-[Chips ESP32 family](https://www.espressif.com/en/products/socs)
-[Works with ESPHome](https://esphome.io/)
-[Works with Matter](https://csa-iot.org/all-solutions/matter/)
-[CI](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
-[codecov](https://codecov.io/gh/francescopace/espectre)
+[![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
+[![ESPHome](https://img.shields.io/badge/ESPHome-Component-blue.svg)](https://esphome.io/)
+[![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://www.espressif.com/en/products/socs)
+[![Release](https://img.shields.io/github/v/release/francescopace/espectre)](https://github.com/francescopace/espectre/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
+[![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
 
-# ESPectre
+<h1>ESPectre <img src="docs/web/espectre-logo.svg" alt="ESPectre logo" width="40" align="absmiddle" /></h1>
 
-<div align="center">
-<img src="docs/web/espectre-logo.svg" alt="ESPectre" width="96">
-</div>
+**ESPectre** is an open-source Wi-Fi sensing platform for ESP32 devices.
 
-**ESPectre turns low-cost ESP32 devices into privacy-first Wi-Fi sensing nodes.**
-
-It detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or dedicated radar hardware.  
-It works with Home Assistant, Matter, native BLE/MQTT firmware, and custom smart-device builds.
+It detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or radar hardware.  
+It integrates directly with Home Assistant through ESPHome and offers a
+standards-based Matter occupancy-sensor path whose controller coverage is still
+being validated. It can also connect over BLE, MQTT, or custom integrations.
 
 ## How It Works
 
 Wi-Fi signals bounce around a room. When a person moves, those reflections change.  
-ESPectre reads Channel State Information (CSI) from an ESP32 Wi-Fi chip and turns those tiny radio-channel changes into motion and movement-score signals.
+ESPectre analyzes those changes and turns tiny radio-channel variations into motion and movement-score signals.
 
-Two detectors run on-device:
+ESPectre includes two on-device detectors:
 
 - `classic`, the default signal-processing detector with adaptive startup calibration
 - `ml`, a project-trained neural model with open weights, open data, and an open-source training pipeline
 
-For the signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md). For
-the ML workflow, training process, and model export path, see
-[ML_TRAINING.md](docs/ML_TRAINING.md). For benchmarks and current caveats, see
-[docs/performance](docs/performance/README.md).
+For the signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md).  
+For the ML workflow, training pipeline, and model export path, see [ML_TRAINING.md](docs/ML_TRAINING.md).  
+For benchmarks and performance notes, see [docs/performance](docs/performance/README.md).
 
 ## Why It Matters
 
-ESPectre started as a Home Assistant-friendly Wi-Fi motion detector. With v3, it becomes a reusable Wi-Fi sensing platform:
+ESPectre needs just one device to work, but you can put one in every room to build a room-level detection mesh:
 
 - **Smart home ready**: ESPHome remains the production path for Home Assistant.
-- **Matter path**: Matter firmware opens the door to Apple Home, Google Home, Alexa, Samsung SmartThings, Home Assistant, and other controller-based smart-home setups.
+- **Matter path**: Matter firmware exposes a standard occupancy sensor.
+  Controller validation is still limited; see the
+  [Matter frontend](src/cpp/frontend/matter/README.md) for the current matrix.
 - **Native firmware**: standalone BLE, MQTT, and OTA firmware works without Home Assistant and can be driven by web clients or custom integrations.
 - **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed in custom ESP32 firmware and OEM products.
 - **Research and ML tooling**: streamer firmware, collection tools, and training docs support CSI dataset creation and future sensing models.
 
-The long-term idea is simple: ordinary Wi-Fi smart devices can double as ambient sensing nodes.  
+With ESPectre, ordinary Wi-Fi smart devices can double as ambient sensing nodes.  
 Lights, switches, HVAC devices, appliances, and custom ESP32 products can add motion or occupancy awareness without cameras or dedicated sensors.
 
 ## Quick Start
@@ -67,7 +66,8 @@ Supported hardware:
 - ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, and classic ESP32
 - a normal 2.4 GHz Wi-Fi network
 
-ESP32-S3 DevKit boards with external antennas
+![ESP32 boards with internal and external antennas](docs/web/guides/images/esp32-boards.jpg)
+
 *ESP32-S3 DevKit boards with external antennas*
 
 ## Build Your Own Path
@@ -76,7 +76,7 @@ ESP32-S3 DevKit boards with external antennas
 | Path                   | Best for                                                                    | Start here                                                   |
 | ---------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | **ESPHome**            | Home Assistant users who want the most polished production path             | [ESPHome frontend](src/cpp/frontend/esphome/README.md)       |
-| **Matter**             | Apple Home, Google Home, Alexa, SmartThings, and other Matter controllers   | [Matter frontend](src/cpp/frontend/matter/README.md)         |
+| **Matter**             | Controllers with Matter occupancy-sensor support; validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md)         |
 | **Native BLE/MQTT**    | Standalone devices, web clients, custom apps, and non-Home Assistant setups | [Native frontend](src/cpp/frontend/native/README.md)         |
 | **Streamer**           | CSI data capture, dataset collection, live experiments, and ML workflows    | [Streamer frontend](src/cpp/frontend/streamer/README.md)     |
 | **Micro-ESPectre**     | Python/MicroPython research and rapid algorithm prototyping                 | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
@@ -86,7 +86,8 @@ ESP32-S3 DevKit boards with external antennas
 For shared prerequisites and supported targets, use [SETUP.md](docs/SETUP.md).
 For the repository CLI surface, use [CLI.md](docs/CLI.md).
 
-ESPectre Home Assistant dashboard
+![ESPectre Home Assistant dashboard](docs/web/guides/images/home-assistant-dashboard.png)
+
 *Home Assistant dashboard with motion state, movement score, detector selection, threshold control, and recalibration*
 
 ## Platform Architecture
@@ -181,9 +182,13 @@ Use ESPectre only in spaces where you have the right to deploy it, inform affect
 | [EMBEDDING.md](docs/EMBEDDING.md)                   | Embedding the sensing engine into third-party ESP32 firmware                |
 | [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md)   | Shared BLE/MQTT protocol, payloads, commands, and privacy boundary          |
 | [ALGORITHMS.md](docs/ALGORITHMS.md)                 | CSI theory, detectors, filters, and feature extraction                      |
+| [FEATURES.md](docs/FEATURES.md)                     | ML feature inventory, evidence, verdicts, and research backlog              |
+| [LITERATURE.md](docs/LITERATURE.md)                 | Paper digest, reported methods, results, limits, and ESPectre research value |
 | [README.md](docs/performance/README.md)             | Benchmarks, validation targets, resource usage, and caveats                 |
 | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md) | Dataset collection workflow for contributors                                |
 | [ML_TRAINING.md](docs/ML_TRAINING.md)               | Training, validation, and model export workflow                             |
+| [COLLECTION_PLAN.md](data/COLLECTION_PLAN.md)        | Current dataset collection and replacement backlog                          |
+| [DATASET_QUALITY_CHECK.md](data/auto_generated/DATASET_QUALITY_CHECK.md) | Generated dataset admission and quality snapshot             |
 | [ROADMAP.md](docs/ROADMAP.md)                       | Release direction from v3 platform work to v4 web orchestration             |
 | [README.md](docs/web/README.md)                     | Website structure, shared palette, and visual testing workflow              |
 | [README.md (ADR)](docs/adr/README.md)               | ADR index, conventions, and historical project decisions                    |
@@ -196,27 +201,6 @@ Frontend-specific docs:
 - [ESPHome frontend](src/cpp/frontend/esphome/README.md)
 - [Matter frontend](src/cpp/frontend/matter/README.md)
 - [Streamer frontend](src/cpp/frontend/streamer/README.md)
-
-
-
-## Media
-
-
-| Source            | Title                                                                                                                                                                                                                                                  |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Medium            | [How I Turned My Wi-Fi Into a Motion Sensor - Part 1](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-61a631a9b4ec?sk=c7f79130d78b0545fce4a228a6a79af3&utm_source=github&utm_medium=readme&utm_campaign=espectre)        |
-| Medium            | [How I Turned My Wi-Fi Into a Motion Sensor - Part 2](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-part-2-62038130e530?sk=7c8b6f11cf3fcb8d279648016ebff72a&utm_source=github&utm_medium=readme&utm_campaign=espectre) |
-| IoT For All       | [How I Turned My Wi-Fi Into a Motion Sensor](https://www.iotforall.com/wifi-motion-sensor-iot)                                                                                                                                                         |
-| Hackaday          | [Make Your Own ESP32-Based Person Sensor, No Special Hardware Needed](https://hackaday.com/2026/01/28/make-your-own-esp32-based-person-sensor-no-special-hardware-needed/)                                                                             |
-| Adafruit Learn    | [ESPectre Human Detector for Feather](https://learn.adafruit.com/espectre-human-detector-for-feather)                                                                                                                                                  |
-| Seeed Studio Wiki | [Deploying Espectre on Seeed Studio XIAO ESP32 Series with ESPHome](https://wiki.seeedstudio.com/xiao-esp32--series-espresense/)                                                                                                                       |
-| Gigazine          | [ESPectre turns your home Wi-Fi into a motion sensor without machine learning and integrates it with Home Assistant](https://gigazine.net/gsc_news/en/20251118-turned-wi-fi-motion-sensor/)                                                            |
-| Home Assistant    | [ESPectre - Wi-Fi Motion Detection for Home Assistant](https://community.home-assistant.io/t/espectre-wi-fi-motion-detection-for-home-assistant/961251)                                                                                                |
-| Hacker News       | [Show HN: ESPectre - Motion detection based on Wi-Fi spectre analysis](https://news.ycombinator.com/item?id=45953977)                                                                                                                                  |
-| Hackaday Podcast  | [Podcast Episode 355](https://hackaday.com/2026/01/30/hackaday-podcast-episode-355-person-detectors-walkie-talkies-open-smartphones-and-a-wifi-traffic-light/)                                                                                         |
-
-
-
 
 ## Related Projects
 

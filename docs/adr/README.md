@@ -30,12 +30,20 @@ Use each document for its intended role:
 
 - `docs/adr/`: stable decisions and decision history
 - versioned changelog snapshots: historical release framing
+- `FEATURES.md`: cross-baseline ML feature inventory, retained measurements,
+  current verdicts, and research backlog
+- `LITERATURE.md`: mutable paper digest, reported methods and results, and
+  ESPectre transferability notes
 - current docs such as `ALGORITHMS.md`, `ARCHITECTURE.md`, or `ML_TRAINING.md`:
   current-state explanations, not stable historical references
 
 Important rule: in ADR `Related` sections, prefer links to sibling ADRs,
 versioned changelog snapshots, and commit hashes. Avoid generic links to
 mutable docs that may describe something different in future releases.
+`FEATURES.md` and `LITERATURE.md` are deliberate exceptions for ML feature
+evidence and reviewed research: the ADR retains the decision-time rationale,
+while the catalogs compare that snapshot with earlier and later feature work
+and source evidence.
 
 ## Topic Index
 
@@ -73,6 +81,9 @@ instead of repeating its historical rationale.
 - [`2026-07-07-reject-detector-guided-sample-weighting-as-the-default-ml-baseline-policy.md`](2026-07-07-reject-detector-guided-sample-weighting-as-the-default-ml-baseline-policy.md)
 - [`2026-07-23-separate-ml-training-data-from-promotion-replays.md`](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 - [`2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md`](2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md)
+- [`2026-07-27-add-the-lag-ratio-to-the-production-ml-feature-set.md`](2026-07-27-add-the-lag-ratio-to-the-production-ml-feature-set.md)
+- [`2026-07-27-reduce-the-feature-surface-to-the-production-set.md`](2026-07-27-reduce-the-feature-surface-to-the-production-set.md)
+- [`2026-07-28-drop-the-absolute-l1-features.md`](2026-07-28-drop-the-absolute-l1-features.md)
 
 ### Protocol And Frontends
 

@@ -2,13 +2,17 @@
 
 Current baseline status:
 - The exported ML baseline is back to a passing, reproducible state.
-- Coverage was intentionally reduced to get there: the weak `S3` bedroom holdout pair and the quiet long-run `S3` selection replay were both moved to role `exclude`.
-- The remaining collection work should recover that lost coverage first, then clean up the next-noisiest reserved and training captures.
+- The quiet long-run `S3` selection replay was moved to role `exclude`. The weak
+  `S3` bedroom pair remains active as `holdout`, but it is a replacement
+  priority because it can dominate reserved false positives.
+- The remaining collection work should restore quiet `S3` selection coverage,
+  replace fragile reserved captures, and then clean up the next-noisiest
+  training captures.
 
 ## Priority 1: Restore the reserved coverage we had to cut
 
 - [ ] Chip: `S3` | Environment: `living_room` | RSSI: `normal link, target -45 to -55 dBm` | Role: `selection` | Label: `empty` | Collect a cleaner reserved quiet replay to replace `empty_s3_64sc_dev000010b41de8ec00_20260713_002325_306350_0001.npz`, which is now in role `exclude`. That replay was the only quiet selection dataset still producing `2` to `4` effective alarms across seed search, so it had to be removed to restore a passing baseline.
-- [ ] Chip: `S3` | Environment: `bedroom` | RSSI: `weak link, target -70 to -80 dBm` | Role: `holdout` | Labels: `static_presence + motion` | Collect a cleaner replacement for the low-RSSI pair from `2026-07-22 17:20/17:23`, which is now in role `exclude`. It could dominate reserved holdout FP for otherwise good ML seeds (`36.7%` FP, `30` effective alarms on seed `1975812835`), so weak-holdout coverage is intentionally suspended until a better replacement lands.
+- [ ] Chip: `S3` | Environment: `bedroom` | RSSI: `weak link, target -70 to -80 dBm` | Role: `holdout` | Labels: `static_presence + motion` | Collect a cleaner replacement for the active low-RSSI holdout pair from `2026-07-22 17:20/17:23`. It can dominate reserved holdout FP for otherwise good ML seeds (`36.7%` FP, `30` effective alarms on seed `1975812835`), but it remains active until a better replacement lands.
 - [ ] Chip: `C3` | Environment: `bedroom` | RSSI: `weak link, target -70 to -80 dBm` | Role: `holdout` | Labels: `static_presence + motion` | Collect a true weak-link holdout replacement for the excluded `2026-07-25 13:58/14:00` pair. The old pair retains useful evidence (`0.9375` lag-ratio AUC) but at `-63/-62 dBm` it is only a moderate link and should not define the weak holdout slice.
 
 ## Priority 2: Clean up the remaining quiet and empty weak points

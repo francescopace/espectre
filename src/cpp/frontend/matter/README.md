@@ -192,7 +192,14 @@ Current published Matter targets:
 
 Validation notes:
 
-- the current recorded hardware smoke target is `ESP32-C3`
+| Area | Current status |
+| --- | --- |
+| Firmware hardware smoke | Recorded on `ESP32-C3` |
+| Controller commissioning | Limited; no complete cross-controller validation matrix has been published |
+
+Published target availability does not imply that every controller and target
+combination has been commissioned successfully. Add verified controller results
+to this table only with a reproducible hardware test record.
 
 ## Dependencies and Firmware Layout
 

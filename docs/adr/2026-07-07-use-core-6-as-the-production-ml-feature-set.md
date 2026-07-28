@@ -91,6 +91,7 @@ robustness.
 
 ## Related
 
+- [FEATURES.md](../FEATURES.md)
 - `docs/adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`
 - `docs/adr/2026-06-29-record-historical-ml-baseline-evolution-before-core-6.md`
 - `docs/adr/2026-02-15-share-ml-model-artifacts-between-python-and-cpp.md`

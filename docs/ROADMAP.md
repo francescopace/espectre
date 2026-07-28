@@ -7,7 +7,7 @@
 | -------- | ---------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **v1.x** | 2025-11-09       | Released    | First release demonstrating motion detection capabilities using a brand-new algorithm                                                                                          |
 | **v2.x** | 2025-12-06       | Released    | Home Assistant integration via ESPHome plus custom MicroPython-based firmware                                                                                                  |
-| **v3.x** | 2026-08 (target) | In progress | New detectors based on spectral features. Add Matter support with limited controller validation, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
+| **v3.x** | 2026-08 (target) | In progress | Scale-invariant Classic and ML detectors. Add Matter support with limited controller validation, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
 | **v4.x** | 2026-12 (target) | Planned     | Privacy-first web orchestration layer for multi-node sensing, secure onboarding, fleet visibility, history, alerting, and remote management                                    |
 | **v5.x** | Future           | Exploratory | Standards-ready sensing platform prepared for practical IEEE 802.11bf / Wi-Fi Sensing hardware support when embedded vendors expose it                                         |
 
@@ -64,8 +64,8 @@ clearly documenting current sensing characteristics.
 ESPectre v3 success criteria:
 
 - [ ] Finish post-promotion validation for the five-feature ML set
-  - [ ] Measure the `low_rssi` exemption across seeds now that one recovered weak-link selection pair exists. The first seed search kept the recovered S3 weak-link pair in family with the rest of the winners, but one recording is still not enough to tell a dispersion from that pair's own quirk, so collect a second weak selection pair first
-  - [ ] Re-measure the non-regression margin once the specific holdout replacements in `COLLECTION_PLAN.md` land: the C5 bedroom normal-link holdout pair from `2026-07-24 12:59/13:05` is still the active C5 holdout, and the S3 bedroom weak-link holdout pair from `2026-07-22 17:20/17:23` is still the active S3 weak-link holdout. The report is current again, but the margin is still a claim about this corpus, not about arithmetic, so it should be re-derived on the replacement corpus rather than carried forward
+  - [ ] Add a second weak-link selection pair before treating the current low-RSSI result as representative across seeds; see [COLLECTION_PLAN.md](../data/COLLECTION_PLAN.md)
+  - [ ] Replace the fragile C6 normal-link and S3 weak-link holdouts, then re-derive the non-regression margin on the replacement corpus; see [COLLECTION_PLAN.md](../data/COLLECTION_PLAN.md) and [2026-07-27-set-the-non-regression-margin-from-seed-noise.md](adr/2026-07-27-set-the-non-regression-margin-from-seed-noise.md)
 - [ ] Finish detector follow-ups on the reduced corpus
   - [ ] Re-measure once the replacement captures land: rerun `validate_dataset_quality.py`, the real-data and long-recording pytest suites, `generate_performance_report.py`, and, if the holdout swaps move the gate evidence, re-derive the non-regression margin from seed dispersion on that replacement corpus rather than carrying the current margin forward
 - [ ] Add and validate broader PHY and band support, including Wi-Fi 6 / 802.11ax capabilities and, where supported by hardware and exposed APIs, 5 GHz operation
@@ -75,16 +75,13 @@ ESPectre v3 success criteria:
   - [ ] Retrain and validate the production model with the expanded ESP32 dataset
 - [ ] Consent manager and cookies
 - [ ] Evaluate whether the Wi-Fi profile `scale` field can improve data stability. The current detector path treats scale invariance as a requirement because the capture metadata does not yet provide a trusted correction for packet-to-packet gain drift. If the profile-level `scale` term is exposed consistently enough across chips and collection paths, measure whether using it reduces session drift or cross-capture instability without breaking the current C++/Python alignment
-- [ ] Evaluate three new host-side features, all scale-invariant, each reading a physical aspect the production five do not. The current set is five amplitude-domain time statistics over one window (turbulence dispersion, turbulence autocorrelation, turbulence zero-crossing rate, L1-delta autocorrelation, and the L1-delta lag ratio), so it describes how much the channel moves and how fast, and nothing else. Enrich that physical profile without restating it. Scale invariance is a membership rule, not a preference; see [2026-07-28-drop-the-absolute-l1-features.md](adr/2026-07-28-drop-the-absolute-l1-features.md). Keep the work in Python and host tooling only, and port to C++ only if a candidate is promoted
-  - [ ] A spectral axis: where the movement energy sits in frequency rather than how large it is, as a normalized statistic over the movement series such as a band power ratio or a spectral centroid expressed in bins. This separates fast limb motion from slow whole-body motion, which the amplitude statistics conflate. `band_power_ratio` was measured before as the one noise-robust candidate of an earlier sweep, so start from that measurement rather than from scratch
-  - [ ] A spatial axis across the selected tones: how coherently movement acts on the band, as a correlation across subcarriers rather than a per-tone magnitude. Multipath change and common-mode gain drift look identical in a per-tone amplitude statistic and separate here, which is the one thing the unrecorded per-packet gain makes hard to distinguish
-  - [ ] A phase axis. Phase is untouched by the real int8 scaling factor, so it is scale-invariant by construction, but it is not usable raw: STO adds a linear ramp across subcarriers and CFO a common offset, both varying per packet. Sanitize first, by differencing across adjacent subcarriers or removing a linear fit, then build the statistic on the temporal behaviour of the residual. Confirm the sanitization holds across chips before trusting the feature, because the subcarrier layout differs between the shifted and unshifted families
-  - [ ] Gate each candidate on incremental value, not standalone value: report its correlation against all five production features first, and accept only what survives the promotion protocol, lineage-grouped CV to lead, paired and quiet gates for safety, and the holdout sealed
-- [ ] Make a final review of code. Be dry, Check responsabilities and level (core, runtime, frontend). Performance security review. 
-- [ ] Last check to doc. Do not repeat, simplify, every doc has his own responsibility.
-  - [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
+- [ ] Test Igiene: remove redundant tests. Test only cpp, micropython and cli and cli dependencies. Avoid to test tools or scripts. Avoid to test configurations. keep coverage gate. Define this rule in agents.md
+- [x] Complete the final C++ architecture, responsibility, duplication, and performance review; remaining fixes are tracked in [cpp-review-2026-07-28.md](review/cpp-review-2026-07-28.md)
+- [ ] Complete the security review and encode the recurring review rule in `AGENTS.md`
+- [x] Close the final documentation review and its generated-report work; all 15 findings are resolved in [documentation-review-2026-07-28.md](review/documentation-review-2026-07-28.md)
+- [ ] Refresh the Home Assistant screenshots used by the documentation and website, replacing the current gauge with a more suitable visualization
 - [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
-  - [ ] Changelog review
+  - [x] Changelog review
 - [ ] Re-enable the `CLA Signature Check` as a required status check in GitHub branch protection for `develop`
 - [ ] Test the new GitHub issue and pull request templates end to end
 
@@ -96,7 +93,8 @@ These items belong to the v3 series but do not all need to block `v3.0.0`; they
 may ship in later v3.x minor releases after the modular platform baseline is
 tagged.
 
-- [ ] Use a dedicated build directory for each chip instead of reusing the same directory across targets
+- [x] Use dedicated per-chip build directories in Native, Matter, and Streamer CI/release builds
+- [ ] Make local ESP-IDF CLI builds use per-chip build directories by default instead of requiring `ESPECTRE_IDF_BUILD_DIR`
 - [ ] Evaluate LAN discovery for the streamer workflow via DNS-SD/mDNS so `./espectre collect` can browse reachable streamer nodes and optionally select a subset by `device_id`, while keeping explicit `--target` as the deterministic fallback and preserving CSI demultiplexing by `device_id`
 - [ ] Evaluate promoting the web BLE client (`docs/web/espectre-ble.js`) to a standalone integration artifact for third-party web apps; the Apache-2.0 licensing, event API, validated command builders, and unit tests are in place, and the remaining steps are dual ESM/IIFE packaging with npm publication and TypeScript definitions. This would also give the v4.x Web Bluetooth device claim flow a reusable foundation
 - [ ] Validate and document Matter commissioning across additional controllers (Samsung SmartThings, Home Assistant Matter, and the Tuya app where occupancy sensors are supported), keeping a verified-controller matrix in the Matter frontend README
@@ -106,8 +104,9 @@ tagged.
 - [ ] Evaluate how to improve detection quality at high CSI packet rates instead of relying on decimation as a temporary mitigation, so the platform can preserve short-timescale information for cases such as brief gesture recognition
   - [ ] Prototype brief gesture detection only after the higher-rate sensing path preserves enough short-timescale information, and define a validation corpus distinct from motion and presence
 - [ ] Add Presence vs Empty detection
-  - [ ] Find a feature that reads a stationary occupant's own micro-motion, because presence needs the signal that motion detection currently spends its effort suppressing. The evidence is already in the corpus: the `empty` recordings stay silent under every candidate, `quietMaxFP` holding at `0.00%` across a full seed search, while the static-presence captures activate in short scattered episodes, `17` of them on the S3 weak-link holdout with the longest running `4` evaluations. Those episodes are the occupant, not noise, which is why they were gated out of motion detection; see [2026-07-25-gate-classic-false-positives-on-empty-rooms.md](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md). Reading them as evidence rather than error needs a statistic tuned to brief low-amplitude excursions above a quiet floor, distinct from the window-level features both detectors use today
+  - [ ] Evaluate scale-invariant micro-motion and quiet-floor excursion features; keep measurements and candidate status in [FEATURES.md](FEATURES.md), source evidence in [LITERATURE.md](LITERATURE.md), and the motion-versus-presence boundary in [2026-07-25-gate-classic-false-positives-on-empty-rooms.md](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md)
 - [ ] Research whether breathing-related micro-motion can become a reliable local sensing signal, keeping the work explicitly non-medical and validating it separately from presence and motion detection
+  - [x] Separate ESP32-compatible evidence from wider-band, CIR, AoA, and range-Doppler work in [LITERATURE.md](LITERATURE.md), with explicit HT20 transfer limits
 - [ ] Add Native frontend support for local TFT/LCD status displays similar to `examples/espectre-s3-touch-lcd.yaml`
 - [ ] Evaluate a Zigbee occupancy-sensor frontend on ESP32-C6 via `esp-zigbee-sdk`, starting with a coexistence spike to measure how 802.11 CSI capture behaves next to 802.15.4 time-slicing on the shared 2.4 GHz radio
 - [ ] Evaluate a TuyaOpen reference integration that embeds the shared `core` and `runtime` into a TuyaOS application, aimed at manufacturers that already operate Tuya product pipelines, with per-device licensing and cloud coupling documented as integrator-side prerequisites
@@ -199,4 +198,3 @@ For discussion and proposed changes:
 
 - [GitHub Issues](https://github.com/francescopace/espectre/issues?q=is%3Aissue+label%3Aroadmap)
 - [GitHub Discussions](https://github.com/francescopace/espectre/discussions)
-

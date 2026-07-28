@@ -13,6 +13,29 @@ from pathlib import Path
 from tools.lib import dataset_metadata, ui
 
 
+def test_generated_report_revision_tracks_exact_dataset_catalog(tmp_path) -> None:
+    dataset_info_path = tmp_path / "dataset_info.json"
+    report_path = tmp_path / "REPORT.md"
+    dataset_info_path.write_text('{"files": {}}\n', encoding="utf-8")
+
+    revision = dataset_metadata.dataset_info_revision(dataset_info_path)
+    report_path.write_text(
+        f"Dataset revision: `sha256:{revision}`\n",
+        encoding="utf-8",
+    )
+
+    assert dataset_metadata.generated_report_is_current(
+        report_path,
+        dataset_info_path,
+    )
+
+    dataset_info_path.write_text('{"files": {\"empty\": []}}\n', encoding="utf-8")
+    assert not dataset_metadata.generated_report_is_current(
+        report_path,
+        dataset_info_path,
+    )
+
+
 def _write_dataset_info(tmp_path: Path, payload: dict) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)

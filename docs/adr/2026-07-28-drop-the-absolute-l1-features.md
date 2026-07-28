@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-28
+- Supersedes: 2026-07-27-add-the-lag-ratio-to-the-production-ml-feature-set.md
 
 ## Context
 
@@ -130,3 +131,9 @@ The low-RSSI generator needed a fitting anchor, since it tunes an impairment
 magnitude and no production feature carries magnitude any more. It now measures
 the mean displacement itself, under `L1_FIT_ANCHOR`, deliberately outside
 `FEATURE_NAMES` so it never reaches the fit score or the exported metadata.
+
+## Related
+
+- [FEATURES.md](../FEATURES.md)
+- [2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md](2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md)
+- [2026-07-27-add-the-lag-ratio-to-the-production-ml-feature-set.md](2026-07-27-add-the-lag-ratio-to-the-production-ml-feature-set.md)

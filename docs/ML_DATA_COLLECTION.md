@@ -164,6 +164,10 @@ Recommended starting point:
 - one environment at a time
 - varied positions and distances within the same environment
 
+For the current prioritized capture backlog and replacement targets, use
+[COLLECTION_PLAN.md](../data/COLLECTION_PLAN.md). This guide owns the collection
+contract; the plan owns the mutable queue.
+
 ## Stream Metadata
 
 The clean-break streamer protocol keeps only metadata that is still useful for
@@ -230,14 +234,16 @@ metadata instead.
 before admission and Classic review. It never pairs a real capture with a
 synthetic capture; generated pair identity is read from the NPZ metadata.
 
-Synthetic low-RSSI derivatives use the standard `data/<label>/` directories.
-Their `low_rssi: true` and `synthetic: true` catalog markers describe the link
-condition and generated origin without changing the `empty`, `static_presence`,
-or `motion` meaning.
+Legacy synthetic low-RSSI derivatives use the standard `data/<label>/`
+directories. Their `low_rssi: true` and `synthetic: true` catalog markers
+describe the link condition and generated origin without changing the `empty`,
+`static_presence`, or `motion` meaning. The repository no longer ships the
+synthetic generator, and current model promotion relies on real captures.
 
-Detailed generation provenance, fitted parameters, and Core-6 diagnostics live
-inside the generated NPZ rather than in `dataset_info.json`, keeping the shared
-catalog compact.
+Existing generated NPZs can retain detailed generation provenance, fitted
+parameters, and historical Core-6 diagnostics. These fields are a
+backward-compatible legacy contract for self-describing analysis inputs, not a
+description of the current production feature set.
 
 ## NPZ Contract
 
@@ -263,12 +269,13 @@ Common fields:
 | `rssi_dbm` | `int16[N]` | Optional RSSI metadata |
 | `noise_floor_dbm` | `int16[N]` | Optional noise-floor metadata |
 
-Generated NPZ files additionally store `synthetic`, `source_dataset`,
-`low_rssi_profile`, `generation_mode`, `generation_seed`, `generation_group`,
-`generated_at`, and `generator_version`. They also embed the Core-6 feature
-names, source, target, and achieved medians, normalized fit errors, and fitted
-impairment parameters. These fields make generated files self-describing for
-ML analysis; the runtime packet loader ignores them.
+Legacy generated NPZ files may additionally store `synthetic`,
+`source_dataset`, `low_rssi_profile`, `generation_mode`, `generation_seed`,
+`generation_group`, `generated_at`, and `generator_version`. They may also
+embed historical Core-6 feature names, source, target, and achieved medians,
+normalized fit errors, and fitted impairment parameters. These fields keep old
+generated files self-describing for ML analysis; the runtime packet loader
+ignores them.
 
 CSI uses the Espressif ordering `[Q0, I0, Q1, I1, ...]`.
 
@@ -319,8 +326,8 @@ view, so excessive non-sensing drops show up as stream continuity gaps.
 - AGC stays active during collection
 - the fixed production sensing contract is HT20 + HT-LTF + 64 subcarriers;
   unsupported PHY/layout combinations are excluded from the sensing view
-- the current ML runtime and training flow use the Coherence-6 feature set defined in
-  [`ALGORITHMS.md`](ALGORITHMS.md)
+- the current ML runtime and training flow use the five scale-invariant
+  production features defined in [FEATURES.md](FEATURES.md)
 
 ## Dataset Inspection
 

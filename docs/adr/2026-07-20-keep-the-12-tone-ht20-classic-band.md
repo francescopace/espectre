@@ -1,8 +1,8 @@
 # ADR: keep the 12-tone HT20 Classic band
 
-- Status: Superseded by
-  [2026-07-25-select-the-classic-band-from-channel-coherence.md](2026-07-25-select-the-classic-band-from-channel-coherence.md)
+- Status: Superseded
 - Date: 2026-07-20
+- Superseded by: 2026-07-25-select-the-classic-band-from-channel-coherence.md
 
 > The design rules and the `N = 10..16` sweep below assume HT20 CSI arrives with
 > DC in bin 32 on every chip. Classic-MAC parts (ESP32, C3, S3) actually deliver

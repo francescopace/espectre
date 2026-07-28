@@ -3,6 +3,16 @@
 - Status: Accepted
 - Date: 2026-07-25
 
+## Current Implementation Status
+
+The decision remains the target contract, but deployment is partial as of
+2026-07-28. Host replay and validation paths use the full derived timing.
+Deployed C++ and MicroPython runtimes use arrival timing for evaluation cadence,
+gap detection, and state reset, while detector windows and feature lags remain
+the packet-count values selected at construction time. The remaining C++ wiring
+is tracked as `B-3` in the
+[C++ review](../review/cpp-review-2026-07-28.md).
+
 ## Context
 
 Detector timing was expressed in packets everywhere: windows, both feature lags,

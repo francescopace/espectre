@@ -74,6 +74,7 @@ Trade-offs:
 
 ## Related
 
+- [FEATURES.md](../FEATURES.md)
 - `docs/adr/2026-02-15-adopt-an-exportable-mlp-runtime-for-on-device-ml.md`
 - `docs/adr/2026-03-08-use-host-side-validation-gates-for-detector-promotion.md`
 - `docs/adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`

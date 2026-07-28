@@ -28,6 +28,30 @@ Concretely:
 - keep Python and C implementations aligned around the same calibration logic
 - treat zero-configuration calibration as a key usability goal
 
+## Historical Formulation
+
+The internal NBVI procedure:
+
+1. collected a quiet baseline of about 1,000 packets, approximately 5-10
+   seconds at the intended cadence;
+2. excluded unusable carriers and the lowest 10% of carriers by mean
+   amplitude;
+3. applied Hampel outlier filtering;
+4. ranked the remaining carriers by baseline variability; and
+5. selected 12 carriers while enforcing frequency diversity.
+
+The documented weighted score was:
+
+```text
+NBVI = 0.3 * (sigma / mu^2) + 0.7 * (sigma / mu)
+```
+
+The `sigma / mu` component is the coefficient of variation and is invariant to
+a positive common scale factor. The `sigma / mu^2` component is not:
+multiplying the signal by `a` divides that term by `a`. The weighted NBVI score
+therefore does not satisfy the exact scale-invariance requirement adopted by
+the later ML feature work.
+
 ## Alternatives Considered
 
 ### Keep manual subcarrier selection
