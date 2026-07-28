@@ -71,6 +71,15 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Changed
 
+- **The maintained automated test surface now follows production boundaries**:
+  C++, Micro-ESPectre, the host CLI and its direct dependencies, and detector
+  performance/parity gates remain in the default suite. Standalone research
+  tools are validated directly through their experiment workflows, and their
+  dedicated unit tests were removed alongside tests for report generators,
+  build scripts, and static configurations. Tombstone tests for removed
+  commands, configuration, implementation details, and log text were also
+  removed or rewritten around current positive contracts. Python and C++
+  coverage gates remain active.
 - **The production runtime ML feature surface is exactly the five exported features**: obsolete runtime extractors, ids, helpers, and tests were removed, while host-only research candidates live separately under `tools/` and cannot be exported. The current inventory, rejected predecessors, and candidate evidence are listed in [FEATURES.md](FEATURES.md).
 - **The website now publishes a dedicated product roadmap**: the `#roadmap` SPA route and canonical `/roadmap/` page share one CI-generated content source, expose honest Available, Limited validation, Planned, and Research states, and distinguish Tuya Matter validation from a possible TuyaOpen/TuyaOS OEM integration. Strategic home-page references now connect embedded products, optional local/self-hosted/managed web orchestration, breathing research, and brief gesture research to that roadmap.
 - **The website home page now pairs a cinematic ESP32-C3 setup hero with a scroll-driven sensing story**: the lightweight USB-C loop leads into seven full-screen, sticky scenes spanning lighting, security, climate, privacy-first industrial activity analytics, RF interference diagnostics, Matter integrations, and an animated multi-room orchestration map. Its visible router anchors direct and reflected paths, a moving person generates a localized constructive/destructive multipath field, and wall-mounted ESPectre nodes intensify in proportion to smoothed CSI deltas across representative subcarriers instead of acting as signal sources. The story also includes focused event UI, responsive controls, a reduced-motion fallback, and a matching social preview.

@@ -133,7 +133,7 @@ void test_device_config_store_round_trips_current_fields(void) {
   TEST_ASSERT_EQUAL_STRING("custom/topic", loaded.topic_prefix.c_str());
 }
 
-void test_device_config_store_applies_defaults_without_legacy_fields(void) {
+void test_device_config_store_applies_defaults_for_unsaved_fields(void) {
   nvs_mock_put_str("mqtt_host", "broker.local");
   nvs_mock_put_u16("mqtt_port", 0);
 
@@ -241,7 +241,7 @@ int process(void) {
   RUN_TEST(test_wifi_config_store_marks_saved_when_only_ssid_exists);
   RUN_TEST(test_device_config_store_handles_missing_namespace_and_invalid_args);
   RUN_TEST(test_device_config_store_round_trips_current_fields);
-  RUN_TEST(test_device_config_store_applies_defaults_without_legacy_fields);
+  RUN_TEST(test_device_config_store_applies_defaults_for_unsaved_fields);
   RUN_TEST(test_device_config_store_reports_absence_when_no_fields_are_saved);
   RUN_TEST(test_device_config_store_clear_removes_all_current_keys);
   RUN_TEST(test_runtime_detector_store_round_trips_and_validates_values);

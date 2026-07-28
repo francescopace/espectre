@@ -215,7 +215,6 @@ class TestMLDetector:
         assert detector._l1_tracker is not None
         assert len(detector._l1_tracker._profile_ring) == 10
         assert len(detector._l1_tracker._delta_ring) == 90
-        assert not hasattr(detector, "_amplitude_history")
     
     def test_get_name(self):
         """Test get_name returns 'ML'."""

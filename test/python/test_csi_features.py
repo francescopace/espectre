@@ -154,37 +154,15 @@ class TestExtractAllFeatures:
         assert DEFAULT_FEATURES == INVARIANT5_FEATURES
 
     def test_production_set_is_the_only_feature_surface(self):
-        """There is no candidate tier: what trains is what ships.
-
-        Predecessors and rejected candidates live in the removal ADR, not in
-        code, so nothing here can drift out of the exported model.
-        """
+        """The production feature registry contains only exported features."""
         assert ALL_FEATURES == tuple(DEFAULT_FEATURES)
         assert len(DEFAULT_FEATURES) == 5
 
     def test_unknown_feature_raises(self):
-        """Removed legacy features are no longer accepted."""
+        """Unknown feature names are rejected."""
         buffer = [float(i) for i in range(50)]
         with pytest.raises(ValueError, match="Unknown feature"):
-            extract_features_by_name(buffer, 50, feature_names=['turb_kurtosis'])
-
-    def test_removed_band_power_features_raise(self):
-        """Pruned experimental band-power features are no longer accepted."""
-        buffer = [float(i) for i in range(50)]
-        with pytest.raises(ValueError, match="Unknown feature"):
-            extract_features_by_name(buffer, 50, feature_names=['turb_band_power'])
-
-    def test_removed_robust_relative_features_raise(self):
-        """Removed percentile-based relative features are no longer accepted."""
-        buffer = [float(i) for i in range(50)]
-        with pytest.raises(ValueError, match="Unknown feature"):
-            extract_features_by_name(buffer, 50, feature_names=['turb_p95_over_mean'])
-
-    def test_removed_full_l1_descriptor_features_raise(self):
-        """Rejected L1 descriptor extras are no longer accepted."""
-        buffer = [float(i) for i in range(50)]
-        with pytest.raises(ValueError, match="Unknown feature"):
-            extract_features_by_name(buffer, 50, feature_names=['l1_delta_iqr'])
+            extract_features_by_name(buffer, 50, feature_names=['not_a_feature'])
     
     def test_all_features_are_float(self):
         """Test that all features are floats"""
@@ -219,19 +197,6 @@ class TestExtractAllFeatures:
         mad_idx = FEATURE_NAMES.index('turb_mad_over_mean')
         assert motion_features[mad_idx] > idle_features[mad_idx]
         assert motion_features != idle_features
-
-    def test_removed_raw_features_raise(self):
-        """Legacy raw-only turbulence features are no longer accepted."""
-        buffer = [float(i + 1) for i in range(50)]
-        with pytest.raises(ValueError, match="Unknown feature"):
-            extract_features_by_name(buffer, 50, feature_names=['turb_mean'])
-
-    def test_removed_relative_features_raise(self):
-        """Legacy relative turbulence baseline features are no longer accepted."""
-        buffer = [3.0 + (i % 7) * 0.25 for i in range(50)]
-        with pytest.raises(ValueError, match="Unknown feature"):
-            extract_features_by_name(buffer, 50, feature_names=['turb_std_over_mean'])
-
 
 class TestCalcZeroCrossingRate:
     """Test the median-crossing rate helper"""

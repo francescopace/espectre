@@ -205,9 +205,7 @@ def test_motion_first_accepts_after_a_long_quiet_prefix() -> None:
     """A long quiet prefix must not stop motion-first from accepting.
 
     The bootstrap keeps only the last two chunks, so 300 quiet packets classify
-    the same way 50 do. This scenario used to assert on the variance-floor
-    snapshot, which was removed as dead; the calibration outcome it also
-    covered is kept here. Mirrors the C++ test of the same name.
+    the same way 50 do. Mirrors the C++ test of the same name.
     """
     tracker = StartupThresholdCalibrator(
         target_packets=500,
@@ -225,7 +223,7 @@ def test_motion_first_accepts_after_a_long_quiet_prefix() -> None:
     assert "motion gap midpoint" in formula
 
 
-def test_startup_gate_disabled_keeps_legacy_completion() -> None:
+def test_startup_gate_disabled_completes_at_target_packet_count() -> None:
     tracker = StartupThresholdCalibrator(target_packets=60, auto_factor=1.1)
     detector = FakeDetector()
 

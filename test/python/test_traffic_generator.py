@@ -369,13 +369,12 @@ class TestTrafficRateControllerParity:
 class TestCsiPacingHealthMonitor:
     """Passive stall telemetry for original ESP32 CSI pacing deficits."""
 
-    def test_reports_stall_after_two_low_supply_windows(self, capsys):
+    def test_reports_stall_after_two_low_supply_windows(self):
         monitor = CsiPacingHealthMonitor(enabled=True)
 
         assert monitor.maintain(0, 0, 0) == CsiPacingHealthMonitor.ACTION_NONE
         assert monitor.maintain(40, 10, 2000) == CsiPacingHealthMonitor.ACTION_NONE
         assert monitor.maintain(80, 20, 4000) == CsiPacingHealthMonitor.ACTION_STALL_REPORTED
-        assert "CSI callback supply stalled" in capsys.readouterr().out
 
     def test_stall_report_respects_log_cooldown(self):
         monitor = CsiPacingHealthMonitor(enabled=True)

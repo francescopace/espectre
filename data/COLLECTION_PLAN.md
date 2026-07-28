@@ -36,6 +36,11 @@ Current baseline status:
 - [ ] Chip: `ESP32` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `train` | Label: `empty` | Add the first empty-room bedroom sample for ESP32. There is currently no ESP32 empty capture in the catalog.
 - [ ] Chip: `ESP32` | Environment: `bedroom` | RSSI: `normal link, target -45 to -55 dBm` | Role: `holdout` | Label: `empty` | Add the first long quiet empty run for ESP32 and register it with `long_recording: true`. The long-recording report is currently `N/A` for ESP32.
 
+## Priority 6: Build a Presence versus Empty research corpus
+
+- [ ] Collect alternating `empty` and `static_presence` blocks of at least three minutes without moving the transmitter, receiver, furniture, or antennas between labels. Keep device, channel, packet rate, environment, and link strength fixed, and record explicit pair lineage so a sub-Hz feature cannot win by learning session drift.
+- [ ] Cover at least three device/environment groups for training, then collect separate paired sessions for selection and holdout. Keep the task distinct from motion, and retain raw packet timestamps so long-window spectral features use measured cadence.
+
 When a Priority 1 or Priority 2 item lands, re-measure in this order:
 
 1. `python tools/validate_dataset_quality.py`

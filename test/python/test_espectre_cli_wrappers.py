@@ -645,13 +645,6 @@ def test_build_parser_accepts_doctor() -> None:
     assert args.namespace == "doctor"
 
 
-def test_idf_monitor_subcommand_is_rejected() -> None:
-    parser = app.build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["native", "monitor", "--chip", "c3"])
-
-
 def test_idf_build_parser_accepts_clean_flag() -> None:
     parser = app.build_parser()
 
@@ -683,13 +676,6 @@ def test_esphome_monitor_parser_accepts_device() -> None:
     assert args.esphome_command == "monitor"
     assert args.chip == "c6"
     assert args.device == "/dev/cu.test"
-
-
-def test_esphome_logs_subcommand_is_rejected() -> None:
-    parser = app.build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["esphome", "logs", "--chip", "c6"])
 
 
 def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, tmp_path: Path) -> None:

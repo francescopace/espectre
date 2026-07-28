@@ -287,8 +287,7 @@ void test_motion_without_return_is_stable_at_budget_boundary(void) {
 
 // A long quiet prefix must not stop motion-first from accepting: the bootstrap
 // keeps only the last two chunks, so 300 quiet packets classify the same way 50
-// do. This scenario used to assert on the variance-floor snapshot, which was
-// removed as dead; the calibration outcome it also covered is kept here.
+// do.
 void test_motion_first_accepts_after_a_long_quiet_prefix(void) {
     StartupThresholdCalibrator calibrator;
     calibrator.begin(500, true);

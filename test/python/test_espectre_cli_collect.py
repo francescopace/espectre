@@ -256,13 +256,6 @@ def test_collect_parser_accepts_ready_gate_override() -> None:
     assert args.ready_stable_seconds == 0.0
 
 
-def test_micro_collect_alias_is_rejected() -> None:
-    parser = build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["micro", "collect", "--label", "motion", "--target", "192.168.1.15"])
-
-
 def test_collect_parser_keeps_samples_option() -> None:
     parser = build_parser()
 
@@ -280,13 +273,6 @@ def test_collect_parser_keeps_samples_option() -> None:
 
     assert args.samples == 4
     assert args.start_delay == 0.0
-
-
-def test_collect_parser_rejects_interactive_option() -> None:
-    parser = build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["collect", "--interactive", "--label", "motion", "--target", "192.168.1.15"])
 
 
 def test_collect_parser_accepts_comma_separated_targets() -> None:
@@ -346,15 +332,6 @@ def test_collect_parser_accepts_live_options() -> None:
     assert args.description == "live collect ML, idle-motion-idle"
 
 
-def test_collect_parser_rejects_removed_legacy_collection_options() -> None:
-    parser = build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["collect", "--target", "192.168.1.15", "--reference-every", "2"])
-    with pytest.raises(SystemExit):
-        parser.parse_args(["collect", "--target", "192.168.1.15", "--control-rate", "1"])
-
-
 def test_collect_timed_allows_test_label(monkeypatch) -> None:
     routed_labels: list[str] = []
 
@@ -394,13 +371,6 @@ def test_collect_parser_accepts_fixed() -> None:
     assert args.adaptive is False
 
 
-def test_collect_parser_rejects_removed_adaptive_option() -> None:
-    parser = build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["collect", "--target", "192.168.1.15", "--adaptive"])
-
-
 def test_collect_parser_accepts_detector_choice() -> None:
     parser = build_parser()
 
@@ -418,13 +388,6 @@ def test_collect_parser_accepts_detector_choice() -> None:
     assert args.detector == "classic"
     assert args.label is None
     assert args.duration is None
-
-
-def test_collect_parser_rejects_removed_no_save() -> None:
-    parser = build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["collect", "--target", "192.168.1.15", "--no-save"])
 
 
 def test_collect_parser_accepts_comma_separated_detectors() -> None:
@@ -462,13 +425,6 @@ def test_collect_live_rejects_unknown_detector(monkeypatch, capsys) -> None:
     assert "Unsupported detector(s): bogus" in output
 
 
-def test_detect_command_is_rejected() -> None:
-    parser = build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["detect", "--target", "192.168.1.15"])
-
-
 def test_ui_parser_accepts_ble_interface() -> None:
     parser = build_parser()
 
@@ -476,13 +432,6 @@ def test_ui_parser_accepts_ble_interface() -> None:
 
     assert args.namespace == "ui"
     assert args.interface == "ble"
-
-
-def test_micro_ui_alias_is_rejected() -> None:
-    parser = build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["micro", "ui", "ble"])
 
 
 def test_ui_parser_accepts_theremin_interface() -> None:
@@ -867,7 +816,7 @@ def test_collect_reports_post_collect_gap_details(monkeypatch, capsys) -> None:
     assert "Largest inter-packet gap: 187.0 ms via device_ticks_us at packet 431->432" in output
 
 
-def test_collect_timed_adaptive_adjusts_legacy_pacing(monkeypatch) -> None:
+def test_collect_timed_adaptive_adjusts_pacing(monkeypatch) -> None:
     import importlib
 
     csi_io = importlib.import_module("tools.lib.csi_io")
@@ -1563,7 +1512,6 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
     output = capsys.readouterr().out
     assert ("save_sample", [1, 2, 3, 4, 5]) in events
     assert "Ready gate:" in output and "disabled" in output
-    assert "STATUS: STABILIZING" not in output
 
 
 def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, capsys) -> None:

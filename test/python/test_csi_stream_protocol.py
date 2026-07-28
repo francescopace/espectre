@@ -1406,7 +1406,7 @@ def test_format_ready_device_lines_includes_waiting_ip_and_device_details():
     )
 
 
-def test_summarize_ready_devices_does_not_expose_global_detector_metrics():
+def test_summarize_ready_devices_reports_unstable_device_count():
     now = 100.0
     warmup_target = 10
     threshold = 1.0
@@ -1424,9 +1424,14 @@ def test_summarize_ready_devices_does_not_expose_global_detector_metrics():
         ready_stable_seconds=ready_stable_seconds,
     )
 
-    assert summary['status'] == 'UNSTABLE 1/2'
-    assert 'max_metric' not in summary
-    assert 'ready_ratio' not in summary
+    assert summary == {
+        'ready': False,
+        'status': 'UNSTABLE 1/2',
+        'stable_elapsed': 0.0,
+        'ready_count': 1,
+        'observed_count': 2,
+        'required_count': 2,
+    }
 
 
 def test_receiver_drop_rate_uses_expected_packet_total():

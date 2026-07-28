@@ -101,7 +101,7 @@ void test_handle_send_error_returns_false_for_other_errors(void) {
     TEST_ASSERT_FALSE(needs_backoff);
 }
 
-void test_handle_send_error_logs_single_error_message(void) {
+void test_handle_send_error_resets_window_after_interval(void) {
     SendErrorState state;
     state.last_log_time = 0;
     
@@ -113,7 +113,7 @@ void test_handle_send_error_logs_single_error_message(void) {
     TEST_ASSERT_EQUAL(1500000, state.last_log_time);
 }
 
-void test_handle_send_error_logs_multiple_errors_summary(void) {
+void test_handle_send_error_resets_accumulated_errors_after_interval(void) {
     SendErrorState state;
     state.last_log_time = 0;
     
@@ -124,8 +124,7 @@ void test_handle_send_error_logs_multiple_errors_summary(void) {
     handle_send_error(state, -1, 11, 400000);   // 0.4s - no log
     TEST_ASSERT_EQUAL(4, state.error_count);
     
-    // Now trigger logging with time > 1 second from last_log_time (0)
-    // Should log "Send errors: 5 in last second (errno: 11)"
+    // The next error after the interval resets the accumulated window.
     handle_send_error(state, -1, 11, 1500000);
     TEST_ASSERT_EQUAL(0, state.error_count);  // Reset after log
     TEST_ASSERT_EQUAL(1500000, state.last_log_time);
@@ -252,8 +251,8 @@ int process(void) {
     RUN_TEST(test_handle_send_error_rate_limits_logging);
     RUN_TEST(test_handle_send_error_returns_true_for_enomem);
     RUN_TEST(test_handle_send_error_returns_false_for_other_errors);
-    RUN_TEST(test_handle_send_error_logs_single_error_message);
-    RUN_TEST(test_handle_send_error_logs_multiple_errors_summary);
+    RUN_TEST(test_handle_send_error_resets_window_after_interval);
+    RUN_TEST(test_handle_send_error_resets_accumulated_errors_after_interval);
     RUN_TEST(test_handle_send_error_handles_negative_sent_value);
     RUN_TEST(test_adaptive_rate_controller_trims_excess_csi_rate);
     RUN_TEST(test_adaptive_rate_controller_holds_inside_tolerance);
