@@ -87,13 +87,13 @@ def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> No
             "score": 0.0,
         }
 
-    monkeypatch.setattr(module, "_resolve_dataset_entry_path", fake_resolve)
-    monkeypatch.setattr(module, "_load_cached_or_npz", fake_load)
-    monkeypatch.setattr(module, "_classic_self_baseline_stats", fake_stats)
+    def fake_idle_evidence(entry, label, use_cache=True):
+        del label, use_cache
+        return baselines[entry["filename"]], None, None
 
-    results, empty_rows, presence_rows = module.validate_empty_sanity(
-        dataset_info, npz_cache={}
-    )
+    monkeypatch.setattr(module, "_compute_idle_evidence_for_entry", fake_idle_evidence)
+
+    results, empty_rows, presence_rows = module.validate_empty_sanity(dataset_info)
     empty_result = next(r for r in results if r.name == "empty_quality/empty_a.npz")
     presence_result = next(
         r for r in results if r.name == "presence_quality/static_a.npz"
@@ -545,6 +545,99 @@ def test_run_validation_refresh_metadata_skips_write_when_unchanged(monkeypatch,
     assert module.load_dataset_info()["updated_at"] == "2026-07-12T10:00:00"
 
 
+def test_validation_feature_matrix_bypasses_persisted_cache_when_disabled(monkeypatch) -> None:
+    module = _load_validator_module()
+
+    monkeypatch.setattr(
+        module.npz_cache,
+        "load_feature_matrix_artifact",
+        lambda *_args, **_kwargs: pytest.fail("feature cache load should be bypassed"),
+    )
+    monkeypatch.setattr(
+        module.npz_cache,
+        "save_feature_matrix_artifact",
+        lambda *_args, **_kwargs: pytest.fail("feature cache save should be bypassed"),
+    )
+    monkeypatch.setattr(module, "load_npz_packet_view", lambda *_args, **_kwargs: ("pkt",))
+    monkeypatch.setattr(
+        module,
+        "_feature_matrix_packets",
+        lambda packets, *, feature_names=None: (
+            np.asarray(
+                [np.arange(1, len(feature_names or module.VALIDATION_FEATURE_NAMES) + 1, dtype=np.float64)]
+            ),
+            tuple(feature_names or module.VALIDATION_FEATURE_NAMES),
+        ),
+    )
+
+    matrix, feature_names = module._load_or_compute_validation_feature_matrix(
+        Path("demo.npz"),
+        use_cache=False,
+    )
+
+    expected = np.asarray(
+        [np.arange(1, len(module.VALIDATION_FEATURE_NAMES) + 1, dtype=np.float64)]
+    )
+    np.testing.assert_allclose(matrix, expected)
+    assert feature_names == tuple(module.VALIDATION_FEATURE_NAMES)
+
+
+def test_idle_evidence_bypasses_persisted_cache_when_disabled(monkeypatch) -> None:
+    module = _load_validator_module()
+
+    entry = {
+        "filename": "empty_demo.npz",
+        "chip": "C3",
+        "environment": "lab",
+        "num_packets": 400,
+        "duration_ms": 4000,
+        "dataset_role": "train",
+    }
+    monkeypatch.setattr(
+        module,
+        "_resolve_dataset_entry_path",
+        lambda *_args, **_kwargs: Path("empty_demo.npz"),
+    )
+    monkeypatch.setattr(
+        module.npz_cache,
+        "load_idle_baseline_artifact",
+        lambda *_args, **_kwargs: pytest.fail("idle-baseline load should be bypassed"),
+    )
+    monkeypatch.setattr(
+        module.npz_cache,
+        "save_idle_baseline_artifact",
+        lambda *_args, **_kwargs: pytest.fail("idle-baseline save should be bypassed"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_load_or_compute_validation_feature_matrix",
+        lambda *_args, **_kwargs: (
+            np.asarray([[0.0], [1.0], [2.0], [3.0]], dtype=np.float64),
+            tuple(module.VALIDATION_FEATURE_NAMES),
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "load_npz_packet_view",
+        lambda *_args, **_kwargs: (
+            {"rssi_dbm": -80.0},
+            {"rssi_dbm": -79.0},
+            {"rssi_dbm": -78.0},
+            {"rssi_dbm": -77.0},
+        ),
+    )
+
+    baseline, median_rssi, error = module._compute_idle_evidence_for_entry(
+        entry,
+        "empty",
+        use_cache=False,
+    )
+
+    assert error is None
+    assert baseline is not None
+    assert median_rssi == pytest.approx(-78.5)
+
+
 def test_per_file_quality_labels_include_test_recordings() -> None:
     module = _load_validator_module()
 
@@ -810,25 +903,29 @@ def test_long_recording_coverage_warns_without_annotated_motion() -> None:
         }
     }
 
-    class FakeNpz:
-        def __getitem__(self, key):
-            return np.zeros((200, 128), dtype=np.int8)
-
-    module._resolve_dataset_entry_path = lambda entry, label: Path("/tmp/empty_quiet.npz")
-    module._load_cached_or_npz = lambda filepath, cache: (FakeNpz(), "csi_data")
-    module._classic_self_baseline_stats = (
-        lambda csi, packet_rate_pps=100.0, *, rssi_dbm=None, calibration_cache=None, cache_key=None: {
-            "score": 100.0,
-            "fp_rate": 0.0,
-            "margin_mad": 0.5,
-            "margin_q95": -0.5,
-            "margin_drift": 0.0,
-            "margin_drift_abs": 0.0,
-            "longest_burst_seconds": 0.0,
-            "threshold": 1.0,
-            "eval_count": 100,
-            "motion_count": 0,
-        }
+    module._compute_idle_evidence_for_entry = (
+        lambda entry, label, use_cache=True: (
+            {
+                "packet_rate_pps": 100.0,
+                "score": 100.0,
+                "fp_rate": 0.0,
+                "margin_mad": 0.5,
+                "margin_q95": -0.5,
+                "margin_q99": -0.5,
+                "margin_drift": 0.0,
+                "margin_drift_abs": 0.0,
+                "margin_series": np.zeros(8),
+                "block_margins": np.zeros(1),
+                "longest_burst_seconds": 0.0,
+                "eval_count": 100,
+                "motion_count": 0,
+                "burst_count": 0,
+                "bursts_per_minute": 0.0,
+                "eval_seconds": 1.0,
+            },
+            None,
+            None,
+        )
     )
 
     results, quiet_scores = module.validate_quiet_test_recordings(dataset_info, {})
@@ -905,6 +1002,30 @@ def test_capture_continuity_flags_low_rate_and_stream_gaps() -> None:
     assert "after packet 2 (seq 12 -> 60)" in by_name["stream_seq_max_gap"].message
 
 
+def test_capture_continuity_accepts_packet_rate_at_minimum_threshold() -> None:
+    module = _load_validator_module()
+
+    class FakeNpz:
+        files = ["duration_ms", "stream_seq_num"]
+
+        def __init__(self):
+            self.values = {
+                "duration_ms": np.array(1000.0),
+                "stream_seq_num": np.arange(95, dtype=np.uint32),
+            }
+
+        def __getitem__(self, key):
+            return self.values[key]
+
+    csi_data = np.zeros((95, 128), dtype=np.int8)
+
+    results = module.validate_capture_continuity(FakeNpz(), csi_data)
+    by_name = {result.name: result for result in results}
+
+    assert by_name["packet_rate"].status == "PASS"
+    assert by_name["packet_rate"].value == 95.0
+
+
 def test_capture_continuity_flags_large_inter_packet_gap() -> None:
     module = _load_validator_module()
 
@@ -929,6 +1050,31 @@ def test_capture_continuity_flags_large_inter_packet_gap() -> None:
     assert by_name["inter_packet_gap"].status == "FAIL"
     assert "Largest inter-packet gap: 2480.0 ms" in by_name["inter_packet_gap"].message
     assert "at packet 2->3" in by_name["inter_packet_gap"].message
+
+
+def test_capture_continuity_accepts_inter_packet_gap_at_warn_threshold() -> None:
+    module = _load_validator_module()
+
+    class FakeNpz:
+        files = ["duration_ms", "stream_seq_num", "device_ticks_us"]
+
+        def __init__(self):
+            self.values = {
+                "duration_ms": np.array(1000.0),
+                "stream_seq_num": np.array([1, 2, 3, 4], dtype=np.uint32),
+                "device_ticks_us": np.array([0, 10_000, 160_000, 170_000], dtype=np.uint64),
+            }
+
+        def __getitem__(self, key):
+            return self.values[key]
+
+    csi_data = np.zeros((4, 128), dtype=np.int8)
+
+    results = module.validate_capture_continuity(FakeNpz(), csi_data)
+    by_name = {result.name: result for result in results}
+
+    assert by_name["inter_packet_gap"].status == "PASS"
+    assert by_name["inter_packet_gap"].value == 150.0
 
 
 def test_validate_pair_uses_classic_diagnostic_activation_logic(monkeypatch) -> None:
@@ -1122,7 +1268,7 @@ def test_idle_evidence_results_never_fail_the_run() -> None:
         "longest_burst_seconds": 30.0,
     }
     module._compute_idle_evidence_for_entry = (
-        lambda entry, label, npz_cache, calibration_cache=None: (
+        lambda entry, label, use_cache=True: (
             dirty_baseline,
             None,
             None,
@@ -1135,7 +1281,6 @@ def test_idle_evidence_results_never_fail_the_run() -> None:
         check_kind="quiet_test_idle",
         kind_title="Long-recording",
         verdict_fn=module._empty_quality_verdict,
-        npz_cache={},
     )
 
     assert results[0].status == "WARN"

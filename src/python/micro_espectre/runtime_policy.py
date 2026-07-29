@@ -1,3 +1,5 @@
+from collections.abc import Mapping as MappingABC
+
 """
 Micro-ESPectre - Runtime Policy
 
@@ -229,7 +231,7 @@ def equivalent_packet_weight(elapsed_us, nominal_interval_us, fallback_packets=1
 
 def _packet_field(packet, key):
     """Return one field from a dict-like packet or packet object."""
-    if isinstance(packet, dict):
+    if isinstance(packet, MappingABC):
         value = packet.get(key)
         if value is None and key == "seq_num":
             return packet.get("stream_seq_num")

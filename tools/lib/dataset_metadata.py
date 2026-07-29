@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -285,7 +286,7 @@ def build_classic_detector(
 
 def _packet_field(packet: Any, key: str) -> Any:
     """Return one optional packet field from dict-like packets or objects."""
-    if isinstance(packet, dict):
+    if isinstance(packet, MappingABC):
         return packet.get(key)
     return getattr(packet, key, None)
 
@@ -351,7 +352,7 @@ def build_calibrated_classic_detector(
         gate_enabled=get_detector_startup_gate(detector),
     )
     for pkt in packets:
-        csi_data = pkt["csi_data"] if isinstance(pkt, dict) else pkt
+        csi_data = pkt["csi_data"] if isinstance(pkt, MappingABC) else pkt
         rssi_dbm = _packet_field(pkt, "rssi_dbm")
         timing = timing_tracker.observe_packet(pkt)
         if timing["contaminated"]:

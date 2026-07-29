@@ -20,13 +20,15 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import numpy as np
 
 from .bootstrap import setup_paths
 from . import dataset_metadata
+from . import npz_cache
 
 setup_paths()
 
@@ -179,7 +181,7 @@ def normalize_stored_csi_bin_layout(csi: np.ndarray) -> np.ndarray:
     return csi
 
 
-def load_npz_arrays(filepath: Path) -> Dict[str, np.ndarray]:
+def _load_npz_arrays_uncached(filepath: Path) -> Dict[str, np.ndarray]:
     """Materialize a dataset NPZ without enabling pickle-backed object arrays.
 
     CSI rows are returned in the centered bin convention regardless of which
@@ -201,6 +203,53 @@ def load_npz_arrays(filepath: Path) -> Dict[str, np.ndarray]:
         if csi_key in arrays:
             arrays[csi_key] = normalize_stored_csi_bin_layout(arrays[csi_key])
     return arrays
+
+
+def _freeze_npz_mapping(arrays: Dict[str, Any]) -> Mapping[str, Any]:
+    """Return one immutable, read-only view of cached NPZ arrays."""
+    frozen: Dict[str, Any] = {}
+    for key, value in arrays.items():
+        if isinstance(value, np.ndarray):
+            value.setflags(write=False)
+        frozen[key] = value
+    return MappingProxyType(frozen)
+
+
+def _freeze_packet_sequence(
+    packets: tuple[Dict[str, Any], ...],
+) -> tuple[Mapping[str, Any], ...]:
+    """Return one immutable packet-view cache value."""
+    frozen_packets = []
+    for packet in packets:
+        frozen_packet: Dict[str, Any] = {}
+        for key, value in packet.items():
+            if isinstance(value, np.ndarray):
+                value.setflags(write=False)
+            frozen_packet[key] = value
+        frozen_packets.append(MappingProxyType(frozen_packet))
+    return tuple(frozen_packets)
+
+
+def load_npz_arrays(filepath: Path) -> Mapping[str, Any]:
+    """Load one dataset NPZ through the shared in-process array cache."""
+    return npz_cache.get_runtime_artifact(
+        filepath,
+        artifact_name="raw_arrays",
+        artifact_version=1,
+        builder=lambda: _freeze_npz_mapping(_load_npz_arrays_uncached(filepath)),
+    )
+
+
+def load_npz_sensing_arrays(filepath: Path) -> Mapping[str, Any]:
+    """Load the sensing-only NPZ view through the shared in-process cache."""
+    return npz_cache.get_runtime_artifact(
+        filepath,
+        artifact_name="sensing_arrays",
+        artifact_version=1,
+        builder=lambda: _freeze_npz_mapping(
+            filter_npz_arrays_sensing(_load_npz_arrays_uncached(filepath))
+        ),
+    )
 
 
 def get_default_bind_host() -> str:
@@ -2248,24 +2297,14 @@ def filter_npz_arrays_sensing(arrays: Dict[str, Any]) -> Dict[str, Any]:
     return filtered
 
 
-def load_npz_as_packets(
-    filepath: Path,
+def _packets_from_npz_arrays(
+    data: Dict[str, np.ndarray],
     *,
     keep_all_phy: bool = False,
-) -> List[Dict[str, Any]]:
-    """Load a ``.npz`` file and convert it to packet dictionaries.
-
-    By default the sensing view keeps only HT20 + HT-LTF + 64-SC packets. A
-    narrow compatibility path still accepts historical captures that lack all
-    per-record PHY metadata, but only when their stored layout already matches
-    the HT20 sensing contract. Pass ``keep_all_phy=True`` to inspect mixed-PHY
-    captures. Gaps left by dropped non-sensing packets are intentional for
-    sensing consumers; dataset quality validation uses the same filtered view so
-    excessive drops fail continuity.
-    """
-    data = load_npz_arrays(filepath)
+) -> tuple[Mapping[str, Any], ...]:
+    """Convert materialized NPZ arrays into packet dictionaries."""
     if "csi_data" not in data:
-        raise ValueError(f"No CSI data found in {filepath}")
+        raise ValueError("No CSI data found in materialized NPZ")
     csi_array = data["csi_data"]
 
     label = str(data.get("label", "unknown"))
@@ -2304,7 +2343,7 @@ def load_npz_as_packets(
             len(csi_array),
         )
 
-    packets = []
+    packets: list[Dict[str, Any]] = []
     for index in range(len(csi_array)):
         if keep_mask is not None and not bool(keep_mask[index]):
             continue
@@ -2349,6 +2388,54 @@ def load_npz_as_packets(
                 "format_metadata_source": assessment["metadata_source"],
             }
         )
+    return tuple(packets)
+
+
+def load_npz_packet_view(
+    filepath: Path,
+    *,
+    keep_all_phy: bool = False,
+) -> tuple[Dict[str, Any], ...]:
+    """Return a shared read-only packet sequence for one dataset NPZ."""
+    artifact_name = "packet_view_all_phy" if keep_all_phy else "packet_view_sensing"
+    return npz_cache.get_runtime_artifact(
+        filepath,
+        artifact_name=artifact_name,
+        artifact_version=1,
+        parameters={"keep_all_phy": bool(keep_all_phy)},
+        builder=lambda: _freeze_packet_sequence(
+            _packets_from_npz_arrays(
+                _load_npz_arrays_uncached(filepath),
+                keep_all_phy=keep_all_phy,
+            )
+        ),
+    )
+
+
+def load_npz_as_packets(
+    filepath: Path,
+    *,
+    keep_all_phy: bool = False,
+) -> List[Dict[str, Any]]:
+    """Load a ``.npz`` file and convert it to packet dictionaries.
+
+    By default the sensing view keeps only HT20 + HT-LTF + 64-SC packets. A
+    narrow compatibility path still accepts historical captures that lack all
+    per-record PHY metadata, but only when their stored layout already matches
+    the HT20 sensing contract. Pass ``keep_all_phy=True`` to inspect mixed-PHY
+    captures. Gaps left by dropped non-sensing packets are intentional for
+    sensing consumers; dataset quality validation uses the same filtered view so
+    excessive drops fail continuity.
+
+    Callers that mutate packet dictionaries receive shallow copies so the shared
+    packet-view cache remains safe to reuse across tools.
+    """
+    packets = []
+    for packet in load_npz_packet_view(filepath, keep_all_phy=keep_all_phy):
+        packet_copy = {}
+        for key, value in packet.items():
+            packet_copy[key] = value.copy() if isinstance(value, np.ndarray) else value
+        packets.append(packet_copy)
     return packets
 
 

@@ -33,7 +33,7 @@ from tools.lib.performance_report import (
     is_low_rssi_paired_dataset as _is_low_rssi_paired_dataset,
     load_real_data_cached as _load_real_data_cached,
 )
-from tools.lib.csi_io import load_npz_as_packets
+from tools.lib.csi_io import load_npz_packet_view
 from tools.lib.dataset_metadata import (
     build_calibrated_classic_detector,
 )
@@ -208,12 +208,6 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
 
 
 @lru_cache(maxsize=None)
-def _load_packets_cached(path_value):
-    """Load and cache packet dictionaries for a .npz dataset."""
-    return tuple(load_npz_as_packets(path_value))
-
-
-@lru_cache(maxsize=None)
 def _compute_startup_calibration_result(
     static_presence_path,
     num_subcarriers,
@@ -222,7 +216,7 @@ def _compute_startup_calibration_result(
     window_size_override,
 ):
     """Cache startup calibration results for repeated validation checks."""
-    static_presence_packets = _load_packets_cached(str(static_presence_path))
+    static_presence_packets = load_npz_packet_view(static_presence_path)
     return run_calibration(
         static_presence_packets,
         num_subcarriers,

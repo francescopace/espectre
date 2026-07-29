@@ -9,21 +9,24 @@ License: GPLv3
 
 from __future__ import annotations
 
-import json
 import time
+from collections.abc import Mapping as MappingABC
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 import numpy as np
 
 from .bootstrap import setup_paths
 from .dataset_metadata import (
     build_calibrated_classic_detector,
+    dataset_info_revision,
     derive_detector_timing,
+    load_dataset_info,
     measure_packet_interval_us,
 )
+from . import npz_cache
 from .repo_paths import data_dir, repo_root
 
 setup_paths()
@@ -44,7 +47,7 @@ from runtime_policy import (
     make_evaluation_cadence as _make_evaluation_cadence,
     nominal_packet_interval_us,
 )
-from tools.lib.csi_io import filter_npz_arrays_sensing, load_npz_arrays, load_npz_as_packets
+from tools.lib.csi_io import load_npz_packet_view, load_npz_sensing_arrays
 
 
 DATA_DIR = data_dir()
@@ -291,16 +294,15 @@ def _format_progress_duration(seconds: float) -> str:
 
 
 def _load_dataset_info() -> Dict[str, Any]:
-    dataset_info_path = DATA_DIR / "dataset_info.json"
-    if not dataset_info_path.exists():
-        return {"files": {}}
-    with dataset_info_path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+    return load_dataset_info(DATA_DIR / "dataset_info.json")
 
 
 @lru_cache(maxsize=1)
-def _get_available_paired_dataset_specs_cached() -> tuple[tuple[Path, Path, int, str, str, bool, str], ...]:
+def _get_available_paired_dataset_specs_cached(
+    dataset_revision: str,
+) -> tuple[tuple[Path, Path, int, str, str, bool, str], ...]:
     """Return explicit static-presence/motion pairs (HT20: 64 SC only)."""
+    del dataset_revision
     dataset_info = _load_dataset_info()
     files = dataset_info.get("files", {})
     motion_by_filename = {
@@ -351,7 +353,7 @@ def _get_available_paired_dataset_specs_cached() -> tuple[tuple[Path, Path, int,
 def is_low_rssi_paired_dataset(static_presence_path: str | Path) -> bool:
     """Return True when the pair is a real weak-link (`low_rssi`) capture."""
     name = Path(static_presence_path).name
-    for spec in _get_available_paired_dataset_specs_cached():
+    for spec in _get_available_paired_dataset_specs_cached(dataset_info_revision()):
         if spec[0].name == name:
             return bool(spec[7])
     return False
@@ -360,7 +362,7 @@ def is_low_rssi_paired_dataset(static_presence_path: str | Path) -> bool:
 def get_paired_dataset_role(static_presence_path: str | Path) -> Optional[str]:
     """Return the normalized dataset role for one paired replay."""
     name = Path(static_presence_path).name
-    for spec in _get_available_paired_dataset_specs_cached():
+    for spec in _get_available_paired_dataset_specs_cached(dataset_info_revision()):
         if spec[0].name == name:
             return str(spec[6])
     return None
@@ -373,13 +375,14 @@ def get_available_paired_datasets(
     return [
         (static_path, motion_path, num_sc, chip, dataset_id)
         for static_path, motion_path, num_sc, chip, dataset_id, is_synthetic, _role, _low_rssi
-        in _get_available_paired_dataset_specs_cached()
+        in _get_available_paired_dataset_specs_cached(dataset_info_revision())
         if synthetic is None or is_synthetic == synthetic
     ]
 
 
 @lru_cache(maxsize=1)
-def _get_available_empty_datasets_cached() -> tuple[Path, ...]:
+def _get_available_empty_datasets_cached(dataset_revision: str) -> tuple[Path, ...]:
+    del dataset_revision
     empty_dir = DATA_DIR / "empty"
     dataset_info = _load_dataset_info()
     empty_paths = []
@@ -398,7 +401,7 @@ def _get_available_empty_datasets_cached() -> tuple[Path, ...]:
 
 def get_available_empty_datasets() -> list[Path]:
     """Return the empty-room recordings used by the ML FP gate."""
-    return list(_get_available_empty_datasets_cached())
+    return list(_get_available_empty_datasets_cached(dataset_info_revision()))
 
 
 def _long_recording_entry_records(dataset_info: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -431,25 +434,28 @@ def get_available_chip_types() -> list[str]:
     return sorted(dict.fromkeys(chips))
 
 
-@lru_cache(maxsize=None)
-def _load_packets_cached(path_value: str) -> tuple[dict[str, Any], ...]:
-    """Load and cache packet dictionaries for one .npz dataset."""
-    return tuple(load_npz_as_packets(Path(path_value)))
-
-
-@lru_cache(maxsize=None)
 def load_real_data_cached(static_presence_path: str | Path, motion_path: str | Path) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
-    """Cache paired static-presence and motion packet streams."""
+    """Load paired packet streams through the shared in-process NPZ runtime cache."""
     return (
-        _load_packets_cached(str(static_presence_path)),
-        _load_packets_cached(str(motion_path)),
+        load_npz_packet_view(Path(static_presence_path)),
+        load_npz_packet_view(Path(motion_path)),
     )
 
 
-@lru_cache(maxsize=None)
 def load_empty_room_packets(empty_dataset_path: str | Path) -> tuple[dict[str, Any], ...]:
-    """Cache empty-room packet streams across ML FP checks."""
-    return _load_packets_cached(str(empty_dataset_path))
+    """Load empty-room packet streams through the shared in-process runtime cache."""
+    return load_npz_packet_view(Path(empty_dataset_path))
+
+
+def _restore_feature_payload(payload: Mapping[str, Mapping[str, Sequence[float]]]) -> Dict[str, Dict[str, tuple[float, ...]]]:
+    """Restore the tuple-valued feature payload returned by ML replay helpers."""
+    restored: Dict[str, Dict[str, tuple[float, ...]]] = {}
+    for group_name, group_values in payload.items():
+        restored[str(group_name)] = {
+            str(feature_name): tuple(float(value) for value in values)
+            for feature_name, values in group_values.items()
+        }
+    return restored
 
 
 def evaluate_detector_packets(
@@ -607,16 +613,39 @@ def compute_classic_dataset_result(
     window_size: int,
 ) -> Optional[tuple[float, Dict[str, float]]]:
     """Run the Classic replay once per dataset and cache the resulting metrics."""
+    parameters = npz_cache.detector_replay_parameters(
+        replay_kind="classic_dataset",
+        selected_subcarriers=selected_band,
+        window_size=window_size,
+        secondary_source=motion_path,
+    )
+    cached = npz_cache.load_detector_replay_artifact(
+        static_presence_path,
+        parameters=parameters,
+    )
+    if cached is not None:
+        return float(cached["adaptive_threshold"]), dict(cached["metrics"])
     static_presence_packets, motion_packets = load_real_data_cached(
         static_presence_path,
         motion_path,
     )
-    return compute_classic_packet_result(
+    result = compute_classic_packet_result(
         static_presence_packets,
         motion_packets,
         selected_band,
         window_size,
     )
+    if result is not None:
+        adaptive_threshold, metrics = result
+        npz_cache.save_detector_replay_artifact(
+            static_presence_path,
+            parameters=parameters,
+            result={
+                "adaptive_threshold": float(adaptive_threshold),
+                "metrics": metrics,
+            },
+        )
+    return result
 
 
 def compute_ml_packet_result(
@@ -773,11 +802,25 @@ def compute_ml_dataset_result(
     feature_names: tuple[str, ...] = (),
 ) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
     """Run the ML replay once per dataset and cache metrics plus optional features."""
+    parameters = npz_cache.detector_replay_parameters(
+        replay_kind="ml_dataset",
+        selected_subcarriers=selected_subcarriers,
+        window_size=window_size,
+        threshold=threshold,
+        feature_names=feature_names,
+        secondary_source=motion_path,
+    )
+    cached = npz_cache.load_detector_replay_artifact(
+        static_presence_path,
+        parameters=parameters,
+    )
+    if cached is not None:
+        return dict(cached["metrics"]), _restore_feature_payload(cached["feature_payload"])
     static_presence_packets, motion_packets = load_real_data_cached(
         static_presence_path,
         motion_path,
     )
-    return compute_ml_packet_result(
+    result = compute_ml_packet_result(
         static_presence_packets,
         motion_packets,
         selected_subcarriers,
@@ -785,6 +828,16 @@ def compute_ml_dataset_result(
         threshold,
         feature_names,
     )
+    metrics, feature_payload = result
+    npz_cache.save_detector_replay_artifact(
+        static_presence_path,
+        parameters=parameters,
+        result={
+            "metrics": metrics,
+            "feature_payload": feature_payload,
+        },
+    )
+    return result
 
 
 def replay_idle_stream(
@@ -854,6 +907,16 @@ def compute_classic_empty_fp_result(
     selected_subcarriers: tuple[int, ...],
 ) -> Dict[str, float]:
     """Run the empty-room Classic FP replay once per dataset and cache it."""
+    parameters = npz_cache.detector_replay_parameters(
+        replay_kind="classic_empty_fp",
+        selected_subcarriers=selected_subcarriers,
+    )
+    cached = npz_cache.load_detector_replay_artifact(
+        empty_dataset_path,
+        parameters=parameters,
+    )
+    if cached is not None:
+        return dict(cached["metrics"])
     packets = load_empty_room_packets(empty_dataset_path)
     calibrated = build_calibrated_classic_detector(
         packets, selected_subcarriers=selected_subcarriers
@@ -863,9 +926,15 @@ def compute_classic_empty_fp_result(
     detector, _threshold = calibrated
     timing = derive_detector_timing(measure_packet_interval_us(packets))
     window_size = timing["window_packets"]
-    return _idle_stream_metrics(
+    metrics = _idle_stream_metrics(
         replay_idle_stream(detector, packets, selected_subcarriers, window_size)
     )
+    npz_cache.save_detector_replay_artifact(
+        empty_dataset_path,
+        parameters=parameters,
+        result={"metrics": metrics},
+    )
+    return metrics
 
 
 @lru_cache(maxsize=None)
@@ -876,13 +945,31 @@ def compute_ml_empty_fp_result(
     threshold: float,
 ) -> Dict[str, float]:
     """Run the empty-room ML FP replay once per dataset and cache the result."""
+    parameters = npz_cache.detector_replay_parameters(
+        replay_kind="ml_empty_fp",
+        selected_subcarriers=selected_subcarriers,
+        window_size=window_size,
+        threshold=threshold,
+    )
+    cached = npz_cache.load_detector_replay_artifact(
+        empty_dataset_path,
+        parameters=parameters,
+    )
+    if cached is not None:
+        return dict(cached["metrics"])
     from ml_detector import MLDetector
 
     packets = load_empty_room_packets(empty_dataset_path)
     detector = MLDetector(window_size=window_size, threshold=threshold)
-    return _idle_stream_metrics(
+    metrics = _idle_stream_metrics(
         replay_idle_stream(detector, packets, selected_subcarriers, window_size)
     )
+    npz_cache.save_detector_replay_artifact(
+        empty_dataset_path,
+        parameters=parameters,
+        result={"metrics": metrics},
+    )
+    return metrics
 
 
 def extract_motion_start_from_description(description: Optional[str]) -> Optional[int]:
@@ -910,9 +997,11 @@ def _normalize_long_test_chip_filter(chips: Optional[Iterable[str]]) -> Optional
 
 @lru_cache(maxsize=None)
 def _get_available_long_test_dataset_specs_cached(
+    dataset_revision: str,
     chips_key: Optional[tuple[str, ...]],
 ) -> tuple[tuple[Any, ...], ...]:
     """Return long-recording metadata without loading packet payloads."""
+    del dataset_revision
     dataset_info = _load_dataset_info()
     long_recording_records = _long_recording_entry_records(dataset_info)
     if not long_recording_records:
@@ -965,15 +1054,15 @@ def get_available_long_test_dataset_specs(
     """Return lightweight long-recording specs suitable for parametrization."""
     return list(
         _get_available_long_test_dataset_specs_cached(
+            dataset_info_revision(),
             _normalize_long_test_chip_filter(chips)
         )
     )
 
 
-@lru_cache(maxsize=None)
 def _load_long_test_packets_cached(path_value: str) -> _LongTestPacketView:
     """Load one long-recording packet stream as a zero-copy packet+metadata view."""
-    arrays = filter_npz_arrays_sensing(load_npz_arrays(Path(path_value)))
+    arrays = load_npz_sensing_arrays(Path(path_value))
     if "csi_data" in arrays:
         csi_key = "csi_data"
     elif "csi" in arrays:
@@ -1037,12 +1126,12 @@ def get_available_long_test_datasets(chips: Optional[Iterable[str]] = None) -> l
 
 def _packet_csi_data(packet: Any) -> Any:
     """Return CSI bytes from a packet dictionary or a compact CSI row."""
-    return packet["csi_data"] if isinstance(packet, dict) else packet
+    return packet["csi_data"] if isinstance(packet, MappingABC) else packet
 
 
 def _packet_rssi_dbm(packet: Any) -> Any:
     """Return optional RSSI metadata from a packet dictionary or packet object."""
-    if isinstance(packet, dict):
+    if isinstance(packet, MappingABC):
         return packet.get("rssi_dbm")
     return getattr(packet, "rssi_dbm", None)
 
@@ -1321,7 +1410,7 @@ def compute_performance_report_data(
     classic_normal_results: dict[str, list[Dict[str, float]]] = defaultdict(list)
     long_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
 
-    paired_datasets = _get_available_paired_dataset_specs_cached()
+    paired_datasets = _get_available_paired_dataset_specs_cached(dataset_info_revision())
     real_count = sum(not item[5] for item in paired_datasets)
     synthetic_count = sum(item[5] for item in paired_datasets)
     _emit_progress(

@@ -179,8 +179,12 @@ the MLP widths for a single run, for example `--hidden-layers 64,32`.
 
 CUDA and Apple MPS are available only when requested explicitly through
 `--device cuda` or `--device mps`; this small MLP usually runs fastest and most
-predictably on CPU. The trainer caches the derived feature matrix for repeat
-runs; use `--no-cache` to force a rebuild.
+predictably on CPU. Host-side tooling uses two cache layers: an in-process
+runtime memo for loaded arrays and packet views, and persisted artifacts under
+`.npz_cache/`. Performance reporting uses only the runtime layer; the persisted
+artifacts are shared by the trainer and dataset-quality validation. Delete
+`.npz_cache/` to force a cold rebuild of those persisted artifacts, or use
+`--no-cache` to bypass the training-side feature cache for one run.
 
 ## What The Trainer Does
 

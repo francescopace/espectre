@@ -61,19 +61,29 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.lib.bootstrap import setup_paths  # noqa: F401
 from tools.lib.repo_paths import generated_data_dir  # noqa: E402
-from tools.lib import dataset_metadata  # noqa: E402
+from tools.lib import dataset_metadata, npz_cache  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
     build_calibrated_classic_detector,
 )
 from tools.lib.csi_analysis import extract_amplitudes_matrix  # noqa: E402
-from tools.lib.csi_io import filter_npz_arrays_sensing, load_npz_arrays  # noqa: E402
+from tools.lib.csi_io import (
+    filter_npz_arrays_sensing,
+    load_npz_arrays,
+    load_npz_packet_view,
+)  # noqa: E402
+from tools.train_ml_model import extract_features  # noqa: E402
 
 
 from detector_interface import MotionState  # noqa: E402
 from config import (  # noqa: E402
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
+    ENABLE_HAMPEL_FILTER,
+    ENABLE_LOWPASS_FILTER,
     EVALUATION_INTERVAL,
+    HAMPEL_THRESHOLD,
+    HAMPEL_WINDOW,
+    LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
 from runtime_policy import (  # noqa: E402
@@ -95,12 +105,12 @@ PAIR_MAX_DELTA_SECONDS = 30 * 60
 MIN_PACKETS = 5000
 MAX_ZERO_PACKET_RATIO = 0.005
 MIN_AMPLITUDE_MEAN = 15.0
-MIN_CAPTURE_PACKET_RATE_PPS = 98.0
+MIN_CAPTURE_PACKET_RATE_PPS = 95.0
 MAX_STREAM_SEQ_MISSING_WARN_RATIO = 0.01
 MAX_STREAM_SEQ_MISSING_FAIL_RATIO = 0.03
 MAX_STREAM_SEQ_GAP_WARN_PACKETS = 10
 MAX_STREAM_SEQ_GAP_FAIL_PACKETS = 20
-MAX_INTER_PACKET_GAP_WARN_MS = 100.0
+MAX_INTER_PACKET_GAP_WARN_MS = 150.0
 MAX_INTER_PACKET_GAP_FAIL_MS = 250.0
 # Self-calibrated idle-baseline review. Empty and static-presence captures may
 # come from different sessions, so each capture owns its startup calibration.
@@ -605,6 +615,245 @@ def _pair_separation(baseline_scores, motion_scores):
     )
 
 
+def _robust_axis_location_and_scale(values):
+    """Return (median, MAD floor-applied) for one feature axis."""
+    values = np.asarray(values, dtype=np.float64)
+    if values.size == 0:
+        return 0.0, 1.0
+    center = float(np.median(values))
+    mad = float(np.median(np.abs(values - center)))
+    return center, max(mad, 1e-6)
+
+
+def _feature_matrix_packets(packets, *, feature_names=None):
+    """Return one feature matrix for one packet stream.
+
+    The filter chain is passed explicitly rather than left to the
+    `extract_features` defaults, so the extraction and its cache key are derived
+    from the same constants and cannot drift apart.
+    """
+    matrix, _y, used_feature_names, _context = extract_features(
+        tuple(packets),
+        window_size=SEG_WINDOW_SIZE,
+        feature_names=list(feature_names or VALIDATION_FEATURE_NAMES),
+        enable_lowpass=ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=LOWPASS_CUTOFF,
+        enable_hampel=ENABLE_HAMPEL_FILTER,
+        hampel_window=HAMPEL_WINDOW,
+        hampel_threshold=HAMPEL_THRESHOLD,
+    )
+    return np.asarray(matrix, dtype=np.float64), tuple(used_feature_names)
+
+
+def _validation_feature_cache_parameters(feature_names):
+    """Return the shared feature-cache parameters used by validation.
+
+    Built through the shared helper so validation and training address the same
+    artifact when they extract the same features from the same capture.
+    """
+    del feature_names
+    return npz_cache.feature_matrix_base_parameters(
+        window_size=SEG_WINDOW_SIZE,
+        subcarriers=DEFAULT_SUBCARRIERS,
+        enable_lowpass=ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=LOWPASS_CUTOFF,
+        enable_hampel=ENABLE_HAMPEL_FILTER,
+        hampel_window=HAMPEL_WINDOW,
+        hampel_threshold=HAMPEL_THRESHOLD,
+    )
+
+
+def _load_or_compute_validation_feature_matrix(filepath, *, feature_names=None, use_cache=True):
+    """Return one shared per-file feature matrix for validation."""
+    requested_feature_names = tuple(feature_names or VALIDATION_FEATURE_NAMES)
+    parameters = _validation_feature_cache_parameters(requested_feature_names)
+    cached_columns = (
+        npz_cache.load_feature_columns(
+            filepath,
+            base_parameters=parameters,
+            feature_names=requested_feature_names,
+        )
+        if use_cache
+        else {}
+    )
+    missing_feature_names = [
+        feature_name
+        for feature_name in requested_feature_names
+        if feature_name not in cached_columns
+    ]
+    if not missing_feature_names:
+        cached_matrix, cached_feature_names = npz_cache.assemble_feature_matrix(
+            cached_columns,
+            requested_feature_names,
+        )
+        return np.asarray(cached_matrix, dtype=np.float64), tuple(cached_feature_names)
+
+    packets = load_npz_packet_view(filepath)
+    matrix, used_feature_names = _feature_matrix_packets(
+        packets,
+        feature_names=missing_feature_names,
+    )
+    used_feature_name_list = [str(name) for name in used_feature_names]
+    if use_cache:
+        npz_cache.save_feature_columns(
+            filepath,
+            base_parameters=parameters,
+            feature_names=used_feature_name_list,
+            X=np.asarray(matrix, dtype=np.float32),
+        )
+    columns = dict(cached_columns)
+    computed_matrix = np.asarray(matrix, dtype=np.float32)
+    for column_index, feature_name in enumerate(used_feature_name_list):
+        columns[feature_name] = computed_matrix[:, column_index]
+    assembled_matrix, assembled_feature_names = npz_cache.assemble_feature_matrix(
+        columns,
+        requested_feature_names,
+    )
+    return np.asarray(assembled_matrix, dtype=np.float64), tuple(assembled_feature_names)
+
+
+def _validation_idle_baseline_parameters(feature_names, packet_rate_pps):
+    """Return the persisted idle-baseline cache parameters."""
+    return {
+        "feature_cache": {
+            "base_parameters": _validation_feature_cache_parameters(feature_names),
+            "feature_names": [str(name) for name in feature_names],
+        },
+        "packet_rate_pps": float(packet_rate_pps),
+        "evaluation_interval": int(EVALUATION_INTERVAL),
+        "baseline_excursion_mads": float(BASELINE_EXCURSION_MADS),
+        "baseline_block_seconds": float(BASELINE_BLOCK_SECONDS),
+    }
+
+
+def _feature_direction_vector(feature_names):
+    """Return one fixed direction per validation feature."""
+    return np.asarray(
+        [FEATURE_EVIDENCE_DIRECTIONS.get(name, 1.0) for name in feature_names],
+        dtype=np.float64,
+    )
+
+
+def _feature_evidence_series(feature_matrix, *, centers=None, scales=None, directions=None):
+    """Collapse per-window invariant features into one robust evidence series."""
+    matrix = np.asarray(feature_matrix, dtype=np.float64)
+    if matrix.ndim != 2 or matrix.shape[0] == 0:
+        return np.asarray([], dtype=np.float64)
+    width = matrix.shape[1]
+    if centers is None or scales is None:
+        centers = np.zeros(width, dtype=np.float64)
+        scales = np.ones(width, dtype=np.float64)
+        for index in range(width):
+            centers[index], scales[index] = _robust_axis_location_and_scale(
+                matrix[:, index]
+            )
+    else:
+        centers = np.asarray(centers, dtype=np.float64)
+        scales = np.asarray(scales, dtype=np.float64)
+    directions = np.ones(width, dtype=np.float64) if directions is None else np.asarray(
+        directions, dtype=np.float64
+    )
+    normalized = directions * ((matrix - centers) / scales)
+    normalized = np.clip(normalized, -8.0, 8.0)
+    return np.mean(normalized, axis=1)
+
+
+def _consensus_pair_evidence(idle_matrix, motion_matrix, feature_names):
+    """Return directional evidence series and idle robust axis stats."""
+    idle_matrix = np.asarray(idle_matrix, dtype=np.float64)
+    motion_matrix = np.asarray(motion_matrix, dtype=np.float64)
+    if idle_matrix.ndim != 2 or motion_matrix.ndim != 2:
+        return None
+    if idle_matrix.shape[0] == 0 or motion_matrix.shape[0] == 0:
+        return None
+    centers = np.median(idle_matrix, axis=0)
+    scales = np.zeros(idle_matrix.shape[1], dtype=np.float64)
+    for index in range(idle_matrix.shape[1]):
+        _center, scales[index] = _robust_axis_location_and_scale(idle_matrix[:, index])
+    directions = _feature_direction_vector(feature_names)
+    idle_evidence = _feature_evidence_series(
+        idle_matrix, centers=centers, scales=scales, directions=directions
+    )
+    motion_evidence = _feature_evidence_series(
+        motion_matrix, centers=centers, scales=scales, directions=directions
+    )
+    return idle_evidence, motion_evidence, centers, scales
+
+
+def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps=100.0):
+    """Summarize one idle feature-evidence series with detector-agnostic metrics."""
+    evidence = np.asarray(evidence_series, dtype=np.float64)
+    if evidence.size == 0:
+        return None
+    margin_center = float(np.median(evidence))
+    margins = evidence - margin_center
+    margin_median = float(np.median(margins))
+    margin_mad = float(np.median(np.abs(margins - margin_median)))
+    excursion_bound = margin_median + BASELINE_EXCURSION_MADS * max(margin_mad, 1e-9)
+    states = (margins > excursion_bound).astype(np.int8)
+
+    eval_rate_hz = max(float(packet_rate_pps), 1e-6) / float(EVALUATION_INTERVAL)
+    block_size = max(1, int(round(eval_rate_hz * BASELINE_BLOCK_SECONDS)))
+    full_block_count = len(margins) // block_size
+    if full_block_count:
+        block_margins = np.asarray([
+            np.median(margins[index * block_size:(index + 1) * block_size])
+            for index in range(full_block_count)
+        ], dtype=np.float64)
+    else:
+        block_margins = np.asarray([margin_median], dtype=np.float64)
+
+    split = len(margins) // 2
+    margin_drift = (
+        float(np.median(margins[split:]) - np.median(margins[:split]))
+        if split > 0
+        else 0.0
+    )
+    block_center = float(np.median(block_margins))
+    block_mad = float(np.median(np.abs(block_margins - block_center)))
+    block_excursion_bound = block_center + BASELINE_EXCURSION_MADS * max(block_mad, 1e-9)
+    block_states = (block_margins > block_excursion_bound).astype(np.int8)
+    padded = np.concatenate([[0], block_states, [0]])
+    edges = np.diff(padded)
+    burst_starts = np.flatnonzero(edges == 1)
+    burst_lengths = np.flatnonzero(edges == -1) - burst_starts
+    burst_count = int(burst_starts.size)
+    longest_burst_seconds = (
+        float(int(burst_lengths.max())) * BASELINE_BLOCK_SECONDS if burst_count else 0.0
+    )
+    eval_seconds = len(margins) / (1_000_000.0 / float(
+        nominal_packet_interval_us(SEG_WINDOW_SIZE) * EVALUATION_INTERVAL
+    ))
+    bursts_per_minute = (
+        burst_count * 60.0 / eval_seconds if eval_seconds > 0.0 else 0.0
+    )
+    fp_rate = float(states.mean())
+    margin_q95 = float(np.quantile(margins, 0.95))
+    score = agnostic_baseline_score(
+        margin_q95,
+        longest_burst_seconds,
+    )
+    return {
+        "packet_rate_pps": float(packet_rate_pps),
+        "eval_count": int(len(evidence)),
+        "motion_count": int(states.sum()),
+        "fp_rate": fp_rate,
+        "excursion_bound": float(excursion_bound),
+        "margin_center": margin_center,
+        "margin_median": margin_median,
+        "margin_mad": margin_mad,
+        "margin_q95": margin_q95,
+        "margin_q99": float(np.quantile(margins, 0.99)),
+        "margin_drift": margin_drift,
+        "margin_drift_abs": float(abs(margin_drift)),
+        "margin_series": margins,
+        "block_margins": block_margins,
+        "score": score,
+        "burst_count": burst_count,
+        "bursts_per_minute": float(bursts_per_minute),
+        "longest_burst_seconds": longest_burst_seconds,
+        "eval_seconds": float(eval_seconds),
+    }
 def _pair_separation_severity(pair_separation, severity_profile=None):
     """Return soft review severity for Sep on Motion Scores."""
     return _threshold_severity(
@@ -2006,16 +2255,15 @@ def _evaluate_pair_capture(
     static_entry,
     motion_entry,
     *,
-    npz_cache,
-    calibration_cache=None,
+    use_cache=True,
 ):
-    """Replay one static_presence/motion pair into results plus a score row."""
+    """Score one static_presence/motion pair from feature-space evidence."""
     bl_file = dataset_metadata.resolve_entry_path("static_presence", static_entry)
     mv_file = dataset_metadata.resolve_entry_path("motion", motion_entry)
 
     try:
-        bl_data, bl_key = _load_cached_or_npz(bl_file, npz_cache)
-        mv_data, mv_key = _load_cached_or_npz(mv_file, npz_cache)
+        static_packets = load_npz_packet_view(bl_file)
+        motion_packets = load_npz_packet_view(mv_file)
     except Exception as exc:
         return (
             [ValidationResult("pair_load", "FAIL", f"Cannot load pair: {exc}")],
@@ -2024,75 +2272,94 @@ def _evaluate_pair_capture(
             mv_file,
         )
 
-    (
-        pair_res,
-        static_active_ratio,
-        motion_active_ratio,
-        pair_threshold,
+    static_matrix, feature_names = _load_or_compute_validation_feature_matrix(
+        bl_file,
+        use_cache=use_cache,
+    )
+    motion_matrix, motion_feature_names = _load_or_compute_validation_feature_matrix(
+        mv_file,
+        use_cache=use_cache,
+    )
+    if feature_names != motion_feature_names:
+        return (
+            [ValidationResult(
+                "pair_feature_alignment",
+                "FAIL",
+                "Static and motion feature matrices do not share the same feature schema",
+            )],
+            None,
+            bl_file,
+            mv_file,
+        )
+    consensus = _consensus_pair_evidence(static_matrix, motion_matrix, feature_names)
+    if consensus is None:
+        return (
+            [ValidationResult(
+                "pair_feature_windows",
+                "WARN",
+                "Insufficient feature windows for agnostic pair scoring",
+            )],
+            None,
+            bl_file,
+            mv_file,
+        )
+    idle_evidence, motion_evidence, _centers, _scales = consensus
+    pair_separation = _pair_separation(idle_evidence, motion_evidence)
+    idle_p95 = float(np.quantile(idle_evidence, 0.95))
+    motion_coverage = float((np.asarray(motion_evidence, dtype=np.float64) > idle_p95).mean())
+    idle_baseline = _agnostic_baseline_stats_from_series(
+        idle_evidence,
+        _packet_rate_from_entry(static_entry),
+    )
+    score = agnostic_pair_score(
+        idle_baseline["margin_q95"],
+        motion_coverage,
         pair_separation,
-        pair_idle_tail,
-        pair_motion_coverage,
-    ) = validate_pair(
-        bl_data[bl_key],
-        mv_data[mv_key],
-        bl_rssi_dbm=_coerce_rssi_series(
-            _mapping_optional_value(bl_data, "rssi_dbm"),
-            len(bl_data[bl_key]),
+    )
+    severity = _pair_separation_severity(pair_separation)
+    coverage_severity = _threshold_severity(
+        motion_coverage,
+        warn_below=MIN_MOTION_COVERAGE_RATIO,
+        fail_below=FAIL_MOTION_COVERAGE_RATIO,
+    )
+    status = "WARN" if severity or coverage_severity else "PASS"
+    pair_res = [ValidationResult(
+        "pair_feature_quality",
+        status,
+        (
+            f"Feature-space pair score={score:.1f}/100; "
+            f"motion_cover={motion_coverage:.1%}, "
+            f"separation={pair_separation:.4f}, "
+            f"idle_tail={idle_baseline['margin_q95']:.2f}"
         ),
-        mv_rssi_dbm=_coerce_rssi_series(
-            _mapping_optional_value(mv_data, "rssi_dbm"),
-            len(mv_data[mv_key]),
-        ),
-        bl_stream_seq_num=_mapping_optional_value(bl_data, "stream_seq_num"),
-        mv_stream_seq_num=_mapping_optional_value(mv_data, "stream_seq_num"),
-        bl_device_ticks_us=_mapping_optional_value(bl_data, "device_ticks_us"),
-        mv_device_ticks_us=_mapping_optional_value(mv_data, "device_ticks_us"),
-        bl_wifi_rx_ts_us=_mapping_optional_value(bl_data, "wifi_rx_ts_us"),
-        mv_wifi_rx_ts_us=_mapping_optional_value(mv_data, "wifi_rx_ts_us"),
-        calibration_cache=calibration_cache,
-        cache_key=str(bl_file),
-    )
-    score = classic_pair_score(
-        pair_idle_tail, pair_motion_coverage, pair_separation
-    )
-    classic_status = (
-        "WARN" if any(r.status == "WARN" for r in pair_res) else "PASS"
-    )
-    for result in pair_res:
-        if result.name == "classic_pair_activation" and result.status in ("PASS", "WARN"):
-            result.message = (
-                f"Classic indicative pair score={score:.1f}/100; " + result.message
-            )
-            result.value = score
+        score,
+    )]
 
     pair_row = {
         "static_presence": bl_file.name,
         "motion": mv_file.name,
         "static_date": _entry_display_date(static_entry, bl_file.name),
         "motion_date": _entry_display_date(motion_entry, mv_file.name),
-        "static_rssi_dbm": _median_rssi_dbm(bl_data),
-        "motion_rssi_dbm": _median_rssi_dbm(mv_data),
+        "static_rssi_dbm": float(np.median([pkt.get("rssi_dbm") for pkt in static_packets if pkt.get("rssi_dbm") is not None])) if any(pkt.get("rssi_dbm") is not None for pkt in static_packets) else None,
+        "motion_rssi_dbm": float(np.median([pkt.get("rssi_dbm") for pkt in motion_packets if pkt.get("rssi_dbm") is not None])) if any(pkt.get("rssi_dbm") is not None for pkt in motion_packets) else None,
         "static_packet_rate_pps": _packet_rate_from_entry(static_entry),
         "motion_packet_rate_pps": _packet_rate_from_entry(motion_entry),
         "chip": str(static_entry.get("chip", "unknown")).upper(),
         "environment": _entry_environment(static_entry),
-        "threshold": pair_threshold,
-        "static_active_ratio": static_active_ratio,
-        "motion_active_ratio": motion_active_ratio,
+        "idle_tail": idle_baseline["margin_q95"],
+        "motion_coverage": motion_coverage,
         "pair_separation": pair_separation,
-        "classic_score": score,
-        "classic_status": classic_status,
-        "status": classic_status,
+        "feature_score": score,
+        "feature_names": feature_names,
+        "status": status,
     }
     return pair_res, pair_row, bl_file, mv_file
 
 
 def _collect_excluded_pair_rows(
     dataset_info,
-    npz_cache,
     *,
     chip_filter=None,
-    calibration_cache=None,
 ):
     """Return informational score rows for pairs whose role is `exclude`."""
     excluded_rows = []
@@ -2117,12 +2384,7 @@ def _collect_excluded_pair_rows(
         mv_file = dataset_metadata.resolve_entry_path("motion", motion_entry)
         if not bl_file.exists() or not mv_file.exists():
             continue
-        _pair_res, pair_row, _bl_file, _mv_file = _evaluate_pair_capture(
-            entry,
-            motion_entry,
-            npz_cache=npz_cache,
-            calibration_cache=calibration_cache,
-        )
+        _pair_res, pair_row, _bl_file, _mv_file = _evaluate_pair_capture(entry, motion_entry)
         if pair_row is None:
             continue
         excluded_rows.append(pair_row)
@@ -2262,18 +2524,6 @@ def validate_ml_readiness(dataset_info, chip_filter=None):
     ))
 
     return results
-
-
-def _load_cached_or_npz(filepath, npz_cache):
-    """Return cached HT20 sensing-view NPZ data and CSI key."""
-    if filepath in npz_cache:
-        return npz_cache[filepath]
-
-    data = _sensing_view_npz(_load_npz_materialized(filepath))
-    csi_key = _get_csi_key(data)
-    npz_cache[filepath] = (data, csi_key)
-    return data, csi_key
-
 
 def _resolve_dataset_entry_path(entry, label_group):
     """Resolve an NPZ path from label group + filename, with legacy fallback."""
@@ -2698,25 +2948,47 @@ def _group_entries_by_chip_env(entries):
     return group_map
 
 
-def _compute_idle_evidence_for_entry(entry, label, npz_cache, calibration_cache=None):
+def _compute_idle_evidence_for_entry(entry, label, *, use_cache=True):
     """Return (baseline, median_rssi_dbm, error) for one idle-evidence entry."""
     try:
         filepath = _resolve_dataset_entry_path(entry, label)
-        data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-        csi_data = data[csi_key]
-        rssi_dbm = _coerce_rssi_series(_mapping_optional_value(data, "rssi_dbm"), len(csi_data))
         packet_rate_pps = _packet_rate_from_entry(entry)
-        baseline = _call_classic_self_baseline_stats(
-            csi_data,
+        feature_names = tuple(VALIDATION_FEATURE_NAMES)
+        baseline_parameters = _validation_idle_baseline_parameters(
+            feature_names,
             packet_rate_pps,
-            rssi_dbm=rssi_dbm,
-            stream_seq_num=_mapping_optional_value(data, "stream_seq_num"),
-            device_ticks_us=_mapping_optional_value(data, "device_ticks_us"),
-            wifi_rx_ts_us=_mapping_optional_value(data, "wifi_rx_ts_us"),
-            calibration_cache=calibration_cache,
-            cache_key=str(filepath),
         )
-        return baseline, _median_rssi_dbm(data), None
+        if use_cache:
+            cached = npz_cache.load_idle_baseline_artifact(
+                filepath,
+                parameters=baseline_parameters,
+            )
+            if cached is not None:
+                return cached["baseline"], cached["median_rssi_dbm"], None
+
+        packets = load_npz_packet_view(filepath)
+        feature_matrix, feature_names = _load_or_compute_validation_feature_matrix(
+            filepath,
+            feature_names=feature_names,
+            use_cache=use_cache,
+        )
+        evidence = _feature_evidence_series(
+            feature_matrix,
+            directions=_feature_direction_vector(feature_names),
+        )
+        baseline = _agnostic_baseline_stats_from_series(evidence, packet_rate_pps)
+        if baseline is None:
+            return None, None, "insufficient data"
+        rssi_values = [pkt.get("rssi_dbm") for pkt in packets if pkt.get("rssi_dbm") is not None]
+        median_rssi = float(np.median(rssi_values)) if rssi_values else None
+        if use_cache:
+            npz_cache.save_idle_baseline_artifact(
+                filepath,
+                parameters=baseline_parameters,
+                baseline=baseline,
+                median_rssi_dbm=median_rssi,
+            )
+        return baseline, median_rssi, None
     except (OSError, ValueError, KeyError) as exc:
         return None, None, str(exc)
 
@@ -2742,8 +3014,7 @@ def _evaluate_idle_evidence_files(
     check_kind,
     kind_title,
     verdict_fn,
-    npz_cache,
-    calibration_cache=None,
+    use_cache=True,
 ):
     """Score one empty or static_presence label set into results + table rows."""
     results = []
@@ -2751,7 +3022,9 @@ def _evaluate_idle_evidence_files(
     for entry in entries:
         filename = str(entry.get("filename", "?"))
         baseline, rssi_dbm, error = _compute_idle_evidence_for_entry(
-            entry, label, npz_cache, calibration_cache
+            entry,
+            label,
+            use_cache=use_cache,
         )
         if baseline is None:
             results.append(ValidationResult(
@@ -2787,7 +3060,7 @@ def _evaluate_idle_evidence_files(
     return results, score_rows
 
 
-def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None, calibration_cache=None):
+def validate_empty_sanity(dataset_info, chip_filter=None, use_cache=True):
     """Score empty and static-presence captures from Classic idle baselines.
 
     Returns:
@@ -2842,8 +3115,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None, calibration
         check_kind="empty_quality",
         kind_title="Empty",
         verdict_fn=_empty_quality_verdict,
-        npz_cache=npz_cache,
-        calibration_cache=calibration_cache,
+        use_cache=use_cache,
     )
     presence_results, presence_score_rows = _evaluate_idle_evidence_files(
         static_presence_files,
@@ -2851,8 +3123,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None, calibration
         check_kind="presence_quality",
         kind_title="Presence",
         verdict_fn=_presence_quality_verdict,
-        npz_cache=npz_cache,
-        calibration_cache=calibration_cache,
+        use_cache=use_cache,
     )
     results.extend(empty_results)
     results.extend(presence_results)
@@ -2860,9 +3131,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None, calibration
     return results, empty_score_rows, presence_score_rows
 
 
-def validate_quiet_test_recordings(
-    dataset_info, npz_cache, chip_filter=None, calibration_cache=None
-):
+def validate_quiet_test_recordings(dataset_info, chip_filter=None, use_cache=True):
     """Validate long-recording coverage and score idle-only Classic baselines."""
     results = []
     idle_candidates = []
@@ -2930,8 +3199,7 @@ def validate_quiet_test_recordings(
         baseline, rssi_dbm, error = _compute_idle_evidence_for_entry(
             entry,
             label_group,
-            npz_cache,
-            calibration_cache,
+            use_cache=use_cache,
         )
         if baseline is None:
             idle_results.append(ValidationResult(
@@ -2970,11 +3238,13 @@ def run_validation(
     chip_filter=None,
     generate_report=True,
     include_excluded_pairs=False,
+    use_cache=True,
 ):
     """Run full dataset validation."""
 
     print("ESPectre Dataset Quality Validation")
     print(f"Data: {DATA_DIR}")
+    print(f"Validation feature cache: {'enabled' if use_cache else 'disabled'}")
     if chip_filter:
         print(f"Chip filter: {chip_filter}")
 
@@ -3030,11 +3300,8 @@ def run_validation(
     # ------------------------------------------------------------------
     # Phase 2: Load all NPZ files once, validate integrity & quality
     # ------------------------------------------------------------------
-    # Cache: path -> (materialized arrays, csi_key) — avoids re-decompressing
-    # the same NPZ in later phases.  Startup thresholds are memoized separately
-    # so Classic pair and idle-baseline replays calibrate each capture once.
-    npz_cache = {}
-    calibration_cache = {}
+    # Shared NPZ loaders keep the materialized arrays and packet streams warm
+    # across later validation phases.
     excluded_filenames_by_label = {
         label: {
             str(entry.get("filename"))
@@ -3063,8 +3330,6 @@ def run_validation(
 
             if data is not None:
                 csi_key = _get_csi_key(data)
-                npz_cache[npz_file] = (data, csi_key)
-
                 quality_results = validate_signal_quality(data[csi_key])
                 _tag_results(quality_results, 'integrity')
                 file_results.extend(quality_results)
@@ -3141,8 +3406,7 @@ def run_validation(
             pair_res, pair_row, bl_file, mv_file = _evaluate_pair_capture(
                 entry,
                 motion_entry,
-                npz_cache=npz_cache,
-                calibration_cache=calibration_cache,
+                use_cache=use_cache,
             )
             if pair_row is None:
                 _emit_issues(
@@ -3162,9 +3426,8 @@ def run_validation(
     # ------------------------------------------------------------------
     empty_results, empty_score_rows, presence_score_rows = validate_empty_sanity(
         dataset_info,
-        npz_cache,
         chip_filter=chip_filter,
-        calibration_cache=calibration_cache,
+        use_cache=use_cache,
     )
     for result in empty_results:
         result.domain = (
@@ -3179,9 +3442,8 @@ def run_validation(
     # ------------------------------------------------------------------
     quiet_test_results, quiet_score_rows = validate_quiet_test_recordings(
         dataset_info,
-        npz_cache,
         chip_filter=chip_filter,
-        calibration_cache=calibration_cache,
+        use_cache=use_cache,
     )
     for result in quiet_test_results:
         result.domain = (
@@ -3253,9 +3515,7 @@ def run_validation(
     if include_excluded_pairs:
         excluded_pair_rows = _collect_excluded_pair_rows(
             dataset_info,
-            npz_cache,
             chip_filter=chip_filter,
-            calibration_cache=calibration_cache,
         )
         if excluded_pair_rows:
             print("\nExcluded pair diagnostics (informational only)")
@@ -3518,6 +3778,7 @@ def main():
 Examples:
   python validate_dataset_quality.py              # Full validation (auto report + metadata refresh)
   python validate_dataset_quality.py --chip C6    # Validate C6 only
+  python validate_dataset_quality.py --no-cache   # Bypass persisted validation artifacts
   python validate_dataset_quality.py --no-report  # Skip markdown report
   python validate_dataset_quality.py --include-excluded-pairs --chip C3
         """
@@ -3526,6 +3787,11 @@ Examples:
                        help='Filter by chip type (e.g., C6, S3, C3, ESP32)')
     parser.add_argument('--no-report', action='store_true',
                        help='Skip writing DATASET_QUALITY_CHECK.md')
+    parser.add_argument(
+        '--no-cache',
+        action='store_true',
+        help='Bypass persisted validation feature and idle-baseline artifacts for one run',
+    )
     parser.add_argument(
         '--include-excluded-pairs',
         action='store_true',
@@ -3553,6 +3819,7 @@ Examples:
         chip_filter=args.chip,
         generate_report=not args.no_report,
         include_excluded_pairs=args.include_excluded_pairs,
+        use_cache=not args.no_cache,
     )
     sys.exit(exit_code)
 

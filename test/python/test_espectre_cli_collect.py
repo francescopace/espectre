@@ -720,7 +720,7 @@ def test_collect_applies_start_delay_before_starting_pacing(monkeypatch, capsys)
         FakeResult(
             "inter_packet_gap",
             "PASS",
-            "Largest inter-packet gap: 10.0 ms via device_ticks_us at packet 0->1 (warn > 100.0 ms, fail > 250.0 ms)",
+            "Largest inter-packet gap: 10.0 ms via device_ticks_us at packet 0->1 (warn > 150.0 ms, fail > 250.0 ms)",
         ),
     ]
 
@@ -795,7 +795,7 @@ def test_collect_reports_post_collect_gap_details(monkeypatch, capsys) -> None:
         FakeResult(
             "inter_packet_gap",
             "FAIL",
-            "Largest inter-packet gap: 187.0 ms via device_ticks_us at packet 431->432 (warn > 100.0 ms, fail > 250.0 ms)",
+            "Largest inter-packet gap: 187.0 ms via device_ticks_us at packet 431->432 (warn > 150.0 ms, fail > 250.0 ms)",
         ),
         FakeResult(
             "stream_seq_max_gap",

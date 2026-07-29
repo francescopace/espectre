@@ -55,6 +55,7 @@ import random
 import re
 import shutil
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from dataclasses import dataclass
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -69,6 +70,7 @@ from tools.lib.repo_paths import (
     generated_data_dir,
     python_src_dir,
 )
+from tools.lib import npz_cache
 from contextlib import contextmanager
 from datetime import datetime
 from time import perf_counter
@@ -343,7 +345,7 @@ def predict_logits(model, X):
         logits = model.forward_logits(torch.from_numpy(X).to(device))
     return logits.detach().cpu().numpy().reshape(-1)
 
-from tools.lib.csi_io import load_npz_as_packets
+from tools.lib.csi_io import load_npz_packet_view
 from tools.lib.dataset_metadata import DATA_DIR
 from config import (
     DEFAULT_SUBCARRIERS,
@@ -430,7 +432,6 @@ DEFAULT_FP_WEIGHT = 1.5
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
-TRAINING_FEATURE_CACHE_VERSION = 8
 # All chips included: MLDetector keeps the legacy variance-baseline CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
 DEFAULT_EXCLUDED_CHIPS = ()
@@ -952,31 +953,15 @@ def get_file_metadata(dataset_info):
     return file_metadata
 
 
-def load_all_data(environment_filter=None, excluded_chips=None,
-                  allowed_labels=BINARY_TRAINING_LABELS,
-                  require_sync_metadata=False,
-                  dataset_roles=DEFAULT_TRAINING_ROLES):
-    """
-    Load all available CSI data from the data/ directory.
-
-    Reads label from npz file metadata (not folder structure).
-    Uses dataset_info.json only to determine if label is motion or idle.
-    Uses the normalized turbulence pipeline and attaches grouping metadata
-    (file, session/pair, environment when available).
-
-    Args:
-        environment_filter: Optional set/string of environment names to keep.
-        excluded_chips: Optional set/string of chip names to exclude.
-        allowed_labels: Iterable of lowercase labels to include.
-
-    Returns:
-        tuple: (all_packets, stats) where stats is a dict with dataset info
-    """
+def _load_training_file_records(environment_filter=None, excluded_chips=None,
+                                allowed_labels=BINARY_TRAINING_LABELS,
+                                require_sync_metadata=False,
+                                dataset_roles=DEFAULT_TRAINING_ROLES):
+    """Return filtered per-file training records plus aggregate stats."""
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     allowed_labels = normalize_allowed_labels(allowed_labels)
     dataset_roles = normalize_dataset_roles(dataset_roles)
-    all_packets = []
     stats = {
         'chips': set(),
         'labels': {},
@@ -993,7 +978,8 @@ def load_all_data(environment_filter=None, excluded_chips=None,
         'environment_groups': set(),
         'sync_metadata_files': set(),
     }
-    
+    records = []
+
     # Load dataset info for label mapping and file metadata
     dataset_info = load_dataset_info()
     file_metadata = get_file_metadata(dataset_info)
@@ -1008,13 +994,13 @@ def load_all_data(environment_filter=None, excluded_chips=None,
         # Load all npz files in this directory
         for npz_file in sorted(subdir.glob('*.npz')):
             try:
-                packets = load_npz_as_packets(npz_file)
+                packets = load_npz_packet_view(npz_file)
                 if not packets:
                     raise RuntimeError(
                         f"{npz_file.name} has no HT20/HT-LTF/64-SC sensing packets after format filtering"
                     )
                 
-                # Get label from file metadata (already set by load_npz_as_packets)
+                # Get label from the shared packet view metadata.
                 label = packets[0].get('label', subdir.name)
                 
                 label_lc = str(label).lower()
@@ -1071,26 +1057,24 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                 if environment_group != 'unknown-environment':
                     stats['environment_groups'].add(environment_group)
 
-                # Add flags to each packet
                 is_motion = is_motion_label(label, dataset_info)
-                for idx, p in enumerate(packets):
-                    p['is_motion'] = is_motion
-                    p['label_name'] = label_lc
-                    p['source_file'] = npz_file.name
-                    p['packet_index'] = idx
-                    p['chip'] = meta.get('chip', chip)
-                    p['collected_at'] = meta.get('collected_at', '')
-                    p['day_group'] = meta.get('day_group', 'unknown-day')
-                    p['pair_id'] = meta.get('pair_id', '')
-                    p['session_group'] = meta.get('session_group', f"file:{npz_file.name}")
-                    p['lineage_group'] = meta.get('lineage_group', p['session_group'])
-                    p['dataset_role'] = dataset_role
-                    p['synthetic'] = bool(meta.get('synthetic', False))
-                    p['long_recording'] = bool(meta.get('long_recording', False))
-                    p['environment_group'] = environment_group
-                
-                all_packets.extend(packets)
                 stats['files'].append(npz_file.name)
+                records.append({
+                    'path': npz_file,
+                    'packets': packets,
+                    'label_name': label_lc,
+                    'is_motion': is_motion,
+                    'chip': meta.get('chip', chip),
+                    'collected_at': meta.get('collected_at', ''),
+                    'day_group': meta.get('day_group', 'unknown-day'),
+                    'pair_id': meta.get('pair_id', ''),
+                    'session_group': meta.get('session_group', f"file:{npz_file.name}"),
+                    'lineage_group': meta.get('lineage_group', meta.get('session_group', f"file:{npz_file.name}")),
+                    'dataset_role': role,
+                    'synthetic': bool(meta.get('synthetic', False)),
+                    'long_recording': bool(meta.get('long_recording', False)),
+                    'environment_group': environment_group,
+                })
 
             except RuntimeError:
                 # Sensing-contract violations must stop training explicitly;
@@ -1110,194 +1094,208 @@ def load_all_data(environment_filter=None, excluded_chips=None,
     stats['lineage_groups'] = sorted(stats['lineage_groups'])
     stats['environment_groups'] = sorted(stats['environment_groups'])
     stats['sync_metadata_files'] = sorted(stats['sync_metadata_files'])
-    return all_packets, stats
+    return records, stats
 
 
-def _training_dataset_manifest(environment_filter=None,
-                               excluded_chips=None,
-                               allowed_labels=BINARY_TRAINING_LABELS,
-                               dataset_roles=DEFAULT_TRAINING_ROLES):
-    """Build the dataset fingerprint shared by feature and weight caches."""
-    allowed_labels = sorted(normalize_allowed_labels(allowed_labels) or ())
-    environment_filter = sorted(parse_environment_filter(environment_filter) or ())
-    excluded_chips = sorted(parse_chip_filter(excluded_chips) or ())
-    dataset_roles = sorted(normalize_dataset_roles(dataset_roles))
-    files = []
-    for npz_file in sorted(DATA_DIR.glob('*/*.npz')):
-        if allowed_labels and npz_file.parent.name.lower() not in allowed_labels:
-            continue
-        try:
-            stat = npz_file.stat()
-        except OSError:
-            continue
-        files.append({
-            'path': str(npz_file.relative_to(DATA_DIR)),
-            'size': int(stat.st_size),
-            'mtime_ns': int(stat.st_mtime_ns),
-        })
+def load_all_data(environment_filter=None, excluded_chips=None,
+                  allowed_labels=BINARY_TRAINING_LABELS,
+                  require_sync_metadata=False,
+                  dataset_roles=DEFAULT_TRAINING_ROLES):
+    """
+    Load all available CSI data from the data/ directory.
 
-    info_path = DATA_DIR / 'dataset_info.json'
-    dataset_info = None
-    if info_path.exists():
-        stat = info_path.stat()
-        dataset_info = {
-            'path': str(info_path.relative_to(DATA_DIR)),
-            'size': int(stat.st_size),
-            'mtime_ns': int(stat.st_mtime_ns),
-        }
+    Reads label from npz file metadata (not folder structure).
+    Uses dataset_info.json only to determine if label is motion or idle.
+    Uses the normalized turbulence pipeline and attaches grouping metadata
+    (file, session/pair, environment when available).
 
-    return {
-        'allowed_labels': allowed_labels,
-        'environment_filter': environment_filter,
-        'excluded_chips': excluded_chips,
-        'dataset_roles': dataset_roles,
-        'dataset_info': dataset_info,
-        'files': files,
-    }
+    Args:
+        environment_filter: Optional set/string of environment names to keep.
+        excluded_chips: Optional set/string of chip names to exclude.
+        allowed_labels: Iterable of lowercase labels to include.
 
-
-def _feature_cache_manifest(feature_names, environment_filter=None,
-                            excluded_chips=None,
-                            allowed_labels=BINARY_TRAINING_LABELS,
-                            dataset_roles=DEFAULT_TRAINING_ROLES,
-                            window_size=SEG_WINDOW_SIZE,
-                            enable_lowpass=ENABLE_LOWPASS_FILTER,
-                            lowpass_cutoff=LOWPASS_CUTOFF,
-                            enable_hampel=ENABLE_HAMPEL_FILTER,
-                            hampel_window=HAMPEL_WINDOW,
-                            hampel_threshold=HAMPEL_THRESHOLD,
-                            packet_augmentation=None,
-                            augmentation_seed=None):
-    """Build a stable manifest for the cached feature matrix."""
-    dataset_manifest = _training_dataset_manifest(
+    Returns:
+        tuple: (all_packets, stats) where stats is a dict with dataset info
+    """
+    records, stats = _load_training_file_records(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         allowed_labels=allowed_labels,
+        require_sync_metadata=require_sync_metadata,
         dataset_roles=dataset_roles,
     )
-    return {
-        'version': TRAINING_FEATURE_CACHE_VERSION,
-        'dataset': dataset_manifest,
-        'feature_names': list(feature_names),
-        'default_subcarriers': [int(sc) for sc in DEFAULT_SUBCARRIERS],
-        'window_size': int(window_size),
-        'enable_lowpass': bool(enable_lowpass),
-        'lowpass_cutoff': float(lowpass_cutoff),
-        'enable_hampel': bool(enable_hampel),
-        'hampel_window': int(hampel_window),
-        'hampel_threshold': float(hampel_threshold),
-        'packet_augmentation': dict(sorted((packet_augmentation or {}).items())),
-        'augmentation_seed': None if augmentation_seed is None else int(augmentation_seed),
-    }
-
-
-def _cache_path(prefix, manifest):
-    """Return the on-disk path for a cache manifest."""
-    payload = json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode('utf-8')
-    digest = hashlib.sha256(payload).hexdigest()[:16]
-    return GENERATED_DATA_DIR / f'{prefix}_{digest}.npz'
-
-
-def _feature_cache_path(manifest):
-    """Return the on-disk path for a feature-matrix cache."""
-    return _cache_path('training_features', manifest)
-
+    all_packets = []
+    for record in records:
+        for idx, packet in enumerate(record['packets']):
+            enriched = dict(packet)
+            enriched['is_motion'] = record['is_motion']
+            enriched['label_name'] = record['label_name']
+            enriched['source_file'] = record['path'].name
+            enriched['packet_index'] = idx
+            enriched['chip'] = record['chip']
+            enriched['collected_at'] = record['collected_at']
+            enriched['day_group'] = record['day_group']
+            enriched['pair_id'] = record['pair_id']
+            enriched['session_group'] = record['session_group']
+            enriched['lineage_group'] = record['lineage_group']
+            enriched['dataset_role'] = record['dataset_role']
+            enriched['synthetic'] = record['synthetic']
+            enriched['long_recording'] = record['long_recording']
+            enriched['environment_group'] = record['environment_group']
+            all_packets.append(enriched)
+    return all_packets, stats
 
 # Sample-context columns that are not label strings.
 CONTEXT_INT_KEYS = ('packet_index', 'window_index')
 CONTEXT_BOOL_KEYS = ('synthetic',)
+def _feature_matrix_cache_parameters(feature_names,
+                                     window_size=SEG_WINDOW_SIZE,
+                                     enable_lowpass=ENABLE_LOWPASS_FILTER,
+                                     lowpass_cutoff=LOWPASS_CUTOFF,
+                                     enable_hampel=ENABLE_HAMPEL_FILTER,
+                                     hampel_window=HAMPEL_WINDOW,
+                                     hampel_threshold=HAMPEL_THRESHOLD,
+                                     packet_augmentation=None,
+                                     augmentation_seed=None):
+    """Return the shared per-file feature-extraction parameters."""
+    del feature_names
+    return npz_cache.feature_matrix_base_parameters(
+        window_size=window_size,
+        subcarriers=DEFAULT_SUBCARRIERS,
+        enable_lowpass=enable_lowpass,
+        lowpass_cutoff=lowpass_cutoff,
+        enable_hampel=enable_hampel,
+        hampel_window=hampel_window,
+        hampel_threshold=hampel_threshold,
+        packet_augmentation=packet_augmentation,
+        augmentation_seed=augmentation_seed,
+    )
 
 
-def encode_label_column(values):
-    """Encode a label column as (int32 codes, unicode uniques).
-
-    NPZ payloads must stay loadable with ``allow_pickle=False`` so a dataset
-    or cache file can never execute code on load. Label columns hold a handful
-    of long identifiers repeated per row, so codes plus uniques are both
-    pickle-free and far smaller than a fixed-width unicode copy per row.
-    """
-    array = np.asarray(values)
-    if array.size == 0:
-        return np.zeros(0, dtype=np.int32), np.zeros(0, dtype='<U1')
-    uniques, codes = np.unique(array, return_inverse=True)
-    unique_text = np.asarray([str(value) for value in uniques.tolist()])
-    return codes.astype(np.int32, copy=False), unique_text
+def _prepare_feature_packets_for_record(record, packet_augmentation=None, augmentation_seed=None):
+    """Return one per-file packet list ready for feature extraction."""
+    packets = []
+    for idx, packet in enumerate(record['packets']):
+        copied = dict(packet)
+        copied['source_file'] = record['path'].name
+        copied['packet_index'] = idx
+        packets.append(copied)
+    if packet_augmentation:
+        return augment_csi_packets(packets, packet_augmentation, augmentation_seed)
+    return packets
 
 
-def decode_label_column(codes, uniques):
-    """Rebuild a label column as an object array of shared strings."""
-    lookup = np.empty(len(uniques), dtype=object)
-    lookup[:] = [str(value) for value in np.asarray(uniques).tolist()]
-    if len(lookup) == 0:
-        return np.empty(0, dtype=object)
-    return lookup[np.asarray(codes, dtype=np.int64)]
+def _load_or_compute_file_feature_matrix(record,
+                                         *,
+                                         feature_names,
+                                         use_cache=True,
+                                         window_size=SEG_WINDOW_SIZE,
+                                         enable_lowpass=ENABLE_LOWPASS_FILTER,
+                                         lowpass_cutoff=LOWPASS_CUTOFF,
+                                         enable_hampel=ENABLE_HAMPEL_FILTER,
+                                         hampel_window=HAMPEL_WINDOW,
+                                         hampel_threshold=HAMPEL_THRESHOLD,
+                                         packet_augmentation=None,
+                                         augmentation_seed=None):
+    """Return one cached per-file feature matrix."""
+    requested_feature_names = [str(name) for name in feature_names]
+    parameters = _feature_matrix_cache_parameters(
+        requested_feature_names,
+        window_size=window_size,
+        enable_lowpass=enable_lowpass,
+        lowpass_cutoff=lowpass_cutoff,
+        enable_hampel=enable_hampel,
+        hampel_window=hampel_window,
+        hampel_threshold=hampel_threshold,
+        packet_augmentation=packet_augmentation,
+        augmentation_seed=augmentation_seed,
+    )
+    cached_columns = (
+        npz_cache.load_feature_columns(
+            record['path'],
+            base_parameters=parameters,
+            feature_names=requested_feature_names,
+        )
+        if use_cache
+        else {}
+    )
+    missing_feature_names = [
+        feature_name
+        for feature_name in requested_feature_names
+        if feature_name not in cached_columns
+    ]
+    if not missing_feature_names:
+        cached_matrix, cached_feature_names = npz_cache.assemble_feature_matrix(
+            cached_columns,
+            requested_feature_names,
+        )
+        return {
+            'X': np.asarray(cached_matrix, dtype=np.float32),
+            'feature_names': list(cached_feature_names),
+        }, True
+
+    packets = _prepare_feature_packets_for_record(
+        record,
+        packet_augmentation=packet_augmentation,
+        augmentation_seed=augmentation_seed,
+    )
+    X, _y, actual_feature_names, _context = extract_features(
+        packets,
+        window_size=window_size,
+        feature_names=missing_feature_names,
+        enable_lowpass=enable_lowpass,
+        lowpass_cutoff=lowpass_cutoff,
+        enable_hampel=enable_hampel,
+        hampel_window=hampel_window,
+        hampel_threshold=hampel_threshold,
+    )
+    actual_feature_name_list = [str(name) for name in actual_feature_names]
+    computed_matrix = np.asarray(X, dtype=np.float32)
+    if use_cache:
+        npz_cache.save_feature_columns(
+            record['path'],
+            base_parameters=parameters,
+            feature_names=actual_feature_name_list,
+            X=computed_matrix,
+        )
+    columns = dict(cached_columns)
+    for column_index, feature_name in enumerate(actual_feature_name_list):
+        columns[feature_name] = computed_matrix[:, column_index]
+    assembled_matrix, assembled_feature_names = npz_cache.assemble_feature_matrix(
+        columns,
+        requested_feature_names,
+    )
+    return {
+        'X': np.asarray(assembled_matrix, dtype=np.float32),
+        'feature_names': list(assembled_feature_names),
+    }, False
 
 
-def _load_feature_cache(cache_path, manifest):
-    """Load cached feature matrix, labels, context, and stats."""
-    if not cache_path.exists():
-        return None
-    try:
-        with np.load(cache_path, allow_pickle=False) as data:
-            cached_manifest = json.loads(str(data['manifest_json'].item()))
-            if cached_manifest != manifest:
-                return None
-            sample_context = {}
-            for key in data['context_keys'].tolist():
-                codes_key = f'ctx_{key}__codes'
-                if codes_key in data.files:
-                    sample_context[key] = decode_label_column(
-                        data[codes_key], data[f'ctx_{key}__uniques']
-                    )
-                else:
-                    sample_context[key] = data[f'ctx_{key}']
-            stats = json.loads(str(data['stats_json'].item()))
-            X = data['X'].astype(np.float32, copy=False)
-            y = data['y'].astype(np.int8, copy=False)
-            if len(X) != len(y):
-                raise ValueError(f"feature cache row mismatch (X={len(X)} y={len(y)})")
-            for key, values in sample_context.items():
-                if len(values) != len(y):
-                    raise ValueError(
-                        f"feature cache context mismatch for {key} "
-                        f"(ctx={len(values)} y={len(y)})"
-                    )
-            return {
-                'X': X,
-                'y': y,
-                'feature_names': data['feature_names'].astype(str).tolist(),
-                'sample_context': sample_context,
-                'stats': stats,
-            }
-    except Exception as exc:
-        print(f"  Warning: ignoring invalid feature cache {cache_path.name}: {exc}")
-        return None
+def _constant_object_array(value, length):
+    """Return one object array filled with one repeated value."""
+    array = np.empty(int(length), dtype=object)
+    array[:] = value
+    return array
 
 
-def _save_feature_cache(cache_path, manifest, X, y, feature_names,
-                        sample_context, stats):
-    """Persist a feature-matrix cache for repeated local runs."""
-    try:
-        GENERATED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        payload = {
-            'manifest_json': np.asarray(json.dumps(manifest, sort_keys=True)),
-            'stats_json': np.asarray(json.dumps(stats, sort_keys=True)),
-            'X': np.asarray(X, dtype=np.float32),
-            'y': np.asarray(y, dtype=np.int8),
-            'feature_names': np.asarray(feature_names),
-            'context_keys': np.asarray(list(sample_context.keys())),
-        }
-        for key, values in sample_context.items():
-            array = np.asarray(values)
-            if array.dtype.hasobject or array.dtype.kind in ('U', 'S'):
-                codes, uniques = encode_label_column(array)
-                payload[f'ctx_{key}__codes'] = codes
-                payload[f'ctx_{key}__uniques'] = uniques
-            else:
-                payload[f'ctx_{key}'] = array
-        np.savez(cache_path, **payload)
-    except Exception as exc:
-        print(f"  Warning: could not write feature cache {cache_path.name}: {exc}")
+def _build_sample_context_for_record(record, window_count, window_size=SEG_WINDOW_SIZE):
+    """Return per-window sample context for one file record."""
+    count = int(window_count)
+    packet_index_start = max(0, int(window_size) - 1)
+    return {
+        'chip': _constant_object_array(str(record['chip']).upper(), count),
+        'source_file': _constant_object_array(record['path'].name, count),
+        'lineage_group': _constant_object_array(record['lineage_group'], count),
+        'session_group': _constant_object_array(record['session_group'], count),
+        'environment_group': _constant_object_array(record['environment_group'], count),
+        'pair_id': _constant_object_array(record['pair_id'], count),
+        'day_group': _constant_object_array(record['day_group'], count),
+        'dataset_role': _constant_object_array(record['dataset_role'], count),
+        'synthetic': np.full(count, bool(record['synthetic']), dtype=bool),
+        'label_name': _constant_object_array(record['label_name'], count),
+        'packet_index': np.arange(packet_index_start, packet_index_start + count, dtype=np.int32),
+        'window_index': np.arange(count, dtype=np.int32),
+    }
 
 
 def _stable_text_seed(value):
@@ -1357,91 +1355,122 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
                          feature_names=None, use_cache=True,
                          packet_augmentation=None, augmentation_seed=None,
                          dataset_roles=DEFAULT_TRAINING_ROLES):
-    """Load or build the cached feature matrix used by training."""
+    """Load or build the per-file cached feature matrix used by training."""
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
     feature_names = list(feature_names)
-
-    feature_manifest = _feature_cache_manifest(
-        feature_names,
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        allowed_labels=BINARY_TRAINING_LABELS,
-        dataset_roles=dataset_roles,
-        packet_augmentation=packet_augmentation,
-        augmentation_seed=augmentation_seed,
-    )
-    feature_cache_path = _feature_cache_path(feature_manifest)
-    feature_matrix = None
-    all_packets = None
-    stats = None
-
     if use_cache:
-        feature_matrix = _load_feature_cache(feature_cache_path, feature_manifest)
-        if feature_matrix is not None:
-            print(f"  Training feature cache: hit ({feature_cache_path.name})")
-            stats = feature_matrix['stats']
-        else:
-            print(f"  Training feature cache: miss ({feature_cache_path.name})")
+        print("  Training feature cache: enabled (per-file NPZ artifacts)")
     else:
         print("  Training feature cache: disabled")
 
-    if feature_matrix is None:
-        load_start = perf_counter()
-        all_packets, stats = load_all_data(
-            environment_filter=environment_filter,
-            excluded_chips=excluded_chips,
-            dataset_roles=dataset_roles,
-        )
-        if packet_augmentation:
-            all_packets = augment_csi_packets(all_packets, packet_augmentation, augmentation_seed)
-        print(f"  Load time: {format_duration(perf_counter() - load_start)}")
+    load_start = perf_counter()
+    records, stats = _load_training_file_records(
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        dataset_roles=dataset_roles,
+    )
+    print(f"  Load time: {format_duration(perf_counter() - load_start)}")
 
-        if not stats['chips']:
-            return {
-                'X': np.empty((0, len(feature_names)), dtype=np.float32),
-                'y': np.asarray([], dtype=np.int8),
-                'feature_names': feature_names,
-                'sample_context': {},
-                'sample_weights': np.asarray([], dtype=np.float32),
-                'stats': stats,
-            }, all_packets
-
-        print("\nExtracting features...")
-        features_start = perf_counter()
-        X, y, actual_feature_names, sample_context = extract_features(
-            all_packets, feature_names=feature_names
-        )
-        print(f"  Feature extraction time: {format_duration(perf_counter() - features_start)}")
-
-        feature_matrix = {
-            'X': np.asarray(X, dtype=np.float32),
-            'y': np.asarray(y, dtype=np.int8),
-            'feature_names': list(actual_feature_names),
-            'sample_context': sample_context,
+    if not stats['chips']:
+        return {
+            'X': np.empty((0, len(feature_names)), dtype=np.float32),
+            'y': np.asarray([], dtype=np.int8),
+            'feature_names': feature_names,
+            'sample_context': {},
+            'sample_weights': np.asarray([], dtype=np.float32),
             'stats': stats,
+        }, None
+
+    print("\nExtracting features...")
+    features_start = perf_counter()
+    X_parts = []
+    y_parts = []
+    context_parts = {
+        'chip': [],
+        'source_file': [],
+        'lineage_group': [],
+        'session_group': [],
+        'environment_group': [],
+        'pair_id': [],
+        'day_group': [],
+        'dataset_role': [],
+        'synthetic': [],
+        'label_name': [],
+        'packet_index': [],
+        'window_index': [],
+    }
+    cache_hits = 0
+    cache_misses = 0
+    actual_feature_names = feature_names
+
+    for record in records:
+        file_matrix, cache_hit = _load_or_compute_file_feature_matrix(
+            record,
+            feature_names=feature_names,
+            use_cache=use_cache,
+            packet_augmentation=packet_augmentation,
+            augmentation_seed=augmentation_seed,
+        )
+        if cache_hit:
+            cache_hits += 1
+        else:
+            cache_misses += 1
+        X_file = np.asarray(file_matrix['X'], dtype=np.float32)
+        actual_feature_names = list(file_matrix['feature_names'])
+        if len(X_file) == 0:
+            continue
+        X_parts.append(X_file)
+        y_parts.append(
+            np.full(len(X_file), 1 if record['is_motion'] else 0, dtype=np.int8)
+        )
+        sample_context = _build_sample_context_for_record(
+            record,
+            len(X_file),
+        )
+        for key, values in sample_context.items():
+            context_parts[key].append(values)
+
+    print(
+        f"  Feature cache files: {cache_hits} hit(s), {cache_misses} miss(es)"
+    )
+    print(f"  Feature extraction time: {format_duration(perf_counter() - features_start)}")
+
+    if X_parts:
+        X = np.concatenate(X_parts, axis=0)
+        y = np.concatenate(y_parts, axis=0)
+        sample_context = {
+            key: np.concatenate(parts, axis=0)
+            for key, parts in context_parts.items()
+            if parts
         }
-        if use_cache:
-            _save_feature_cache(
-                feature_cache_path,
-                feature_manifest,
-                feature_matrix['X'],
-                feature_matrix['y'],
-                feature_matrix['feature_names'],
-                feature_matrix['sample_context'],
-                feature_matrix['stats'],
-            )
-            print(f"  Training feature cache: wrote {feature_cache_path.name}")
+    else:
+        X = np.empty((0, len(actual_feature_names)), dtype=np.float32)
+        y = np.asarray([], dtype=np.int8)
+        sample_context = {
+            'chip': np.empty(0, dtype=object),
+            'source_file': np.empty(0, dtype=object),
+            'lineage_group': np.empty(0, dtype=object),
+            'session_group': np.empty(0, dtype=object),
+            'environment_group': np.empty(0, dtype=object),
+            'pair_id': np.empty(0, dtype=object),
+            'day_group': np.empty(0, dtype=object),
+            'dataset_role': np.empty(0, dtype=object),
+            'synthetic': np.empty(0, dtype=bool),
+            'label_name': np.empty(0, dtype=object),
+            'packet_index': np.empty(0, dtype=np.int32),
+            'window_index': np.empty(0, dtype=np.int32),
+        }
 
     matrix = {
-        'X': feature_matrix['X'],
-        'y': feature_matrix['y'],
-        'feature_names': feature_matrix['feature_names'],
-        'sample_context': feature_matrix['sample_context'],
-        'sample_weights': np.ones(len(feature_matrix['y']), dtype=np.float32),
-        'stats': feature_matrix['stats'],
+        'X': X,
+        'y': y,
+        'feature_names': actual_feature_names,
+        'sample_context': sample_context,
+        'sample_weights': np.ones(len(y), dtype=np.float32),
+        'stats': stats,
     }
-    return matrix, all_packets
+    return matrix, None
 
 
 def extract_features(packets, window_size=SEG_WINDOW_SIZE,
@@ -4650,8 +4679,8 @@ class ArrayStreamingEvaluator:
 
 
 def packet_csi_data(packet):
-    """Return CSI data from a packet dictionary or a compact matrix row."""
-    return packet['csi_data'] if isinstance(packet, dict) else packet
+    """Return CSI data from a packet mapping or a compact matrix row."""
+    return packet['csi_data'] if isinstance(packet, Mapping) else packet
 
 
 def evaluate_streaming_split(evaluator, static_presence_packets, motion_packets, threshold=0.5):
@@ -4740,22 +4769,13 @@ def evaluate_array_split(center, scale, layers, feature_names,
     )
 
 
-# Process-local cache for immutable paired validation NPZ streams.
-_PAIRED_PACKET_CACHE = {}
-
-
 def _load_npz_packets_cached(path):
-    """Load NPZ packets once per process for repeated paired-gate evaluations."""
-    key = str(Path(path).resolve())
-    cached = _PAIRED_PACKET_CACHE.get(key)
-    if cached is not None:
-        return cached
-    packets = load_npz_as_packets(path)
+    """Load NPZ packets through the shared packet-view cache."""
+    packets = load_npz_packet_view(Path(path))
     if not packets:
         raise RuntimeError(
             f"{Path(path).name} has no HT20/HT-LTF/64-SC sensing packets after format filtering"
         )
-    _PAIRED_PACKET_CACHE[key] = packets
     return packets
 
 

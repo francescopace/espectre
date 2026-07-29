@@ -29,6 +29,7 @@ from tools.lib.csi_io import (
     build_pacing_datagram,
     load_npz_arrays,
     load_npz_as_packets,
+    load_npz_packet_view,
     normalize_stored_csi_bin_layout,
 )
 
@@ -75,6 +76,44 @@ def test_load_npz_arrays_rotates_classic_recordings(tmp_path):
 
     loaded = load_npz_arrays(filepath)["csi_data"]
     np.testing.assert_array_equal(loaded, np.roll(classic, 64, axis=1))
+
+
+def test_load_npz_arrays_returns_read_only_cached_mapping(tmp_path):
+    filepath = tmp_path / "read_only_arrays.npz"
+    np.savez_compressed(
+        filepath,
+        csi_data=np.zeros((1, 128), dtype=np.int8),
+        num_subcarriers=64,
+        label="motion",
+        chip="c3",
+    )
+
+    arrays = load_npz_arrays(filepath)
+
+    assert arrays["csi_data"].flags.writeable is False
+    with pytest.raises(TypeError):
+        arrays["extra"] = np.zeros(1, dtype=np.int8)
+
+
+def test_packet_view_is_read_only_but_packet_loader_returns_writable_copies(tmp_path):
+    filepath = tmp_path / "packet_views.npz"
+    np.savez_compressed(
+        filepath,
+        csi_data=np.arange(128, dtype=np.int8).reshape(1, 128),
+        num_subcarriers=64,
+        label="motion",
+        chip="c3",
+    )
+
+    packet_view = load_npz_packet_view(filepath)
+    assert packet_view[0]["csi_data"].flags.writeable is False
+    with pytest.raises(TypeError):
+        packet_view[0]["label"] = "changed"
+
+    packets = load_npz_as_packets(filepath)
+    assert packets[0]["csi_data"].flags.writeable is True
+    packets[0]["csi_data"][0] = -5
+    assert load_npz_packet_view(filepath)[0]["csi_data"][0] != -5
 
 
 def build_packet(

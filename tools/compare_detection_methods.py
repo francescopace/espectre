@@ -18,6 +18,7 @@ import argparse
 import time
 import re
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -65,6 +66,11 @@ except ImportError:
 # Configuration
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0
+
+
+def _packet_csi_data(packet):
+    """Return CSI data from a packet mapping or a compact matrix row."""
+    return packet["csi_data"] if isinstance(packet, Mapping) else packet
 
 
 def _extract_motion_start_from_description(description):
@@ -232,7 +238,7 @@ class ClassicDetectorAdapter:
         self.state_history = []
 
     def process_packet(self, packet):
-        csi_data = packet['csi_data'] if isinstance(packet, dict) else packet
+        csi_data = _packet_csi_data(packet)
         self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
         if not self._cadence.note_evaluation_tick():
             return
@@ -267,7 +273,7 @@ class MLDetectorAdapter:
         self.state_history = self._detector.state_history
 
     def process_packet(self, packet):
-        csi_data = packet['csi_data'] if isinstance(packet, dict) else packet
+        csi_data = _packet_csi_data(packet)
         self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
         if not self._cadence.note_evaluation_tick():
             return

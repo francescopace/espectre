@@ -19,10 +19,8 @@ htmlcov/
 # Pytest
 .pytest_cache/
 
-# Training cache
-data/auto_generated/training_matrix_*.npz
-data/auto_generated/training_features_*.npz
-data/auto_generated/training_weights_*.npz
+# Shared NPZ cache
+.npz_cache/
 
 # Training run reports: per-run evidence, kept out of the tree so the numbers
 # quoted in docs and ADRs stay the reviewed ones
