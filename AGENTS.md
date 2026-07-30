@@ -205,9 +205,9 @@ Regenerate them from the current corpus, and run each generator's
 - Use simple descriptive titles, filename-only text for internal file links,
 and rare, purposeful emoji. Established entry points may retain branding.
 - Update `docs/web/sitemap.xml` when public routes change. Do not edit generated
-pages under `docs/web/guides/` or `docs/web/roadmap/`; edit
-`docs/web/guides/content/` or `docs/web/roadmap/content.html`, then run
-`.github/scripts/build_static_pages.py` to preview.
+pages under `docs/web/guides/`, `docs/web/docs/`, `docs/web/media/`, or
+`docs/web/roadmap/`; edit the shared fragments under `docs/web/content/`,
+then run `.github/scripts/build_static_pages.py` to preview.
 
 
 

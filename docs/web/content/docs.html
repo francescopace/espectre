@@ -1,0 +1,25 @@
+<h1 class="page-title">Build with the SDK</h1>
+<div class="docs-grid">
+  <p class="page-sub docs-intro">ESPectre is reusable source code, not a precompiled binary SDK. Today you embed the shared C++ layers into your own ESP-IDF firmware through the same runtime contracts used by the Native, Matter, and Streamer frontends. <br>
+    Available under GPLv3 for open-source projects, or with <a href="mailto:contact@espectre.dev">commercial licensing</a> for closed-source products.</p>
+  <div class="code-block"><pre><span class="c"># CMakeLists.txt</span>
+<span class="k">include</span>(<span class="s">${CMAKE_CURRENT_LIST_DIR}/path/to/espectre/src/cpp/espectre_sources.cmake</span>)
+
+idf_component_register(
+  SRCS
+    main.cpp
+    <span class="s">${ESPECTRE_CORE_SOURCES}</span>
+    <span class="s">${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}</span>
+  INCLUDE_DIRS
+    .
+    <span class="s">${ESPECTRE_SHARED_INCLUDE_DIRS}</span>
+)
+
+<span class="c">// add optional source groups for BLE, MQTT, provisioning, or OTA as needed</span></pre></div>
+  <div class="doc-links">
+    <a href="/docs/api/" class="doc-link"><div class="doc-link-title">API reference -&gt;</div><div class="doc-link-sub">Real contracts: <code>RuntimeFrontendController</code>, <code>IEspectreRuntime</code>, listeners, snapshots, and capabilities.</div></a>
+    <a href="/docs/examples/" class="doc-link"><div class="doc-link-title">Examples -&gt;</div><div class="doc-link-sub">Reference integration patterns derived from the shipped Native, Matter, and Streamer frontends.</div></a>
+    <a href="/docs/architecture/" class="doc-link"><div class="doc-link-title">Architecture -&gt;</div><div class="doc-link-sub">How <code>core</code>, <code>runtime</code>, and <code>frontend</code> stay reusable, testable, and product-friendly.</div></a>
+  </div>
+</div>
+<div class="note">The web docs now describe the SDK surface that exists in the repository today. Prebuilt SDK archives are not currently published on this site, so integration happens from source through <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/espectre_sources.cmake" target="_blank" rel="noopener"><code>espectre_sources.cmake</code></a> or the PlatformIO package manifest in <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/library.json" target="_blank" rel="noopener"><code>src/cpp/library.json</code></a>. For ESP-IDF builds, the optional source groups are <code>ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES</code>, and <code>ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES</code>.</div>

@@ -24,21 +24,25 @@ function currentRoute() {
 }
 
 /**
- * Maps a route to the standard content_group dimension. Guides and SDK docs
- * share one `documentation` group so they can be compared as a whole.
+ * Maps a route to the standard content_group dimension. Guides, SDK docs, and
+ * the roadmap share one `documentation` group for comparison as a whole;
+ * editorial and third-party media links have their own group.
  */
 /*
- * The generated guide pages carry data-static-page on <html>; they have no
- * hash route, so every event they emit belongs to the documentation group.
+ * Generated static pages carry data-static-page on <html>; their explicit
+ * data-site-section keeps canonical page events aligned with SPA route events.
  */
 const IS_STATIC_PAGE = document.documentElement.hasAttribute('data-static-page');
+const STATIC_PAGE_SECTION = document.documentElement.dataset.siteSection || 'documentation';
 
 function getSiteSection(route = currentRoute()) {
-    if (IS_STATIC_PAGE) return 'documentation';
+    if (IS_STATIC_PAGE) return STATIC_PAGE_SECTION;
     if (route === 'home') return 'home';
     if (TOOL_ROUTES.includes(route)) return route;
     if (route === 'guides' || route.startsWith('guide-')) return 'documentation';
     if (route === 'docs' || route.startsWith('docs-')) return 'documentation';
+    if (route === 'media') return 'media';
+    if (route === 'roadmap') return 'documentation';
     return 'other';
 }
 
@@ -70,7 +74,7 @@ if (IS_STATIC_PAGE) {
         page_location: window.location.href,
         page_path: window.location.pathname,
         page_title: document.title,
-        content_group: 'documentation'
+        content_group: STATIC_PAGE_SECTION
     });
 }
 

@@ -10,19 +10,22 @@
 <meta property="og:url" content="https://espectre.dev/">
 <meta property="og:title" content="ESPectre — Wi-Fi motion sensing">
 <meta property="og:description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor. No cameras, no extra hardware.">
-<meta property="og:image" content="https://espectre.dev/espectre.png">
+<meta property="og:image" content="https://espectre.dev/assets/brand/espectre-og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="ESPectre — Wi-Fi motion sensing">
 <meta name="twitter:description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor. No cameras, no extra hardware.">
-<meta name="twitter:image" content="https://espectre.dev/espectre.png">
-<link rel="icon" type="image/png" href="favicon.png">
+<meta name="twitter:image" content="https://espectre.dev/assets/brand/espectre-og.jpg">
+<link rel="icon" type="image/svg+xml" href="/assets/brand/espectre-logo.svg">
+<link rel="alternate icon" type="image/png" href="/assets/brand/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=3.2.0">
+<link rel="stylesheet" href="styles.css?v=3.10.0">
 <script src="espectre-ble.js?v=3.2.0"></script>
 <script src="qrcode.js?v=3.2.0" defer></script>
-<script src="analytics.js?v=3.2.0" defer></script>
+<script src="analytics.js?v=3.10.0" defer></script>
 <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 <script src="https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js" defer></script>
 </head>
@@ -31,25 +34,24 @@
 <header class="site-header">
   <div class="site-header-inner">
     <a href="#home" class="brand" data-route-link="home">
-      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="var(--accent)"/><circle cx="12.2" cy="13.5" r="1.9" fill="var(--bg)"/><circle cx="19.8" cy="13.5" r="1.9" fill="var(--bg)"/></svg>
+      <img src="/assets/brand/espectre-logo.svg" alt="" width="35" height="35" aria-hidden="true">
       ESPectre
     </a>
     <nav class="main-nav" aria-label="Main">
       <a href="#home" class="nav-link" data-route-link="home">Home</a>
       <a href="#tools" class="nav-link" data-route-link="tools">Tools</a>
       <a href="#guides" class="nav-link" data-route-link="guides">Guides</a>
+      <a href="/media/" class="nav-link" data-route-link="media">Media</a>
+      <a href="/roadmap/" class="nav-link" data-route-link="roadmap">Roadmap</a>
       <a href="#docs" class="nav-link" data-route-link="docs">Docs</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
     </nav>
-    <button class="theme-toggle js-theme-toggle" title="Toggle theme">☀</button>
-
     <div class="conn">
       <span class="conn-idle-group js-conn-disconnected">
         <button class="conn-pill conn-disconnected js-connect">
           <span class="dot dot-idle"></span>
           Connect device
         </button>
-        <button class="conn-demo js-demo" title="Simulated device — no hardware needed">Demo</button>
       </span>
       <div class="conn-pill conn-connecting js-conn-connecting" hidden>
         <span class="spinner"></span>
@@ -86,21 +88,234 @@
 
 <!-- ============================== Home ============================== -->
 <main class="js-page" data-page="home">
-  <section class="hero">
-    <a href="#flash" class="hero-badge js-release-badge" hidden>
-      <span class="dot dot-ok"></span>
-      <span class="js-release-text"></span>
-    </a>
-    <h1>Your Wi-Fi already<br>senses motion.</h1>
-    <p class="hero-sub">ESPectre reads the Wi-Fi channel itself to detect people moving — no cameras, no microphones, no extra hardware. Just one tiny ESP32 and the router you already own.</p>
-    <div class="hero-wave js-hero-wave"></div>
+  <section class="scrolly js-scrolly" id="use-cases" aria-label="ESPectre introduction and sensing use cases">
+    <div class="scrolly-stage is-intro">
+      <div class="scrolly-scenes" aria-hidden="true">
+        <div class="scrolly-scene scrolly-hero js-scrolly-scene is-active" data-scene="0">
+          <div class="hero-media">
+            <img class="hero-frame hero-frame-disconnected"
+              src="/assets/home/hero-esp32-c3-poster.jpg" alt="" width="1920" height="1080"
+              fetchpriority="high">
+            <img class="hero-frame hero-frame-connected"
+              src="/assets/home/hero-esp32-c3-connected.jpg" alt="" width="1920" height="1080">
+          </div>
+          <div class="hero-scrim"></div>
+        </div>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="1">
+          <img src="/assets/home/scene-motion-lights.jpg" alt="" width="1920" height="1080">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="2">
+          <img src="/assets/home/scene-intrusion-alarm.jpg" alt="" width="1920" height="1080" loading="lazy">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="3">
+          <img src="/assets/home/scene-smart-heating.jpg" alt="" width="1920" height="1080" loading="lazy">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="4">
+          <img src="/assets/home/scene-vacant-climate.jpg" alt="" width="1920" height="1080" loading="lazy">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="5">
+          <img src="/assets/home/scene-presence-research.jpg" alt="" width="1920" height="1080" loading="lazy">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="6">
+          <img src="/assets/home/scene-industrial-flow.jpg" alt="" width="1920" height="1080" loading="lazy">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="7">
+          <img src="/assets/home/scene-school-privacy.jpg" alt="" width="1672" height="941" loading="lazy">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="8">
+          <img src="/assets/home/scene-gym-activity.jpg" alt="" width="1672" height="941" loading="lazy">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="9">
+          <img src="/assets/home/scene-matter-integration.jpg" alt="" width="1920" height="1080" loading="lazy">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="10">
+          <img src="/assets/home/scene-cloud-home-map.jpg" alt="" width="1672" height="941" loading="lazy">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="11">
+          <img src="/assets/home/scene-embedded-sdk.jpg" alt="" width="1920" height="1080" loading="lazy">
+        </figure>
+      </div>
+      <div class="scrolly-scrim" aria-hidden="true"></div>
+      <div class="scrolly-inner">
+        <div class="hero-content scrolly-caption scrolly-hero-content js-scrolly-caption is-active" data-scene="0">
+          <a href="#flash" class="hero-badge js-release-badge" hidden>
+            <span class="dot dot-ok"></span>
+            <span class="js-release-text"></span>
+          </a>
+          <div class="hero-eyebrow">On-device Wi-Fi sensing</div>
+          <h1>Your Wi-Fi already<br>senses motion.</h1>
+          <p class="hero-sub">No cameras. No microphones. One tiny ESP32 and the router you already own.</p>
+          <div class="hero-actions">
+            <a href="#flash" class="hero-cta hero-cta-primary">Flash from browser</a>
+            <a href="#docs" class="hero-cta hero-cta-secondary">Explore the SDK</a>
+          </div>
+          <div class="hero-proof">
+            <span>ESP32</span>
+            <span>Channel State Information</span>
+            <span>Private by design</span>
+          </div>
+        </div>
+
+        <div class="scrolly-progress js-scrolly-progress" aria-hidden="true">
+          <span class="js-scrolly-current">01</span>
+          <span>/ 11</span>
+        </div>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="1">
+          <div class="scrolly-kicker">Everyday automation</div>
+          <h2>Walk in.<br>Lights on.</h2>
+          <p>ESPectre detects motion from changes in the Wi-Fi channel and turns the room on as you arrive.</p>
+          <div class="scene-ui scene-ui-motion">
+            <span class="scene-ui-dot"></span>
+            <span><small>Living room</small><strong>Motion detected</strong></span>
+            <span class="scene-ui-action">Lights on</span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="2">
+          <div class="scrolly-kicker">Security</div>
+          <h2>Someone enters.<br>You know.</h2>
+          <p>No image leaves the room because there is no image. Unexpected motion can trigger your existing alarm.</p>
+          <div class="scene-ui scene-ui-alarm">
+            <span class="scene-ui-dot"></span>
+            <span><small>Entryway</small><strong>Unexpected motion</strong></span>
+            <span class="scene-ui-action">Alarm on</span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="3">
+          <div class="scrolly-kicker">Smarter heating</div>
+          <h2>No motion.<br>Eco mode.</h2>
+          <p>After a configurable period without motion, ESPectre can tell your smart-heating automation to lower the room temperature.</p>
+          <div class="scene-ui scene-ui-climate">
+            <span class="scene-ui-dot"></span>
+            <span><small>Bedroom</small><strong>No motion for 20 min</strong></span>
+            <span class="scene-ui-action">Eco · 17 °C</span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="4">
+          <div class="scrolly-kicker">Climate automation</div>
+          <h2>A quiet room.<br>Lighter cooling.</h2>
+          <p>ESPectre reports when motion has been quiet for a while. Your automation can then ease the air conditioning—without assuming the room is empty.</p>
+          <div class="scene-ui scene-ui-cooling">
+            <span class="scene-ui-dot"></span>
+            <span><small>Bedroom</small><strong>No motion for 30 min</strong></span>
+            <span class="scene-ui-action">Cooling eco</span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="5">
+          <div class="scrolly-kicker">Roadmap · Breathing</div>
+          <h2>Even at rest,<br>the channel moves.</h2>
+          <p>ESPectre is researching whether breathing-related micro-motion can become a reliable local sensing signal. Research only—not a medical measurement. <a href="/roadmap/" class="scene-roadmap-link">See the roadmap →</a></p>
+          <div class="scene-ui scene-ui-presence scene-ui-research">
+            <span class="scene-ui-dot"></span>
+            <span class="scene-ui-breathing">
+              <small>Breathing estimate · R&amp;D</small>
+              <strong>13.2 <em>cycles/min</em></strong>
+              <span class="breathing-trace" aria-hidden="true">
+                <i style="--h: 3px"></i><i style="--h: 5px"></i><i style="--h: 9px"></i>
+                <i style="--h: 13px"></i><i style="--h: 8px"></i><i style="--h: 5px"></i>
+                <i style="--h: 3px"></i>
+              </span>
+            </span>
+            <span class="scene-ui-presence-cue">
+              <small>Presence cue</small>
+              <strong>Occupied</strong>
+            </span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="6">
+          <div class="scrolly-kicker">Industrial analytics</div>
+          <h2>Activity trends.<br>No worker tracking.</h2>
+          <p>Aggregate local motion energy across production zones to understand when activity rises or falls—without cameras, identities, or people counting.</p>
+          <div class="scene-ui scene-ui-industrial">
+            <span class="scene-ui-dot"></span>
+            <span><small>Assembly line</small><strong>Activity above baseline</strong></span>
+            <span class="scene-ui-action">Local aggregate</span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="7">
+          <div class="scrolly-kicker">Schools</div>
+          <h2>Rooms react.<br>Students stay private.</h2>
+          <p>Use local motion events for after-hours alerts, lighting, or classroom experiments without recording faces, voices, or attendance.</p>
+          <div class="scene-ui scene-ui-school">
+            <span class="scene-ui-dot"></span>
+            <span><small>Classroom</small><strong>Motion detected</strong></span>
+            <span class="scene-ui-action">Lights on</span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="8">
+          <div class="scrolly-kicker">Gyms and studios</div>
+          <h2>Activity starts.<br>The space responds.</h2>
+          <p>Wake lights and ventilation, or use motion energy as an input for interactive training and games. No pose tracking or wearables.</p>
+          <div class="scene-ui scene-ui-gym">
+            <span class="scene-ui-dot"></span>
+            <span><small>Training studio</small><strong>Activity above baseline</strong></span>
+            <span class="scene-ui-action">Ventilation on</span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="9">
+          <div class="scrolly-kicker">Matter · Limited validation</div>
+          <h2>One standard.<br>Many ecosystems.</h2>
+          <p>Expose local motion through Matter’s standard occupancy sensor surface and use it with the ecosystems your home already understands.</p>
+          <div class="scene-integrations">
+            <span>Matter</span>
+            <span>Apple Home</span>
+            <span>Google Home</span>
+          </div>
+          <div class="scene-ui scene-ui-integration">
+            <span class="scene-ui-dot"></span>
+            <span><small>Living room</small><strong>Motion sensor shared</strong></span>
+            <span class="scene-ui-action">Connected</span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="10">
+          <div class="scrolly-kicker">Web orchestration · Roadmap</div>
+          <h2>Movement,<br>room by room.</h2>
+          <p>An optional web layer could turn derived local events into a simple home map, with local, self-hosted, and managed deployment paths. Raw CSI stays inside the sensing environment. <a href="/roadmap/" class="scene-roadmap-link">See the roadmap →</a></p>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="11">
+          <div class="scrolly-kicker">Built to embed</div>
+          <h2>Your product.<br>Now motion-aware.</h2>
+          <p>ESPectre’s shared C++ core adds local motion sensing to ESP32 products without cameras or dedicated radar hardware. OEM reference paths such as TuyaOpen/TuyaOS are under evaluation.</p>
+          <div class="scene-ui scene-ui-embedded">
+            <span class="scene-ui-dot"></span>
+            <span><small>Custom firmware</small><strong>ESPectre runtime active</strong></span>
+            <span class="scene-ui-action">Events local</span>
+          </div>
+        </article>
+
+        <div class="scrolly-nav" aria-hidden="true">
+          <span class="js-scrolly-marker" data-scene="1"></span>
+          <span class="js-scrolly-marker" data-scene="2"></span>
+          <span class="js-scrolly-marker" data-scene="3"></span>
+          <span class="js-scrolly-marker" data-scene="4"></span>
+          <span class="js-scrolly-marker" data-scene="5"></span>
+          <span class="js-scrolly-marker" data-scene="6"></span>
+          <span class="js-scrolly-marker" data-scene="7"></span>
+          <span class="js-scrolly-marker" data-scene="8"></span>
+          <span class="js-scrolly-marker" data-scene="9"></span>
+          <span class="js-scrolly-marker" data-scene="10"></span>
+          <span class="js-scrolly-marker" data-scene="11"></span>
+        </div>
+        <div class="scrolly-cue" aria-hidden="true">Scroll to explore <span>↓</span></div>
+      </div>
+    </div>
   </section>
 
   <section class="audience">
     <div class="audience-grid">
       <div class="audience-card">
         <div class="eyebrow">For your home</div>
-        <h2>A €3 device is all you need.</h2>
+        <h2>An ESP32 is all you need.</h2>
         <p>Flash the firmware from your browser and you have a Wi-Fi motion sensor in minutes. One device, your existing router — no mesh of nodes like other solutions.</p>
         <div class="spec-line"><span>1 × ESP32</span><span>·</span><span>your router</span><span>·</span><span>~5 minutes</span></div>
         <div class="card-cta">
@@ -110,8 +325,8 @@
       <div class="audience-card audience-card-inverse">
         <div class="eyebrow">For your product</div>
         <h2>Your firmware + ESPectre SDK = a motion sensor.</h2>
-        <p>Embed ESPectre into any Wi-Fi product — even a smart blender becomes a presence sensor. C++ SDK, examples and docs included.</p>
-        <div class="spec-line">GPLv3 · commercial licensing available</div>
+        <p>Embed ESPectre into Wi-Fi products with reusable C++ layers and reference frontends. Future OEM paths, including a TuyaOpen/TuyaOS reference integration, are under evaluation.</p>
+        <div class="spec-line">Commercial licensing available</div>
         <div class="card-cta">
           <a href="#docs" class="btn-outline-inverse">Explore the SDK →</a>
         </div>
@@ -119,52 +334,62 @@
     </div>
   </section>
 
-  <section class="band band-surface">
+  <section class="band band-surface" id="how-it-works">
     <div class="band-inner">
       <h2 class="section-title">How it works</h2>
       <p class="section-sub">Wi-Fi signals bounce around a room. When someone moves, the reflections change. ESPectre measures that.</p>
       <div class="steps">
         <div class="step">
           <div class="step-num">01</div>
-          <h3>Flash from the browser</h3>
-          <p>Plug an ESP32 into USB and flash the firmware right here — no toolchain, no downloads.</p>
+          <h3>Flash an ESP32</h3>
+          <p>Plug the board into USB and install the firmware right here — no toolchain, no downloads.</p>
         </div>
         <div class="step">
           <div class="step-num">02</div>
-          <h3>It watches the channel</h3>
-          <p>The device reads Channel State Information (CSI) and turns tiny radio changes into a motion score — on-device.</p>
+          <h3>It reads the channel</h3>
+          <p>The device samples Channel State Information (CSI) and turns tiny radio changes into a motion score, on-device.</p>
         </div>
         <div class="step">
           <div class="step-num">03</div>
-          <h3>Automate anything</h3>
-          <p>Lights, climate, alerts — through Home Assistant, Matter, or MQTT. Motion in, automation out.</p>
+          <h3>It publishes events</h3>
+          <p>That score becomes a sensor your home already understands. Motion in, automation out.</p>
+        </div>
+      </div>
+
+      <div class="integrations">
+        <div class="integrations-title">Works with</div>
+        <div class="integration-chips">
+          <span class="integration-chip">Home Assistant <span class="proto proto-accent">AVAILABLE</span></span>
+          <span class="integration-chip">Apple Home <span class="proto">MATTER · LIMITED VALIDATION</span></span>
+          <span class="integration-chip">Google Home <span class="proto">MATTER · LIMITED VALIDATION</span></span>
+          <span class="integration-chip">Alexa <span class="proto">MATTER · LIMITED VALIDATION</span></span>
+          <span class="integration-chip">SmartThings <span class="proto">MATTER VALIDATION</span></span>
+          <span class="integration-chip">Native app <span class="proto">BLE / MQTT</span></span>
+        </div>
+        <div class="integrations-planned">
+          <span class="integrations-planned-label">Under evaluation</span>
+          <span>Tuya app via Matter</span>
+          <span>TuyaOpen / TuyaOS products</span>
+          <span>Zigbee</span>
+          <a href="/roadmap/">View roadmap →</a>
         </div>
       </div>
     </div>
   </section>
 
   <section class="band">
-    <div class="band-inner integrations">
-      <div class="integrations-title">Works with your home</div>
-      <div class="integration-chips">
-        <span class="integration-chip">Home Assistant <span class="proto proto-accent">NATIVE</span></span>
-        <span class="integration-chip">Apple Home <span class="proto">MATTER</span></span>
-        <span class="integration-chip">Google Home <span class="proto">MATTER</span></span>
-        <span class="integration-chip">Alexa <span class="proto">MATTER</span></span>
-        <span class="integration-chip">Native app <span class="proto">BLE / MQTT</span></span>
-      </div>
-    </div>
-  </section>
-
-  <section class="band band-surface">
-    <div class="band-inner values">
-      <div>
-        <h2>Private by physics</h2>
-        <p>ESPectre senses motion through radio signals. There is no camera to cover, no microphone to mute — nothing is recorded, and everything is processed on the device itself.</p>
-      </div>
-      <div>
-        <h2>Open source, all the way down</h2>
-        <p>Firmware, SDK, and tools are GPLv3 on <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener">GitHub</a>. Building a commercial product? A commercial license is available.</p>
+    <div class="band-inner">
+      <h2 class="section-title">What you get either way</h2>
+      <p class="section-sub">The same two guarantees hold whether you flash a board tonight or ship ESPectre inside a product.</p>
+      <div class="values">
+        <div>
+          <h3>Private by physics</h3>
+          <p>There is nothing to record. The device measures how the radio channel changes, computes the motion score itself, and publishes only that score — the raw CSI stays on the device.</p>
+        </div>
+        <div>
+          <h3>Open source, all the way down</h3>
+          <p>Firmware, the shared C++ core, and the tooling are open source on <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener">GitHub</a> under GPLv3. Building a commercial product? A separate commercial license is available.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -209,15 +434,20 @@
       <p>Live telemetry from every ESPectre node on your broker.</p>
       <span class="tool-open">Open →</span>
     </a>
+    <a href="#game" class="tool-card tool-card-link">
+      <div class="tool-head"><h2>Game</h2><span class="chip js-ble-chip">BLE</span></div>
+      <p>A reaction game where Wi-Fi motion sensing is the controller.</p>
+      <span class="tool-open">Open →</span>
+    </a>
     <a href="#theremin" class="tool-card tool-card-link">
       <div class="tool-head"><h2>Theremin</h2><span class="chip js-ble-chip">BLE</span></div>
       <p>Your movement becomes sound. A motion-controlled instrument.</p>
       <span class="tool-open">Open →</span>
     </a>
-    <a href="#game" class="tool-card tool-card-link">
-      <div class="tool-head"><h2>Game</h2><span class="chip js-ble-chip">BLE</span></div>
-      <p>A reaction game where Wi-Fi motion sensing is the controller.</p>
-      <span class="tool-open">Open →</span>
+    <a href="/roadmap/" class="tool-card tool-card-link">
+      <div class="tool-head"><h2>Breathing research</h2><span class="chip js-ble-chip">BLE</span></div>
+      <p>Explore whether breathing-related micro-motion can become a reliable local sensing signal.</p>
+      <span class="tool-open">On the roadmap →</span>
     </a>
   </div>
 </main>
@@ -251,7 +481,8 @@
         </esp-web-install-button>
         <a class="btn-ghost btn-sm js-flash-download" href="https://github.com/francescopace/espectre/releases" target="_blank" rel="noopener">Download binary</a>
       </div>
-      <p class="tool-note">Flashing needs a Chromium-based browser with Web Serial. After flashing, provision Wi-Fi from <a href="#configure">Configure</a> over Bluetooth.</p>
+      <p class="tool-note">Flashing needs a Chromium-based browser with Web Serial. <br>
+        After flashing, provision Wi-Fi from <a href="#configure">Configure</a> over Bluetooth.</p>
     </section>
     <section class="panel js-matter-panel" hidden>
       <h2>Matter commissioning</h2>
@@ -461,7 +692,9 @@
 
   <div class="js-has-conn" hidden>
     <div class="game-stage panel">
-      <div class="game-orb js-game-orb"></div>
+      <div class="game-orb js-game-orb">
+        <img class="game-scan" src="/assets/game/game-radar.svg" alt="" aria-hidden="true">
+      </div>
       <div class="game-msg js-game-msg">Stand still. Move fast. React to survive.</div>
       <div class="game-stats">
         <div class="stat"><div class="stat-label">Round</div><div class="stat-value js-game-round">—</div></div>
@@ -472,7 +705,6 @@
       <div class="meter meter-lg game-meter"><span class="js-energy-fill"></span></div>
       <div class="theremin-controls">
         <button class="btn-primary js-game-start">Start game</button>
-        <button class="btn-ghost js-game-wave" hidden>Wave 👋 (or press Space)</button>
       </div>
       <p class="tool-note js-game-hint"></p>
     </div>
@@ -481,78 +713,36 @@
 
 <!-- ============================== Guides ============================== -->
 <main class="js-page page-narrow" data-page="guides" hidden>
-  <h1 class="page-title">Guides</h1>
-  <p class="page-sub">From picking a board to writing your own detection firmware.</p>
-  <div class="guides-grid">
-    <a href="/guides/hardware/" class="guide-card">
-      <img src="guides/images/esp32-boards.jpg" alt="ESP32 boards">
-      <div class="guide-body">
-        <span class="guide-tag">HARDWARE</span>
-        <h2>Choosing an ESP32 board</h2>
-        <p>Which €3 board to buy, antennas, and placement in the room.</p>
-        <span class="guide-meta">6 min read</span>
-      </div>
-    </a>
-    <a href="/guides/setup/" class="guide-card">
-      <img src="guides/images/home-assistant-dashboard.png" alt="Home Assistant dashboard">
-      <div class="guide-body">
-        <span class="guide-tag">SETUP</span>
-        <h2>Flash &amp; Wi-Fi setup</h2>
-        <p>Browser flashing, provisioning, and adopting the device in Home Assistant.</p>
-        <span class="guide-meta">8 min read</span>
-      </div>
-    </a>
-    <a href="/guides/detection/" class="guide-card">
-      <img src="guides/images/csi-quiet-vs-movement.jpg" alt="CSI: quiet vs movement">
-      <div class="guide-body">
-        <span class="guide-tag">THEORY</span>
-        <h2>How detection works</h2>
-        <p>CSI, multipath, and how a still room differs from a moving one.</p>
-        <span class="guide-meta">12 min read</span>
-      </div>
-    </a>
-    <a href="/guides/custom-firmware/" class="guide-card">
-      <img src="guides/images/custom-firmware-build.webp" alt="Custom firmware build">
-      <div class="guide-body">
-        <span class="guide-tag">SDK</span>
-        <h2>Build custom firmware</h2>
-        <p>Use the C++ SDK to embed sensing into your own product firmware.</p>
-        <span class="guide-meta">15 min read</span>
-      </div>
-    </a>
+  <div class="js-static-content" data-content-url="content/guides.html" data-static-url="/guides/">
+    <p class="guide-loading">Loading guides…</p>
   </div>
 </main>
 
 <!-- ============================== Docs ============================== -->
 <main class="js-page page-narrow" data-page="docs" hidden>
-  <h1 class="page-title">Build with the SDK</h1>
-  <p class="page-sub page-sub-wide">ESPectre's sensing core is a reusable C++ layer. Link it into any ESP-IDF firmware and your product gains motion sensing — the Wi-Fi radio it already has is the sensor.</p>
-  <div class="docs-grid">
-    <div class="code-block"><pre><span class="c">// your_firmware.cpp</span>
-<span class="k">#include</span> <span class="s">&lt;espectre/sensing.h&gt;</span>
+  <div class="js-static-content" data-content-url="content/docs.html" data-static-url="/docs/">
+    <p class="guide-loading">Loading docs…</p>
+  </div>
+</main>
 
-espectre::Sensor sensor;
+<!-- ============================== Media ============================== -->
+<main class="js-page page-narrow" data-page="media" hidden>
+  <div class="js-static-content" data-content-url="content/media.html" data-static-url="/media/">
+    <p class="guide-loading">Loading media…</p>
+  </div>
+</main>
 
-<span class="k">void</span> app_main() {
-  sensor.begin();  <span class="c">// uses the existing Wi-Fi stack</span>
-  sensor.on_motion([](<span class="k">float</span> score) {
-    <span class="c">// blender detects a person → wake the UI</span>
-    display.wake();
-  });
-}</pre></div>
-    <div class="doc-links">
-      <a href="#docs-api" class="doc-link"><div class="doc-link-title">API reference →</div><div class="doc-link-sub">Sensor lifecycle, detectors, filters, telemetry.</div></a>
-      <a href="#docs-examples" class="doc-link"><div class="doc-link-title">Examples →</div><div class="doc-link-sub">Minimal sensor, Matter device, MQTT node, custom detector.</div></a>
-      <a href="#docs-architecture" class="doc-link"><div class="doc-link-title">Architecture →</div><div class="doc-link-sub">Sensing core, runtime, and frontend layers explained.</div></a>
-      <div class="doc-license">GPLv3 for open projects · <a href="#docs">commercial licensing</a> for closed-source products.</div>
-    </div>
+<!-- ============================== Roadmap ============================== -->
+<main class="js-page page-narrow page-article" data-page="roadmap" hidden>
+  <div class="js-static-content" data-content-url="content/roadmap.html" data-static-url="/roadmap/">
+    <p class="guide-loading">Loading roadmap…</p>
   </div>
 </main>
 
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
-  <div class="js-guide-content" data-guide="hardware" data-static-url="/guides/hardware/">
+  <div class="js-static-content" data-content-url="content/guides/hardware.html" data-static-url="/guides/hardware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -560,7 +750,7 @@ espectre::Sensor sensor;
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
-  <div class="js-guide-content" data-guide="setup" data-static-url="/guides/setup/">
+  <div class="js-static-content" data-content-url="content/guides/setup.html" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -568,7 +758,7 @@ espectre::Sensor sensor;
 <!-- ============================== Guide: Detection ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detection" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How detection works</span></div>
-  <div class="js-guide-content" data-guide="detection" data-static-url="/guides/detection/">
+  <div class="js-static-content" data-content-url="content/guides/detection.html" data-static-url="/guides/detection/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -576,160 +766,45 @@ espectre::Sensor sensor;
 <!-- ============================== Guide: Custom firmware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-firmware" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Build custom firmware</span></div>
-  <div class="js-guide-content" data-guide="firmware" data-static-url="/guides/custom-firmware/">
+  <div class="js-static-content" data-content-url="content/guides/firmware.html" data-static-url="/guides/custom-firmware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
 
 <!-- ============================== Docs: API ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-api" hidden>
-  <div class="breadcrumb"><a href="#docs">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">API reference</span></div>
-  <article class="article">
-    <span class="guide-tag">SDK · API</span>
-    <h1>API reference</h1>
-    <p class="article-lead">The sensing surface an embedding firmware talks to. One sensor object, a callback, and a handful of runtime controls — the layers below (capture, conditioning, detection) are reusable source, not a binary blob.</p>
-
-    <h2>Lifecycle</h2>
-    <pre class="code"><code><span class="k">#include</span> <span class="s">&lt;espectre/sensing.h&gt;</span>
-
-espectre::Sensor sensor;
-
-<span class="k">void</span> app_main() {
-  sensor.begin();          <span class="c">// attach to the existing Wi-Fi stack</span>
-  <span class="c">// ... your firmware keeps running as usual</span>
-  sensor.stop();           <span class="c">// detach cleanly when needed</span>
-}</code></pre>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Method</th><th>What it does</th></tr></thead>
-      <tbody>
-        <tr><td><code>begin()</code></td><td>Starts CSI capture on the already-initialized Wi-Fi stack and runs startup calibration (~10 s of quiet baseline).</td></tr>
-        <tr><td><code>stop()</code></td><td>Stops capture and releases the CSI callback. Safe to call from your shutdown path.</td></tr>
-        <tr><td><code>recalibrate()</code></td><td>Re-learns the quiet baseline. Call it when the device is moved or the room changes.</td></tr>
-      </tbody>
-    </table></div>
-
-    <h2>Events</h2>
-    <pre class="code"><code>sensor.on_motion([](<span class="k">float</span> score) {
-  <span class="c">// fired when motion state turns on</span>
-});
-
-sensor.on_telemetry([](<span class="k">const</span> espectre::Telemetry&amp; t) {
-  <span class="c">// t.movement, t.threshold, t.motion — every evaluation</span>
-});</code></pre>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
-      <tbody>
-        <tr><td><code>movement</code></td><td><code>float</code></td><td>Movement score, 0.0–1.0, room-specific.</td></tr>
-        <tr><td><code>threshold</code></td><td><code>float</code></td><td>Current motion threshold on the same scale.</td></tr>
-        <tr><td><code>motion</code></td><td><code>bool</code></td><td>Debounced motion state after the hit filter.</td></tr>
-      </tbody>
-    </table></div>
-
-    <h2>Runtime controls</h2>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Method</th><th>What it does</th></tr></thead>
-      <tbody>
-        <tr><td><code>set_threshold(float)</code></td><td>Overrides the motion threshold at runtime (0.0–1.0).</td></tr>
-        <tr><td><code>set_detector(Detector)</code></td><td>Switches between <code>Classic</code> and <code>Ml</code> at runtime.</td></tr>
-        <tr><td><code>diagnostics()</code></td><td>Returns capture rate, calibration state, and filter configuration for your own health reporting.</td></tr>
-      </tbody>
-    </table></div>
-    <div class="note">This page is a mockup of the intended SDK surface. Today the equivalent functionality lives in the reusable <code>core</code> and <code>runtime</code> layers documented in the <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">embedding guide</a>.</div>
-
-    <div class="article-nav">
-      <a href="#docs-examples" class="doc-link"><div class="doc-link-title">Next: Examples →</div><div class="doc-link-sub">Four integrations, from minimal to Matter.</div></a>
-    </div>
-  </article>
+  <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">API reference</span></div>
+  <div class="js-static-content" data-content-url="content/docs/api.html" data-static-url="/docs/api/">
+    <p class="guide-loading">Loading docs…</p>
+  </div>
 </main>
 
 <!-- ============================== Docs: Examples ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-examples" hidden>
-  <div class="breadcrumb"><a href="#docs">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
-  <article class="article">
-    <span class="guide-tag">SDK · EXAMPLES</span>
-    <h1>Examples</h1>
-    <p class="article-lead">Each published frontend doubles as a reference integration. Start from the one closest to your product.</p>
-
-    <h2>Minimal sensor</h2>
-    <p>The smallest useful integration: begin, react to motion, done. This is the pattern for products that just need a wake-up or presence signal.</p>
-    <pre class="code"><code>sensor.begin();
-sensor.on_motion([](<span class="k">float</span> score) {
-  display.wake();          <span class="c">// your product logic here</span>
-});</code></pre>
-
-    <h2>MQTT node</h2>
-    <p>Publish telemetry into an existing MQTT stack using the shared protocol shape, so tools like the <a href="#monitor">Monitor</a> work out of the box. Reference: the Native frontend (<code>src/cpp/frontend/native/</code>).</p>
-    <pre class="code"><code>sensor.on_telemetry([](<span class="k">const</span> espectre::Telemetry&amp; t) {
-  mqtt.publish(topic + <span class="s">"/telemetry"</span>, to_json(t));
-});</code></pre>
-
-    <h2>Matter occupancy sensor</h2>
-    <p>Map the debounced motion state onto a Matter occupancy cluster, and the device shows up in Apple Home, Google Home, Alexa, and SmartThings. Reference: the Matter frontend (<code>src/cpp/frontend/matter/</code>).</p>
-    <pre class="code"><code>sensor.on_motion([](<span class="k">float</span>) {
-  occupancy_cluster.set(<span class="k">true</span>);
-});</code></pre>
-
-    <h2>Custom detector experiments</h2>
-    <p>The detection layer is swappable: the Streamer frontend exports raw CSI over UDP so you can prototype features and detectors in Python before porting them to C++. Reference: <code>src/cpp/frontend/streamer/</code> and the <a href="https://github.com/francescopace/espectre/blob/main/docs/ML_TRAINING.md" target="_blank" rel="noopener">ML training workflow</a>.</p>
-
-    <div class="article-nav">
-      <a href="#docs-architecture" class="doc-link"><div class="doc-link-title">Next: Architecture →</div><div class="doc-link-sub">How core, runtime, and frontends fit together.</div></a>
-    </div>
-  </article>
+  <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
+  <div class="js-static-content" data-content-url="content/docs/examples.html" data-static-url="/docs/examples/">
+    <p class="guide-loading">Loading docs…</p>
+  </div>
 </main>
 
 <!-- ============================== Docs: Architecture ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-architecture" hidden>
-  <div class="breadcrumb"><a href="#docs">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
-  <article class="article">
-    <span class="guide-tag">SDK · ARCHITECTURE</span>
-    <h1>Architecture</h1>
-    <p class="article-lead">Three layers, one rule: everything below the frontend is reusable and platform-clean. Your product replaces the frontend; the sensing stays the same.</p>
-
-    <h2>The layers</h2>
-    <div class="arch-stack">
-      <div class="arch-layer">
-        <div class="arch-name">Frontends <span class="mono-sub">src/cpp/frontend/</span></div>
-        <div class="arch-desc">ESPHome · Native · Matter · Streamer — or your product firmware. Owns boot, networking, UI, and integration surface.</div>
-      </div>
-      <div class="arch-layer arch-layer-mid">
-        <div class="arch-name">Runtime <span class="mono-sub">src/cpp/runtime/</span></div>
-        <div class="arch-desc">Platform-agnostic contracts: capture lifecycle, calibration, telemetry, transports. ESP-IDF specifics live in <code>runtime/esp_idf/</code>.</div>
-      </div>
-      <div class="arch-layer arch-layer-core">
-        <div class="arch-name">Core <span class="mono-sub">src/cpp/core/</span></div>
-        <div class="arch-desc">The algorithms: CSI conditioning, features, Classic and ML detectors. Pure C++17, no SDK includes, mirrored by the Python R&amp;D implementation.</div>
-      </div>
-    </div>
-
-    <h2>Why it is shaped this way</h2>
-    <ul class="checklist">
-      <li><strong>Core is header-clean.</strong> Nothing in <code>core/</code> or <code>runtime/</code> includes ESP-IDF: the same code runs in firmware and in host-side tests.</li>
-      <li><strong>Python first, C++ to ship.</strong> Algorithms are prototyped and validated in Python (<code>src/python/</code>), then ported to the shared C++ layers with matched behavior and shared test baselines.</li>
-      <li><strong>Frontends are thin.</strong> Each one maps the same sensing pipeline onto a different integration surface — Home Assistant entities, Matter clusters, MQTT topics, or raw UDP.</li>
-      <li><strong>License boundary.</strong> Core, runtime, and the native/Matter/streamer frontends stay free of GPL-only dependencies so the dual-licensing model works; only the ESPHome frontend depends on ESPHome's GPL components.</li>
-    </ul>
-
-    <h2>Data flow</h2>
-    <div class="pipeline">
-      <div><strong>Wi-Fi stack</strong><span>your firmware</span></div>
-      <div><strong>CSI capture</strong><span>runtime/esp_idf</span></div>
-      <div><strong>Conditioning</strong><span>core</span></div>
-      <div><strong>Detector</strong><span>core</span></div>
-      <div><strong>Your events</strong><span>frontend</span></div>
-    </div>
-    <p>The full internal architecture, orchestration direction, and decision records live in <a href="https://github.com/francescopace/espectre/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">ARCHITECTURE.md</a> and <a href="https://github.com/francescopace/espectre/tree/main/docs/adr" target="_blank" rel="noopener">docs/adr/</a>.</p>
-  </article>
+  <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
+  <div class="js-static-content" data-content-url="content/docs/architecture.html" data-static-url="/docs/architecture/">
+    <p class="guide-loading">Loading docs…</p>
+  </div>
 </main>
 
 <footer class="site-footer">
   <div class="site-footer-inner">
     <div class="footer-brand">
-      <svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="var(--dim)"/></svg>
-      ESPectre © 2026 · Open source Wi-Fi sensing platform · GPLv3 + commercial licensing
+      <img src="/assets/brand/espectre-logo.svg" alt="" width="16" height="16" aria-hidden="true">
+      ESPectre © 2026 · Open source Wi-Fi sensing platform
     </div>
     <div class="footer-links">
-      <a href="mailto:contact@espectre.dev">Contact</a>
+      <a href="/media/">Media</a>
+      <a href="/roadmap/">Roadmap</a>
+      <a href="mailto:contact@espectre.dev">Commercial Licensing</a>
       <a href="mailto:security@espectre.dev">Security</a>
     </div>
   </div>
@@ -737,6 +812,6 @@ sensor.on_motion([](<span class="k">float</span> score) {
 
 <div class="toast js-toast" hidden></div>
 
-<script src="app.js?v=3.2.0"></script>
+<script src="app.js?v=3.10.0"></script>
 </body>
 </html>

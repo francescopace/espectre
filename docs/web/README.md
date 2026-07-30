@@ -12,6 +12,21 @@ Then open `http://localhost:8090`. The Flash tool and the Matter QR reader
 need a Chromium-based browser; the BLE connection additionally needs
 `localhost` or HTTPS.
 
+## Static content pages
+
+Guides, docs, media, and the roadmap use shared HTML fragments for both SPA
+hash routes and canonical, indexable paths. Generate the standalone pages
+before previewing their direct URLs:
+
+```bash
+python3 .github/scripts/build_static_pages.py
+```
+
+Edit shared fragments under `content/`, including `content/guides.html`,
+`content/guides/*.html`, `content/docs.html`, `content/docs/*.html`,
+`content/media.html`, and `content/roadmap.html`. Keep public images under
+`assets/`, and do not edit generated route `index.html` pages.
+
 ## BLE client API
 
 `espectre-ble.js` is a dependency-free client for the ESPectre BLE surface

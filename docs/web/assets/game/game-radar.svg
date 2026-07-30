@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" role="img" aria-labelledby="title">
+  <title>Radar scanner</title>
+  <defs>
+    <linearGradient id="sweepGradient" x1="54" y1="54" x2="54" y2="10" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4b7bee" stop-opacity="0.26"/>
+      <stop offset="100%" stop-color="#4b7bee" stop-opacity="0.04"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="#4b7bee" stroke-opacity="0.34" stroke-width="1.8">
+    <circle cx="54" cy="54" r="18"/>
+    <circle cx="54" cy="54" r="32"/>
+    <circle cx="54" cy="54" r="46"/>
+  </g>
+  <g>
+    <path d="M54 54 L54 10 A44 44 0 0 1 85.11 22.89 Z" fill="url(#sweepGradient)">
+      <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 54 54" to="360 54 54" dur="1.8s" repeatCount="indefinite"/>
+    </path>
+  </g>
+  <circle cx="54" cy="54" r="4.5" fill="#4b7bee" fill-opacity="0.8"/>
+</svg>

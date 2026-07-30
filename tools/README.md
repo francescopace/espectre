@@ -115,7 +115,7 @@ python plot_heatmap.py --files data/empty/foo.npz data/motion/bar.npz
 python plot_heatmap.py --packets 400 --offset 100 --detrend
 python plot_heatmap.py --output /tmp/csi_heatmaps.png --no-show
 python plot_heatmap.py --chip C5 --environment living_room --detrend --shared-scale \
-    --publication --output docs/web/guides/images/csi-amplitude-heatmap.webp --no-show
+    --publication --output docs/web/assets/guides/csi-amplitude-heatmap.webp --no-show
 ```
 
 ---

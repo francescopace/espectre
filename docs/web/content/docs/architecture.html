@@ -1,0 +1,60 @@
+<article class="article">
+  <span class="guide-tag">SDK · ARCHITECTURE</span>
+  <h1>Architecture</h1>
+  <p class="article-lead">Three layers, one rule: everything below the frontend is reusable and platform-clean. Your product replaces the frontend; the sensing stays the same.</p>
+
+  <h2>The layers</h2>
+  <div class="arch-stack">
+    <div class="arch-layer">
+      <div class="arch-name">Frontends <span class="mono-sub">src/cpp/frontend/</span></div>
+      <div class="arch-desc"><strong>ESPHome</strong> · <strong>Native</strong> · <strong>Matter</strong> · <strong>Streamer</strong> today - or your product firmware. Owns boot, networking, UI, and integration surface. Possible future frontends could target <strong>Tuya device adapters</strong>, <strong>SmartThings Edge bridges</strong>, <strong>Samsung ecosystem hooks</strong>, or <strong>other OEM-specific integrations</strong>.</div>
+    </div>
+    <div class="arch-layer arch-layer-mid">
+      <div class="arch-name">Runtime <span class="mono-sub">src/cpp/runtime/</span></div>
+      <div class="arch-desc">Platform-agnostic contracts: capture lifecycle, calibration, telemetry, transports. <strong>ESP-IDF</strong> specifics live in <code>runtime/esp_idf/</code>. Possible future runtimes could wrap <strong>Arduino on ESP32</strong>, <strong>Linux CSI collectors on Raspberry Pi-class hosts</strong>, or <strong>other vendor SDKs</strong> without changing the core detector logic.</div>
+    </div>
+    <div class="arch-layer arch-layer-core">
+      <div class="arch-name">Core <span class="mono-sub">src/cpp/core/</span></div>
+      <div class="arch-desc">The algorithms: CSI conditioning, features, Classic and ML detectors. Pure C++17, no SDK includes, mirrored by the Python R&amp;D implementation.</div>
+    </div>
+  </div>
+
+  <h2>Why it is shaped this way</h2>
+  <ul class="checklist">
+    <li><strong>Core is header-clean.</strong> Nothing in <code>core/</code> or <code>runtime/</code> includes ESP-IDF: the same code runs in firmware and in host-side tests.</li>
+    <li><strong>Python first, C++ to ship.</strong> Algorithms are prototyped and validated in Python (<code>src/python/</code>), then ported to the shared C++ layers with matched behavior and shared test baselines.</li>
+    <li><strong>Frontends are thin.</strong> Each one maps the same sensing pipeline onto a different integration surface - Home Assistant entities, Matter clusters, MQTT topics, or raw UDP.</li>
+  </ul>
+
+  <h2>Choose your integration level</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Path</th><th>Use it when</th><th>Main anchors</th></tr></thead>
+    <tbody>
+      <tr><td>Full runtime</td><td>You want ESPectre to own CSI capture, calibration, detector cadence, runtime controls, and readiness gating.</td><td><code>runtime_frontend_controller.h</code>, <code>runtime_interface.h</code>, <code>runtime_events.h</code></td></tr>
+      <tr><td>Core-only</td><td>You already own Wi-Fi and CSI capture, and only need the detector layer.</td><td><code>src/cpp/core/</code>, <code>runtime/esp_idf/csi_pipeline.cpp</code></td></tr>
+      <tr><td>Reference frontend reuse</td><td>You are closest to an existing product shape such as BLE + MQTT, Matter occupancy, or raw CSI streaming.</td><td><code>src/cpp/frontend/native/</code>, <code>matter/</code>, <code>streamer/</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Data flow</h2>
+  <div class="pipeline">
+    <div><strong>Wi-Fi stack</strong><span>your firmware</span></div>
+    <div><strong>CSI capture</strong><span>runtime/esp_idf</span></div>
+    <div><strong>Conditioning</strong><span>core</span></div>
+    <div><strong>Detector</strong><span>core</span></div>
+    <div><strong>Your events</strong><span>frontend</span></div>
+  </div>
+  <p>The full internal architecture, orchestration direction, and decision records live in <a href="https://github.com/francescopace/espectre/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">ARCHITECTURE.md</a> and <a href="https://github.com/francescopace/espectre/tree/main/docs/adr" target="_blank" rel="noopener">docs/adr/</a>.</p>
+
+  <h2>How packaging works today</h2>
+  <p>ESPectre is currently exported as reusable source layers. The supported packaging anchors are the shared CMake source lists and the PlatformIO library manifest.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Packaging path</th><th>Repository anchor</th></tr></thead>
+    <tbody>
+      <tr><td>ESP-IDF / CMake</td><td><a href="https://github.com/francescopace/espectre/blob/main/src/cpp/espectre_sources.cmake" target="_blank" rel="noopener"><code>src/cpp/espectre_sources.cmake</code></a></td></tr>
+      <tr><td>PlatformIO</td><td><a href="https://github.com/francescopace/espectre/blob/main/src/cpp/library.json" target="_blank" rel="noopener"><code>src/cpp/library.json</code></a></td></tr>
+      <tr><td>Reference firmware apps</td><td><code>src/cpp/frontend/*/app/</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note">No precompiled SDK artifact is published from this section yet. If ESPectre later exports versioned library bundles or release assets, this page should link them here as the canonical install path.</div>
+</article>

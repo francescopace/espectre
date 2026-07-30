@@ -26,7 +26,7 @@
 
     <h2>Build a frontend from source</h2>
     <figure>
-      <img src="/guides/images/custom-firmware-build.webp" alt="Source code on a laptop being built into a firmware image and flashed over USB to an ESP32 board" loading="lazy">
+      <img src="/assets/guides/custom-firmware-build.webp" alt="Source code on a laptop being built into a firmware image and flashed over USB to an ESP32 board" loading="lazy">
       <figcaption>The shared wrapper turns the selected frontend and chip configuration into a firmware image, then flashes it to the board over USB.</figcaption>
     </figure>
     <ol class="steps-list">
@@ -62,7 +62,7 @@ cd espectre
     <h2>Embed ESPectre in an existing firmware</h2>
     <p>The reusable C++ layers let an ESP-IDF product own boot, networking, storage, OTA, and UI while ESPectre supplies the sensing path. The <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">embedding guide</a> documents the layers, the runtime contracts, and the build integration in detail.</p>
     <figure>
-      <img src="/guides/images/embedded-firmware-layers.webp" alt="Wi-Fi CSI entering reusable sensing and runtime layers embedded inside product firmware" loading="lazy">
+      <img src="/assets/guides/embedded-firmware-layers.webp" alt="Wi-Fi CSI entering reusable sensing and runtime layers embedded inside product firmware" loading="lazy">
       <figcaption>CSI enters the reusable sensing layers; the surrounding product firmware keeps control of the platform and consumes only the score, state, and diagnostics it needs.</figcaption>
     </figure>
     <ol class="steps-list">
@@ -82,6 +82,6 @@ cd espectre
     </ul>
 
     <div class="article-nav">
-      <a href="/#docs" class="doc-link"><div class="doc-link-title">Continue: Build with the SDK →</div><div class="doc-link-sub">API surface, examples, and architecture.</div></a>
+      <a href="/docs/" class="doc-link"><div class="doc-link-title">Continue: Build with the SDK →</div><div class="doc-link-sub">API surface, examples, and architecture.</div></a>
     </div>
   </article>

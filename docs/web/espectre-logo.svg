@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="96" height="96" role="img" aria-label="ESPectre">
-  <title>ESPectre</title>
-  <!--
-    Standalone version of the brand mark inlined in index.html. The eyes are
-    evenodd holes rather than filled circles, so they show the page background
-    and stay readable on both light and dark themes.
-  -->
-  <path fill="#4b7bee" fill-rule="evenodd" d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z M10.3 13.5a1.9 1.9 0 1 0 3.8 0 1.9 1.9 0 1 0-3.8 0z M17.9 13.5a1.9 1.9 0 1 0 3.8 0 1.9 1.9 0 1 0-3.8 0z"/>
-</svg>

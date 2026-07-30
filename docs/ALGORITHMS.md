@@ -29,7 +29,7 @@ feeding those signals into either:
 Representative raw CSI amplitude windows for empty room, static presence, and
 motion:
 
-![CSI amplitude heatmaps for empty, static presence, and motion](web/guides/images/csi-amplitude-heatmap.webp)
+![CSI amplitude heatmaps for empty, static presence, and motion](web/assets/guides/csi-amplitude-heatmap.webp)
 
 The current production detector definition is:
 
@@ -169,7 +169,7 @@ Why HT20 stays the preferred active contract:
   themselves justify switching production Classic or ML onto grouped or
   virtual-subcarrier assumptions
 
-![Legacy, HT, VHT, and HE LTF placement compared on the same 20 MHz slice](web/guides/images/ht20-ltf-layout-preferred.png)
+![Legacy, HT, VHT, and HE LTF placement compared on the same 20 MHz slice](web/assets/guides/ht20-ltf-layout-preferred.png)
 *HT20 is the stable, validated sensing view ESPectre standardizes on today: it
 matches the current detector contract directly, is broadly available on modern
 2.4 GHz networks, and keeps the active sensing surface simple. Wider or newer

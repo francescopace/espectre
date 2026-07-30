@@ -1,10 +1,10 @@
 /*
  * ESPectre - Website app shell
  *
- * Hash routing, theme toggle, and a persistent device connection shared by
- * every page. The connection is real Web Bluetooth (espectre-ble.js) when
- * available, with a simulated demo mode as fallback for unsupported
- * browsers or when no hardware is around.
+ * Hash routing and a persistent device connection shared by every page. The
+ * connection is real Web Bluetooth (espectre-ble.js) when available, with a
+ * simulated demo mode as fallback for unsupported browsers or when no
+ * hardware is around.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -18,7 +18,7 @@
         guides: ['guide-hardware', 'guide-setup', 'guide-detection', 'guide-firmware'],
         docs: ['docs-api', 'docs-examples', 'docs-architecture']
     };
-    const ROUTES = ['home', 'tools', 'guides', 'docs']
+    const ROUTES = ['home', 'tools', 'guides', 'docs', 'media', 'roadmap']
         .concat(NAV_GROUPS.tools, NAV_GROUPS.guides, NAV_GROUPS.docs);
 
     const $ = (sel) => document.querySelector(sel);
@@ -44,7 +44,8 @@
 
     let bleClient = null;
     let demoTimer = null;
-    let demoBurstEnergy = 0;
+    let demoInputEnergy = 0;
+    const demoPointer = { x: null, y: null, t: 0 };
     let uptimeTimer = null;
     let route = 'home';
     let lastTrackedProfile = null;
@@ -220,15 +221,14 @@
             let t = 0;
             demoTimer = setInterval(() => {
                 t += 0.16;
-                let m = conn.movement + (Math.random() - 0.5) * 0.05;
-                if (Math.random() < 0.008) demoBurstEnergy += 0.55 + Math.random() * 0.35;
-                if (demoBurstEnergy > 0) {
-                    m += demoBurstEnergy;
-                    demoBurstEnergy *= 0.55;
-                    if (demoBurstEnergy < 0.02) demoBurstEnergy = 0;
-                }
-                m += Math.sin(t * 0.7) * 0.006;
-                conn.movement = Math.max(0.01, Math.min(1, m * 0.9));
+                const gameDemoActive = route === 'game' && game.phase !== 'idle' && game.phase !== 'done';
+                const idle = 0.035 + Math.sin(t * 0.8) * 0.01 + Math.sin(t * 1.9) * 0.004;
+                const target = Math.min(1, idle + demoInputEnergy * 0.95);
+                const smoothing = gameDemoActive ? 0.42 : 0.28;
+                conn.movement += (target - conn.movement) * smoothing;
+                conn.movement = Math.max(0.01, Math.min(1, conn.movement));
+                demoInputEnergy *= gameDemoActive ? 0.62 : 0.72;
+                if (demoInputEnergy < 0.01) demoInputEnergy = 0;
                 conn.motion = conn.movement >= conn.threshold;
                 renderTelemetry();
                 gameOnTelemetry();
@@ -236,8 +236,28 @@
         }, 600);
     }
 
-    function demoBurst() {
-        if (conn.mode === 'demo') demoBurstEnergy += 0.5 + Math.random() * 0.2;
+    function demoTrackMouse(event) {
+        if (conn.mode !== 'demo') return;
+        const now = performance.now();
+        if (demoPointer.x !== null) {
+            const dt = Math.max(16, now - demoPointer.t);
+            const dx = event.clientX - demoPointer.x;
+            const dy = event.clientY - demoPointer.y;
+            const pxPerSecond = Math.hypot(dx, dy) * 1000 / dt;
+            const normalized = Math.min(1, pxPerSecond / 1800);
+            demoInputEnergy = Math.max(demoInputEnergy, normalized);
+        }
+        demoPointer.x = event.clientX;
+        demoPointer.y = event.clientY;
+        demoPointer.t = now;
+    }
+
+    function demoResetMotion() {
+        if (conn.mode !== 'demo') return;
+        demoInputEnergy = 0;
+        conn.movement = 0.04;
+        conn.motion = false;
+        renderTelemetry();
     }
 
     /* ----------------------------------------------------- shared teardown */
@@ -256,7 +276,10 @@
         clearInterval(uptimeTimer);
         demoTimer = null;
         bleClient = null;
-        demoBurstEnergy = 0;
+        demoInputEnergy = 0;
+        demoPointer.x = null;
+        demoPointer.y = null;
+        demoPointer.t = 0;
         conn.mode = null;
         conn.movement = 0;
         conn.motion = false;
@@ -303,9 +326,6 @@
             chip.textContent = connected ? 'BLE · READY' : 'BLE';
         });
 
-        $('.js-game-wave').hidden = conn.mode !== 'demo';
-
-        syncHeroWave();
         renderTelemetry();
     }
 
@@ -340,8 +360,9 @@
         window.scrollTo(0, 0);
         if (route !== 'theremin') thereminStop();
         if (route === 'monitor') monitorResizeChart();
-        if (route.startsWith('guide-')) loadGuide(route);
-        syncHeroWave();
+        if ($(`[data-page="${route}"] .js-static-content`)) loadStaticContent(route);
+        if (route === 'home') updateReleaseBadge();
+        if (route === 'flash') flashRefresh();
         // The router owns navigation, so it reports it.
         if (window.trackRouteView) window.trackRouteView(route);
     }
@@ -364,43 +385,50 @@
         setRoute((location.hash || '#home').slice(1));
     }
 
-    /* ============================================================== guides */
+    /* ======================================================= static content */
 
     /*
-     * Guide articles live in guides/content/*.html, the same fragments the
-     * generated static pages are built from. The SPA fetches them on first
-     * visit so guide text is not duplicated inside this document and the
-     * device connection survives reading a guide.
+     * Guides, docs, media, and the roadmap live in shared HTML fragments,
+     * which also build their canonical static pages. The SPA fetches each
+     * fragment on first visit so text is not duplicated and the device
+     * connection survives.
      */
-    const GUIDE_STATIC_ROUTES = {
+    const STATIC_PAGE_ROUTES = {
+        '/guides/': 'guides',
         '/guides/hardware/': 'guide-hardware',
         '/guides/setup/': 'guide-setup',
         '/guides/detection/': 'guide-detection',
-        '/guides/custom-firmware/': 'guide-firmware'
+        '/guides/custom-firmware/': 'guide-firmware',
+        '/docs/': 'docs',
+        '/docs/api/': 'docs-api',
+        '/docs/examples/': 'docs-examples',
+        '/docs/architecture/': 'docs-architecture',
+        '/media/': 'media',
+        '/roadmap/': 'roadmap'
     };
-    const guideCache = new Map();
+    const staticContentCache = new Map();
 
-    async function loadGuide(route) {
-        const container = $(`[data-page="${route}"] .js-guide-content`);
+    async function loadStaticContent(route) {
+        const container = $(`[data-page="${route}"] .js-static-content`);
         if (!container || container.dataset.loaded === 'true') return;
-        const name = container.dataset.guide;
+        const contentUrl = container.dataset.contentUrl;
         try {
-            if (!guideCache.has(name)) {
-                const response = await fetch('guides/content/' + name + '.html');
+            if (!staticContentCache.has(contentUrl)) {
+                const response = await fetch(contentUrl);
                 if (!response.ok) throw new Error('HTTP ' + response.status);
-                guideCache.set(name, await response.text());
+                staticContentCache.set(contentUrl, await response.text());
             }
-            container.innerHTML = guideCache.get(name);
+            container.innerHTML = staticContentCache.get(contentUrl);
             container.dataset.loaded = 'true';
         } catch (error) {
-            console.warn('Guide fetch failed:', error);
-            container.innerHTML = '<p class="guide-loading">This guide could not be loaded. '
+            console.warn('Static content fetch failed:', error);
+            container.innerHTML = '<p class="guide-loading">This page could not be loaded. '
                 + '<a href="' + container.dataset.staticUrl + '">Open the standalone page</a>.</p>';
         }
     }
 
     /*
-     * Fragments and guide cards link to the canonical static URLs. Inside
+     * Fragments and content cards link to the canonical static URLs. Inside
      * the app those clicks become hash navigation, so the page never reloads
      * and an active connection survives; modified clicks (new tab) are left
      * to the browser. Root-anchored hash links are normalized for the same
@@ -412,22 +440,13 @@
         const link = event.target.closest('a[href]');
         if (!link) return;
         const href = link.getAttribute('href');
-        if (GUIDE_STATIC_ROUTES[href]) {
+        if (STATIC_PAGE_ROUTES[href]) {
             event.preventDefault();
-            location.hash = '#' + GUIDE_STATIC_ROUTES[href];
+            location.hash = '#' + STATIC_PAGE_ROUTES[href];
         } else if (href.startsWith('/#')) {
             event.preventDefault();
             location.hash = href.slice(1);
         }
-    }
-
-    /* =============================================================== theme */
-
-    function toggleTheme() {
-        const html = document.documentElement;
-        const theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
-        html.dataset.theme = theme;
-        $('.js-theme-toggle').textContent = theme === 'dark' ? '☾' : '☀';
     }
 
     /* =============================================================== toast */
@@ -442,92 +461,255 @@
         toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
     }
 
-    /* =========================================================== hero wave */
+    /* ====================================================== scroll narrative */
 
-    const heroWave = { group: null, raf: null, smoothed: 0 };
+    let activeScrollyScene = -1;
+    let scrollyFrame = null;
+    let scrollyWheelAwaitingImpulse = false;
+    let scrollyWheelDirection = 0;
+    let scrollyWheelLowMagnitude = Infinity;
+    let scrollyWheelLastAt = 0;
+    let scrollyTouchStartY = null;
+    let scrollyTouchCaptured = false;
+    let scrollyTouchAdvanced = false;
+    let heroFrameTimer = null;
+    const SCROLLY_WHEEL_MIN_DELTA = 4;
+    const SCROLLY_WHEEL_MIN_IMPULSE = 12;
+    const SCROLLY_WHEEL_ACCELERATION = 3;
+    const SCROLLY_WHEEL_RESTART_GAP = 180;
+    const SCROLLY_WHEEL_RESTART_DELTA = 40;
+    const SCROLLY_TOUCH_THRESHOLD = 28;
+    const HERO_FRAME_HOLD = 2000;
 
-    // Drawn in a 0..120 viewBox, so the centre line sits at 60.
-    const WAVE_CENTRE = 60;
-    const WAVE_LAYERS = [
-        { phase: 0, amp: 26, opacity: 0.7, dur: 7 },
-        { phase: 2.1, amp: 16, opacity: 0.35, dur: 11 },
-        { phase: 4.2, amp: 34, opacity: 0.18, dur: 17 }
-    ];
-    const WAVE_MIN_SCALE = 0.45;
-    /*
-     * Ceiling that keeps the widest layer inside the viewBox: scaling past it
-     * would clip the peaks flat and read as a rendering bug rather than
-     * strong motion.
-     */
-    const WAVE_MAX_SCALE = (WAVE_CENTRE - 2) /
-        Math.max(...WAVE_LAYERS.map((layer) => layer.amp));
-
-    function buildHeroWave() {
-        const NS = 'http://www.w3.org/2000/svg';
-        const svg = document.createElementNS(NS, 'svg');
-        svg.setAttribute('viewBox', '0 0 1200 120');
-        svg.setAttribute('width', '100%');
-        svg.setAttribute('height', '120');
-        svg.setAttribute('aria-hidden', 'true');
-        // The group carries the live amplitude; each path keeps its own drift.
-        const group = document.createElementNS(NS, 'g');
-        for (const { phase, amp, opacity, dur } of WAVE_LAYERS) {
-            let d = 'M0 ' + WAVE_CENTRE;
-            for (let x = 0; x <= 1500; x += 6) {
-                const y = WAVE_CENTRE + Math.sin((x / 150) * Math.PI * 2 + phase) * amp;
-                d += ' L' + x + ' ' + y.toFixed(1);
-            }
-            const path = document.createElementNS(NS, 'path');
-            path.setAttribute('d', d);
-            path.setAttribute('fill', 'none');
-            path.setAttribute('stroke', 'var(--accent)');
-            path.setAttribute('stroke-width', '1.6');
-            path.setAttribute('opacity', String(opacity));
-            path.style.animation = 'espWave ' + dur + 's linear infinite';
-            group.appendChild(path);
-        }
-        svg.appendChild(group);
-        heroWave.group = group;
-        $('.js-hero-wave').appendChild(svg);
+    function scrollySceneFromPosition(section, sceneCount) {
+        const rect = section.getBoundingClientRect();
+        const travel = Math.max(1, rect.height - window.innerHeight);
+        const progress = Math.min(1, Math.max(0, -rect.top / travel));
+        return Math.min(sceneCount - 1, Math.floor(progress * sceneCount));
     }
 
-    /**
-     * Drives the hero wave from live motion energy while a device is
-     * connected and the home page is visible. Idle keeps the flat baseline
-     * animation, so the wave reads as a resting signal rather than a broken one.
-     */
-    function syncHeroWave() {
-        const live = conn.status === 'connected' && route === 'home';
-        if (live === Boolean(heroWave.raf)) return;
+    function scrollToScrollyScene(section, scene, sceneCount) {
+        const rect = section.getBoundingClientRect();
+        const sectionTop = window.scrollY + rect.top;
+        const travel = Math.max(1, rect.height - window.innerHeight);
+        const sceneStep = travel / sceneCount;
+        window.scrollTo(0, sectionTop + sceneStep * scene + (scene > 0 ? 1 : 0));
+    }
 
-        if (!live) {
-            cancelAnimationFrame(heroWave.raf);
-            heroWave.raf = null;
-            heroWave.smoothed = 0;
-            if (heroWave.group) heroWave.group.removeAttribute('transform');
-            $('.js-hero-wave').classList.remove('is-live');
+    function stopHeroFrameSequence() {
+        clearTimeout(heroFrameTimer);
+        heroFrameTimer = null;
+    }
+
+    function startHeroFrameSequence() {
+        const media = $('.hero-media');
+        stopHeroFrameSequence();
+        media.classList.remove('is-connected');
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            media.classList.add('is-connected');
+            return;
+        }
+        heroFrameTimer = setTimeout(() => {
+            media.classList.add('is-connected');
+            heroFrameTimer = null;
+        }, HERO_FRAME_HOLD);
+    }
+
+    function setScrollyScene(scene) {
+        if (scene === activeScrollyScene) return;
+        activeScrollyScene = scene;
+
+        $$('.js-scrolly-scene, .js-scrolly-caption, .js-scrolly-marker').forEach((el) => {
+            el.classList.toggle('is-active', Number(el.dataset.scene) === scene);
+        });
+        $('.scrolly-stage').classList.toggle('is-intro', scene === 0);
+        if (scene === 0) startHeroFrameSequence();
+        else stopHeroFrameSequence();
+        if (scene > 0) $('.js-scrolly-current').textContent = String(scene).padStart(2, '0');
+    }
+
+    function renderScrolly() {
+        scrollyFrame = null;
+        const section = $('.js-scrolly');
+        if (!section || section.offsetParent === null) return;
+
+        const rect = section.getBoundingClientRect();
+        const sceneCount = $$('.js-scrolly-scene').length;
+        let scene = scrollySceneFromPosition(section, sceneCount);
+        const stageEngaged = rect.top <= 1 && rect.bottom >= window.innerHeight - 1;
+
+        if (stageEngaged && activeScrollyScene >= 0 && Math.abs(scene - activeScrollyScene) > 1) {
+            scene = activeScrollyScene + Math.sign(scene - activeScrollyScene);
+            scrollToScrollyScene(section, scene, sceneCount);
+        }
+        setScrollyScene(scene);
+    }
+
+    function queueScrollyRender() {
+        if (scrollyFrame !== null) return;
+        scrollyFrame = requestAnimationFrame(renderScrolly);
+    }
+
+    function scrollyStageEngaged(section) {
+        const rect = section.getBoundingClientRect();
+        return rect.top <= 1 && rect.bottom >= window.innerHeight - 1;
+    }
+
+    function stepScrolly(direction) {
+        const section = $('.js-scrolly');
+        const sceneCount = $$('.js-scrolly-scene').length;
+        const current = activeScrollyScene >= 0
+            ? activeScrollyScene
+            : scrollySceneFromPosition(section, sceneCount);
+        const next = Math.max(0, Math.min(sceneCount - 1, current + direction));
+        if (next === current) return false;
+
+        setScrollyScene(next);
+        scrollToScrollyScene(section, next, sceneCount);
+        return true;
+    }
+
+    function scrollyWheelImpulseReady(direction, magnitude) {
+        const now = Date.now();
+        const initialImpulse = !scrollyWheelAwaitingImpulse
+            && magnitude >= SCROLLY_WHEEL_MIN_DELTA;
+        const reversedImpulse = scrollyWheelAwaitingImpulse
+            && direction !== scrollyWheelDirection
+            && magnitude >= SCROLLY_WHEEL_MIN_IMPULSE;
+        const acceleratedImpulse = scrollyWheelAwaitingImpulse
+            && direction === scrollyWheelDirection
+            && magnitude >= SCROLLY_WHEEL_MIN_IMPULSE
+            && magnitude >= scrollyWheelLowMagnitude * SCROLLY_WHEEL_ACCELERATION;
+        const restartedWheel = scrollyWheelAwaitingImpulse
+            && now - scrollyWheelLastAt >= SCROLLY_WHEEL_RESTART_GAP
+            && magnitude >= SCROLLY_WHEEL_RESTART_DELTA;
+        const ready = initialImpulse || reversedImpulse || acceleratedImpulse || restartedWheel;
+
+        scrollyWheelLastAt = now;
+        if (ready) {
+            scrollyWheelAwaitingImpulse = true;
+            scrollyWheelDirection = direction;
+            scrollyWheelLowMagnitude = magnitude;
+        } else {
+            scrollyWheelLowMagnitude = Math.min(scrollyWheelLowMagnitude, magnitude);
+        }
+        return ready;
+    }
+
+    function scrollyWheel(event) {
+        const section = $('.js-scrolly');
+        if (!section || section.offsetParent === null || !scrollyStageEngaged(section)) return;
+
+        const magnitude = Math.abs(event.deltaY);
+        if (magnitude === 0) return;
+        const direction = Math.sign(event.deltaY);
+        if (!scrollyWheelImpulseReady(direction, magnitude)) {
+            event.preventDefault();
             return;
         }
 
-        $('.js-hero-wave').classList.add('is-live');
-        const loop = () => {
-            heroWave.smoothed += (energyFraction() - heroWave.smoothed) * 0.12;
-            /*
-             * Scale around the centre line so the wave grows both ways. The
-             * widest layer has amplitude 34 in a viewBox half-height of 60,
-             * so the ceiling keeps it inside the box instead of clipping flat.
-             */
-            const k = (WAVE_MIN_SCALE + heroWave.smoothed * (WAVE_MAX_SCALE - WAVE_MIN_SCALE)).toFixed(3);
-            heroWave.group.setAttribute('transform',
-                `translate(0 ${WAVE_CENTRE}) scale(1 ${k}) translate(0 -${WAVE_CENTRE})`);
-            heroWave.raf = requestAnimationFrame(loop);
-        };
-        loop();
+        const sceneCount = $$('.js-scrolly-scene').length;
+        const atStart = activeScrollyScene === 0 && direction < 0;
+        const atEnd = activeScrollyScene === sceneCount - 1 && direction > 0;
+        if (atStart) return;
+        if (atEnd) {
+            const rect = section.getBoundingClientRect();
+            const sectionTop = window.scrollY + rect.top;
+            const travel = Math.max(1, rect.height - window.innerHeight);
+            event.preventDefault();
+            window.scrollTo(0, sectionTop + travel + Math.max(2, magnitude));
+            return;
+        }
+
+        event.preventDefault();
+        stepScrolly(direction);
+    }
+
+    function scrollyKeydown(event) {
+        const interactive = event.target.closest
+            && event.target.closest('a, button, input, select, textarea, [contenteditable]');
+        if (event.repeat || interactive) return;
+
+        let direction = 0;
+        if (event.key === ' ') direction = event.shiftKey ? -1 : 1;
+        else if (['ArrowDown', 'PageDown'].includes(event.key)) direction = 1;
+        else if (['ArrowUp', 'PageUp'].includes(event.key)) direction = -1;
+        if (!direction) return;
+
+        const section = $('.js-scrolly');
+        if (!section || section.offsetParent === null || !scrollyStageEngaged(section)) return;
+
+        const sceneCount = $$('.js-scrolly-scene').length;
+        const atStart = activeScrollyScene === 0 && direction < 0;
+        const atEnd = activeScrollyScene === sceneCount - 1 && direction > 0;
+        if (atStart || atEnd) return;
+
+        event.preventDefault();
+        stepScrolly(direction);
+    }
+
+    function scrollyTouchStart(event) {
+        const section = $('.js-scrolly');
+        const interactive = event.target.closest
+            && event.target.closest('a, button, input, select, textarea, [contenteditable]');
+        if (
+            interactive
+            || event.touches.length !== 1
+            || !section
+            || section.offsetParent === null
+            || !scrollyStageEngaged(section)
+        ) {
+            scrollyTouchCaptured = false;
+            scrollyTouchAdvanced = false;
+            return;
+        }
+        scrollyTouchStartY = event.touches[0].clientY;
+        scrollyTouchCaptured = true;
+        scrollyTouchAdvanced = false;
+    }
+
+    function scrollyTouchMove(event) {
+        if (!scrollyTouchCaptured || scrollyTouchStartY === null || event.touches.length !== 1) return;
+        const distance = scrollyTouchStartY - event.touches[0].clientY;
+        if (Math.abs(distance) < SCROLLY_TOUCH_THRESHOLD) {
+            event.preventDefault();
+            return;
+        }
+
+        const direction = Math.sign(distance);
+        const sceneCount = $$('.js-scrolly-scene').length;
+        const atStart = activeScrollyScene === 0 && direction < 0;
+        const atEnd = activeScrollyScene === sceneCount - 1 && direction > 0;
+        if (atStart || atEnd) {
+            scrollyTouchCaptured = false;
+            return;
+        }
+
+        event.preventDefault();
+        if (!scrollyTouchAdvanced && stepScrolly(direction)) scrollyTouchAdvanced = true;
+    }
+
+    function scrollyTouchEnd() {
+        scrollyTouchCaptured = false;
+        scrollyTouchAdvanced = false;
+        scrollyTouchStartY = null;
+    }
+
+    function scrollyInit() {
+        window.addEventListener('scroll', queueScrollyRender, { passive: true });
+        window.addEventListener('resize', queueScrollyRender);
+        window.addEventListener('wheel', scrollyWheel, { passive: false });
+        window.addEventListener('keydown', scrollyKeydown);
+        window.addEventListener('touchstart', scrollyTouchStart, { passive: true });
+        window.addEventListener('touchmove', scrollyTouchMove, { passive: false });
+        window.addEventListener('touchend', scrollyTouchEnd, { passive: true });
+        window.addEventListener('touchcancel', scrollyTouchEnd, { passive: true });
+        renderScrolly();
     }
 
     /* =============================================================== flash */
 
-    const flash = { manifests: {}, installUrl: null };
+    const flash = { manifests: {}, installUrl: null, badgeChecked: false };
 
     /*
      * Presentation order for the Flash selectors. Anything not listed keeps
@@ -553,10 +735,14 @@
     async function flashLoadManifest(channel) {
         if (flash.manifests[channel]) return flash.manifests[channel];
         const response = await fetch(
-            'flash/firmware/' + channel + '/firmware-manifest-' + channel + '.json',
+            '/flash/firmware/' + channel + '/firmware-manifest-' + channel + '.json',
             { cache: 'no-store' }
         );
-        if (!response.ok) throw new Error('Unable to load the ' + channel + ' firmware manifest.');
+        if (!response.ok) {
+            const error = new Error('Unable to load the ' + channel + ' firmware manifest.');
+            error.status = response.status;
+            throw error;
+        }
         const manifest = await response.json();
         flash.manifests[channel] = manifest;
         return manifest;
@@ -745,6 +931,8 @@
      * it stays hidden when the manifest is unavailable.
      */
     async function updateReleaseBadge() {
+        if (flash.badgeChecked) return;
+        flash.badgeChecked = true;
         try {
             const manifest = await flashLoadManifest('stable');
             const version = String(manifest.release_tag || manifest.version || '').replace(/^v/, '');
@@ -752,7 +940,9 @@
             $('.js-release-text').textContent = 'v' + version + ' available';
             $('.js-release-badge').hidden = false;
         } catch (error) {
-            console.warn('Release badge unavailable:', error);
+            if (error && error.status !== 404) {
+                console.warn('Release badge unavailable:', error);
+            }
         }
     }
 
@@ -783,7 +973,6 @@
             track('firmware_download', flashParams());
         });
         $('.js-matter-read').addEventListener('click', matterReadQr);
-        flashRefresh();
     }
 
     /* ============================================================= monitor */
@@ -1182,6 +1371,7 @@
         score: 0,
         best: null,
         holdTimer: null,
+        cooldownTimer: null,
         strikeAt: 0,
         strikeTimeout: null
     };
@@ -1202,6 +1392,7 @@
 
     function gameReset() {
         clearTimeout(game.holdTimer);
+        clearTimeout(game.cooldownTimer);
         clearTimeout(game.strikeTimeout);
         game.phase = 'idle';
         game.round = 0;
@@ -1233,9 +1424,9 @@
         game.phase = 'hold';
         gameSet('.js-game-round', game.round + ' / ' + TOTAL_ROUNDS);
         gameOrb('hold');
-        gameMsg('Round ' + game.round + ' — stand perfectly still…');
+        gameMsg('Round ' + game.round + ' — the Spectre is watching... stay perfectly still.');
         $('.js-game-hint').textContent = conn.mode === 'demo'
-            ? 'Demo mode: press Space or the Wave button when the Spectre strikes.'
+            ? 'Demo mode: stay still, then move the mouse when the Spectre strikes.'
             : 'Freeze. Any motion now counts as a false start.';
         game.holdTimer = setTimeout(() => {
             game.phase = 'strike';
@@ -1245,7 +1436,7 @@
             game.strikeTimeout = setTimeout(() => {
                 if (game.phase !== 'strike') return;
                 gameOrb('fail');
-                gameMsg('Too slow — the Spectre got you.');
+                gameMsg('Too slow — the Spectre hit you.');
                 gameSet('.js-game-ms', 'miss');
                 gameEndRound();
             }, 2500);
@@ -1255,8 +1446,22 @@
     function gameEndRound() {
         game.phase = 'cooldown';
         clearTimeout(game.holdTimer);
+        clearTimeout(game.cooldownTimer);
         clearTimeout(game.strikeTimeout);
-        setTimeout(gameNextRound, 1700);
+        const waitForDemoSettle = () => {
+            const settleThreshold = Math.max(0.18, conn.threshold * 0.7);
+            if (demoInputEnergy > 0 || conn.motion || conn.movement >= settleThreshold) {
+                game.cooldownTimer = setTimeout(waitForDemoSettle, 220);
+                return;
+            }
+            demoResetMotion();
+            gameNextRound();
+        };
+        if (conn.mode === 'demo') {
+            game.cooldownTimer = setTimeout(waitForDemoSettle, 900);
+        } else {
+            game.cooldownTimer = setTimeout(gameNextRound, 1700);
+        }
     }
 
     function gameOnTelemetry() {
@@ -1285,32 +1490,26 @@
     function gameInit() {
         $('.js-game-start').addEventListener('click', () => {
             clearTimeout(game.holdTimer);
+            clearTimeout(game.cooldownTimer);
             clearTimeout(game.strikeTimeout);
             game.round = 0;
             game.score = 0;
+            demoResetMotion();
             gameSet('.js-game-score', '0');
             $('.js-game-start').textContent = 'Restart';
             track('game_start', { input_mode: conn.mode === 'demo' ? 'demo' : 'bluetooth' });
             gameNextRound();
-        });
-        $('.js-game-wave').addEventListener('click', demoBurst);
-        document.addEventListener('keydown', (event) => {
-            if (event.code === 'Space' && route === 'game' && conn.mode === 'demo') {
-                event.preventDefault();
-                demoBurst();
-            }
         });
     }
 
     /* ================================================================ init */
 
     function init() {
-        buildHeroWave();
+        scrollyInit();
 
         $$('.js-connect').forEach((btn) => btn.addEventListener('click', connectBle));
         $$('.js-demo').forEach((btn) => btn.addEventListener('click', connectDemo));
         $('.js-disconnect').addEventListener('click', disconnect);
-        $('.js-theme-toggle').addEventListener('click', toggleTheme);
         $('.js-dropdown-toggle').addEventListener('click', (event) => {
             event.stopPropagation();
             dropdownOpen = !dropdownOpen;
@@ -1324,12 +1523,12 @@
         });
         configureInit();
         flashInit();
-        updateReleaseBadge();
         monitorInit();
         thereminInit();
         gameInit();
 
         document.addEventListener('click', interceptCanonicalLinks);
+        document.addEventListener('mousemove', demoTrackMouse, { passive: true });
         window.addEventListener('hashchange', onHashChange);
         setRoute((location.hash || '#home').slice(1), { force: true });
     }

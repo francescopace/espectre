@@ -153,7 +153,7 @@ operating rates.
 **Where**
 
 - [README.md](../../README.md)
-- [setup.html](../web/guides/content/setup.html)
+- [setup.html](../web/content/guides/setup.html)
 - [Matter frontend README](../../src/cpp/frontend/matter/README.md)
 
 **Finding**

@@ -328,8 +328,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
 
-      - name: Build Guide Pages
-        run: python3 .github/scripts/build_guide_pages.py
+      - name: Build Static Pages
+        run: python3 .github/scripts/build_static_pages.py
 
       - name: Verify Build
         run: |
@@ -340,18 +340,22 @@ jobs:
           test -f docs/web/espectre-ble.js
           for route in flash configure monitor theremin game guides \
               guide-hardware guide-setup guide-detection guide-firmware \
-              docs docs-api docs-examples docs-architecture; do
+              docs docs-api docs-examples docs-architecture media roadmap; do
             grep -q "data-page=\"$route\"" docs/web/index.html \
               || { echo "Missing SPA route: $route"; exit 1; }
           done
           # Retired URLs fall through to this catch-all, served by Pages on 404.
           test -f docs/web/404.html \
             || { echo "Missing 404.html catch-all"; exit 1; }
-          # Guide pages and the sitemap are generated, not committed.
+          # Canonical content pages are generated; the sitemap is committed.
           for guide in hardware setup detection custom-firmware; do
             test -f "docs/web/guides/$guide/index.html" \
               || { echo "Missing generated guide page: $guide"; exit 1; }
           done
+          test -f docs/web/media/index.html \
+            || { echo "Missing generated media page"; exit 1; }
+          test -f docs/web/roadmap/index.html \
+            || { echo "Missing generated roadmap page"; exit 1; }
           test -f docs/web/flash/firmware/stable/firmware-manifest-stable.json
           test "$(find docs/web/flash/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
           echo "Website build verified!"

@@ -1,0 +1,58 @@
+<article class="article">
+  <span class="guide-tag">SDK · EXAMPLES</span>
+  <h1>Examples</h1>
+  <p class="article-lead">The real SDK examples are the frontends already shipped in this repository. Start from the closest one, then strip away the parts your product does not need.</p>
+
+  <h2>Custom frontend over the shared runtime</h2>
+  <p>Most products should start here: keep your own app shell, networking policy, storage, and UI, then forward runtime events into product behavior.</p>
+  <pre class="code"><code><span class="k">bool</span> ProductFrontend::setup() {
+  runtime_.set_config(config_);
+  <span class="k">return</span> runtime_.setup(<span class="k">this</span>);
+}
+
+<span class="k">void</span> ProductFrontend::on_motion_state_changed(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot) {
+  runtime_.record_snapshot(snapshot);
+  <span class="k">if</span> (!snapshot.ready_to_publish) <span class="k">return</span>;
+  publish_motion(snapshot.motion_state, snapshot.movement_metric);
+}</code></pre>
+  <p>Reference pattern: the shared controller usage in the Native, Matter, and Streamer frontends.</p>
+
+  <h2>Native BLE and MQTT device</h2>
+  <p>The Native frontend is the reference when you need product-controlled provisioning, a lightweight BLE control surface, MQTT telemetry, or HTTPS OTA. It shows how to bridge runtime events into both push telemetry and command handling without changing the sensing layers.</p>
+  <pre class="code"><code><span class="k">void</span> on_periodic_update(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot, uint32_t packets_received) <span class="k">override</span> {
+  runtime_.record_snapshot(snapshot);
+  <span class="k">if</span> (!snapshot.ready_to_publish) <span class="k">return</span>;
+  publish_mqtt_telemetry(snapshot, now_ms());
+  log_status(snapshot, packets_received);
+}</code></pre>
+  <p>Reference: <code>src/cpp/frontend/native/</code> plus <a href="https://github.com/francescopace/espectre/blob/main/docs/ESPECTRE_PROTOCOL.md" target="_blank" rel="noopener">ESPECTRE_PROTOCOL.md</a>.</p>
+
+  <h2>Matter occupancy sensor</h2>
+  <p>The Matter frontend shows the smallest ecosystem mapping: take the shared motion state, wait until the runtime is ready, and publish it into the standard occupancy cluster.</p>
+  <pre class="code"><code><span class="k">void</span> on_motion_state_changed(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot) <span class="k">override</span> {
+  runtime_.record_snapshot(snapshot);
+  <span class="k">if</span> (!snapshot.ready_to_publish) <span class="k">return</span>;
+  bindings_->publish_motion(endpoint_id_, snapshot_to_motion_detected(snapshot));
+}</code></pre>
+  <p>Reference: <code>src/cpp/frontend/matter/</code>.</p>
+
+  <h2>Core-only experiments and custom capture</h2>
+  <p>If your firmware already owns Wi-Fi and CSI capture, you can reuse only the detector layer. This is the lightest path, but it also means you own frame normalization, evaluation cadence, readiness gating, and hit filtering. Use the shared pipeline as the reference before diverging.</p>
+  <p>Reference: <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/runtime/esp_idf/csi_pipeline.cpp" target="_blank" rel="noopener"><code>runtime/esp_idf/csi_pipeline.cpp</code></a>, the Streamer frontend in <code>src/cpp/frontend/streamer/</code>, and the <a href="https://github.com/francescopace/espectre/blob/main/docs/ML_TRAINING.md" target="_blank" rel="noopener">ML training workflow</a>.</p>
+
+  <h2>Packaging examples</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Need</th><th>Reference</th></tr></thead>
+    <tbody>
+      <tr><td>ESP-IDF source inclusion</td><td><a href="https://github.com/francescopace/espectre/blob/main/src/cpp/espectre_sources.cmake" target="_blank" rel="noopener"><code>src/cpp/espectre_sources.cmake</code></a></td></tr>
+      <tr><td>PlatformIO packaging</td><td><a href="https://github.com/francescopace/espectre/blob/main/src/cpp/library.json" target="_blank" rel="noopener"><code>src/cpp/library.json</code></a></td></tr>
+      <tr><td>Full runtime integration guide</td><td><a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener"><code>docs/EMBEDDING.md</code></a></td></tr>
+      <tr><td>Frontend build commands</td><td><a href="https://github.com/francescopace/espectre/blob/main/docs/CLI.md" target="_blank" rel="noopener"><code>docs/CLI.md</code></a></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note">Prebuilt SDK library artifacts are not linked here yet. Until they exist, the repository itself is the source of truth for both build integration and the reference examples.</div>
+
+  <div class="article-nav">
+    <a href="/docs/architecture/" class="doc-link"><div class="doc-link-title">Next: Architecture -&gt;</div><div class="doc-link-sub">How core, runtime, and frontends fit together.</div></a>
+  </div>
+</article>
