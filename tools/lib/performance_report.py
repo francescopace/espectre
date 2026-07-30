@@ -20,14 +20,17 @@ import numpy as np
 
 from .bootstrap import setup_paths
 from .dataset_metadata import (
+    admitted_dataset_role,
     build_calibrated_classic_detector,
     dataset_info_revision,
     derive_detector_timing,
     load_dataset_info,
     measure_packet_interval_us,
+    paired_dataset_role,
 )
 from . import npz_cache
 from .repo_paths import data_dir, repo_root
+from .timing_quality import merge_timing_summaries, summarize_capture_timing
 
 setup_paths()
 
@@ -61,12 +64,7 @@ STRESS_TARGET_RECALL = 90.0
 STRESS_TARGET_FP_RATE = 10.0
 
 
-def make_evaluation_cadence(evaluation_interval: int = EVALUATION_INTERVAL) -> RuntimeMotionPolicy:
-    """Return a runtime policy used only for evaluation-interval cadence."""
-    return _make_evaluation_cadence(evaluation_interval)
-
-
-def _timing_cadence_for_window(
+def timing_cadence_for_window(
     window_packets: int = DETECTOR_DEFAULT_WINDOW_SIZE,
     interval_us: Optional[int] = None,
 ) -> tuple[PacketTimingTracker, RuntimeMotionPolicy]:
@@ -331,14 +329,10 @@ def _get_available_paired_dataset_specs_cached(
         synthetic = bool(static_entry.get("synthetic"))
         if synthetic != bool(motion_entry.get("synthetic")):
             continue
-        # A pair is reserved only when both sides carry the same reserved role;
-        # anything else stays in-sample for the exported ML model.
-        static_role = str(static_entry.get("dataset_role", "train")).lower() or "train"
-        motion_role = str(motion_entry.get("dataset_role", "train")).lower() or "train"
-        if static_role == "exclude" or motion_role == "exclude":
-            continue
-        dataset_role = static_role if static_role == motion_role else "train"
-        if dataset_role == "exclude":
+        # Both sides must carry the same explicit admitted role. Missing,
+        # invalid, mismatched, and excluded roles stay outside replay gates.
+        dataset_role = paired_dataset_role(static_entry, motion_entry)
+        if dataset_role is None:
             continue
         low_rssi = bool(static_entry.get("low_rssi")) or bool(motion_entry.get("low_rssi"))
         pair_entries.append(
@@ -387,8 +381,10 @@ def _get_available_empty_datasets_cached(dataset_revision: str) -> tuple[Path, .
     dataset_info = _load_dataset_info()
     empty_paths = []
     for entry in dataset_info.get("files", {}).get("empty", []):
-        role = str(entry.get("dataset_role", "train")).lower() or "train"
-        if role == "exclude" or bool(entry.get("long_recording")):
+        if (
+            admitted_dataset_role(entry) is None
+            or bool(entry.get("long_recording"))
+        ):
             continue
         filename = entry.get("filename")
         if not filename:
@@ -415,14 +411,14 @@ def _long_recording_entry_records(dataset_info: dict[str, Any]) -> list[tuple[st
         ("empty", entry)
         for entry in files.get("empty", [])
         if bool(entry.get("long_recording"))
-        and str(entry.get("dataset_role", "train")).lower() != "exclude"
+        and admitted_dataset_role(entry) is not None
     ]
     if explicit:
         return explicit
     return [
         ("test", entry)
         for entry in files.get("test", [])
-        if str(entry.get("dataset_role", "train")).lower() != "exclude"
+        if admitted_dataset_role(entry) is not None
     ]
 
 
@@ -447,15 +443,217 @@ def load_empty_room_packets(empty_dataset_path: str | Path) -> tuple[dict[str, A
     return load_npz_packet_view(Path(empty_dataset_path))
 
 
-def _restore_feature_payload(payload: Mapping[str, Mapping[str, Sequence[float]]]) -> Dict[str, Dict[str, tuple[float, ...]]]:
-    """Restore the tuple-valued feature payload returned by ML replay helpers."""
-    restored: Dict[str, Dict[str, tuple[float, ...]]] = {}
-    for group_name, group_values in payload.items():
-        restored[str(group_name)] = {
-            str(feature_name): tuple(float(value) for value in values)
-            for feature_name, values in group_values.items()
-        }
-    return restored
+def _resolve_ml_replay_feature_names(feature_names: Sequence[str] = ()) -> tuple[str, ...]:
+    """Validate and normalize one requested ML replay feature subset."""
+    requested = tuple(str(name) for name in (feature_names or tuple(RUNTIME_FEATURE_NAMES)))
+    missing = [name for name in requested if name not in RUNTIME_FEATURE_NAMES]
+    if missing:
+        raise ValueError(
+            "Time-aware replay rows only support runtime ML features: "
+            + ", ".join(missing)
+        )
+    return requested
+
+
+def _normalize_ml_sample_contract(sample_contract: str = "replay_tick") -> str:
+    """Normalize one ML row-production contract."""
+    contract = str(sample_contract).strip().lower()
+    if contract not in {"replay_tick", "stream_dense"}:
+        raise ValueError(f"Unsupported ML sample contract: {sample_contract!r}")
+    return contract
+
+
+def _empty_ml_replay_rows(feature_names: Sequence[str]) -> Dict[str, Any]:
+    """Return one empty replay-row payload for the requested feature subset."""
+    resolved = [str(name) for name in feature_names]
+    return {
+        "X": np.empty((0, len(resolved)), dtype=np.float32),
+        "feature_names": resolved,
+        "packet_index": np.empty(0, dtype=np.int32),
+        "evaluation_index": np.empty(0, dtype=np.int32),
+        "reset_index": np.empty(0, dtype=np.int32),
+        "evaluation_due": np.empty(0, dtype=bool),
+    }
+
+
+def _project_ml_replay_rows(
+    rows: Mapping[str, Any],
+    feature_names: Sequence[str],
+    sample_contract: str,
+) -> Dict[str, Any]:
+    """Project the canonical dense stream onto one schema and row contract."""
+    requested = [str(name) for name in feature_names]
+    available = [str(name) for name in rows.get("feature_names", ())]
+    indices = [available.index(name) for name in requested]
+    evaluation_due = np.asarray(rows.get("evaluation_due", ()), dtype=bool)
+    row_count = len(np.asarray(rows.get("packet_index", ())))
+    if len(evaluation_due) != row_count:
+        raise ValueError("Cached ML replay rows do not contain cadence metadata")
+    normalized_contract = _normalize_ml_sample_contract(sample_contract)
+    row_mask = (
+        evaluation_due
+        if normalized_contract == "replay_tick"
+        else np.ones(row_count, dtype=bool)
+    )
+    projected = {
+        "X": np.asarray(rows["X"], dtype=np.float32)[row_mask][:, indices],
+        "feature_names": requested,
+        "packet_index": np.asarray(rows["packet_index"], dtype=np.int32)[row_mask],
+        "evaluation_index": np.asarray(rows["evaluation_index"], dtype=np.int32)[row_mask],
+        "reset_index": np.asarray(rows["reset_index"], dtype=np.int32)[row_mask],
+        "evaluation_due": evaluation_due[row_mask],
+    }
+    if normalized_contract == "replay_tick":
+        projected["evaluation_index"] = np.arange(
+            len(projected["packet_index"]), dtype=np.int32
+        )
+    if "cache_hit" in rows:
+        projected["cache_hit"] = bool(rows["cache_hit"])
+    return projected
+
+
+def build_ml_replay_rows(
+    packets: Sequence[dict[str, Any]],
+    selected_subcarriers: Sequence[int],
+    window_size: int,
+    feature_names: Sequence[str] = (),
+    *,
+    sample_contract: str = "replay_tick",
+) -> Dict[str, Any]:
+    """Build reset-aware ML rows and project them onto one sampling contract."""
+    from ml_detector import MLDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES
+
+    assert tuple(EXPORTED_FEATURE_NAMES) == tuple(RUNTIME_FEATURE_NAMES)
+    requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
+    normalized_contract = _normalize_ml_sample_contract(sample_contract)
+    if not packets:
+        return _empty_ml_replay_rows(requested_feature_names)
+
+    detector = MLDetector(window_size=window_size, threshold=0.5)
+    feature_indices = [EXPORTED_FEATURE_NAMES.index(name) for name in requested_feature_names]
+    interval_us = measure_packet_interval_us(packets)
+    timing_tracker, cadence = timing_cadence_for_window(window_size, interval_us)
+    packets_since_reset = 0
+    reset_index = 0
+    evaluation_index = 0
+    row_features: list[np.ndarray] = []
+    packet_index_values: list[int] = []
+    evaluation_index_values: list[int] = []
+    reset_index_values: list[int] = []
+    evaluation_due_values: list[bool] = []
+
+    for packet_index, packet in enumerate(packets):
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=packet,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            reset_index += 1
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=packet,
+                timing_tracker=timing_tracker,
+            )
+            packets_since_reset = 0
+        detector.process_packet(packet["csi_data"], selected_subcarriers)
+        packets_since_reset += 1
+        if packets_since_reset < window_size or not detector.is_ready():
+            continue
+        values = np.asarray(detector._extract_features(), dtype=np.float32)
+        row_features.append(values[feature_indices].astype(np.float32, copy=False))
+        packet_index_values.append(int(packet_index))
+        evaluation_index_values.append(int(evaluation_index))
+        reset_index_values.append(int(reset_index))
+        evaluation_due_values.append(bool(should_evaluate))
+        evaluation_index += 1
+
+    if not row_features:
+        return _empty_ml_replay_rows(requested_feature_names)
+    dense_rows = {
+        "X": np.vstack(row_features).astype(np.float32, copy=False),
+        "feature_names": list(requested_feature_names),
+        "packet_index": np.asarray(packet_index_values, dtype=np.int32),
+        "evaluation_index": np.asarray(evaluation_index_values, dtype=np.int32),
+        "reset_index": np.asarray(reset_index_values, dtype=np.int32),
+        "evaluation_due": np.asarray(evaluation_due_values, dtype=bool),
+    }
+    return _project_ml_replay_rows(
+        dense_rows,
+        requested_feature_names,
+        normalized_contract,
+    )
+
+
+def load_or_compute_ml_replay_rows(
+    source_path: str | Path,
+    *,
+    packets: Optional[Sequence[dict[str, Any]]] = None,
+    packets_factory: Optional[Callable[[], Sequence[dict[str, Any]]]] = None,
+    selected_subcarriers: Sequence[int],
+    window_size: int,
+    feature_names: Sequence[str] = (),
+    sample_contract: str = "replay_tick",
+    use_cache: bool = True,
+    stream_provenance: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Load or build one canonical ML replay-row artifact for a source capture."""
+    if packets is not None and packets_factory is not None:
+        raise ValueError("pass packets or packets_factory, not both")
+    requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
+    normalized_contract = _normalize_ml_sample_contract(sample_contract)
+    cached_feature_names = tuple(RUNTIME_FEATURE_NAMES)
+    parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=selected_subcarriers,
+        window_size=window_size,
+        feature_names=cached_feature_names,
+        stream_provenance=stream_provenance,
+    )
+    if use_cache:
+        cached = npz_cache.load_ml_replay_row_artifact(
+            source_path,
+            parameters=parameters,
+        )
+        if cached is not None:
+            cached["cache_hit"] = True
+            return _project_ml_replay_rows(
+                cached,
+                requested_feature_names,
+                normalized_contract,
+            )
+    if packets is not None:
+        packet_stream = packets
+    elif packets_factory is not None:
+        packet_stream = packets_factory()
+    else:
+        packet_stream = load_npz_packet_view(Path(source_path))
+    rows = build_ml_replay_rows(
+        packet_stream,
+        selected_subcarriers,
+        window_size,
+        cached_feature_names,
+        sample_contract="stream_dense",
+    )
+    if use_cache:
+        npz_cache.save_ml_replay_row_artifact(
+            source_path,
+            parameters=parameters,
+            X=rows["X"],
+            feature_names=rows["feature_names"],
+            packet_index=rows["packet_index"],
+            evaluation_index=rows["evaluation_index"],
+            reset_index=rows["reset_index"],
+            evaluation_due=rows["evaluation_due"],
+        )
+    rows["cache_hit"] = False
+    return _project_ml_replay_rows(
+        rows,
+        requested_feature_names,
+        normalized_contract,
+    )
 
 
 def evaluate_detector_packets(
@@ -478,7 +676,7 @@ def evaluate_detector_packets(
     detector_window = getattr(detector, "get_window_size", None)
     if callable(detector_window):
         warmup = max(1, int(detector_window()))
-    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
     for pkt in static_presence_packets:
         should_evaluate, contaminated = note_evaluation_tick(
@@ -515,7 +713,7 @@ def evaluate_detector_packets(
 
     motion_with_motion = 0
     motion_without_motion = 0
-    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
     for pkt in motion_packets:
         should_evaluate, contaminated = note_evaluation_tick(
@@ -657,106 +855,63 @@ def compute_ml_packet_result(
     feature_names: Sequence[str] = (),
 ) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
     """Replay the ML detector on explicit packet streams."""
-    from ml_detector import MLDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES, predict
+    runtime_feature_names = tuple(RUNTIME_FEATURE_NAMES)
+    static_rows = build_ml_replay_rows(
+        static_presence_packets,
+        selected_subcarriers,
+        window_size,
+        runtime_feature_names,
+    )
+    motion_rows = build_ml_replay_rows(
+        motion_packets,
+        selected_subcarriers,
+        window_size,
+        runtime_feature_names,
+    )
+    return _compute_ml_row_result(
+        static_rows,
+        motion_rows,
+        threshold,
+        feature_names,
+    )
 
-    assert tuple(EXPORTED_FEATURE_NAMES) == tuple(RUNTIME_FEATURE_NAMES)
 
-    # ML replays advance on the same measured cadence as Classic, otherwise the
-    # two detectors are reported under different timing contracts and their
-    # numbers are not comparable on any stream that is not at the nominal rate.
-    interval_us = measure_packet_interval_us(static_presence_packets)
-    detector = MLDetector(window_size=window_size, threshold=threshold)
+def _compute_ml_row_result(
+    static_rows: Mapping[str, Any],
+    motion_rows: Mapping[str, Any],
+    threshold: float,
+    feature_names: Sequence[str] = (),
+) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
+    """Evaluate canonical runtime-tick rows with the exported inference path."""
+    from tools.train_ml_model import (
+        load_exported_ml_weights,
+        predict_exported_probabilities_from_weights,
+    )
 
-    feature_indices = {
-        feature_name: EXPORTED_FEATURE_NAMES.index(feature_name)
-        for feature_name in feature_names
-    }
-    static_series = {feature_name: [] for feature_name in feature_names}
-    motion_series = {feature_name: [] for feature_name in feature_names}
-
-    warmup = window_size
-    static_presence_motion_packets = 0
-    static_presence_eval_count = 0
-    baseline_motion_states = []
-    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
-    packets_since_reset = 0
-    for pkt in static_presence_packets:
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=pkt,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
-            cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=pkt,
-                timing_tracker=timing_tracker,
-            )
-            packets_since_reset = 0
-        detector.process_packet(pkt["csi_data"], selected_subcarriers)
-        packets_since_reset += 1
-        if not should_evaluate:
-            continue
-        if not detector.is_ready() or packets_since_reset < warmup:
-            continue
-
-        values = detector._extract_features()
-        probability = predict(values)
-        current_state = MotionState.MOTION if probability > threshold else MotionState.IDLE
-        static_presence_eval_count += 1
-        is_motion = current_state == MotionState.MOTION
-        baseline_motion_states.append(is_motion)
-        if feature_indices:
-            for feature_name, feature_idx in feature_indices.items():
-                value = float(values[feature_idx])
-                if np.isfinite(value):
-                    static_series[feature_name].append(value)
-        if is_motion:
-            static_presence_motion_packets += 1
-
-    motion_with_motion = 0
-    motion_without_motion = 0
-    motion_eval_count = 0
-    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
-    packets_since_reset = 0
-    for pkt in motion_packets:
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=pkt,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
-            cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=pkt,
-                timing_tracker=timing_tracker,
-            )
-            packets_since_reset = 0
-        detector.process_packet(pkt["csi_data"], selected_subcarriers)
-        packets_since_reset += 1
-        if not should_evaluate:
-            continue
-        if packets_since_reset < warmup or not detector.is_ready():
-            continue
-        values = detector._extract_features()
-        probability = predict(values)
-        current_state = MotionState.MOTION if probability > threshold else MotionState.IDLE
-        motion_eval_count += 1
-        if feature_indices:
-            for feature_name, feature_idx in feature_indices.items():
-                value = float(values[feature_idx])
-                if np.isfinite(value):
-                    motion_series[feature_name].append(value)
-        if current_state == MotionState.MOTION:
-            motion_with_motion += 1
-        else:
-            motion_without_motion += 1
+    runtime_feature_names = tuple(RUNTIME_FEATURE_NAMES)
+    requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
+    exported_weights = load_exported_ml_weights()
+    static_probabilities = np.asarray(
+        predict_exported_probabilities_from_weights(
+            exported_weights,
+            np.asarray(static_rows["X"], dtype=np.float32),
+        ),
+        dtype=np.float64,
+    )
+    motion_probabilities = np.asarray(
+        predict_exported_probabilities_from_weights(
+            exported_weights,
+            np.asarray(motion_rows["X"], dtype=np.float32),
+        ),
+        dtype=np.float64,
+    )
+    static_presence_motion_states = static_probabilities > float(threshold)
+    motion_states = motion_probabilities > float(threshold)
+    static_presence_motion_packets = int(np.sum(static_presence_motion_states))
+    static_presence_eval_count = int(len(static_probabilities))
+    motion_eval_count = int(len(motion_probabilities))
+    motion_with_motion = int(np.sum(motion_states))
+    motion_without_motion = int(motion_eval_count - motion_with_motion)
 
     pkt_tp = motion_with_motion
     pkt_fn = motion_without_motion
@@ -771,7 +926,7 @@ def compute_ml_packet_result(
         else 0.0
     )
 
-    policy_metrics = _evaluate_idle_runtime_policy_evaluations(baseline_motion_states)
+    policy_metrics = _evaluate_idle_runtime_policy_evaluations(static_presence_motion_states)
     metrics = {
         "tp": pkt_tp,
         "fn": pkt_fn,
@@ -785,14 +940,22 @@ def compute_ml_packet_result(
         "num_movement": motion_eval_count,
         **policy_metrics,
     }
+    payload_feature_indices = {
+        name: runtime_feature_names.index(name) for name in requested_feature_names
+    }
     feature_payload = {
-        "baseline": {name: tuple(values) for name, values in static_series.items()},
-        "motion": {name: tuple(values) for name, values in motion_series.items()},
+        "baseline": {
+            name: tuple(float(value) for value in static_rows["X"][:, payload_feature_indices[name]])
+            for name in requested_feature_names
+        },
+        "motion": {
+            name: tuple(float(value) for value in motion_rows["X"][:, payload_feature_indices[name]])
+            for name in requested_feature_names
+        },
     }
     return metrics, feature_payload
 
 
-@lru_cache(maxsize=None)
 def compute_ml_dataset_result(
     static_presence_path: str | Path,
     motion_path: str | Path,
@@ -801,43 +964,28 @@ def compute_ml_dataset_result(
     threshold: float,
     feature_names: tuple[str, ...] = (),
 ) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
-    """Run the ML replay once per dataset and cache metrics plus optional features."""
-    parameters = npz_cache.detector_replay_parameters(
-        replay_kind="ml_dataset",
+    """Run ML inference over the shared canonical time-aware row cache."""
+    runtime_feature_names = tuple(RUNTIME_FEATURE_NAMES)
+    static_rows = load_or_compute_ml_replay_rows(
+        static_presence_path,
         selected_subcarriers=selected_subcarriers,
         window_size=window_size,
-        threshold=threshold,
-        feature_names=feature_names,
-        secondary_source=motion_path,
+        feature_names=runtime_feature_names,
+        sample_contract="replay_tick",
     )
-    cached = npz_cache.load_detector_replay_artifact(
-        static_presence_path,
-        parameters=parameters,
-    )
-    if cached is not None:
-        return dict(cached["metrics"]), _restore_feature_payload(cached["feature_payload"])
-    static_presence_packets, motion_packets = load_real_data_cached(
-        static_presence_path,
+    motion_rows = load_or_compute_ml_replay_rows(
         motion_path,
+        selected_subcarriers=selected_subcarriers,
+        window_size=window_size,
+        feature_names=runtime_feature_names,
+        sample_contract="replay_tick",
     )
-    result = compute_ml_packet_result(
-        static_presence_packets,
-        motion_packets,
-        selected_subcarriers,
-        window_size,
+    return _compute_ml_row_result(
+        static_rows,
+        motion_rows,
         threshold,
         feature_names,
     )
-    metrics, feature_payload = result
-    npz_cache.save_detector_replay_artifact(
-        static_presence_path,
-        parameters=parameters,
-        result={
-            "metrics": metrics,
-            "feature_payload": feature_payload,
-        },
-    )
-    return result
 
 
 def replay_idle_stream(
@@ -852,7 +1000,7 @@ def replay_idle_stream(
     no person at all, which makes them the reference both detectors are gated
     on. See the empty-room false-positive ADR.
     """
-    timing_tracker, cadence = _timing_cadence_for_window(
+    timing_tracker, cadence = timing_cadence_for_window(
         window_size, measure_packet_interval_us(packets)
     )
     packets_since_reset = 0
@@ -937,39 +1085,35 @@ def compute_classic_empty_fp_result(
     return metrics
 
 
-@lru_cache(maxsize=None)
 def compute_ml_empty_fp_result(
     empty_dataset_path: str | Path,
     selected_subcarriers: tuple[int, ...],
     window_size: int,
     threshold: float,
 ) -> Dict[str, float]:
-    """Run the empty-room ML FP replay once per dataset and cache the result."""
-    parameters = npz_cache.detector_replay_parameters(
-        replay_kind="ml_empty_fp",
+    """Run empty-room ML inference over canonical runtime-tick rows."""
+    from tools.train_ml_model import (
+        load_exported_ml_weights,
+        predict_exported_probabilities_from_weights,
+    )
+
+    rows = load_or_compute_ml_replay_rows(
+        empty_dataset_path,
         selected_subcarriers=selected_subcarriers,
         window_size=window_size,
-        threshold=threshold,
+        feature_names=tuple(RUNTIME_FEATURE_NAMES),
+        sample_contract="replay_tick",
     )
-    cached = npz_cache.load_detector_replay_artifact(
-        empty_dataset_path,
-        parameters=parameters,
+    probabilities = np.asarray(
+        predict_exported_probabilities_from_weights(
+            load_exported_ml_weights(),
+            np.asarray(rows["X"], dtype=np.float32),
+        ),
+        dtype=np.float64,
     )
-    if cached is not None:
-        return dict(cached["metrics"])
-    from ml_detector import MLDetector
-
-    packets = load_empty_room_packets(empty_dataset_path)
-    detector = MLDetector(window_size=window_size, threshold=threshold)
-    metrics = _idle_stream_metrics(
-        replay_idle_stream(detector, packets, selected_subcarriers, window_size)
+    return _idle_stream_metrics(
+        probabilities > float(threshold)
     )
-    npz_cache.save_detector_replay_artifact(
-        empty_dataset_path,
-        parameters=parameters,
-        result={"metrics": metrics},
-    )
-    return metrics
 
 
 def extract_motion_start_from_description(description: Optional[str]) -> Optional[int]:
@@ -1136,11 +1280,76 @@ def _packet_rssi_dbm(packet: Any) -> Any:
     return getattr(packet, "rssi_dbm", None)
 
 
+def _evaluate_ml_long_cached_rows(
+    source_path: str | Path,
+    motion_start_packet: int,
+    threshold: float = 0.5,
+) -> Dict[str, float]:
+    """Evaluate one long capture from canonical runtime-tick rows."""
+    from tools.train_ml_model import (
+        load_exported_ml_weights,
+        predict_exported_probabilities_from_weights,
+    )
+
+    rows = load_or_compute_ml_replay_rows(
+        source_path,
+        selected_subcarriers=DEFAULT_SUBCARRIERS,
+        window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+        feature_names=tuple(RUNTIME_FEATURE_NAMES),
+        sample_contract="replay_tick",
+    )
+    probabilities = np.asarray(
+        predict_exported_probabilities_from_weights(
+            load_exported_ml_weights(),
+            np.asarray(rows["X"], dtype=np.float32),
+        ),
+        dtype=np.float64,
+    )
+    packet_index = np.asarray(rows["packet_index"], dtype=np.int64)
+    baseline_states = probabilities[packet_index < int(motion_start_packet)] > threshold
+    movement_states = probabilities[packet_index >= int(motion_start_packet)] > threshold
+    baseline_eval_count = int(len(baseline_states))
+    movement_eval_count = int(len(movement_states))
+    fp = int(np.sum(baseline_states))
+    tp = int(np.sum(movement_states))
+    fn = int(movement_eval_count - tp)
+    tn = int(baseline_eval_count - fp)
+    recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
+    precision = tp / (tp + fp) * 100.0 if (tp + fp) > 0 else 0.0
+    fp_rate = fp / baseline_eval_count * 100.0 if baseline_eval_count > 0 else 0.0
+    f1 = (
+        2 * (precision / 100.0) * (recall / 100.0)
+        / ((precision + recall) / 100.0)
+        * 100.0
+        if (precision + recall) > 0
+        else 0.0
+    )
+    return {
+        "baseline_eval_count": baseline_eval_count,
+        "movement_eval_count": movement_eval_count,
+        "tp": tp,
+        "fn": fn,
+        "fp": fp,
+        "tn": tn,
+        "recall": recall,
+        "precision": precision,
+        "fp_rate": fp_rate,
+        "f1": f1,
+        **_evaluate_idle_runtime_policy_evaluations(baseline_states),
+    }
+
+
 def evaluate_ml_long_recording(
     baseline_packets: Sequence[Any],
     movement_packets: Sequence[Any],
+    *,
+    source_path: Optional[str | Path] = None,
+    motion_start_packet: Optional[int] = None,
 ) -> Dict[str, float]:
     """Run MLDetector at the production evaluation cadence."""
+    if source_path is not None and motion_start_packet is not None:
+        return _evaluate_ml_long_cached_rows(source_path, motion_start_packet)
+
     from ml_detector import MLDetector
 
     detector = MLDetector(
@@ -1157,7 +1366,7 @@ def evaluate_ml_long_recording(
     movement_without_motion = 0
 
     interval_us = measure_packet_interval_us(baseline_packets)
-    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
     for pkt in baseline_packets:
         should_evaluate, contaminated = note_evaluation_tick(
@@ -1191,7 +1400,7 @@ def evaluate_ml_long_recording(
         if packets_since_reset >= warmup:
             baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
 
-    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
     for pkt in movement_packets:
         should_evaluate, contaminated = note_evaluation_tick(
@@ -1276,7 +1485,7 @@ def evaluate_classic_long_recording(
     baseline_motion_states = []
 
     interval_us = measure_packet_interval_us(baseline_packets)
-    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
     for pkt in baseline_packets:
         should_evaluate, contaminated = note_evaluation_tick(
@@ -1310,7 +1519,7 @@ def evaluate_classic_long_recording(
         if packets_since_reset >= warmup:
             baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
 
-    timing_tracker, cadence = _timing_cadence_for_window(warmup, interval_us)
+    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
     for pkt in movement_packets:
         should_evaluate, contaminated = note_evaluation_tick(
@@ -1389,6 +1598,51 @@ def _average_detector_metrics(entries: Sequence[Dict[str, float]]) -> Optional[D
     }
 
 
+def _summarize_timing_audit_rows(rows: Sequence[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    """Aggregate replay metrics by timing-quality bucket inside each slice."""
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (str(row["slice"]), str(row["quality_bucket"]))
+        group = grouped.setdefault(
+            key,
+            {
+                "slice": str(row["slice"]),
+                "quality_bucket": str(row["quality_bucket"]),
+                "count": 0,
+                "packet_rate_pps": [],
+                "contaminated_ratio": [],
+                "max_gap_ms": [],
+                "ml_metrics": [],
+                "classic_metrics": [],
+            },
+        )
+        group["count"] += 1
+        group["packet_rate_pps"].append(float(row["packet_rate_pps"]))
+        group["contaminated_ratio"].append(float(row["contaminated_ratio"]))
+        group["max_gap_ms"].append(float(row["max_gap_ms"]))
+        if row.get("ml_metrics") is not None:
+            group["ml_metrics"].append(dict(row["ml_metrics"]))
+        if row.get("classic_metrics") is not None:
+            group["classic_metrics"].append(dict(row["classic_metrics"]))
+
+    summary_rows = []
+    for key in sorted(grouped):
+        group = grouped[key]
+        summary_rows.append(
+            {
+                "slice": group["slice"],
+                "quality_bucket": group["quality_bucket"],
+                "count": int(group["count"]),
+                "packet_rate_pps": sum(group["packet_rate_pps"]) / float(group["count"]),
+                "contaminated_ratio": sum(group["contaminated_ratio"]) / float(group["count"]),
+                "max_gap_ms": max(group["max_gap_ms"]),
+                "ml_metrics": _average_detector_metrics(group["ml_metrics"]),
+                "classic_metrics": _average_detector_metrics(group["classic_metrics"]),
+            }
+        )
+    return summary_rows
+
+
 def compute_performance_report_data(
     progress: Optional[ProgressCallback] = None,
 ) -> Dict[str, Dict[str, Dict[str, Dict[str, float]]]]:
@@ -1409,6 +1663,7 @@ def compute_performance_report_data(
     }
     classic_normal_results: dict[str, list[Dict[str, float]]] = defaultdict(list)
     long_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
+    timing_audit_rows: list[dict[str, Any]] = []
 
     paired_datasets = _get_available_paired_dataset_specs_cached(dataset_info_revision())
     real_count = sum(not item[5] for item in paired_datasets)
@@ -1422,6 +1677,14 @@ def compute_performance_report_data(
                 dataset_role, low_rssi) in enumerate(paired_datasets, start=1):
         dataset_started = time.perf_counter()
         section = "paired_synthetic" if synthetic else "paired"
+        static_presence_packets, motion_packets = load_real_data_cached(
+            static_path,
+            motion_path,
+        )
+        pair_timing = merge_timing_summaries(
+            summarize_capture_timing(static_presence_packets),
+            summarize_capture_timing(motion_packets),
+        )
         classic_result = compute_classic_dataset_result(
             static_path,
             motion_path,
@@ -1446,11 +1709,33 @@ def compute_performance_report_data(
                 if classic_metrics is not None:
                     stress_results["classic"][chip].append(classic_metrics)
                 stress_results["ml"][chip].append(ml_metrics)
+                timing_audit_rows.append(
+                    {
+                        "slice": "paired_stress_real",
+                        "quality_bucket": pair_timing["quality_bucket"],
+                        "packet_rate_pps": pair_timing["packet_rate_pps"],
+                        "contaminated_ratio": pair_timing["contaminated_ratio"],
+                        "max_gap_ms": pair_timing["max_gap_ms"],
+                        "ml_metrics": ml_metrics,
+                        "classic_metrics": classic_metrics,
+                    }
+                )
             else:
                 if classic_metrics is not None:
                     classic_normal_results[chip].append(classic_metrics)
                 role_bucket = "train" if dataset_role == "train" else "reserved"
                 ml_role_results[role_bucket][chip].append(ml_metrics)
+                timing_audit_rows.append(
+                    {
+                        "slice": f"paired_ml_{role_bucket}",
+                        "quality_bucket": pair_timing["quality_bucket"],
+                        "packet_rate_pps": pair_timing["packet_rate_pps"],
+                        "contaminated_ratio": pair_timing["contaminated_ratio"],
+                        "max_gap_ms": pair_timing["max_gap_ms"],
+                        "ml_metrics": ml_metrics,
+                        "classic_metrics": classic_metrics,
+                    }
+                )
         _emit_progress(
             progress,
             (
@@ -1476,12 +1761,32 @@ def compute_performance_report_data(
         start=1,
     ):
         dataset_started = time.perf_counter()
+        long_timing = merge_timing_summaries(
+            summarize_capture_timing(baseline_packets),
+            summarize_capture_timing(movement_packets),
+        )
         classic_metrics = evaluate_classic_long_recording(baseline_packets, movement_packets)
         if classic_metrics is not None:
             long_results["classic"][chip].append(classic_metrics)
 
-        ml_metrics = evaluate_ml_long_recording(baseline_packets, movement_packets)
+        ml_metrics = evaluate_ml_long_recording(
+            baseline_packets,
+            movement_packets,
+            source_path=test_path,
+            motion_start_packet=_motion_start,
+        )
         long_results["ml"][chip].append(ml_metrics)
+        timing_audit_rows.append(
+            {
+                "slice": "long_quiet",
+                "quality_bucket": long_timing["quality_bucket"],
+                "packet_rate_pps": long_timing["packet_rate_pps"],
+                "contaminated_ratio": long_timing["contaminated_ratio"],
+                "max_gap_ms": long_timing["max_gap_ms"],
+                "ml_metrics": ml_metrics,
+                "classic_metrics": classic_metrics,
+            }
+        )
         _emit_progress(
             progress,
             (
@@ -1562,6 +1867,7 @@ def compute_performance_report_data(
         "paired_stress_real": stress_summary,
         "paired_synthetic": paired_summaries["paired_synthetic"],
         "long_quiet": long_summary,
+        "timing_audit": _summarize_timing_audit_rows(timing_audit_rows),
     }
 
 
@@ -1780,6 +2086,50 @@ def render_performance_report_markdown(
         "",
     ])
     _append_long_quiet_table("ml")
+
+    timing_audit = report_data.get("timing_audit", [])
+    if timing_audit:
+        slice_labels = {
+            "paired_ml_reserved": "Paired ML reserved",
+            "paired_ml_train": "Paired ML train",
+            "paired_stress_real": "Paired weak-link",
+            "long_quiet": "Long quiet",
+        }
+        lines.extend([
+            "",
+            "---",
+            "",
+            "## Timing Quality Audit",
+            "",
+            (
+                "Timing stays provenance-first here: the table stratifies replay behavior "
+                "by the capture timing bucket, rather than feeding timing into the model."
+            ),
+            "",
+            "| Slice | Timing | Count | ML Recall | ML FP | Classic Recall | Classic FP | Mean Rate | Mean Contam | Worst Gap |",
+            "|-------|--------|------:|----------:|------:|---------------:|-----------:|----------:|------------:|----------:|",
+        ])
+        for row in timing_audit:
+            ml_metrics = row.get("ml_metrics") or {}
+            classic_metrics = row.get("classic_metrics") or {}
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        slice_labels.get(str(row["slice"]), str(row["slice"])),
+                        str(row["quality_bucket"]),
+                        str(int(row["count"])),
+                        f"{ml_metrics['recall']:.1f}%" if ml_metrics else "N/A",
+                        f"{ml_metrics['fp_rate']:.1f}%" if ml_metrics else "N/A",
+                        f"{classic_metrics['recall']:.1f}%" if classic_metrics else "N/A",
+                        f"{classic_metrics['fp_rate']:.1f}%" if classic_metrics else "N/A",
+                        f"{float(row['packet_rate_pps']):.1f} pkt/s",
+                        f"{float(row['contaminated_ratio']) * 100.0:.1f}%",
+                        f"{float(row['max_gap_ms']):.1f} ms",
+                    ]
+                )
+                + " |"
+            )
 
     return "\n".join(lines) + "\n"
 

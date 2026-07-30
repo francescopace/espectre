@@ -60,8 +60,13 @@ class TestLongRecordings:
             pytest.skip("No long-recording replays available in dataset_info.json")
 
         long_dataset = load_long_test_dataset(long_dataset)
-        _, baseline_packets, movement_packets, motion_start_packet, chip, entry = long_dataset
-        metrics = _evaluate_ml_long_recording(baseline_packets, movement_packets)
+        test_path, baseline_packets, movement_packets, motion_start_packet, chip, entry = long_dataset
+        metrics = _evaluate_ml_long_recording(
+            baseline_packets,
+            movement_packets,
+            source_path=test_path,
+            motion_start_packet=motion_start_packet,
+        )
         self.__class__._rows.append(
             {
                 "chip": chip,

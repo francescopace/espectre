@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 
@@ -15,8 +17,10 @@ def isolated_cache_root(tmp_path, monkeypatch):
     root = tmp_path / "npz_cache_root"
     monkeypatch.setenv(npz_cache.NPZ_CACHE_DIR_ENV, str(root))
     npz_cache.clear_runtime_artifacts()
+    npz_cache._SOURCE_DIGEST_CACHE.clear()
     yield root
     npz_cache.clear_runtime_artifacts()
+    npz_cache._SOURCE_DIGEST_CACHE.clear()
 
 
 def _write_source_npz(path, *, values):
@@ -25,6 +29,22 @@ def _write_source_npz(path, *, values):
 
 def test_cache_root_follows_the_environment_override(isolated_cache_root):
     assert npz_cache.npz_cache_dir() == isolated_cache_root
+
+
+def test_persisted_cache_miss_does_not_create_directories(
+    isolated_cache_root, tmp_path
+):
+    source_path = tmp_path / "read_only_miss.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+
+    cached = npz_cache.load_npz_artifact(
+        source_path,
+        artifact_name="unit_read_only",
+        artifact_version=1,
+    )
+
+    assert cached is None
+    assert not isolated_cache_root.exists()
 
 
 def test_runtime_artifact_reuses_value_until_source_changes(tmp_path):
@@ -153,57 +173,69 @@ def test_compare_detection_methods_accepts_read_only_packet_views(tmp_path):
     np.testing.assert_array_equal(csi_data, packet_view[0]["csi_data"])
 
 
-def test_feature_matrix_artifact_roundtrip_tracks_source_identity(tmp_path):
-    source_path = tmp_path / "features.npz"
-    _write_source_npz(source_path, values=[1, 2, 3, 4])
-
-    params = npz_cache.feature_matrix_parameters(
-        feature_names=["f0", "f1"],
-        window_size=4,
-        subcarriers=(1, 2),
-    )
-    expected_X = np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-    npz_cache.save_feature_matrix_artifact(
-        source_path,
-        parameters=params,
-        X=expected_X,
-        feature_names=["f0", "f1"],
-    )
-
-    cached = npz_cache.load_feature_matrix_artifact(source_path, parameters=params)
-
-    assert cached is not None
-    np.testing.assert_allclose(cached["X"], expected_X)
-    assert cached["feature_names"] == ["f0", "f1"]
-
-    _write_source_npz(source_path, values=[9, 8, 7, 6, 5, 4])
-
-    assert npz_cache.load_feature_matrix_artifact(source_path, parameters=params) is None
-
-
 def test_source_identity_survives_a_modification_time_rewrite(tmp_path):
     """A checkout rewrites mtime without changing content; the cache must hit."""
     source_path = tmp_path / "checkout.npz"
     _write_source_npz(source_path, values=[1, 2, 3, 4])
 
-    params = npz_cache.feature_matrix_parameters(
-        feature_names=["f0"],
-        window_size=4,
-        subcarriers=(1,),
-    )
-    npz_cache.save_feature_matrix_artifact(
+    params = {"contract": "time-aware"}
+    npz_cache.save_npz_artifact(
         source_path,
+        artifact_name="unit_mtime",
+        artifact_version=1,
         parameters=params,
-        X=np.asarray([[1.0]], dtype=np.float32),
-        feature_names=["f0"],
+        payload={"value": np.asarray([1.0], dtype=np.float32)},
     )
 
     stat = source_path.stat()
-    import os
-
     os.utime(source_path, ns=(stat.st_atime_ns, stat.st_mtime_ns - 5_000_000_000))
 
-    assert npz_cache.load_feature_matrix_artifact(source_path, parameters=params) is not None
+    assert npz_cache.load_npz_artifact(
+        source_path,
+        artifact_name="unit_mtime",
+        artifact_version=1,
+        parameters=params,
+    ) is not None
+
+
+def test_source_digest_detects_same_size_rewrite_with_restored_mtime(tmp_path):
+    source_path = tmp_path / "same_stat_rewrite.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    original_stat = source_path.stat()
+    original_digest = npz_cache.source_content_digest(source_path)
+
+    _write_source_npz(source_path, values=[4, 3, 2, 1])
+    os.utime(
+        source_path,
+        ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+    )
+    rewritten_stat = source_path.stat()
+
+    assert rewritten_stat.st_size == original_stat.st_size
+    assert rewritten_stat.st_mtime_ns == original_stat.st_mtime_ns
+    assert rewritten_stat.st_ctime_ns != original_stat.st_ctime_ns
+    assert npz_cache.source_content_digest(source_path) != original_digest
+
+
+def test_source_digest_bypasses_unsafe_memo_metadata_on_windows(
+    monkeypatch, tmp_path
+):
+    source_path = tmp_path / "windows_rehash.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    original_digest = npz_cache.source_content_digest(source_path)
+
+    _write_source_npz(source_path, values=[4, 3, 2, 1])
+    stat = source_path.stat()
+    current_key = (
+        str(source_path.resolve()),
+        int(stat.st_size),
+        int(stat.st_mtime_ns),
+        int(stat.st_ctime_ns),
+    )
+    npz_cache._SOURCE_DIGEST_CACHE[current_key] = original_digest
+    monkeypatch.setattr(npz_cache, "_source_digest_memo_enabled", lambda: False)
+
+    assert npz_cache.source_content_digest(source_path) != original_digest
 
 
 def test_artifact_parameters_accept_numpy_and_tuple_values(tmp_path):
@@ -233,146 +265,79 @@ def test_artifact_parameters_accept_numpy_and_tuple_values(tmp_path):
     ) is not None
 
 
-def test_disabled_filters_do_not_fragment_the_feature_key():
-    """Two callers that disable a filter must address the same artifact."""
-    common = {
-        "feature_names": ["f0"],
-        "window_size": 100,
-        "subcarriers": (1, 2),
-    }
-    left = npz_cache.feature_matrix_parameters(
-        **common, enable_lowpass=False, lowpass_cutoff=0.0
-    )
-    right = npz_cache.feature_matrix_parameters(
-        **common, enable_lowpass=False, lowpass_cutoff=11.0
-    )
-
-    assert left == right
-
-    enabled = npz_cache.feature_matrix_parameters(
-        **common, enable_lowpass=True, lowpass_cutoff=11.0
-    )
-    assert enabled != left
-
-
-def test_trainer_and_validator_address_the_same_feature_artifact(tmp_path):
-    """The whole point of the shared cache: one key per reusable feature column.
-
-    The trainer and the dataset-quality validator extract the same features from
-    the same capture with the same filter chain. If their keys drift, every
-    capture is extracted and stored twice, and a mislabeled key can serve one
-    tool's data to the other.
-    """
-    import tools.train_ml_model as trainer
+def test_trainer_and_validator_address_the_same_time_aware_artifact(
+    monkeypatch, tmp_path
+):
+    """Training and quality validation must share the canonical row artifact."""
     import tools.validate_dataset_quality as validator
 
     feature_names = tuple(validator.VALIDATION_FEATURE_NAMES)
-    validator_parameters = validator._validation_feature_cache_parameters(feature_names)
-    trainer_parameters = trainer._feature_matrix_cache_parameters(list(feature_names))
+    calls = []
 
-    assert validator_parameters == trainer_parameters
+    def fake_load_rows(_source_path, **kwargs):
+        calls.append(kwargs)
+        return {
+            "X": np.empty((0, len(feature_names)), dtype=np.float32),
+            "feature_names": list(feature_names),
+        }
+
+    monkeypatch.setattr(
+        validator,
+        "load_or_compute_ml_replay_rows",
+        fake_load_rows,
+    )
+    validator._load_or_compute_validation_feature_matrix(
+        tmp_path / "shared.npz",
+        feature_names=feature_names,
+    )
+
+    assert len(calls) == 1
+    validator_parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=calls[0]["selected_subcarriers"],
+        window_size=calls[0]["window_size"],
+        feature_names=calls[0]["feature_names"],
+    )
+    expected_parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=validator.DEFAULT_SUBCARRIERS,
+        window_size=validator.SEG_WINDOW_SIZE,
+        feature_names=feature_names,
+    )
+    assert validator_parameters == expected_parameters
 
     source_path = tmp_path / "shared.npz"
     _write_source_npz(source_path, values=[1, 2, 3, 4])
     _, validator_path = npz_cache.artifact_cache_path(
         source_path,
-        artifact_name="feature_column",
-        artifact_version=npz_cache.FEATURE_COLUMN_ARTIFACT_VERSION,
-        parameters=npz_cache.feature_column_parameters(
-            base_parameters=validator_parameters,
-            feature_name=feature_names[0],
-        ),
+        artifact_name="ml_replay_rows",
+        artifact_version=npz_cache.ML_REPLAY_ROW_ARTIFACT_VERSION,
+        parameters=validator_parameters,
     )
     _, trainer_path = npz_cache.artifact_cache_path(
         source_path,
-        artifact_name="feature_column",
-        artifact_version=npz_cache.FEATURE_COLUMN_ARTIFACT_VERSION,
-        parameters=npz_cache.feature_column_parameters(
-            base_parameters=trainer_parameters,
-            feature_name=feature_names[0],
-        ),
+        artifact_name="ml_replay_rows",
+        artifact_version=npz_cache.ML_REPLAY_ROW_ARTIFACT_VERSION,
+        parameters=expected_parameters,
     )
 
     assert validator_path == trainer_path
-
-
-def test_subset_requests_reuse_cached_feature_columns(monkeypatch, tmp_path):
-    import tools.train_ml_model as trainer
-
-    source_path = tmp_path / "subset_source.npz"
-    _write_source_npz(source_path, values=[1, 2, 3, 4])
-    record = {
-        "path": source_path,
-        "packets": [{"csi_data": np.zeros(128, dtype=np.int8)}],
-        "chip": "C3",
-        "lineage_group": "demo",
-        "session_group": "demo",
-        "environment_group": "lab",
-        "pair_id": "pair",
-        "day_group": "2026-07-29",
-        "dataset_role": "train",
-        "synthetic": False,
-        "label_name": "motion",
-    }
-    calls = []
-
-    def fake_extract_features(
-        packets,
-        window_size,
-        feature_names,
-        enable_lowpass,
-        lowpass_cutoff,
-        enable_hampel,
-        hampel_window,
-        hampel_threshold,
-    ):
-        del packets, window_size, enable_lowpass, lowpass_cutoff
-        del enable_hampel, hampel_window, hampel_threshold
-        requested = tuple(feature_names)
-        calls.append(requested)
-        row_map = {
-            ("f0",): np.asarray([[1.0]], dtype=np.float32),
-            ("f1",): np.asarray([[2.0]], dtype=np.float32),
-        }
-        return row_map[requested], None, list(requested), None
-
-    monkeypatch.setattr(trainer, "extract_features", fake_extract_features)
-
-    first, first_cached = trainer._load_or_compute_file_feature_matrix(
-        record,
-        feature_names=["f0"],
-        use_cache=True,
-    )
-    second, second_cached = trainer._load_or_compute_file_feature_matrix(
-        record,
-        feature_names=["f0", "f1"],
-        use_cache=True,
-    )
-
-    assert first_cached is False
-    assert second_cached is False
-    assert calls == [("f0",), ("f1",)]
-    np.testing.assert_allclose(first["X"], np.asarray([[1.0]], dtype=np.float32))
-    np.testing.assert_allclose(second["X"], np.asarray([[1.0, 2.0]], dtype=np.float32))
-    assert second["feature_names"] == ["f0", "f1"]
 
 
 def test_clear_persisted_artifacts_removes_selected_artifact_tree(tmp_path):
     source_path = tmp_path / "baseline.npz"
     _write_source_npz(source_path, values=[1, 2, 3, 4])
 
-    params = {"feature_names": ["f0"], "packet_rate_pps": 100.0}
-    npz_cache.save_idle_baseline_artifact(
+    npz_cache.save_npz_artifact(
         source_path,
-        parameters=params,
-        baseline={"score": 95.0, "fp_rate": 0.0},
-        median_rssi_dbm=-42.0,
+        artifact_name="unit_clear",
+        artifact_version=1,
+        parameters={"kind": "baseline"},
+        payload={"score": np.asarray(95.0)},
     )
 
-    artifact_root = npz_cache.artifact_dir("idle_baseline")
+    artifact_root = npz_cache.artifact_dir("unit_clear")
     assert artifact_root.exists()
 
-    npz_cache.clear_persisted_artifacts("idle_baseline")
+    npz_cache.clear_persisted_artifacts("unit_clear")
 
     assert not artifact_root.exists()
 
@@ -383,22 +348,20 @@ def test_prune_removes_only_unreachable_artifacts(tmp_path):
     _write_source_npz(live_source, values=[1, 2, 3, 4])
     _write_source_npz(dead_source, values=[5, 6, 7, 8])
 
-    params = npz_cache.feature_matrix_parameters(
-        feature_names=["f0"],
-        window_size=4,
-        subcarriers=(1,),
-    )
-    live_path = npz_cache.save_feature_matrix_artifact(
+    params = {"feature_names": ["f0"]}
+    live_path = npz_cache.save_npz_artifact(
         live_source,
+        artifact_name="unit_prune",
+        artifact_version=1,
         parameters=params,
-        X=np.asarray([[1.0]], dtype=np.float32),
-        feature_names=["f0"],
+        payload={"score": np.asarray(1.0)},
     )
-    dead_path = npz_cache.save_feature_matrix_artifact(
+    dead_path = npz_cache.save_npz_artifact(
         dead_source,
+        artifact_name="unit_prune",
+        artifact_version=1,
         parameters=params,
-        X=np.asarray([[2.0]], dtype=np.float32),
-        feature_names=["f0"],
+        payload={"score": np.asarray(2.0)},
     )
     dead_source.unlink()
 
@@ -407,7 +370,78 @@ def test_prune_removes_only_unreachable_artifacts(tmp_path):
     assert removed["missing_source"] == 1
     assert not dead_path.exists()
     assert live_path.exists()
-    assert npz_cache.load_feature_matrix_artifact(live_source, parameters=params) is not None
+    assert npz_cache.load_npz_artifact(
+        live_source,
+        artifact_name="unit_prune",
+        artifact_version=1,
+        parameters=params,
+    ) is not None
+
+
+def test_prune_removes_obsolete_known_artifact_versions(tmp_path):
+    source_path = tmp_path / "obsolete.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    artifact_path = npz_cache.save_npz_artifact(
+        source_path,
+        artifact_name="ml_replay_rows",
+        artifact_version=npz_cache.ML_REPLAY_ROW_ARTIFACT_VERSION - 1,
+        parameters={"sample_contract": "old"},
+        payload={"X": np.empty((0, 0), dtype=np.float32)},
+    )
+
+    removed = npz_cache.prune_persisted_artifacts("ml_replay_rows")
+
+    assert removed["obsolete_version"] == 1
+    assert not artifact_path.exists()
+
+
+@pytest.mark.parametrize("artifact_name", ("feature_column", "idle_baseline"))
+def test_prune_removes_retired_artifacts(tmp_path, artifact_name):
+    source_path = tmp_path / "legacy_dense.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    artifact_path = npz_cache.save_npz_artifact(
+        source_path,
+        artifact_name=artifact_name,
+        artifact_version=1,
+        parameters={"feature_name": "f0"},
+        payload={"column": np.asarray([1.0], dtype=np.float32)},
+    )
+
+    removed = npz_cache.prune_persisted_artifacts()
+
+    assert removed["obsolete_artifact"] == 1
+    assert not artifact_path.exists()
+
+
+def test_prune_tool_removes_selected_obsolete_artifacts(tmp_path, capsys):
+    from tools import prune_npz_cache
+
+    source_path = tmp_path / "retired_summary.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    artifact_path = npz_cache.save_npz_artifact(
+        source_path,
+        artifact_name="idle_baseline",
+        artifact_version=1,
+        payload={"score": np.asarray(95.0)},
+    )
+
+    assert prune_npz_cache.main(["--artifact", "idle_baseline"]) == 0
+
+    output = capsys.readouterr()
+    assert "obsolete_artifact=1" in output.out
+    assert "Total: 1 artifact(s)" in output.out
+    assert not artifact_path.exists()
+    assert not npz_cache.artifact_dir("idle_baseline").exists()
+
+
+def test_ml_replay_parameters_expose_version_to_derived_caches():
+    parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=(1, 2, 3),
+        window_size=64,
+        feature_names=("f0",),
+    )
+
+    assert parameters["artifact_version"] == npz_cache.ML_REPLAY_ROW_ARTIFACT_VERSION
 
 
 def test_detector_replay_artifact_roundtrip_preserves_secondary_source_identity(tmp_path):
@@ -438,6 +472,117 @@ def test_detector_replay_artifact_roundtrip_preserves_secondary_source_identity(
     )
 
     assert cached == result
+
+
+def test_ml_replay_row_artifact_roundtrip_tracks_source_identity(tmp_path):
+    source_path = tmp_path / "replay_rows.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+
+    parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=(1, 2),
+        window_size=100,
+        feature_names=("turbulence", "l1_delta"),
+    )
+    expected_X = np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+    npz_cache.save_ml_replay_row_artifact(
+        source_path,
+        parameters=parameters,
+        X=expected_X,
+        feature_names=("turbulence", "l1_delta"),
+        packet_index=np.asarray([99, 199], dtype=np.int32),
+        evaluation_index=np.asarray([0, 1], dtype=np.int32),
+        reset_index=np.asarray([0, 1], dtype=np.int32),
+        evaluation_due=np.asarray([False, True]),
+    )
+
+    cached = npz_cache.load_ml_replay_row_artifact(
+        source_path,
+        parameters=parameters,
+    )
+
+    assert cached is not None
+    np.testing.assert_allclose(cached["X"], expected_X)
+    assert cached["feature_names"] == ["turbulence", "l1_delta"]
+    assert cached["packet_index"].tolist() == [99, 199]
+    assert cached["evaluation_index"].tolist() == [0, 1]
+    assert cached["reset_index"].tolist() == [0, 1]
+    assert cached["evaluation_due"].tolist() == [False, True]
+
+    _write_source_npz(source_path, values=[9, 8, 7, 6, 5, 4])
+
+    assert npz_cache.load_ml_replay_row_artifact(
+        source_path,
+        parameters=parameters,
+    ) is None
+
+
+def test_ml_replay_row_key_tracks_features_but_not_numeric_weights(
+    monkeypatch, tmp_path
+):
+    python_dir = tmp_path / "src" / "python" / "micro_espectre"
+    python_dir.mkdir(parents=True)
+    feature_source = python_dir / "csi_features.py"
+    weights_source = python_dir / "ml_weights.py"
+    feature_source.write_text("FEATURE_NAMES = ['f0']\n")
+    weights_source.write_text("W1 = [1.0]\n")
+    monkeypatch.setattr(npz_cache, "python_src_dir", lambda: python_dir)
+
+    first = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=(1, 2),
+        window_size=100,
+        feature_names=("f0",),
+    )
+
+    weights_source.write_text("W1 = [2.0]\n")
+    after_weight_change = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=(1, 2),
+        window_size=100,
+        feature_names=("f0",),
+    )
+    assert after_weight_change == first
+
+    feature_source.write_text("FEATURE_NAMES = ['f0']\nLAG = 11\n")
+    after_feature_change = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=(1, 2),
+        window_size=100,
+        feature_names=("f0",),
+    )
+    assert after_feature_change != first
+
+
+def test_classic_detector_replay_parameters_change_when_detector_changes(
+    monkeypatch, tmp_path
+):
+    python_dir = tmp_path / "src" / "python" / "micro_espectre"
+    cpp_dir = tmp_path / "src" / "cpp" / "core"
+    python_dir.mkdir(parents=True)
+    cpp_dir.mkdir(parents=True)
+    python_detector = python_dir / "classic_detector.py"
+    cpp_header = cpp_dir / "classic_detector.h"
+    cpp_impl = cpp_dir / "classic_detector.cpp"
+    python_detector.write_text("BASE_THRESHOLD = 0.8\n")
+    cpp_header.write_text("// classic v1\n")
+    cpp_impl.write_text("// classic impl v1\n")
+
+    monkeypatch.setattr(npz_cache, "python_src_dir", lambda: python_dir)
+    monkeypatch.setattr(npz_cache, "cpp_core_dir", lambda: cpp_dir)
+
+    first = npz_cache.detector_replay_parameters(
+        replay_kind="classic_dataset",
+        selected_subcarriers=(1, 2, 3),
+        window_size=4,
+    )
+
+    python_detector.write_text("BASE_THRESHOLD = 0.7\n")
+
+    second = npz_cache.detector_replay_parameters(
+        replay_kind="classic_dataset",
+        selected_subcarriers=(1, 2, 3),
+        window_size=4,
+    )
+
+    assert first["classic_sources"] != second["classic_sources"]
+    assert first != second
 
 
 def test_classic_dataset_result_reuses_persisted_replay(monkeypatch, tmp_path):

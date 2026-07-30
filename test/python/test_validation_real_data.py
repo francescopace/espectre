@@ -32,15 +32,25 @@ from tools.lib.performance_report import (
     get_paired_dataset_role as _get_paired_dataset_role,
     is_low_rssi_paired_dataset as _is_low_rssi_paired_dataset,
     load_real_data_cached as _load_real_data_cached,
+    measure_packet_interval_us,
+    timing_cadence_for_window,
 )
 from tools.lib.csi_io import load_npz_packet_view
 from tools.lib.dataset_metadata import (
     build_calibrated_classic_detector,
 )
+from tools.train_ml_model import (
+    _load_exported_model_arrays,
+    _load_npz_packets_cached,
+    ArrayStreamingEvaluator,
+    evaluate_array_split,
+    evaluate_cached_array_split,
+    evaluate_cached_idle_array,
+    evaluate_idle_streaming,
+)
 from config import (
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
-    EVALUATION_INTERVAL,
     ENABLE_HAMPEL_FILTER,
     ENABLE_LOWPASS_FILTER,
     SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
@@ -76,6 +86,43 @@ def get_available_empty_datasets():
 def get_available_chip_types():
     """Return the stable set of chips covered by the paired real-data datasets."""
     return _shared_get_available_chip_types()
+
+
+def _get_first_reserved_normal_pair():
+    """Return one representative reserved normal-link pair for gate parity."""
+    for static_path, motion_path, _num_sc, _chip, _dataset_id in (
+        _shared_get_available_paired_datasets(synthetic=False)
+    ):
+        if _is_low_rssi_paired_dataset(static_path):
+            continue
+        dataset_role = _get_paired_dataset_role(static_path)
+        if dataset_role in {"selection", "holdout"}:
+            return static_path, motion_path
+    pytest.skip("No reserved normal-link paired dataset available for gate parity")
+
+
+def _assert_paired_gate_row_match(expected, actual):
+    """Assert that cached and packet-replay paired rows are identical."""
+    for key in (
+        "tp",
+        "fp",
+        "tn",
+        "fn",
+        "static_presence_eval_count",
+        "motion_eval_count",
+        "effective_alarms",
+        "false_motion_evaluations",
+    ):
+        assert actual[key] == expected[key]
+    for key in ("recall", "precision", "fp_rate", "f1"):
+        assert actual[key] == pytest.approx(expected[key], abs=1e-12)
+
+
+def _assert_quiet_gate_row_match(expected, actual):
+    """Assert that cached and packet-replay quiet rows are identical."""
+    for key in ("fp", "evaluations", "effective_alarms", "false_motion_evaluations"):
+        assert actual[key] == expected[key]
+    assert actual["fp_rate"] == pytest.approx(expected["fp_rate"], abs=1e-12)
 
 
 ML_RESERVED_REPLAY_GUARDRAIL_RECALL = 90.0
@@ -265,18 +312,30 @@ def run_classic_calibration(static_presence_packets, selected_band, window_size)
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
-    packets_since_evaluation = 0
+    nominal_interval_us = measure_packet_interval_us(static_presence_packets)
+    timing_tracker, cadence = timing_cadence_for_window(
+        window_size,
+        nominal_interval_us,
+    )
     for pkt in static_presence_packets:
+        timing = timing_tracker.observe_packet(pkt)
+        if timing["contaminated"]:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            timing = timing_tracker.observe_packet(pkt)
         detector.process_packet(pkt["csi_data"], selected_band)
-        packets_since_evaluation += 1
-        if packets_since_evaluation < EVALUATION_INTERVAL:
+        cadence.note_packet(elapsed_us=timing["coverage_us"])
+        if not cadence.should_evaluate():
             continue
         detector.update_state()
         calibrator.observe_detector(
             detector,
-            packet_weight=packets_since_evaluation,
+            packet_weight=cadence.equivalent_packets_since_evaluation(
+                nominal_interval_us
+            ),
         )
-        packets_since_evaluation = 0
+        cadence.after_evaluation()
         if calibrator.is_complete():
             break
     if not calibrator.is_successful():
@@ -1022,3 +1081,51 @@ def test_ml_chip_aggregate_stress_targets(chip):
         f"ML aggregate weak-link FP Rate too high for {chip}: {fp_rate:.1f}% "
         f"(target: <{STRESS_TARGET_FP_RATE}%)"
     )
+
+
+def test_ml_cached_paired_gate_matches_packet_replay():
+    """Cached gate rows must match packet-replay rows on one reserved pair."""
+    static_path, motion_path = _get_first_reserved_normal_pair()
+    feature_names, center, scale, layers = _load_exported_model_arrays()
+    expected = evaluate_array_split(
+        center,
+        scale,
+        layers,
+        feature_names,
+        _load_npz_packets_cached(static_path),
+        _load_npz_packets_cached(motion_path),
+        threshold=0.5,
+    )
+    actual = evaluate_cached_array_split(
+        center,
+        scale,
+        layers,
+        feature_names,
+        static_path,
+        motion_path,
+        threshold=0.5,
+    )
+    _assert_paired_gate_row_match(expected, actual)
+
+
+def test_ml_cached_quiet_gate_matches_packet_replay():
+    """Cached quiet rows must match packet replay on one reserved empty replay."""
+    empty_datasets = _shared_get_available_empty_datasets()
+    if not empty_datasets:
+        pytest.skip("No reserved empty datasets available for quiet gate parity")
+    empty_path = empty_datasets[0]
+    feature_names, center, scale, layers = _load_exported_model_arrays()
+    expected = evaluate_idle_streaming(
+        ArrayStreamingEvaluator(center, scale, layers, feature_names),
+        _load_npz_packets_cached(empty_path),
+        threshold=0.5,
+    )
+    actual = evaluate_cached_idle_array(
+        center,
+        scale,
+        layers,
+        feature_names,
+        empty_path,
+        threshold=0.5,
+    )
+    _assert_quiet_gate_row_match(expected, actual)

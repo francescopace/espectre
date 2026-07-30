@@ -22,20 +22,24 @@ from typing import Any, Callable, Dict, Mapping, MutableMapping, Optional
 
 import numpy as np
 
-from .repo_paths import repo_root
+from .repo_paths import cpp_core_dir, python_src_dir, repo_root
 
 CACHE_LAYOUT_VERSION = 2
-FEATURE_MATRIX_ARTIFACT_VERSION = 2
-FEATURE_COLUMN_ARTIFACT_VERSION = 1
-IDLE_BASELINE_ARTIFACT_VERSION = 2
-DETECTOR_REPLAY_ARTIFACT_VERSION = 2
+DETECTOR_REPLAY_ARTIFACT_VERSION = 3
+ML_REPLAY_ROW_ARTIFACT_VERSION = 3
+
+CURRENT_ARTIFACT_VERSIONS = {
+    "detector_replay": DETECTOR_REPLAY_ARTIFACT_VERSION,
+    "ml_replay_rows": ML_REPLAY_ROW_ARTIFACT_VERSION,
+}
+OBSOLETE_ARTIFACT_NAMES = {"feature_matrix", "feature_column", "idle_baseline"}
 
 RUNTIME_CACHE_MAX_ENTRIES = 64
 
 _RUNTIME_CACHE: "OrderedDict[tuple[str, str], Any]" = OrderedDict()
 _RUNTIME_CACHE_LOCK = threading.RLock()
 
-_SOURCE_DIGEST_CACHE: dict[tuple[str, int, int], str] = {}
+_SOURCE_DIGEST_CACHE: dict[tuple[str, int, int, int], str] = {}
 _SOURCE_DIGEST_LOCK = threading.RLock()
 
 
@@ -72,16 +76,9 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-def ensure_npz_cache_dir() -> Path:
-    """Create and return the NPZ cache directory."""
-    path = npz_cache_dir()
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def artifact_dir(artifact_name: str) -> Path:
-    """Return the cache directory for one artifact type."""
-    return ensure_npz_cache_dir() / str(artifact_name)
+    """Return the cache directory path for one artifact type without creating it."""
+    return npz_cache_dir() / str(artifact_name)
 
 
 def _safe_relative_path(path: Path) -> str:
@@ -93,28 +90,44 @@ def _safe_relative_path(path: Path) -> str:
         return str(resolved)
 
 
+def _source_digest_memo_enabled() -> bool:
+    """Return whether stat metadata can safely key the digest memo."""
+    return os.name != "nt"
+
+
 def source_content_digest(source_path: str | Path) -> str:
     """Return the SHA-256 of one source NPZ, memoized per stat signature.
 
-    Size and modification time are only a fast path for skipping a rehash of an
-    unchanged file; they never reach the manifest. Full hashing of the whole
-    capture corpus costs well under a second, which is the price of an identity
-    that survives a checkout.
+    Size, modification time, and change time are only a fast path for skipping
+    a rehash of an unchanged file; they never reach the manifest. POSIX change
+    time catches a same-size rewrite even when modification time is deliberately
+    restored. Windows exposes creation time through ``st_ctime_ns``, so it
+    always rehashes instead of trusting an unsafe memo key. Full hashing of the
+    whole capture corpus costs well under a second, which is the price of an
+    identity that survives a checkout.
     """
     resolved = Path(source_path).resolve()
     stat = resolved.stat()
-    key = (str(resolved), int(stat.st_size), int(stat.st_mtime_ns))
-    with _SOURCE_DIGEST_LOCK:
-        cached = _SOURCE_DIGEST_CACHE.get(key)
-    if cached is not None:
-        return cached
+    key = (
+        str(resolved),
+        int(stat.st_size),
+        int(stat.st_mtime_ns),
+        int(stat.st_ctime_ns),
+    )
+    memo_enabled = _source_digest_memo_enabled()
+    if memo_enabled:
+        with _SOURCE_DIGEST_LOCK:
+            cached = _SOURCE_DIGEST_CACHE.get(key)
+        if cached is not None:
+            return cached
     digest = hashlib.sha256()
     with resolved.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
             digest.update(chunk)
     value = digest.hexdigest()
-    with _SOURCE_DIGEST_LOCK:
-        _SOURCE_DIGEST_CACHE[key] = value
+    if memo_enabled:
+        with _SOURCE_DIGEST_LOCK:
+            _SOURCE_DIGEST_CACHE[key] = value
     return value
 
 
@@ -132,6 +145,55 @@ def source_manifest(source_path: str | Path) -> dict[str, Any]:
         "size": int(resolved.stat().st_size),
         "content_sha256": source_content_digest(resolved),
     }
+
+
+def _ml_feature_source_manifests() -> dict[str, Any]:
+    """Return stable identities for the time-aware ML feature extractor."""
+    manifests: dict[str, Any] = {}
+    sources = {
+        "python_config": python_src_dir() / "config.py",
+        "python_csi_features": python_src_dir() / "csi_features.py",
+        "python_device_utils": python_src_dir() / "device_utils.py",
+        "python_filters": python_src_dir() / "filters.py",
+        "python_ml_detector": python_src_dir() / "ml_detector.py",
+        "python_ml_feature_trackers": python_src_dir() / "ml_feature_trackers.py",
+        "python_runtime_policy": python_src_dir() / "runtime_policy.py",
+        "python_segmentation": python_src_dir() / "segmentation.py",
+        "host_csi_io": repo_root() / "tools" / "lib" / "csi_io.py",
+        "host_dataset_metadata": repo_root() / "tools" / "lib" / "dataset_metadata.py",
+        "host_ml_replay": repo_root() / "tools" / "lib" / "performance_report.py",
+    }
+    for name, path in sources.items():
+        if path.exists():
+            manifests[name] = source_manifest(path)
+    return manifests
+
+
+def _replay_policy_source_manifests() -> dict[str, Any]:
+    """Return identities for shared replay timing and calibration policy."""
+    manifests: dict[str, Any] = {}
+    sources = {
+        "python_runtime_policy": python_src_dir() / "runtime_policy.py",
+        "host_dataset_metadata": repo_root() / "tools" / "lib" / "dataset_metadata.py",
+    }
+    for name, path in sources.items():
+        if path.exists():
+            manifests[name] = source_manifest(path)
+    return manifests
+
+
+def _classic_detector_source_manifests() -> dict[str, Any]:
+    """Return stable identities for the current Classic detector sources."""
+    manifests: dict[str, Any] = {}
+    sources = {
+        "python_classic_detector": python_src_dir() / "classic_detector.py",
+        "cpp_classic_detector_header": cpp_core_dir() / "classic_detector.h",
+        "cpp_classic_detector_impl": cpp_core_dir() / "classic_detector.cpp",
+    }
+    for name, path in sources.items():
+        if path.exists():
+            manifests[name] = source_manifest(path)
+    return manifests
 
 
 def resolve_manifest_source(manifest: Mapping[str, Any]) -> Path:
@@ -190,7 +252,6 @@ def artifact_cache_path(
     )
     digest = manifest_digest(manifest)
     cache_dir = artifact_dir(str(artifact_name))
-    cache_dir.mkdir(parents=True, exist_ok=True)
     return manifest, cache_dir / f"{digest}{extension}"
 
 
@@ -281,7 +342,13 @@ def prune_persisted_artifacts(*artifact_names: str) -> dict[str, int]:
     else can ever hit these entries again, so they are pure accumulation.
     """
     cache_root = npz_cache_dir()
-    removed = {"unreadable": 0, "missing_source": 0, "stale_source": 0}
+    removed = {
+        "unreadable": 0,
+        "missing_source": 0,
+        "stale_source": 0,
+        "obsolete_artifact": 0,
+        "obsolete_version": 0,
+    }
     if not cache_root.exists():
         return removed
     selected = [str(name) for name in artifact_names if name]
@@ -299,6 +366,17 @@ def prune_persisted_artifacts(*artifact_names: str) -> dict[str, int]:
             manifest = read_artifact_manifest(artifact_path)
             if manifest is None:
                 reason = "unreadable"
+            elif str(manifest.get("artifact_name", "")) in OBSOLETE_ARTIFACT_NAMES:
+                reason = "obsolete_artifact"
+            elif (
+                str(manifest.get("artifact_name", "")) in CURRENT_ARTIFACT_VERSIONS
+                and (
+                    int(manifest.get("cache_layout_version", -1)) != CACHE_LAYOUT_VERSION
+                    or int(manifest.get("artifact_version", -1))
+                    != CURRENT_ARTIFACT_VERSIONS[str(manifest["artifact_name"])]
+                )
+            ):
+                reason = "obsolete_version"
             else:
                 source = resolve_manifest_source(manifest.get("source", {}))
                 if not source.exists():
@@ -309,6 +387,10 @@ def prune_persisted_artifacts(*artifact_names: str) -> dict[str, int]:
                     continue
             artifact_path.unlink(missing_ok=True)
             removed[reason] += 1
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
     return removed
 
 
@@ -372,280 +454,6 @@ def save_npz_artifact(
     return artifact_path
 
 
-def feature_matrix_base_parameters(
-    *,
-    window_size: int,
-    subcarriers: Any,
-    enable_lowpass: bool = False,
-    lowpass_cutoff: float = 0.0,
-    enable_hampel: bool = False,
-    hampel_window: int = 0,
-    hampel_threshold: float = 0.0,
-    packet_augmentation: Optional[Mapping[str, Any]] = None,
-    augmentation_seed: Optional[int] = None,
-) -> dict[str, Any]:
-    """Return the shared extraction identity for one per-file feature cache.
-
-    Every producer of reusable feature artifacts must build its shared
-    extraction parameters here so two tools computing the same columns cannot
-    disagree on the key. The arguments must describe the extraction that
-    actually runs, not the intended or default one.
-
-    Inactive filter settings are normalized away: two callers that both disable
-    a filter must not fragment the cache over a cutoff or window value that
-    neither of them applied.
-    """
-    parameters: dict[str, Any] = {
-        "window_size": int(window_size),
-        "subcarriers": [int(sc) for sc in subcarriers],
-        "enable_lowpass": bool(enable_lowpass),
-        "enable_hampel": bool(enable_hampel),
-        "packet_augmentation": dict(sorted((packet_augmentation or {}).items())),
-        "augmentation_seed": None if augmentation_seed is None else int(augmentation_seed),
-    }
-    if parameters["enable_lowpass"]:
-        parameters["lowpass_cutoff"] = float(lowpass_cutoff)
-    if parameters["enable_hampel"]:
-        parameters["hampel_window"] = int(hampel_window)
-        parameters["hampel_threshold"] = float(hampel_threshold)
-    return parameters
-
-
-def feature_matrix_parameters(
-    *,
-    feature_names: Any,
-    window_size: int,
-    subcarriers: Any,
-    enable_lowpass: bool = False,
-    lowpass_cutoff: float = 0.0,
-    enable_hampel: bool = False,
-    hampel_window: int = 0,
-    hampel_threshold: float = 0.0,
-    packet_augmentation: Optional[Mapping[str, Any]] = None,
-    augmentation_seed: Optional[int] = None,
-) -> dict[str, Any]:
-    """Return the legacy whole-matrix identity for one feature request."""
-    parameters = feature_matrix_base_parameters(
-        window_size=window_size,
-        subcarriers=subcarriers,
-        enable_lowpass=enable_lowpass,
-        lowpass_cutoff=lowpass_cutoff,
-        enable_hampel=enable_hampel,
-        hampel_window=hampel_window,
-        hampel_threshold=hampel_threshold,
-        packet_augmentation=packet_augmentation,
-        augmentation_seed=augmentation_seed,
-    )
-    parameters["feature_names"] = [str(name) for name in feature_names]
-    return parameters
-
-
-def feature_column_parameters(
-    *,
-    base_parameters: Mapping[str, Any],
-    feature_name: str,
-) -> dict[str, Any]:
-    """Return the persisted identity for one reusable feature column."""
-    return {
-        "feature_cache": _json_safe(dict(base_parameters)),
-        "feature_name": str(feature_name),
-    }
-
-
-def load_feature_column_artifact(
-    source_path: str | Path,
-    *,
-    base_parameters: Mapping[str, Any],
-    feature_name: str,
-) -> Optional[np.ndarray]:
-    """Load one persisted per-file feature column."""
-    payload = load_npz_artifact(
-        source_path,
-        artifact_name="feature_column",
-        artifact_version=FEATURE_COLUMN_ARTIFACT_VERSION,
-        parameters=feature_column_parameters(
-            base_parameters=base_parameters,
-            feature_name=feature_name,
-        ),
-    )
-    if payload is None:
-        return None
-    column = payload.get("column")
-    if column is None:
-        return None
-    return np.asarray(column, dtype=np.float32)
-
-
-def save_feature_column_artifact(
-    source_path: str | Path,
-    *,
-    base_parameters: Mapping[str, Any],
-    feature_name: str,
-    column: np.ndarray,
-) -> Path:
-    """Persist one reusable per-file feature column."""
-    return save_npz_artifact(
-        source_path,
-        artifact_name="feature_column",
-        artifact_version=FEATURE_COLUMN_ARTIFACT_VERSION,
-        parameters=feature_column_parameters(
-            base_parameters=base_parameters,
-            feature_name=feature_name,
-        ),
-        payload={"column": np.asarray(column, dtype=np.float32)},
-    )
-
-
-def load_feature_columns(
-    source_path: str | Path,
-    *,
-    base_parameters: Mapping[str, Any],
-    feature_names: Any,
-) -> dict[str, np.ndarray]:
-    """Load any persisted columns available for the requested features."""
-    columns: dict[str, np.ndarray] = {}
-    for feature_name in feature_names:
-        key = str(feature_name)
-        column = load_feature_column_artifact(
-            source_path,
-            base_parameters=base_parameters,
-            feature_name=key,
-        )
-        if column is not None:
-            columns[key] = np.asarray(column, dtype=np.float32)
-    return columns
-
-
-def save_feature_columns(
-    source_path: str | Path,
-    *,
-    base_parameters: Mapping[str, Any],
-    feature_names: Any,
-    X: np.ndarray,
-) -> None:
-    """Persist reusable per-feature columns for one feature matrix."""
-    matrix = np.asarray(X, dtype=np.float32)
-    feature_name_list = [str(name) for name in feature_names]
-    if matrix.ndim != 2 or matrix.shape[1] != len(feature_name_list):
-        raise ValueError("Feature matrix shape does not match feature name count")
-    for column_index, feature_name in enumerate(feature_name_list):
-        save_feature_column_artifact(
-            source_path,
-            base_parameters=base_parameters,
-            feature_name=feature_name,
-            column=matrix[:, column_index],
-        )
-
-
-def assemble_feature_matrix(
-    columns: Mapping[str, np.ndarray],
-    feature_names: Any,
-) -> tuple[np.ndarray, list[str]]:
-    """Assemble one feature matrix in request order from cached columns."""
-    ordered_names = [str(name) for name in feature_names]
-    if not ordered_names:
-        return np.empty((0, 0), dtype=np.float32), []
-    missing = [name for name in ordered_names if name not in columns]
-    if missing:
-        raise KeyError(f"Missing cached feature columns: {missing}")
-    ordered_columns = [np.asarray(columns[name], dtype=np.float32) for name in ordered_names]
-    lengths = {int(column.shape[0]) for column in ordered_columns}
-    if len(lengths) != 1:
-        raise ValueError("Cached feature columns do not share a row count")
-    matrix = np.column_stack(ordered_columns).astype(np.float32, copy=False)
-    return matrix, ordered_names
-
-
-def load_feature_matrix_artifact(
-    source_path: str | Path,
-    *,
-    parameters: Mapping[str, Any],
-) -> Optional[dict[str, Any]]:
-    """Load one persisted per-file feature matrix artifact."""
-    payload = load_npz_artifact(
-        source_path,
-        artifact_name="feature_matrix",
-        artifact_version=FEATURE_MATRIX_ARTIFACT_VERSION,
-        parameters=parameters,
-    )
-    if payload is None:
-        return None
-    return {
-        "X": np.asarray(payload["X"], dtype=np.float32),
-        "feature_names": np.asarray(payload["feature_names"]).astype(str).tolist(),
-    }
-
-
-def save_feature_matrix_artifact(
-    source_path: str | Path,
-    *,
-    parameters: Mapping[str, Any],
-    X: np.ndarray,
-    feature_names: list[str] | tuple[str, ...],
-) -> Path:
-    """Persist one per-file feature matrix artifact."""
-    return save_npz_artifact(
-        source_path,
-        artifact_name="feature_matrix",
-        artifact_version=FEATURE_MATRIX_ARTIFACT_VERSION,
-        parameters=parameters,
-        payload={
-            "X": np.asarray(X, dtype=np.float32),
-            "feature_names": np.asarray(list(feature_names)),
-        },
-    )
-
-
-def load_idle_baseline_artifact(
-    source_path: str | Path,
-    *,
-    parameters: Mapping[str, Any],
-) -> Optional[dict[str, Any]]:
-    """Load one persisted idle-baseline artifact."""
-    payload = load_npz_artifact(
-        source_path,
-        artifact_name="idle_baseline",
-        artifact_version=IDLE_BASELINE_ARTIFACT_VERSION,
-        parameters=parameters,
-    )
-    if payload is None:
-        return None
-    baseline_json = payload.get("baseline_json")
-    if baseline_json is None:
-        return None
-    baseline = json.loads(str(np.asarray(baseline_json).item()))
-    median_rssi = payload.get("median_rssi_dbm")
-    median_rssi_value = None
-    if median_rssi is not None:
-        median_rssi_value = float(np.asarray(median_rssi).item())
-    return {
-        "baseline": baseline,
-        "median_rssi_dbm": median_rssi_value,
-    }
-
-
-def save_idle_baseline_artifact(
-    source_path: str | Path,
-    *,
-    parameters: Mapping[str, Any],
-    baseline: Mapping[str, Any],
-    median_rssi_dbm: Optional[float],
-) -> Path:
-    """Persist one idle-baseline artifact."""
-    payload: dict[str, Any] = {
-        "baseline_json": np.asarray(json.dumps(_json_safe(dict(baseline)), sort_keys=True)),
-    }
-    if median_rssi_dbm is not None:
-        payload["median_rssi_dbm"] = np.asarray(float(median_rssi_dbm))
-    return save_npz_artifact(
-        source_path,
-        artifact_name="idle_baseline",
-        artifact_version=IDLE_BASELINE_ARTIFACT_VERSION,
-        parameters=parameters,
-        payload=payload,
-    )
-
-
 def detector_replay_parameters(
     *,
     replay_kind: str,
@@ -660,6 +468,7 @@ def detector_replay_parameters(
         "replay_kind": str(replay_kind),
         "selected_subcarriers": [int(sc) for sc in selected_subcarriers],
         "feature_names": [str(name) for name in feature_names],
+        "replay_policy_sources": _replay_policy_source_manifests(),
     }
     if window_size is not None:
         parameters["window_size"] = int(window_size)
@@ -667,7 +476,89 @@ def detector_replay_parameters(
         parameters["threshold"] = float(threshold)
     if secondary_source is not None:
         parameters["secondary_source"] = source_manifest(secondary_source)
+    if str(replay_kind).startswith("classic_"):
+        parameters["classic_sources"] = _classic_detector_source_manifests()
     return parameters
+
+
+def ml_replay_row_parameters(
+    *,
+    selected_subcarriers: Any,
+    window_size: int,
+    feature_names: Any,
+    stream_provenance: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    """Return the identity for the canonical time-aware ML row stream.
+
+    The persisted artifact is independent of the consumer's sampling contract:
+    replay-tick rows are a projection of the ready-packet stream. Numeric model
+    weights are intentionally excluded because feature extraction does not use
+    them. Deterministic input transforms, such as packet augmentation, must
+    provide their own provenance so they cannot alias the raw capture rows.
+    """
+    parameters = {
+        "artifact_version": ML_REPLAY_ROW_ARTIFACT_VERSION,
+        "sample_contract": "time_aware_stream_rows_v1",
+        "selected_subcarriers": [int(sc) for sc in selected_subcarriers],
+        "window_size": int(window_size),
+        "feature_names": [str(name) for name in feature_names],
+        "feature_sources": _ml_feature_source_manifests(),
+    }
+    if stream_provenance is not None:
+        parameters["stream_provenance"] = _json_safe(dict(stream_provenance))
+    return parameters
+
+
+def load_ml_replay_row_artifact(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Load one persisted ML replay-row artifact."""
+    payload = load_npz_artifact(
+        source_path,
+        artifact_name="ml_replay_rows",
+        artifact_version=ML_REPLAY_ROW_ARTIFACT_VERSION,
+        parameters=parameters,
+    )
+    if payload is None:
+        return None
+    return {
+        "X": np.asarray(payload.get("X", np.empty((0, 0))), dtype=np.float32),
+        "feature_names": np.asarray(payload.get("feature_names", np.empty(0))).astype(str).tolist(),
+        "packet_index": np.asarray(payload.get("packet_index", np.empty(0)), dtype=np.int32),
+        "evaluation_index": np.asarray(payload.get("evaluation_index", np.empty(0)), dtype=np.int32),
+        "reset_index": np.asarray(payload.get("reset_index", np.empty(0)), dtype=np.int32),
+        "evaluation_due": np.asarray(payload.get("evaluation_due", np.empty(0)), dtype=bool),
+    }
+
+
+def save_ml_replay_row_artifact(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+    X: np.ndarray,
+    feature_names: Any,
+    packet_index: np.ndarray,
+    evaluation_index: np.ndarray,
+    reset_index: np.ndarray,
+    evaluation_due: np.ndarray,
+) -> Path:
+    """Persist one canonical ML replay-row artifact."""
+    return save_npz_artifact(
+        source_path,
+        artifact_name="ml_replay_rows",
+        artifact_version=ML_REPLAY_ROW_ARTIFACT_VERSION,
+        parameters=parameters,
+        payload={
+            "X": np.asarray(X, dtype=np.float32),
+            "feature_names": np.asarray([str(name) for name in feature_names]),
+            "packet_index": np.asarray(packet_index, dtype=np.int32),
+            "evaluation_index": np.asarray(evaluation_index, dtype=np.int32),
+            "reset_index": np.asarray(reset_index, dtype=np.int32),
+            "evaluation_due": np.asarray(evaluation_due, dtype=bool),
+        },
+    )
 
 
 def load_detector_replay_artifact(
