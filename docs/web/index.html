@@ -582,6 +582,25 @@
       </section>
 
       <section class="panel">
+        <h2>Runtime</h2>
+        <div class="fields">
+          <div class="field-row">
+            <div class="field"><label>Motion on hits</label><input type="number" id="cfg-motion-on" min="1" max="20" placeholder="4"></div>
+            <div class="field"><label>Motion off hits</label><input type="number" id="cfg-motion-off" min="1" max="20" placeholder="3"></div>
+          </div>
+          <div class="field"><label>OTA state</label><div class="readonly-value" id="cfg-ota-state">—</div></div>
+          <div class="field"><label>Target version</label><div class="readonly-value" id="cfg-ota-target">—</div></div>
+          <div class="field"><label>OTA message</label><div class="readonly-value" id="cfg-ota-message">—</div></div>
+        </div>
+        <div class="panel-actions">
+          <button class="btn-primary btn-sm js-motion-save">Save motion hits</button>
+          <button class="btn-ghost btn-sm js-ota-status">Refresh OTA</button>
+          <button class="btn-ghost btn-sm js-ota-check">Check update</button>
+          <button class="btn-ghost btn-sm js-ota-start">Start OTA</button>
+        </div>
+      </section>
+
+      <section class="panel">
         <h2>Diagnostics</h2>
         <div class="diag-grid">
           <div class="stat"><div class="stat-label">Protocol</div><div class="stat-value" id="diag-protocol">—</div></div>
@@ -592,6 +611,7 @@
           <div class="stat"><div class="stat-label">Publish</div><div class="stat-value" id="diag-publish">—</div></div>
           <div class="stat"><div class="stat-label">Wi-Fi</div><div class="stat-value" id="diag-wifi">—</div></div>
           <div class="stat"><div class="stat-label">MQTT</div><div class="stat-value" id="diag-mqtt">—</div></div>
+          <div class="stat"><div class="stat-label">OTA</div><div class="stat-value" id="diag-ota">—</div></div>
         </div>
       </section>
     </div>

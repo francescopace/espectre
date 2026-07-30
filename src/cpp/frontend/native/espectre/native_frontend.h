@@ -12,6 +12,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 #include "ble_bindings.h"
 #include "deferred_loop_action.h"
 #include "mqtt_transport.h"
@@ -71,7 +72,9 @@ class NativeFrontend : public IRuntimeListener {
   bool handle_control_command_(const std::string &command);
   void handle_mqtt_command_(const std::string &payload);
   bool handle_threshold_write_(float threshold);
+  bool handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t motion_off_hits);
   bool handle_detector_write_(DetectionAlgorithm algorithm);
+  bool handle_ble_ota_command_(const char *command_name);
   void handle_connection_state_(bool connected);
   void handle_live_telemetry_subscription_(bool subscribed);
   void setup_mqtt_();
@@ -82,6 +85,7 @@ class NativeFrontend : public IRuntimeListener {
   void publish_mqtt_ota_status_(const EspectreOtaStatus &status);
   void publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message);
   void send_system_info_();
+  void append_ota_sysinfo_lines_(std::vector<std::string> *lines) const;
   uint32_t now_ms_() const;
 
   IBleBindings *bindings_;

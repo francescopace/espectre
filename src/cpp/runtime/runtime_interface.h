@@ -60,6 +60,7 @@ class IEspectreRuntime {
   virtual void set_live_telemetry_enabled(bool enabled) = 0;
 
   virtual bool set_threshold_runtime(float threshold) = 0;
+  virtual bool set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) = 0;
   virtual bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm) = 0;
   virtual bool trigger_recalibration() = 0;
   virtual bool is_calibrating() const = 0;

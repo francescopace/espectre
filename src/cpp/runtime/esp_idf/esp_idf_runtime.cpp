@@ -24,6 +24,7 @@
 #include "ml_detector.h"
 #include "runtime_config_utils.h"
 #include "runtime_detector_store.h"
+#include "runtime_motion_hits_store.h"
 #include "runtime_time.h"
 
 namespace espectre {
@@ -53,6 +54,7 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
   // The sensing runtime owns a detector, so it can retune and recalibrate it,
   // and it drives the live-telemetry callback the BLE surface consumes.
   capabilities_.supports_runtime_threshold_updates = true;
+  capabilities_.supports_runtime_motion_hits_updates = true;
   capabilities_.supports_manual_recalibration = true;
   capabilities_.supports_ble_telemetry = true;
   capabilities_.supports_extended_diagnostics = true;
@@ -90,8 +92,7 @@ bool EspIdfRuntime::setup() {
 
   csi_pipeline_.init(detector_.get(), config_.publish_interval);
   csi_pipeline_.set_evaluation_interval(config_.evaluation_interval);
-  csi_pipeline_.set_motion_on_hits(config_.motion_on_hits);
-  csi_pipeline_.set_motion_off_hits(config_.motion_off_hits);
+  csi_pipeline_.set_motion_hit_thresholds(config_.motion_on_hits, config_.motion_off_hits);
   update_live_telemetry_callback_();
 
   if (wifi_lifecycle_.register_handlers([this](const esp_netif_ip_info_t &ip_info) {
@@ -205,6 +206,34 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
     listener_->on_threshold_changed(snapshot_);
   }
   ESP_LOGD(RUNTIME_TAG, "Threshold updated to %.6f (session-only, recalculated at boot)", threshold);
+  return true;
+}
+
+bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+  if (motion_on_hits < RUNTIME_MOTION_HITS_MIN || motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
+      motion_off_hits < RUNTIME_MOTION_HITS_MIN || motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
+    ESP_LOGW(RUNTIME_TAG,
+             "Rejected invalid motion hits on=%u off=%u (range=%u-%u)",
+             static_cast<unsigned>(motion_on_hits),
+             static_cast<unsigned>(motion_off_hits),
+             static_cast<unsigned>(RUNTIME_MOTION_HITS_MIN),
+             static_cast<unsigned>(RUNTIME_MOTION_HITS_MAX));
+    return false;
+  }
+
+  const esp_err_t persist_err = save_runtime_motion_hits(motion_on_hits, motion_off_hits);
+  if (persist_err != ESP_OK) {
+    ESP_LOGW(RUNTIME_TAG, "Failed to persist motion hits: %s", esp_err_to_name(persist_err));
+    return false;
+  }
+
+  csi_pipeline_.set_motion_hit_thresholds(motion_on_hits, motion_off_hits, true);
+  config_.motion_on_hits = motion_on_hits;
+  config_.motion_off_hits = motion_off_hits;
+  ESP_LOGI(RUNTIME_TAG,
+           "Motion hit thresholds updated: on=%u off=%u",
+           static_cast<unsigned>(motion_on_hits),
+           static_cast<unsigned>(motion_off_hits));
   return true;
 }
 

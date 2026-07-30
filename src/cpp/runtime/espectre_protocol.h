@@ -46,6 +46,7 @@ struct EspectreDeviceInfo {
   bool supports_info{true};
   bool supports_stats{false};
   bool supports_runtime_threshold{false};
+  bool supports_runtime_motion_hits{false};
   bool supports_runtime_detector{false};
   bool supports_ota{false};
   EspectreNetworkInfo network{};
@@ -56,6 +57,9 @@ struct EspectreCommand {
   std::string command;
   float threshold{0.0f};
   bool has_threshold{false};
+  uint8_t motion_on_hits{0U};
+  uint8_t motion_off_hits{0U};
+  bool has_motion_hits{false};
   std::string detector;
   bool has_detector{false};
 };

@@ -21,6 +21,7 @@ struct SysinfoCapabilities {
   bool supports_mqtt_config{true};
   bool supports_device_config{true};
   bool supports_runtime_threshold{false};
+  bool supports_runtime_motion_hits{false};
   bool supports_runtime_detector{false};
   bool supports_live_telemetry{false};
   bool supports_extended_diagnostics{false};

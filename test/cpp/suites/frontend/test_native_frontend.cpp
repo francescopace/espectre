@@ -127,6 +127,9 @@ void test_native_frontend_connection_and_sysinfo_paths(void) {
                              "espectre_protocol_version=1.0") != ble_bindings_mock::state.sysinfo_lines.end());
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
+                             "supports_runtime_motion_hits=true") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
                              "wifi_connected=false") != ble_bindings_mock::state.sysinfo_lines.end());
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
@@ -398,6 +401,36 @@ void test_native_frontend_ble_and_mqtt_detector_commands_update_runtime(void) {
                    std::string::npos);
 }
 
+void test_native_frontend_ble_and_mqtt_motion_hits_commands_update_runtime(void) {
+  MockBleBindings bindings;
+  MockMqttTransport mqtt;
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_host = "localhost";
+
+  NativeFrontend frontend(&bindings, &mqtt);
+  frontend.set_device_config(config);
+  RuntimeConfig runtime_config;
+  frontend.set_runtime_config(runtime_config);
+  TEST_ASSERT_TRUE(frontend.setup());
+
+  TEST_ASSERT_TRUE(frontend.handle_control_command_("SET_MOTION_HITS:on=6&off=4"));
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_motion_hits_calls);
+  TEST_ASSERT_EQUAL_UINT8(6U, frontend_runtime_shim::state.last_motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(4U, frontend_runtime_shim::state.last_motion_off_hits);
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_MOTION_HITS:on=0&off=4"));
+
+  mqtt_transport_mock::state.publishes.clear();
+  mqtt.emit_command(
+      "{\"command_id\":\"motion-1\",\"command\":\"set_motion_hits\",\"motion_on_hits\":5,\"motion_off_hits\":3}");
+  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_motion_hits_calls);
+  TEST_ASSERT_EQUAL_UINT8(5U, frontend_runtime_shim::state.last_motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(3U, frontend_runtime_shim::state.last_motion_off_hits);
+  TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.back().payload.find("\"accepted\":true") !=
+                   std::string::npos);
+}
+
 void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
@@ -419,6 +452,8 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.size() >= 4);
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/info",
                            mqtt_transport_mock::state.publishes[0].topic.c_str());
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"supports_runtime_motion_hits\":true") !=
+                   std::string::npos);
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted",
                            mqtt_transport_mock::state.publishes[1].topic.c_str());
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/stats",
@@ -473,6 +508,43 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
                    std::string::npos);
 }
 
+void test_native_frontend_ble_ota_commands_use_ota_service_and_refresh_sysinfo(void) {
+  MockBleBindings bindings;
+  MockOtaService ota;
+  NativeFrontend frontend(&bindings, nullptr, &ota);
+  EspectreDeviceInfo info;
+  info.frontend = "native";
+  info.firmware_version = "1.0.0";
+  frontend.set_device_info(info);
+  TEST_ASSERT_TRUE(frontend.setup());
+  bindings.emit_connection(true);
+  drain_pending_sysinfo(frontend);
+
+  TEST_ASSERT_TRUE(frontend.handle_control_command_("OTA_CHECK"));
+  TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
+  TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
+
+  TEST_ASSERT_TRUE(frontend.handle_control_command_("OTA_START"));
+  TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_update_calls);
+
+  ble_bindings_mock::state.sysinfo_lines.clear();
+  EspectreOtaStatus ota_status;
+  ota_status.state = EspectreOtaState::UPDATE_AVAILABLE;
+  ota_status.current_version = "1.0.0";
+  ota_status.target_version = "1.1.0";
+  ota_status.message = "update available";
+  ota_status.update_available = true;
+  ota.emit_status(ota_status);
+  drain_pending_sysinfo(frontend);
+
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
+                             "ota_state=update_available") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
+                             "ota_target_version=1.1.0") != ble_bindings_mock::state.sysinfo_lines.end());
+}
+
 void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
   EspectreDeviceConfig config;
   std::string error;
@@ -486,6 +558,9 @@ void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
   TEST_ASSERT_EQUAL_STRING("set_threshold", command.command.c_str());
   TEST_ASSERT_TRUE(command.has_threshold);
   TEST_ASSERT_EQUAL_FLOAT(3.25f, command.threshold);
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"command\":\"set_motion_hits\",\"motion_on_hits\":6,\"motion_off_hits\":4}", &command, &error));
+  TEST_ASSERT_TRUE(command.has_motion_hits);
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":\"bad\"}", &command, &error));
 }
 
@@ -504,14 +579,24 @@ void test_native_frontend_control_commands_validate_and_update_runtime(void) {
   ble_bindings_mock::state.sysinfo_lines.clear();
   bindings.emit_control("SET_THRESHOLD:invalid");
   bindings.emit_control("SET_THRESHOLD:42");
+  bindings.emit_control("SET_MOTION_HITS:on=6");
+  bindings.emit_control("SET_MOTION_HITS:on=0&off=4");
   bindings.emit_control("UNKNOWN");
   TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_threshold_calls);
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_motion_hits_calls);
   TEST_ASSERT_EQUAL(0, static_cast<int>(ble_bindings_mock::state.sysinfo_lines.size()));
 
   bindings.emit_control("SET_THRESHOLD:0.425");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL_FLOAT(0.425f, frontend_runtime_shim::state.last_threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.425f, frontend.runtime_.config().segmentation_threshold);
+
+  bindings.emit_control("SET_MOTION_HITS:on=7&off=5");
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_motion_hits_calls);
+  TEST_ASSERT_EQUAL_UINT8(7U, frontend_runtime_shim::state.last_motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(5U, frontend_runtime_shim::state.last_motion_off_hits);
+  TEST_ASSERT_EQUAL_UINT8(7U, frontend.runtime_.config().motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(5U, frontend.runtime_.config().motion_off_hits);
 }
 
 void test_native_frontend_wifi_provisioning_commands_forward_to_callback(void) {
@@ -681,8 +766,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_motion_edge_publishes_ready_mqtt_telemetry);
   RUN_TEST(test_native_frontend_mqtt_set_threshold_command_publishes_result);
   RUN_TEST(test_native_frontend_ble_and_mqtt_detector_commands_update_runtime);
+  RUN_TEST(test_native_frontend_ble_and_mqtt_motion_hits_commands_update_runtime);
   RUN_TEST(test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads);
   RUN_TEST(test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state);
+  RUN_TEST(test_native_frontend_ble_ota_commands_use_ota_service_and_refresh_sysinfo);
   RUN_TEST(test_espectre_protocol_parses_config_and_rejects_bad_commands);
   RUN_TEST(test_native_frontend_control_commands_validate_and_update_runtime);
   RUN_TEST(test_native_frontend_wifi_provisioning_commands_forward_to_callback);

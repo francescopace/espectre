@@ -40,6 +40,8 @@ Current BLE responsibilities:
 - provision Wi-Fi credentials
 - provision MQTT endpoint settings
 - allow local threshold updates
+- allow local motion-hit debounce updates
+- trigger OTA status, checks, and updates through the shared HTTPS OTA service
 - recover from broken Wi-Fi or MQTT configuration
 
 Future BLE responsibilities:
@@ -141,6 +143,7 @@ espectre/v1/devices/{device_id}/info
   "supports_info": true,
   "supports_stats": true,
   "supports_runtime_threshold": true,
+  "supports_runtime_motion_hits": true,
   "supports_runtime_detector": true,
   "supports_ota": true,
   "network": {
@@ -219,6 +222,22 @@ Accepted detector values are `classic` and `ml`. Switching to `classic`
 starts calibration automatically; switching to `ml` cancels any active
 calibration and starts detection immediately.
 
+Update the motion debounce thresholds on frontends that advertise runtime
+motion-hit control:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-003",
+  "command": "set_motion_hits",
+  "motion_on_hits": 4,
+  "motion_off_hits": 3
+}
+```
+
+Both values must stay inside the shared `1-20` range. Native persists accepted
+values across reboot.
+
 Request an OTA manifest check using the firmware's built-in release URL:
 
 ```json
@@ -288,7 +307,11 @@ The current BLE firmware still carries setup commands as ASCII control writes:
 ```text
 REQ_SYSINFO
 SET_THRESHOLD:0.35
+SET_MOTION_HITS:on=4&off=3
 SET_DETECTOR:ml
+OTA_STATUS
+OTA_CHECK
+OTA_START
 SET_DEVICE_CONFIG:device_label=Living Room
 SET_MQTT_CONFIG:host=192.168.1.20&port=1883&username=mqtt&password=secret-password&topic_prefix=espectre%2Fv1%2Fdevices
 CLEAR_MQTT_CONFIG
@@ -391,6 +414,7 @@ Capability-oriented `sysinfo` keys may include:
 | `supports_mqtt_config` | Whether BLE clients can edit MQTT broker settings |
 | `supports_device_config` | Whether BLE clients can edit device identity settings |
 | `supports_runtime_threshold` | Whether BLE clients can change the live motion threshold |
+| `supports_runtime_motion_hits` | Whether BLE clients can change the persisted motion-on/off hit thresholds |
 | `supports_runtime_detector` | Whether BLE clients can select and persist `classic` or `ml` |
 | `supports_live_telemetry` | Whether BLE telemetry notifications are exposed |
 | `supports_extended_diagnostics` | Whether implementation-specific runtime diagnostics are exposed |
@@ -413,6 +437,12 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `publish_interval` | Periodic publish cadence in packets |
 | `evaluation_interval` | Detector evaluation cadence in packets |
 | `motion_hits` | Motion-on/off consecutive hit thresholds |
+| `ota_state` | Current OTA state reported by the shared HTTPS OTA service |
+| `ota_busy` | Whether an OTA worker is active |
+| `ota_update_available` | Whether the last OTA check found an update |
+| `ota_current_version` | Firmware version compared against the manifest |
+| `ota_target_version` | Version reported by the pending OTA target, when known |
+| `ota_message` | OTA progress or error message |
 | `startup_threshold` | Startup calibration threshold after the detector-specific bootstrap path |
 
 These diagnostic keys are intentionally more implementation-oriented than the

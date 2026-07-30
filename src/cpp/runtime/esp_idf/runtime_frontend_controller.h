@@ -36,6 +36,7 @@ class RuntimeFrontendController {
   void quiesce_for_ota();
 
   bool set_threshold_runtime(float threshold);
+  bool set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits);
   bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm);
   bool trigger_recalibration();
   bool is_calibrating() const;

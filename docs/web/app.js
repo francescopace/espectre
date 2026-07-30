@@ -147,6 +147,13 @@
                 else el.textContent = value;
             }
         };
+        if (snapshot.motion_hits) {
+            const parts = String(snapshot.motion_hits).split('/');
+            if (parts.length === 2) {
+                set('cfg-motion-on', parts[0]);
+                set('cfg-motion-off', parts[1]);
+            }
+        }
         set('cfg-ssid', snapshot.wifi_ssid);
         set('cfg-bssid', snapshot.wifi_bssid);
         set('cfg-channel', snapshot.wifi_channel);
@@ -157,6 +164,9 @@
         set('cfg-device-id', snapshot.device_id);
         set('cfg-device-name', snapshot.device_name);
         set('cfg-label', snapshot.device_label);
+        set('cfg-ota-state', snapshot.ota_state || '—');
+        set('cfg-ota-target', snapshot.ota_target_version || '—');
+        set('cfg-ota-message', snapshot.ota_message || '—');
         set('diag-protocol', proto || '—');
         set('diag-chip', chip || '—');
         set('diag-detector', snapshot.detector);
@@ -165,6 +175,7 @@
             ? snapshot.traffic_rate + ' pkt/s'
             : snapshot.traffic_mode);
         set('diag-publish', snapshot.publish_interval && 'every ' + snapshot.publish_interval + ' pkts');
+        set('diag-ota', snapshot.ota_state || '—');
         const boolLabel = (v) => (v === 'true' || v === '1' ? 'connected' : 'disconnected');
         if (snapshot.wifi_connected !== undefined) set('diag-wifi', boolLabel(snapshot.wifi_connected));
         if (snapshot.mqtt_connected !== undefined) set('diag-mqtt', boolLabel(snapshot.mqtt_connected));
@@ -216,7 +227,11 @@
                 topic_prefix: 'espectre/v1/devices',
                 device_id: '0x00007c2c6742bbac',
                 device_name: 'ESPectre-DEMO',
-                device_label: 'Living Room'
+                device_label: 'Living Room',
+                motion_hits: '4/3',
+                ota_state: 'idle',
+                ota_target_version: '',
+                ota_message: ''
             });
             let t = 0;
             demoTimer = setInterval(() => {
@@ -1353,6 +1368,33 @@
         }
     }
 
+    async function cfgSaveMotionHits() {
+        const ok = await cfgApply('set_motion_hits', 'Motion hit thresholds saved.',
+            () => window.ESPectreBleClient.buildMotionHitsCommand({
+                motionOnHits: Number(cfgValue('cfg-motion-on')),
+                motionOffHits: Number(cfgValue('cfg-motion-off'))
+            }));
+        if (ok) cfgRefreshSysinfo();
+    }
+
+    async function cfgOtaStatus() {
+        const ok = await cfgApply('ota_status', 'OTA status requested.',
+            () => window.ESPectreBleClient.buildOtaStatusCommand());
+        if (ok) cfgRefreshSysinfo();
+    }
+
+    async function cfgOtaCheck() {
+        const ok = await cfgApply('ota_check', 'OTA check started.',
+            () => window.ESPectreBleClient.buildOtaCheckCommand());
+        if (ok) cfgRefreshSysinfo();
+    }
+
+    async function cfgOtaStart() {
+        const ok = await cfgApply('ota_start', 'OTA update started.',
+            () => window.ESPectreBleClient.buildOtaStartCommand());
+        if (ok) cfgRefreshSysinfo();
+    }
+
     function configureInit() {
         $('.js-wifi-save').addEventListener('click', cfgSaveWifi);
         $('.js-wifi-clear').addEventListener('click', cfgClearWifi);
@@ -1360,6 +1402,10 @@
         $('.js-mqtt-clear').addEventListener('click', cfgClearMqtt);
         $('.js-dev-save').addEventListener('click', cfgSaveDevice);
         $('.js-dev-clear').addEventListener('click', cfgClearDevice);
+        $('.js-motion-save').addEventListener('click', cfgSaveMotionHits);
+        $('.js-ota-status').addEventListener('click', cfgOtaStatus);
+        $('.js-ota-check').addEventListener('click', cfgOtaCheck);
+        $('.js-ota-start').addEventListener('click', cfgOtaStart);
     }
 
     /* ================================================================ game */

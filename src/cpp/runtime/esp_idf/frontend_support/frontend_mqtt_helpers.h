@@ -24,6 +24,7 @@ using FrontendMqttConnectedCallback = std::function<void()>;
 using FrontendMqttInfoCallback = std::function<void()>;
 using FrontendMqttStatsCallback = std::function<void()>;
 using FrontendMqttThresholdCallback = std::function<bool(float threshold, std::string *message)>;
+using FrontendMqttMotionHitsCallback = std::function<bool(uint8_t motion_on_hits, uint8_t motion_off_hits, std::string *message)>;
 using FrontendMqttDetectorCallback = std::function<bool(DetectionAlgorithm algorithm, std::string *message)>;
 using FrontendMqttOtaStatusCallback = std::function<void(const EspectreOtaStatus &status)>;
 
@@ -31,6 +32,7 @@ struct FrontendMqttCommandCapabilities {
   bool supports_info{true};
   bool supports_stats{false};
   bool supports_threshold{false};
+  bool supports_motion_hits{false};
   bool supports_detector{false};
   bool supports_ota{false};
 };
@@ -77,6 +79,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        FrontendMqttInfoCallback info_callback,
                                                        FrontendMqttStatsCallback stats_callback,
                                                        FrontendMqttThresholdCallback threshold_callback,
+                                                       FrontendMqttMotionHitsCallback motion_hits_callback,
                                                        FrontendMqttDetectorCallback detector_callback,
                                                        FrontendMqttOtaStatusCallback ota_status_callback);
 

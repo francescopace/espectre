@@ -107,6 +107,22 @@ void test_runtime_frontend_controller_threshold_runtime_updates_config_and_snaps
   TEST_ASSERT_EQUAL_FLOAT(0.5f, controller.snapshot().threshold);
 }
 
+void test_runtime_frontend_controller_motion_hits_runtime_updates_config(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+
+  TEST_ASSERT_FALSE(controller.set_motion_hits_runtime(0U, 3U));
+  TEST_ASSERT_TRUE(controller.set_motion_hits_runtime(6U, 4U));
+  TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(4U, controller.config().motion_off_hits);
+
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  TEST_ASSERT_TRUE(controller.set_motion_hits_runtime(5U, 2U));
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_motion_hits_calls);
+  TEST_ASSERT_EQUAL_UINT8(5U, frontend_runtime_shim::state.last_motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(2U, frontend_runtime_shim::state.last_motion_off_hits);
+}
+
 void test_runtime_frontend_controller_recalibration_requires_capability_and_runtime(void) {
   RuntimeFrontendController controller;
   RuntimeSnapshot snapshot;
@@ -175,6 +191,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_setup_propagates_state_and_handles_failure);
   RUN_TEST(test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward);
   RUN_TEST(test_runtime_frontend_controller_threshold_runtime_updates_config_and_snapshot);
+  RUN_TEST(test_runtime_frontend_controller_motion_hits_runtime_updates_config);
   RUN_TEST(test_runtime_frontend_controller_recalibration_requires_capability_and_runtime);
   RUN_TEST(test_runtime_frontend_controller_switches_detector_and_resets_threshold);
   RUN_TEST(test_runtime_frontend_controller_can_select_stream_runtime_profile);

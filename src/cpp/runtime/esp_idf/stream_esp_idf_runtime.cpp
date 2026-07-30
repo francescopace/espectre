@@ -192,6 +192,12 @@ bool StreamEspIdfRuntime::set_threshold_runtime(float threshold) {
   return false;
 }
 
+bool StreamEspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+  (void)motion_on_hits;
+  (void)motion_off_hits;
+  return false;
+}
+
 bool StreamEspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
   (void)algorithm;
   return false;

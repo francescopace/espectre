@@ -59,6 +59,13 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   return true;
 }
 
+bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+  frontend_runtime_shim::state.set_motion_hits_calls++;
+  frontend_runtime_shim::state.last_motion_on_hits = motion_on_hits;
+  frontend_runtime_shim::state.last_motion_off_hits = motion_off_hits;
+  return true;
+}
+
 bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
   frontend_runtime_shim::state.set_detector_calls++;
   frontend_runtime_shim::state.last_detector = algorithm;

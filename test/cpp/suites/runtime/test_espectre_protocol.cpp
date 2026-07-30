@@ -132,6 +132,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.detector = "classic";
   info.supports_stats = true;
   info.supports_runtime_threshold = true;
+  info.supports_runtime_motion_hits = true;
   info.supports_runtime_detector = true;
   info.supports_ota = true;
   info.network.ip_address = "192.168.1.10";
@@ -149,6 +150,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"supports_info\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_stats\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_runtime_threshold\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_runtime_motion_hits\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_runtime_detector\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_ota\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"network\":{") != std::string::npos);
@@ -214,6 +216,14 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_EQUAL_FLOAT(2.5f, command.threshold);
 
   TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"command_id\":\"x-motion\",\"command\":\"set_motion_hits\",\"motion_on_hits\":6,\"motion_off_hits\":4}",
+      &command,
+      &error));
+  TEST_ASSERT_TRUE(command.has_motion_hits);
+  TEST_ASSERT_EQUAL_UINT8(6U, command.motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(4U, command.motion_off_hits);
+
+  TEST_ASSERT_TRUE(parse_espectre_command(
       "{\"command_id\":\"x-detector\",\"command\":\"set_detector\",\"detector\":\"ml\"}",
       &command,
       &error));
@@ -240,6 +250,10 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
 
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":1e999}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid threshold", error.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_command(
+      "{\"command\":\"set_motion_hits\",\"motion_on_hits\":\"abc\",\"motion_off_hits\":2}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid motion hits", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_detector\",\"detector\":\"pca\"}", &command, &error));

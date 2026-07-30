@@ -25,6 +25,7 @@ namespace espectre {
  */
 struct RuntimeCapabilities {
   bool supports_runtime_threshold_updates{false};
+  bool supports_runtime_motion_hits_updates{false};
   bool supports_runtime_detector_selection{false};
   bool supports_manual_recalibration{false};
   bool supports_ble_telemetry{false};

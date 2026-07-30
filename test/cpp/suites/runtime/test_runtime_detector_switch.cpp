@@ -17,6 +17,7 @@
 #undef private
 
 #include "nvs.h"
+#include "runtime_motion_hits_store.h"
 
 using namespace espectre;
 
@@ -88,10 +89,32 @@ void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(voi
   TEST_ASSERT_TRUE(listener.last_calibration_success);
 }
 
+void test_runtime_motion_hits_runtime_updates_pipeline_and_persists(void) {
+  RuntimeConfig config;
+  config.detection_algorithm = DetectionAlgorithm::CLASSIC;
+  EspIdfRuntime runtime(config);
+  TEST_ASSERT_TRUE(runtime.configure_detector_());
+  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval);
+
+  TEST_ASSERT_TRUE(runtime.set_motion_hits_runtime(8U, 6U));
+  TEST_ASSERT_EQUAL_UINT8(8U, runtime.csi_pipeline_.motion_on_hits_);
+  TEST_ASSERT_EQUAL_UINT8(6U, runtime.csi_pipeline_.motion_off_hits_);
+
+  uint8_t saved_motion_on_hits = 0U;
+  uint8_t saved_motion_off_hits = 0U;
+  bool has_saved_value = false;
+  TEST_ASSERT_EQUAL(ESP_OK,
+                    load_runtime_motion_hits(&saved_motion_on_hits, &saved_motion_off_hits, &has_saved_value));
+  TEST_ASSERT_TRUE(has_saved_value);
+  TEST_ASSERT_EQUAL_UINT8(8U, saved_motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(6U, saved_motion_off_hits);
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_runtime_detector_switch_updates_pipeline_threshold_and_calibration);
+  RUN_TEST(test_runtime_motion_hits_runtime_updates_pipeline_and_persists);
   return UNITY_END();
 }

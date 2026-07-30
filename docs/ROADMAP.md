@@ -57,9 +57,9 @@ moved to the post-release v3.x backlog.
 
 #### Native Product Surface
 
-- [ ] Allow the Native BLE control surface to set the runtime
+- [x] Allow the Native BLE control surface to set the runtime
   `motion_on_hits` and `motion_off_hits` thresholds
-- [ ] Allow BLE to trigger Native firmware OTA through the shared HTTPS OTA
+- [x] Allow BLE to trigger Native firmware OTA through the shared HTTPS OTA
   service and release manifest used by MQTT
 - [ ] Make local ESP-IDF CLI builds use per-chip build directories by default
   instead of requiring `ESPECTRE_IDF_BUILD_DIR`

@@ -159,6 +159,33 @@
         }
 
         /**
+         * @param {object} options
+         * @param {number} options.motionOnHits
+         * @param {number} options.motionOffHits
+         * @returns {string}
+         */
+        static buildMotionHitsCommand({ motionOnHits, motionOffHits } = {}) {
+            requireIntegerInRange(motionOnHits, 1, 20, 'motionOnHits');
+            requireIntegerInRange(motionOffHits, 1, 20, 'motionOffHits');
+            return `SET_MOTION_HITS:on=${motionOnHits}&off=${motionOffHits}`;
+        }
+
+        /** @returns {string} */
+        static buildOtaStatusCommand() {
+            return 'OTA_STATUS';
+        }
+
+        /** @returns {string} */
+        static buildOtaCheckCommand() {
+            return 'OTA_CHECK';
+        }
+
+        /** @returns {string} */
+        static buildOtaStartCommand() {
+            return 'OTA_START';
+        }
+
+        /**
          * Builds the command that replaces the persisted Wi-Fi station block.
          * The password may be empty for open networks; whether the firmware
          * accepts that is a firmware policy, not a client one.
@@ -437,6 +464,11 @@
             return this.writeControl(ESPectreBleClient.buildDetectorCommand(detector));
         }
 
+        /** @see ESPectreBleClient.buildMotionHitsCommand */
+        setMotionHits(options) {
+            return this.writeControl(ESPectreBleClient.buildMotionHitsCommand(options));
+        }
+
         /** @see ESPectreBleClient.buildWifiConfigCommand */
         setWifiConfig(options) {
             return this.writeControl(ESPectreBleClient.buildWifiConfigCommand(options));
@@ -465,6 +497,21 @@
         /** Resets device naming and MQTT settings, keeping the device id. */
         clearDeviceConfig() {
             return this.writeControl('CLEAR_DEVICE_CONFIG');
+        }
+
+        /** Requests the current OTA status snapshot over the existing sysinfo surface. */
+        otaStatus() {
+            return this.writeControl(ESPectreBleClient.buildOtaStatusCommand());
+        }
+
+        /** Starts an OTA manifest check using the firmware-embedded release URL. */
+        otaCheck() {
+            return this.writeControl(ESPectreBleClient.buildOtaCheckCommand());
+        }
+
+        /** Starts OTA using the firmware-embedded manifest and release image. */
+        otaStart() {
+            return this.writeControl(ESPectreBleClient.buildOtaStartCommand());
         }
 
         /* ------------------------------------------------ notifications */

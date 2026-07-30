@@ -88,6 +88,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        FrontendMqttInfoCallback info_callback,
                                                        FrontendMqttStatsCallback stats_callback,
                                                        FrontendMqttThresholdCallback threshold_callback,
+                                                       FrontendMqttMotionHitsCallback motion_hits_callback,
                                                        FrontendMqttDetectorCallback detector_callback,
                                                        FrontendMqttOtaStatusCallback ota_status_callback) {
   FrontendMqttCommandResult result;
@@ -136,6 +137,29 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     result.accepted = threshold_callback(result.command.threshold, &result.message);
     if (result.message.empty()) {
       result.message = result.accepted ? "threshold updated" : "threshold rejected";
+    }
+    return result;
+  }
+
+  if (result.command.command == "set_motion_hits") {
+    if (!capabilities.supports_motion_hits || !motion_hits_callback) {
+      result.accepted = false;
+      result.message = "unsupported command";
+      return result;
+    }
+    if (!result.command.has_motion_hits ||
+        result.command.motion_on_hits < RUNTIME_MOTION_HITS_MIN ||
+        result.command.motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
+        result.command.motion_off_hits < RUNTIME_MOTION_HITS_MIN ||
+        result.command.motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
+      result.accepted = false;
+      result.message = "invalid motion hits";
+      return result;
+    }
+    result.accepted =
+        motion_hits_callback(result.command.motion_on_hits, result.command.motion_off_hits, &result.message);
+    if (result.message.empty()) {
+      result.message = result.accepted ? "motion hits updated" : "motion hits rejected";
     }
     return result;
   }

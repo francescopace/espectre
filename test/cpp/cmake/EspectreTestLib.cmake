@@ -72,6 +72,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/nvs_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_detector_store.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_motion_hits_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_debug_telemetry.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_esp_idf_runtime.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"

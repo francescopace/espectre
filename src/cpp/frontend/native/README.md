@@ -101,6 +101,7 @@ Current capabilities:
 - enable or disable the live telemetry subscription without disconnecting
 - request a fresh sysinfo block with `REQ_SYSINFO`
 - adjust the runtime threshold with `SET_THRESHOLD:X.XX`
+- persist the runtime motion debounce thresholds with `SET_MOTION_HITS:on=4&off=3`
 - select and persist the runtime detector with `SET_DETECTOR:classic` or `SET_DETECTOR:ml`
 - select the same detector over MQTT with `{"command":"set_detector","detector":"ml"}`
 - show a firmware-generated read-only `device_id`
@@ -110,7 +111,7 @@ Current capabilities:
 - expose the immutable BLE pairing name as the shared `device_name`
 - provision or clear Wi-Fi credentials over BLE
 - provision or clear MQTT configuration over BLE
-- keep HTTPS OTA reachable through the always-on MQTT control plane
+- request OTA status, check for updates, and start HTTPS OTA over BLE
 
 Requirements:
 
@@ -132,8 +133,9 @@ Usage notes:
 4. use `Save Wi-Fi` to send one atomic `SET_WIFI_CONFIG` update
 5. use `Save Device` to persist the human-facing `device_label`
 6. use `Clear Device` when you want to reset the persisted device-facing config while keeping the generated `device_id`
-7. edit the `Threshold` box or `Detector` selector to update the live sensing configuration
+7. edit the runtime tuning controls to update the live sensing configuration
 8. use `Save MQTT` to send one atomic `SET_MQTT_CONFIG` update and enable MQTT transport
+9. use the OTA controls to request status, check the built-in release manifest, or start the update
 
 When telemetry notifications are disabled by the client, the standalone native
 frontend keeps `sysinfo` and control commands active but deregisters the live
@@ -215,11 +217,12 @@ Local implementation anchors:
 ## OTA
 
 The native frontend uses the shared ESPectre MQTT command surface plus a shared
-ESP-IDF HTTPS OTA implementation.
+ESP-IDF HTTPS OTA implementation, and it exposes the same OTA service through
+its BLE control characteristic.
 
 Operational model:
 
-- MQTT remains the command plane
+- MQTT and BLE both call the same built-in OTA service
 - `ota_check` checks the per-chip manifest embedded as a GitHub Releases URL
 - `ota_start` resolves that manifest and downloads the application image into
   the inactive OTA slot
@@ -245,8 +248,8 @@ Important current limits:
   from the published factory image when an image must be reflashed from USB
 
 This keeps the transport simple while allowing external BLE clients to provision
-Wi-Fi and MQTT, tune the runtime threshold, and observe the runtime in real
-time.
+Wi-Fi and MQTT, tune the runtime threshold and motion-hit debounce, trigger OTA,
+and observe the runtime in real time.
 
 ## BLE-Specific Troubleshooting
 
@@ -256,8 +259,9 @@ Check these first:
 
 1. the client writes exact ASCII commands
 2. the value passed to `SET_THRESHOLD` is finite and inside the shared detector range (`0.0-1.0`)
-3. the value passed to `SET_DETECTOR` is exactly `classic` or `ml`; accepted selections persist across reboot
-4. the client does not depend on sysinfo ordering
+3. the values passed to `SET_MOTION_HITS:on=...&off=...` are integers inside the shared `1-20` range
+4. the value passed to `SET_DETECTOR` is exactly `classic` or `ml`; accepted selections persist across reboot
+5. the client does not depend on sysinfo ordering
 
 ### The firmware starts but never joins Wi-Fi
 

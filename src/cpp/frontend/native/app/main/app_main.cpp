@@ -26,6 +26,7 @@
 #include "frontend_bootstrap_helpers.h"
 #include "ota_service_https.h"
 #include "mqtt_transport_esp_idf.h"
+#include "runtime_motion_hits_store.h"
 #include "runtime_sensing_kconfig.h"
 #include "standalone_wifi_service.h"
 #include "debug_telemetry_log_helpers.h"
@@ -74,7 +75,21 @@ void sync_frontend_wifi_info() {
   g_frontend->set_device_info(device_info);
 }
 
-espectre::RuntimeConfig make_runtime_config() { return espectre::make_runtime_sensing_config_from_kconfig(); }
+espectre::RuntimeConfig make_runtime_config() {
+  espectre::RuntimeConfig config = espectre::make_runtime_sensing_config_from_kconfig();
+  uint8_t saved_motion_on_hits = 0U;
+  uint8_t saved_motion_off_hits = 0U;
+  bool has_saved_motion_hits = false;
+  const esp_err_t err =
+      espectre::load_runtime_motion_hits(&saved_motion_on_hits, &saved_motion_off_hits, &has_saved_motion_hits);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to load persisted motion hits: %s", esp_err_to_name(err));
+  } else if (has_saved_motion_hits) {
+    config.motion_on_hits = saved_motion_on_hits;
+    config.motion_off_hits = saved_motion_off_hits;
+  }
+  return config;
+}
 
 espectre::EspectreDeviceConfig make_device_config() {
   return espectre::load_frontend_device_config(espectre::FrontendDeviceConfigDefaults{

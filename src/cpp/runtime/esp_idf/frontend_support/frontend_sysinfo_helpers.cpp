@@ -59,6 +59,7 @@ void append_sysinfo_protocol_lines(std::vector<std::string> *lines,
   append_bool_line(lines, "supports_mqtt_config", capabilities.supports_mqtt_config);
   append_bool_line(lines, "supports_device_config", capabilities.supports_device_config);
   append_bool_line(lines, "supports_runtime_threshold", capabilities.supports_runtime_threshold);
+  append_bool_line(lines, "supports_runtime_motion_hits", capabilities.supports_runtime_motion_hits);
   append_bool_line(lines, "supports_runtime_detector", capabilities.supports_runtime_detector);
   append_bool_line(lines, "supports_live_telemetry", capabilities.supports_live_telemetry);
   append_bool_line(lines, "supports_extended_diagnostics", capabilities.supports_extended_diagnostics);

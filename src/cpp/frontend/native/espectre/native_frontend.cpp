@@ -22,6 +22,7 @@
 #include "frontend_control_helpers.h"
 #include "frontend_mqtt_helpers.h"
 #include "frontend_sysinfo_helpers.h"
+#include "protocol_json.h"
 #include "runtime_time.h"
 #include "runtime_config_utils.h"
 #include "runtime_diagnostics.h"
@@ -40,6 +41,29 @@ namespace {
 static const char *const TAG = "espectre.native";
 constexpr uint8_t kTelemetryMotionStateIdle = 0;
 constexpr uint8_t kTelemetryMotionStateMotion = 1;
+
+const char *ota_state_name(EspectreOtaState state) {
+  switch (state) {
+    case EspectreOtaState::IDLE:
+      return "idle";
+    case EspectreOtaState::CHECKING:
+      return "checking";
+    case EspectreOtaState::UPDATE_AVAILABLE:
+      return "update_available";
+    case EspectreOtaState::UP_TO_DATE:
+      return "up_to_date";
+    case EspectreOtaState::DOWNLOADING:
+      return "downloading";
+    case EspectreOtaState::APPLYING:
+      return "applying";
+    case EspectreOtaState::REBOOT_SCHEDULED:
+      return "reboot_scheduled";
+    case EspectreOtaState::ERROR:
+      return "error";
+    default:
+      return "unknown";
+  }
+}
 
 float current_free_memory_kb() {
 #ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
@@ -122,7 +146,10 @@ bool NativeFrontend::setup() {
 
   if (ota_service_ != nullptr) {
     ota_service_->set_prepare_for_update_callback([this]() { this->runtime_.quiesce_for_ota(); });
-    ota_service_->set_status_callback([this](const EspectreOtaStatus &status) { this->publish_mqtt_ota_status_(status); });
+    ota_service_->set_status_callback([this](const EspectreOtaStatus &status) {
+      this->publish_mqtt_ota_status_(status);
+      this->system_info_refresh_.request();
+    });
   }
 
   setup_mqtt_();
@@ -301,6 +328,46 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
     }
     return handle_threshold_write_(threshold);
   }
+  if (command.rfind("SET_MOTION_HITS:", 0) == 0) {
+    std::vector<std::pair<std::string, std::string>> pairs;
+    std::string error;
+    if (!parse_urlencoded_key_value_pairs(command.substr(16U), &pairs, &error)) {
+      ESP_LOGW(TAG, "Invalid BLE motion hits command: %s", command.c_str());
+      return false;
+    }
+    uint8_t motion_on_hits = 0U;
+    uint8_t motion_off_hits = 0U;
+    bool has_motion_on_hits = false;
+    bool has_motion_off_hits = false;
+    for (const auto &pair : pairs) {
+      if (pair.first == "on") {
+        char *end_ptr = nullptr;
+        errno = 0;
+        const unsigned long parsed = std::strtoul(pair.second.c_str(), &end_ptr, 10);
+        if (end_ptr == pair.second.c_str() || end_ptr == nullptr || *end_ptr != '\0' || errno == ERANGE ||
+            parsed > UINT8_MAX) {
+          return false;
+        }
+        motion_on_hits = static_cast<uint8_t>(parsed);
+        has_motion_on_hits = true;
+      } else if (pair.first == "off") {
+        char *end_ptr = nullptr;
+        errno = 0;
+        const unsigned long parsed = std::strtoul(pair.second.c_str(), &end_ptr, 10);
+        if (end_ptr == pair.second.c_str() || end_ptr == nullptr || *end_ptr != '\0' || errno == ERANGE ||
+            parsed > UINT8_MAX) {
+          return false;
+        }
+        motion_off_hits = static_cast<uint8_t>(parsed);
+        has_motion_off_hits = true;
+      }
+    }
+    if (!has_motion_on_hits || !has_motion_off_hits) {
+      ESP_LOGW(TAG, "Incomplete BLE motion hits command: %s", command.c_str());
+      return false;
+    }
+    return handle_motion_hits_write_(motion_on_hits, motion_off_hits);
+  }
   if (command.rfind("SET_DETECTOR:", 0) == 0) {
     const std::string detector = command.substr(13U);
     if (detector != RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME &&
@@ -309,6 +376,9 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
       return false;
     }
     return handle_detector_write_(parse_detection_algorithm(detector.c_str()));
+  }
+  if (command == "OTA_STATUS" || command == "OTA_CHECK" || command == "OTA_START") {
+    return handle_ble_ota_command_(command.c_str() + 4);
   }
 
   ESP_LOGW(TAG, "Unknown BLE control command: %s", command.c_str());
@@ -324,6 +394,7 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
           true,
           true,
           runtime_.capabilities().supports_runtime_threshold_updates,
+          runtime_.capabilities().supports_runtime_motion_hits_updates,
           runtime_.capabilities().supports_runtime_detector_selection,
           ota_service_ != nullptr,
       },
@@ -333,6 +404,13 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
         const bool accepted = this->handle_threshold_write_(threshold);
         if (message != nullptr && message->empty()) {
           *message = accepted ? "threshold updated" : "threshold rejected";
+        }
+        return accepted;
+      },
+      [this](uint8_t motion_on_hits, uint8_t motion_off_hits, std::string *message) {
+        const bool accepted = this->handle_motion_hits_write_(motion_on_hits, motion_off_hits);
+        if (message != nullptr && message->empty()) {
+          *message = accepted ? "motion hits updated" : "motion hits rejected";
         }
         return accepted;
       },
@@ -362,12 +440,63 @@ bool NativeFrontend::handle_threshold_write_(float threshold) {
   return true;
 }
 
+bool NativeFrontend::handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+  if (!runtime_.capabilities().supports_runtime_motion_hits_updates) {
+    ESP_LOGW(TAG, "Runtime motion hit updates are not supported");
+    return false;
+  }
+  if (!runtime_.set_motion_hits_runtime(motion_on_hits, motion_off_hits)) {
+    return false;
+  }
+  system_info_refresh_.request();
+  publish_mqtt_info_();
+  return true;
+}
+
 bool NativeFrontend::handle_detector_write_(DetectionAlgorithm algorithm) {
   if (!runtime_.capabilities().supports_runtime_detector_selection) {
     ESP_LOGW(TAG, "Runtime detector selection is not supported");
     return false;
   }
   if (!runtime_.set_detection_algorithm_runtime(algorithm)) {
+    return false;
+  }
+  system_info_refresh_.request();
+  return true;
+}
+
+bool NativeFrontend::handle_ble_ota_command_(const char *command_name) {
+  if (command_name == nullptr || command_name[0] == '\0') {
+    return false;
+  }
+  std::string normalized_command = command_name;
+  for (char &ch : normalized_command) {
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  }
+  std::string payload = std::string("{\"command\":\"ota_") + normalized_command + "\"}";
+  const FrontendMqttCommandResult result = handle_frontend_mqtt_command(
+      payload,
+      ota_service_,
+      device_info_.firmware_version.c_str(),
+      FrontendMqttCommandCapabilities{
+          false,
+          false,
+          false,
+          false,
+          false,
+          ota_service_ != nullptr,
+      },
+      {},
+      {},
+      {},
+      {},
+      {},
+      [this](const EspectreOtaStatus &status) {
+        this->publish_mqtt_ota_status_(status);
+        this->system_info_refresh_.request();
+      });
+  if (!result.accepted) {
+    ESP_LOGW(TAG, "BLE OTA command rejected: %s", result.message.c_str());
     return false;
   }
   system_info_refresh_.request();
@@ -408,6 +537,7 @@ void NativeFrontend::publish_mqtt_info_() {
   info.supports_info = true;
   info.supports_stats = true;
   info.supports_runtime_threshold = runtime_.capabilities().supports_runtime_threshold_updates;
+  info.supports_runtime_motion_hits = runtime_.capabilities().supports_runtime_motion_hits_updates;
   info.supports_runtime_detector = runtime_.capabilities().supports_runtime_detector_selection;
   (void) publish_frontend_mqtt_message(
       mqtt_transport_, device_config_, "info", espectre_info_payload(device_config_, info), false);
@@ -445,6 +575,19 @@ void NativeFrontend::publish_mqtt_command_result_(const EspectreCommand &command
   (void) publish_frontend_mqtt_command_result(mqtt_transport_, device_config_, command, accepted, message);
 }
 
+void NativeFrontend::append_ota_sysinfo_lines_(std::vector<std::string> *lines) const {
+  if (lines == nullptr || ota_service_ == nullptr) {
+    return;
+  }
+  const EspectreOtaStatus status = ota_service_->status();
+  lines->emplace_back(std::string("ota_state=") + ota_state_name(status.state));
+  lines->emplace_back(std::string("ota_busy=") + (status.busy ? "true" : "false"));
+  lines->emplace_back(std::string("ota_update_available=") + (status.update_available ? "true" : "false"));
+  lines->emplace_back(std::string("ota_current_version=") + status.current_version);
+  lines->emplace_back(std::string("ota_target_version=") + status.target_version);
+  lines->emplace_back(std::string("ota_message=") + status.message);
+}
+
 void NativeFrontend::send_system_info_() {
   if (!client_connected_ || bindings_ == nullptr) {
     return;
@@ -461,6 +604,7 @@ void NativeFrontend::send_system_info_() {
                           true,
                           true,
                           runtime_.capabilities().supports_runtime_threshold_updates,
+                          runtime_.capabilities().supports_runtime_motion_hits_updates,
                           runtime_.capabilities().supports_runtime_detector_selection,
                           runtime_.capabilities().supports_ble_telemetry,
                           runtime_.capabilities().supports_extended_diagnostics,
@@ -479,6 +623,7 @@ void NativeFrontend::send_system_info_() {
     std::snprintf(line, sizeof(line), "%s=%s", key, value);
     lines.emplace_back(line);
   });
+  append_ota_sysinfo_lines_(&lines);
   append_sysinfo_end_line(&lines);
   bindings_->replace_sysinfo_lines(std::move(lines));
 }

@@ -103,6 +103,22 @@ bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
   return true;
 }
 
+bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+  if (motion_on_hits < RUNTIME_MOTION_HITS_MIN || motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
+      motion_off_hits < RUNTIME_MOTION_HITS_MIN || motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
+    return false;
+  }
+  if (runtime_) {
+    if (!capabilities_.supports_runtime_motion_hits_updates ||
+        !runtime_->set_motion_hits_runtime(motion_on_hits, motion_off_hits)) {
+      return false;
+    }
+  }
+  config_.motion_on_hits = motion_on_hits;
+  config_.motion_off_hits = motion_off_hits;
+  return true;
+}
+
 bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
   if (!runtime_detection_algorithm_valid(algorithm)) {
     return false;

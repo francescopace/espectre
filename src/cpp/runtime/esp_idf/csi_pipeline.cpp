@@ -45,6 +45,14 @@ bool CsiPipeline::set_threshold(float threshold) {
   return true;
 }
 
+void CsiPipeline::set_motion_hit_thresholds(uint8_t motion_on_hits, uint8_t motion_off_hits, bool reset_filter) {
+  set_motion_on_hits(motion_on_hits);
+  set_motion_off_hits(motion_off_hits);
+  if (reset_filter) {
+    reset_motion_state_filter_(effective_motion_state_);
+  }
+}
+
 void CsiPipeline::set_detector(BaseDetector *detector) {
   detector_ = detector;
   clear_detector_buffer_deferred_();

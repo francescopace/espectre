@@ -31,6 +31,7 @@ namespace frontend_runtime_shim {
 inline RuntimeCapabilities sensing_runtime_capabilities() {
   RuntimeCapabilities capabilities{};
   capabilities.supports_runtime_threshold_updates = true;
+  capabilities.supports_runtime_motion_hits_updates = true;
   capabilities.supports_manual_recalibration = true;
   capabilities.supports_ble_telemetry = true;
   capabilities.supports_extended_diagnostics = true;
@@ -46,6 +47,9 @@ struct State {
   int loop_calls{0};
   int set_threshold_calls{0};
   float last_threshold{0.0f};
+  int set_motion_hits_calls{0};
+  uint8_t last_motion_on_hits{RUNTIME_MOTION_ON_HITS_DEFAULT};
+  uint8_t last_motion_off_hits{RUNTIME_MOTION_OFF_HITS_DEFAULT};
   int set_detector_calls{0};
   DetectionAlgorithm last_detector{DetectionAlgorithm::CLASSIC};
   int trigger_recalibration_calls{0};

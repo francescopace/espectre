@@ -14,6 +14,7 @@
 #include "csi_payload_normalizer.h"
 #include "device_config_store.h"
 #include "runtime_detector_store.h"
+#include "runtime_motion_hits_store.h"
 #include "nvs.h"
 #include "csi_format.h"
 
@@ -38,6 +39,31 @@ void test_runtime_detector_store_round_trips_and_validates_values(void) {
 
   nvs_mock_put_str("detector", "pca");
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_runtime_detection_algorithm(&algorithm, &has_saved_value));
+}
+
+void test_runtime_motion_hits_store_round_trips_and_validates_values(void) {
+  uint8_t motion_on_hits = 0U;
+  uint8_t motion_off_hits = 0U;
+  bool has_saved_value = true;
+
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_motion_hits(&motion_on_hits, &motion_off_hits, &has_saved_value));
+  TEST_ASSERT_FALSE(has_saved_value);
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_runtime_motion_hits(nullptr, &motion_off_hits, &has_saved_value));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_motion_hits(0U, RUNTIME_MOTION_OFF_HITS_DEFAULT));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_motion_hits(RUNTIME_MOTION_ON_HITS_DEFAULT, 21U));
+
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_motion_hits(7U, 5U));
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_motion_hits(&motion_on_hits, &motion_off_hits, &has_saved_value));
+  TEST_ASSERT_TRUE(has_saved_value);
+  TEST_ASSERT_EQUAL_UINT8(7U, motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(5U, motion_off_hits);
+
+  TEST_ASSERT_EQUAL(ESP_OK, clear_runtime_motion_hits());
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_motion_hits(&motion_on_hits, &motion_off_hits, &has_saved_value));
+  TEST_ASSERT_FALSE(has_saved_value);
+
+  nvs_mock_put_u8("motion_on", 6U);
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_runtime_motion_hits(&motion_on_hits, &motion_off_hits, &has_saved_value));
 }
 
 void test_wifi_config_store_handles_missing_namespace_and_invalid_args(void) {
@@ -245,6 +271,7 @@ int process(void) {
   RUN_TEST(test_device_config_store_reports_absence_when_no_fields_are_saved);
   RUN_TEST(test_device_config_store_clear_removes_all_current_keys);
   RUN_TEST(test_runtime_detector_store_round_trips_and_validates_values);
+  RUN_TEST(test_runtime_motion_hits_store_round_trips_and_validates_values);
   RUN_TEST(test_normalize_ht20_csi_payload_handles_supported_lengths);
   RUN_TEST(test_normalize_ht20_csi_payload_rejects_invalid_inputs_and_renders_tags);
   return UNITY_END();

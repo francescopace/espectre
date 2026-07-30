@@ -58,6 +58,15 @@ bool parse_uint16_value(const std::string &value, uint16_t *out) {
   return true;
 }
 
+bool parse_uint8_value(const std::string &value, uint8_t *out) {
+  uint16_t parsed = 0U;
+  if (!parse_uint16_value(value, &parsed) || parsed > UINT8_MAX) {
+    return false;
+  }
+  *out = static_cast<uint8_t>(parsed);
+  return true;
+}
+
 std::string normalize_ble_chip_label(const char *chip) {
   if (chip == nullptr || chip[0] == '\0') {
     return "UNK";
@@ -241,6 +250,8 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   out += info.supports_stats ? "true" : "false";
   out += ",\"supports_runtime_threshold\":";
   out += info.supports_runtime_threshold ? "true" : "false";
+  out += ",\"supports_runtime_motion_hits\":";
+  out += info.supports_runtime_motion_hits ? "true" : "false";
   out += ",\"supports_runtime_detector\":";
   out += info.supports_runtime_detector ? "true" : "false";
   out += ",\"supports_ota\":";
@@ -391,6 +402,17 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
       return false;
     }
     parsed.has_threshold = true;
+  } else if (parsed.command == "set_motion_hits") {
+    const std::string motion_on_hits_token = extract_json_number_token(payload, "motion_on_hits");
+    const std::string motion_off_hits_token = extract_json_number_token(payload, "motion_off_hits");
+    if (!parse_uint8_value(motion_on_hits_token, &parsed.motion_on_hits) ||
+        !parse_uint8_value(motion_off_hits_token, &parsed.motion_off_hits)) {
+      if (error != nullptr) {
+        *error = "invalid motion hits";
+      }
+      return false;
+    }
+    parsed.has_motion_hits = true;
   } else if (parsed.command == "set_detector") {
     parsed.detector = extract_json_string(payload, "detector");
     if (parsed.detector != RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME &&
