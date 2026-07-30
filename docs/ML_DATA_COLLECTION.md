@@ -15,7 +15,7 @@ For historical rationale behind the current dataset contract, see:
 
 - [`2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md`](adr/2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md)
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
-- [`2026-07-17-separate-dataset-admission-from-classic-diagnostics.md`](adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics.md)
+- [`2026-07-29-make-dataset-quality-review-detector-agnostic.md`](adr/2026-07-29-make-dataset-quality-review-detector-agnostic.md)
 
 Use `tools/validate_dataset_quality.py` before training:
 
@@ -29,19 +29,20 @@ Every run refreshes explicit `static_presence` / `motion` pair metadata in
 `data/dataset_info.json` (writes and bumps `updated_at` only on real changes)
 and writes `data/auto_generated/DATASET_QUALITY_CHECK.md` unless `--no-report`
 is set. Admission checks (integrity, empty/static sanity, ML readiness) can
-fail the run. Classic replay adds indicative 0-100 scores for review only, so
-the dataset is not filtered to "what Classic already solves".
+fail the run. Shared feature-space review adds indicative 0-100 scores for
+review only, so the dataset is not filtered to "what one detector already
+solves".
 
-Read the Classic review tables with three rules in mind:
+Read the feature-space review tables with three rules in mind:
 
 - `dataset_role` stays a manual curation decision; the validator never assigns
   `train`, `selection`, or `holdout`.
 - Idle-table `Burst` marks are same-chip review signals when enough clean idle
   references exist for that chip; otherwise they fall back to fixed review
   thresholds instead of cross-chip empirical marks.
-- `PPS` reports the observed packet rate from metadata, while `Q95`, `Drift`,
-  and the `Basis` column help explain whether a mark came from a same-chip
-  profile, a global pair profile, or fixed thresholds.
+- `PPS` reports the observed packet rate from metadata, while `Cover`, `Sep`,
+  `Tail`, and `Drift` explain whether a capture separates cleanly and how much
+  it leaves its own baseline in feature space.
 
 Tooling details live in [`tools/README.md`](../tools/README.md).
 
@@ -224,11 +225,11 @@ metadata instead.
   long-recording replay suites; these stay evaluation-only and do not enter ML
   training or the standard empty-room admission table
 - `dataset_role: train | selection | holdout | exclude` to reserve recordings
-  for the deployment safety replays; entries without a role default to
-  `train`. `selection` recordings gate candidate selection, `holdout`
-  recordings stay sealed until the trainer evaluates the final winner once,
-  and `exclude` keeps a dataset in the catalog while removing it from the
-  current train/selection/holdout workflow
+  for the deployment safety replays. Entries without a role default to
+  `exclude` and must be admitted explicitly. `selection` recordings gate
+  candidate selection, `holdout` recordings stay sealed until the trainer
+  evaluates the final winner once, and `exclude` keeps a dataset in the
+  catalog while removing it from the current train/selection/holdout workflow
 
 `validate_dataset_quality.py` regenerates those pair fields automatically
 before admission and Classic review. It never pairs a real capture with a
@@ -341,7 +342,7 @@ python tools/train_ml_model.py --info
 
 `collect --info` summarizes collected files.
 `validate_dataset_quality.py` refreshes pair metadata, runs admission plus
-Classic review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`.
+feature-space review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`.
 `train_ml_model.py --info` shows the dataset view used by the trainer.
 
 ## Contributing Data

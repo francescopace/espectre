@@ -13,6 +13,43 @@ from pathlib import Path
 from tools.lib import dataset_metadata, ui
 
 
+def test_dataset_roles_are_normalized_and_admitted_centrally() -> None:
+    assert dataset_metadata.dataset_role({}) == "exclude"
+    assert dataset_metadata.dataset_role({"dataset_role": ""}) == "exclude"
+    assert dataset_metadata.dataset_role({"dataset_role": " Train "}) == "train"
+    assert dataset_metadata.admitted_dataset_role({}) is None
+    assert (
+        dataset_metadata.admitted_dataset_role({"dataset_role": "selection"})
+        == "selection"
+    )
+    assert (
+        dataset_metadata.admitted_dataset_role({"dataset_role": "invalid"})
+        is None
+    )
+
+    assert (
+        dataset_metadata.paired_dataset_role(
+            {"dataset_role": "holdout"},
+            {"dataset_role": " HOLDOUT "},
+        )
+        == "holdout"
+    )
+    assert (
+        dataset_metadata.paired_dataset_role(
+            {"dataset_role": "train"},
+            {"dataset_role": "selection"},
+        )
+        is None
+    )
+    assert (
+        dataset_metadata.paired_dataset_role(
+            {"dataset_role": "train"},
+            {},
+        )
+        is None
+    )
+
+
 def test_generated_report_revision_tracks_exact_dataset_catalog(tmp_path) -> None:
     dataset_info_path = tmp_path / "dataset_info.json"
     report_path = tmp_path / "REPORT.md"

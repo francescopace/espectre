@@ -6,28 +6,28 @@ Dual-purpose validator with an explicit anti-circularity rule:
 
 1. Dataset admission (can FAIL the run)
    Integrity, continuity, signal quality, coarse empty/static sanity, and ML
-   readiness. These checks do not use Classic's decision boundary.
+   readiness. These checks stay detector-agnostic.
 
-2. Classic indicative scores (never veto admission)
-   Replay the production ClassicDetector on pairs and quiet long recordings to produce a
-   0-100 indicative score per capture/pair. Useful for human review and detector
-   trend-watching; not a hard filter of which files exist in the corpus.
+2. Feature-space review scores (never veto admission)
+   Shared scale-invariant feature diagnostics on pairs and idle captures produce
+   0-100 review guidance. Useful for human review and corpus trend-watching,
+   not a hard filter of which files exist in the corpus.
 
-See docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics.md.
+See docs/adr/2026-07-29-make-dataset-quality-review-detector-agnostic.md.
 
 Checks performed:
   1. Metadata completeness - Required derived/manual dataset_info fields exist
   2. File integrity        - NPZ loads, expected keys exist, shapes are valid
   3. Signal quality        - Amplitude range, zero-packet detection
   4. Empty presence        - Empty files exist and overlap chip/environment groups
-  5. Classic scores        - Pair replay plus independently calibrated idle baselines
+  5. Feature-space scores  - Pair separation plus independently scored idle baselines
   6. ML readiness          - Label balance, minimum samples, chip diversity
 
 SOURCE CODE ALIGNMENT:
   This script reuses production and shared tooling code instead of local copies:
   - src/python/micro_espectre/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
-  - src/python/micro_espectre/classic_detector.py: indicative Classic replay and scores
-  - tools/lib/dataset_metadata.py: dataset_info I/O, entry paths, Classic calibration
+  - src/python/micro_espectre/csi_features.py: shared invariant feature semantics
+  - tools/lib/dataset_metadata.py: dataset_info I/O and entry paths
   - tools/lib/csi_analysis.py: vectorized amplitude extraction (int8 → int16 to
     avoid overflow; src/micro_espectre/utils.py works on Python int lists, but
     NPZ stores numpy int8)
@@ -61,9 +61,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.lib.bootstrap import setup_paths  # noqa: F401
 from tools.lib.repo_paths import generated_data_dir  # noqa: E402
-from tools.lib import dataset_metadata, npz_cache  # noqa: E402
+from tools.lib import dataset_metadata  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
+    DATASET_ROLES,
+    admitted_dataset_role,
     build_calibrated_classic_detector,
+    dataset_role,
 )
 from tools.lib.csi_analysis import extract_amplitudes_matrix  # noqa: E402
 from tools.lib.csi_io import (
@@ -71,21 +74,29 @@ from tools.lib.csi_io import (
     load_npz_arrays,
     load_npz_packet_view,
 )  # noqa: E402
-from tools.train_ml_model import extract_features  # noqa: E402
+from tools.lib.timing_quality import (  # noqa: E402
+    MAX_INTER_PACKET_GAP_FAIL_MS,
+    MAX_INTER_PACKET_GAP_WARN_MS,
+    MAX_STREAM_SEQ_GAP_FAIL_PACKETS,
+    MAX_STREAM_SEQ_GAP_WARN_PACKETS,
+    MAX_STREAM_SEQ_MISSING_FAIL_RATIO,
+    MAX_STREAM_SEQ_MISSING_WARN_RATIO,
+    MIN_CAPTURE_PACKET_RATE_PPS,
+)
+from tools.lib.performance_report import (  # noqa: E402
+    build_ml_replay_rows,
+    load_or_compute_ml_replay_rows,
+)
 
 
 from detector_interface import MotionState  # noqa: E402
 from config import (  # noqa: E402
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
-    ENABLE_HAMPEL_FILTER,
-    ENABLE_LOWPASS_FILTER,
     EVALUATION_INTERVAL,
-    HAMPEL_THRESHOLD,
-    HAMPEL_WINDOW,
-    LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
+from csi_features import DEFAULT_FEATURES  # noqa: E402
 from runtime_policy import (  # noqa: E402
     PacketTimingTracker,
     make_evaluation_cadence,
@@ -105,18 +116,11 @@ PAIR_MAX_DELTA_SECONDS = 30 * 60
 MIN_PACKETS = 5000
 MAX_ZERO_PACKET_RATIO = 0.005
 MIN_AMPLITUDE_MEAN = 15.0
-MIN_CAPTURE_PACKET_RATE_PPS = 95.0
-MAX_STREAM_SEQ_MISSING_WARN_RATIO = 0.01
-MAX_STREAM_SEQ_MISSING_FAIL_RATIO = 0.03
-MAX_STREAM_SEQ_GAP_WARN_PACKETS = 10
-MAX_STREAM_SEQ_GAP_FAIL_PACKETS = 20
-MAX_INTER_PACKET_GAP_WARN_MS = 150.0
-MAX_INTER_PACKET_GAP_FAIL_MS = 250.0
 # Self-calibrated idle-baseline review. Empty and static-presence captures may
 # come from different sessions, so each capture owns its startup calibration.
 BASELINE_BLOCK_SECONDS = 5.0
-BASELINE_LONGEST_BURST_WARN_SECONDS = 1.0
-BASELINE_LONGEST_BURST_ZERO_SECONDS = 5.0
+BASELINE_LONGEST_BURST_WARN_SECONDS = 30.0
+BASELINE_LONGEST_BURST_ZERO_SECONDS = 120.0
 # Idle captures are judged on how high their upper tail rises above their own
 # typical level, in logits, never against the calibrated threshold. A threshold
 # can be miscalibrated or recomputed from new data, and a dataset verdict that
@@ -130,20 +134,28 @@ BASELINE_TAIL_FAIL_LOGITS = 6.0
 # The excursion rate stays as a burstiness diagnostic, counted against
 # median + BASELINE_EXCURSION_MADS x MAD of the capture itself.
 BASELINE_EXCURSION_MADS = 3.0
-QUIET_TEST_CLASSIC_FP_WARN_RATIO = 0.08
-QUIET_TEST_CLASSIC_FP_FAIL_RATIO = 0.13
+FEATURE_EXCURSION_WARN_RATIO = 0.08
+FEATURE_EXCURSION_FAIL_RATIO = 0.13
+MIN_MOTION_COVERAGE_RATIO = 0.95
+FAIL_MOTION_COVERAGE_RATIO = 0.90
+# Indicative dataset-score anchors (not admission gates).
+FEATURE_SCORE_MOTION_FULL = 0.95
+FEATURE_SCORE_SEPARATION_FULL = 0.999
+FEATURE_SCORE_SEPARATION_ZERO = 0.900
+FEATURE_SCORE_TAIL_FULL = 2.0
+FEATURE_SCORE_TAIL_ZERO = 6.0
+QUIET_TEST_CLASSIC_FP_WARN_RATIO = FEATURE_EXCURSION_WARN_RATIO
+QUIET_TEST_CLASSIC_FP_FAIL_RATIO = FEATURE_EXCURSION_FAIL_RATIO
 MAX_STATIC_ACTIVE_RATIO = 0.05
 MIN_MOTION_ACTIVE_RATIO = 0.95
 MIN_ACTIVE_RATIO_MARGIN = 0.90
-# Soft review fail levels (still non-blocking for admission).
 FAIL_STATIC_ACTIVE_RATIO = 0.10
 FAIL_MOTION_ACTIVE_RATIO = 0.90
-# Indicative dataset-score anchors (not admission gates).
-CLASSIC_SCORE_MOTION_FULL = 0.95
-CLASSIC_SCORE_SEPARATION_FULL = 0.999
-CLASSIC_SCORE_SEPARATION_ZERO = 0.900
-CLASSIC_SCORE_TAIL_FULL = 2.0
-CLASSIC_SCORE_TAIL_ZERO = 6.0
+CLASSIC_SCORE_MOTION_FULL = FEATURE_SCORE_MOTION_FULL
+CLASSIC_SCORE_SEPARATION_FULL = FEATURE_SCORE_SEPARATION_FULL
+CLASSIC_SCORE_SEPARATION_ZERO = FEATURE_SCORE_SEPARATION_ZERO
+CLASSIC_SCORE_TAIL_FULL = FEATURE_SCORE_TAIL_FULL
+CLASSIC_SCORE_TAIL_ZERO = FEATURE_SCORE_TAIL_ZERO
 # Sep (Motion Scores) is the rank-based AUC between the idle and motion
 # probability series, so it answers the only question this table should ask of a
 # recording: do the two halves look different at all?
@@ -184,24 +196,34 @@ PAIR_COUNTERPART_LABEL = {
 VALIDATION_DOMAINS = (
     'integrity',
     'label_sanity',
-    'classic',
+    'feature_space',
     'ml',
     'long_recording',
 )
 VALIDATION_DOMAIN_LABELS = {
     'integrity': 'Common integrity',
     'label_sanity': 'Empty/static presence',
-    'classic': 'ClassicDetector indicative scores',
+    'feature_space': 'Feature-space stability and separation',
     'ml': 'ML readiness',
     'long_recording': 'Long-recording coverage',
 }
+VALIDATION_FEATURE_NAMES = tuple(DEFAULT_FEATURES)
+FEATURE_EVIDENCE_DIRECTIONS = {
+    "turb_mad_over_mean": 1.0,
+    "turb_autocorr": 1.0,
+    "turb_zcr": -1.0,
+    "l1_delta_autocorr": 1.0,
+    "l1_delta_lag_ratio": 1.0,
+}
+
+
 def _clamp_score(value):
     """Clamp an indicative score into [0, 100]."""
     return float(max(0.0, min(100.0, value)))
 
 
-def classic_pair_score(idle_tail, motion_coverage, pair_separation):
-    """Return an indicative 0-100 Classic score for one static/motion pair.
+def agnostic_pair_score(idle_tail, motion_coverage, pair_separation):
+    """Return an indicative 0-100 feature-space score for one pair.
 
     All three terms are threshold-free. Separation is the idle/motion AUC, idle
     cleanliness is the idle half's own q95 above its own median in logits, and
@@ -229,7 +251,7 @@ def classic_pair_score(idle_tail, motion_coverage, pair_separation):
     return round(0.5 * separation_score + 0.3 * idle_clean + 0.2 * motion_cover, 1)
 
 
-def classic_baseline_score(margin_q95, longest_burst_seconds):
+def agnostic_baseline_score(margin_q95, longest_burst_seconds):
     """Return a 0-100 idle-baseline score from threshold-free evidence.
 
     Tail height carries most of the score. It is the capture's own q95 above its
@@ -251,6 +273,10 @@ def classic_baseline_score(margin_q95, longest_burst_seconds):
         )
     )
     return round(0.7 * cleanliness + 0.3 * burst_clean, 1)
+
+
+classic_pair_score = agnostic_pair_score
+classic_baseline_score = agnostic_baseline_score
 
 
 def _threshold_severity(
@@ -329,8 +355,8 @@ def _format_motion_above_cell(value, *, markdown=False):
 def _format_quiet_fp_cell(value, *, markdown=False):
     return _format_percent_ratio_cell(
         value,
-        warn_above=QUIET_TEST_CLASSIC_FP_WARN_RATIO,
-        fail_above=QUIET_TEST_CLASSIC_FP_FAIL_RATIO,
+        warn_above=FEATURE_EXCURSION_WARN_RATIO,
+        fail_above=FEATURE_EXCURSION_FAIL_RATIO,
         markdown=markdown,
     )
 
@@ -626,104 +652,32 @@ def _robust_axis_location_and_scale(values):
 
 
 def _feature_matrix_packets(packets, *, feature_names=None):
-    """Return one feature matrix for one packet stream.
-
-    The filter chain is passed explicitly rather than left to the
-    `extract_features` defaults, so the extraction and its cache key are derived
-    from the same constants and cannot drift apart.
-    """
-    matrix, _y, used_feature_names, _context = extract_features(
+    """Return the canonical time-aware dense feature stream for packets."""
+    rows = build_ml_replay_rows(
         tuple(packets),
-        window_size=SEG_WINDOW_SIZE,
+        DEFAULT_SUBCARRIERS,
+        SEG_WINDOW_SIZE,
         feature_names=list(feature_names or VALIDATION_FEATURE_NAMES),
-        enable_lowpass=ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=LOWPASS_CUTOFF,
-        enable_hampel=ENABLE_HAMPEL_FILTER,
-        hampel_window=HAMPEL_WINDOW,
-        hampel_threshold=HAMPEL_THRESHOLD,
+        sample_contract="stream_dense",
     )
-    return np.asarray(matrix, dtype=np.float64), tuple(used_feature_names)
-
-
-def _validation_feature_cache_parameters(feature_names):
-    """Return the shared feature-cache parameters used by validation.
-
-    Built through the shared helper so validation and training address the same
-    artifact when they extract the same features from the same capture.
-    """
-    del feature_names
-    return npz_cache.feature_matrix_base_parameters(
-        window_size=SEG_WINDOW_SIZE,
-        subcarriers=DEFAULT_SUBCARRIERS,
-        enable_lowpass=ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=LOWPASS_CUTOFF,
-        enable_hampel=ENABLE_HAMPEL_FILTER,
-        hampel_window=HAMPEL_WINDOW,
-        hampel_threshold=HAMPEL_THRESHOLD,
+    return (
+        np.asarray(rows["X"], dtype=np.float64),
+        tuple(rows["feature_names"]),
     )
 
 
 def _load_or_compute_validation_feature_matrix(filepath, *, feature_names=None, use_cache=True):
-    """Return one shared per-file feature matrix for validation."""
+    """Return the shared time-aware dense feature stream for validation."""
     requested_feature_names = tuple(feature_names or VALIDATION_FEATURE_NAMES)
-    parameters = _validation_feature_cache_parameters(requested_feature_names)
-    cached_columns = (
-        npz_cache.load_feature_columns(
-            filepath,
-            base_parameters=parameters,
-            feature_names=requested_feature_names,
-        )
-        if use_cache
-        else {}
+    rows = load_or_compute_ml_replay_rows(
+        filepath,
+        selected_subcarriers=DEFAULT_SUBCARRIERS,
+        window_size=SEG_WINDOW_SIZE,
+        feature_names=requested_feature_names,
+        sample_contract="stream_dense",
+        use_cache=use_cache,
     )
-    missing_feature_names = [
-        feature_name
-        for feature_name in requested_feature_names
-        if feature_name not in cached_columns
-    ]
-    if not missing_feature_names:
-        cached_matrix, cached_feature_names = npz_cache.assemble_feature_matrix(
-            cached_columns,
-            requested_feature_names,
-        )
-        return np.asarray(cached_matrix, dtype=np.float64), tuple(cached_feature_names)
-
-    packets = load_npz_packet_view(filepath)
-    matrix, used_feature_names = _feature_matrix_packets(
-        packets,
-        feature_names=missing_feature_names,
-    )
-    used_feature_name_list = [str(name) for name in used_feature_names]
-    if use_cache:
-        npz_cache.save_feature_columns(
-            filepath,
-            base_parameters=parameters,
-            feature_names=used_feature_name_list,
-            X=np.asarray(matrix, dtype=np.float32),
-        )
-    columns = dict(cached_columns)
-    computed_matrix = np.asarray(matrix, dtype=np.float32)
-    for column_index, feature_name in enumerate(used_feature_name_list):
-        columns[feature_name] = computed_matrix[:, column_index]
-    assembled_matrix, assembled_feature_names = npz_cache.assemble_feature_matrix(
-        columns,
-        requested_feature_names,
-    )
-    return np.asarray(assembled_matrix, dtype=np.float64), tuple(assembled_feature_names)
-
-
-def _validation_idle_baseline_parameters(feature_names, packet_rate_pps):
-    """Return the persisted idle-baseline cache parameters."""
-    return {
-        "feature_cache": {
-            "base_parameters": _validation_feature_cache_parameters(feature_names),
-            "feature_names": [str(name) for name in feature_names],
-        },
-        "packet_rate_pps": float(packet_rate_pps),
-        "evaluation_interval": int(EVALUATION_INTERVAL),
-        "baseline_excursion_mads": float(BASELINE_EXCURSION_MADS),
-        "baseline_block_seconds": float(BASELINE_BLOCK_SECONDS),
-    }
+    return np.asarray(rows["X"], dtype=np.float64), tuple(rows["feature_names"])
 
 
 def _feature_direction_vector(feature_names):
@@ -854,6 +808,8 @@ def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps=100.0)
         "longest_burst_seconds": longest_burst_seconds,
         "eval_seconds": float(eval_seconds),
     }
+
+
 def _pair_separation_severity(pair_separation, severity_profile=None):
     """Return soft review severity for Sep on Motion Scores."""
     return _threshold_severity(
@@ -1057,11 +1013,8 @@ _LONG_TEST_SCORE_TABLE = _idle_evidence_table_spec(
 
 
 def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
-    """Format one static_presence/motion pair score row.
-
-    The markdown report also shows observed packet rate and calibrated threshold.
-    """
-    score_value = row.get("classic_score", 0.0)
+    """Format one static_presence/motion pair score row."""
+    score_value = row.get("feature_score", 0.0)
     severity_profile = _row_severity_profile(review_profiles, "pair", row["chip"])
     severity = _score_value_severity(score_value, severity_profile)
     files_cell = _pair_files_cell(
@@ -1076,10 +1029,9 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
             f"| {row['chip']} | {row.get('environment', '?')} | {files_cell} | "
             f"{_format_pair_rssi_cell(row.get('static_rssi_dbm'), row.get('motion_rssi_dbm'))} | "
             f"{_format_pair_packet_rate_cell(row.get('static_packet_rate_pps'), row.get('motion_packet_rate_pps'))} | "
-            f"{row['threshold']:.2e} | "
-            f"{_format_static_above_cell(row['static_active_ratio'], markdown=True)} | "
-            f"{_format_motion_above_cell(row['motion_active_ratio'], markdown=True)} | "
+            f"{_format_motion_above_cell(row['motion_coverage'], markdown=True)} | "
             f"{_format_pair_separation_cell(row['pair_separation'], markdown=True, severity_profile=severity_profile)} | "
+            f"{_format_margin_q95_cell(row['idle_tail'], markdown=True, severity_profile=severity_profile)} | "
             f"{_format_score_cell(score_value, severity, markdown=True)} |"
         )
     return (
@@ -1087,29 +1039,28 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
         f"{files_cell:<23} | "
         f"{_format_pair_rssi_cell(row.get('static_rssi_dbm'), row.get('motion_rssi_dbm')):>17} | "
         f"{_format_pair_packet_rate_cell(row.get('static_packet_rate_pps'), row.get('motion_packet_rate_pps')):>13} | "
-        f"{_format_static_above_cell(row['static_active_ratio']):>5} | "
-        f"{_format_motion_above_cell(row['motion_active_ratio']):>5} | "
+        f"{_format_motion_above_cell(row['motion_coverage']):>5} | "
         f"{_format_pair_separation_cell(row['pair_separation'], severity_profile=severity_profile):>6} | "
+        f"{_format_margin_q95_cell(row['idle_tail'], severity_profile=severity_profile):>5} | "
         f"{_format_score_cell(score_value, severity):>8} |"
     )
 
 
 _PAIR_SCORE_TABLE = {
-    "title": "Motion Scores",
+    "title": "Pair Scores",
     "table_key": "pair",
     "header": (
-        "| Chip | Env | static_presence / motion | RSSI | PPS | Threshold | "
-        "FP | TP | Sep | Score |"
+        "| Chip | Env | static_presence / motion | RSSI | PPS | Cover | Sep | Tail | Score |"
     ),
-    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
+    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|",
     "console_header": (
-        "| Chip | Env | static_presence / motion | RSSI | PPS | FP | TP | Sep | Score |"
+        "| Chip | Env | static_presence / motion | RSSI | PPS | Cover | Sep | Tail | Score |"
     ),
     "console_separator": (
-        "  |------|-----|-------------------------|-----------------:|-------------:|-----:|-----:|------:|------:|"
+        "  |------|-----|-------------------------|-----------------:|-------------:|------:|------:|-----:|------:|"
     ),
     "console_heading": False,
-    "sort_key": lambda item: -item.get("classic_score", 0.0),
+    "sort_key": lambda item: -item.get("feature_score", 0.0),
     "format_row": _format_pair_score_row,
 }
 
@@ -1118,9 +1069,9 @@ _EXCLUDED_PAIR_SCORE_TABLE = {
     "title": "Excluded Pair Diagnostics",
     "intro": (
         "These pairs keep `dataset_role: exclude` and stay outside the validation "
-        "summary. The rows below are informational replays of the same Classic "
-        "startup-calibrated path, useful when a capture is detector evidence "
-        "rather than admission material."
+        "summary. The rows below are informational feature-space diagnostics "
+        "useful when a capture is evidence about slice difficulty rather than "
+        "admission material."
     ),
 }
 
@@ -1279,13 +1230,12 @@ def _entry_matches_chip(entry, chip_filter):
 
 def _dataset_role(entry):
     """Return the normalized dataset role for one dataset_info entry."""
-    role = str(entry.get("dataset_role", "train")).strip().lower()
-    return role or "train"
+    return dataset_role(entry)
 
 
 def _is_excluded_entry(entry):
-    """Return True when an entry is explicitly excluded from validation."""
-    return _dataset_role(entry) == "exclude"
+    """Return True unless an entry has an explicit admitted dataset role."""
+    return admitted_dataset_role(entry) is None
 
 
 def _is_long_recording_entry(entry):
@@ -1554,6 +1504,26 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
     filename_index = {}
 
     for label in METADATA_LABELS:
+        for entry in files_by_label.get(label, []):
+            if not _entry_matches_chip(entry, chip_filter):
+                continue
+            filename = str(entry.get('filename', '<missing filename>'))
+            raw_role = entry.get("dataset_role")
+            if _is_missing_metadata_value(raw_role):
+                results.append(ValidationResult(
+                    f"metadata_{label}/{filename}",
+                    "FAIL",
+                    (
+                        "missing dataset_role; entries default to exclude and "
+                        "must be admitted explicitly"
+                    ),
+                ))
+            elif _dataset_role(entry) not in DATASET_ROLES:
+                results.append(ValidationResult(
+                    f"metadata_{label}/{filename}",
+                    "FAIL",
+                    f"invalid dataset_role: {raw_role!r}",
+                ))
         entries = [
             entry for entry in files_by_label.get(label, [])
             if _entry_matches_chip(entry, chip_filter)
@@ -2954,18 +2924,6 @@ def _compute_idle_evidence_for_entry(entry, label, *, use_cache=True):
         filepath = _resolve_dataset_entry_path(entry, label)
         packet_rate_pps = _packet_rate_from_entry(entry)
         feature_names = tuple(VALIDATION_FEATURE_NAMES)
-        baseline_parameters = _validation_idle_baseline_parameters(
-            feature_names,
-            packet_rate_pps,
-        )
-        if use_cache:
-            cached = npz_cache.load_idle_baseline_artifact(
-                filepath,
-                parameters=baseline_parameters,
-            )
-            if cached is not None:
-                return cached["baseline"], cached["median_rssi_dbm"], None
-
         packets = load_npz_packet_view(filepath)
         feature_matrix, feature_names = _load_or_compute_validation_feature_matrix(
             filepath,
@@ -2981,13 +2939,6 @@ def _compute_idle_evidence_for_entry(entry, label, *, use_cache=True):
             return None, None, "insufficient data"
         rssi_values = [pkt.get("rssi_dbm") for pkt in packets if pkt.get("rssi_dbm") is not None]
         median_rssi = float(np.median(rssi_values)) if rssi_values else None
-        if use_cache:
-            npz_cache.save_idle_baseline_artifact(
-                filepath,
-                parameters=baseline_parameters,
-                baseline=baseline,
-                median_rssi_dbm=median_rssi,
-            )
         return baseline, median_rssi, None
     except (OSError, ValueError, KeyError) as exc:
         return None, None, str(exc)
@@ -3044,8 +2995,8 @@ def _evaluate_idle_evidence_files(
             status,
             (
                 f"{kind_title} quality: verdict={verdict}, "
-                f"baseline_score={baseline['score']:.1f}, "
-                f"self_fp={baseline['fp_rate']:.1%}"
+                f"feature_score={baseline['score']:.1f}, "
+                f"excursion_rate={baseline['fp_rate']:.1%}"
             ),
             baseline["score"],
         ))
@@ -3218,8 +3169,8 @@ def validate_quiet_test_recordings(dataset_info, chip_filter=None, use_cache=Tru
             "PASS" if verdict == "clean" else "WARN",
             (
                 f"Long-recording quality: verdict={verdict}, "
-                f"baseline_score={baseline['score']:.1f}, "
-                f"self_fp={baseline['fp_rate']:.1%}"
+                f"feature_score={baseline['score']:.1f}, "
+                f"excursion_rate={baseline['fp_rate']:.1%}"
             ),
             baseline["score"],
         ))
@@ -3244,7 +3195,7 @@ def run_validation(
 
     print("ESPectre Dataset Quality Validation")
     print(f"Data: {DATA_DIR}")
-    print(f"Validation feature cache: {'enabled' if use_cache else 'disabled'}")
+    print(f"Time-aware ML row cache: {'enabled' if use_cache else 'disabled'}")
     if chip_filter:
         print(f"Chip filter: {chip_filter}")
 
@@ -3382,7 +3333,7 @@ def run_validation(
                             "WARN",
                             f"Static-presence file missing: {bl_name}",
                         )],
-                        "classic",
+                        "feature_space",
                     ),
                     heading="Pair validation",
                 )
@@ -3396,7 +3347,7 @@ def run_validation(
                             "WARN",
                             f"No motion pair for: {bl_file.name}",
                         )],
-                        "classic",
+                        "feature_space",
                     ),
                     heading="Pair validation",
                 )
@@ -3410,11 +3361,11 @@ def run_validation(
             )
             if pair_row is None:
                 _emit_issues(
-                    _tag_results(pair_res, "classic"),
+                    _tag_results(pair_res, "feature_space"),
                     heading=f"Pair {bl_file.name} ↔ {mv_file.name}",
                 )
                 continue
-            _tag_results(pair_res, 'classic')
+            _tag_results(pair_res, 'feature_space')
             _emit_issues(
                 pair_res,
                 heading=f"Pair {bl_file.name} ↔ {mv_file.name}",
@@ -3431,8 +3382,8 @@ def run_validation(
     )
     for result in empty_results:
         result.domain = (
-            'classic'
-            if result.name.startswith(('empty_quality/', 'presence_evidence/'))
+            'feature_space'
+            if result.name.startswith(('empty_quality/', 'presence_quality/'))
             else 'label_sanity'
         )
     _emit_issues(empty_results, heading="Empty / presence sanity")
@@ -3447,7 +3398,7 @@ def run_validation(
     )
     for result in quiet_test_results:
         result.domain = (
-            'classic' if result.name.startswith('quiet_test_idle/')
+            'feature_space' if result.name.startswith('quiet_test_idle/')
             else 'long_recording'
         )
     _emit_issues(quiet_test_results, heading="Quiet-test sanity")
@@ -3497,7 +3448,7 @@ def run_validation(
         ):
             print(line)
         if pair_results:
-            mean_pair = float(np.mean([p['classic_score'] for p in pair_results]))
+            mean_pair = float(np.mean([p['feature_score'] for p in pair_results]))
             print(f"  Pair mean score: {mean_pair:.1f}/100")
         for rows, table_spec in (
             (presence_score_rows, _PRESENCE_SCORE_TABLE),
@@ -3572,7 +3523,7 @@ def _generate_report(
     )
     lines.append("Generated by: `tools/validate_dataset_quality.py`\n")
     lines.append(
-        "Policy: `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics.md`.\n"
+        "Policy: `docs/adr/2026-07-29-make-dataset-quality-review-detector-agnostic.md`.\n"
     )
 
     counts = _result_counts(all_results)
@@ -3609,62 +3560,53 @@ def _generate_report(
 
     lines.append("\n## Reading these tables\n")
     lines.append(
-        "Two families of metric appear side by side, and only one of them "
-        "judges the recording."
+        "Every score in these tables comes from the shared scale-invariant "
+        "feature set, not from a detector threshold or probability surface."
     )
     lines.append(
-        "- **Threshold-free**, so they describe the capture itself, and every "
-        "mark in this report comes from one of them: `Sep` (idle/motion AUC), "
-        "`Tail` (q95 above the capture's own median, in logits), `Exc` "
-        "(excursions past median + 3 MAD), `Burst`, `MAD`, and `Drift`."
+        "- Pair rows summarize how strongly `motion` windows outrank "
+        "`static_presence` windows in feature space."
     )
     lines.append(
-        "- **Threshold-relative**, kept for context and never marked: `FP` and "
-        "`TP` on Motion Scores, and the `Threshold` column itself. They say "
-        "how Classic behaved on the capture under its own startup calibration, "
-        "which can be miscalibrated or recomputed later, so they are read as "
-        "detector diagnostics rather than as facts about the recording."
+        "- Idle rows summarize how often one capture leaves its own typical "
+        "feature-space baseline through excursions, long bursts, and drift."
     )
     lines.append(
-        "When a pair carries a mark on `TP` but none on `Sep`, the motion is "
-        "there and the threshold is what missed it. Do not drop such a capture: "
-        "it is evidence about the detector, not about the data."
+        "- `Score` is a compact ranking signal only. Admission still turns on "
+        "integrity, continuity, metadata, overlap, and ML readiness."
     )
     lines.append("\n## Validation rule\n")
     lines.append(
-        f"- `FP` (Motion Scores): ⚠️ `>{MAX_STATIC_ACTIVE_RATIO:.0%}`, "
-        f"❌ `>{FAIL_STATIC_ACTIVE_RATIO:.0%}`"
-    )
-    lines.append(
-        f"- `TP` (Motion Scores): ⚠️ `<{MIN_MOTION_ACTIVE_RATIO:.0%}`, "
-        f"❌ `<{FAIL_MOTION_ACTIVE_RATIO:.0%}`"
+        f"- `Cover` (Pair Scores, motion windows above the idle p95): "
+        f"⚠️ `<{MIN_MOTION_COVERAGE_RATIO:.0%}`, "
+        f"❌ `<{FAIL_MOTION_COVERAGE_RATIO:.0%}`"
     )
     lines.append(
         f"- `Exc` (Presence/Empty/Long-recording, past median + "
         f"{BASELINE_EXCURSION_MADS:.0f} MAD): "
-        f"⚠️ `>{QUIET_TEST_CLASSIC_FP_WARN_RATIO:.0%}`, "
-        f"❌ `>{QUIET_TEST_CLASSIC_FP_FAIL_RATIO:.0%}`"
+        f"⚠️ `>{FEATURE_EXCURSION_WARN_RATIO:.0%}`, "
+        f"❌ `>{FEATURE_EXCURSION_FAIL_RATIO:.0%}`"
     )
     lines.append(
-        f"- `Tail` (Presence/Empty/Long-recording, q95 above own median in logits): "
+        f"- `Tail` (Pair/Presence/Empty/Long-recording, q95 above own median on the feature-evidence axis): "
         f"⚠️ `>{BASELINE_TAIL_WARN_LOGITS:.1f}`, "
         f"❌ `>{BASELINE_TAIL_FAIL_LOGITS:.1f}`"
     )
     if _has_empirical_metric(review_profiles, "pair", "separation"):
         lines.append(
-            "- `Sep` (Motion Scores): peer-relative empirical outlier threshold "
+            "- `Sep` (Pair Scores): peer-relative empirical outlier threshold "
             "derived from passing pairs in this run, per chip when enough "
             "references exist, otherwise global fallback"
         )
     else:
         lines.append(
-            f"- `Sep` (Motion Scores, idle/motion AUC): "
+            f"- `Sep` (Pair Scores, idle/motion AUC on feature evidence): "
             f"⚠️ `<{SEPARATION_WARN_BELOW:.3f}`, "
             f"❌ `<{SEPARATION_FAIL_BELOW:.3f}`"
         )
     if any(
         _has_empirical_metric(review_profiles, table_key, "burst")
-        for table_key in ("static_presence", "empty", "test")
+        for table_key in ("static_presence", "empty", "long_test")
     ):
         lines.append(
             "- `Burst` (Presence/Empty/Long-recording): peer-relative empirical "
@@ -3680,7 +3622,7 @@ def _generate_report(
         )
     if any(
         _has_empirical_metric(review_profiles, table_key, "q95")
-        for table_key in ("static_presence", "empty", "test")
+        for table_key in ("static_presence", "empty", "long_test")
     ):
         lines.append(
             "- `Q95` (Presence/Empty/Long-recording): exploratory peer-relative "
@@ -3695,7 +3637,7 @@ def _generate_report(
         )
     if any(
         _has_empirical_metric(review_profiles, table_key, "drift")
-        for table_key in ("static_presence", "empty", "test")
+        for table_key in ("static_presence", "empty", "long_test")
     ):
         lines.append(
             "- `Drift` (Presence/Empty/Long-recording): exploratory peer-relative "
@@ -3721,44 +3663,34 @@ def _generate_report(
         "- `RSSI`: median per-packet `rssi_dbm`; pair rows show `static_presence / motion`"
     )
     lines.append(
-        "- `FP` (Motion Scores): share of replayed `ClassicDetector` evaluation "
-        "ticks classified as motion on `static_presence` (false positives)"
-    )
-    lines.append(
-        "- `TP` (Motion Scores): share of replayed `ClassicDetector` evaluation "
-        "ticks classified as motion on `motion` (true positives)"
-    )
-    lines.append(
-        "- `FP` (Presence/Empty/Long-recording): `ClassicDetector` false-positive "
-        "share of evaluation ticks on a self-calibrated idle capture or "
-        "idle-only quiet long recording"
-    )
-    lines.append(
         "- `PPS`: observed packets per second from dataset metadata "
         "(`num_packets / duration_ms`); pair rows show `static_presence / motion`"
     )
     lines.append(
-        "- `Ratio`: `p95(motion) / threshold` on replayed `ClassicDetector` "
-        "probabilities"
+        "- `Cover` (Pair Scores): share of motion windows whose consensus "
+        "feature evidence rises above the idle half's own p95"
     )
     lines.append(
-        "- `Burst` (Presence/Empty/Long-recording): longest sustained activation "
-        "episode in seconds"
+        "- `Exc` (Presence/Empty/Long-recording): share of windows whose "
+        "feature evidence exceeds the capture's own median + 3 MAD"
     )
     lines.append(
-        "- `Q95` (Presence/Empty/Long-recording): 95th percentile of the post-bootstrap "
-        "logit margin `logit(probability) - logit(threshold)`"
+        "- `Sep`: rank-based AUC between idle and motion consensus feature-evidence series"
     )
     lines.append(
-        "- `Drift` (Presence/Empty/Long-recording): absolute difference between the "
-        "first-half and second-half median post-bootstrap logit margins"
+        "- `Burst`: longest sustained excursion episode in seconds"
     )
     lines.append(
-        "- `Score`: indicative 0-100 score from `ClassicDetector` replay, "
-        "tables sorted descending; on Presence/Empty/Long-recording it is the "
-        "self-calibrated idle score (0.7×cleanliness from `FP` + 0.3×burst_clean "
-        "from `Burst`); score is shown as an "
-        "absolute ranking value without soft review icons"
+        "- `Tail`: 95th percentile of the centered consensus feature-evidence series"
+    )
+    lines.append(
+        "- `Drift`: absolute difference between the first-half and second-half "
+        "median centered feature evidence"
+    )
+    lines.append(
+        "- `Score`: indicative 0-100 feature-space ranking; pair score blends "
+        "separation, motion coverage, and idle cleanliness, while idle score "
+        "blends tail cleanliness and burst length"
     )
 
     REPORT_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
@@ -3790,7 +3722,7 @@ Examples:
     parser.add_argument(
         '--no-cache',
         action='store_true',
-        help='Bypass persisted validation feature and idle-baseline artifacts for one run',
+        help='Bypass persisted time-aware ML rows for one run',
     )
     parser.add_argument(
         '--include-excluded-pairs',

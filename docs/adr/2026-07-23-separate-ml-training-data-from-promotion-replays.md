@@ -37,13 +37,14 @@ link-class policy, as one coherent protocol:
    derivative always shares the fold of its real source recording
    (`source_dataset` / `generation_group` read from the generated NPZ).
 2. **Dataset roles.** `dataset_info.json` entries carry
-   `dataset_role: train | selection | holdout | exclude` (default `train`).
-   Training consumes `train` recordings only. `selection` replays (paired and
-   quiet `empty`, replayed at production cadence with runtime hit filtering)
-   gate candidate selection. `holdout` recordings stay sealed through the
-   entire search and are evaluated exactly once, on the chosen winner.
-   `exclude` keeps a dataset indexed while removing it from the current
-   promotion workflow.
+   `dataset_role: train | selection | holdout | exclude` (default `exclude`).
+   Admission is explicit, so a newly cataloged or incomplete recording cannot
+   silently enter training or a replay gate. Training consumes `train`
+   recordings only. `selection` replays (paired and quiet `empty`, replayed at
+   production cadence with runtime hit filtering) gate candidate selection.
+   `holdout` recordings stay sealed through the entire search and are evaluated
+   exactly once, on the chosen winner. `exclude` keeps a dataset indexed while
+   removing it from the current promotion workflow.
 3. **Safety-first robust ranking.** Deployment replays are absolute safety
    gates; among safe candidates, grouped-CV worst and worst-five-tail session
    metrics lead ranking, with one-changed-evaluation equivalence margins.

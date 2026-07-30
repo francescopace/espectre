@@ -1,7 +1,8 @@
 # ADR: separate dataset admission from Classic diagnostics
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-07-17
+- Superseded by: `2026-07-29-make-dataset-quality-review-detector-agnostic.md`
 
 ## Context
 

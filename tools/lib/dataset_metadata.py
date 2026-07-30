@@ -15,7 +15,17 @@ from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Collection,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from .bootstrap import setup_paths
 from .repo_paths import data_dir
@@ -56,8 +66,39 @@ except ImportError:  # pragma: no cover
 
 
 DATASET_FORMAT_VERSION = "1.2"
+ADMITTED_DATASET_ROLES = frozenset({"train", "selection", "holdout"})
+DATASET_ROLES = ADMITTED_DATASET_ROLES | {"exclude"}
+DEFAULT_DATASET_ROLE = "exclude"
 DATA_DIR = data_dir()
 DATASET_INFO_FILE = DATA_DIR / "dataset_info.json"
+
+
+def dataset_role(entry: Mapping[str, Any]) -> str:
+    """Return one normalized role, defaulting unclassified entries to exclude."""
+    role = str(entry.get("dataset_role", DEFAULT_DATASET_ROLE)).strip().lower()
+    return role or DEFAULT_DATASET_ROLE
+
+
+def admitted_dataset_role(
+    entry: Mapping[str, Any],
+    admitted_roles: Collection[str] = ADMITTED_DATASET_ROLES,
+) -> Optional[str]:
+    """Return an admitted role, or None for missing, excluded, or invalid roles."""
+    role = dataset_role(entry)
+    return role if role in admitted_roles else None
+
+
+def paired_dataset_role(
+    first: Mapping[str, Any],
+    second: Mapping[str, Any],
+    admitted_roles: Collection[str] = ADMITTED_DATASET_ROLES,
+) -> Optional[str]:
+    """Return the shared admitted role of a pair, or None when it is unsafe."""
+    first_role = admitted_dataset_role(first, admitted_roles)
+    second_role = admitted_dataset_role(second, admitted_roles)
+    if first_role is None or first_role != second_role:
+        return None
+    return first_role
 
 
 @dataclass(frozen=True)

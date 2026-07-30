@@ -25,67 +25,70 @@ def _load_validator_module():
     return module
 
 
-def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> None:
+def test_empty_and_static_use_independent_feature_baselines(monkeypatch) -> None:
     module = _load_validator_module()
 
     dataset_info = {
         "files": {
             "empty": [
-                {"filename": "empty_a.npz", "chip": "C5", "environment": "bedroom"},
+                {
+                    "filename": "empty_a.npz",
+                    "chip": "C5",
+                    "environment": "bedroom",
+                    "dataset_role": "train",
+                },
             ],
             "static_presence": [
                 {
                     "filename": "static_a.npz",
                     "chip": "C5",
                     "environment": "bedroom",
+                    "dataset_role": "train",
                 },
             ],
         }
     }
 
-    empty_csi = np.zeros((4, 128), dtype=np.int8)
-    static_csi = np.ones((4, 128), dtype=np.int8)
-
-    def fake_resolve(entry, label):
-        return Path(f"/tmp/{entry['filename']}")
-
-    def fake_load(path, npz_cache):
-        csi = empty_csi if path.name.startswith("empty") else static_csi
-        return {"csi_data": csi}, "csi_data"
-
-    def fake_stats(csi_data, packet_rate_pps=100.0, *, rssi_dbm=None, calibration_cache=None, cache_key=None):
-        assert packet_rate_pps == 100.0
-        assert rssi_dbm is None
-        if csi_data is empty_csi:
-            margins = np.array([-0.5, 0.0, -0.5, 0.5])
-            threshold = 0.3
-            motion_count = 0
-        else:
-            # A tall upper tail above this capture's own median is what marks it
-            # as contaminated now; the threshold plays no part.
-            margins = np.array([0.0, 0.0, 0.0, 8.0])
-            threshold = 0.6
-            motion_count = 2
-        median = float(np.median(margins))
-        return {
-            "threshold": threshold,
-            "eval_count": len(margins),
-            "motion_count": motion_count,
-            "fp_rate": motion_count / len(margins),
-            "margin_median": median,
-            "margin_mad": float(np.median(np.abs(margins - median))),
-            "margin_q95": float(np.quantile(margins, 0.95)) - median,
-            "margin_q99": float(np.quantile(margins, 0.99)) - median,
+    baselines = {
+        "empty_a.npz": {
+            "packet_rate_pps": 100.0,
+            "eval_count": 4,
+            "motion_count": 0,
+            "fp_rate": 0.0,
+            "margin_median": 0.0,
+            "margin_mad": 0.1,
+            "margin_q95": 0.5,
+            "margin_q99": 0.5,
             "margin_drift": 0.0,
             "margin_drift_abs": 0.0,
-            "margin_series": margins,
-            "block_margins": np.array([median]),
-            "burst_count": motion_count,
+            "margin_series": np.array([-0.5, 0.0, -0.5, 0.5]),
+            "block_margins": np.array([0.0]),
+            "burst_count": 0,
+            "bursts_per_minute": 0.0,
+            "longest_burst_seconds": 0.0,
+            "eval_seconds": 1.0,
+            "score": 100.0,
+        },
+        "static_a.npz": {
+            "packet_rate_pps": 100.0,
+            "eval_count": 4,
+            "motion_count": 2,
+            "fp_rate": 0.5,
+            "margin_median": 0.0,
+            "margin_mad": 0.1,
+            "margin_q95": 7.6,
+            "margin_q99": 7.9,
+            "margin_drift": 0.0,
+            "margin_drift_abs": 0.0,
+            "margin_series": np.array([0.0, 0.0, 0.0, 8.0]),
+            "block_margins": np.array([0.0]),
+            "burst_count": 2,
             "bursts_per_minute": 0.0,
             "longest_burst_seconds": 0.0,
             "eval_seconds": 1.0,
             "score": 0.0,
-        }
+        },
+    }
 
     def fake_idle_evidence(entry, label, use_cache=True):
         del label, use_cache
@@ -101,8 +104,6 @@ def test_empty_and_static_use_independent_classic_calibration(monkeypatch) -> No
 
     assert empty_result.status == "PASS"
     assert presence_result.status == "WARN"
-    assert empty_rows[0]["baseline"]["threshold"] == pytest.approx(0.3)
-    assert presence_rows[0]["baseline"]["threshold"] == pytest.approx(0.6)
     assert empty_rows[0]["baseline"]["fp_rate"] == 0.0
     assert presence_rows[0]["baseline"]["fp_rate"] == 0.5
     assert empty_rows[0]["verdict"] == "clean"
@@ -115,8 +116,8 @@ def test_classic_baseline_score_weights_tail_height_and_bursts() -> None:
     # The first argument is the capture's own q95 above its own median, in
     # logits, so the score no longer moves with the calibrated threshold.
     assert module.classic_baseline_score(2.0, 0.0) == 100.0
-    assert module.classic_baseline_score(6.0, 5.0) == 0.0
-    assert module.classic_baseline_score(4.0, 2.5) == 50.0
+    assert module.classic_baseline_score(6.0, 120.0) == 0.0
+    assert module.classic_baseline_score(4.0, 60.0) == 50.0
 
     # A uniformly noisy capture must not score well. This is what an excursion
     # rate normalized by the capture's own spread would have missed, because a
@@ -271,7 +272,7 @@ def test_empty_and_presence_verdicts_use_classic_baseline_only() -> None:
     # clean data when its own tail is low.
     assert module._empty_quality_verdict(dict(baseline, fp_rate=0.9)) == "clean"
 
-    unstable_baseline = dict(baseline, margin_mad=1.25, longest_burst_seconds=2.0)
+    unstable_baseline = dict(baseline, margin_mad=1.25, longest_burst_seconds=40.0)
     assert module._empty_quality_verdict(unstable_baseline) == "unstable"
     assert module._presence_quality_verdict(unstable_baseline) == "unstable"
 
@@ -296,6 +297,7 @@ def test_refresh_metadata_respects_chip_filter() -> None:
                     "collected_at": "2026-07-12T10:00:00.000000",
                     "duration_ms": 4000,
                     "num_packets": 2000,
+                    "dataset_role": "train",
                 },
                 {
                     "filename": "static_presence_c6_64sc_dev2_20260712_100000_0001.npz",
@@ -303,6 +305,7 @@ def test_refresh_metadata_respects_chip_filter() -> None:
                     "subcarriers": 64,
                     "collected_at": "2026-07-12T10:00:00.000000",
                     "optimal_pair_motion_file": "keep_motion.npz",
+                    "dataset_role": "train",
                 },
             ],
             "motion": [
@@ -313,6 +316,7 @@ def test_refresh_metadata_respects_chip_filter() -> None:
                     "collected_at": "2026-07-12T10:05:00.000000",
                     "duration_ms": 4000,
                     "num_packets": 2000,
+                    "dataset_role": "train",
                 },
                 {
                     "filename": "motion_c6_64sc_dev2_20260712_100500_0001.npz",
@@ -320,6 +324,7 @@ def test_refresh_metadata_respects_chip_filter() -> None:
                     "subcarriers": 64,
                     "collected_at": "2026-07-12T10:05:00.000000",
                     "optimal_pair_static_presence_file": "keep_static.npz",
+                    "dataset_role": "train",
                 },
             ],
         },
@@ -365,6 +370,7 @@ def test_refresh_metadata_never_pairs_real_with_synthetic(
                     "chip": "C3",
                     "subcarriers": 64,
                     "collected_at": "2026-07-22T10:00:00",
+                    "dataset_role": "train",
                 },
                 {
                     "filename": "synthetic_static.npz",
@@ -372,6 +378,7 @@ def test_refresh_metadata_never_pairs_real_with_synthetic(
                     "subcarriers": 64,
                     "collected_at": "2026-07-22T10:00:00",
                     "synthetic": True,
+                    "dataset_role": "train",
                 },
             ],
             "motion": [
@@ -380,6 +387,7 @@ def test_refresh_metadata_never_pairs_real_with_synthetic(
                     "chip": "C3",
                     "subcarriers": 64,
                     "collected_at": "2026-07-22T10:01:00",
+                    "dataset_role": "train",
                 },
                 {
                     "filename": "synthetic_motion.npz",
@@ -387,6 +395,7 @@ def test_refresh_metadata_never_pairs_real_with_synthetic(
                     "subcarriers": 64,
                     "collected_at": "2026-07-22T10:01:00",
                     "synthetic": True,
+                    "dataset_role": "train",
                 },
             ],
         }
@@ -424,6 +433,32 @@ def test_metadata_completeness_skips_excluded_entries() -> None:
     assert all("excluded_static.npz" not in result.name for result in results)
 
 
+def test_metadata_completeness_rejects_missing_dataset_role() -> None:
+    module = _load_validator_module()
+    dataset_info = {
+        "files": {
+            "empty": [
+                {
+                    "filename": "unclassified_empty.npz",
+                    "chip": "C3",
+                },
+            ],
+        }
+    }
+
+    assert module._dataset_role(dataset_info["files"]["empty"][0]) == "exclude"
+
+    results = module.validate_metadata_completeness(dataset_info)
+    missing_role = next(
+        result
+        for result in results
+        if result.name == "metadata_empty/unclassified_empty.npz"
+    )
+
+    assert missing_role.status == "FAIL"
+    assert "missing dataset_role" in missing_role.message
+
+
 def test_run_validation_refresh_metadata_writes_dataset_info(monkeypatch, tmp_path) -> None:
     module = _load_validator_module()
 
@@ -439,7 +474,8 @@ def test_run_validation_refresh_metadata_writes_dataset_info(monkeypatch, tmp_pa
         "chip": "C3",
         "subcarriers": 64,
         "collected_at": "2026-07-12T10:00:00.000000",
-        "environment": "lab"
+        "environment": "lab",
+        "dataset_role": "train"
       }
     ],
     "motion": [
@@ -448,7 +484,8 @@ def test_run_validation_refresh_metadata_writes_dataset_info(monkeypatch, tmp_pa
         "chip": "C3",
         "subcarriers": 64,
         "collected_at": "2026-07-12T10:05:00.000000",
-        "environment": "lab"
+        "environment": "lab",
+        "dataset_role": "train"
       }
     ]
   }
@@ -498,6 +535,7 @@ def test_run_validation_refresh_metadata_skips_write_when_unchanged(monkeypatch,
         "subcarriers": 64,
         "collected_at": "2026-07-12T10:00:00.000000",
         "environment": "lab",
+        "dataset_role": "train",
         "optimal_pair_motion_file": "motion_c3_64sc_dev1_20260712_100500_0001.npz"
       }
     ],
@@ -508,6 +546,7 @@ def test_run_validation_refresh_metadata_skips_write_when_unchanged(monkeypatch,
         "subcarriers": 64,
         "collected_at": "2026-07-12T10:05:00.000000",
         "environment": "lab",
+        "dataset_role": "train",
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev1_20260712_100000_0001.npz"
       }
     ]
@@ -548,27 +587,19 @@ def test_run_validation_refresh_metadata_skips_write_when_unchanged(monkeypatch,
 def test_validation_feature_matrix_bypasses_persisted_cache_when_disabled(monkeypatch) -> None:
     module = _load_validator_module()
 
-    monkeypatch.setattr(
-        module.npz_cache,
-        "load_feature_matrix_artifact",
-        lambda *_args, **_kwargs: pytest.fail("feature cache load should be bypassed"),
-    )
-    monkeypatch.setattr(
-        module.npz_cache,
-        "save_feature_matrix_artifact",
-        lambda *_args, **_kwargs: pytest.fail("feature cache save should be bypassed"),
-    )
-    monkeypatch.setattr(module, "load_npz_packet_view", lambda *_args, **_kwargs: ("pkt",))
-    monkeypatch.setattr(
-        module,
-        "_feature_matrix_packets",
-        lambda packets, *, feature_names=None: (
-            np.asarray(
-                [np.arange(1, len(feature_names or module.VALIDATION_FEATURE_NAMES) + 1, dtype=np.float64)]
+    calls = []
+
+    def fake_load_rows(_path, **kwargs):
+        calls.append(kwargs)
+        feature_names = tuple(kwargs["feature_names"])
+        return {
+            "X": np.asarray(
+                [np.arange(1, len(feature_names) + 1, dtype=np.float32)]
             ),
-            tuple(feature_names or module.VALIDATION_FEATURE_NAMES),
-        ),
-    )
+            "feature_names": list(feature_names),
+        }
+
+    monkeypatch.setattr(module, "load_or_compute_ml_replay_rows", fake_load_rows)
 
     matrix, feature_names = module._load_or_compute_validation_feature_matrix(
         Path("demo.npz"),
@@ -580,11 +611,14 @@ def test_validation_feature_matrix_bypasses_persisted_cache_when_disabled(monkey
     )
     np.testing.assert_allclose(matrix, expected)
     assert feature_names == tuple(module.VALIDATION_FEATURE_NAMES)
+    assert calls[0]["sample_contract"] == "stream_dense"
+    assert calls[0]["use_cache"] is False
 
 
-def test_idle_evidence_bypasses_persisted_cache_when_disabled(monkeypatch) -> None:
+def test_idle_evidence_is_derived_from_time_aware_rows(monkeypatch) -> None:
     module = _load_validator_module()
 
+    row_cache_calls = []
     entry = {
         "filename": "empty_demo.npz",
         "chip": "C3",
@@ -598,23 +632,18 @@ def test_idle_evidence_bypasses_persisted_cache_when_disabled(monkeypatch) -> No
         "_resolve_dataset_entry_path",
         lambda *_args, **_kwargs: Path("empty_demo.npz"),
     )
-    monkeypatch.setattr(
-        module.npz_cache,
-        "load_idle_baseline_artifact",
-        lambda *_args, **_kwargs: pytest.fail("idle-baseline load should be bypassed"),
-    )
-    monkeypatch.setattr(
-        module.npz_cache,
-        "save_idle_baseline_artifact",
-        lambda *_args, **_kwargs: pytest.fail("idle-baseline save should be bypassed"),
-    )
+
+    def fake_load_feature_matrix(*_args, **kwargs):
+        row_cache_calls.append(kwargs)
+        return (
+            np.asarray([[0.0], [1.0], [2.0], [3.0]], dtype=np.float64),
+            tuple(module.VALIDATION_FEATURE_NAMES),
+        )
+
     monkeypatch.setattr(
         module,
         "_load_or_compute_validation_feature_matrix",
-        lambda *_args, **_kwargs: (
-            np.asarray([[0.0], [1.0], [2.0], [3.0]], dtype=np.float64),
-            tuple(module.VALIDATION_FEATURE_NAMES),
-        ),
+        fake_load_feature_matrix,
     )
     monkeypatch.setattr(
         module,
@@ -630,12 +659,18 @@ def test_idle_evidence_bypasses_persisted_cache_when_disabled(monkeypatch) -> No
     baseline, median_rssi, error = module._compute_idle_evidence_for_entry(
         entry,
         "empty",
-        use_cache=False,
+        use_cache=True,
     )
 
     assert error is None
     assert baseline is not None
     assert median_rssi == pytest.approx(-78.5)
+    assert row_cache_calls == [
+        {
+            "feature_names": tuple(module.VALIDATION_FEATURE_NAMES),
+            "use_cache": True,
+        }
+    ]
 
 
 def test_per_file_quality_labels_include_test_recordings() -> None:
@@ -653,7 +688,13 @@ def test_ml_readiness_uses_empty_as_idle_and_warmup_per_file() -> None:
     dataset_info = {
         "files": {
             "empty": [
-                {"filename": "empty.npz", "chip": "C3", "environment": "bedroom", "num_packets": 200},
+                {
+                    "filename": "empty.npz",
+                    "chip": "C3",
+                    "environment": "bedroom",
+                    "num_packets": 200,
+                    "dataset_role": "train",
+                },
             ],
             "static_presence": [
                 {
@@ -661,6 +702,7 @@ def test_ml_readiness_uses_empty_as_idle_and_warmup_per_file() -> None:
                     "chip": "C3",
                     "environment": "bedroom",
                     "num_packets": 300,
+                    "dataset_role": "train",
                     "optimal_pair_motion_file": "motion.npz",
                 },
             ],
@@ -670,6 +712,7 @@ def test_ml_readiness_uses_empty_as_idle_and_warmup_per_file() -> None:
                     "chip": "C3",
                     "environment": "bedroom",
                     "num_packets": 400,
+                    "dataset_role": "train",
                     "optimal_pair_static_presence_file": "static.npz",
                 },
             ],
@@ -689,13 +732,33 @@ def test_ml_readiness_respects_chip_filter() -> None:
     dataset_info = {
         "files": {
             "empty": [
-                {"filename": "empty_c3.npz", "chip": "C3", "num_packets": 200},
-                {"filename": "empty_c6.npz", "chip": "C6", "num_packets": 900},
+                {
+                    "filename": "empty_c3.npz",
+                    "chip": "C3",
+                    "num_packets": 200,
+                    "dataset_role": "train",
+                },
+                {
+                    "filename": "empty_c6.npz",
+                    "chip": "C6",
+                    "num_packets": 900,
+                    "dataset_role": "train",
+                },
             ],
             "static_presence": [],
             "motion": [
-                {"filename": "motion_c3.npz", "chip": "C3", "num_packets": 200},
-                {"filename": "motion_c6.npz", "chip": "C6", "num_packets": 900},
+                {
+                    "filename": "motion_c3.npz",
+                    "chip": "C3",
+                    "num_packets": 200,
+                    "dataset_role": "train",
+                },
+                {
+                    "filename": "motion_c6.npz",
+                    "chip": "C6",
+                    "num_packets": 900,
+                    "dataset_role": "train",
+                },
             ],
         }
     }
@@ -711,7 +774,12 @@ def test_ml_readiness_skips_excluded_entries() -> None:
     dataset_info = {
         "files": {
             "empty": [
-                {"filename": "empty_train.npz", "chip": "C3", "num_packets": 200},
+                {
+                    "filename": "empty_train.npz",
+                    "chip": "C3",
+                    "num_packets": 200,
+                    "dataset_role": "train",
+                },
             ],
             "static_presence": [
                 {
@@ -758,7 +826,8 @@ def test_run_validation_skips_excluded_files_in_directory_scan(
         "chip": "C3",
         "subcarriers": 64,
         "collected_at": "2026-07-12T10:00:00.000000",
-        "environment": "lab"
+        "environment": "lab",
+        "dataset_role": "train"
       },
       {
         "filename": "excluded_static.npz",
@@ -898,6 +967,7 @@ def test_long_recording_coverage_warns_without_annotated_motion() -> None:
                     "collected_at": "2026-07-04T11:23:18.928039",
                     "environment": "bedroom",
                     "long_recording": True,
+                    "dataset_role": "selection",
                 },
             ],
         }
@@ -951,6 +1021,7 @@ def test_metadata_completeness_fails_when_environment_is_missing() -> None:
                 {
                     "filename": "static_a.npz",
                     "chip": "C5",
+                    "dataset_role": "train",
                     "optimal_pair_motion_file": "motion_a.npz",
                 },
             ],
@@ -959,6 +1030,7 @@ def test_metadata_completeness_fails_when_environment_is_missing() -> None:
                     "filename": "motion_a.npz",
                     "chip": "C5",
                     "environment": "bedroom",
+                    "dataset_role": "train",
                     "optimal_pair_static_presence_file": "static_a.npz",
                 },
             ],
@@ -1218,8 +1290,8 @@ def test_ratio_cells_mark_soft_warn_and_fail_thresholds() -> None:
     assert module._format_margin_mad_cell(1.60) == "1.60"
     assert module._format_packet_rate_cell(93.2) == "93.2"
     assert module._format_burst_cell(0.5) == "0.5s"
-    assert "⚠️" in module._format_burst_cell(1.5)
-    assert "❌" in module._format_burst_cell(5.5)
+    assert "⚠️" in module._format_burst_cell(35.0)
+    assert "❌" in module._format_burst_cell(125.0)
     assert module._format_margin_q95_cell(-0.20) == "-0.20"
     assert module._format_margin_drift_cell(0.20) == "0.20"
     assert module._score_value_severity(95.0) is None
@@ -1265,7 +1337,7 @@ def test_idle_evidence_results_never_fail_the_run() -> None:
         "margin_q95": 0.8,
         "margin_drift": 0.6,
         "margin_drift_abs": 0.6,
-        "longest_burst_seconds": 30.0,
+        "longest_burst_seconds": 150.0,
     }
     module._compute_idle_evidence_for_entry = (
         lambda entry, label, use_cache=True: (
@@ -1485,3 +1557,73 @@ def test_idle_score_row_reports_basis_and_alternative_metrics() -> None:
     assert rendered.startswith("| S3 | bedroom |")
     assert "| 93.2 |" in rendered
     assert "⚠️" in rendered
+
+
+def test_generate_report_uses_agnostic_wording(tmp_path, monkeypatch) -> None:
+    module = _load_validator_module()
+    report_path = tmp_path / "DATASET_QUALITY_CHECK.md"
+    monkeypatch.setattr(module, "REPORT_OUTPUT", report_path)
+    monkeypatch.setattr(
+        module.dataset_metadata, "dataset_info_revision", lambda path: "deadbeef"
+    )
+
+    pair_row = {
+        "chip": "C3",
+        "environment": "bedroom",
+        "static_presence": "static.npz",
+        "motion": "motion.npz",
+        "static_date": "2026-07-29 00:55",
+        "motion_date": "2026-07-29 00:57",
+        "static_rssi_dbm": -82.0,
+        "motion_rssi_dbm": -83.0,
+        "static_packet_rate_pps": 100.6,
+        "motion_packet_rate_pps": 100.2,
+        "motion_coverage": 0.995,
+        "pair_separation": 0.9990,
+        "idle_tail": 1.32,
+        "feature_score": 100.0,
+        "status": "PASS",
+    }
+    idle_row = {
+        "chip": "C3",
+        "environment": "bedroom",
+        "filename": "idle.npz",
+        "display_date": "2026-07-29 00:55",
+        "rssi_dbm": -82.0,
+        "baseline": {
+            "score": 96.0,
+            "packet_rate_pps": 100.6,
+            "fp_rate": 0.02,
+            "margin_mad": 0.50,
+            "margin_q95": 1.20,
+            "margin_drift": 0.10,
+            "margin_drift_abs": 0.10,
+            "longest_burst_seconds": 10.0,
+        },
+        "verdict": "clean",
+    }
+    results = [
+        module.ValidationResult(
+            "pair_feature_quality", "PASS", "ok", domain="feature_space"
+        )
+    ]
+
+    module._generate_report(
+        [pair_row],
+        results,
+        [idle_row],
+        [idle_row],
+        [idle_row],
+        [pair_row],
+        review_profiles={},
+    )
+
+    report = report_path.read_text(encoding="utf-8")
+    assert "## Pair Scores" in report
+    assert "## Excluded Pair Diagnostics" in report
+    assert "`Cover`" in report
+    assert "`Sep`" in report
+    assert "ClassicDetector" not in report
+    assert "| Threshold |" not in report
+    assert "`TP`" not in report
+    assert "`Ratio`" not in report
