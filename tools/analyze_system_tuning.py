@@ -28,18 +28,16 @@ from tools.lib.bootstrap import setup_paths  # noqa: F401
 from tools.lib.csi_io import load_npz_as_packets
 from tools.lib.dataset_metadata import resolve_explicit_pair, select_dataset_interactively
 from classic_detector import ClassicDetector
-from detector_interface import MotionState
 from config import (
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
     ENABLE_LOWPASS_FILTER,
-    EVALUATION_INTERVAL,
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
     LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
-from runtime_policy import make_evaluation_cadence
+from tools.lib.performance_report import evaluate_detector_packets
 
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 0.5
@@ -96,11 +94,6 @@ def _score_configuration(fp, tp, static_presence_count, motion_count):
     )
 
 
-def _is_motion_state(state):
-    """Accept the shared integer state contract and legacy string-like states."""
-    return state == MotionState.MOTION or str(state).upper() == "MOTION"
-
-
 def _evaluate_classic_configuration(static_presence_packets, motion_packets, threshold, window_size):
     """
     Evaluate one ClassicDetector configuration without resetting between phases.
@@ -119,35 +112,19 @@ def _evaluate_classic_configuration(static_presence_packets, motion_packets, thr
         hampel_threshold=HAMPEL_THRESHOLD,
     )
 
-    fp = 0
-    baseline_evals = 0
-    cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
-    for i, pkt in enumerate(static_presence_packets):
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
-        if not cadence.note_evaluation_tick():
-            continue
-        detector.update_state()
-        if i < window_size:
-            continue
-        baseline_evals += 1
-        if _is_motion_state(detector.get_state()):
-            fp += 1
-
-    tp = 0
-    motion_evals = 0
-    cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
-    for i, pkt in enumerate(motion_packets):
-        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
-        if not cadence.note_evaluation_tick():
-            continue
-        detector.update_state()
-        if i < window_size:
-            continue
-        motion_evals += 1
-        if _is_motion_state(detector.get_state()):
-            tp += 1
-
-    return fp, tp, baseline_evals, motion_evals
+    metrics = evaluate_detector_packets(
+        detector,
+        static_presence_packets,
+        motion_packets,
+        DEFAULT_SUBCARRIERS,
+        warmup=window_size,
+    )
+    return (
+        int(metrics["fp"]),
+        int(metrics["tp"]),
+        int(metrics["num_baseline"]),
+        int(metrics["num_movement"]),
+    )
 
 
 def load_dataset(chip="C6", dataset=None, interactive=False):

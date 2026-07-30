@@ -2,7 +2,8 @@
 """
 ESPectre - Classic Detector Coefficient Fit
 
-Refits the Classic detector's weighted `l1_delta + turb_autocorr` fusion and
+Refits the Classic detector's weighted `turb_autocorr +
+chan_freq_coh_curve_std` fusion and
 exports the constants consumed by both runtimes.
 
 The fit follows the recipe recorded alongside the previous coefficients: a
@@ -49,7 +50,12 @@ from tools.lib.dataset_metadata import (  # noqa: E402
     derive_detector_timing,
     load_dataset_info,
     measure_packet_interval_us,
+    paired_dataset_role,
     resolve_entry_path,
+)
+from tools.lib.performance_report import (  # noqa: E402
+    note_evaluation_tick,
+    timing_cadence_for_window,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -72,12 +78,16 @@ def iter_training_pairs() -> List[Dict[str, Any]]:
 
     pairs: List[Dict[str, Any]] = []
     for static_entry in files["static_presence"]:
-        role = static_entry.get("dataset_role")
-        if role not in FITTED_ROLES:
-            continue
         motion_name = static_entry.get("optimal_pair_motion_file")
         motion_entry = motion_by_name.get(motion_name) if motion_name else None
-        if motion_entry is None or motion_entry.get("dataset_role") == "exclude":
+        if (
+            motion_entry is None
+            or paired_dataset_role(
+                static_entry,
+                motion_entry,
+                admitted_roles=FITTED_ROLES,
+            ) is None
+        ):
             continue
         pairs.append(
             {
@@ -122,20 +132,40 @@ def extract_window_features(
         autocorr_lag=timing["autocorr_lag"],
     )
     window = timing["window_packets"]
-    cadence = max(1, timing["evaluation_interval"])
+    timing_tracker, cadence = timing_cadence_for_window(
+        window,
+        measure_packet_interval_us(packets),
+    )
     rows: List[Tuple[float, float]] = []
     deoverlapped: List[bool] = []
-    since_evaluation = 0
     since_window = 0
     for packet in packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence,
+            packet=packet,
+            timing_tracker=timing_tracker,
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence,
+                packet=packet,
+                timing_tracker=timing_tracker,
+            )
+            since_window = 0
         detector.process_packet(packet["csi_data"], selected_band)
-        since_evaluation += 1
         since_window += 1
-        if since_evaluation < cadence or not detector.is_ready():
+        if not should_evaluate or not detector.is_ready():
             continue
-        since_evaluation = 0
         metrics = detector.update_state()
-        rows.append((metrics["lag_ratio"], metrics["turb_autocorr"]))
+        rows.append(
+            (
+                metrics["turb_autocorr"],
+                metrics["chan_freq_coh_curve_std"],
+            )
+        )
         deoverlapped.append(since_window >= window)
         if since_window >= window:
             since_window = 0

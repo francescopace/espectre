@@ -64,6 +64,11 @@ try:
         normalize_detector_algorithm,
     )
     from ml_detector import ML_DEFAULT_THRESHOLD
+    from runtime_policy import (
+        PacketTimingTracker,
+        make_evaluation_cadence,
+        nominal_packet_interval_us,
+    )
     from threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
@@ -76,6 +81,11 @@ except ImportError:
         normalize_detector_algorithm,
     )
     from src.ml_detector import ML_DEFAULT_THRESHOLD
+    from src.runtime_policy import (
+        PacketTimingTracker,
+        make_evaluation_cadence,
+        nominal_packet_interval_us,
+    )
     from src.threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
@@ -973,18 +983,7 @@ class CSIReceiver:
         if not quiet:
             print(f"CSI Receiver listening on {self.bind_host}:{self.port}")
             print(f"Buffer size: {self.buffer_size} packets")
-            if self.effective_socket_rcvbuf_bytes is not None:
-                print(
-                    f"Socket RCVBUF: requested {self.socket_rcvbuf_bytes} bytes, "
-                    f"effective {self.effective_socket_rcvbuf_bytes} bytes"
-                )
             print("Waiting for data...\n")
-        elif announce_socket_rcvbuf and self.effective_socket_rcvbuf_bytes is not None:
-            print(
-                f"  Socket RCVBUF: requested {self.socket_rcvbuf_bytes} bytes, "
-                f"effective {self.effective_socket_rcvbuf_bytes} bytes"
-            )
-            print()
 
         self.running = True
         self.start_time = time.time()
@@ -1068,7 +1067,22 @@ class CollectionDetectorGate:
     def __init__(self, algorithm: str):
         self.algorithm = normalize_detector_algorithm(algorithm)
         self.window_size = self.default_window_size()
-        self.evaluation_interval = max(1, int(getattr(config, "EVALUATION_INTERVAL", 25)))
+        self.nominal_interval_us = nominal_packet_interval_us(self.window_size)
+        self.timing_tracker = PacketTimingTracker(self.nominal_interval_us)
+        self.cadence = make_evaluation_cadence(
+            max(1, int(getattr(config, "EVALUATION_INTERVAL", 25))),
+            evaluation_interval_us=max(
+                1,
+                int(
+                    getattr(
+                        config,
+                        "EVALUATION_INTERVAL_US",
+                        self.nominal_interval_us
+                        * max(1, int(getattr(config, "EVALUATION_INTERVAL", 25))),
+                    )
+                ),
+            ),
+        )
         self.needs_calibration = detector_needs_startup_calibration(self.algorithm)
         initial_threshold = self.initial_threshold(self.algorithm)
         detector_class = load_detector_class(self.algorithm)
@@ -1090,25 +1104,42 @@ class CollectionDetectorGate:
             if self.needs_calibration
             else None
         )
-        self._packets_since_evaluation = 0
         self.calibrated = not self.needs_calibration
         self.current_metric = 0.0
         self.current_threshold = float(self.detector.get_threshold())
 
-    def process_packet(self, csi_data) -> None:
+    def process_packet(self, packet) -> None:
+        csi_data = getattr(packet, "iq_raw", packet)
+        timing_packet = {
+            "seq_num": getattr(packet, "seq_num", None),
+            "device_ticks_us": getattr(packet, "device_ticks_us", None),
+            "wifi_rx_ts_us": getattr(packet, "wifi_rx_ts_us", None),
+        }
+        timing = self.timing_tracker.observe_packet(timing_packet)
+        if timing["contaminated"]:
+            self.detector.reset()
+            self.cadence.reset()
+            self.timing_tracker.reset()
+            timing = self.timing_tracker.observe_packet(timing_packet)
         self.detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
-        self._packets_since_evaluation += 1
-        if self._packets_since_evaluation < self.evaluation_interval:
+        self.cadence.note_packet(elapsed_us=timing["coverage_us"])
+        if not self.cadence.should_evaluate():
             return
+        packet_weight = self.cadence.equivalent_packets_since_evaluation(
+            self.nominal_interval_us
+        )
+        self.cadence.after_evaluation()
 
         metrics = self.detector.update_state()
-        self._packets_since_evaluation = 0
         self.current_metric = float(metrics.get("motion_metric", self.detector.get_motion_metric()))
         self.current_threshold = float(metrics.get("threshold", self.detector.get_threshold()))
 
         if self.calibrator is None or self.calibrated:
             return
-        self.calibrator.observe_detector(self.detector, packet_weight=self.evaluation_interval)
+        self.calibrator.observe_detector(
+            self.detector,
+            packet_weight=packet_weight,
+        )
         if not self.calibrator.is_complete():
             return
         self.calibrated = self.calibrator.is_successful()
@@ -1407,7 +1438,7 @@ class CSICollector:
             state["last_seq"] = packet.seq_num
 
         detector = state["detector"]
-        detector.process_packet(packet.iq_raw)
+        detector.process_packet(packet)
         state["processed_packets"] += 1
         state["current_metric"] = detector.current_metric
         state["current_threshold"] = detector.current_threshold

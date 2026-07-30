@@ -33,12 +33,15 @@ from tools.lib.dataset_metadata import (
     DATA_DIR,
     estimate_runtime_threshold,
     load_dataset_info,
+    measure_packet_interval_us,
     resolve_explicit_pair,
     select_dataset_interactively,
 )
 from tools.lib.performance_report import (
     get_available_long_test_dataset_specs,
     load_long_test_dataset,
+    note_evaluation_tick,
+    timing_cadence_for_window,
 )
 from tools.lib.ui import show_plot_window
 from config import (
@@ -46,9 +49,7 @@ from config import (
     ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
     ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF,
     DEFAULT_SUBCARRIERS,
-    EVALUATION_INTERVAL,
 )
-from runtime_policy import make_evaluation_cadence
 from filters import HampelFilter, LowPassFilter
 from threshold import DEFAULT_ADAPTIVE_FACTOR, calculate_startup_threshold_from_max
 from classic_detector import ClassicDetector
@@ -222,7 +223,7 @@ def compute_method_results(methods, method_thresholds):
 class ClassicDetectorAdapter:
     """Compatibility wrapper around the production ClassicDetector."""
 
-    def __init__(self, window_size=SEG_WINDOW_SIZE, threshold=1.0, track_data=False):
+    def __init__(self, packets, window_size=SEG_WINDOW_SIZE, threshold=1.0, track_data=False):
         self._detector = ClassicDetector(
             window_size=window_size,
             threshold=threshold,
@@ -233,14 +234,31 @@ class ClassicDetectorAdapter:
             hampel_threshold=HAMPEL_THRESHOLD,
         )
         self._track_data = bool(track_data)
-        self._cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
+        self._timing_tracker, self._cadence = timing_cadence_for_window(
+            window_size,
+            measure_packet_interval_us(packets),
+        )
         self.metric_history = []
         self.state_history = []
 
     def process_packet(self, packet):
+        should_evaluate, contaminated = note_evaluation_tick(
+            self._cadence,
+            packet=packet,
+            timing_tracker=self._timing_tracker,
+        )
+        if contaminated:
+            self._detector.reset()
+            self._cadence.reset()
+            self._timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                self._cadence,
+                packet=packet,
+                timing_tracker=self._timing_tracker,
+            )
         csi_data = _packet_csi_data(packet)
         self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
-        if not self._cadence.note_evaluation_tick():
+        if not should_evaluate:
             return
         state = self._detector.update_state()
         if self._track_data:
@@ -249,7 +267,8 @@ class ClassicDetectorAdapter:
 
     def reset(self):
         self._detector.reset()
-        self._cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
+        self._cadence.reset()
+        self._timing_tracker.reset()
         self.metric_history = []
         self.state_history = []
 
@@ -257,7 +276,7 @@ class ClassicDetectorAdapter:
 class MLDetectorAdapter:
     """Compatibility wrapper around production MLDetector."""
 
-    def __init__(self, window_size=SEG_WINDOW_SIZE, track_data=False):
+    def __init__(self, packets, window_size=SEG_WINDOW_SIZE, track_data=False):
         self._detector = ProdMLDetector(
             window_size=window_size,
             threshold=ML_DEFAULT_THRESHOLD,
@@ -268,14 +287,31 @@ class MLDetectorAdapter:
             hampel_threshold=HAMPEL_THRESHOLD,
         )
         self._detector.track_data = track_data
-        self._cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
+        self._timing_tracker, self._cadence = timing_cadence_for_window(
+            window_size,
+            measure_packet_interval_us(packets),
+        )
         self.probability_history = self._detector.probability_history
         self.state_history = self._detector.state_history
 
     def process_packet(self, packet):
+        should_evaluate, contaminated = note_evaluation_tick(
+            self._cadence,
+            packet=packet,
+            timing_tracker=self._timing_tracker,
+        )
+        if contaminated:
+            self._detector.reset()
+            self._cadence.reset()
+            self._timing_tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                self._cadence,
+                packet=packet,
+                timing_tracker=self._timing_tracker,
+            )
         csi_data = _packet_csi_data(packet)
         self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
-        if not self._cadence.note_evaluation_tick():
+        if not should_evaluate:
             return
         self._detector.update_state()
         self.probability_history = self._detector.probability_history
@@ -286,7 +322,8 @@ class MLDetectorAdapter:
 
     def reset(self):
         self._detector.reset()
-        self._cadence = make_evaluation_cadence(EVALUATION_INTERVAL)
+        self._cadence.reset()
+        self._timing_tracker.reset()
         self.probability_history = self._detector.probability_history
         self.state_history = self._detector.state_history
 
@@ -331,11 +368,15 @@ def compare_detection_methods(
 
     # Classic static presence and motion (production detector)
     start = time.perf_counter()
-    classic_baseline = ClassicDetectorAdapter(window_size, threshold, track_data=True)
+    classic_baseline = ClassicDetectorAdapter(
+        static_presence_packets, window_size, threshold, track_data=True
+    )
     for pkt in static_presence_packets:
         classic_baseline.process_packet(pkt)
     methods['Classic']['static_presence'] = np.array(classic_baseline.metric_history)
-    classic_movement = ClassicDetectorAdapter(window_size, threshold, track_data=True)
+    classic_movement = ClassicDetectorAdapter(
+        motion_packets, window_size, threshold, track_data=True
+    )
     for pkt in motion_packets:
         classic_movement.process_packet(pkt)
     classic_time = time.perf_counter() - start
@@ -359,11 +400,15 @@ def compare_detection_methods(
     
     if ML_AVAILABLE:
         start = time.perf_counter()
-        ml_baseline = MLDetectorAdapter(window_size, track_data=True)
+        ml_baseline = MLDetectorAdapter(
+            static_presence_packets, window_size, track_data=True
+        )
         for pkt in static_presence_packets:
             ml_baseline.process_packet(pkt)
         methods['ML']['static_presence'] = np.array(ml_baseline.probability_history)
-        ml_movement = MLDetectorAdapter(window_size, track_data=True)
+        ml_movement = MLDetectorAdapter(
+            motion_packets, window_size, track_data=True
+        )
         for pkt in motion_packets:
             ml_movement.process_packet(pkt)
         methods['ML']['motion'] = np.array(ml_movement.probability_history)

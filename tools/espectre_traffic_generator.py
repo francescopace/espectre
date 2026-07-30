@@ -29,13 +29,15 @@ import signal
 import sys
 import os
 import subprocess
+import tempfile
+from pathlib import Path
 
 # ============= CONFIGURATION =============
 TARGETS = ['192.168.1.255']  # Broadcast address (recommended for multiple devices)
 # TARGETS = ['192.168.1.100', '192.168.1.101']  # Or list specific device IPs
 PORT = 5555
 RATE = 100  # packets per second (recommended: 100)
-PID_FILE = '/tmp/espectre_traffic.pid'
+PID_FILE = Path(tempfile.gettempdir()) / "espectre_traffic.pid"
 # =========================================
 
 
@@ -69,8 +71,16 @@ def start():
 
         proc = subprocess.Popen([python_exe, script_path, "run"], **popen_kwargs)
 
-    with open(PID_FILE, 'w') as f:
-        f.write(str(proc.pid))
+    try:
+        PID_FILE.write_text(str(proc.pid), encoding="utf-8")
+    except OSError:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        raise
     print(f"Started (PID {proc.pid})")
 
 
@@ -158,4 +168,3 @@ if __name__ == '__main__':
         print(f"Unknown command: {cmd}")
         print("Use: start, stop, status, or run")
         sys.exit(1)
-
