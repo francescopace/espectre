@@ -94,6 +94,7 @@ macOS/Linux:
 ```bash
 source .venv/bin/activate
 ./espectre native build --chip c3
+./espectre native build --chip c3 --clean
 ```
 
 Windows PowerShell:
@@ -102,6 +103,22 @@ Windows PowerShell:
 .\.venv\Scripts\Activate.ps1
 .\espectre.cmd native build --chip c3
 ```
+
+Build cleanup options:
+
+- `--clean` removes only the selected frontend build before rebuilding.
+- `--clean-all` removes all builds for that frontend plus shared generated
+  artifacts before rebuilding.
+- For ESPHome, these flags delegate to the native `esphome clean` and
+  `esphome clean-all` commands for the selected config.
+
+Flash note:
+
+- For ESP-IDF frontends, `flash` prefers the build directory that matches the
+  connected chip detected on the selected serial port.
+- The wrapper still delegates to `idf.py flash`, so ESP-IDF may configure or
+  complete the selected build directory before flashing if that build is not
+  already ready.
 
 Optional environment check:
 

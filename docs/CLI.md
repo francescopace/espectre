@@ -57,6 +57,11 @@ The `esphome` namespace exposes:
 
 Common flags include `--chip`, `--dev`, `--config`, and `--device`.
 
+For `build`, cleanup flags are:
+
+- `--clean`: run `esphome clean` for the selected config before compiling.
+- `--clean-all`: run `esphome clean-all` for the config root before compiling.
+
 ### `native`, `matter`, and `streamer`
 
 The three ESP-IDF namespaces expose `build` and `flash`:
@@ -65,6 +70,23 @@ The three ESP-IDF namespaces expose `build` and `flash`:
 |---------|---------|
 | `build` | Configure the chip target and build the firmware |
 | `flash` | Flash the frontend with the detected ESP-IDF environment |
+
+For `build`, cleanup flags are:
+
+- `--clean`: remove only the resolved build directory for the selected chip,
+  such as `build-esp32c3`.
+- `--clean-all`: remove all frontend build directories plus shared artifacts
+  such as `sdkconfig`, `sdkconfig.old`, and `dependencies.lock`.
+
+For `flash`, the wrapper selects the serial port first, then prefers the build
+directory that matches the connected chip detected on that port. Without a
+match, it falls back to the local configured target or the legacy `build/`
+layout.
+
+`flash` still delegates to `idf.py flash`, so ESP-IDF may configure CMake or
+complete a missing build inside that selected directory before writing the
+firmware. The important guarantee is that the wrapper now prefers the
+chip-matched build directory first.
 
 Matter additionally exposes:
 
@@ -76,6 +98,10 @@ Examples:
 
 ```bash
 ./espectre native build --chip c3
+./espectre native build --chip c3 --clean
+./espectre native build --chip c3 --clean-all
+./espectre esphome build --chip c3 --clean
+./espectre esphome build --chip c3 --clean-all
 ./espectre matter build --chip c6
 ./espectre matter flash --port /dev/cu.usbmodemXXXX
 ./espectre matter qr --port /dev/cu.usbmodemXXXX

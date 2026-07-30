@@ -228,23 +228,40 @@ def test_run_esphome_monitor_uses_logs_action(monkeypatch, tmp_path: Path) -> No
     assert calls == [["esphome", "logs", str(config_path), "--device", "/dev/cu.usb"]]
 
 
-def test_run_esphome_command_build_cleans_generated_artifacts_when_requested(monkeypatch, tmp_path: Path) -> None:
+def test_run_esphome_command_build_runs_esphome_clean_when_requested(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "firmware.yaml"
     config_path.write_text("esphome:", encoding="utf-8")
-    build_dir = tmp_path / ".esphome"
-    build_dir.mkdir()
-    (build_dir / "artifact.bin").write_text("bin", encoding="utf-8")
     calls: list[list[str]] = []
 
     monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
     monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check: calls.append(cmd))
 
     esphome.run_esphome_command(
-        argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=True)
+        argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=True, clean_all=False)
     )
 
-    assert not build_dir.exists()
-    assert calls == [["esphome", "compile", str(config_path)]]
+    assert calls == [
+        ["esphome", "clean", str(config_path)],
+        ["esphome", "compile", str(config_path)],
+    ]
+
+
+def test_run_esphome_command_build_runs_esphome_clean_all_when_requested(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "firmware.yaml"
+    config_path.write_text("esphome:", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
+    monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check: calls.append(cmd))
+
+    esphome.run_esphome_command(
+        argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False, clean_all=True)
+    )
+
+    assert calls == [
+        ["esphome", "clean-all", str(config_path)],
+        ["esphome", "compile", str(config_path)],
+    ]
 
 
 def test_run_esphome_command_handles_missing_config(monkeypatch, tmp_path: Path) -> None:
@@ -253,7 +270,7 @@ def test_run_esphome_command_handles_missing_config(monkeypatch, tmp_path: Path)
 
     with pytest.raises(SystemExit):
         esphome.run_esphome_command(
-            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False)
+            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False, clean_all=False)
         )
 
 
@@ -268,7 +285,7 @@ def test_run_esphome_command_surfaces_subprocess_failures(monkeypatch, tmp_path:
     monkeypatch.setattr(esphome.subprocess, "run", _raise_not_found)
     with pytest.raises(SystemExit):
         esphome.run_esphome_command(
-            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False)
+            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False, clean_all=False)
         )
 
     def _raise_called(_cmd, check):
@@ -277,7 +294,7 @@ def test_run_esphome_command_surfaces_subprocess_failures(monkeypatch, tmp_path:
     monkeypatch.setattr(esphome.subprocess, "run", _raise_called)
     with pytest.raises(SystemExit) as exc:
         esphome.run_esphome_command(
-            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False)
+            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False, clean_all=False)
         )
 
     assert exc.value.code == 7
@@ -298,8 +315,8 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
     idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
 
     assert calls == [
-        (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
-        (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
     ]
 
 
@@ -317,7 +334,7 @@ def test_run_idf_command_build_reuses_matching_target(monkeypatch, tmp_path: Pat
     idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
 
     assert calls == [
-        (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults", "build"], app_dir),
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults", "build"], app_dir),
     ]
 
 
@@ -344,11 +361,11 @@ def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkey
 
     assert calls == [
         (
-            ["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi", "set-target", "esp32"],
+            ["idf.py", "-B", "build-esp32", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi", "set-target", "esp32"],
             app_dir,
         ),
         (
-            ["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi", "build"],
+            ["idf.py", "-B", "build-esp32", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi", "build"],
             app_dir,
         ),
     ]
@@ -357,9 +374,12 @@ def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkey
 def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeypatch, tmp_path: Path) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
-    build_dir = app_dir / "build"
+    build_dir = app_dir / "build-esp32c3"
     build_dir.mkdir()
     (build_dir / "firmware.bin").write_text("bin", encoding="utf-8")
+    legacy_build_dir = app_dir / "build"
+    legacy_build_dir.mkdir()
+    (legacy_build_dir / "firmware.bin").write_text("legacy", encoding="utf-8")
     (app_dir / "sdkconfig").write_text("CONFIG_TEST=y\n", encoding="utf-8")
     (app_dir / "sdkconfig.old").write_text("CONFIG_TEST_OLD=y\n", encoding="utf-8")
     (app_dir / "dependencies.lock").write_text("lock", encoding="utf-8")
@@ -375,13 +395,14 @@ def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeyp
     idf.run_idf_command("streamer", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=True))
 
     assert not build_dir.exists()
-    assert not (app_dir / "sdkconfig").exists()
-    assert not (app_dir / "sdkconfig.old").exists()
-    assert not (app_dir / "dependencies.lock").exists()
+    assert legacy_build_dir.exists()
+    assert (app_dir / "sdkconfig").exists()
+    assert (app_dir / "sdkconfig.old").exists()
+    assert (app_dir / "dependencies.lock").exists()
     assert (app_dir / "sdkconfig.wifi").exists()
     assert calls == [
-        (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
-        (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
     ]
 
 
@@ -413,6 +434,46 @@ def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatc
     ]
 
 
+def test_run_idf_command_build_clean_all_removes_all_builds_and_shared_artifacts(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    for build_dir_name in ("build", "build-esp32", "build-esp32c3"):
+        build_dir = app_dir / build_dir_name
+        build_dir.mkdir()
+        (build_dir / "artifact.bin").write_text("bin", encoding="utf-8")
+    (app_dir / "sdkconfig").write_text("CONFIG_TEST=y\n", encoding="utf-8")
+    (app_dir / "sdkconfig.old").write_text("CONFIG_TEST_OLD=y\n", encoding="utf-8")
+    (app_dir / "dependencies.lock").write_text("lock", encoding="utf-8")
+    (app_dir / "sdkconfig.wifi").write_text("", encoding="utf-8")
+    calls: list[tuple[list[str], Path]] = []
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(
+        idf,
+        "resolve_idf_environment",
+        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+    )
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
+
+    idf.run_idf_command(
+        "streamer",
+        argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False, clean_all=True),
+    )
+
+    assert not (app_dir / "build").exists()
+    assert not (app_dir / "build-esp32").exists()
+    assert not (app_dir / "build-esp32c3").exists()
+    assert not (app_dir / "sdkconfig").exists()
+    assert not (app_dir / "sdkconfig.old").exists()
+    assert not (app_dir / "dependencies.lock").exists()
+    assert (app_dir / "sdkconfig.wifi").exists()
+    assert calls == [
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
+    ]
+
+
 def test_run_idf_command_flash_resolves_port(monkeypatch, tmp_path: Path) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
@@ -420,6 +481,7 @@ def test_run_idf_command_flash_resolves_port(monkeypatch, tmp_path: Path) -> Non
 
     monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
     monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: None)
     monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
     monkeypatch.setattr(
         idf,
@@ -442,6 +504,7 @@ def test_run_idf_command_flash_uses_custom_build_dir_when_present(monkeypatch, t
     monkeypatch.setenv("ESPECTRE_IDF_BUILD_DIR", "build-esp32c3")
     monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
     monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: "c3")
     monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
     monkeypatch.setattr(
         idf,
@@ -454,6 +517,82 @@ def test_run_idf_command_flash_uses_custom_build_dir_when_present(monkeypatch, t
     idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
 
     assert calls == [["idf.py", "-B", "build-esp32c3", "-p", "/dev/cu.auto", "flash"]]
+
+
+def test_run_idf_command_flash_uses_target_specific_build_dir_from_sdkconfig(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
+    (app_dir / "build-esp32c3").mkdir()
+    calls: list[list[str]] = []
+
+    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
+    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: None)
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(
+        idf,
+        "resolve_idf_environment",
+        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+    )
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
+    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: True)
+
+    idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
+
+    assert calls == [["idf.py", "-B", "build-esp32c3", "-p", "/dev/cu.auto", "flash"]]
+
+
+def test_run_idf_command_flash_keeps_legacy_build_dir_when_target_build_is_missing(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
+    (app_dir / "build").mkdir()
+    calls: list[list[str]] = []
+
+    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
+    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: None)
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(
+        idf,
+        "resolve_idf_environment",
+        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+    )
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
+    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: True)
+
+    idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
+
+    assert calls == [["idf.py", "-p", "/dev/cu.auto", "flash"]]
+
+
+def test_run_idf_command_flash_prefers_connected_chip_build_dir(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c6"\n', encoding="utf-8")
+    (app_dir / "build-esp32c6").mkdir()
+    (app_dir / "build-esp32s3").mkdir()
+    calls: list[list[str]] = []
+
+    monkeypatch.setitem(
+        idf.IDF_FRONTENDS,
+        "streamer",
+        {"app_dir": app_dir, "targets": {"c6": "esp32c6", "s3": "esp32s3"}},
+    )
+    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: "s3")
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(
+        idf,
+        "resolve_idf_environment",
+        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+    )
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
+
+    idf.run_idf_command("streamer", argparse.Namespace(idf_command="flash", port=None))
+
+    assert calls == [["idf.py", "-B", "build-esp32s3", "-p", "/dev/cu.auto", "flash"]]
 
 
 def test_run_matter_qr_reads_without_idf_environment(monkeypatch, tmp_path: Path) -> None:
@@ -656,6 +795,17 @@ def test_idf_build_parser_accepts_clean_flag() -> None:
     assert args.clean is True
 
 
+def test_idf_build_parser_accepts_clean_all_flag() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["streamer", "build", "--chip", "c6", "--clean-all"])
+
+    assert args.namespace == "streamer"
+    assert args.idf_command == "build"
+    assert args.chip == "c6"
+    assert args.clean_all is True
+
+
 def test_esphome_build_parser_accepts_clean_flag() -> None:
     parser = app.build_parser()
 
@@ -665,6 +815,17 @@ def test_esphome_build_parser_accepts_clean_flag() -> None:
     assert args.esphome_command == "build"
     assert args.chip == "c6"
     assert args.clean is True
+
+
+def test_esphome_build_parser_accepts_clean_all_flag() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["esphome", "build", "--chip", "c6", "--clean-all"])
+
+    assert args.namespace == "esphome"
+    assert args.esphome_command == "build"
+    assert args.chip == "c6"
+    assert args.clean_all is True
 
 
 def test_esphome_monitor_parser_accepts_device() -> None:
@@ -831,8 +992,8 @@ def test_run_idf_command_build_uses_single_exported_subprocess(monkeypatch, tmp_
                 "-lc",
                 (
                     f". {shlex.quote(str(export_script))} >/dev/null"
-                    " && idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' set-target esp32c3"
-                    " && idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' build"
+                    " && idf.py -B build-esp32c3 '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' set-target esp32c3"
+                    " && idf.py -B build-esp32c3 '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' build"
                 ),
             ],
             app_dir,

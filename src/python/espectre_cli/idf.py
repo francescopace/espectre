@@ -18,12 +18,13 @@ import subprocess
 import time
 from pathlib import Path
 
-from .common import Fore, Style, cli_command, get_serial_port
+from .common import Fore, Style, cli_command, detect_chip_type, get_serial_port
 from .targets import IDF_FRONTENDS, resolve_idf_target
 
 
 MATTER_QR_PATTERN = re.compile(r"MATTER_QR=(MT:[A-Z0-9.\-]+)")
 MATTER_MANUAL_CODE_PATTERN = re.compile(r"MATTER_MANUAL_CODE=([0-9]+)")
+IDF_TARGET_CONFIG_PATTERN = re.compile(r'^CONFIG_IDF_TARGET="([^"]+)"$', re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -38,12 +39,15 @@ class ResolvedIdfEnvironment:
     idf_path_entry: str | None = None
 
 
-def clean_idf_build_artifacts(app_path: Path, build_dir_name: str | None = None) -> None:
-    """Remove generated ESP-IDF build artifacts before a fresh build."""
-    artifact_names = [build_dir_name or "build", "sdkconfig", "sdkconfig.old", "dependencies.lock"]
+def remove_idf_artifacts(app_path: Path, artifact_names: list[str]) -> None:
+    """Remove the selected ESP-IDF artifacts relative to the app directory."""
     removed: list[str] = []
+    seen: set[str] = set()
 
     for artifact_name in artifact_names:
+        if artifact_name in seen:
+            continue
+        seen.add(artifact_name)
         artifact_path = app_path / artifact_name
         if artifact_path.is_dir():
             shutil.rmtree(artifact_path)
@@ -56,6 +60,24 @@ def clean_idf_build_artifacts(app_path: Path, build_dir_name: str | None = None)
         print(f"{Fore.CYAN}Cleaned:   {', '.join(removed)}{Style.RESET_ALL}")
     else:
         print(f"{Fore.CYAN}Cleaned:   nothing to remove{Style.RESET_ALL}")
+
+
+def clean_idf_build_artifacts(app_path: Path, build_dir_name: str | None = None) -> None:
+    """Remove only the selected ESP-IDF build directory before rebuilding."""
+    remove_idf_artifacts(app_path, [build_dir_name or "build"])
+
+
+def clean_all_idf_build_artifacts(app_path: Path) -> None:
+    """Remove all ESP-IDF build directories and shared frontend artifacts."""
+    artifact_names = [
+        entry.name
+        for entry in app_path.iterdir()
+        if entry.name == "build" or (entry.is_dir() and entry.name.startswith("build-"))
+    ]
+    if build_dir_name := os.environ.get("ESPECTRE_IDF_BUILD_DIR"):
+        artifact_names.append(build_dir_name)
+    artifact_names.extend(["sdkconfig", "sdkconfig.old", "dependencies.lock"])
+    remove_idf_artifacts(app_path, artifact_names)
 
 
 def resolve_sdkconfig_defaults(app_path: Path, idf_target: str | None = None) -> str:
@@ -92,6 +114,60 @@ def sdkconfig_matches_target(app_path: Path, idf_target: str) -> bool:
     except OSError:
         return False
     return f'CONFIG_IDF_TARGET="{idf_target}"' in content
+
+
+def resolve_configured_idf_target(app_path: Path) -> str | None:
+    """Read the configured ESP-IDF target from sdkconfig when present."""
+    sdkconfig = app_path / "sdkconfig"
+    if not sdkconfig.is_file():
+        return None
+    try:
+        content = sdkconfig.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = IDF_TARGET_CONFIG_PATTERN.search(content)
+    return match.group(1) if match else None
+
+
+def resolve_idf_build_dir_name(
+    app_path: Path, idf_target: str | None = None, *, prefer_existing_default: bool = False
+) -> str | None:
+    """Resolve the ESP-IDF build directory, honoring overrides and per-target defaults."""
+    if build_dir_name := os.environ.get("ESPECTRE_IDF_BUILD_DIR"):
+        return build_dir_name
+
+    configured_target = idf_target or resolve_configured_idf_target(app_path)
+    if not configured_target:
+        return None
+
+    target_build_dir_name = f"build-{configured_target}"
+    if not prefer_existing_default:
+        return target_build_dir_name
+
+    legacy_build_dir = app_path / "build"
+    target_build_dir = app_path / target_build_dir_name
+    if target_build_dir.exists() or not legacy_build_dir.exists():
+        return target_build_dir_name
+    return None
+
+
+def resolve_flash_idf_build_dir_name(frontend: str, app_path: Path, port: str) -> str | None:
+    """Resolve the ESP-IDF build directory for flashing, preferring the connected chip."""
+    if build_dir_name := os.environ.get("ESPECTRE_IDF_BUILD_DIR"):
+        return build_dir_name
+
+    detected_chip = detect_chip_type(port)
+    if detected_chip:
+        try:
+            _, detected_target = resolve_idf_target(frontend, detected_chip)
+        except ValueError:
+            print(
+                f"{Fore.RED}❌ Connected chip {detected_chip} is not supported by the {frontend} frontend.{Style.RESET_ALL}"
+            )
+            raise SystemExit(1)
+        return resolve_idf_build_dir_name(app_path, detected_target, prefer_existing_default=True)
+
+    return resolve_idf_build_dir_name(app_path, prefer_existing_default=True)
 
 
 def is_windows_host() -> bool:
@@ -362,14 +438,20 @@ def run_idf_command(frontend: str, args) -> None:
     print(f"{Fore.CYAN}App dir:   {app_dir}{Style.RESET_ALL}")
 
     app_path = Path(app_dir)
-    build_dir_name = os.environ.get("ESPECTRE_IDF_BUILD_DIR")
+    build_dir_name = None
     if args.idf_command == "qr":
         port = get_serial_port(args.port)
         if not read_matter_onboarding(port):
             raise SystemExit(1)
         return
-    if args.idf_command == "build" and getattr(args, "clean", False):
-        clean_idf_build_artifacts(app_path, build_dir_name)
+    if args.idf_command == "build":
+        build_dir_name = resolve_idf_build_dir_name(app_path, idf_target)
+    clean_requested = getattr(args, "clean", False) or getattr(args, "clean_all", False)
+    if args.idf_command == "build":
+        if getattr(args, "clean_all", False):
+            clean_all_idf_build_artifacts(app_path)
+        elif getattr(args, "clean", False):
+            clean_idf_build_artifacts(app_path, build_dir_name)
 
     defaults_arg = f"-DSDKCONFIG_DEFAULTS={resolve_sdkconfig_defaults(app_path, idf_target)}"
 
@@ -378,12 +460,13 @@ def run_idf_command(frontend: str, args) -> None:
     if args.idf_command == "build":
         base_command = build_idf_base_command(build_dir_name)
         commands = []
-        if getattr(args, "clean", False) or not sdkconfig_matches_target(app_path, idf_target):
+        if clean_requested or not sdkconfig_matches_target(app_path, idf_target):
             commands.append([*base_command, defaults_arg, "set-target", idf_target])
         commands.append([*base_command, defaults_arg, "build"])
     elif args.idf_command == "flash":
         port = get_serial_port(args.port)
         flash_port = port
+        build_dir_name = resolve_flash_idf_build_dir_name(frontend, app_path, port)
         base_command = build_idf_base_command(build_dir_name)
         commands = [[*base_command, "-p", port, "flash"]]
 

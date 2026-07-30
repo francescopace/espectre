@@ -61,7 +61,7 @@ moved to the post-release v3.x backlog.
   `motion_on_hits` and `motion_off_hits` thresholds
 - [x] Allow BLE to trigger Native firmware OTA through the shared HTTPS OTA
   service and release manifest used by MQTT
-- [ ] Make local ESP-IDF CLI builds use per-chip build directories by default
+- [x] Make local ESP-IDF CLI builds use per-chip build directories by default
   instead of requiring `ESPECTRE_IDF_BUILD_DIR`
 - [ ] Add optional DNS-SD/mDNS discovery to the Streamer collection workflow,
   while keeping explicit targets as the deterministic fallback and preserving

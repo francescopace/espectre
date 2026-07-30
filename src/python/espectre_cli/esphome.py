@@ -9,7 +9,6 @@ License: GPLv3
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 
 from .common import Fore, REPO_ROOT, Style
@@ -21,21 +20,6 @@ ACTION_MAP = {
     "config": "config",
     "monitor": "logs",
 }
-
-
-def clean_esphome_build_artifacts(config_path) -> None:
-    """Remove generated ESPHome build artifacts before a fresh build."""
-    build_dir = config_path.parent / ".esphome"
-    if build_dir.is_dir():
-        shutil.rmtree(build_dir)
-        try:
-            display_path = build_dir.relative_to(REPO_ROOT)
-        except ValueError:
-            display_path = build_dir
-        print(f"{Fore.CYAN}Cleaned:   {display_path}{Style.RESET_ALL}")
-    else:
-        print(f"{Fore.CYAN}Cleaned:   nothing to remove{Style.RESET_ALL}")
-
 
 def run_esphome_command(args) -> None:
     """Run an ESPHome action against the resolved repository config."""
@@ -50,21 +34,28 @@ def run_esphome_command(args) -> None:
         raise SystemExit(1)
 
     action = ACTION_MAP[args.esphome_command]
-    if args.esphome_command == "build" and getattr(args, "clean", False):
-        clean_esphome_build_artifacts(config_path)
+    commands: list[list[str]] = []
+    if args.esphome_command == "build":
+        if getattr(args, "clean_all", False):
+            commands.append(["esphome", "clean-all", str(config_path)])
+        elif getattr(args, "clean", False):
+            commands.append(["esphome", "clean", str(config_path)])
 
     command = ["esphome", action, str(config_path)]
     if getattr(args, "device", None):
         command.extend(["--device", args.device])
+    commands.append(command)
 
     try:
         display_path = config_path.relative_to(REPO_ROOT)
     except ValueError:
         display_path = config_path
     print(f"{Fore.CYAN}Config: {display_path}{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}Command: {' '.join(command)}{Style.RESET_ALL}")
+    for command in commands:
+        print(f"{Fore.CYAN}Command: {' '.join(command)}{Style.RESET_ALL}")
     try:
-        subprocess.run(command, check=True)
+        for command in commands:
+            subprocess.run(command, check=True)
     except FileNotFoundError:
         print(f"{Fore.RED}❌ esphome not found. Install it in the project environment first.{Style.RESET_ALL}")
         raise SystemExit(1)

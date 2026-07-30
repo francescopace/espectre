@@ -202,10 +202,16 @@ def _add_esphome_namespace(subparsers) -> None:
         command_parser.add_argument("--config", help="Explicit ESPHome YAML path override")
         command_parser.add_argument("--device", help="Serial device or hostname for flash/monitor when needed")
         if command_name == "build":
-            command_parser.add_argument(
+            clean_group = command_parser.add_mutually_exclusive_group()
+            clean_group.add_argument(
                 "--clean",
                 action="store_true",
-                help="Remove generated ESPHome build artifacts before building",
+                help="Clean only the selected ESPHome build before compiling",
+            )
+            clean_group.add_argument(
+                "--clean-all",
+                action="store_true",
+                help="Clean all ESPHome builds and shared caches for this config root before compiling",
             )
         command_parser.set_defaults(handler=run_esphome_command)
 
@@ -222,10 +228,16 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
         command_parser = idf_subparsers.add_parser(command_name, help=help_text)
         if command_name == "build":
             command_parser.add_argument("--chip", choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()), required=True, help="ESP-IDF target chip")
-            command_parser.add_argument(
+            clean_group = command_parser.add_mutually_exclusive_group()
+            clean_group.add_argument(
                 "--clean",
                 action="store_true",
-                help="Remove generated ESP-IDF artifacts before building",
+                help="Clean only the selected ESP-IDF build directory before building",
+            )
+            clean_group.add_argument(
+                "--clean-all",
+                action="store_true",
+                help="Clean all ESP-IDF build directories and shared frontend artifacts before building",
             )
         if command_name in {"flash", "qr"}:
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
@@ -249,10 +261,12 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('monitor', '--port', serial_port_example())}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--dev')}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--clean')}",
+            f"  {cli_command('esphome', 'build', '--chip', 'c3', '--clean-all')}",
             f"  {cli_command('esphome', 'monitor', '--chip', 'c3', '--device', serial_port_example())}",
             f"  {cli_command('native', 'build', '--chip', 'c3')}",
             f"  {cli_command('matter', 'build', '--chip', 'c3')}",
             f"  {cli_command('streamer', 'build', '--chip', 'c3', '--clean')}",
+            f"  {cli_command('streamer', 'build', '--chip', 'c3', '--clean-all')}",
             f"  {cli_command('streamer', 'flash', '--port', serial_port_example())}",
         ]
     )
