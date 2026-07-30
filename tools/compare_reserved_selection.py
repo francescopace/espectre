@@ -16,6 +16,8 @@ Usage:
         --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr
     .venv/bin/python tools/compare_reserved_selection.py --seed 20260519 --augment \
         --features ...
+    .venv/bin/python tools/compare_reserved_selection.py --seed 20260519 --augment base,drift \
+        --features ...
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -113,7 +115,15 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--seed", type=int, required=True, help="candidate training seed")
     parser.add_argument("--features", required=True, help="comma-separated candidate feature set")
-    parser.add_argument("--augment", action="store_true", help="train the candidate with augmentation")
+    parser.add_argument(
+        "--augment",
+        nargs="?",
+        const="base",
+        type=tmm.parse_augmentation_components,
+        default=None,
+        metavar="COMPONENTS",
+        help="candidate augmentation components; --augment alone means base",
+    )
     parser.add_argument("--roles", default="selection",
                         help="comma-separated deployment roles (default: selection). "
                              "Adding 'holdout' opens the reserved holdout")
@@ -126,7 +136,10 @@ def main() -> int:
 
     baseline = tmm.run_exported_ml_gates(roles=roles, allow_legacy_fallback=False)
 
-    print(f"\nTraining candidate seed={args.seed} augment={args.augment}")
+    print(
+        f"\nTraining candidate seed={args.seed} "
+        f"augment={tmm.format_augmentation_components(args.augment)}"
+    )
     print(f"Features: {', '.join(feature_names)}\n")
     _status, _seed, cv_results = tmm.train_all(
         seed=args.seed,

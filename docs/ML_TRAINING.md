@@ -57,6 +57,9 @@ python tools/train_ml_model.py --info
 python tools/train_ml_model.py --scaler clipped_standard
 python tools/train_ml_model.py --device mps
 python tools/train_ml_model.py --exclude-chip ESP32
+python tools/train_ml_model.py --timing-quality-policy exclude-fail
+python tools/train_ml_model.py --timing-quality-policy exclude-fail-downweight-warn --timing-warn-weight 0.25
+python tools/train_ml_model.py --no-export
 python tools/train_ml_model.py --gain-stress-gate
 python tools/train_ml_model.py --gain-stress-gate --environment bedroom
 python tools/train_ml_model.py --seed-search-until-improvement 20
@@ -64,11 +67,11 @@ python tools/train_ml_model.py --features turb_autocorr,turb_zcr,l1_delta_autoco
 python tools/train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio --experiment
 ```
 
-`--features` selects the training feature set for experiments and is propagated
-to architecture and FP-weight campaigns. The five production features are the
-runtime surface; host-only candidates widen the read-only experiment surface
-without becoming exportable. The export guard rejects any feature without a
-C++ extractor ID. Every removed production feature and the measurement that
+`--features` selects a subset of the canonical runtime feature surface and is
+propagated to architecture and FP-weight campaigns. Host-only candidates are
+evaluated through the time-aware `replay_classic_candidates.py` and
+`benchmark_classic_candidate_pairs.py` research tools; they no longer enter a
+separate trainer matrix. Every removed production feature and the measurement that
 rejected it is listed in
 [2026-07-27-reduce-the-feature-surface-to-the-production-set.md](adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md).
 
@@ -128,7 +131,8 @@ with an explicit error so incompatible captures cannot contaminate the dataset.
 
 Current default training settings:
 
-- `--fp-weight 1.5`
+- `--fp-weight 1.75`
+- `--hidden-layers 24,12`
 - `--scaler standard`
 - `--batch-size 1024`
 - `--device cpu`
@@ -142,15 +146,16 @@ embedded in `ml_weights.py` / `ml_weights.h`. Pass an explicit `--seed` to
 override that, or use `--seed-search-until-improvement` to sample fresh seeds.
 If no exported seed is available, the trainer falls back to a random seed.
 
-Use `--augment` to train with:
-feature jitter (`0.10`) plus moderate packet gain/noise/loss. Augmentation is
-train-only; paired validation and runtime inference stay on clean features.
-It does not currently help the production feature set; see
+Use `--augment` to enable one or more train-time augmentation components.
+`--augment` with no value is shorthand for `--augment base`, which keeps the
+validated production recipe. Augmentation is train-only; paired validation and
+runtime inference stay on clean features. See
 [Training Augmentation](#training-augmentation) before reaching for it.
 
 ```bash
 python tools/train_ml_model.py --seed-search-until-improvement 10
 python tools/train_ml_model.py --augment --seed-search-until-improvement 10
+python tools/train_ml_model.py --augment base,drift --seed-search-until-improvement 10
 ```
 
 Seed search writes `data/auto_generated/mlp_seed_search.json` after every
@@ -181,10 +186,53 @@ CUDA and Apple MPS are available only when requested explicitly through
 `--device cuda` or `--device mps`; this small MLP usually runs fastest and most
 predictably on CPU. Host-side tooling uses two cache layers: an in-process
 runtime memo for loaded arrays and packet views, and persisted artifacts under
-`.npz_cache/`. Performance reporting uses only the runtime layer; the persisted
-artifacts are shared by the trainer and dataset-quality validation. Delete
-`.npz_cache/` to force a cold rebuild of those persisted artifacts, or use
-`--no-cache` to bypass the training-side feature cache for one run.
+`.npz_cache/`. The canonical persisted ML artifact is one time-aware ready-packet row
+stream per capture. It stores every ready runtime feature row, contamination
+reset identity, and whether the row is a deployment evaluation tick.
+`stream_dense` training consumes every row; dataset-quality validation uses the
+same canonical stream; trainer gates, performance reporting, and replay tests
+project the marked runtime ticks. Numeric weight changes do not invalidate this
+feature-only artifact. Dataset-quality idle summaries are recomputed from these
+rows rather than persisted in a separate summary cache. Deterministic
+packet-augmentation rows are variants of the same artifact, keyed by the
+complete packet recipe, augmentation seed, and implementation digest. Repeating
+a research run with identical provenance therefore reuses them, while a seed,
+recipe, or implementation change cannot silently alias another run. Delete
+`.npz_cache/` to force a cold rebuild of persisted artifacts, or use
+`--no-cache` to bypass them for one run. The legacy per-feature
+`feature_column` cache, idle-baseline summary cache, and non-time-aware `dense`
+contract have been removed. Pruning is an explicit maintenance operation:
+`python tools/prune_npz_cache.py` scans all known persisted artifacts, while
+repeated `--artifact NAME` options restrict it to selected artifact types.
+Normal cache reads do not create `.npz_cache/` or artifact directories.
+
+Training now has one contract: `stream_dense` keeps the runtime streaming
+feature path and timing resets, but emits one training row per packet after
+warmup. The fully sparse `replay_tick`
+training path proved too sample-starved on the current corpus, while
+`stream_dense` preserved the runtime streaming semantics closely enough to pass
+deployment gates and outperform the retired legacy path under the stronger
+structured augmentation mixes. Track the rollout sequence and remaining promotion evidence
+in
+[`timing-aware-training-review-2026-07-30.md`](review/timing-aware-training-review-2026-07-30.md).
+
+The first timing-aware controls are provenance-only, not new model inputs:
+
+- `--timing-quality-policy keep` records timing quality in the training summary
+  but leaves the matrix untouched
+- `--timing-quality-policy exclude-fail` drops files whose timing metadata
+  crosses the existing continuity fail thresholds
+- `--timing-quality-policy downweight-warn` keeps degraded files but applies a
+  lower per-window training weight
+- `--timing-quality-policy exclude-fail-downweight-warn` combines both
+
+`tools/generate_performance_report.py` now also renders a timing-quality audit
+that groups replay results by `clean`, `degraded`, and `poor` timing buckets,
+so provenance can be inspected before changing the sample contract.
+
+Training supports the runtime ML feature surface only. Host-only exploratory
+features use time-aware replay ticks in the dedicated Classic candidate tools
+until they are either promoted into the runtime contract or retired.
 
 ## What The Trainer Does
 
@@ -335,11 +383,15 @@ physical axes and for the hardware assumptions that limit transfer.
 ## Gain-Shift Robustness Check
 
 The production ML path deliberately keeps Python/C++ runtime inference aligned
-by deriving all neural-detector inputs from the same raw turbulence signal. The
-exported Invariant-5 feature set uses gain-invariant, temporally-coherent
-turbulence and L1-delta
-statistics, so the model is structurally less sensitive to absolute amplitude
-gain changes.
+by deriving all neural-detector inputs from the same raw CSI stream and shared
+tracker families. The exported ten-feature phaseless set combines gain- and
+offset-invariant turbulence, L1-delta, channel-shape, and
+delay-compensated-coherence statistics, so the model is structurally less
+sensitive to absolute amplitude gain changes than the older energy-like
+baselines were. Host-side gates, reports, and replay tests call the same
+float32 array-inference helper, including the runtime sigmoid saturation rules;
+the generated regression artifact and C++ parity tests guard the exported
+implementation.
 
 Use the exported-artifact gain-stress gate to quantify this risk without
 retraining or exporting a new model:
@@ -403,26 +455,54 @@ feature-analysis flags.
 
 ## Training Augmentation
 
-`--augment` enables a train-time non-scale augmentation recipe: feature jitter
-(`jitter_sigma=0.10`) plus moderate packet perturbation (`noise_sigma=0.01`,
-`packet_loss=0.05`, `stutter_probability=0.08`). The packet path no longer
-applies gain scaling; instead it injects value noise, random drops, and a
-stale-packet timing artifact that repeats the previous emitted frame.
-Inference stays clean; the exported runtime does not apply augmentation.
+`--augment` enables one or more train-time augmentation components:
 
-**The current five-feature export and seed search still train without it.**
-The recipe has been retuned away from scale perturbations because
-gain-invariant features now carry more of the signal, but it is not yet
-re-baselined as a promotion-default path on the present corpus. Re-measure
-before assuming it helps a new feature set.
+- `base`: the current validated non-scale recipe, combining feature jitter
+  (`jitter_sigma=0.10`) with moderate packet perturbation
+  (`noise_sigma=0.01`, `packet_loss=0.05`, `stutter_probability=0.08`)
+- `drift`: one slow correlated packet-domain drift episode per source file,
+  lasting about `20` to `60` seconds without breaking transport continuity
+- `burst-loss`: short packet-drop bursts (`2` to `6` packets) injected at a low
+  per-minute rate
 
-Use it on normal training runs, seed search, and the `--cross-environment` /
-`--cross-chip` diagnostics when you want to measure whether the non-scale
-augmentation recipe improves generalization for the set you are testing:
+The packet path no longer applies gain scaling; instead it injects structured
+value noise, random drops, optional drift, and optional burst loss. Inference
+stays clean; the exported runtime does not apply augmentation.
+
+**The current promoted compact export uses
+`--augment base,drift,burst-loss`.** The stronger structured packet-domain
+recipe won the historical legacy-versus-time-aware comparison and passed the
+paired plus quiet deployment gates before export.
+
+Current comparison status for the `dense` versus `stream_dense` training
+contracts, using the same seed and feature set:
+
+- without augmentation, `dense` remains stronger (`98.1%` blocked OOF F1 versus
+  `97.0%`)
+- with `base`, the two are effectively tied (`97.4%` versus `97.3%`)
+- with `base,drift`, `stream_dense` edges ahead (`97.9%` versus `97.8%`)
+- with `base,drift,burst-loss`, `stream_dense` is clearly stronger (`98.0%`
+  versus `97.5%`)
+
+That makes `stream_dense + base,drift,burst-loss` the current promoted
+runtime-aware baseline when the goal is robustness under structured
+packet-domain perturbations. The fixed-seed export run that promoted it was:
+
+```bash
+python tools/train_ml_model.py --augment base,drift,burst-loss --seed 1876849819
+```
+
+Use these components on normal training runs, seed search, and the
+`--cross-environment` / `--cross-chip` diagnostics when you want to measure
+whether a specific augmentation mix improves generalization for the set you are
+testing:
 
 ```bash
 python tools/train_ml_model.py --augment
 python tools/train_ml_model.py --augment --seed-search-until-improvement 10
+python tools/train_ml_model.py --augment drift
+python tools/train_ml_model.py --augment base,drift
+python tools/train_ml_model.py --augment base,drift,burst-loss
 python tools/train_ml_model.py --augment --cross-environment
 python tools/train_ml_model.py --augment --cross-chip
 ```
