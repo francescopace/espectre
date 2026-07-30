@@ -39,13 +39,7 @@ moved to the post-release v3.x backlog.
 
 #### Detector Release Evidence
 
-- [ ] Close the promoted compact phaseless ML release evidence on the
-  replacement corpus, including the additional weak-link selection evidence and
-  replacement normal-link and weak-link holdouts. Re-derive the non-regression
-  margin only if the replacement evidence changes it; track collection work in
-  [COLLECTION_PLAN.md](../data/COLLECTION_PLAN.md), feature verdicts in
-  [FEATURES.md](FEATURES.md), and measured gates in
-  [README.md](performance/README.md)
+- [ ] Complete ClassicDetector and MLDetector tuning
 - [ ] Complete the remaining Classic replay-cache migration by replacing the
   packet-summary `detector_replay` cache with the canonical time-aware path,
   and close the row-versus-packet parity evidence for native, high-rate, and
@@ -63,17 +57,18 @@ moved to the post-release v3.x backlog.
   service and release manifest used by MQTT
 - [x] Make local ESP-IDF CLI builds use per-chip build directories by default
   instead of requiring `ESPECTRE_IDF_BUILD_DIR`
-- [ ] Add optional DNS-SD/mDNS discovery to the Streamer collection workflow,
+- [x] Add optional DNS-SD/mDNS discovery to the Streamer collection workflow,
   while keeping explicit targets as the deterministic fallback and preserving
   CSI demultiplexing by `device_id`
-
-#### Release Assurance
-
 - [ ] Review the embeddable `C++` SDK API and documentation, and align the
   published integration surface with standard `C++` SDK conventions where
   practical
-- [ ] Complete the security review and encode its recurring review rule in
-  `AGENTS.md`
+
+#### Release Assurance
+
+- [ ] Complete the doc review.
+- [ ] Complete the security review.
+- [ ] Complete the code review.
 - [ ] Refresh the Home Assistant screenshots used by the documentation and
   website, replacing the current gauge with a suitable visualization
 - [ ] Finalize release notes and verify the complete binary artifact checklist
@@ -97,7 +92,7 @@ These outcomes belong to the v3 series but do not block `v3.0.0`.
   integration artifact with ESM and IIFE builds, npm packaging, and TypeScript
   definitions
 
-### Matter and Product Integrations
+### Product Integrations
 
 - [ ] Validate Matter commissioning across additional controllers and maintain
   the verified-controller matrix in the Matter frontend README
@@ -109,6 +104,8 @@ These outcomes belong to the v3 series but do not block `v3.0.0`.
 - [ ] Add Native frontend support for local TFT/LCD status displays
 - [ ] Run an ESP32-C6 Zigbee coexistence spike before deciding whether to add a
   Zigbee occupancy frontend
+- [ ] Add direct Home Assistant integration over MQTT with MQTT Discovery for
+  the standalone frontends and micro-espectre
 - [ ] Evaluate a TuyaOpen reference integration that embeds the shared `core`
   and `runtime`, with licensing and cloud coupling documented as integrator-side
   prerequisites
@@ -195,6 +192,9 @@ experiments do not block the first public orchestration release.
   motion cues, without pairing, identity binding, or tracking
 - [ ] Evaluate approximate room-to-room movement visualization from multi-node
   events without claiming precise localization
+- [ ] Evaluate a server-side Matter bridge or ecosystem integration path for
+  Google Home, Apple Home, and similar partners on top of the orchestrated
+  backend
 - [ ] Evaluate additional notification integrations after the email path is
   stable
 

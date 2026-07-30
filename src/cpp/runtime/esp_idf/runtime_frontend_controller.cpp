@@ -8,11 +8,18 @@
  */
 #include "runtime_frontend_controller.h"
 
+#include "espectre_log.h"
 #include "esp_idf_runtime.h"
 #include "runtime_config_utils.h"
-#include "stream_esp_idf_runtime.h"
+#include "stream_runtime_factory.h"
 
 namespace espectre {
+
+namespace {
+
+static const char *const TAG = "espectre.runtime";
+
+}  // namespace
 
 void RuntimeFrontendController::set_config(const RuntimeConfig &config) {
   if (setup_complete_) {
@@ -29,7 +36,11 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
 
   switch (config_.runtime_profile) {
     case RuntimeProfile::STREAM:
-      runtime_.reset(new StreamEspIdfRuntime(config_));
+      runtime_ = make_stream_runtime(config_);
+      if (!runtime_) {
+        ESP_LOGE(TAG, "Stream runtime requested but not enabled in this build");
+        return false;
+      }
       break;
     case RuntimeProfile::SENSING:
     default:

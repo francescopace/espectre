@@ -19,6 +19,13 @@ import time
 import webbrowser
 
 from .common import REPO_ROOT, Fore, Style, cli_command, print_box_banner
+from .streamer_discovery import (
+    StreamerDiscoveryError,
+    StreamerDiscoveryRecord,
+    choose_streamer_device_interactively,
+    discover_streamer_devices,
+    print_streamer_device_list,
+)
 
 
 _WEB_UI_FILES = {
@@ -32,6 +39,65 @@ _WEB_UI_ROUTES = {
     "ble": "configure/",
     "theremin": "theremin/",
 }
+
+
+def _format_expected_device_id(device_id: int | None) -> str:
+    if device_id is None:
+        return "unknown"
+    return f"0x{int(device_id):016x}"
+
+
+def _discover_streamer_devices_or_exit() -> list[StreamerDiscoveryRecord]:
+    try:
+        return discover_streamer_devices()
+    except StreamerDiscoveryError as exc:
+        print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
+        raise SystemExit(1)
+
+
+def _list_streamer_devices(args) -> None:
+    if getattr(args, "target", None):
+        print(f"{Fore.RED}❌ --list-devices cannot be combined with --target{Style.RESET_ALL}")
+        raise SystemExit(1)
+    records = _discover_streamer_devices_or_exit()
+    print_streamer_device_list(records)
+
+
+def _resolve_collect_target_via_discovery(args) -> None:
+    if getattr(args, "target", None):
+        args.expected_discovery_device_id = None
+        return
+
+    records = _discover_streamer_devices_or_exit()
+    if not records:
+        print(f"{Fore.RED}❌ No Streamer devices discovered via mDNS.{Style.RESET_ALL}")
+        print(
+            f"{Fore.YELLOW}Use --target <ip[,ip,...]> for deterministic collection, "
+            f"or verify that the streamer firmware is online on the same LAN.{Style.RESET_ALL}"
+        )
+        raise SystemExit(1)
+
+    if len(records) == 1:
+        selected = records[0]
+        print(
+            f"{Fore.CYAN}Auto-selected Streamer:{Style.RESET_ALL} "
+            f"{selected.device_id_text} {selected.ip_address}:{selected.target_port}"
+        )
+    else:
+        try:
+            selected = choose_streamer_device_interactively(records)
+        except KeyboardInterrupt:
+            print(f"\n{Fore.YELLOW}Discovery selection cancelled{Style.RESET_ALL}")
+            raise SystemExit(1)
+        print(
+            f"{Fore.CYAN}Selected Streamer:{Style.RESET_ALL} "
+            f"{selected.device_id_text} {selected.ip_address}:{selected.target_port}"
+        )
+
+    args.target = selected.ip_address
+    args.target_port = selected.target_port
+    args.expected_discovery_device_id = selected.device_id
+    args.expected_discovery_device_id_text = selected.device_id_text
 
 
 def _compat_nominal_packet_interval_us(window_packets: int) -> int:
@@ -171,15 +237,6 @@ def _wait_before_collection(delay_seconds: float) -> None:
     print()
 
 
-def _uses_legacy_dataset_collection(args) -> bool:
-    """Return True when the unified collect command should use legacy timed dataset mode."""
-    if getattr(args, "info", False):
-        return True
-    if float(getattr(args, "start_delay", 0.0) or 0.0) > 0:
-        return True
-    return int(getattr(args, "samples", 1) or 1) != 1
-
-
 def _post_collect_quality_issue_sort_key(result) -> tuple[int, str]:
     """Prioritize continuity gaps first in the compact post-collect summary."""
     priorities = {
@@ -259,145 +316,82 @@ def _run_post_collect_quality_checks(saved_paths) -> None:
             )
 
 
-def _collect_dataset_csi_data(args) -> None:
-    """Run the legacy timed dataset collection workflow."""
-    try:
-        from tools.lib.csi_io import (
-            CSICollector,
-            UdpPacingSender,
-            get_dataset_stats,
-            get_default_bind_host,
-        )
-    except ImportError as e:
-        print(f"{Fore.RED}❌ Failed to import tooling helpers: {e}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Make sure the tools library package is available{Style.RESET_ALL}")
-        raise SystemExit(1)
-
-    if args.info:
-        stats = get_dataset_stats()
+def _print_dataset_catalog_stats(stats) -> None:
+    environments = list(stats.get("environments", []))
+    chips = list(stats.get("chips", []))
+    print()
+    print_box_banner("Dataset Statistics")
+    print()
+    if not environments:
+        print(f"  {Fore.YELLOW}No samples collected yet.{Style.RESET_ALL}")
         print()
-        print_box_banner("Dataset Statistics")
-        print()
-        if not stats["labels"]:
-            print(f"  {Fore.YELLOW}No samples collected yet.{Style.RESET_ALL}")
-            print()
-            print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
-            print("    1. Run the streamer firmware on the device")
-            print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}")
-        else:
-            print(f"  {Fore.CYAN}{'Label':<20} {'Samples':>10}{Style.RESET_ALL}")
-            print(f"  {'-' * 32}")
-            for label, info in stats["labels"].items():
-                print(f"  {label:<20} {info['samples']:>10}")
-            print(f"  {'-' * 32}")
-            print(f"  {Fore.GREEN}{'Total':<20} {stats['total_samples']:>10}{Style.RESET_ALL}")
+        print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
+        print("    1. Run the streamer firmware on the device")
+        print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}")
         print()
         return
 
-    if not args.label:
-        print(f"{Fore.RED}❌ Label required. Use --label <name>{Style.RESET_ALL}")
-        print(f"\n{Fore.YELLOW}Examples:{Style.RESET_ALL}")
-        print(f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}")
-        print(f"  {cli_command('collect', '--label', 'static_presence', '--duration', '10', '--target', '192.168.1.50')}")
-        print(f"  {cli_command('collect', '--info')}")
-        raise SystemExit(1)
-
-    if not args.target:
-        print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]>{Style.RESET_ALL}")
-        raise SystemExit(1)
-
-    detector_kinds = [
-        kind.strip().lower()
-        for kind in str(getattr(args, "detector", "classic")).split(",")
-        if kind.strip()
-    ]
-    if len(detector_kinds) != 1 or detector_kinds[0] not in {"classic", "ml"}:
-        print(f"{Fore.RED}❌ Timed collection accepts one detector: classic or ml{Style.RESET_ALL}")
-        raise SystemExit(1)
-
-    if args.start_delay < 0:
-        print(f"{Fore.RED}❌ Start delay must be >= 0 seconds{Style.RESET_ALL}")
-        raise SystemExit(1)
-
-    sample_duration = 2.0 if getattr(args, "duration", None) is None else float(args.duration)
-    if sample_duration <= 0:
-        print(f"{Fore.RED}❌ Duration must be > 0 seconds{Style.RESET_ALL}")
-        raise SystemExit(1)
-
-    try:
-        targets, target_mode = _parse_targets(args.target)
-    except ValueError as e:
-        print(f"{Fore.RED}❌ {e}{Style.RESET_ALL}")
-        raise SystemExit(1)
-
-    resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
-    pacing_pps = float(args.pps)
-    if pacing_pps <= 0:
-        print(f"{Fore.RED}❌ pacing rate must be > 0 pps, got {pacing_pps:g}{Style.RESET_ALL}")
-        raise SystemExit(1)
-    pacing_sender = UdpPacingSender(
-        target_host=targets,
-        target_port=args.target_port,
-        source_host=resolved_bind_ip,
-        interval_s=1.0 / pacing_pps,
+    label_width = max(
+        len("Label"),
+        max(
+            (len(str(row.get("label", ""))) for environment in environments for row in environment.get("rows", [])),
+            default=0,
+        ),
     )
-    print()
-    print_box_banner("Dataset Collection")
-    print()
-    print(f"  {Fore.CYAN}Label:{Style.RESET_ALL}     {args.label}")
-    print(f"  {Fore.CYAN}Samples:{Style.RESET_ALL}   {args.samples}")
-    print(f"  {Fore.CYAN}Duration:{Style.RESET_ALL}  {sample_duration}s per sample")
-    if args.start_delay > 0:
-        print(f"  {Fore.CYAN}Start delay:{Style.RESET_ALL} {args.start_delay}s")
-    print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
-    print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
-    print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)} ({target_mode})")
-    print(
-        f"  {Fore.CYAN}Pps:{Style.RESET_ALL}     {pacing_pps:g}pps "
-        f"({'adaptive' if getattr(args, 'adaptive', True) else 'fixed'}) UDP traffic on {args.target_port}"
-    )
-    if args.description:
-        print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
-    print()
-    print(f"  {Fore.YELLOW}Chip type auto-detected from CSI stream{Style.RESET_ALL}")
-    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening on the configured target/port{Style.RESET_ALL}")
-    print()
+    chip_widths = {
+        chip: max(len(str(chip)), len("0"))
+        for chip in chips
+    }
+    total_width = max(len("Total"), len(str(stats.get("total_samples", 0))))
 
-    collector = CSICollector(
-        label=args.label,
-        port=args.udp_port,
-        contributor=args.contributor,
-        description=args.description,
-        bind_host=resolved_bind_ip,
-        expected_device_count=len(targets),
-        expected_source_hosts=targets,
-        detector_algorithm=detector_kinds[0],
-    )
-    try:
-        _wait_before_collection(args.start_delay)
-        pacing_sender.start()
-        saved = collector.collect_timed(
-            duration=sample_duration,
-            num_samples=args.samples,
-            pacing_sender=pacing_sender,
-            adaptive=bool(getattr(args, "adaptive", True)),
-            adaptive_controller_kwargs={
-                "boost_allowed": target_mode in ("broadcast", "multicast"),
-            },
-            ready_stable_seconds=float(getattr(args, "ready_stable_seconds", 3.0)),
+    for environment in environments:
+        rows = list(environment.get("rows", []))
+        print(f"  {Fore.CYAN}Environment:{Style.RESET_ALL} {environment.get('environment', 'unknown')}")
+        header = (
+            f"  {'Label':<{label_width}} "
+            + " ".join(f"{chip:>{chip_widths[chip]}}" for chip in chips)
+            + f" {'Total':>{total_width}}"
         )
-        if saved:
-            _run_post_collect_quality_checks(saved)
-            print(f"{Fore.GREEN}✅ Collected {len(saved)} device file(s) for label '{args.label}'{Style.RESET_ALL}")
-        else:
-            print(f"{Fore.RED}❌ No samples collected{Style.RESET_ALL}")
-    except KeyboardInterrupt:
-        print(f"\n{Fore.YELLOW}Collection cancelled{Style.RESET_ALL}")
-    except Exception as e:
-        print(f"\n{Fore.RED}❌ Error during collection: {e}{Style.RESET_ALL}")
+        print(header)
+        print(f"  {'-' * (len(header) - 2)}")
+        for row in rows:
+            counts = row.get("counts", {})
+            count_cells = " ".join(
+                f"{int(counts.get(chip, 0)):>{chip_widths[chip]}}"
+                for chip in chips
+            )
+            print(
+                f"  {str(row.get('label', '')):<{label_width}} "
+                f"{count_cells} {int(row.get('total', 0)):>{total_width}}"
+            )
+        total_counts = {
+            chip: sum(int(row.get("counts", {}).get(chip, 0)) for row in rows)
+            for chip in chips
+        }
+        total_cells = " ".join(
+            f"{int(total_counts.get(chip, 0)):>{chip_widths[chip]}}"
+            for chip in chips
+        )
+        print(f"  {'-' * (len(header) - 2)}")
+        print(
+            f"  {Fore.GREEN}{'Total':<{label_width}} "
+            f"{total_cells} {int(environment.get('total_samples', 0)):>{total_width}}{Style.RESET_ALL}"
+        )
+        print()
+
+    print(f"  {Fore.GREEN}Grand total:{Style.RESET_ALL} {int(stats.get('total_samples', 0))}")
+    print()
+
+
+def _show_dataset_info() -> None:
+    """Print dataset statistics from dataset_info.json."""
+    try:
+        from tools.lib.dataset_metadata import get_dataset_catalog_stats
+    except ImportError as e:
+        print(f"{Fore.RED}❌ Failed to import dataset metadata helpers: {e}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Make sure the tools library package is available{Style.RESET_ALL}")
         raise SystemExit(1)
-    finally:
-        pacing_sender.stop()
+    _print_dataset_catalog_stats(get_dataset_catalog_stats())
 
 
 def collect_csi_data(args) -> None:
@@ -407,9 +401,13 @@ def collect_csi_data(args) -> None:
         print(f"{Fore.RED}❌ Ready gate seconds must be >= 0{Style.RESET_ALL}")
         raise SystemExit(1)
     args.ready_stable_seconds = ready_stable_seconds
-    if _uses_legacy_dataset_collection(args):
-        _collect_dataset_csi_data(args)
+    if getattr(args, "list_devices", False):
+        _list_streamer_devices(args)
         return
+    if getattr(args, "info", False):
+        _show_dataset_info()
+        return
+    _resolve_collect_target_via_discovery(args)
     _run_live_collect(args)
 
 
@@ -509,12 +507,20 @@ def _run_live_collect(args) -> None:
     live_duration = getattr(args, "duration", None)
     save_enabled = bool(label)
     ready_stable_seconds = float(getattr(args, "ready_stable_seconds", 3.0))
+    expected_discovery_device_id = getattr(args, "expected_discovery_device_id", None)
+    start_delay = float(getattr(args, "start_delay", 0.0) or 0.0)
 
     if live_duration is not None and live_duration <= 0:
         print(f"{Fore.RED}❌ Duration must be > 0 seconds{Style.RESET_ALL}")
         raise SystemExit(1)
+    if start_delay < 0:
+        print(f"{Fore.RED}❌ Start delay must be >= 0 seconds{Style.RESET_ALL}")
+        raise SystemExit(1)
+    if start_delay > 0 and live_duration is None:
+        print(f"{Fore.RED}❌ Start delay requires --duration{Style.RESET_ALL}")
+        raise SystemExit(1)
     if not getattr(args, "target", None):
-        print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]>{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]> or discovery.{Style.RESET_ALL}")
         raise SystemExit(1)
 
     initial_pacing_pps = float(args.pps)
@@ -1194,6 +1200,7 @@ def _run_live_collect(args) -> None:
             bind_host=resolved_bind_ip,
             expected_device_count=len(targets),
             expected_source_hosts=targets,
+            expected_device_id=expected_discovery_device_id,
         )
 
     state = {
@@ -1209,6 +1216,7 @@ def _run_live_collect(args) -> None:
         "summary_line_count": 0,
         "summary_use_inline": supports_inline_terminal(),
         "calibration_active": bool(calibrated_kinds),
+        "device_id_mismatch": None,
     }
     strict_source_filter = target_mode in {"unicast", "multi-unicast"}
     allowed_source_hosts = set(targets)
@@ -1227,6 +1235,26 @@ def _run_live_collect(args) -> None:
             source_ip = getattr(pkt, "source_ip", None)
             if source_ip is None or str(source_ip) not in allowed_source_hosts:
                 maybe_stop_live_session(now)
+                return
+        if expected_discovery_device_id is not None:
+            packet_device_id = get_packet_device_id(pkt)
+            if packet_device_id is None:
+                state["device_id_mismatch"] = (
+                    "Discovered target expected "
+                    f"{_format_expected_device_id(expected_discovery_device_id)}, "
+                    "but the stream packet had no device_id metadata"
+                )
+                state["running"] = False
+                receiver.stop()
+                return
+            if packet_device_id != int(expected_discovery_device_id):
+                state["device_id_mismatch"] = (
+                    "Discovered target expected "
+                    f"{_format_expected_device_id(expected_discovery_device_id)}, "
+                    f"but received {_format_expected_device_id(packet_device_id)} from {getattr(pkt, 'source_ip', '?')}"
+                )
+                state["running"] = False
+                receiver.stop()
                 return
 
         state["packet_count"] += 1
@@ -1323,7 +1351,14 @@ def _run_live_collect(args) -> None:
     print_box_banner("Live CSI Collection")
     print()
     print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)}:{args.target_port} ({target_mode})")
+    if expected_discovery_device_id is not None:
+        print(
+            f"  {Fore.CYAN}Device ID:{Style.RESET_ALL} "
+            f"{_format_expected_device_id(expected_discovery_device_id)} (from mDNS)"
+        )
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}:{args.udp_port}")
+    if start_delay > 0:
+        print(f"  {Fore.CYAN}Start delay:{Style.RESET_ALL} {start_delay:.1f}s")
     print(f"  {Fore.CYAN}Detector:{Style.RESET_ALL}  {', '.join(kind.upper() for kind in detector_kinds)}")
     if "ml" in detector_kinds:
         ml_suffix = " (ml, fixed)" if len(detector_kinds) > 1 else ""
@@ -1361,6 +1396,7 @@ def _run_live_collect(args) -> None:
     print()
 
     try:
+        _wait_before_collection(start_delay)
         pacing_sender.start()
         while state["running"]:
             announce_socket_rcvbuf = state.get("socket_rcvbuf_reported") is not True
@@ -1380,6 +1416,9 @@ def _run_live_collect(args) -> None:
         pacing_sender.stop()
         receiver.stop()
         clear_status_block()
+        if state["device_id_mismatch"] is not None:
+            print(f"{Fore.RED}❌ {state['device_id_mismatch']}{Style.RESET_ALL}")
+            raise SystemExit(1)
         if capture_writer is not None:
             captured_packets = state["capture_packets"]
             if live_duration is not None and state["interrupted"] and not state["capture_completed"]:

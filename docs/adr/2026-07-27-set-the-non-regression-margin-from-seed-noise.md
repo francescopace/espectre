@@ -60,10 +60,7 @@ promoted it.
 reflected real dispersion, since weak links show the same effect only larger.
 That cannot be established: every `low_rssi` pair is in `train`, `holdout`, or
 `exclude`, and none in `selection`, so its dispersion can only be measured by
-contaminating training or by burning the holdout. `COLLECTION_PLAN.md` asks for
-a reserved weak selection pair; until one exists, removing the exemption by
-analogy with normal links would be the same unmeasured reasoning this ADR
-replaces.
+contaminating training or by burning the holdout.
 
 ## Alternatives Considered
 

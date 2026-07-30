@@ -1171,6 +1171,7 @@ class CSICollector:
         bind_host: Optional[str] = None,
         expected_device_count: Optional[int] = None,
         expected_source_hosts: Optional[List[str]] = None,
+        expected_device_id: Optional[int] = None,
         detector_algorithm: str = "classic",
     ):
         self.label = label
@@ -1181,6 +1182,7 @@ class CSICollector:
         self.description = description
         self.expected_source_hosts = list(dict.fromkeys(expected_source_hosts or []))
         self.expected_device_count = max(1, int(expected_device_count)) if expected_device_count is not None else 1
+        self.expected_device_id = int(expected_device_id) if expected_device_id is not None else None
         self.receiver = CSIReceiver(port=port, buffer_size=2000, bind_host=bind_host, derive_complex=False)
         self._sample_count = 0
         self.detector_algorithm = normalize_detector_algorithm(detector_algorithm)
@@ -1208,6 +1210,24 @@ class CSICollector:
         if source_ip is None:
             return False
         return str(source_ip) in self.expected_source_hosts
+
+    def _validate_expected_device_id(self, packet: CSIPacket, source_ip: Optional[str]) -> None:
+        """Reject stale discovery targets whose first stream packets carry a different device_id."""
+        if self.expected_device_id is None:
+            return
+        if packet.device_id is None:
+            raise ValueError(
+                "discovered target expected "
+                f"{format_device_id_hex(self.expected_device_id)}, "
+                f"but stream packet from {source_ip or '?'} had no device_id metadata"
+            )
+        packet_device_id = int(packet.device_id)
+        if packet_device_id != self.expected_device_id:
+            raise ValueError(
+                "discovered target expected "
+                f"{format_device_id_hex(self.expected_device_id)}, "
+                f"but received {format_device_id_hex(packet_device_id)} from {source_ip or '?'}"
+            )
 
     def _get_label_dir(self) -> Path:
         label_dir = dataset_metadata.DATA_DIR / self.label
@@ -1680,6 +1700,7 @@ class CSICollector:
                     packet.source_ip = addr[0]
                     if not self._should_accept_source_ip(packet.source_ip):
                         continue
+                    self._validate_expected_device_id(packet, addr[0])
                     if not self.receiver.accept_packet(packet):
                         continue
                     processed_packets += 1
@@ -1802,6 +1823,7 @@ class CSICollector:
                     packet.source_ip = addr[0]
                     if not self._should_accept_source_ip(packet.source_ip):
                         continue
+                    self._validate_expected_device_id(packet, addr[0])
                     if not self.receiver.accept_packet(packet):
                         continue
                     packets.append(packet)

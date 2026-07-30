@@ -13,6 +13,7 @@ idf_component_register(
         esp_event
         esp_netif
         esp_timer
+        mdns
         nvs_flash
         lwip
         driver
@@ -20,3 +21,5 @@ idf_component_register(
         heap
         log
 )
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE ESPECTRE_ENABLE_STREAM_RUNTIME=1)

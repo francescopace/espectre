@@ -18,6 +18,7 @@ endif()
 add_library(espectre_test_framework STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/support/test_harness.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_event_mock.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/mdns_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_netif_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/nvs_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_wifi_mock.cpp"
@@ -50,6 +51,7 @@ add_library(espectre_core_testlib STATIC
 )
 target_link_libraries(espectre_core_testlib
     PUBLIC
+        espectre_test_framework
         espectre_test_mocks
 )
 
@@ -74,7 +76,9 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_detector_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_motion_hits_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_debug_telemetry.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_runtime_factory.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_esp_idf_runtime.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/streamer_discovery_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_frame_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_traffic_service.cpp"
@@ -92,7 +96,10 @@ target_link_libraries(espectre_runtime_testlib
     PUBLIC
         espectre_core_testlib
         espectre_test_mocks
-        espectre_test_framework
+)
+target_compile_definitions(espectre_runtime_testlib
+    PUBLIC
+        ESPECTRE_ENABLE_STREAM_RUNTIME=1
 )
 
 add_library(espectre_frontend_esphome_testlib STATIC

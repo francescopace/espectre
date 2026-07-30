@@ -236,7 +236,6 @@ and normalize status metadata without rewriting historical rationale.
 
 **Where**
 
-- [COLLECTION_PLAN.md](../../data/COLLECTION_PLAN.md)
 - [ROADMAP.md](../ROADMAP.md)
 - `data/dataset_info.json`
 

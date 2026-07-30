@@ -29,8 +29,7 @@ for shared configuration, protocol, and runtime architecture.
 - Use `docs/ALGORITHMS.md`, `docs/FEATURES.md`, `docs/ML_DATA_COLLECTION.md`,
 and `docs/ML_TRAINING.md` for detector behavior, feature inventory, dataset
 collection, and training workflows.
-- Use `docs/performance/README.md`, `docs/LITERATURE.md`,
-`data/COLLECTION_PLAN.md`, and `data/auto_generated/DATASET_QUALITY_CHECK.md`
+- Use `docs/performance/README.md`, `docs/LITERATURE.md`, and `data/auto_generated/DATASET_QUALITY_CHECK.md`
 for benchmark status, external research context, collection backlog, and
 dataset quality snapshots.
 - Use `docs/ROADMAP.md` for product direction, `docs/adr/*.md` for durable

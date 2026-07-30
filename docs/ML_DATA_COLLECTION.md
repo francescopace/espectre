@@ -165,10 +165,6 @@ Recommended starting point:
 - one environment at a time
 - varied positions and distances within the same environment
 
-For the current prioritized capture backlog and replacement targets, use
-[COLLECTION_PLAN.md](../data/COLLECTION_PLAN.md). This guide owns the collection
-contract; the plan owns the mutable queue.
-
 ## Stream Metadata
 
 The clean-break streamer protocol keeps only metadata that is still useful for

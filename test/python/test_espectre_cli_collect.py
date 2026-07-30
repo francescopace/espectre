@@ -24,8 +24,8 @@ from tools.lib.csi_io import AdaptivePacingController
 def _make_collect_args(**overrides) -> argparse.Namespace:
     args = {
         "info": False,
+        "list_devices": False,
         "label": "static_presence",
-        "samples": 2,
         "duration": 10.0,
         "ready_stable_seconds": 3.0,
         "start_delay": 5.0,
@@ -45,8 +45,8 @@ def _make_collect_args(**overrides) -> argparse.Namespace:
 def _make_live_collect_args(**overrides) -> argparse.Namespace:
     args = {
         "info": False,
+        "list_devices": False,
         "label": "test",
-        "samples": 1,
         "duration": None,
         "ready_stable_seconds": 3.0,
         "start_delay": 0.0,
@@ -62,6 +62,27 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
     }
     args.update(overrides)
     return argparse.Namespace(**args)
+
+
+def _make_discovered_streamer(
+    *,
+    device_id: int = 0xABC123,
+    device_id_text: str = "0x0000000000abc123",
+    chip: str = "s3",
+    ip_address: str = "192.168.1.29",
+    target_port: int = 9999,
+    collector_port: int | None = 5001,
+    service_name: str = "ESPectre Streamer._espectre-streamer._udp.local.",
+):
+    return host.StreamerDiscoveryRecord(
+        service_name=service_name,
+        device_id=device_id,
+        device_id_text=device_id_text,
+        chip=chip,
+        ip_address=ip_address,
+        target_port=target_port,
+        collector_port=collector_port,
+    )
 
 
 def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collector_cls=object, config_overrides=None) -> None:
@@ -213,28 +234,10 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
     monkeypatch.setitem(sys.modules, "threshold", fake_threshold)
 
 
-def test_collect_parser_accepts_count_alias() -> None:
+def test_collect_parser_rejects_removed_samples_option() -> None:
     parser = build_parser()
-
-    args = parser.parse_args(
-        [
-            "collect",
-            "--label",
-            "static_presence",
-            "--duration",
-            "10",
-            "--count",
-            "3",
-            "--start-delay",
-            "15",
-            "--target",
-            "239.1.1.15",
-        ]
-    )
-
-    assert args.namespace == "collect"
-    assert args.samples == 3
-    assert args.start_delay == 15.0
+    with pytest.raises(SystemExit):
+        parser.parse_args(["collect", "--samples", "3"])
 
 
 def test_collect_parser_accepts_ready_gate_override() -> None:
@@ -254,25 +257,6 @@ def test_collect_parser_accepts_ready_gate_override() -> None:
 
     assert args.namespace == "collect"
     assert args.ready_stable_seconds == 0.0
-
-
-def test_collect_parser_keeps_samples_option() -> None:
-    parser = build_parser()
-
-    args = parser.parse_args(
-        [
-            "collect",
-            "--label",
-            "motion",
-            "--samples",
-            "4",
-            "--target",
-            "192.168.1.15",
-        ]
-    )
-
-    assert args.samples == 4
-    assert args.start_delay == 0.0
 
 
 def test_collect_parser_accepts_comma_separated_targets() -> None:
@@ -332,18 +316,127 @@ def test_collect_parser_accepts_live_options() -> None:
     assert args.description == "live collect ML, idle-motion-idle"
 
 
-def test_collect_timed_allows_test_label(monkeypatch) -> None:
+def test_collect_parser_accepts_list_devices() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["collect", "--list-devices"])
+
+    assert args.namespace == "collect"
+    assert args.list_devices is True
+
+
+def test_collect_routes_labelled_capture_to_live_collect(monkeypatch) -> None:
     routed_labels: list[str] = []
 
     monkeypatch.setattr(
         host,
-        "_collect_dataset_csi_data",
+        "_run_live_collect",
         lambda args: routed_labels.append(args.label),
     )
 
     host.collect_csi_data(_make_collect_args(target="192.168.1.15", label="test"))
 
     assert routed_labels == ["test"]
+
+
+def test_collect_list_devices_prints_discovered_streamers(monkeypatch, capsys) -> None:
+    devices = [
+        _make_discovered_streamer(),
+        _make_discovered_streamer(
+            device_id=0xABC124,
+            device_id_text="0x0000000000abc124",
+            ip_address="192.168.1.30",
+            service_name="ESPectre Streamer 2._espectre-streamer._udp.local.",
+        ),
+    ]
+    monkeypatch.setattr(host, "discover_streamer_devices", lambda: devices)
+    run_live_calls: list[object] = []
+    monkeypatch.setattr(host, "_run_live_collect", lambda args: run_live_calls.append(args))
+
+    host.collect_csi_data(_make_live_collect_args(target=None, label=None, list_devices=True))
+
+    output = capsys.readouterr().out
+    assert "Discovered Streamer devices" in output
+    assert "0x0000000000abc123" in output
+    assert "0x0000000000abc124" in output
+    assert run_live_calls == []
+
+
+def test_collect_live_auto_selects_single_discovered_streamer(monkeypatch) -> None:
+    selected_args: list[argparse.Namespace] = []
+    device = _make_discovered_streamer(target_port=12000)
+    monkeypatch.setattr(host, "discover_streamer_devices", lambda: [device])
+    monkeypatch.setattr(host, "_run_live_collect", lambda args: selected_args.append(args))
+
+    host.collect_csi_data(_make_live_collect_args(target=None, label=None))
+
+    assert len(selected_args) == 1
+    assert selected_args[0].target == "192.168.1.29"
+    assert selected_args[0].target_port == 12000
+    assert selected_args[0].expected_discovery_device_id == 0xABC123
+
+
+def test_collect_live_prompts_for_multiple_discovered_streamers(monkeypatch) -> None:
+    selected_args: list[argparse.Namespace] = []
+    devices = [
+        _make_discovered_streamer(),
+        _make_discovered_streamer(
+            device_id=0xABC124,
+            device_id_text="0x0000000000abc124",
+            ip_address="192.168.1.30",
+            service_name="ESPectre Streamer 2._espectre-streamer._udp.local.",
+        ),
+    ]
+    monkeypatch.setattr(host, "discover_streamer_devices", lambda: devices)
+    monkeypatch.setattr(host, "choose_streamer_device_interactively", lambda records: records[1])
+    monkeypatch.setattr(host, "_run_live_collect", lambda args: selected_args.append(args))
+
+    host.collect_csi_data(_make_live_collect_args(target=None, label=None))
+
+    assert len(selected_args) == 1
+    assert selected_args[0].target == "192.168.1.30"
+    assert selected_args[0].expected_discovery_device_id == 0xABC124
+
+
+def test_collect_live_errors_when_discovery_finds_no_devices(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(host, "discover_streamer_devices", lambda: [])
+
+    with pytest.raises(SystemExit):
+        host.collect_csi_data(_make_live_collect_args(target=None, label=None))
+
+    output = capsys.readouterr().out
+    assert "No Streamer devices discovered via mDNS" in output
+    assert "Use --target" in output
+
+
+def test_collect_live_explicit_target_bypasses_discovery(monkeypatch) -> None:
+    run_live_calls: list[argparse.Namespace] = []
+
+    def unexpected_discovery():
+        raise AssertionError("discovery should not run when --target is set")
+
+    monkeypatch.setattr(host, "discover_streamer_devices", unexpected_discovery)
+    monkeypatch.setattr(host, "_run_live_collect", lambda args: run_live_calls.append(args))
+
+    host.collect_csi_data(_make_live_collect_args(target="192.168.1.15", label=None))
+
+    assert len(run_live_calls) == 1
+    assert run_live_calls[0].target == "192.168.1.15"
+    assert getattr(run_live_calls[0], "expected_discovery_device_id", None) is None
+
+
+def test_collect_live_resolves_single_discovered_streamer(monkeypatch) -> None:
+    routed_args: list[argparse.Namespace] = []
+    device = _make_discovered_streamer(target_port=12000)
+    monkeypatch.setattr(host, "discover_streamer_devices", lambda: [device])
+    monkeypatch.setattr(host, "_run_live_collect", lambda args: routed_args.append(args))
+
+    host.collect_csi_data(_make_collect_args(target=None, start_delay=2.0))
+
+    assert len(routed_args) == 1
+    assert routed_args[0].target == "192.168.1.29"
+    assert routed_args[0].target_port == 12000
+    assert routed_args[0].expected_discovery_device_id == 0xABC123
 
 
 def test_collect_parser_accepts_pps() -> None:
@@ -423,6 +516,59 @@ def test_collect_live_rejects_unknown_detector(monkeypatch, capsys) -> None:
 
     output = capsys.readouterr().out
     assert "Unsupported detector(s): bogus" in output
+
+
+def test_collect_live_rejects_discovery_device_id_mismatch(monkeypatch, capsys) -> None:
+    class FakePacket:
+        def __init__(self, device_id: int):
+            self.seq_num = 1
+            self.device_id = device_id
+            self.iq_raw = [1, 2, 3, 4]
+            self.source_ip = "192.168.1.29"
+            self.channel = 8
+            self.rssi_dbm = -47
+            self.chip = "s3"
+
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            self._callbacks = []
+            self.effective_socket_rcvbuf_bytes = None
+
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
+            packet = FakePacket(0xABC124)
+            for callback in self._callbacks:
+                callback(packet)
+
+        def stop(self):
+            pass
+
+    class FakePacingSender:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
+    monkeypatch.setattr(host, "discover_streamer_devices", lambda: [_make_discovered_streamer()])
+
+    with pytest.raises(SystemExit):
+        host.collect_csi_data(
+            _make_live_collect_args(
+                target=None,
+                label=None,
+            )
+        )
+
+    output = capsys.readouterr().out
+    assert "expected 0x0000000000abc123" in output
+    assert "received 0x0000000000abc124" in output
 
 
 def test_ui_parser_accepts_ble_interface() -> None:
@@ -558,12 +704,13 @@ def test_wait_before_collection_counts_down(monkeypatch, capsys) -> None:
 
 
 def test_collect_info_shows_empty_dataset(monkeypatch, capsys) -> None:
-    fake_csi_utils = ModuleType("tools.lib.csi_io")
-    fake_csi_utils.CSICollector = object
-    fake_csi_utils.UdpPacingSender = object
-    fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
-    fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
-    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
+    fake_dataset_metadata = ModuleType("tools.lib.dataset_metadata")
+    fake_dataset_metadata.get_dataset_catalog_stats = lambda: {
+        "chips": [],
+        "environments": [],
+        "total_samples": 0,
+    }
+    monkeypatch.setitem(sys.modules, "tools.lib.dataset_metadata", fake_dataset_metadata)
 
     host.collect_csi_data(_make_collect_args(info=True))
 
@@ -573,54 +720,105 @@ def test_collect_info_shows_empty_dataset(monkeypatch, capsys) -> None:
 
 
 def test_collect_info_shows_label_table(monkeypatch, capsys) -> None:
-    fake_csi_utils = ModuleType("tools.lib.csi_io")
-    fake_csi_utils.CSICollector = object
-    fake_csi_utils.UdpPacingSender = object
-    fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
-    fake_csi_utils.get_dataset_stats = lambda: {
-        "labels": {"motion": {"samples": 4}, "empty": {"samples": 2}},
+    fake_dataset_metadata = ModuleType("tools.lib.dataset_metadata")
+    fake_dataset_metadata.get_dataset_catalog_stats = lambda: {
+        "chips": ["C3", "S3"],
+        "environments": [
+            {
+                "environment": "bedroom",
+                "chips": ["C3", "S3"],
+                "rows": [
+                    {"label": "empty", "counts": {"C3": 2, "S3": 0}, "total": 2},
+                    {"label": "motion", "counts": {"C3": 1, "S3": 3}, "total": 4},
+                ],
+                "total_samples": 6,
+            }
+        ],
         "total_samples": 6,
     }
-    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.dataset_metadata", fake_dataset_metadata)
 
     host.collect_csi_data(_make_collect_args(info=True))
 
     output = capsys.readouterr().out
+    assert "Environment:" in output
+    assert "bedroom" in output
+    assert "C3" in output
+    assert "S3" in output
     assert "motion" in output
     assert "empty" in output
-    assert "Total" in output
+    assert "Grand total:" in output
 
 
-def test_collect_csi_data_validates_arguments_and_imports(monkeypatch) -> None:
-    monkeypatch.delitem(sys.modules, "tools.lib.csi_io", raising=False)
+def test_collect_info_import_error_exits(monkeypatch) -> None:
+    monkeypatch.delitem(sys.modules, "tools.lib.dataset_metadata", raising=False)
+    original_import = builtins.__import__
 
-    with pytest.raises(SystemExit):
-        host.collect_csi_data(_make_collect_args(label=None))
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "tools.lib.dataset_metadata":
+            raise ImportError("dataset metadata unavailable")
+        return original_import(name, globals, locals, fromlist, level)
 
-    fake_csi_utils = ModuleType("tools.lib.csi_io")
-    fake_csi_utils.CSICollector = object
-    fake_csi_utils.UdpPacingSender = object
-    fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
-    fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
-    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
 
     with pytest.raises(SystemExit):
-        host.collect_csi_data(_make_collect_args(target=None))
-
-    with pytest.raises(SystemExit):
-        host.collect_csi_data(_make_collect_args(start_delay=-1))
+        host.collect_csi_data(_make_collect_args(info=True))
 
 
-def test_collect_csi_data_handles_interrupt_and_runtime_error(monkeypatch) -> None:
-    events: list[str] = []
-    fake_csi_utils = ModuleType("tools.lib.csi_io")
+def test_collect_csi_data_validates_start_delay_and_discovery(monkeypatch) -> None:
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            self._callbacks = []
+            self.effective_socket_rcvbuf_bytes = None
 
-    class InterruptCollector:
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
+            raise KeyboardInterrupt
+
+        def stop(self):
+            pass
+
+    class FakePacingSender:
         def __init__(self, **kwargs):
             pass
 
-        def collect_timed(self, duration: float, num_samples: int, **kwargs):
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
+    monkeypatch.setattr(host, "discover_streamer_devices", lambda: [])
+
+    with pytest.raises(SystemExit):
+        host.collect_csi_data(_make_live_collect_args(target=None, label=None))
+
+    with pytest.raises(SystemExit):
+        host.collect_csi_data(_make_live_collect_args(start_delay=-1.0, duration=10.0, label=None))
+
+    with pytest.raises(SystemExit):
+        host.collect_csi_data(_make_live_collect_args(start_delay=5.0, duration=None, label=None))
+
+
+def test_collect_csi_data_handles_interrupt(monkeypatch) -> None:
+    events: list[str] = []
+
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            self._callbacks = []
+            self.effective_socket_rcvbuf_bytes = None
+
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
             raise KeyboardInterrupt
+
+        def stop(self):
+            events.append("receiver_stop")
 
     class FakePacingSender:
         def __init__(self, **kwargs):
@@ -632,59 +830,35 @@ def test_collect_csi_data_handles_interrupt_and_runtime_error(monkeypatch) -> No
         def stop(self):
             events.append("stop")
 
-    fake_csi_utils.CSICollector = InterruptCollector
-    fake_csi_utils.UdpPacingSender = FakePacingSender
-    fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
-    fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
-    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
+    _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
     monkeypatch.setattr(host, "_wait_before_collection", lambda delay: None)
 
-    host.collect_csi_data(_make_collect_args())
-    assert events == ["start", "stop"]
+    host.collect_csi_data(_make_live_collect_args(label=None, duration=None))
+    assert events == ["start", "stop", "receiver_stop"]
 
 
 def test_collect_applies_start_delay_before_starting_pacing(monkeypatch, capsys) -> None:
     events: list[object] = []
-    fake_csi_utils = ModuleType("tools.lib.csi_io")
-    fake_quality = ModuleType("tools.validate_dataset_quality")
 
-    class FakeResult:
-        def __init__(self, name: str, status: str, message: str):
-            self.name = name
-            self.status = status
-            self.message = message
-
-    class FakeData(dict):
-        @property
-        def files(self):
-            return list(self.keys())
-
-    class FakeCollector:
+    class FakeReceiver:
         def __init__(self, **kwargs):
-            events.append(
-                (
-                    "collector_init",
-                    kwargs["label"],
-                    kwargs["bind_host"],
-                    kwargs["expected_device_count"],
-                    kwargs["detector_algorithm"],
-                )
-            )
+            self._callbacks = []
+            self.effective_socket_rcvbuf_bytes = None
 
-        def collect_timed(self, duration: float, num_samples: int, **kwargs):
-            events.append(("collect_timed", duration, num_samples, kwargs))
-            return [Path("sample_1.npz"), Path("sample_2.npz")]
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
+            raise KeyboardInterrupt
+
+        def stop(self):
+            events.append("receiver_stop")
 
     class FakePacingSender:
-        last_instance = None
-
         def __init__(self, **kwargs):
             events.append(
                 ("sender_init", kwargs["target_host"], kwargs.get("interval_s"))
             )
-            self.kwargs = kwargs
-            self.rate_updates = []
-            FakePacingSender.last_instance = self
 
         def start(self):
             events.append("start")
@@ -692,66 +866,27 @@ def test_collect_applies_start_delay_before_starting_pacing(monkeypatch, capsys)
         def stop(self):
             events.append("stop")
 
-        def set_rate_pps(self, rate_pps):
-            self.rate_updates.append(float(rate_pps))
-
-    fake_csi_utils.CSICollector = FakeCollector
-    fake_csi_utils.UdpPacingSender = FakePacingSender
-    fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
-    fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
-    fake_quality.validate_file_integrity = lambda path: (
-        [
-            FakeResult("file_load", "PASS", "File loads successfully"),
-            FakeResult("sensing_contract", "PASS", "Sensing view keeps packets"),
-        ],
-        FakeData({"csi_data": object()}),
-    )
-    fake_quality.validate_signal_quality = lambda csi_data: [
-        FakeResult("packet_count", "PASS", "7000 packets"),
-        FakeResult("signal_level", "PASS", "Mean amplitude: 23.4"),
-    ]
-    fake_quality.validate_capture_continuity = lambda data, csi_data: [
-        FakeResult("packet_rate", "PASS", "Packet rate: 100.0 pkt/s"),
-        FakeResult(
-            "stream_seq_max_gap",
-            "PASS",
-            "Largest stream gap: 0 packets with no missing packets detected (warn > 10, fail > 20)",
-        ),
-        FakeResult(
-            "inter_packet_gap",
-            "PASS",
-            "Largest inter-packet gap: 10.0 ms via device_ticks_us at packet 0->1 (warn > 150.0 ms, fail > 250.0 ms)",
-        ),
-    ]
-
-    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
-    monkeypatch.setitem(sys.modules, "tools.validate_dataset_quality", fake_quality)
+    _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
     monkeypatch.setattr(host, "_wait_before_collection", lambda delay: events.append(("delay", delay)))
 
-    host.collect_csi_data(_make_collect_args(target="192.168.1.17,192.168.1.24,192.168.1.29"))
+    host.collect_csi_data(
+        _make_live_collect_args(
+            target="192.168.1.17,192.168.1.24,192.168.1.29",
+            label=None,
+            duration=10.0,
+            start_delay=5.0,
+        )
+    )
     output = capsys.readouterr().out
 
     assert ("delay", 5.0) in events
     assert ("sender_init", ["192.168.1.17", "192.168.1.24", "192.168.1.29"], 0.01) in events
-    collect_event = next(event for event in events if isinstance(event, tuple) and event[0] == "collect_timed")
-    assert collect_event[1] == 10.0
-    assert collect_event[2] == 2
-    assert collect_event[3]["adaptive"] is True
-    assert collect_event[3]["adaptive_controller_kwargs"] == {"boost_allowed": False}
-    assert collect_event[3]["pacing_sender"] is FakePacingSender.last_instance
-    assert collect_event[3]["ready_stable_seconds"] == 3.0
-    assert FakePacingSender.last_instance.rate_updates == []
-    assert ("collector_init", "static_presence", "127.0.0.1", 3, "classic") in events
     assert events.index(("delay", 5.0)) < events.index("start")
-    assert events[-1] == "stop"
-    assert "Post-collect quality:" in output
-    assert "sample_1.npz: quality checks all pass" in output
-    assert "sample_2.npz: quality checks all pass" in output
-    assert "Collected 2 device file(s)" in output
+    assert events[-2:] == ["stop", "receiver_stop"]
+    assert "Start delay:" in output
 
 
 def test_collect_reports_post_collect_gap_details(monkeypatch, capsys) -> None:
-    fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_quality = ModuleType("tools.validate_dataset_quality")
 
     class FakeResult:
@@ -765,27 +900,6 @@ def test_collect_reports_post_collect_gap_details(monkeypatch, capsys) -> None:
         def files(self):
             return list(self.keys())
 
-    class FakeCollector:
-        def __init__(self, **kwargs):
-            pass
-
-        def collect_timed(self, duration: float, num_samples: int, **kwargs):
-            return [Path("sample_1.npz")]
-
-    class FakePacingSender:
-        def __init__(self, **kwargs):
-            pass
-
-        def start(self):
-            pass
-
-        def stop(self):
-            pass
-
-    fake_csi_utils.CSICollector = FakeCollector
-    fake_csi_utils.UdpPacingSender = FakePacingSender
-    fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
-    fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_quality.validate_file_integrity = lambda path: (
         [FakeResult("file_load", "PASS", "File loads successfully")],
         FakeData({"csi_data": object()}),
@@ -804,11 +918,8 @@ def test_collect_reports_post_collect_gap_details(monkeypatch, capsys) -> None:
         ),
     ]
 
-    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "tools.validate_dataset_quality", fake_quality)
-    monkeypatch.setattr(host, "_wait_before_collection", lambda delay: None)
-
-    host.collect_csi_data(_make_collect_args(samples=1, start_delay=1.0))
+    host._run_post_collect_quality_checks([Path("sample_1.npz")])
     output = capsys.readouterr().out
 
     assert "sample_1.npz: 1 warn, 1 fail" in output

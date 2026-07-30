@@ -12,6 +12,7 @@
 #include <cinttypes>
 
 #include "espectre_log.h"
+#include "espectre_protocol.h"
 #include "esp_err.h"
 #include "esp_wifi.h"
 #include "nvs_helpers.h"
@@ -127,6 +128,7 @@ void StreamEspIdfRuntime::shutdown() {
 
   on_wifi_disconnected_();
   wifi_manager_.shutdown();
+  discovery_service_.shutdown();
   setup_complete_ = false;
 }
 
@@ -224,6 +226,16 @@ bool StreamEspIdfRuntime::init_wifi_station_() {
   if (!check_esp(setup_err, "wifi_manager_.setup")) {
     return false;
   }
+  if (!discovery_service_.setup(StreamerDiscoveryServiceConfig{
+          config_.device_id,
+          CONFIG_IDF_TARGET,
+          config_.csi_traffic_udp_port,
+          config_.collector_port,
+      })) {
+    notify_fault_("Failed to configure streamer discovery service");
+    wifi_manager_.shutdown();
+    return false;
+  }
   if (!check_esp(wifi_manager_.start(), "wifi_manager_.start")) {
     return false;
   }
@@ -261,6 +273,7 @@ void StreamEspIdfRuntime::on_wifi_connected_() {
 
   snapshot_.ready_to_publish = false;
   ESP_LOGI(TAG, "Wi-Fi connected: ip=%s channel=%u", wifi_info.ip_address, static_cast<unsigned>(wifi_info.channel));
+  discovery_service_.on_wifi_connected(wifi_info);
   wifi_ap_record_t ap_info{};
   if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
     std::copy(std::begin(ap_info.bssid), std::end(ap_info.bssid), ap_bssid_.begin());
@@ -274,6 +287,7 @@ void StreamEspIdfRuntime::on_wifi_connected_() {
 
 void StreamEspIdfRuntime::on_wifi_disconnected_() {
   wifi_connected_.store(false, std::memory_order_relaxed);
+  discovery_service_.on_wifi_disconnected();
   stop_capture_();
   csi_traffic_service_.stop();
   stream_transport_.reset_session();

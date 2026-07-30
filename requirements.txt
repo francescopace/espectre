@@ -14,6 +14,7 @@ colorama>=0.4.6         # terminal colors
 python-dotenv>=1.2.2    # environment variables support
 PyYAML>=6.0.3           # YAML parsing
 prompt_toolkit>=3.0.52  # interactive CLI support
+zeroconf>=0.149.16      # one-shot Streamer DNS-SD/mDNS discovery
 
 # Test dependencies
 numpy==2.4.6            # latest verified NumPy compatible with shap/numba on Python 3.14

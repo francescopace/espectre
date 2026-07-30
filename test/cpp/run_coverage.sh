@@ -311,6 +311,8 @@ else
     gcovr --root "$WORKSPACE_ROOT" \
           --filter "$WORKSPACE_ROOT/src/.*" \
           --exclude '.*test.*' \
+          --exclude-noncode-lines \
+          --gcov-ignore-parse-errors=all \
           --print-summary \
           --lcov "$LCOV_OUTPUT" \
           "$BUILD_DIR"
@@ -320,6 +322,8 @@ else
         gcovr --root "$WORKSPACE_ROOT" \
               --filter "$WORKSPACE_ROOT/src/.*" \
               --exclude '.*test.*' \
+              --exclude-noncode-lines \
+              --gcov-ignore-parse-errors=all \
               --xml "$XML_OUTPUT" \
               "$BUILD_DIR"
     fi

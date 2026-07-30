@@ -7,7 +7,6 @@ function(add_espectre_test target_name source_path)
     add_executable("${target_name}" "${source_path}")
     target_link_libraries("${target_name}"
         PRIVATE
-            espectre_test_framework
             espectre_test_support
             ${ARG_LIBRARIES}
     )

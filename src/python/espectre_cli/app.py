@@ -56,20 +56,11 @@ def _add_collect_parser(
         help="Dataset label used when saving collected CSI; omit for live inspection without saving",
     )
     collect_parser.add_argument(
-        "--samples",
-        "--count",
-        "-n",
-        dest="samples",
-        type=int,
-        default=1,
-        help="Legacy timed dataset mode: number of samples to record (default: 1)",
-    )
-    collect_parser.add_argument(
         "--duration",
         "-d",
         type=float,
         default=None,
-        help="Live mode: stop after N seconds. Timed dataset mode: duration per sample.",
+        help="Stop after N seconds; required with --start-delay",
     )
     collect_parser.add_argument(
         "--ready-stable-seconds",
@@ -84,11 +75,16 @@ def _add_collect_parser(
         "--start-delay",
         type=float,
         default=0.0,
-        help="Legacy timed dataset mode: delay before starting collection in seconds (default: 0.0)",
+        help="Wait N seconds before starting collection; requires --duration (default: 0.0)",
     )
     collect_parser.add_argument("--info", "-i", action="store_true", help="Show dataset statistics")
     collect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
     collect_parser.add_argument("--bind-ip", default=None, help="Local IP/interface for UDP bind (default: auto-detect)")
+    collect_parser.add_argument(
+        "--list-devices",
+        action="store_true",
+        help="Browse Streamer devices via mDNS and exit without collecting",
+    )
     collect_parser.add_argument(
         "--target",
         "-t",
@@ -112,7 +108,7 @@ def _add_collect_parser(
         "--detector",
         default="classic",
         help=(
-            "Detector for live status and timed collection: classic or ml. "
+            "Detector for collection readiness: classic or ml. "
             "A comma-separated list is supported for parallel live status only (default: classic)"
         ),
     )
@@ -252,9 +248,10 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('micro', 'deploy')}",
             f"  {cli_command('mqtt')}",
             f"  {cli_command('ui', 'theremin')}",
+            f"  {cli_command('collect', '--list-devices')}",
             f"  {cli_command('collect', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}",
-            f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}",
+            f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--start-delay', '15', '--target', '192.168.1.50')}",
             f"  {cli_command('about')}",
             f"  {cli_command('version')}",
             f"  {cli_command('doctor')}",

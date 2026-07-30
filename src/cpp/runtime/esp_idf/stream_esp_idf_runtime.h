@@ -20,6 +20,7 @@
 #include "runtime_interface.h"
 #include "runtime_debug_telemetry.h"
 #include "standalone_wifi_service.h"
+#include "streamer_discovery_service.h"
 
 namespace espectre {
 
@@ -66,6 +67,7 @@ class StreamEspIdfRuntime : public EspIdfRuntimeBase {
   CsiTrafficService csi_traffic_service_;
   CsiStreamTransport stream_transport_;
   StandaloneWifiService wifi_manager_;
+  StreamerDiscoveryService discovery_service_;
 
   std::atomic<bool> wifi_connected_{false};
   std::atomic<WorkflowState> state_{WorkflowState::WAIT_WIFI};

@@ -187,7 +187,6 @@ Use ESPectre only in spaces where you have the right to deploy it, inform affect
 | [README.md](docs/performance/README.md)             | Benchmarks, validation targets, resource usage, and caveats                 |
 | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md) | Dataset collection workflow for contributors                                |
 | [ML_TRAINING.md](docs/ML_TRAINING.md)               | Training, validation, and model export workflow                             |
-| [COLLECTION_PLAN.md](data/COLLECTION_PLAN.md)        | Current dataset collection and replacement backlog                          |
 | [DATASET_QUALITY_CHECK.md](data/auto_generated/DATASET_QUALITY_CHECK.md) | Generated dataset admission and quality snapshot             |
 | [ROADMAP.md](docs/ROADMAP.md)                       | Release direction from v3 platform work to v4 web orchestration             |
 | [README.md](docs/web/README.md)                     | Website structure, shared palette, and visual testing workflow              |

@@ -158,26 +158,44 @@ Reset on open:
 
 `collect` is the unified host-side CSI collection entry point.
 
-It supports two modes:
+It uses one runtime collection path:
 
-- live inspection / live recording mode for active streamer sessions
-- legacy timed dataset collection mode when using flags such as `--samples`,
-  `--start-delay`, or `--info`
+- live inspection when `--label` is omitted
+- live recording when `--label` is set
+- read-only dataset inventory when `--info` is used
 
 Common flags:
 
 | Flag | Purpose |
 |------|---------|
+| `--list-devices` | Browse Streamer devices via mDNS, print the resolved targets, and exit |
 | `--target` | IPv4 target destination, or comma-separated destinations |
-| `--duration` | Stop after N seconds in live mode, or duration per sample in timed mode |
+| `--duration` | Stop after N seconds |
 | `--label` | Dataset label for saved collections; omit for live inspection without saving |
-| `--samples` | Timed dataset mode: sample count |
+| `--start-delay` | Wait N seconds before starting collection; requires `--duration` |
 | `--pps` | Target delivered record rate; adaptive pacing may send above it to compensate path loss |
 | `--fixed` | Keep `--pps` as a constant send rate instead of the default adaptive pacing |
 | `--detector` | Detector used by the ready gate: `classic` or `ml`; a comma-separated list is available only for live comparison |
 | `--ready-stable-seconds` | Seconds below threshold before saved collection starts; set `0` to disable the ready gate |
 
-In live streamer mode, `collect` sends ordinary UDP traffic to the
+When `--target` is omitted, `collect` performs one mDNS/DNS-SD browse for
+`_espectre-streamer._udp.local.` at startup:
+
+- `0` devices: fail explicitly and suggest `--target`
+- `1` device: auto-select it
+- `N` devices: prompt for an interactive choice
+
+`--target` remains the deterministic bypass, and keeps the existing
+single-target, multi-unicast, broadcast, and multicast workflows unchanged.
+
+`--list-devices` uses the same one-shot browse, prints the resolved Streamer
+targets (`device_id`, chip, IP, and target port), and exits without starting
+UDP pacing, the CSI receiver, or dataset capture.
+
+`--info` is also read-only: it uses `dataset_info.json` as the source of truth
+and prints one table per `environment`, with label rows and one column per chip.
+
+In live streamer mode, `collect` sends ordinary UDP traffic to the selected
 target device. The device learns the collector IP from the source address of
 those packets and sends one CSI stream packet back for each received CSI callback.
 Without `--label`, live mode inspects the stream and does not write dataset
@@ -201,12 +219,19 @@ want a constant send rate instead.
 `--detector` always selects the production detector used for collection
 readiness. `classic` performs its normal startup calibration before it can
 become ready. `ml` does not use startup calibration, but still needs its feature
-window to fill. Live inspection can compare `classic,ml` in parallel; timed
-dataset collection accepts exactly one detector.
+window to fill. Live inspection can compare `classic,ml` in parallel.
 
 When `--label` is set, saved collection waits for the detector to stay below
 threshold for `--ready-stable-seconds` before packets are recorded. Set
 `--ready-stable-seconds 0` to bypass that gate explicitly.
+
+When `--start-delay` is set, `--duration` is required. The collector waits first,
+then starts the ordinary live pacing and capture flow.
+
+For discovery-selected unicast targets, the collector also validates that the
+first CSI packets carry the same `device_id` announced over mDNS. If the IP was
+reused by a different Streamer, collection aborts instead of saving mixed data
+under the wrong identity.
 
 Examples:
 
@@ -215,7 +240,8 @@ Examples:
 ./espectre collect --target 192.168.1.50 --pps 120
 ./espectre collect --target 192.168.1.50 --pps 120 --fixed
 ./espectre collect --label wave --duration 45 --target 192.168.1.50
-./espectre collect --label wave --samples 10 --target 192.168.1.50
+./espectre collect --label wave --duration 45 --start-delay 15 --target 192.168.1.50
+./espectre collect --info
 ```
 
 ### `mqtt`

@@ -313,11 +313,27 @@ The streamer is responsible for:
 
 - learning the collector IP from the source address of valid UDP pacing
   traffic
+- advertising a one-shot discovery endpoint over mDNS/DNS-SD as
+  `_espectre-streamer._udp.local.`
 - embedding the latest AP-sourced CSI sample only when it is fresh
 - flagging emitted CSI records with `STREAM_FLAG_CSI_FRESH`
 - emitting CSI records only for pacing slots that coincide with a fresh sample,
   batching them into uplink datagrams, and retargeting live when the collector
   address changes
+
+The discovery advertisement publishes:
+
+- SRV port = `ESPECTRE_TRAFFIC_RX_PORT` (the pacing target)
+- TXT `device_id` = canonical ESPectre device ID already carried in the CSI stream
+- TXT `chip` = active ESP-IDF target name
+- TXT `traffic_port` = pacing target port
+- TXT `collector_port` = CSI uplink port
+
+On clean Wi-Fi disconnects, the firmware disables the mDNS service so peers can
+observe a best-effort goodbye. On reconnects and IP changes, it re-announces the
+same service identity on the new address. Host discovery still validates the
+announced `device_id` against the first CSI packets, so stale records or DHCP IP
+reuse cannot silently redirect a capture to the wrong device.
 
 When multiple streamers share the same target, the host collector is
 expected to demultiplex incoming CSI by `device_id` and save one dataset file

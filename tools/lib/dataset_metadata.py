@@ -198,6 +198,53 @@ def get_dataset_stats() -> Dict[str, Any]:
     return stats
 
 
+def get_dataset_catalog_stats(dataset_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Summarize dataset_info into environment tables with chip columns."""
+    info = load_dataset_info() if dataset_info is None else dataset_info
+    files_section = info.get("files", {})
+    env_counts: Dict[str, Dict[str, Dict[str, int]]] = {}
+    all_chips: set[str] = set()
+    total_samples = 0
+
+    for label, entries in files_section.items():
+        for raw_entry in entries:
+            if not isinstance(raw_entry, MappingABC):
+                continue
+            entry = dict(raw_entry)
+            environment = str(entry.get("environment") or "unknown")
+            chip = str(entry.get("chip") or "unknown").upper()
+            env_counts.setdefault(environment, {}).setdefault(label, {})
+            env_counts[environment][label][chip] = env_counts[environment][label].get(chip, 0) + 1
+            all_chips.add(chip)
+            total_samples += 1
+
+    ordered_chips = sorted(all_chips)
+    environments = []
+    for environment in sorted(env_counts):
+        label_counts = env_counts[environment]
+        rows = []
+        environment_total = 0
+        for label in sorted(label_counts):
+            counts = {chip: int(label_counts[label].get(chip, 0)) for chip in ordered_chips}
+            row_total = sum(counts.values())
+            environment_total += row_total
+            rows.append({"label": label, "counts": counts, "total": row_total})
+        environments.append(
+            {
+                "environment": environment,
+                "chips": ordered_chips,
+                "rows": rows,
+                "total_samples": environment_total,
+            }
+        )
+
+    return {
+        "chips": ordered_chips,
+        "environments": environments,
+        "total_samples": total_samples,
+    }
+
+
 def _dataset_sort_key(entry: Dict[str, Any]) -> Tuple[str, str]:
     """Sort entries newest-first by collected_at, then by filename."""
     return (str(entry.get("collected_at") or ""), str(entry.get("filename") or ""))
