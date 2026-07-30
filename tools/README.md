@@ -148,12 +148,14 @@ pip install -r requirements-ml.txt
 The main repository workflow and this training stack target Python `3.14`.
 
 - Trains the MLP detector with weighted binary cross-entropy
-- Default training uses `--fp-weight 1.5`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, and lineage-grouped CV with uniform sample weights
-- Caches the derived feature matrix for repeated local runs; use `--no-cache` to rebuild
+- Default training uses `--fp-weight 1.75`, `--hidden-layers 24,12`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, and lineage-grouped CV with uniform sample weights
+- Caches canonical time-aware runtime-feature rows for repeated local runs; use
+  `--no-cache` to bypass persisted rows for one run
 - Reuses the seed embedded in the current exported weights when `--seed` is omitted
   (`--seed-search-until-improvement` still samples fresh seeds)
-- Optional `--augment` applies the current non-scale train-time augmentation recipe
-  (feature jitter + packet noise/loss/stutter; inference stays clean)
+- Optional `--augment` applies one or more train-time augmentation components;
+  `--augment` alone means `base`, while `drift` and `burst-loss` can be mixed in
+  (`base`, `drift`, `burst-loss`; inference stays clean)
 - Reports blocked out-of-fold metrics plus worst and worst-five-tail session,
   lineage, chip, and source-file groups, splitting session metrics by real and
   synthetic provenance when synthetic derivatives are present
@@ -172,18 +174,21 @@ python train_ml_model.py --info         # Show dataset and split info
 python train_ml_model.py --experiment   # Run the FP-first MLP topology campaign
 python train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"  # Custom shortlist
 python train_ml_model.py --experiment-fp-weights "1,1.5,2,2.5,3"  # Gated multi-seed FP-weight campaign
-python train_ml_model.py --fp-weight 1.5  # Penalize false positives 1.5x
+python train_ml_model.py --fp-weight 1.75  # Penalize false positives 1.75x
 python train_ml_model.py --scaler clipped_standard  # Robust clipping + z-score
 python train_ml_model.py --batch-size 32  # Smaller-batch comparison
 python train_ml_model.py --device cuda    # Force CUDA when available
 python train_ml_model.py --device mps     # Force Apple GPU when available
-python train_ml_model.py --no-cache       # Rebuild cached training matrix
+python train_ml_model.py --no-cache       # Bypass persisted time-aware rows
 python train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python train_ml_model.py --seed-search-until-improvement 20  # Evaluate all seeds and keep the best robust improvement
 python train_ml_model.py --seed 12345 --force-promote  # Deliberate baseline reset: export even if the gates fail
 python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr --no-export  # Evaluate a feature subset
 python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio,chan_coh_gap --no-export  # Evaluate a host-side coherence candidate without export
-python train_ml_model.py --augment            # Non-scale train-time augmentation
+python train_ml_model.py --augment            # Same as --augment base
+python train_ml_model.py --augment drift      # Slow correlated drift only
+python train_ml_model.py --augment base,drift
+python train_ml_model.py --augment base,drift,burst-loss
 python train_ml_model.py --augment --seed-search-until-improvement 10
 python train_ml_model.py --cross-environment  # LOEO using the exported model seed by default
 python train_ml_model.py --cross-chip         # LOCO using the exported model seed by default
@@ -192,6 +197,14 @@ python train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25  
 python train_ml_model.py --shap         # Grouped OOF SHAP (200 samples)
 python train_ml_model.py --shap 500     # Grouped OOF SHAP (500 samples)
 python train_ml_model.py --ablation-feature l1_delta_autocorr --seed 1386543369  # Targeted CV and real-data ablation
+```
+
+Prune persisted artifacts explicitly when dataset or implementation churn has
+left unreachable entries:
+
+```bash
+python prune_npz_cache.py
+python prune_npz_cache.py --artifact ml_replay_rows
 ```
 
 For the complete ML training workflow, promotion guidance, gain-stress
@@ -203,11 +216,12 @@ entry points that drive collection and related workflows, see
 
 ### 8. Dataset Quality Validation (`validate_dataset_quality.py`)
 
-Validates the shared Classic and ML datasets for metadata completeness, file
-integrity, signal quality, pair diagnostics, training readiness, and long-recording
-coverage. Admission FAILs stop the run; Classic replay scores stay review-only.
+Validates the shared datasets for metadata completeness, file integrity, signal
+quality, detector-agnostic pair and idle review, training readiness, and
+long-recording coverage. Admission FAILs stop the run; review scores stay
+review-only.
 See
-[2026-07-17-separate-dataset-admission-from-classic-diagnostics.md](../docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics.md).
+[2026-07-29-make-dataset-quality-review-detector-agnostic.md](../docs/adr/2026-07-29-make-dataset-quality-review-detector-agnostic.md).
 
 Defaults on every run:
 

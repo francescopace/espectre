@@ -39,10 +39,10 @@ moved to the post-release v3.x backlog.
 
 #### Detector Release Evidence
 
-- [ ] Close the five-feature ML release evidence on the replacement corpus,
-  including the additional weak-link selection evidence and replacement
-  normal-link and weak-link holdouts. Re-derive the non-regression margin only
-  if the replacement evidence changes it; track collection work in
+- [ ] Close the promoted compact phaseless ML release evidence on the
+  replacement corpus, including the additional weak-link selection evidence and
+  replacement normal-link and weak-link holdouts. Re-derive the non-regression
+  margin only if the replacement evidence changes it; track collection work in
   [COLLECTION_PLAN.md](../data/COLLECTION_PLAN.md), feature verdicts in
   [FEATURES.md](FEATURES.md), and measured gates in
   [README.md](performance/README.md)
@@ -77,6 +77,13 @@ These outcomes belong to the v3 series but do not block `v3.0.0`.
 
 - [ ] Make local ESP-IDF CLI builds use per-chip build directories by default
   instead of requiring `ESPECTRE_IDF_BUILD_DIR`
+- [ ] Reduce ML gate turnaround by reusing cached runtime-equivalent replay
+  features for reserved paired and quiet validation, while preserving parity
+  with the packet-level deployment gate semantics
+- [ ] Move Classic validation, performance reporting, and tests onto the
+  canonical time-aware replay-row cache, prove row-versus-packet parity for
+  native, high-rate, and decimated streams, and retire the separate
+  `detector_replay` summary cache
 - [ ] Add optional DNS-SD/mDNS discovery to the Streamer collection workflow,
   while keeping explicit targets as the deterministic fallback and preserving
   CSI demultiplexing by `device_id`
@@ -209,7 +216,7 @@ Exploration should:
 
 ## Roadmap Updates
 
-Last update: **July 28, 2026**
+Last update: **July 30, 2026**
 
 For discussion and proposed changes:
 
