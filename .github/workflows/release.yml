@@ -165,9 +165,40 @@ jobs:
           path: output/espectre-native-*.bin
           retention-days: 7
 
+  build-sdk:
+    name: Build SDK Package
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Build SDK package
+        run: |
+          mkdir -p output
+          python .github/scripts/build_sdk_package.py \
+            --channel stable \
+            --version "${GITHUB_REF_NAME}" \
+            --release-tag "${GITHUB_REF_NAME}" \
+            --output-dir output
+
+      - name: Upload SDK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-bundle
+          path: |
+            output/espectre-sdk-*.tar.gz
+            output/espectre-sdk-*.zip
+            output/sdk-manifest-*.json
+          retention-days: 7
+
   release:
     name: Create Release
-    needs: [build-esphome, build-matter, build-native]
+    needs: [build-esphome, build-matter, build-native, build-sdk]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -187,9 +218,19 @@ jobs:
           pattern: firmware-*
           path: firmware
           merge-multiple: true
+
+      - name: Download SDK package artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: sdk-*
+          path: sdk
+          merge-multiple: true
       
       - name: List firmware files
         run: ls -la firmware/
+
+      - name: List SDK files
+        run: ls -la sdk/
 
       - name: Verify firmware matrix and build release manifests
         run: |
@@ -260,6 +301,9 @@ jobs:
           files: |
             firmware/*.bin
             firmware/*.json
+            sdk/*.tar.gz
+            sdk/*.zip
+            sdk/*.json
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           discussion_category_name: "Announcements"
@@ -287,6 +331,13 @@ jobs:
           path: stable-firmware
           merge-multiple: true
 
+      - name: Download stable SDK artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: sdk-*
+          path: stable-sdk
+          merge-multiple: true
+
       - name: Stage stable web firmware
         run: |
           python .github/scripts/stage_web_firmware.py \
@@ -297,11 +348,20 @@ jobs:
             --release-tag "${GITHUB_REF_NAME}" \
             --url-prefix /flash/firmware/stable
 
+      - name: Stage stable web SDK
+        run: |
+          python .github/scripts/stage_web_sdk.py \
+            --sdk-dir stable-sdk \
+            --output-dir docs/web/sdk/stable \
+            --channel stable
+
       - name: Download snapshot release assets
         run: |
           mkdir -p snapshot-firmware
+          mkdir -p snapshot-sdk
           if gh release view snapshot >/dev/null 2>&1; then
             gh release download snapshot --pattern '*.bin' --dir snapshot-firmware --clobber
+            gh release download snapshot --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir snapshot-sdk --clobber
           else
             echo "No snapshot release found; skipping main channel staging."
           fi
@@ -327,6 +387,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+
+      - name: Stage main web SDK
+        run: |
+          if ls snapshot-sdk/sdk-manifest-*.json >/dev/null 2>&1; then
+            python .github/scripts/stage_web_sdk.py \
+              --sdk-dir snapshot-sdk \
+              --output-dir docs/web/sdk/main \
+              --channel main
+          else
+            echo "No snapshot SDK downloaded; leaving main SDK channel empty."
+          fi
 
       - name: Build Static Pages
         run: python3 .github/scripts/build_static_pages.py
@@ -358,6 +429,10 @@ jobs:
             || { echo "Missing generated roadmap page"; exit 1; }
           test -f docs/web/flash/firmware/stable/firmware-manifest-stable.json
           test "$(find docs/web/flash/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
+          test -f docs/web/sdk/stable/index.html
+          test -f docs/web/sdk/stable/sdk-manifest-stable.json
+          test -f docs/web/sdk/main/index.html
+          test -f docs/web/sdk/main/sdk-manifest-main.json
           echo "Website build verified!"
 
       - name: Setup Pages

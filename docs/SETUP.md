@@ -7,6 +7,11 @@ This guide covers the shared entry points and links you to the frontend-specific
 
 Use `Latest Release` for the newest official firmware, or `Release Preview` for the newest development build from `main`. A separate `Developer Preview` GitHub Release is also published from `develop` for pre-main validation, but GitHub Pages continues to expose only `Latest Release` and `Release Preview`.
 
+The SDK now mirrors the same channel model: `stable` is published at
+`https://espectre.dev/sdk/stable/`, `snapshot` at
+`https://espectre.dev/sdk/main/`, and `snapshot-dev` remains GitHub-only as the
+`snapshot-dev` prerelease.
+
 ## Choose Your Frontend
 
 | Frontend | Best starting point | Frontend README |
@@ -209,6 +214,27 @@ chip-specific notes:
 - [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
 - [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md)
 - [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md)
+
+## SDK Bundles
+
+If you want to embed the sensing layers into your own firmware instead of
+flashing a published frontend, use the SDK bundle channels:
+
+| Channel | Surface | Best for |
+|---------|---------|----------|
+| `stable` | `https://espectre.dev/sdk/stable/` and semver GitHub Releases | production integrations and reproducible builds |
+| `snapshot` | `https://espectre.dev/sdk/main/` and the rolling `snapshot` prerelease | validating the latest `main` changes before release |
+| `snapshot-dev` | `snapshot-dev` GitHub prerelease only | pre-main validation from `develop` |
+
+The bundle is source-first. It includes:
+
+- `src/cpp/espectre_sources.cmake` for CMake / ESP-IDF integration
+- `src/cpp/library.json` for PlatformIO metadata
+- a component-shaped `src/cpp/` root with `CMakeLists.txt`,
+  `idf_component.yml`, and `Kconfig.projbuild`
+
+Use [EMBEDDING.md](EMBEDDING.md) for the actual integration model and runtime
+contracts.
 
 ## Web Flash (no coding required)
 

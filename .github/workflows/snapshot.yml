@@ -30,7 +30,7 @@ jobs:
         id: filter
         run: |
           # Check if any code files changed in the last commit
-          if git diff --name-only HEAD~1 HEAD | grep -qE '^(src/|examples/[^/]+\.yaml$|\.github/workflows/(ci|snapshot)\.yml$|\.github/scripts/build_[^/]+_firmware\.sh$|\.github/scripts/build_firmware_manifest\.py$)'; then
+          if git diff --name-only HEAD~1 HEAD | grep -qE '^(src/|examples/[^/]+\.yaml$|\.github/workflows/(ci|snapshot|release)\.yml$|\.github/scripts/build_[^/]+_firmware\.sh$|\.github/scripts/build_firmware_manifest\.py$|\.github/scripts/build_sdk_package\.py$|\.github/scripts/stage_web_sdk\.py$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
             echo "Code changes detected, will build snapshot"
           else
@@ -64,9 +64,21 @@ jobs:
           pattern: firmware-*
           path: firmware
           merge-multiple: true
+
+      - name: Download SDK package artifacts
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: sdk-*
+          path: sdk
+          merge-multiple: true
       
       - name: List firmware files
         run: ls -la firmware/
+
+      - name: List SDK files
+        run: ls -la sdk/
 
       - name: Select snapshot channel
         id: snapshot
@@ -116,6 +128,9 @@ jobs:
           files: |
             firmware/*.bin
             firmware/*.json
+            sdk/*.tar.gz
+            sdk/*.zip
+            sdk/*.json
           draft: false
           prerelease: true
           make_latest: false
@@ -146,6 +161,15 @@ jobs:
           path: main-firmware
           merge-multiple: true
 
+      - name: Download main SDK artifacts
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: sdk-*
+          path: main-sdk
+          merge-multiple: true
+
       - name: Stage main web firmware
         run: |
           python .github/scripts/stage_web_firmware.py \
@@ -157,12 +181,21 @@ jobs:
             --url-prefix /flash/firmware/main \
             --commit "${{ github.event.workflow_run.head_sha }}"
 
+      - name: Stage main web SDK
+        run: |
+          python .github/scripts/stage_web_sdk.py \
+            --sdk-dir main-sdk \
+            --output-dir docs/web/sdk/main \
+            --channel main
+
       - name: Download stable release assets
         run: |
           mkdir -p stable-firmware
+          mkdir -p stable-sdk
           if gh release view >/dev/null 2>&1; then
             STABLE_TAG="$(gh release view --json tagName --jq '.tagName')"
             gh release download "$STABLE_TAG" --pattern '*.bin' --dir stable-firmware --clobber
+            gh release download "$STABLE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir stable-sdk --clobber
             echo "stable_tag=$STABLE_TAG" >> "$GITHUB_ENV"
           else
             echo "No stable release found; skipping stable channel staging."
@@ -183,6 +216,17 @@ jobs:
               --url-prefix /flash/firmware/stable
           else
             echo "No stable firmware downloaded; leaving stable channel empty."
+          fi
+
+      - name: Stage stable web SDK
+        run: |
+          if ls stable-sdk/sdk-manifest-*.json >/dev/null 2>&1; then
+            python .github/scripts/stage_web_sdk.py \
+              --sdk-dir stable-sdk \
+              --output-dir docs/web/sdk/stable \
+              --channel stable
+          else
+            echo "No stable SDK downloaded; leaving stable SDK channel empty."
           fi
 
       - name: Build Static Pages
@@ -215,6 +259,10 @@ jobs:
             || { echo "Missing generated roadmap page"; exit 1; }
           test -f docs/web/flash/firmware/main/firmware-manifest-main.json
           test "$(find docs/web/flash/firmware/main -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
+          test -f docs/web/sdk/main/index.html
+          test -f docs/web/sdk/main/sdk-manifest-main.json
+          test -f docs/web/sdk/stable/index.html
+          test -f docs/web/sdk/stable/sdk-manifest-stable.json
           echo "Website build verified!"
 
       - name: Setup Pages

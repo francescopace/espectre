@@ -79,9 +79,11 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
           mkdir -p stable-firmware
+          mkdir -p stable-sdk
           if gh release view >/dev/null 2>&1; then
             STABLE_TAG="$(gh release view --json tagName --jq '.tagName')"
             gh release download "$STABLE_TAG" --pattern '*.bin' --dir stable-firmware --clobber
+            gh release download "$STABLE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir stable-sdk --clobber
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir stable-firmware \
               --output-dir docs/web/flash/firmware/stable \
@@ -89,6 +91,10 @@ jobs:
               --version "$STABLE_TAG" \
               --release-tag "$STABLE_TAG" \
               --url-prefix /flash/firmware/stable
+            python .github/scripts/stage_web_sdk.py \
+              --sdk-dir stable-sdk \
+              --output-dir docs/web/sdk/stable \
+              --channel stable
           else
             echo "No stable release found; skipping stable channel staging."
           fi
@@ -100,8 +106,10 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
           mkdir -p snapshot-firmware
+          mkdir -p snapshot-sdk
           if gh release view snapshot >/dev/null 2>&1; then
             gh release download snapshot --pattern '*.bin' --dir snapshot-firmware --clobber
+            gh release download snapshot --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir snapshot-sdk --clobber
             SNAPSHOT_COMMIT="$(gh release view snapshot --json targetCommitish --jq '.targetCommitish // ""')"
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir snapshot-firmware \
@@ -111,6 +119,10 @@ jobs:
               --release-tag snapshot \
               --url-prefix /flash/firmware/main \
               --commit "$SNAPSHOT_COMMIT"
+            python .github/scripts/stage_web_sdk.py \
+              --sdk-dir snapshot-sdk \
+              --output-dir docs/web/sdk/main \
+              --channel main
           else
             echo "No snapshot release found; skipping main channel staging."
           fi
@@ -152,6 +164,10 @@ jobs:
           if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
             test -f docs/web/flash/firmware/stable/firmware-manifest-stable.json
             test "$(find docs/web/flash/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
+            test -f docs/web/sdk/stable/index.html
+            test -f docs/web/sdk/stable/sdk-manifest-stable.json
+            test -f docs/web/sdk/main/index.html
+            test -f docs/web/sdk/main/sdk-manifest-main.json
           fi
           echo "Website verified!"
       
@@ -542,3 +558,55 @@ jobs:
         env:
           STREAMER_TARGET: ${{ matrix.target }}
           STREAMER_OUTPUT: ${{ github.workspace }}/output/espectre-streamer-ci-${{ matrix.target }}.bin
+
+  build-sdk:
+    name: Build SDK Package
+    runs-on: ubuntu-latest
+    needs: detect-push-origin
+    if: needs.detect-push-origin.outputs.run_ci == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Select SDK release metadata
+        id: sdk
+        run: |
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "channel=main" >> "$GITHUB_OUTPUT"
+            echo "version=pr-preview" >> "$GITHUB_OUTPUT"
+            echo "release_tag=pr-preview" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            echo "channel=develop" >> "$GITHUB_OUTPUT"
+            echo "version=develop" >> "$GITHUB_OUTPUT"
+            echo "release_tag=snapshot-dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=main" >> "$GITHUB_OUTPUT"
+            echo "version=main" >> "$GITHUB_OUTPUT"
+            echo "release_tag=snapshot" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build SDK package
+        run: |
+          mkdir -p output
+          python .github/scripts/build_sdk_package.py \
+            --channel "${{ steps.sdk.outputs.channel }}" \
+            --version "${{ steps.sdk.outputs.version }}" \
+            --release-tag "${{ steps.sdk.outputs.release_tag }}" \
+            --output-dir output \
+            --commit "${{ github.sha }}"
+
+      - name: Upload SDK package artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-bundle
+          path: |
+            output/espectre-sdk-*.tar.gz
+            output/espectre-sdk-*.zip
+            output/sdk-manifest-*.json
+          retention-days: 7

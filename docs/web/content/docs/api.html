@@ -78,16 +78,17 @@
   </table></div>
 
   <h2>Build integration</h2>
-  <p>There is no separate SDK tarball on this site yet. The supported integration path is to include the shared sources directly in your firmware build.</p>
+  <p>The published SDK bundles package the same source-first integration path documented in this repository. They are intended for vendoring or unpacking into your firmware tree, not as chip-specific binary libraries.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Build path</th><th>What to include</th></tr></thead>
     <tbody>
       <tr><td>CMake / ESP-IDF</td><td>Include <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/espectre_sources.cmake" target="_blank" rel="noopener"><code>src/cpp/espectre_sources.cmake</code></a>, then add <code>ESPECTRE_CORE_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_SOURCES</code>, and any needed feature groups such as <code>ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES</code>, or <code>ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES</code>, plus <code>ESPECTRE_SHARED_INCLUDE_DIRS</code>.</td></tr>
       <tr><td>PlatformIO</td><td>Reuse the packaged source filter defined in <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/library.json" target="_blank" rel="noopener"><code>src/cpp/library.json</code></a>.</td></tr>
+      <tr><td>ESP-IDF component layout</td><td>The bundle now includes a component-shaped <code>src/cpp/</code> root with <code>CMakeLists.txt</code>, <code>idf_component.yml</code>, and <code>Kconfig.projbuild</code> for vendored component-style integration.</td></tr>
       <tr><td>Core-only reuse</td><td>Consume the detector layer directly, and use <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/runtime/esp_idf/csi_pipeline.cpp" target="_blank" rel="noopener"><code>runtime/esp_idf/csi_pipeline.cpp</code></a> as the normalization and evaluation reference.</td></tr>
     </tbody>
   </table></div>
-  <div class="note">If you need a stable starting point, the best examples today are the shipped frontends and the repository build files, not a standalone binary SDK package. For the full integration guide, use <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">EMBEDDING.md</a>.</div>
+  <div class="note">Use <a href="/sdk/stable/"><code>stable</code></a> for the current release bundle, <a href="/sdk/main/"><code>snapshot</code></a> for the rolling <code>main</code> preview, and <a href="https://github.com/francescopace/espectre/releases/tag/snapshot-dev" target="_blank" rel="noopener"><code>snapshot-dev</code></a> when you need the <code>develop</code> prerelease. For the full integration guide, use <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">EMBEDDING.md</a>.</div>
 
   <div class="article-nav">
     <a href="/docs/examples/" class="doc-link"><div class="doc-link-title">Next: Examples -&gt;</div><div class="doc-link-sub">Four integrations, from minimal to Matter.</div></a>

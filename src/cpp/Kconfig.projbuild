@@ -1,0 +1,1 @@
+rsource "runtime/esp_idf/espectre_config/Kconfig.projbuild"

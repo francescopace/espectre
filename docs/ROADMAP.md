@@ -46,6 +46,10 @@ moved to the post-release v3.x backlog.
   [COLLECTION_PLAN.md](../data/COLLECTION_PLAN.md), feature verdicts in
   [FEATURES.md](FEATURES.md), and measured gates in
   [README.md](performance/README.md)
+- [ ] Complete the remaining Classic replay-cache migration by replacing the
+  packet-summary `detector_replay` cache with the canonical time-aware path,
+  and close the row-versus-packet parity evidence for native, high-rate, and
+  decimated streams before retiring `detector_replay`
 - [ ] Decide and document the `v3.0.0` validation claim for the original ESP32.
   If full cross-environment support is part of the release claim, complete the
   missing collection, retraining, and validation before tagging; otherwise move
@@ -57,9 +61,17 @@ moved to the post-release v3.x backlog.
   `motion_on_hits` and `motion_off_hits` thresholds
 - [ ] Allow BLE to trigger Native firmware OTA through the shared HTTPS OTA
   service and release manifest used by MQTT
+- [ ] Make local ESP-IDF CLI builds use per-chip build directories by default
+  instead of requiring `ESPECTRE_IDF_BUILD_DIR`
+- [ ] Add optional DNS-SD/mDNS discovery to the Streamer collection workflow,
+  while keeping explicit targets as the deterministic fallback and preserving
+  CSI demultiplexing by `device_id`
 
 #### Release Assurance
 
+- [ ] Review the embeddable `C++` SDK API and documentation, and align the
+  published integration surface with standard `C++` SDK conventions where
+  practical
 - [ ] Complete the security review and encode its recurring review rule in
   `AGENTS.md`
 - [ ] Refresh the Home Assistant screenshots used by the documentation and
@@ -75,18 +87,12 @@ These outcomes belong to the v3 series but do not block `v3.0.0`.
 
 ### Developer Experience and Distribution
 
-- [ ] Make local ESP-IDF CLI builds use per-chip build directories by default
-  instead of requiring `ESPECTRE_IDF_BUILD_DIR`
-- [ ] Reduce ML gate turnaround by reusing cached runtime-equivalent replay
-  features for reserved paired and quiet validation, while preserving parity
-  with the packet-level deployment gate semantics
-- [ ] Move Classic validation, performance reporting, and tests onto the
-  canonical time-aware replay-row cache, prove row-versus-packet parity for
-  native, high-rate, and decimated streams, and retire the separate
-  `detector_replay` summary cache
-- [ ] Add optional DNS-SD/mDNS discovery to the Streamer collection workflow,
-  while keeping explicit targets as the deterministic fallback and preserving
-  CSI demultiplexing by `device_id`
+
+- [ ] Mature the published SDK distribution path beyond raw release assets:
+  decide the supported install surfaces for `PlatformIO` and ESP-IDF component
+  consumers, automate any registry publication that fits the project trust
+  model, and keep the `stable`, `snapshot`, and `snapshot-dev` channels aligned
+  across bundle manifests, website links, and release automation
 - [ ] Evaluate publishing the web BLE client as a reusable third-party
   integration artifact with ESM and IIFE builds, npm packaging, and TypeScript
   definitions

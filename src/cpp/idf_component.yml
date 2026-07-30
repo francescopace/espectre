@@ -1,0 +1,7 @@
+version: "3.0.0"
+description: "ESPectre shared core and ESP-IDF runtime layers"
+license: "GPL-3.0-or-later"
+url: "https://github.com/francescopace/espectre"
+dependencies:
+  idf:
+    version: ">=5.1.0"

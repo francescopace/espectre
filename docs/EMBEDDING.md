@@ -60,7 +60,37 @@ evaluation cadence, and hit filtering before committing to a custom wiring.
   working combinations.
 - PlatformIO: `src/cpp/library.json` packages the same layers with an
   equivalent source filter.
+- Component-shaped bundle root: `src/cpp/` now also exposes `CMakeLists.txt`,
+  `idf_component.yml`, and `Kconfig.projbuild`, so the published SDK bundle can
+  be unpacked directly into a vendored ESP-IDF component tree.
 - Toolchain: C++17, ESP-IDF `>= 5.1` for the `runtime/esp_idf` services.
+
+## Published SDK channels
+
+ESPectre now publishes source-first SDK bundles alongside the firmware release
+channels:
+
+| Channel | Source | Intended use |
+|---------|--------|--------------|
+| `stable` | semver GitHub Release and `https://espectre.dev/sdk/stable/` | Production integrations and reproducible open-source or commercial builds |
+| `snapshot` | rolling `snapshot` GitHub prerelease and `https://espectre.dev/sdk/main/` | Validate `main` before the next stable release |
+| `snapshot-dev` | rolling `snapshot-dev` GitHub prerelease only | Pre-main validation from `develop` |
+
+Each SDK bundle includes:
+
+- `src/cpp/core/`
+- `src/cpp/runtime/`
+- `src/cpp/runtime/esp_idf/espectre_config/`
+- `src/cpp/espectre_sources.cmake`
+- `src/cpp/library.json`
+- `src/cpp/CMakeLists.txt`
+- `src/cpp/idf_component.yml`
+- `src/cpp/Kconfig.projbuild`
+- generated `src/cpp/core/ml_weights.h`
+
+The published bundle is not a chip-specific binary library. It is a versioned
+source package with stamped packaging metadata, suitable for vendoring or
+unpacking into your own firmware tree.
 
 ## Detector behavior
 

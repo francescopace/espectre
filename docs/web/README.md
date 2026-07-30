@@ -27,6 +27,13 @@ Edit shared fragments under `content/`, including `content/guides.html`,
 `content/media.html`, and `content/roadmap.html`. Keep public images under
 `assets/`, and do not edit generated route `index.html` pages.
 
+## Generated SDK pages
+
+The website also stages generated SDK download pages under `sdk/stable/` and
+`sdk/main/`. Those pages are not edited by hand: CI generates them from the
+published SDK manifest with `.github/scripts/stage_web_sdk.py`, in the same way
+firmware assets under `flash/firmware/` are staged from release artifacts.
+
 ## BLE client API
 
 `espectre-ble.js` is a dependency-free client for the ESPectre BLE surface
