@@ -38,6 +38,11 @@ enum MLFeatureId : uint8_t {
     ML_FEAT_TURB_ZCR = 14,
     ML_FEAT_L1_DELTA_AUTOCORR = 24,
     ML_FEAT_L1_DELTA_LAG_RATIO = 25,
+    ML_FEAT_CHAN_SHAPE_SPREAD = 40,
+    ML_FEAT_CHAN_FREQ_COH_CV = 41,
+    ML_FEAT_CHAN_FREQ_COH_CURVE_STD = 42,
+    ML_FEAT_CHAN_COH_GAP = 43,
+    ML_FEAT_CHAN_COH_SUBBAND_GAP_MEDIAN = 44,
 };
 
 // Where a feature's value comes from. Ids carry no ordering: a new turbulence
@@ -47,6 +52,8 @@ enum class MLFeatureSource : uint8_t {
     TURBULENCE_SERIES,
     L1_DELTA_SERIES,
     L1_TRACKER,
+    CHANNEL_SHAPE_TRACKER,
+    CHANNEL_COHERENCE_TRACKER,
 };
 
 inline MLFeatureSource ml_feature_source(MLFeatureId id) {
@@ -59,6 +66,13 @@ inline MLFeatureSource ml_feature_source(MLFeatureId id) {
             return MLFeatureSource::L1_DELTA_SERIES;
         case ML_FEAT_L1_DELTA_LAG_RATIO:
             return MLFeatureSource::L1_TRACKER;
+        case ML_FEAT_CHAN_SHAPE_SPREAD:
+        case ML_FEAT_CHAN_FREQ_COH_CV:
+        case ML_FEAT_CHAN_FREQ_COH_CURVE_STD:
+            return MLFeatureSource::CHANNEL_SHAPE_TRACKER;
+        case ML_FEAT_CHAN_COH_GAP:
+        case ML_FEAT_CHAN_COH_SUBBAND_GAP_MEDIAN:
+            return MLFeatureSource::CHANNEL_COHERENCE_TRACKER;
     }
     // No default label above, so -Wswitch reports a new enumerator here
     // instead of letting it inherit a neighbour's buffers. An id the enum does
@@ -78,6 +92,16 @@ inline bool ml_feature_needs_l1_tracker(uint8_t id) {
 inline bool ml_feature_needs_l1_series(uint8_t id) {
     return ml_feature_source(static_cast<MLFeatureId>(id)) ==
            MLFeatureSource::L1_DELTA_SERIES;
+}
+
+inline bool ml_feature_needs_channel_shape_tracker(uint8_t id) {
+    return ml_feature_source(static_cast<MLFeatureId>(id)) ==
+           MLFeatureSource::CHANNEL_SHAPE_TRACKER;
+}
+
+inline bool ml_feature_needs_channel_coherence_tracker(uint8_t id) {
+    return ml_feature_source(static_cast<MLFeatureId>(id)) ==
+           MLFeatureSource::CHANNEL_COHERENCE_TRACKER;
 }
 
 inline float median_from_sorted(const float* sorted_values, uint16_t count) {
@@ -256,13 +280,23 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
  */
 inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
                                          const MLSeriesStats& delta,
-                                         float l1_delta_lag_ratio) {
+                                         float l1_delta_lag_ratio,
+                                         float chan_shape_spread,
+                                         float chan_freq_coh_cv,
+                                         float chan_freq_coh_curve_std,
+                                         float chan_coh_gap,
+                                         float chan_coh_subband_gap_median) {
     switch (id) {
         case ML_FEAT_TURB_AUTOCORR: return turb.autocorr;
         case ML_FEAT_TURB_MAD_OVER_MEAN: return turb.mad / turb.mean_denom;
         case ML_FEAT_TURB_ZCR: return turb.zcr;
         case ML_FEAT_L1_DELTA_AUTOCORR: return delta.autocorr;
         case ML_FEAT_L1_DELTA_LAG_RATIO: return l1_delta_lag_ratio;
+        case ML_FEAT_CHAN_SHAPE_SPREAD: return chan_shape_spread;
+        case ML_FEAT_CHAN_FREQ_COH_CV: return chan_freq_coh_cv;
+        case ML_FEAT_CHAN_FREQ_COH_CURVE_STD: return chan_freq_coh_curve_std;
+        case ML_FEAT_CHAN_COH_GAP: return chan_coh_gap;
+        case ML_FEAT_CHAN_COH_SUBBAND_GAP_MEDIAN: return chan_coh_subband_gap_median;
         default: return 0.0f;
     }
 }
@@ -272,7 +306,12 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
                                       const uint8_t* feature_ids, uint8_t num_features,
                                       float* features_out,
                                       const MLSeriesScratch& series_scratch,
-                                      float l1_delta_lag_ratio) {
+                                      float l1_delta_lag_ratio,
+                                      float chan_shape_spread,
+                                      float chan_freq_coh_cv,
+                                      float chan_freq_coh_curve_std,
+                                      float chan_coh_gap,
+                                      float chan_coh_subband_gap_median) {
     MLSeriesStats turb;
     compute_ml_series_stats(turb_buffer, turb_count, &turb,
                             ml_series_needs(feature_ids, num_features, /*l1=*/false),
@@ -285,7 +324,9 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
 
     for (uint8_t i = 0; i < num_features; i++) {
         features_out[i] = ml_feature_value_from_stats(
-            feature_ids[i], turb, delta, l1_delta_lag_ratio);
+            feature_ids[i], turb, delta, l1_delta_lag_ratio, chan_shape_spread,
+            chan_freq_coh_cv, chan_freq_coh_curve_std, chan_coh_gap,
+            chan_coh_subband_gap_median);
     }
 }
 

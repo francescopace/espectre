@@ -174,59 +174,13 @@ void test_ml_detector_set_threshold_above_max(void) {
 // MLP INFERENCE TESTS
 // ============================================================================
 
-// Helper function to run MLP inference (same as MLDetector::predict)
-static float run_inference(const float* features) {
-    constexpr size_t kBufferSize =
-        (ML_MAX_LAYER_WIDTH > ML_MODEL_INPUT_SIZE) ? ML_MAX_LAYER_WIDTH : ML_MODEL_INPUT_SIZE;
-    float buffer_a[kBufferSize] = {0.0f};
-    float buffer_b[kBufferSize] = {0.0f};
-
-    // Normalize raw features using StandardScaler params
-    for (int i = 0; i < ML_MODEL_INPUT_SIZE; i++) {
-        buffer_a[i] = (features[i] - ML_FEATURE_MEAN[i]) / ML_FEATURE_SCALE[i];
-    }
-
-    float* current = buffer_a;
-    float* next = buffer_b;
-    float out = 0.0f;
-
-    for (int layer = 0; layer < ML_MODEL_NUM_LAYERS; layer++) {
-        const int in_size = ML_MODEL_LAYER_INPUT_SIZES[layer];
-        const int out_size = ML_MODEL_LAYER_OUTPUT_SIZES[layer];
-        const float* weights = ML_MODEL_WEIGHTS[layer];
-        const float* biases = ML_MODEL_BIASES[layer];
-        const bool is_output_layer = (layer == ML_MODEL_NUM_LAYERS - 1);
-
-        for (int j = 0; j < out_size; j++) {
-            float val = biases[j];
-            for (int i = 0; i < in_size; i++) {
-                val += current[i] * weights[i * out_size + j];
-            }
-
-            if (is_output_layer) {
-                out = val;
-            } else {
-                next[j] = std::max(0.0f, val);
-            }
-        }
-
-        if (!is_output_layer) {
-            std::swap(current, next);
-        }
-    }
-
-    // Sigmoid with overflow protection on the direct 0-1 probability scale
-    if (out < -20.0f) return 0.0f;
-    if (out > 20.0f) return ML_METRIC_SCALE;
-    return (1.0f / (1.0f + std::exp(-out))) * ML_METRIC_SCALE;
-}
-
 void test_ml_inference_matches_reference(void) {
     const float TOLERANCE = 2e-3f;  // Match Python export-regression tolerance
     TEST_ASSERT_TRUE_MESSAGE(num_test_samples > 0, "No test data loaded");
+    MLDetector detector;
     
     for (int i = 0; i < num_test_samples; i++) {
-        float result = run_inference(test_features[i].data());
+        float result = detector.predict(test_features[i].data());
         float expected = test_expected[i] * ML_METRIC_SCALE;
         float error = std::abs(result - expected);
         
@@ -239,9 +193,10 @@ void test_ml_inference_matches_reference(void) {
 
 void test_ml_inference_output_range(void) {
     TEST_ASSERT_TRUE_MESSAGE(num_test_samples > 0, "No test data loaded");
+    MLDetector detector;
     
     for (int i = 0; i < num_test_samples; i++) {
-        float result = run_inference(test_features[i].data());
+        float result = detector.predict(test_features[i].data());
         
         TEST_ASSERT_TRUE(result >= 0.0f);
         TEST_ASSERT_TRUE(result <= ML_METRIC_SCALE);
@@ -252,9 +207,10 @@ void test_ml_inference_classification(void) {
     // Test that motion/idle classification is correct
     const float THRESHOLD = ML_DEFAULT_THRESHOLD;
     TEST_ASSERT_TRUE_MESSAGE(num_test_samples > 0, "No test data loaded");
+    MLDetector detector;
     
     for (int i = 0; i < num_test_samples; i++) {
-        float result = run_inference(test_features[i].data());
+        float result = detector.predict(test_features[i].data());
         float expected = test_expected[i] * ML_METRIC_SCALE;
         
         bool result_motion = (result > THRESHOLD);
@@ -285,7 +241,7 @@ void test_feature_extraction_basic(void) {
     // Extract exactly the exported feature set (turbulence and/or L1-delta).
     extract_ml_features_by_id(turb_buffer, 50, delta_buffer, 50,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
-                              scratch, 1.75f);
+                              scratch, 1.75f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // Every exported feature must be a finite number.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
@@ -306,7 +262,7 @@ void test_feature_extraction_empty_buffer(void) {
     // whose empty-buffer value is not zero.
     extract_ml_features_by_id(turb_buffer, 0, nullptr, 0,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
-                              scratch, 1.0f);
+                              scratch, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // Every series-derived feature should be 0 for an empty buffer.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
@@ -338,7 +294,8 @@ void test_candidate_feature_python_parity(void) {
     float abs_devs[50];
     const MLSeriesScratch scratch{sorted_scratch, abs_devs, 50U};
     extract_ml_features_by_id(turb_buffer, 50, delta_buffer, 50,
-                              candidate_ids, 3, features, scratch, 1.75f);
+                              candidate_ids, 3, features, scratch, 1.75f,
+                              0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // Expected values computed by src/python/micro_espectre/csi_features.py.
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.3877551f, features[0]);
@@ -430,16 +387,17 @@ void test_ml_inference_performance(void) {
     const int NUM_ITERATIONS = 1000;
     
     TEST_ASSERT_TRUE_MESSAGE(num_test_samples > 0, "No test data loaded");
+    MLDetector detector;
     
     // Warm up
     for (int i = 0; i < 10; i++) {
-        run_inference(test_features[0].data());
+        detector.predict(test_features[0].data());
     }
     
     // Benchmark (note: on native platform, not on actual ESP32, so this only
     // checks that the loop runs; timing would need micros() on device)
     for (int i = 0; i < NUM_ITERATIONS; i++) {
-        run_inference(test_features[i % num_test_samples].data());
+        detector.predict(test_features[i % num_test_samples].data());
     }
 
     // Just verify it completes without error

@@ -114,18 +114,34 @@ def calc_zero_crossing_rate(values, count, center):
 # See docs/adr/2026-07-28-drop-the-absolute-l1-features.md: adding one
 # strong-link capture to training took a weak-link pair from 0% to 100% false
 # positives, because its idle displacement (0.2653) sat above its own motion
-# (0.1830) and above the added capture's motion (0.0587). Classic reads two of
-# these members directly; the MLP reads all five.
-INVARIANT5_FEATURES = [
+# (0.1830) and above the added capture's motion (0.0587). The promoted compact
+# model keeps only scale-invariant members and adds the selected coherence and
+# channel-shape dynamics that survived the 2026-07-29 feature sweep.
+PHASELESS10_FEATURES = [
     'turb_mad_over_mean',
     'turb_autocorr',
     'turb_zcr',
     'l1_delta_autocorr',
     'l1_delta_lag_ratio',
+    'chan_shape_spread',
+    'chan_freq_coh_cv',
+    'chan_freq_coh_curve_std',
+    'chan_coh_gap',
+    'chan_coh_subband_gap_median',
 ]
 
-DEFAULT_FEATURES = INVARIANT5_FEATURES
+DEFAULT_FEATURES = PHASELESS10_FEATURES
 ALL_FEATURES = tuple(DEFAULT_FEATURES)
+
+CHANNEL_SHAPE_FEATURES = frozenset({
+    'chan_shape_spread',
+    'chan_freq_coh_cv',
+    'chan_freq_coh_curve_std',
+})
+CHANNEL_COHERENCE_FEATURES = frozenset({
+    'chan_coh_gap',
+    'chan_coh_subband_gap_median',
+})
 
 # Features computed from the rebuilt L1-delta series. The lag ratio is
 # deliberately absent: it shares the l1_ prefix but the tracker hands it over
@@ -444,6 +460,10 @@ class L1DeltaTracker:
         return self._current_metric
 
     @property
+    def count(self):
+        return self._delta_count
+
+    @property
     def total_packets(self):
         return self._packet_count
 
@@ -457,6 +477,11 @@ def extract_features_by_name(
     out=None,
     reuse_turbulence_buffer=False,
     l1_delta_lag_ratio=None,
+    chan_shape_spread=None,
+    chan_freq_coh_cv=None,
+    chan_freq_coh_curve_std=None,
+    chan_coh_gap=None,
+    chan_coh_subband_gap_median=None,
 ):
     """Extract configured features from explicitly preprocessed streams."""
     if feature_names is None:
@@ -470,6 +495,19 @@ def extract_features_by_name(
             "l1_delta_lag_ratio is required when that feature is selected; "
             "pass the explicitly preprocessed tracker metric"
         )
+    required_scalars = {
+        'chan_shape_spread': chan_shape_spread,
+        'chan_freq_coh_cv': chan_freq_coh_cv,
+        'chan_freq_coh_curve_std': chan_freq_coh_curve_std,
+        'chan_coh_gap': chan_coh_gap,
+        'chan_coh_subband_gap_median': chan_coh_subband_gap_median,
+    }
+    for name in feature_names:
+        if name in required_scalars and required_scalars[name] is None:
+            raise ValueError(
+                f"{name} is required when that feature is selected; "
+                "pass the explicitly preprocessed tracker metric"
+            )
 
     if out is not None and len(out) < len(feature_names):
         raise ValueError("Output feature buffer is too small")
@@ -573,6 +611,16 @@ def extract_features_by_name(
             )
         elif name == 'l1_delta_lag_ratio':
             value = l1_delta_lag_ratio
+        elif name == 'chan_shape_spread':
+            value = chan_shape_spread
+        elif name == 'chan_freq_coh_cv':
+            value = chan_freq_coh_cv
+        elif name == 'chan_freq_coh_curve_std':
+            value = chan_freq_coh_curve_std
+        elif name == 'chan_coh_gap':
+            value = chan_coh_gap
+        elif name == 'chan_coh_subband_gap_median':
+            value = chan_coh_subband_gap_median
         else:
             raise ValueError(f"Unknown feature: {name}")
         if out is None:

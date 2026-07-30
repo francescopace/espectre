@@ -1,8 +1,9 @@
 /*
  * ESPectre - Classic Detector
  *
- * Vote-free weighted fusion of L1 profile displacement and turbulence
- * autocorrelation. Mirrors src/python/micro_espectre/classic_detector.py.
+ * Vote-free weighted fusion of turbulence autocorrelation and channel
+ * frequency-coherence curve spread. Mirrors
+ * src/python/micro_espectre/classic_detector.py.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -13,28 +14,29 @@
 #include "csi_format.h"
 #include "csi_features.h"
 #include "l1_delta_tracker.h"
+#include "ml_feature_trackers.h"
 
 #include <cstddef>
 #include <cstdint>
 
 namespace espectre {
 
-constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.8090618336447031f;
+constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.6959857092777915f;
 constexpr float CLASSIC_MIN_THRESHOLD = 0.0f;
 constexpr float CLASSIC_MAX_THRESHOLD = 1.0f;
 constexpr float CLASSIC_STARTUP_THRESHOLD_FACTOR = 1.0f;
 
-constexpr float CLASSIC_L1_CENTER = 1.4372828727159759f;
-constexpr float CLASSIC_L1_SCALE = 0.5846221043293537f;
-constexpr float CLASSIC_L1_WEIGHT = 2.807005032259383f;
-constexpr float CLASSIC_AUTOCORR_CENTER = 0.3899157842282158f;
-constexpr float CLASSIC_AUTOCORR_SCALE = 0.3789361406116048f;
-constexpr float CLASSIC_AUTOCORR_WEIGHT = 4.0307753529344765f;
-constexpr float CLASSIC_INTERCEPT = 0.7924447436944712f;
+constexpr float CLASSIC_AUTOCORR_CENTER = 0.4054217624112162f;
+constexpr float CLASSIC_AUTOCORR_SCALE = 0.36758465285308456f;
+constexpr float CLASSIC_AUTOCORR_WEIGHT = 5.501903876354938f;
+constexpr float CLASSIC_FREQ_COH_CURVE_STD_CENTER = 0.014752343728085844f;
+constexpr float CLASSIC_FREQ_COH_CURVE_STD_SCALE = 0.02602884858084268f;
+constexpr float CLASSIC_FREQ_COH_CURVE_STD_WEIGHT = 4.040278978639349f;
+constexpr float CLASSIC_INTERCEPT = 0.5020797967446212f;
 
-constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -0.6116129330770868f;
+constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -0.6930943805793314f;
 constexpr float CLASSIC_STARTUP_QUANTILE = 0.95f;
-constexpr float CLASSIC_STARTUP_STRENGTH = 0.75f;
+constexpr float CLASSIC_STARTUP_STRENGTH = 0.5f;
 constexpr uint8_t CLASSIC_STARTUP_SAMPLE_LIMIT = 64U;
 
 // Settled-level rule: how long the stream has to stay quiet before the startup
@@ -51,7 +53,7 @@ class ClassicDetector : public BaseDetector {
   /**
    * @param window_size Detector window in packets
    * @param threshold Motion probability threshold
-   * @param lag Profile-displacement distance in packets
+   * @param lag Temporal offset in packets for the curve-spread tracker
    * @param autocorr_lag Turbulence autocorrelation distance in packets
    *
    * Production uses the nominal-rate defaults. Alternate lags are exposed for
@@ -91,16 +93,17 @@ class ClassicDetector : public BaseDetector {
                         uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
                         float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT) override;
 
-  // Named for what it holds: the L1 lag ratio, not the L1 mean it replaced
-  // on 2026-07-26. The mean carried the link's noise floor.
-  float get_lag_ratio() const { return current_lag_ratio_; }
   float get_turb_autocorr() const { return current_turb_autocorr_; }
+  float get_chan_freq_coh_curve_std() const {
+    return current_chan_freq_coh_curve_std_;
+  }
   float get_logit() const { return current_logit_; }
 
  private:
   uint16_t l1_delta_capacity_() const;
   float calculate_turb_autocorr_() const;
-  float calculate_logit_(float lag_ratio, float turb_autocorr) const;
+  float calculate_logit_(float turb_autocorr,
+                         float chan_freq_coh_curve_std) const;
   static float sigmoid_(float value);
   static float quantile_(const float* values, uint8_t count, float quantile);
   float startup_quantile_() const;
@@ -110,8 +113,8 @@ class ClassicDetector : public BaseDetector {
 
   float threshold_;
   float current_logit_;
-  float current_lag_ratio_;
   float current_turb_autocorr_;
+  float current_chan_freq_coh_curve_std_;
   float startup_logits_[CLASSIC_STARTUP_SAMPLE_LIMIT]{};
   uint8_t startup_logit_count_;
   float adapted_threshold_;
@@ -124,6 +127,7 @@ class ClassicDetector : public BaseDetector {
   uint8_t settle_block_count_;
   uint8_t settle_block_index_;
   L1DeltaTracker l1_tracker_;
+  ChannelShapeTracker shape_tracker_;
 };
 
 }  // namespace espectre

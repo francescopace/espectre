@@ -22,6 +22,8 @@ Status values mean:
 - **Historical**: previously shipped or used in a serious baseline, but
   superseded.
 - **Planned**: physically motivated, but not yet implemented.
+- **Deferred**: physically plausible, but blocked by an unavailable input,
+  radio capability, or validation corpus.
 
 An em dash means that no trustworthy per-feature number was retained. It does
 not mean zero. Qualitative results are recorded when they are all the evidence
@@ -41,9 +43,12 @@ tested with `--no-export`.
 
 ## Current Production Set
 
-The current baseline is the scale-invariant five-feature set introduced by the
-[absolute-L1 removal ADR](adr/2026-07-28-drop-the-absolute-l1-features.md).
-The exported topology is `5 -> 32 -> 16 -> 1`.
+The current production baseline is the compact phaseless ten-feature set chosen
+after the refreshed current-catalog sweep. It keeps the five turbulence/L1
+invariants and adds the five coherence and channel-shape signals that survived
+the promotion gates without needing the phase tracker. The exported topology is
+`10 -> 24 -> 12 -> 1`, trained with `--augment`, `--fp-weight 1.75`, and seed
+`1876849819`.
 
 | Feature | Physical quantity | Definition | Scale invariant | Known evidence |
 | --- | --- | --- | --- | --- |
@@ -52,8 +57,13 @@ The exported topology is `5 -> 32 -> 16 -> 1`.
 | `turb_zcr` | Temporal coherence versus noise-like crossings | crossing rate around the window median | Yes, crossing rate | In the Coherence-6 swap, helped reduce reserved max-FP median from `19.42%` to `2.66%` together with `l1_delta_autocorr` |
 | `l1_delta_autocorr` | Persistence of normalized channel-profile displacement | lag-1 autocorrelation of the L1-delta series | Yes, correlation | Same Coherence-6 joint result; no isolated ablation metric retained |
 | `l1_delta_lag_ratio` | Growth of channel-profile displacement with lag | mean lag-10 displacement / mean adjacent displacement | Yes, ratio | Adding it to Coherence-6 reduced reserved max FP `6.43% -> 4.43%`, raised worst recall `97.99% -> 99.14%`, and reduced effective alarms `8 -> 3` across ten reserved replays |
+| `chan_shape_spread` | Frequency participation of lagged channel-shape motion energy | participation ratio of accumulated lagged normalized-shape energy | Yes, ratio | Promoted in the refreshed compact sweep: paired `14/14`, cross-chip worst FP `1.9%`, and better leave-one-environment bedroom FP than the wider no-phase layout |
+| `chan_freq_coh_cv` | Temporal variability of within-packet frequency coherence at four-bin offset | std / mean of fixed-offset within-packet coherence over time | Yes, ratio | Retained in the promoted no-phase family; part of the best `24 -> 12` compact trade-off on the refreshed corpus |
+| `chan_freq_coh_curve_std` | Temporal variability of short-versus-long frequency coherence contrast | std of `(coh_offset2 - coh_offset12) / (coh_offset2 + coh_offset12)` | Yes, bounded contrast | Retained in the promoted no-phase family; improved the compact model's cross-environment bedroom tail over the wider no-phase layout |
+| `chan_coh_gap` | Adjacent-minus-lagged delay-compensated channel coherence | mean lag-1 coherence minus mean lag-10 coherence | Yes, difference of normalized coherences | Retained in the promoted no-phase family; the best coherence formulation from the current sweep |
+| `chan_coh_subband_gap_median` | Median subband coherence-gap across four contiguous HT20 bands | median over subbands of their adjacent-minus-lag mean coherence gaps | Yes, median of normalized coherence gaps | Retained in the promoted no-phase family; helped keep the promoted model robust on weak bedroom and C3 tails |
 
-The five-feature replacement was evaluated over four seeds on the corpus that
+The previous five-feature replacement was evaluated over four seeds on the corpus that
 exposed the absolute-L1 failure:
 
 | Metric | Coherence-7 | Five scale-invariant features |
@@ -64,7 +74,7 @@ exposed the absolute-L1 failure:
 | Paired effective alarms | `8` | `2-7` |
 | Paired worst recall | `99.14%` | `95.76-96.26%` |
 
-Recent retrains of the five-feature set have produced blocked OOF F1 around
+Recent retrains of that five-feature baseline have produced blocked OOF F1 around
 `97.7-98.2%`, depending on the corpus actually loaded. Always print and retain
 the effective corpus counts with a new result.
 
@@ -86,12 +96,17 @@ features. No candidate in this campaign is approved for production.
 | `chan_coh_gap_low_frac` | Fraction of small coherence gaps | Not retained | Did not beat `chan_coh_gap` | Rejected |
 | `chan_coh_gap_q20` | Lower-tail coherence gap | Not retained | Did not beat `chan_coh_gap` | Rejected |
 | `chan_coh_subband_median_gap` | Median robust coherence over four frequency bands | Not retained | OOF F1 `97.3%`; worst-lineage recall `80.9%`; worst-lineage FP `10.1%`; mean-of-five-worst FP `5.9%` | Rejected |
-| `chan_coh_subband_gap_median` | Median of per-band coherence gaps | Not retained | OOF F1 `97.8%`; worst-lineage FP `8.4%`; mean-of-five-worst FP `5.6%`; replay gate max FP `6.04%`, worst recall `94.92%`, and 7 alarms | Rejected |
+| `chan_coh_subband_gap_median` | Median of per-band coherence gaps | Not retained | OOF F1 `97.8%`; worst-lineage FP `8.4%`; mean-of-five-worst FP `5.6%`; replay gate max FP `6.04%`, worst recall `94.92%`, and 7 alarms | Research |
 | `turb_band_power_ratio` | Low-frequency share of non-DC turbulence power | `r=0.923` with `turb_autocorr`; `R2=0.863` | OOF F1 `98.1%`, but two S3 static-presence replays regressed; swapping out autocorrelation scored `97.2%` | Rejected |
-| `phase_resid_lag_ratio` | CFO/STO-sanitized phase-shape dynamics | max `r=0.434`; `R2=0.207` | OOF F1 `97.4%`; worst C5 FP `18.5%` | Rejected |
+| `phase_resid_lag_ratio` | CFO/STO-sanitized phase-shape dynamics | max `r=0.434`; `R2=0.207` | OOF F1 `97.4%`; worst C5 FP `18.5%` | Research |
+| `phase_closure_var_std` | Temporal variability of local phase curvature across adjacent subcarrier triplets | max `r=0.1367` with `turb_mad_over_mean`; `R2=0.0906`; `r=0.0521` with `phase_resid_lag_ratio`; label correlation `0.0455` | OOF F1 `97.3%`; worst-lineage recall `92.1%`; worst-lineage FP `11.8%`; mean-of-five-worst recall `95.3%`, FP `6.4%` | Research |
+| Trusted profile-scale correction | Recover magnitude-domain information after undoing packet gain | Unavailable: the ESP-IDF packet callback exposes no per-packet scale value | All 95 current NPZ recordings include RSSI metadata, but none records scale; current firmware only selects static automatic/manual scaling configuration | Deferred |
 | `chan_shape_lag_ratio` | Temporal displacement of the L2-normalized amplitude profile | max `r=0.9831` with `l1_delta_lag_ratio`; `R2=0.9686`; label correlation `0.754` | Stopped before CV because the production set already reconstructs it | Rejected |
 | `chan_shape_spread` | Frequency participation of lagged channel-shape motion energy | max `r=0.1094`; `R2=0.0257`; label correlation `0.0314` | OOF F1 `98.4%`; fold recall `98.0%`; precision `98.7%`; worst-lineage recall `86.5%`; worst-lineage FP `3.4%`; mean-of-five-worst recall `93.9%`, FP `2.4%` | Research |
-| `chan_freq_coh_cv` | Temporal variability of within-packet frequency coherence at a four-bin offset | max `r=0.2468`; `R2=0.0838`; label correlation `0.2181` | OOF F1 `97.9%`; worst-lineage recall `93.3%`; worst-lineage FP `8.4%`; mean-of-five-worst recall `96.2%`, FP `4.4%` | Rejected |
+| `chan_freq_coh_cv` | Temporal variability of within-packet frequency coherence at a four-bin offset | max `r=0.2468`; `R2=0.0838`; label correlation `0.2181` | OOF F1 `97.9%`; worst-lineage recall `93.3%`; worst-lineage FP `8.4%`; mean-of-five-worst recall `96.2%`, FP `4.4%` | Research |
+| `chan_freq_coh_curve_std` | Temporal variability of short-versus-long frequency coherence | max `r=0.3881` with `turb_mad_over_mean`; `R2=0.1598`; `r=0.7831` with `chan_freq_coh_cv`; label correlation `0.4080` | Isolated OOF F1 `97.8%`; worst-lineage recall `94.4%`; worst-lineage FP `8.4%`; mean-of-five-worst recall `95.7%`, FP `5.1%` | Research |
+| `chan_rank_gap` | Lagged reordering of the amplitude profile relative to adjacent-packet reordering | max `r=0.7927` with `l1_delta_lag_ratio`; `R2=0.6750`; `r=-0.0668` with `chan_shape_spread`; label correlation `0.5981` | OOF F1 `97.3%`; worst-lineage recall `91.0%`; worst-lineage FP `7.4%`; mean-of-five-worst recall `93.7%`, FP `5.1%` | Rejected |
+| `chan_ratio_gap` | Lagged change in guarded cross-subcarrier amplitude ratios relative to adjacent-packet change | max `r=0.7866` with `l1_delta_lag_ratio`; `R2=0.6303`; `r=0.6914` with `chan_rank_gap`; `r=-0.0282` with `chan_shape_spread`; label correlation `0.5863` | OOF F1 `97.6%`; worst-lineage recall `85.4%`; worst-lineage FP `8.4%`; mean-of-five-worst recall `94.3%`, FP `5.6%` | Rejected |
 | `chan_coh_gap_spread` | Product of positive coherence gap and channel-shape spread | Components are almost orthogonal (`r=-0.0058`) | OOF F1 `96.7%`; worst-lineage recall `93.3%`; worst C5 FP `26.1%`; mean-of-five-worst recall `95.9%`, FP `10.9%` | Rejected |
 
 Combination results:
@@ -101,6 +116,238 @@ Combination results:
 - `chan_coh_gap + chan_shape_spread` scored OOF F1 `98.0%`, worst-lineage
   recall `86.5%`, worst C5 FP `14.3%`, and mean-of-five-worst recall/FP
   `94.4%`/`4.5%`. Orthogonality did not resolve the tail trade-off.
+- `chan_freq_coh_cv + chan_freq_coh_curve_std` scored OOF F1 `98.1%`,
+  worst-lineage recall `94.4%`, worst-lineage FP `6.7%`, and
+  mean-of-five-worst recall/FP `96.1%`/`3.8%`. The paired replay gate regressed
+  to `12/13` passes, `8.04%` max FP, `95.11%` worst recall, and 11 alarms,
+  versus the baseline's `13/13`, `4.82%`, and `96.05%`. The quiet gate passed
+  with `0.04%` max FP and no alarms, but paired non-regression rejected the
+  combination.
+
+### Classic Linear Candidate Replay
+
+The July 30, 2026 Classic campaign asked whether a linear pair or triplet from
+the existing ML feature surface could improve the exported non-ML detector.
+The search covered generic pairs and triplets, runtime-ready and host-only
+surfaces, threshold-free screening, startup-calibrated logistic replay, and
+targeted packet-level confirmation. No runtime Python or C++ detector code was
+changed.
+
+#### Valid Method
+
+The corrected workflow has these contracts:
+
+- fit coefficients only on real `train` recordings;
+- use `train + selection` for discovery decisions;
+- report `holdout` and `exclude` separately, without allowing either to affect
+  ranking;
+- fit grouped folds on de-overlapped rows, but score every dense runtime
+  evaluation tick;
+- use `StratifiedGroupKFold` with `random_state=0`;
+- limit nominal startup evidence to the 37 ready evaluations available during
+  the 1,000-packet production calibration;
+- report the exported `ClassicDetector` through exact packet-level replay as
+  the baseline; and
+- label a refitted current feature pair as a surrogate, never as the exported
+  runtime baseline.
+
+Earlier results that fitted or ranked on `holdout`, fitted folds on dense
+overlapping rows, used 10 or 64 startup rows, or treated the refitted current
+pair as the exported baseline are superseded. In particular, the initial
+research scores of about `44.1` for the baseline, `25.0` for
+`turb_mad_over_mean + turb_autocorr + turb_zcr`, and `25.6` for
+`turb_mad_over_mean + turb_autocorr + chan_shape_spread` are not promotion
+evidence.
+
+The historical `holdout` recordings were observed during this campaign.
+Their numbers remain useful diagnostics, but they are no longer a sealed
+confirmation set and must not be presented as unbiased final validation.
+The exact effective file/window counts and the startup-strength/settle-margin
+values for the temporary packet-level points were not retained in a repository
+artifact; that evidence is unavailable and must not be reconstructed from the
+rounded metrics below. All results are tied to the repository corpus as it
+existed on July 30, 2026.
+
+#### Retained Results
+
+The exported runtime baseline is
+`turb_autocorr + chan_freq_coh_curve_std`.
+
+| Evaluation | Research score | Weighted recall | Worst recall | Weighted paired FP | Maximum empty FP |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Exported runtime, discovery | `28.44` | `97.90%` | `85.59%` | `2.28%` | `6.05%` |
+| Exported runtime, historical holdout | — | — | `99.71%` | `2.18%` | `3.45%` |
+| Current pair refit, aggressive point | `23.22` | — | `89.91%` | `4.31%` | `7.34%` |
+| Current pair refit, conservative point | `28.99` | — | `87.90%` | — | `7.89%` |
+| Current pair refit with train-empty hard negatives | `22.38` | `98.76%` | `88.47%` | `3.90%` | `6.25%` |
+
+The hard-negative refit also regressed historical-holdout paired FP to `4.08%`
+and maximum empty FP to `5.58%`. Its lower scalar penalty therefore hides
+material false-positive regressions. Keep it research-only; it fails
+multidimensional non-regression and is not approved for export.
+
+The strongest threshold-free triplet was
+`turb_mad_over_mean + turb_autocorr + turb_zcr`, with `0.9966` worst-pair
+discovery AUC. Its components were highly redundant: maximum absolute
+correlation was `0.919`, and mean absolute correlation was `0.794`. Corrected
+surrogate replay retained about `97.99%` worst-session recall, but maximum
+discovery-empty FP rose to at least `16.77%`. Adding train-role empty hard
+negatives still left it at `14.84%`. Reject this formulation for Classic.
+
+`turb_mad_over_mean + turb_autocorr + chan_shape_spread` was the second initial
+shortlist candidate. Its original score was produced by the superseded
+methodology, and no trustworthy corrected packet-level result was retained.
+Do not promote or cite the original `25.6` score. Reconsider it only if new
+independent data supplies a specific reason to reopen the feature hypothesis.
+
+The best host-only triplet did not show a clear advantage over the best
+runtime-ready triplet. Do not add new runtime extractors for this Classic
+campaign.
+
+#### Interpretation And Verdict
+
+The apparent triplet gain came mainly from trading false positives for
+worst-session recall. A scalar penalty made this look attractive, but the
+deployment-relevant metric vector rejected it. The limiting conflict is now
+represented by one S3 low-RSSI selection session on recall and C5/C6 quiet
+sessions on false positives. Repeated tuning against those same recordings
+would optimize the corpus rather than establish generalization.
+
+The current decision is:
+
+1. keep the exported Classic detector unchanged;
+2. stop exhaustive pair and triplet tuning on the present corpus;
+3. retain the current-pair hard-negative refit as the only active linear
+   hypothesis; and
+4. require new independent recordings before another promotion attempt.
+
+The packet-level refit confirmations were run through a temporary local
+research harness, not a maintained repository entry point. Before any future
+promotion, add an exact, shared packet-level comparison path that evaluates the
+exported runtime and candidate with identical calibration, cadence, reset,
+settling, and runtime-policy semantics.
+
+#### Restart Point
+
+Collect new same-protocol data before resuming model selection:
+
+- S3 low-RSSI `static_presence` and `motion` pairs across more than one room,
+  placement, and collection time;
+- C5 and C6 `empty` recordings across rooms, times, and normal/weak links; and
+- enough independent session or lineage groups to reserve a new confirmation
+  set before inspecting detector results.
+
+After assigning the new roles, reproduce the narrow research surface with:
+
+```bash
+python tools/benchmark_classic_candidate_pairs.py \
+  --triple turb_mad_over_mean,turb_autocorr,turb_zcr \
+  --triple turb_mad_over_mean,turb_autocorr,chan_shape_spread
+
+python tools/replay_classic_candidates.py \
+  --features turb_autocorr,chan_freq_coh_curve_std \
+  --features turb_mad_over_mean,turb_autocorr,turb_zcr \
+  --features turb_mad_over_mean,turb_autocorr,chan_shape_spread \
+  --include-train-empty
+```
+
+Use the replay only for screening. The next candidate must then pass the exact
+packet-level comparison and improve recall without exceeding the exported
+baseline's discovery paired-FP and empty-FP rates. Final promotion must use the
+new sealed confirmation groups, followed by the required Python/C++ parity
+gates. If no candidate passes, retain the current detector and investigate a
+different model or calibration family instead of expanding the linear feature
+grid again.
+
+### Heterogeneous Feature And Model Sweep
+
+The isolated verdicts above did not answer whether individually weak,
+physically different measurements become useful jointly. A systematic sweep
+therefore extracted one 22-column superset once, then compared 11 feature
+families spanning 5 to 20 inputs on the same 553,801 windows, 23 lineage
+groups, grouped folds, and selection seed `1876849819`. `P` below denotes the
+five production features.
+
+| Family | Added to, or changed from, `P` | Inputs | OOF F1 | Worst-five recall | Worst-five FP |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Baseline | None | 5 | `97.77%` | `95.23%` | `4.96%` |
+| Lean heterogeneous | `chan_coh_gap`, `chan_shape_spread`, `chan_freq_coh_curve_std` | 8 | `98.45%` | `94.37%` | `2.83%` |
+| Compact orthogonal | gap quantile, subband gap, phase closure, shape spread, and frequency-coherence CV | 10 | `98.20%` | `92.57%` | `2.18%` |
+| Frequency dynamics | shape spread, frequency CV and curve, rank gap, and ratio gap | 10 | `98.39%` | `94.83%` | `2.78%` |
+| Coherence distribution | seven full-band, lower-tail, subband, and composite coherence descriptors | 12 | `95.81%` | `94.57%` | `12.96%` |
+| Phase and frequency | phase residual and closure, shape spread, frequency CV and curve, full-band gap, and subband gap | 12 | `98.07%` | `95.95%` | `5.45%` |
+| All physical axes | band-power ratio plus coherence, phase, shape, and frequency descriptors | 12 | `97.68%` | `93.48%` | `6.19%` |
+| Alternate lag core | Replaced the production lag ratio and added band power, shape lag, rank, ratio, coherence, and frequency curve | 10 | `97.00%` | `95.02%` | `6.97%` |
+| Alternate turbulence core | Replaced production autocorrelation and added band power, coherence, shape, frequency, and phase | 10 | `97.98%` | `94.15%` | `4.90%` |
+| Broad physics | Thirteen candidate descriptors across all measured axes | 18 | `97.21%` | `91.46%` | `6.30%` |
+| Wide non-redundant | All candidates except the two near-deterministic lag-ratio duplicates | 20 | `97.14%` | `93.71%` | `7.98%` |
+
+All rows initially used `32 -> 16` hidden layers and false-positive weight
+`1.5`. Adding every available input was harmful; the useful interaction was a
+selected mixture of time, phase, frequency, channel-shape, and coherence
+measurements. Historical sweeps on the earlier catalog pointed to the
+phase-and-frequency family, but the current compact frontier was re-run after
+the updated `C6 bedroom normal-link` pair and with the active deployment gate
+workflow. The refreshed comparison used 553,690 active training windows, 23
+lineage groups, seed `1876849819`, packet augmentation, `32 -> 16` hidden
+layers, and false-positive weight `1.75`.
+
+The selected 12-input reference is `P` plus `phase_resid_lag_ratio`,
+`phase_closure_var_std`, `chan_shape_spread`, `chan_freq_coh_cv`,
+`chan_freq_coh_curve_std`, `chan_coh_gap`, and
+`chan_coh_subband_gap_median`. All are dimensionless ratios, correlations,
+normalized-profile statistics, or circular phase statistics. An end-to-end
+streaming extraction check scaled every raw CSI component by `0.5`, `2`, and
+`4`, while avoiding clipping and quantization loss; every feature was bitwise
+unchanged. This proves formula and implementation invariance to a common
+positive gain. It cannot make clipped samples or information lost to int8
+quantization recoverable.
+
+| Model | Features | MLP params | Blocked OOF F1 | Paired gate | Quiet holdout | Cross-chip | Cross-environment | Verdict |
+| --- | --- | ---: | ---: | --- | --- | --- | --- | --- |
+| Full compact `32 -> 16` | 12 | 961 | `97.9%` | `14/14`, max FP `1.96%`, worst recall `97.96%`, `0` alarms | pass, max FP `0.13%` | macro F1 `98.1%`, worst recall `97.3%`, worst FP `2.5%` | macro F1 `96.0%`, bedroom FP `9.5%` | Current full compact reference |
+| No phase `32 -> 16` | 10 | 897 | `97.7%` | `14/14`, max FP `0.29%`, worst recall `98.25%`, `0` alarms | pass, max FP `0.13%` | macro F1 `98.2%`, worst recall `96.8%`, worst FP `2.1%` | macro F1 `97.1%`, bedroom FP `5.7%` | Best tracker-level reduction |
+| No phase `24 -> 12` | 10 | 577 | `97.4%` | `14/14`, max FP `0.44%`, worst recall `97.67%`, `0` alarms | pass, max FP `0.13%` | macro F1 `98.2%`, worst recall `96.8%`, worst FP `1.9%` | macro F1 `97.6%`, bedroom FP `3.9%` | Best compact-layout trade-off |
+| No phase `20 -> 10` | 10 | 441 | `97.5%` | `14/14`, max FP `0.29%`, worst recall `96.50%`, `0` alarms | pass, max FP `0.13%` | macro F1 `98.1%`, worst recall `96.8%`, worst FP `2.9%` | macro F1 `96.6%`, bedroom FP `7.1%` | Smallest tested layout that still passes |
+| No phase, no `l1_delta_autocorr` `32 -> 16` | 9 | 865 | `98.0%` | `14/14`, max FP `0.15%`, worst recall `98.25%`, `0` alarms | pass, max FP `0.08%` | macro F1 `98.2%`, worst recall `97.1%`, worst FP `2.7%` | macro F1 `96.4%`, bedroom FP `7.3%` | Smallest passing feature set so far |
+
+The important refreshed result is physical, not merely statistical. Dropping
+both phase features removes the entire phase tracker and improves the paired
+gate and leave-one-environment bedroom split, even though blocked OOF F1 dips
+slightly. That is a more meaningful firmware simplification than removing a
+single first-layer input while keeping the same tracker alive.
+
+Once the phase tracker is gone, layout downsizing is a higher-value lever than
+further feature pruning. `24 -> 12` cuts the MLP from 897 to 577 parameters
+(`-35.7%`) while improving the worst held-out FP rates on both leave-one-chip
+and leave-one-environment checks. `20 -> 10` cuts further to 441 parameters
+(`-50.8%` versus the no-phase `32 -> 16` model), but gives back too much on
+`bedroom` and the worst C3 false-positive tail to be the default compact
+choice.
+
+The failed family removals were equally informative:
+
+- Dropping the shape family and keeping only production, phase, and coherence
+  inputs still scored `14/14`, but regressed non-regression alarms on
+  `S3:selection:static_presence_s3_64sc_dev000010b41de8ec00_20260728_125456_174006_0001.npz`
+  (`4` versus `2`).
+- Dropping the coherence family also kept `14/14`, but introduced one
+  effective alarm on
+  `C3:holdout:static_presence_c3_64sc_dev0000acebe64adb64_20260729_005553_607144_0001.npz`
+  and a recall regression on
+  `C3:selection:static_presence_c3_64sc_dev0000acebe64ae708_20260728_121127_735859_0001.npz`.
+
+Current feature-economy evidence therefore supports this ordering:
+
+1. remove the full phase family first;
+2. if MLP size still matters, drop `l1_delta_autocorr` next; and
+3. keep the shape and coherence families intact until new data proves their
+   replay protection is replaceable.
+
+The other tested 9-input drop, removing `chan_coh_gap` instead of
+`l1_delta_autocorr`, also passed the deployment gates, but its blocked OOF F1
+fell to `97.7%` and it offered no tracker-level savings beyond the first-layer
+weights, so it is not the preferred compact reduction.
 
 The important finding is physical, not merely statistical: channel coherence
 and frequency participation contain information that the production
@@ -108,6 +355,53 @@ time-domain statistics do not, but noisy stationary replays can look like
 broad, coherent pseudo-motion. C5 and C6 recordings dominated several
 worst-case false-positive results. This is a robustness problem, not evidence
 that coherence contains no motion signal.
+
+`chan_rank_gap` used the mean lag-10 Spearman distance minus the mean
+adjacent-packet distance, where distance is `(1 - rho) / 2`. Bins below `2%`
+of either packet's maximum amplitude were excluded from each comparison so
+quantization near nulls could not create arbitrary rank changes. The formula
+is exactly invariant to positive per-packet gain and almost orthogonal to
+`chan_shape_spread`, but it largely repeated the production lag-ratio signal
+and regressed both OOF F1 and tail recall. The replay gate was therefore not
+run.
+
+`chan_ratio_gap` used fixed bin pairs separated by four subcarriers. Each
+packet-pair distance was the median of
+`abs(delta log-ratio) / (1 + abs(delta log-ratio))`; a ratio pair was excluded
+unless both bins cleared `2%` of their packet maximum in both packets. The
+feature was the mean lag-10 distance minus the mean adjacent distance. This
+bounded, gain-invariant formulation avoided supervised pair selection and
+near-null denominators, but it repeated much of `chan_rank_gap` and the
+production lag-ratio signal. Its tail false positives and one C3 motion lineage
+regressed, so the replay gate was not run.
+
+`chan_freq_coh_curve_std` computed complex frequency coherence at offsets 2
+and 12, formed `(coherence_2 - coherence_12) / (coherence_2 + coherence_12)`
+per packet, and reported its standard deviation over the live window.
+Normalized complex coherence cancels packet gain, while its magnitude cancels
+the common phase and fixed-offset phase ramp. The multi-offset contrast was
+more label-correlated than the offset-4 CV, but did not improve the isolated
+tail metrics, and their combination failed paired replay non-regression.
+
+`phase_closure_var_std` formed
+`angle(H[k-1] H[k+1] conj(H[k])^2)` over contiguous subcarrier triplets,
+excluded triplets containing a bin below `2%` of the packet maximum, computed
+their circular variance per packet, and reported its temporal standard
+deviation. The second phase difference cancels common phase and a linear phase
+ramp exactly. The feature was nearly orthogonal to both production and the
+earlier phase residual, but noisy C5 empty data produced an `11.8%`
+worst-lineage FP rate, so grouped CV rejected it before replay evaluation.
+
+Trusted gain correction cannot be evaluated on the current capture contract.
+ESP-IDF exposes `manu_scale` and `shift` on legacy targets and
+`val_scale_cfg` on HE-capable targets as acquisition configuration, but
+`wifi_csi_info_t` contains no per-packet scale selected by automatic scaling.
+ESPectre configures automatic/default scaling, and its saved corpus records
+RSSI and noise-floor metadata rather than a CSI scale value. A correction
+would therefore reconstruct an unobserved nuisance from the same amplitudes it
+is intended to repair. Keep production features exactly scale invariant unless
+a future SDK and protocol expose a measured packet scale consistently across
+chips.
 
 The current corpus audit found no undeclared NPZ files: recordings used by the
 trainer were represented in `data/dataset_info.json`. When an expected dataset
@@ -161,12 +455,18 @@ robustness to missing/near-zero bins, and feasibility on HT20 ESP32 CSI.
 
 | Priority | Candidate | Physical aspect | Scale-invariant construction | First useful experiment |
 | ---: | --- | --- | --- | --- |
-| 1 | Subcarrier rank dynamics | Frequency-selective channel-shape reordering without trusting amplitudes | Spearman correlation or rank-turnover rate between packet-normalized profiles | Compare lag and adjacent rank changes; test null-bin masks and redundancy against `chan_shape_spread` |
-| 2 | Multi-offset frequency-coherence curve | Coherence bandwidth and a compact proxy for delay spread | Ratio or normalized slope of coherence at short and long frequency offsets | Measure several offsets, then retain one ratio only if it is more robust than `chan_freq_coh_cv` |
-| 3 | Local closure-phase dynamics | Local multipath phase geometry after common phase cancellation | Wrapped phase closure over adjacent subcarrier triplets, summarized by a circular statistic | Start with stability and clipping tests before grouped CV |
-| 4 | Trusted gain correction | Recover useful magnitude-domain information without link-floor leakage | Apply a validated packet scale correction before dimensionless normalization | First prove that profile `scale` is consistent across chips and collection paths |
-| 5 | Narrowband micro-motion energy | Periodic breathing or occupancy micro-motion | Power fraction or spectral concentration, never absolute power | Evaluate in a separate Presence-versus-Empty task, not the current Motion classifier |
+| Deferred | Narrowband micro-motion energy | Periodic breathing or occupancy micro-motion | Power fraction or spectral concentration, never absolute power | First collect same-link, same-session Presence-versus-Empty pairs with windows long enough to resolve sub-Hz motion |
 | Deferred | Delay/Doppler or CIR dynamics | Path-delay and velocity structure | Normalize maps or use ratios within a map | Revisit only if bandwidth, packet cadence, and exposed CSI support enough resolution |
+
+The current corpus is not an admissible Presence-versus-Empty benchmark. It
+contains 9 active empty recordings (58 minutes) and 31 active static-presence
+recordings (93 minutes), with eight environment, chip, and device combinations
+shared across labels. However, empty and static-presence recordings have no
+pair lineage and come from separate capture sessions. A sub-Hz classifier
+could therefore learn session drift rather than micro-motion. The motion
+trainer's one-second window also cannot resolve the intended respiratory band.
+Collect paired, longer-window evidence before implementing or scoring this
+feature.
 
 ## Literature Basis
 

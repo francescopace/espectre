@@ -15,11 +15,34 @@ import pytest
 from tools.lib.repo_paths import generated_data_dir
 
 from ml_detector import predict, ML_METRIC_SCALE, ML_DEFAULT_THRESHOLD
+from tools.train_ml_model import predict_probabilities_from_arrays
 
 # Test data path
 GENERATED_DATA_DIR = generated_data_dir()
 TEST_DATA_PATH = GENERATED_DATA_DIR / 'ml_test_data.npz'
 INFERENCE_TOLERANCE = 2e-3
+
+
+def test_array_inference_uses_runtime_saturation_contract():
+    layers = [
+        (
+            np.asarray([[1.0]], dtype=np.float32),
+            np.asarray([0.0], dtype=np.float32),
+            True,
+        )
+    ]
+
+    probabilities = predict_probabilities_from_arrays(
+        np.asarray([[-21.0], [0.0], [21.0]], dtype=np.float32),
+        np.asarray([0.0], dtype=np.float32),
+        np.asarray([1.0], dtype=np.float32),
+        layers,
+    )
+
+    np.testing.assert_array_equal(
+        probabilities,
+        np.asarray([0.0, 0.5, 1.0], dtype=np.float32),
+    )
 
 
 class TestMLInferenceAccuracy:

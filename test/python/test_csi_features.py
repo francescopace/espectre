@@ -16,7 +16,6 @@ from csi_features import (
     calc_zero_crossing_rate,
     extract_features_by_name,
     ALL_FEATURES,
-    INVARIANT5_FEATURES,
     DEFAULT_FEATURES,
     FEATURE_NAMES,
 )
@@ -32,6 +31,16 @@ def _stats(values, count=None):
     var = sum((values[i] - mean) ** 2 for i in range(count)) / count
     std = math.sqrt(var) if var > 0 else 0.0
     return count, mean, std
+
+
+def _promoted_tracker_kwargs():
+    return {
+        "chan_shape_spread": 0.4,
+        "chan_freq_coh_cv": 0.2,
+        "chan_freq_coh_curve_std": 0.05,
+        "chan_coh_gap": 0.08,
+        "chan_coh_subband_gap_median": 0.07,
+    }
 
 
 class TestCalcAutocorrelation:
@@ -130,33 +139,35 @@ class TestExtractAllFeatures:
         features = extract_features_by_name(
             buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer,
             l1_delta_lag_ratio=1.0,
+            **_promoted_tracker_kwargs(),
         )
         assert len(features) == len(DEFAULT_FEATURES)
     
     def test_empty_buffer_returns_zeros(self):
         """Test that empty buffer returns zeros"""
         features = extract_features_by_name(
-            [], 0, feature_names=DEFAULT_FEATURES, l1_delta_lag_ratio=0.0
+            [], 0, feature_names=DEFAULT_FEATURES, l1_delta_lag_ratio=0.0,
+            **_promoted_tracker_kwargs(),
         )
         assert features == [0.0] * len(DEFAULT_FEATURES)
     
     def test_single_value_returns_zeros(self):
         """Test that single-value buffer returns zeros"""
         features = extract_features_by_name(
-            [5.0], 1, feature_names=DEFAULT_FEATURES, l1_delta_lag_ratio=0.0
+            [5.0], 1, feature_names=DEFAULT_FEATURES, l1_delta_lag_ratio=0.0,
+            **_promoted_tracker_kwargs(),
         )
         assert features == [0.0] * len(DEFAULT_FEATURES)
     
     def test_feature_names_match(self):
-        """Test that FEATURE_NAMES matches DEFAULT_FEATURES (production = Coherence-7)"""
+        """Test that FEATURE_NAMES matches DEFAULT_FEATURES."""
         assert len(FEATURE_NAMES) == len(DEFAULT_FEATURES)
         assert FEATURE_NAMES == DEFAULT_FEATURES
-        assert DEFAULT_FEATURES == INVARIANT5_FEATURES
 
     def test_production_set_is_the_only_feature_surface(self):
         """The production feature registry contains only exported features."""
         assert ALL_FEATURES == tuple(DEFAULT_FEATURES)
-        assert len(DEFAULT_FEATURES) == 5
+        assert len(DEFAULT_FEATURES) == 10
 
     def test_unknown_feature_raises(self):
         """Unknown feature names are rejected."""
@@ -171,6 +182,7 @@ class TestExtractAllFeatures:
         features = extract_features_by_name(
             buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer,
             l1_delta_lag_ratio=1.0,
+            **_promoted_tracker_kwargs(),
         )
         for i, f in enumerate(features):
             assert isinstance(f, (int, float)), f"Feature {i} ({FEATURE_NAMES[i]}) is {type(f)}"
@@ -186,10 +198,12 @@ class TestExtractAllFeatures:
         idle_features = extract_features_by_name(
             idle_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=idle_buffer,
             l1_delta_lag_ratio=1.0,
+            **_promoted_tracker_kwargs(),
         )
         motion_features = extract_features_by_name(
             motion_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=motion_buffer,
             l1_delta_lag_ratio=2.0,
+            **_promoted_tracker_kwargs(),
         )
 
         # turb_mad_over_mean is part of the production Core-6 set and rises with
@@ -224,8 +238,8 @@ class TestCalcZeroCrossingRate:
         )
 
 
-class TestCandidateFeatures:
-    """Test the weak-link candidate features"""
+class TestFeatureSemantics:
+    """Test feature semantics and invariance contracts."""
 
     def test_turb_zcr_separates_noise_from_coherent_excursions(self):
         np.random.seed(11)
@@ -264,10 +278,12 @@ class TestCandidateFeatures:
 
         base = extract_features_by_name(
             turb, 50, feature_names=DEFAULT_FEATURES,
-            l1_series=series, l1_delta_lag_ratio=1.4)
+            l1_series=series, l1_delta_lag_ratio=1.4,
+            **_promoted_tracker_kwargs())
         boosted = extract_features_by_name(
             [v * 10.0 for v in turb], 50, feature_names=DEFAULT_FEATURES,
-            l1_series=[v * 10.0 for v in series], l1_delta_lag_ratio=1.4)
+            l1_series=[v * 10.0 for v in series], l1_delta_lag_ratio=1.4,
+            **_promoted_tracker_kwargs())
 
         for name, before, after in zip(DEFAULT_FEATURES, base, boosted):
             assert after == pytest.approx(before, abs=1e-9), (

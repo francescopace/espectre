@@ -21,8 +21,8 @@ ClassicDetector::ClassicDetector(uint16_t window_size, float threshold,
     : BaseDetector(window_size),
       threshold_(clamp_threshold(threshold, CLASSIC_MIN_THRESHOLD, CLASSIC_MAX_THRESHOLD)),
       current_logit_(0.0f),
-      current_lag_ratio_(0.0f),
       current_turb_autocorr_(0.0f),
+      current_chan_freq_coh_curve_std_(0.0f),
       startup_logit_count_(0U),
       adapted_threshold_(CLASSIC_DEFAULT_THRESHOLD),
       adapted_threshold_ready_(false),
@@ -38,6 +38,7 @@ ClassicDetector::ClassicDetector(uint16_t window_size, float threshold,
       settle_block_index_(0U) {
   reset_settled_level_();
   l1_tracker_.configure(l1_delta_capacity_(), lag_);
+  shape_tracker_.configure(l1_delta_capacity_(), lag_);
   ESP_LOGI(TAG, "Initialized weighted fusion (window=%u, threshold=%.3f, lag=%u, ac_lag=%u)",
            static_cast<unsigned>(window_size_), threshold_,
            static_cast<unsigned>(lag_), static_cast<unsigned>(autocorr_lag_));
@@ -69,11 +70,13 @@ void ClassicDetector::process_packet(const int8_t* csi_data, size_t csi_len,
       amplitudes, HT20_SELECTED_BAND_SIZE);
   process_amplitudes(amplitudes, amplitude_count);
   l1_tracker_.process(amplitudes, amplitude_count);
+  shape_tracker_.process_packet(csi_data, csi_len);
 }
 
 bool ClassicDetector::is_ready() const {
   return buffer_count_ >= window_size_ &&
-         l1_tracker_.count() >= l1_delta_capacity_();
+         l1_tracker_.count() >= l1_delta_capacity_() &&
+         shape_tracker_.count() >= l1_delta_capacity_();
 }
 
 float ClassicDetector::calculate_turb_autocorr_() const {
@@ -87,12 +90,15 @@ float ClassicDetector::calculate_turb_autocorr_() const {
   return calc_autocorrelation(ordered, count, stats.mean, stats.variance, autocorr_lag_);
 }
 
-float ClassicDetector::calculate_logit_(float lag_ratio, float turb_autocorr) const {
-  const float normalized_l1 = (lag_ratio - CLASSIC_L1_CENTER) / CLASSIC_L1_SCALE;
+float ClassicDetector::calculate_logit_(float turb_autocorr,
+                                        float chan_freq_coh_curve_std) const {
   const float normalized_autocorr =
       (turb_autocorr - CLASSIC_AUTOCORR_CENTER) / CLASSIC_AUTOCORR_SCALE;
-  return CLASSIC_INTERCEPT + CLASSIC_L1_WEIGHT * normalized_l1 +
-         CLASSIC_AUTOCORR_WEIGHT * normalized_autocorr;
+  const float normalized_curve_std =
+      (chan_freq_coh_curve_std - CLASSIC_FREQ_COH_CURVE_STD_CENTER) /
+      CLASSIC_FREQ_COH_CURVE_STD_SCALE;
+  return CLASSIC_INTERCEPT + CLASSIC_AUTOCORR_WEIGHT * normalized_autocorr +
+         CLASSIC_FREQ_COH_CURVE_STD_WEIGHT * normalized_curve_std;
 }
 
 float ClassicDetector::sigmoid_(float value) {
@@ -107,9 +113,11 @@ void ClassicDetector::update_state() {
     return;
   }
 
-  current_lag_ratio_ = l1_tracker_.delta_lag_ratio();
   current_turb_autocorr_ = calculate_turb_autocorr_();
-  current_logit_ = calculate_logit_(current_lag_ratio_, current_turb_autocorr_);
+  current_chan_freq_coh_curve_std_ =
+      shape_tracker_.frequency_coherence_curve_std();
+  current_logit_ = calculate_logit_(current_turb_autocorr_,
+                                    current_chan_freq_coh_curve_std_);
   current_metric_ = sigmoid_(current_logit_);
   if (!adapted_threshold_ready_ && startup_logit_count_ < CLASSIC_STARTUP_SAMPLE_LIMIT) {
     startup_logits_[startup_logit_count_] = current_logit_;
@@ -238,13 +246,14 @@ void ClassicDetector::clear_buffer() {
   BaseDetector::clear_buffer();
   reset_settled_level_();
   l1_tracker_.clear();
+  shape_tracker_.clear();
   clear_fusion_inputs_();
 }
 
 void ClassicDetector::clear_fusion_inputs_() {
   current_logit_ = 0.0f;
-  current_lag_ratio_ = 0.0f;
   current_turb_autocorr_ = 0.0f;
+  current_chan_freq_coh_curve_std_ = 0.0f;
 }
 
 }  // namespace espectre

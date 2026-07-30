@@ -28,6 +28,8 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     , threshold_(threshold)
     , uses_l1_tracker_(false)
     , uses_l1_series_(false)
+    , uses_shape_tracker_(false)
+    , uses_coherence_tracker_(false)
     , lag_(std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX))
     , feature_scratch_(nullptr) {
     threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
@@ -38,6 +40,10 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
         const uint8_t id = ML_FEATURE_IDS[i];
         uses_l1_tracker_ = uses_l1_tracker_ || ml_feature_needs_l1_tracker(id);
         uses_l1_series_ = uses_l1_series_ || ml_feature_needs_l1_series(id);
+        uses_shape_tracker_ =
+            uses_shape_tracker_ || ml_feature_needs_channel_shape_tracker(id);
+        uses_coherence_tracker_ =
+            uses_coherence_tracker_ || ml_feature_needs_channel_coherence_tracker(id);
     }
 
     // One block holds every working array the feature path needs; the
@@ -49,10 +55,14 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
                  static_cast<unsigned>(feature_scratch_size_()));
     }
     l1_tracker_.configure(uses_l1_tracker_ ? l1_delta_capacity_() : 0U, lag_);
+    shape_tracker_.configure(uses_shape_tracker_ ? l1_delta_capacity_() : 0U, lag_);
+    coherence_tracker_.configure(uses_coherence_tracker_ ? l1_delta_capacity_() : 0U, lag_);
 
-    ESP_LOGI(TAG, "Initialized (window=%d, threshold=%.2f, l1=%d, l1_series=%d)",
+    ESP_LOGI(TAG,
+             "Initialized (window=%d, threshold=%.2f, l1=%d, l1_series=%d, shape=%d, coh=%d)",
              window_size_, threshold_, uses_l1_tracker_ ? 1 : 0,
-             uses_l1_series_ ? 1 : 0);
+             uses_l1_series_ ? 1 : 0, uses_shape_tracker_ ? 1 : 0,
+             uses_coherence_tracker_ ? 1 : 0);
 }
 
 MLDetector::~MLDetector() {
@@ -64,8 +74,12 @@ MLDetector::MLDetector(MLDetector&& other) noexcept
     , threshold_(other.threshold_)
     , uses_l1_tracker_(other.uses_l1_tracker_)
     , uses_l1_series_(other.uses_l1_series_)
+    , uses_shape_tracker_(other.uses_shape_tracker_)
+    , uses_coherence_tracker_(other.uses_coherence_tracker_)
     , lag_(other.lag_)
     , l1_tracker_(std::move(other.l1_tracker_))
+    , shape_tracker_(std::move(other.shape_tracker_))
+    , coherence_tracker_(std::move(other.coherence_tracker_))
     , feature_scratch_(other.feature_scratch_) {
     other.feature_scratch_ = nullptr;
 }
@@ -76,8 +90,12 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
         threshold_ = other.threshold_;
         uses_l1_tracker_ = other.uses_l1_tracker_;
         uses_l1_series_ = other.uses_l1_series_;
+        uses_shape_tracker_ = other.uses_shape_tracker_;
+        uses_coherence_tracker_ = other.uses_coherence_tracker_;
         lag_ = other.lag_;
         l1_tracker_ = std::move(other.l1_tracker_);
+        shape_tracker_ = std::move(other.shape_tracker_);
+        coherence_tracker_ = std::move(other.coherence_tracker_);
         delete[] feature_scratch_;
         feature_scratch_ = other.feature_scratch_;
         other.feature_scratch_ = nullptr;
@@ -168,7 +186,12 @@ void MLDetector::extract_features(float* features_out) {
                               delta_series, delta_len,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features_out,
                               series_scratch_(),
-                              l1_tracker_.delta_lag_ratio());
+                              l1_tracker_.delta_lag_ratio(),
+                              shape_tracker_.shape_spread(),
+                              shape_tracker_.frequency_coherence_cv(),
+                              shape_tracker_.frequency_coherence_curve_std(),
+                              coherence_tracker_.coherence_gap(),
+                              coherence_tracker_.coherence_subband_gap_median());
 }
 
 // ============================================================================
@@ -192,7 +215,9 @@ bool MLDetector::is_ready() const {
     // rings fill on the same packet. An alternate lag can break that, and an
     // ungated ML would infer on a partly filled ring whose lag ratio returns its
     // no-motion sentinel rather than signalling "not ready".
-    return !uses_l1_tracker_ || l1_tracker_.count() >= l1_delta_capacity_();
+    return (!uses_l1_tracker_ || l1_tracker_.count() >= l1_delta_capacity_()) &&
+           (!uses_shape_tracker_ || shape_tracker_.count() >= l1_delta_capacity_()) &&
+           (!uses_coherence_tracker_ || coherence_tracker_.count() >= l1_delta_capacity_());
 }
 
 void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
@@ -212,14 +237,28 @@ void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
     process_amplitudes(amplitudes, amplitude_count);
 
     if (!uses_l1_tracker_) {
+        if (uses_shape_tracker_) {
+            shape_tracker_.process_packet(csi_data, csi_len);
+        }
+        if (uses_coherence_tracker_) {
+            coherence_tracker_.process_packet(csi_data, csi_len);
+        }
         return;
     }
     l1_tracker_.process(amplitudes, amplitude_count);
+    if (uses_shape_tracker_) {
+        shape_tracker_.process_packet(csi_data, csi_len);
+    }
+    if (uses_coherence_tracker_) {
+        coherence_tracker_.process_packet(csi_data, csi_len);
+    }
 }
 
 void MLDetector::clear_buffer() {
     BaseDetector::clear_buffer();
     l1_tracker_.clear();
+    shape_tracker_.clear();
+    coherence_tracker_.clear();
 }
 
 // ============================================================================

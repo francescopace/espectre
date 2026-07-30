@@ -94,15 +94,21 @@ def test_manual_threshold_uses_probability_scale() -> None:
 def test_update_state_uses_weighted_probability(monkeypatch) -> None:
     detector = ClassicDetector(window_size=20, threshold=0.5)
     monkeypatch.setattr(detector, "is_ready", lambda: True)
-    monkeypatch.setattr(detector._l1, "delta_lag_ratio", lambda: detector.FEATURE_CENTER[0])
-    monkeypatch.setattr(detector, "_turb_autocorr", lambda: detector.FEATURE_CENTER[1])
+    monkeypatch.setattr(detector, "_turb_autocorr", lambda: detector.FEATURE_CENTER[0])
+    monkeypatch.setattr(
+        detector._shape_tracker,
+        "frequency_coherence_curve_std",
+        lambda: detector.FEATURE_CENTER[1],
+    )
 
     metrics = detector.update_state()
 
     expected = detector._sigmoid(detector.INTERCEPT)
     assert metrics["probability"] == pytest.approx(expected)
-    assert metrics["lag_ratio"] == pytest.approx(detector.FEATURE_CENTER[0])
-    assert metrics["turb_autocorr"] == pytest.approx(detector.FEATURE_CENTER[1])
+    assert metrics["turb_autocorr"] == pytest.approx(detector.FEATURE_CENTER[0])
+    assert metrics["chan_freq_coh_curve_std"] == pytest.approx(
+        detector.FEATURE_CENTER[1]
+    )
     # Derived from the probability rather than pinned, so a refit that moves the
     # intercept across the threshold does not read as a state-machine fault.
     assert metrics["state"] == (

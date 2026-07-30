@@ -1,9 +1,11 @@
 """
 Micro-ESPectre - Classic Detector
 
-Vote-free, two-feature motion detector using a weighted fusion of gain-invariant
-L1 profile displacement and turbulence autocorrelation. Hampel filtering is
-applied independently to both per-packet streams under one shared enable flag.
+Vote-free, two-feature motion detector using a weighted fusion of turbulence
+autocorrelation and channel frequency-coherence curve spread. Hampel filtering
+still applies independently to the turbulence and legacy L1 tracking paths under
+one shared enable flag because the segmentation context continues to own both
+buffers.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -13,10 +15,12 @@ import math
 try:
     from src.detector_interface import IDetector, MotionState
     from src.csi_features import L1_DELTA_LAG, L1DeltaTracker, calc_autocorrelation
+    from src.ml_feature_trackers import ChannelShapeTracker
     from src.segmentation import SegmentationContext
 except ImportError:
     from detector_interface import IDetector, MotionState
     from csi_features import L1_DELTA_LAG, L1DeltaTracker, calc_autocorrelation
+    from ml_feature_trackers import ChannelShapeTracker
     from segmentation import SegmentationContext
 
 
@@ -25,21 +29,21 @@ _SETTLE_FLOOR = -1e9
 
 
 class ClassicDetector(IDetector):
-    """Weighted ``l1_delta + turb_autocorr`` production detector."""
+    """Weighted ``turb_autocorr + chan_freq_coh_curve_std`` detector."""
 
     ALGORITHM = "classic"
     STARTUP_GATE = True
 
     # Grouped, de-overlapped OOF fit, balanced by class/chip/session.
-    FEATURE_CENTER = (1.4372828727159759, 0.3899157842282158)
-    FEATURE_SCALE = (0.5846221043293537, 0.3789361406116048)
-    FEATURE_WEIGHT = (2.807005032259383, 4.0307753529344765)
-    INTERCEPT = 0.7924447436944712
+    FEATURE_CENTER = (0.4054217624112162, 0.014752343728085844)
+    FEATURE_SCALE = (0.36758465285308456, 0.02602884858084268)
+    FEATURE_WEIGHT = (5.501903876354938, 4.040278978639349)
+    INTERCEPT = 0.5020797967446212
 
-    BASE_THRESHOLD = 0.8090618336447031
-    TRAIN_IDLE_Q95_LOGIT = -0.6116129330770868
+    BASE_THRESHOLD = 0.6959857092777915
+    TRAIN_IDLE_Q95_LOGIT = -0.6930943805793314
     STARTUP_QUANTILE = 0.95
-    STARTUP_STRENGTH = 0.75
+    STARTUP_STRENGTH = 0.5
     STARTUP_SAMPLE_LIMIT = 64
 
     # Settled-level rule: how long the stream has to stay quiet before the
@@ -86,14 +90,18 @@ class ClassicDetector(IDetector):
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
         )
+        self._shape_tracker = ChannelShapeTracker(
+            window_size=max(2, window_size - lag),
+            lag=lag,
+        )
         self._ordered_turbulence = [0.0] * window_size
         self._threshold = self._clamp_probability(threshold)
         self._state = MotionState.IDLE
         self._packet_count = 0
         self._current_probability = 0.0
         self._current_logit = 0.0
-        self._current_lag_ratio = 0.0
         self._current_turb_autocorr = 0.0
+        self._current_chan_freq_coh_curve_std = 0.0
         self._startup_logits = []
         self._adapted_threshold_ready = False
         self._settle_blocks = []
@@ -137,6 +145,7 @@ class ClassicDetector(IDetector):
             self._context._amplitude_buffer,
             self._context._amplitude_count,
         )
+        self._shape_tracker.process_packet(csi_data)
         self._context.add_turbulence(turbulence)
 
     def _turb_autocorr(self):
@@ -159,15 +168,18 @@ class ClassicDetector(IDetector):
             values, count, mean=mean, variance=variance, lag=self._autocorr_lag
         )
 
-    def _calculate_logit(self, lag_ratio, turb_autocorr):
-        l1_norm = (lag_ratio - self.FEATURE_CENTER[0]) / self.FEATURE_SCALE[0]
+    def _calculate_logit(self, turb_autocorr, chan_freq_coh_curve_std):
         autocorr_norm = (
-            (turb_autocorr - self.FEATURE_CENTER[1]) / self.FEATURE_SCALE[1]
+            (turb_autocorr - self.FEATURE_CENTER[0]) / self.FEATURE_SCALE[0]
+        )
+        curve_std_norm = (
+            (chan_freq_coh_curve_std - self.FEATURE_CENTER[1])
+            / self.FEATURE_SCALE[1]
         )
         return (
             self.INTERCEPT
-            + self.FEATURE_WEIGHT[0] * l1_norm
-            + self.FEATURE_WEIGHT[1] * autocorr_norm
+            + self.FEATURE_WEIGHT[0] * autocorr_norm
+            + self.FEATURE_WEIGHT[1] * curve_std_norm
         )
 
     def update_state(self):
@@ -175,11 +187,13 @@ class ClassicDetector(IDetector):
             self._current_probability = 0.0
             self._state = MotionState.IDLE
         else:
-            self._current_lag_ratio = self._l1.delta_lag_ratio()
             self._current_turb_autocorr = self._turb_autocorr()
+            self._current_chan_freq_coh_curve_std = (
+                self._shape_tracker.frequency_coherence_curve_std()
+            )
             self._current_logit = self._calculate_logit(
-                self._current_lag_ratio,
                 self._current_turb_autocorr,
+                self._current_chan_freq_coh_curve_std,
             )
             self._current_probability = self._sigmoid(self._current_logit)
             if len(self._startup_logits) < self.STARTUP_SAMPLE_LIMIT:
@@ -195,8 +209,8 @@ class ClassicDetector(IDetector):
             "state": self._state,
             "motion_metric": self._current_probability,
             "probability": self._current_probability,
-            "lag_ratio": self._current_lag_ratio,
             "turb_autocorr": self._current_turb_autocorr,
+            "chan_freq_coh_curve_std": self._current_chan_freq_coh_curve_std,
             "threshold": self._threshold,
         }
 
@@ -283,17 +297,19 @@ class ClassicDetector(IDetector):
         return (
             self._context.buffer_count >= self._context.window_size
             and self._l1.is_ready()
+            and self._shape_tracker.count() >= self._context.window_size - self._lag
         )
 
     def reset(self):
         self._context.reset(full=True)
         self._l1.reset()
+        self._shape_tracker.reset()
         self._state = MotionState.IDLE
         self._packet_count = 0
         self._current_probability = 0.0
         self._current_logit = 0.0
-        self._current_lag_ratio = 0.0
         self._current_turb_autocorr = 0.0
+        self._current_chan_freq_coh_curve_std = 0.0
         self._startup_logits = []
         self._reset_settled_level()
 

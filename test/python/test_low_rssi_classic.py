@@ -27,7 +27,8 @@ def _real_low_rssi_pairs():
     ):
         if not is_low_rssi_paired_dataset(static_path):
             continue
-        dataset_role = get_paired_dataset_role(static_path) or "train"
+        dataset_role = get_paired_dataset_role(static_path)
+        assert dataset_role is not None
         params.append(
             pytest.param(
                 static_path,

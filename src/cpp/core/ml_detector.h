@@ -21,6 +21,7 @@
 #include "csi_format.h"
 #include "csi_features.h"
 #include "l1_delta_tracker.h"
+#include "ml_feature_trackers.h"
 #include <cstdint>
 #include <cstddef>
 
@@ -86,7 +87,7 @@ public:
 
 private:
     /**
-     * Extract ML features from the turbulence buffer and L1-delta series
+     * Extract ML features from the turbulence buffer and tracker state
      */
     void extract_features(float* features_out);
 
@@ -134,8 +135,12 @@ private:
     // ratio, which needs the rings running but not the rebuilt series.
     bool uses_l1_tracker_;
     bool uses_l1_series_;
+    bool uses_shape_tracker_;
+    bool uses_coherence_tracker_;
     uint16_t lag_;
     L1DeltaTracker l1_tracker_;
+    ChannelShapeTracker shape_tracker_;
+    ChannelCoherenceTracker coherence_tracker_;
 
     // Single heap block backing every feature-path working array, so nothing
     // window-sized lands on the CSI callback stack. Carved by the accessors

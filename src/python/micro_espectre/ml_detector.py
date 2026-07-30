@@ -20,17 +20,21 @@ try:
     from src.detector_interface import IDetector, MotionState
     from src.segmentation import SegmentationContext
     from src.csi_features import (
+        CHANNEL_COHERENCE_FEATURES, CHANNEL_SHAPE_FEATURES,
         L1_DELTA_LAG, L1_SERIES_FEATURES, L1_TRACKER_FEATURES,
         L1DeltaTracker, extract_features_by_name,
     )
+    from src.ml_feature_trackers import ChannelCoherenceTracker, ChannelShapeTracker
     from src.config import DEFAULT_SUBCARRIERS
 except ImportError:
     from detector_interface import IDetector, MotionState
     from segmentation import SegmentationContext
     from csi_features import (
+        CHANNEL_COHERENCE_FEATURES, CHANNEL_SHAPE_FEATURES,
         L1_DELTA_LAG, L1_SERIES_FEATURES, L1_TRACKER_FEATURES,
         L1DeltaTracker, extract_features_by_name,
     )
+    from ml_feature_trackers import ChannelCoherenceTracker, ChannelShapeTracker
     from config import DEFAULT_SUBCARRIERS
 
 try:
@@ -217,8 +221,14 @@ class MLDetector(IDetector):
         self._use_l1_series = any(
             name in L1_SERIES_FEATURES for name in FEATURE_NAMES
         )
+        self._use_shape_tracker = any(
+            name in CHANNEL_SHAPE_FEATURES for name in FEATURE_NAMES
+        )
+        self._use_coherence_tracker = any(
+            name in CHANNEL_COHERENCE_FEATURES for name in FEATURE_NAMES
+        )
+        delta_window = max(2, window_size - L1_DELTA_LAG)
         if self._use_amplitude_history:
-            delta_window = max(2, window_size - L1_DELTA_LAG)
             self._l1_tracker = L1DeltaTracker(
                 window_size=delta_window,
                 lag=L1_DELTA_LAG,
@@ -233,6 +243,14 @@ class MLDetector(IDetector):
         else:
             self._l1_tracker = None
             self._l1_series_buffer = None
+        self._shape_tracker = (
+            ChannelShapeTracker(window_size=delta_window, lag=L1_DELTA_LAG)
+            if self._use_shape_tracker else None
+        )
+        self._coherence_tracker = (
+            ChannelCoherenceTracker(window_size=delta_window, lag=L1_DELTA_LAG)
+            if self._use_coherence_tracker else None
+        )
         self._ordered_turbulence = [0.0] * window_size
         self._feature_buffer = [0.0] * len(FEATURE_NAMES)
         workspace_size = max(
@@ -271,6 +289,10 @@ class MLDetector(IDetector):
             turbulence = self._context.calculate_spatial_turbulence(
                 csi_data, selected_subcarriers
             )
+        if self._shape_tracker is not None:
+            self._shape_tracker.process_packet(csi_data)
+        if self._coherence_tracker is not None:
+            self._coherence_tracker.process_packet(csi_data)
 
         # Add to buffer
         self._context.add_turbulence(turbulence)
@@ -359,6 +381,36 @@ class MLDetector(IDetector):
                 )
                 else None
             ),
+            chan_shape_spread=(
+                self._shape_tracker.shape_spread()
+                if self._shape_tracker is not None
+                and "chan_shape_spread" in FEATURE_NAMES
+                else None
+            ),
+            chan_freq_coh_cv=(
+                self._shape_tracker.frequency_coherence_cv()
+                if self._shape_tracker is not None
+                and "chan_freq_coh_cv" in FEATURE_NAMES
+                else None
+            ),
+            chan_freq_coh_curve_std=(
+                self._shape_tracker.frequency_coherence_curve_std()
+                if self._shape_tracker is not None
+                and "chan_freq_coh_curve_std" in FEATURE_NAMES
+                else None
+            ),
+            chan_coh_gap=(
+                self._coherence_tracker.coherence_gap()
+                if self._coherence_tracker is not None
+                and "chan_coh_gap" in FEATURE_NAMES
+                else None
+            ),
+            chan_coh_subband_gap_median=(
+                self._coherence_tracker.coherence_subband_gap_median()
+                if self._coherence_tracker is not None
+                and "chan_coh_subband_gap_median" in FEATURE_NAMES
+                else None
+            ),
             out=self._feature_buffer,
             reuse_turbulence_buffer=True,
         )
@@ -384,7 +436,15 @@ class MLDetector(IDetector):
 
     def is_ready(self):
         """Check if buffer is full."""
-        return self._context.buffer_count >= self._context.window_size
+        if self._context.buffer_count < self._context.window_size:
+            return False
+        if self._l1_tracker is not None and self._l1_tracker.count < (self._context.window_size - L1_DELTA_LAG):
+            return False
+        if self._shape_tracker is not None and self._shape_tracker.count() < (self._context.window_size - L1_DELTA_LAG):
+            return False
+        if self._coherence_tracker is not None and self._coherence_tracker.count() < (self._context.window_size - L1_DELTA_LAG):
+            return False
+        return True
     
     def reset(self):
         """Reset detector state."""
@@ -395,6 +455,10 @@ class MLDetector(IDetector):
         self._motion_count = 0
         if self._l1_tracker is not None:
             self._l1_tracker.reset()
+        if self._shape_tracker is not None:
+            self._shape_tracker.reset()
+        if self._coherence_tracker is not None:
+            self._coherence_tracker.reset()
         self.probability_history = []
         self.state_history = []
     
