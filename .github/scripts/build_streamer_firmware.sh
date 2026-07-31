@@ -13,14 +13,16 @@ OUTPUT_DIR="$(dirname "${STREAMER_OUTPUT}")"
 STREAMER_OUTPUT_IN_WORK="/work/${STREAMER_OUTPUT#"${REPO_ROOT}"/}"
 STREAMER_SDKCONFIG_DEFAULTS="${STREAMER_SDKCONFIG_DEFAULTS:-}"
 STREAMER_HOME="${REPO_ROOT}/.github/.cache/streamer-home"
+STREAMER_ROOT_MANAGED_COMPONENTS="${STREAMER_HOME}/root_managed_components"
 
-mkdir -p "${STREAMER_HOME}" "${OUTPUT_DIR}"
+mkdir -p "${STREAMER_HOME}" "${STREAMER_ROOT_MANAGED_COMPONENTS}" "${OUTPUT_DIR}"
 
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -e HOME="/work/.github/.cache/streamer-home" \
   -e SDKCONFIG_DEFAULTS="${STREAMER_SDKCONFIG_DEFAULTS}" \
   -e STREAMER_OUTPUT="${STREAMER_OUTPUT_IN_WORK}" \
+  -v "${STREAMER_ROOT_MANAGED_COMPONENTS}:/opt/esp/root_managed_components" \
   -v "${REPO_ROOT}:/work" \
   -w "/work/src/cpp/frontend/streamer/app" \
   "${DOCKER_IMAGE}" \

@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-29T21:06:22.377816Z",
+  "updated_at": "2026-07-31T14:58:53.180817",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -72,7 +72,7 @@
         "description": "HT20 empty sample derived from quiet long-run prefix",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "dataset_role": "train",
+        "dataset_role": "exclude",
         "average_packet_rate": 98.629,
         "nominal_packet_rate": 100
       },
@@ -125,6 +125,21 @@
         "long_recording": true
       },
       {
+        "filename": "empty_c5_64sc_dev000030eda0e46278_20260704_175448_826137_0002.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T17:54:48.788208",
+        "duration_ms": 119951.773,
+        "num_packets": 12005,
+        "description": "HT20 empty sample derived from quiet long-run prefix",
+        "device_id": "0x000030eda0e46278",
+        "environment": "hobby_room",
+        "dataset_role": "train",
+        "average_packet_rate": 101.266,
+        "nominal_packet_rate": 100
+      },
+      {
         "filename": "empty_c5_64sc_dev000030eda0e46278_20260704_192116_870146_0001.npz",
         "chip": "C5",
         "subcarriers": 64,
@@ -166,7 +181,7 @@
         "description": "HT20 quiet long-run sample",
         "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "dataset_role": "holdout",
+        "dataset_role": "exclude",
         "average_packet_rate": 121.477,
         "nominal_packet_rate": 100,
         "long_recording": true
@@ -264,6 +279,22 @@
         "device_id": "0x0000acebe64ae708",
         "dataset_role": "train",
         "average_packet_rate": 100.361,
+        "nominal_packet_rate": 100
+      },
+      {
+        "filename": "empty_c6_64sc_dev00007c2c6742bbac_20260731_145534_810338_0001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-31T14:55:34.774805",
+        "duration_ms": 599990,
+        "num_packets": 59190,
+        "description": "HT20 quiet long-run sample",
+        "environment": "bedroom",
+        "dataset_role": "holdout",
+        "device_id": "0x00007c2c6742bbac",
+        "average_packet_rate": 97.599,
+        "long_recording": true,
         "nominal_packet_rate": 100
       }
     ],
@@ -459,23 +490,6 @@
         "average_packet_rate": 93.257,
         "nominal_packet_rate": 100,
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260719_224815_000645_0001.npz"
-      },
-      {
-        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-22T17:20:43.614568",
-        "duration_ms": 179970,
-        "num_packets": 17600,
-        "description": "HT20 low-RSSI static presence sample. AP is in hobby room.",
-        "environment": "bedroom",
-        "low_rssi": true,
-        "device_id": "0x000010b41de8ec00",
-        "dataset_role": "exclude",
-        "average_packet_rate": 96.265,
-        "nominal_packet_rate": 100,
-        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260722_172305_879358_0001.npz"
       },
       {
         "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260722_185259_158062_0001.npz",
@@ -708,23 +722,6 @@
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260725_130901_873845_0001.npz"
       },
       {
-        "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260725_135809_478030_0001.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-25T13:58:09.462595",
-        "duration_ms": 179990,
-        "num_packets": 17997,
-        "description": "HT20 low-RSSI static presence sample. Gioele's bedroom. AP is in hobby room.",
-        "low_rssi": true,
-        "environment": "bedroom",
-        "device_id": "0x0000acebe64ae708",
-        "dataset_role": "exclude",
-        "average_packet_rate": 99.612,
-        "nominal_packet_rate": 100,
-        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260725_140045_734811_0001.npz"
-      },
-      {
         "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260725_142002_522602_0001.npz",
         "chip": "C3",
         "subcarriers": 64,
@@ -832,7 +829,7 @@
         "description": "HT20 low-RSSI static presence sample. AP is in hobby room.",
         "environment": "bedroom",
         "low_rssi": true,
-        "dataset_role": "selection",
+        "dataset_role": "exclude",
         "device_id": "0x000010b41de8ec00",
         "average_packet_rate": 92.191,
         "nominal_packet_rate": 100,
@@ -920,6 +917,40 @@
         "average_packet_rate": 95.694,
         "nominal_packet_rate": 100,
         "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260729_222116_278416_0001.npz"
+      },
+      {
+        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260731_125145_251424_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-31T12:51:45.241403",
+        "duration_ms": 179987,
+        "num_packets": 17940,
+        "description": "HT20 low-RSSI static presence sample. AP is in hobby room.",
+        "environment": "bedroom",
+        "dataset_role": "selection",
+        "low_rssi": true,
+        "device_id": "0x000010b41de8ec00",
+        "average_packet_rate": 95.932,
+        "nominal_packet_rate": 100,
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260731_125711_059979_0001.npz"
+      },
+      {
+        "filename": "static_presence_c3_64sc_dev0000acebe64adb64_20260731_143455_183846_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-31T14:34:55.173350",
+        "duration_ms": 180002,
+        "num_packets": 17991,
+        "description": "HT20 low-RSSI static presence sample. AP is in leaving room (LT300).",
+        "environment": "bedroom",
+        "dataset_role": "exclude",
+        "low_rssi": true,
+        "device_id": "0x0000acebe64adb64",
+        "average_packet_rate": 100.261,
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260731_143701_673436_0001.npz",
+        "nominal_packet_rate": 100
       }
     ],
     "motion": [
@@ -1114,23 +1145,6 @@
         "average_packet_rate": 94.913,
         "nominal_packet_rate": 100,
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260719_224149_177959_0001.npz"
-      },
-      {
-        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260722_172305_879358_0001.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-22T17:23:05.868882",
-        "duration_ms": 89999,
-        "num_packets": 8812,
-        "description": "HT20 low-RSSI motion sample. AP is in hobby room.",
-        "environment": "bedroom",
-        "low_rssi": true,
-        "device_id": "0x000010b41de8ec00",
-        "dataset_role": "exclude",
-        "average_packet_rate": 97.097,
-        "nominal_packet_rate": 100,
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260722_172043_630431_0001.npz"
       },
       {
         "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260722_185456_839511_0001.npz",
@@ -1363,23 +1377,6 @@
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260725_130650_915905_0001.npz"
       },
       {
-        "filename": "motion_c3_64sc_dev0000acebe64ae708_20260725_140045_734811_0001.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-25T14:00:45.723696",
-        "duration_ms": 89999,
-        "num_packets": 8999,
-        "description": "HT20 low-RSSI motion sample. Gioele's bedroom. AP is in hobby room.",
-        "low_rssi": true,
-        "environment": "bedroom",
-        "device_id": "0x0000acebe64ae708",
-        "dataset_role": "exclude",
-        "average_packet_rate": 99.85,
-        "nominal_packet_rate": 100,
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260725_135809_478030_0001.npz"
-      },
-      {
         "filename": "motion_c3_64sc_dev0000acebe64ae708_20260725_142210_772024_0001.npz",
         "chip": "C3",
         "subcarriers": 64,
@@ -1487,7 +1484,7 @@
         "description": "HT20 low-RSSI motion sample. AP is in hobby room.",
         "environment": "bedroom",
         "low_rssi": true,
-        "dataset_role": "selection",
+        "dataset_role": "exclude",
         "device_id": "0x000010b41de8ec00",
         "average_packet_rate": 93.327,
         "nominal_packet_rate": 100,
@@ -1575,6 +1572,40 @@
         "average_packet_rate": 99.079,
         "nominal_packet_rate": 100,
         "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260729_221911_080062_0001.npz"
+      },
+      {
+        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260731_125711_059979_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-31T12:57:11.053660",
+        "duration_ms": 89996,
+        "num_packets": 8968,
+        "description": "HT20 low-RSSI motion sample. AP is in hobby room.",
+        "environment": "bedroom",
+        "dataset_role": "selection",
+        "low_rssi": true,
+        "device_id": "0x000010b41de8ec00",
+        "average_packet_rate": 97.504,
+        "nominal_packet_rate": 100,
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260731_125145_251424_0001.npz"
+      },
+      {
+        "filename": "motion_c3_64sc_dev0000acebe64adb64_20260731_143701_673436_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-31T14:37:01.667287",
+        "duration_ms": 89992,
+        "num_packets": 8985,
+        "description": "HT20 low-RSSI motion sample. AP is in leaving room (LT300).",
+        "environment": "bedroom",
+        "dataset_role": "exclude",
+        "low_rssi": true,
+        "device_id": "0x0000acebe64adb64",
+        "average_packet_rate": 99.751,
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260731_143455_183846_0001.npz",
+        "nominal_packet_rate": 100
       }
     ]
   },

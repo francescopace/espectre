@@ -502,8 +502,10 @@ class ChannelCoherenceTracker {
     if (lag_count_ == 0U || adjacent_count_ == 0U) {
         return 0.0f;
     }
-    return adjacent_sum_ / static_cast<float>(adjacent_count_) -
-           lag_sum_ / static_cast<float>(lag_count_);
+    const double adjacent_mean =
+        adjacent_sum_ / static_cast<double>(adjacent_count_);
+    const double lag_mean = lag_sum_ / static_cast<double>(lag_count_);
+    return static_cast<float>(adjacent_mean - lag_mean);
   }
 
   float coherence_subband_gap_median() const {
@@ -512,9 +514,12 @@ class ChannelCoherenceTracker {
     }
     float gaps[HT20_COHERENCE_SUBBAND_COUNT]{};
     for (uint8_t i = 0; i < HT20_COHERENCE_SUBBAND_COUNT; i++) {
-        gaps[i] = subband_adjacent_sum_[i] /
-                      static_cast<float>(subband_adjacent_count_) -
-                  subband_lag_sum_[i] / static_cast<float>(subband_lag_count_);
+        const double adjacent_mean =
+            subband_adjacent_sum_[i] /
+            static_cast<double>(subband_adjacent_count_);
+        const double lag_mean =
+            subband_lag_sum_[i] / static_cast<double>(subband_lag_count_);
+        gaps[i] = static_cast<float>(adjacent_mean - lag_mean);
     }
     std::sort(gaps, gaps + HT20_COHERENCE_SUBBAND_COUNT);
     return 0.5f * (gaps[1] + gaps[2]);
@@ -522,23 +527,23 @@ class ChannelCoherenceTracker {
 
  private:
   void push_scalar_(float value, std::vector<float>& ring, uint16_t& slot,
-                    uint16_t& count, float& total) {
+                    uint16_t& count, double& total) {
     if (ring.empty()) {
         return;
     }
     if (count < capacity_) {
         count++;
     } else {
-        total -= ring[slot];
+        total -= static_cast<double>(ring[slot]);
     }
     ring[slot] = value;
-    total += value;
+    total += static_cast<double>(value);
     slot = static_cast<uint16_t>((slot + 1U) % capacity_);
   }
 
   void push_subbands_(const float* values, std::vector<float>& ring, uint16_t& slot,
                       uint16_t& count,
-                      std::array<float, HT20_COHERENCE_SUBBAND_COUNT>& total) {
+                      std::array<double, HT20_COHERENCE_SUBBAND_COUNT>& total) {
     if (ring.empty() || values == nullptr) {
         return;
     }
@@ -548,12 +553,12 @@ class ChannelCoherenceTracker {
         count++;
     } else {
         for (uint8_t i = 0; i < HT20_COHERENCE_SUBBAND_COUNT; i++) {
-            total[i] -= ring[base + i];
+            total[i] -= static_cast<double>(ring[base + i]);
         }
     }
     for (uint8_t i = 0; i < HT20_COHERENCE_SUBBAND_COUNT; i++) {
         ring[base + i] = values[i];
-        total[i] += values[i];
+        total[i] += static_cast<double>(values[i]);
     }
     slot = static_cast<uint16_t>((slot + 1U) % capacity_);
   }
@@ -569,14 +574,14 @@ class ChannelCoherenceTracker {
   std::vector<float> adjacent_ring_{};
   std::vector<float> subband_lag_ring_{};
   std::vector<float> subband_adjacent_ring_{};
-  float lag_sum_{0.0f};
+  double lag_sum_{0.0};
   uint16_t lag_count_{0U};
-  float adjacent_sum_{0.0f};
+  double adjacent_sum_{0.0};
   uint16_t adjacent_count_{0U};
   uint16_t lag_slot_{0U};
   uint16_t adjacent_slot_{0U};
-  std::array<float, HT20_COHERENCE_SUBBAND_COUNT> subband_lag_sum_{};
-  std::array<float, HT20_COHERENCE_SUBBAND_COUNT> subband_adjacent_sum_{};
+  std::array<double, HT20_COHERENCE_SUBBAND_COUNT> subband_lag_sum_{};
+  std::array<double, HT20_COHERENCE_SUBBAND_COUNT> subband_adjacent_sum_{};
   uint16_t subband_lag_slot_{0U};
   uint16_t subband_lag_count_{0U};
   uint16_t subband_adjacent_slot_{0U};

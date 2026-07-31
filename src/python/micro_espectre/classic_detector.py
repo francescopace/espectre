@@ -35,13 +35,13 @@ class ClassicDetector(IDetector):
     STARTUP_GATE = True
 
     # Grouped, de-overlapped OOF fit, balanced by class/chip/session.
-    FEATURE_CENTER = (0.4054217624112162, 0.014752343728085844)
-    FEATURE_SCALE = (0.36758465285308456, 0.02602884858084268)
-    FEATURE_WEIGHT = (5.501903876354938, 4.040278978639349)
-    INTERCEPT = 0.5020797967446212
+    FEATURE_CENTER = (0.40183487675618096, 0.013573794185191685)
+    FEATURE_SCALE = (0.37890037481307803, 0.023719479149528277)
+    FEATURE_WEIGHT = (5.318553379383947, 2.937413738610618)
+    INTERCEPT = 0.07498562105607867
 
-    BASE_THRESHOLD = 0.6959857092777915
-    TRAIN_IDLE_Q95_LOGIT = -0.6930943805793314
+    BASE_THRESHOLD = 0.7456011395202353
+    TRAIN_IDLE_Q95_LOGIT = -0.5638467984849406
     STARTUP_QUANTILE = 0.95
     STARTUP_STRENGTH = 0.5
     STARTUP_SAMPLE_LIMIT = 64
@@ -49,12 +49,12 @@ class ClassicDetector(IDetector):
     # Settled-level rule: how long the stream has to stay quiet before the
     # startup threshold is allowed to come down, and by how much margin above
     # the level it settled at. 12 blocks of 20 evaluations is 60 s at the
-    # nominal cadence. The margin is in logit units; 3.0 is the largest value
-    # that still recovers the ESP32 capture, and below 2.0 the empty-room
-    # recordings start to alarm.
+    # nominal cadence. The margin is in logit units; 2.8 is the largest value
+    # that still clears the current C3 recall gates, while below 2.6 the C3
+    # empty-room replay starts to tick upward.
     SETTLE_BLOCKS = 12
     SETTLE_BLOCK_EVALUATIONS = 20
-    SETTLE_MARGIN_LOGITS = 3.0
+    SETTLE_MARGIN_LOGITS = 2.8
 
     # The detector owns its startup threshold formula; the shared multiplier is
     # retained only for the generic calibrator's progress/fallback machinery.

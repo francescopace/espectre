@@ -1,0 +1,7 @@
+# ESPectre Streamer Partition Table
+# Name,    Type, SubType, Offset,   Size,      Flags
+# Streamer does not use OTA, so keep a single app slot and
+# give the firmware the rest of the 4 MB flash.
+nvs,       data, nvs,      0x9000,   0x6000,
+phy_init,  data, phy,      0xf000,   0x1000,
+factory,   app,  factory,  0x10000,  0x3F0000,

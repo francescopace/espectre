@@ -9,17 +9,19 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="build-${MATTER_TARGET}"
 DOCKER_IMAGE="${MATTER_DOCKER_IMAGE:-espressif/idf:release-v5.5}"
 MATTER_HOME="${REPO_ROOT}/.github/.cache/matter-home"
+MATTER_ROOT_MANAGED_COMPONENTS="${MATTER_HOME}/root_managed_components"
 OUTPUT_DIR="$(dirname "${MATTER_OUTPUT}")"
 MATTER_OUTPUT_IN_WORK="/work/${MATTER_OUTPUT#"${REPO_ROOT}"/}"
 MATTER_SDKCONFIG_DEFAULTS="${MATTER_SDKCONFIG_DEFAULTS:-}"
 
-mkdir -p "${MATTER_HOME}" "${OUTPUT_DIR}"
+mkdir -p "${MATTER_HOME}" "${MATTER_ROOT_MANAGED_COMPONENTS}" "${OUTPUT_DIR}"
 
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -e HOME="/work/.github/.cache/matter-home" \
   -e SDKCONFIG_DEFAULTS="${MATTER_SDKCONFIG_DEFAULTS}" \
   -e MATTER_OUTPUT="${MATTER_OUTPUT_IN_WORK}" \
+  -v "${MATTER_ROOT_MANAGED_COMPONENTS}:/opt/esp/root_managed_components" \
   -v "${REPO_ROOT}:/work" \
   -w "/work/src/cpp/frontend/matter/app" \
   "${DOCKER_IMAGE}" \

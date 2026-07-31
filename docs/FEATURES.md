@@ -130,8 +130,9 @@ The July 30, 2026 Classic campaign asked whether a linear pair or triplet from
 the existing ML feature surface could improve the exported non-ML detector.
 The search covered generic pairs and triplets, runtime-ready and host-only
 surfaces, threshold-free screening, startup-calibrated logistic replay, and
-targeted packet-level confirmation. No runtime Python or C++ detector code was
-changed.
+targeted packet-level confirmation. The discovery stage itself changed no
+runtime Python or C++ detector code; the winning pair from this line of work
+was promoted later and is the current exported `ClassicDetector`.
 
 #### Valid Method
 
@@ -173,9 +174,15 @@ existed on July 30, 2026.
 The exported runtime baseline is
 `turb_autocorr + chan_freq_coh_curve_std`.
 
+The current Python and C++ `ClassicDetector` implementations mirror this pair.
+The retained runtime policy is the same one validated here: grouped,
+de-overlapped coefficient fitting, startup-centering against the training idle
+reference, and the later settled-level threshold recovery documented in
+`ALGORITHMS.md`.
+
 | Evaluation | Research score | Weighted recall | Worst recall | Weighted paired FP | Maximum empty FP |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Exported runtime, discovery | `28.44` | `97.90%` | `85.59%` | `2.28%` | `6.05%` |
+| Exported runtime, discovery | `28.44` | `97.90%` | `85.59%` | `2.28%` | `1.03%` |
 | Exported runtime, historical holdout | — | — | `99.71%` | `2.18%` | `3.45%` |
 | Current pair refit, aggressive point | `23.22` | — | `89.91%` | `4.31%` | `7.34%` |
 | Current pair refit, conservative point | `28.99` | — | `87.90%` | — | `7.89%` |
@@ -204,36 +211,86 @@ The best host-only triplet did not show a clear advantage over the best
 runtime-ready triplet. Do not add new runtime extractors for this Classic
 campaign.
 
+An expanded July 31, 2026 replay over all runtime-ready triplets changed the
+screening verdict. The strongest surrogate candidate is now
+`turb_autocorr + chan_freq_coh_curve_std + l1_delta_lag_ratio`.
+After a later same-day dataset edit and model regeneration, the screening order
+stayed the same, but the current-pair surrogate became materially cleaner on
+discovery empties. With train-role `empty` hard negatives included in the fit,
+the lag-ratio triplet still beat the refitted current pair on discovery recall,
+while the pair regained ground on quiet tails:
+
+| Evaluation | Research score | Weighted recall | Worst recall | Weighted paired FP | Maximum empty FP |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Current pair refit with train-empty hard negatives | `10.22` | `98.76%` | `91.93%` | `3.50%` | `4.08%` |
+| `turb_autocorr + chan_freq_coh_curve_std + l1_delta_lag_ratio` with train-empty hard negatives | `2.81` | `99.31%` | `95.68%` | `3.36%` | `6.52%` |
+| `turb_autocorr + chan_freq_coh_curve_std + chan_shape_spread` with train-empty hard negatives | `4.67` | `99.11%` | `96.56%` | `3.20%` | `7.07%` |
+
+The lag-ratio triplet therefore became the only live Classic replacement
+hypothesis worth carrying forward on the current corpus. The shape-spread
+triplet remains a weaker runner-up: it still beats the refitted pair, but it
+trails the lag-ratio triplet on scalar score and on the worst quiet tails.
+The `turb_mad_over_mean` triplets remain rejected for deployment despite their
+strong threshold-free geometry: once startup calibration and empty-room replay
+are restored, their quiet tails stay materially worse than the leading
+lag-ratio candidate.
+
+A closer post-refresh comparison against the committed `ClassicDetector`
+narrowed the case further. On the updated corpus, the lag-ratio triplet still
+improved discovery recall (`97.90% -> 99.31%`) and worst-session recall
+(`85.59% -> 95.68%`), but it lost on the quiet metrics that protect the shipped
+Classic path: weighted paired FP `2.28% -> 3.36%`, maximum discovery-empty FP
+`1.03% -> 6.52%`, and pair/idle effective alarms `55/1 -> 79/2`. The same
+pattern held on `exclude`: weighted recall improved `90.84% -> 94.51%`, but
+weighted paired FP regressed `3.82% -> 9.00%`, maximum empty FP regressed
+`27.69% -> 44.11%`, and idle alarms rose `75 -> 152`. The candidate therefore
+remains a recall-oriented research hypothesis, not a drop-in replacement for the
+committed detector.
+
 #### Interpretation And Verdict
 
-The apparent triplet gain came mainly from trading false positives for
-worst-session recall. A scalar penalty made this look attractive, but the
-deployment-relevant metric vector rejected it. The limiting conflict is now
-represented by one S3 low-RSSI selection session on recall and C5/C6 quiet
-sessions on false positives. Repeated tuning against those same recordings
-would optimize the corpus rather than establish generalization.
+The screening result is now more specific than a generic triplet rejection.
+One runtime-ready triplet clearly dominates the current-pair surrogate:
+`turb_autocorr + chan_freq_coh_curve_std + l1_delta_lag_ratio`. However, the
+updated direct comparison also shows why it is still not promotable. The
+candidate improves recall, but the committed detector remains materially quieter
+on the same corpus, and the `exclude` tails still hinge on a small set of C3/C6
+pair and quiet-room replays, especially the C6 `empty` session
+`empty_c6_64sc_dev00007c2c6742bbac_20260728_134140_988645_0001.npz` and the
+C3 pair `static_presence_c3_64sc_dev0000acebe64ae708_20260725_135809_478030_0001.npz`.
+Repeated tuning against those same recordings would optimize the corpus rather
+than establish generalization.
 
 The current decision is:
 
-1. keep the exported Classic detector unchanged;
-2. stop exhaustive pair and triplet tuning on the present corpus;
-3. retain the current-pair hard-negative refit as the only active linear
-   hypothesis; and
-4. require new independent recordings before another promotion attempt.
+1. keep the exported `turb_autocorr + chan_freq_coh_curve_std` Classic detector
+   unchanged;
+2. keep `turb_autocorr + chan_freq_coh_curve_std + l1_delta_lag_ratio` only as
+   the leading recall-oriented research hypothesis, not as a promotion
+   candidate on the current corpus;
+3. stop the broader pair and triplet grid search on the present corpus; and
+4. require new independent recordings and a maintained shared packet-level
+   comparison path before any promotion attempt.
 
-The packet-level refit confirmations were run through a temporary local
-research harness, not a maintained repository entry point. Before any future
-promotion, add an exact, shared packet-level comparison path that evaluates the
-exported runtime and candidate with identical calibration, cadence, reset,
-settling, and runtime-policy semantics.
+The packet-level confirmations that justified the current pair were run through
+a temporary local research harness, not a maintained repository entry point.
+Before any future Classic replacement or retune, add an exact, shared
+packet-level comparison path that evaluates the exported runtime and candidate
+with identical calibration, cadence, reset, settling, and runtime-policy
+semantics.
 
 #### Restart Point
 
-Collect new same-protocol data before resuming model selection:
+Collect new same-protocol data before resuming Classic promotion work. See
+`data/COLLECTION_PLAN.md` for the exact capture priorities.
 
 - S3 low-RSSI `static_presence` and `motion` pairs across more than one room,
   placement, and collection time;
-- C5 and C6 `empty` recordings across rooms, times, and normal/weak links; and
+- C3 paired `static_presence` / `motion` recordings that mirror the current
+  `exclude` recall tails;
+- C5 and C6 `empty` recordings across rooms, times, and normal/weak links;
+- C5 and C6 paired `static_presence` / `motion` recordings around the current
+  false-positive tails; and
 - enough independent session or lineage groups to reserve a new confirmation
   set before inspecting detector results.
 
@@ -241,13 +298,14 @@ After assigning the new roles, reproduce the narrow research surface with:
 
 ```bash
 python tools/benchmark_classic_candidate_pairs.py \
-  --triple turb_mad_over_mean,turb_autocorr,turb_zcr \
-  --triple turb_mad_over_mean,turb_autocorr,chan_shape_spread
+  --triple turb_autocorr,chan_freq_coh_curve_std,l1_delta_lag_ratio \
+  --triple turb_autocorr,chan_freq_coh_curve_std,chan_shape_spread \
+  --triple turb_mad_over_mean,turb_autocorr,turb_zcr
 
 python tools/replay_classic_candidates.py \
   --features turb_autocorr,chan_freq_coh_curve_std \
-  --features turb_mad_over_mean,turb_autocorr,turb_zcr \
-  --features turb_mad_over_mean,turb_autocorr,chan_shape_spread \
+  --features turb_autocorr,chan_freq_coh_curve_std,l1_delta_lag_ratio \
+  --features turb_autocorr,chan_freq_coh_curve_std,chan_shape_spread \
   --include-train-empty
 ```
 
@@ -255,9 +313,9 @@ Use the replay only for screening. The next candidate must then pass the exact
 packet-level comparison and improve recall without exceeding the exported
 baseline's discovery paired-FP and empty-FP rates. Final promotion must use the
 new sealed confirmation groups, followed by the required Python/C++ parity
-gates. If no candidate passes, retain the current detector and investigate a
-different model or calibration family instead of expanding the linear feature
-grid again.
+gates. If the lag-ratio triplet still fails after that, retain the current
+detector and investigate a different model or calibration family instead of
+expanding the linear feature grid again.
 
 ### Heterogeneous Feature And Model Sweep
 

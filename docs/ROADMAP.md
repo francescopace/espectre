@@ -49,7 +49,7 @@ moved to the post-release v3.x backlog.
   missing collection, retraining, and validation before tagging; otherwise move
   the expanded ESP32 corpus to the v3.x validation backlog
 
-#### Native Product Surface
+#### Product Surface
 
 - [x] Allow the Native BLE control surface to set the runtime
   `motion_on_hits` and `motion_off_hits` thresholds
@@ -63,6 +63,7 @@ moved to the post-release v3.x backlog.
 - [ ] Review the embeddable `C++` SDK API and documentation, and align the
   published integration surface with standard `C++` SDK conventions where
   practical
+- [ ] Move esphome examples in esphome frontend
 
 #### Release Assurance
 

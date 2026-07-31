@@ -1912,7 +1912,10 @@ def render_performance_report_markdown(
             "C++ integration suites stay aligned with the published Python replay metrics."
         ),
         "",
-        "- **Classic Detector**: Uses weighted fusion of L1-Delta and turbulence autocorrelation.",
+        (
+            "- **Classic Detector**: Uses weighted fusion of turbulence "
+            "autocorrelation and channel frequency-coherence curve spread."
+        ),
         (
             "- **ML Detector**: Uses a pretrained neural network model based on "
             "scale-invariant turbulence and normalized channel-profile dynamics."

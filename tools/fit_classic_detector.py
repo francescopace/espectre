@@ -448,12 +448,12 @@ def render_cpp(coefficients: Dict[str, Any], base_threshold: float, idle_q95: fl
     weight, intercept = coefficients["weight"], coefficients["intercept"]
     text = CPP_SOURCE.read_text()
     for name, value in (
-        ("CLASSIC_L1_CENTER", center[0]),
-        ("CLASSIC_L1_SCALE", scale[0]),
-        ("CLASSIC_L1_WEIGHT", weight[0]),
-        ("CLASSIC_AUTOCORR_CENTER", center[1]),
-        ("CLASSIC_AUTOCORR_SCALE", scale[1]),
-        ("CLASSIC_AUTOCORR_WEIGHT", weight[1]),
+        ("CLASSIC_AUTOCORR_CENTER", center[0]),
+        ("CLASSIC_AUTOCORR_SCALE", scale[0]),
+        ("CLASSIC_AUTOCORR_WEIGHT", weight[0]),
+        ("CLASSIC_FREQ_COH_CURVE_STD_CENTER", center[1]),
+        ("CLASSIC_FREQ_COH_CURVE_STD_SCALE", scale[1]),
+        ("CLASSIC_FREQ_COH_CURVE_STD_WEIGHT", weight[1]),
         ("CLASSIC_INTERCEPT", intercept),
         ("CLASSIC_DEFAULT_THRESHOLD", base_threshold),
         ("CLASSIC_TRAIN_IDLE_Q95_LOGIT", idle_q95),

@@ -15,12 +15,13 @@ NATIVE_OTA_OUTPUT_IN_WORK=""
 NATIVE_SDKCONFIG_DEFAULTS="${NATIVE_SDKCONFIG_DEFAULTS:-}"
 NATIVE_OTA_SNAPSHOT="${NATIVE_OTA_SNAPSHOT:-0}"
 NATIVE_HOME="${REPO_ROOT}/.github/.cache/native-home"
+NATIVE_ROOT_MANAGED_COMPONENTS="${NATIVE_HOME}/root_managed_components"
 
 if [ -n "${NATIVE_OTA_OUTPUT:-}" ]; then
   NATIVE_OTA_OUTPUT_IN_WORK="/work/${NATIVE_OTA_OUTPUT#"${REPO_ROOT}"/}"
 fi
 
-mkdir -p "${NATIVE_HOME}" "${OUTPUT_DIR}"
+mkdir -p "${NATIVE_HOME}" "${NATIVE_ROOT_MANAGED_COMPONENTS}" "${OUTPUT_DIR}"
 
 docker run --rm \
   --user "$(id -u):$(id -g)" \
@@ -29,6 +30,7 @@ docker run --rm \
   -e NATIVE_OTA_SNAPSHOT="${NATIVE_OTA_SNAPSHOT}" \
   -e NATIVE_OUTPUT="${NATIVE_OUTPUT_IN_WORK}" \
   -e NATIVE_OTA_OUTPUT="${NATIVE_OTA_OUTPUT_IN_WORK}" \
+  -v "${NATIVE_ROOT_MANAGED_COMPONENTS}:/opt/esp/root_managed_components" \
   -v "${REPO_ROOT}:/work" \
   -w "/work/src/cpp/frontend/native/app" \
   "${DOCKER_IMAGE}" \

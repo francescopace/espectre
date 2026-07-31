@@ -21,20 +21,20 @@
 
 namespace espectre {
 
-constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.6959857092777915f;
+constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.7456011395202353f;
 constexpr float CLASSIC_MIN_THRESHOLD = 0.0f;
 constexpr float CLASSIC_MAX_THRESHOLD = 1.0f;
 constexpr float CLASSIC_STARTUP_THRESHOLD_FACTOR = 1.0f;
 
-constexpr float CLASSIC_AUTOCORR_CENTER = 0.4054217624112162f;
-constexpr float CLASSIC_AUTOCORR_SCALE = 0.36758465285308456f;
-constexpr float CLASSIC_AUTOCORR_WEIGHT = 5.501903876354938f;
-constexpr float CLASSIC_FREQ_COH_CURVE_STD_CENTER = 0.014752343728085844f;
-constexpr float CLASSIC_FREQ_COH_CURVE_STD_SCALE = 0.02602884858084268f;
-constexpr float CLASSIC_FREQ_COH_CURVE_STD_WEIGHT = 4.040278978639349f;
-constexpr float CLASSIC_INTERCEPT = 0.5020797967446212f;
+constexpr float CLASSIC_AUTOCORR_CENTER = 0.40183487675618096f;
+constexpr float CLASSIC_AUTOCORR_SCALE = 0.37890037481307803f;
+constexpr float CLASSIC_AUTOCORR_WEIGHT = 5.318553379383947f;
+constexpr float CLASSIC_FREQ_COH_CURVE_STD_CENTER = 0.013573794185191685f;
+constexpr float CLASSIC_FREQ_COH_CURVE_STD_SCALE = 0.023719479149528277f;
+constexpr float CLASSIC_FREQ_COH_CURVE_STD_WEIGHT = 2.937413738610618f;
+constexpr float CLASSIC_INTERCEPT = 0.07498562105607867f;
 
-constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -0.6930943805793314f;
+constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -0.5638467984849406f;
 constexpr float CLASSIC_STARTUP_QUANTILE = 0.95f;
 constexpr float CLASSIC_STARTUP_STRENGTH = 0.5f;
 constexpr uint8_t CLASSIC_STARTUP_SAMPLE_LIMIT = 64U;
@@ -42,11 +42,12 @@ constexpr uint8_t CLASSIC_STARTUP_SAMPLE_LIMIT = 64U;
 // Settled-level rule: how long the stream has to stay quiet before the startup
 // threshold is allowed to come down, and by how much margin above the level it
 // settled at. 12 blocks of 20 evaluations is 60 s at the nominal cadence. The
-// margin is in logit units; 3.0 is the largest value that still recovers the
-// ESP32 capture, and below 2.0 the empty-room recordings start to alarm.
+// margin is in logit units; 2.8 is the largest value that still clears the
+// current C3 recall gates, while below 2.6 the C3 empty-room replay starts to
+// tick upward.
 constexpr uint8_t CLASSIC_SETTLE_BLOCKS = 12U;
 constexpr uint8_t CLASSIC_SETTLE_BLOCK_EVALUATIONS = 20U;
-constexpr float CLASSIC_SETTLE_MARGIN_LOGITS = 3.0f;
+constexpr float CLASSIC_SETTLE_MARGIN_LOGITS = 2.8f;
 
 class ClassicDetector : public BaseDetector {
  public:

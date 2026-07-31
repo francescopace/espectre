@@ -35,9 +35,9 @@ The current production detector definition is:
 
 - AGC stays active
 - the shared fixed 12-subcarrier set is used
-- the classic path uses weighted L1-delta and turbulence-autocorrelation fusion
-- the classic runtime has no voting or variance-recovery branch
-- the ML path uses the five scale-invariant production features
+- the classic path uses weighted `turb_autocorr + chan_freq_coh_curve_std` fusion
+- the classic runtime has no voting branch or legacy low-RSSI blend term
+- the ML path uses the compact ten-feature scale-invariant production set
 
 ## Processing Pipeline
 
@@ -69,15 +69,15 @@ geometry:
 | --- | --- | --- |
 | detector window | 100 packets | `1 s` |
 | evaluation interval | `250 ms` | 25 packets |
-| L1 profile-displacement ratio | `10:1` packet offsets | `100 ms / 10 ms` |
+| channel-shape tracker lag | 10 packets | `100 ms` |
 | turbulence autocorrelation lag | 1 packet | `10 ms` |
 
-The fixed feature offsets are deliberate. An A/B replay found that scaling only
-the numerator of the L1 ratio regressed low-rate recall by as much as 11 points.
-Scaling both offsets would define a new feature and require a Classic refit and
-an ML retrain, so v3 keeps the fitted `10:1` relation and declares `80-133 pps`
-as the supported detector envelope. The recorded production corpus is inside
-that range.
+The fixed time offsets are deliberate. The shared shape trackers and the fitted
+Classic surface were validated at these spans; changing them defines a new
+detector surface and requires a Classic refit plus the normal ML validation
+workflow. v3 therefore keeps `lag = 10` packets for the shape trackers and
+`autocorr_lag = 1`, and declares `80-133 pps` as the supported detector
+envelope. The recorded production corpus is inside that range.
 
 `derive_detector_timing()` remains a host replay-analysis helper, mirrored in
 [runtime_policy.py](../src/python/micro_espectre/runtime_policy.py) and
@@ -217,53 +217,10 @@ the operational trade-off between false-positive reduction and responsiveness.
 
 `ClassicDetector` is the production non-ML path. It combines:
 
-- lag-ratio of mean L1 displacement between normalized amplitude profiles
 - lag-1 autocorrelation of the gain-invariant turbulence stream
+- temporal standard deviation of the short-versus-long frequency-coherence
+  contrast
 - a fixed, weighted logistic fusion with no voting branches
-
-### L1-Delta Primary Metric
-
-Per packet, ESPectre computes a mean-normalized amplitude profile over the fixed
-12-subcarrier set:
-
-```text
-p_i[k] = A_i[k] / mean(A_i)
-```
-
-It then compares the current profile with the one seen `lag` packets earlier:
-
-```text
-d_i = mean_k |p_i[k] - p_(i-lag)[k]|
-```
-
-Default `lag = 10`, which is roughly 100 ms at 100 packets per second.
-
-The same comparison also runs at `lag = 1`, and Classic's feature is the ratio
-of the two window means:
-
-```text
-ratio = mean(d_i at lag) / mean(d_i at lag 1)
-```
-
-Noise saturates the displacement immediately: adjacent packets already differ by
-the full noise amount, so both means carry it and the ratio sits near `1.0`.
-Real channel evolution keeps accumulating with the lag and lifts the numerator
-alone. Because both terms share a unit, the noise floor divides out.
-
-That matters because the profile normalization above removes per-packet gain but
-not the floor, so a plain mean displacement rises whenever the link weakens,
-motion or not. Measured across the corpus the mean separates motion from idle at
-`1.0000` AUC on normal links and `0.8705` on weak ones, inverting on two of
-eight; the ratio holds `1.0000` and `0.9984` and never inverts. Its idle level
-also varies `1.82x` across quiet captures against `14.29x` for the mean, which
-is what makes startup calibration land closer to where the session actually
-sits.
-
-Hampel filtering is applied to each per-packet displacement stream before its
-window mean, both alike, since an outlier surviving only in the denominator
-would depress the ratio and read as less motion. The lag-1 reference is the ring
-slot behind the lagged one, so the pair costs one running sum and no second
-normalization. ML still consumes the plain mean as `l1_delta`.
 
 ### Turbulence Autocorrelation
 
@@ -274,130 +231,100 @@ t_i = std(A_i) / mean(A_i)
 ```
 
 After Hampel filtering, Classic calculates lag-1 autocorrelation over the
-turbulence window. Both inputs are gain invariant under ideal uniform scaling.
-The shared `hampel_enabled` setting controls both Hampel filters.
-The same rule applies to ML feature extraction: all `turb_*` features use the
-filtered turbulence stream, and all `l1_delta*` features use the filtered
-per-packet L1-delta stream in training and both runtimes.
+turbulence window. This input is invariant under ideal uniform scaling because
+the coefficient of variation is itself a ratio. The shared `hampel_enabled`
+setting still controls the turbulence filter in both runtimes, and the same
+filtered turbulence stream feeds the ML `turb_*` features.
+
+### Channel Frequency-Coherence Curve Spread
+
+Classic's second input comes from the complex CSI profile over the shared
+12-tone HT20 band. For a fixed subcarrier separation `d`, within-packet
+frequency coherence is:
+
+```text
+coh_d = |sum_k conj(H[k]) H[k + d]| /
+        (sqrt(sum_k |H[k]|^2) sqrt(sum_k |H[k + d]|^2))
+```
+
+Pairs that would cross the DC subcarrier are excluded. Classic evaluates this
+coherence at offsets `2` and `12`, forms a bounded contrast per packet,
+
+```text
+curve_t = (coh_2 - coh_12) / (coh_2 + coh_12)
+```
+
+and reports the temporal standard deviation over the live window:
+
+```text
+chan_freq_coh_curve_std = std_t(curve_t)
+```
+
+Normalized coherence cancels common packet gain, and the short-versus-long
+contrast keeps the result dimensionless and bounded. The runtime reuses the
+shared `ChannelShapeTracker` for this input, so Python and C++ evaluate the same
+per-packet contrast and the same window statistic.
 
 ### Weighted Fusion
 
-Classic standardizes `l1_delta` and `turb_autocorr` with fixed training
-statistics, applies a two-term linear model, and converts its logit to a
-probability:
+Classic standardizes `turb_autocorr` and `chan_freq_coh_curve_std` with fixed
+training statistics, applies a two-term linear model, and converts its logit to
+a probability:
 
 ```text
-logit = b + w_l1 * z(l1_delta) + w_ac * z(turb_autocorr)
+logit = b + w_ac * z(turb_autocorr) + w_curve * z(chan_freq_coh_curve_std)
 probability = 1 / (1 + exp(-logit))
 motion = probability > threshold
 ```
 
 The coefficients come from grouped, de-overlapped out-of-fold training balanced
 by class, chip, and session. The runtime contains no majority vote or recovery
-branch.
+branch in the score itself; all runtime adaptation happens at the threshold.
 
-Startup adaptation now always thresholds the fitted two-feature logit directly.
-The older low-RSSI L1 noise-blend safeguard was retired after the lag-ratio
-feature replaced the plain mean: on the current corpus it no longer changes any
-decision, and keeping it would only preserve dead state around startup
-calibration.
+Startup adaptation thresholds this fitted two-feature logit directly. The older
+low-RSSI L1 blend path is retired; it is not part of the current detector
+surface.
 
 ### Startup Threshold Calibration
 
-At startup, Classic begins from the validated global probability threshold
-and shifts its logit using the session's startup `q95` relative to the training
-idle reference. The shift applies `75%` of the observed session-to-training
-offset. This preserves the learned two-feature decision boundary while giving
-the quiet baseline enough influence to cover weak links whose startup logits
-move in either direction. When the weak-link safeguard is fully active, the
-session-centered feature uses the validated global threshold instead of the
-saturated raw-logit threshold. Runtime adjustments use the same `0.0-1.0`
-probability scale and remain active until recalibration or reboot.
+At startup, Classic begins from the validated global probability threshold and
+shifts its logit using the session's startup `q95` relative to the training
+idle reference. The shift applies `50%` of the observed session-to-training
+offset:
+
+```text
+adapted_logit = logit(base_threshold) +
+                0.5 * (startup_q95 - train_idle_q95)
+threshold = sigmoid(adapted_logit)
+```
+
+Only the first `64` ready evaluations contribute startup evidence. This keeps
+the learned two-feature boundary intact while letting the threshold follow a
+session whose quiet baseline starts above or below the training reference.
+Runtime adjustments stay on the same `0.0-1.0` probability scale and remain
+active until recalibration or reboot.
 
 The settled-level rule cannot create a high threshold. It only ever lowers one
 after a long quiet dwell, so any threshold that lands near `1.0` came from the
-startup `q95` shift, not from later recovery. On the current corpus that still
-happens on several otherwise healthy captures: the lag ratio fixed the recall
-loss that had motivated this work, but it did not eliminate ceiling-hugging
-startup thresholds outright. What remains open is headroom on unseen rooms, not
-measured recall on the current pairs.
+startup `q95` shift, not from later recovery.
 
 ### Known Limits
 
-On the current normal-link corpus Classic clears the project recall target on
-every chip. The published aggregates are `98.6%` on C3, `99.2%` on C5, `99.8%`
-on C6, `98.8%` on ESP32, and `99.1%` on S3, with per-chip false positives from
-`0.0%` to `2.1%`. ESP32 still rests on one bedroom pair only, so that number is
-evidence about one recording, not yet a chip trend.
+On the current normal-link corpus, Classic still clears the project recall
+target on every chip. The published paired-replay aggregates are `96.0%` recall
+on C3, `99.8%` on C5, `100.0%` on C6, `100.0%` on ESP32, and `99.3%` on S3.
 
-Recall, not spurious motion, is the remaining Classic gap. Alarms on
-static-presence baselines were long read as weak-link false positives, but that
-diagnosis did not survive measurement: they occur on the strongest links as
-readily as on the weakest, and the empty-room recordings raise none at all. They
-are the stationary occupant's own micro-motion. False positives are now gated on
-the empty-room recordings, which are the only streams in the corpus with nobody
-in the room. See [2026-07-25-gate-classic-false-positives-on-empty-rooms.md](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md).
+The remaining deployment tails are false positives, not ordinary recall:
 
-The threshold-pinning symptom is now mostly diagnostic rather than harmful.
-After the lag-ratio swap, the two pairs that had motivated the ceiling concern
-still calibrate near `1.0` (`0.980` on C5 bedroom `2026-07-24 12:59`, `0.996`
-on C6 bedroom `2026-07-22 18:52`), yet they now reach `96.8%` and `99.1%`
-recall. A near-ceiling threshold therefore no longer implies missed motion on
-the current corpus; it means the startup prefix ran high enough to push the
-q95-shifted threshold close to the probability ceiling.
+- paired normal-link maximum FP is highest on C5 (`13.6%`) and C6 (`9.0%`);
+- long quiet effective alarms remain `1` on C5 and `6` on C6; and
+- weak-link replay is still report-only, with current minimum recall `85.6%` on
+  S3 and the largest weak-link FP tails again on C5/C6.
 
-The two excluded C3 bedroom pairs are a different question, and they are kept
-out of the generated validation surfaces on purpose because both sides carry
-`dataset_role: exclude`. They are detector evidence, not admission material.
-They also are not one failure mode:
-
-- `2026-07-22 19:58` is the strongest link in the corpus at `-39/-38 dBm`, yet
-  Classic still reaches only `82.5%` recall on `0.9852` idle/motion AUC with
-  `0.0%` false positives.
-- `2026-07-25 13:58` is moderate RSSI at `-63/-62 dBm`, not one of the
-  `-70` to `-80 dBm` weak-link captures, yet Classic reaches `74.2%` recall on
-  `0.9872` AUC with `0.0%` false positives.
-
-In both cases the threshold-free separation says the motion is present while the
-Classic decision path still misses a material share of it. That is why the
-captures stay useful to ML and to detector analysis while still being excluded
-from shared selection or holdout duty.
-
-The historical ESP32 failure that had motivated settled-threshold recovery was
-also threshold placement, not separability. Its quiet distribution never
-exceeded a probability of `0.110` while the calibrated threshold sat at
-`0.421`, and the motion it missed sat at `0.32-0.41`: above every idle sample,
-below the threshold. Placing the threshold at that session's idle `p99` would
-have taken recall from `94.2%` to `99.1%` at `1%` false positives.
-
-No global knob can collect that, and three were measured. Refitting the
-coefficients on the current corpus loses on every chip, ESP32 worst at `-2.3`
-points. Raising the startup shift strength above `0.75` lifts ESP32 recall but
-starts producing alarms in empty rooms at `0.78`, so the shipped value is
-already the largest safe one. Capping the calibrated threshold at the session's
-own quiet ceiling hits the same wall: by the margin that moves ESP32, empty
-rooms alarm and S3 false positives breach the ceiling.
-
-The reason they all fail together is that ESP32 and the marginal empty rooms
-respond to the same knob. What distinguishes them is the strength of the motion
-response itself: ESP32 motion peaks near `0.4` where other chips reach `1.0`.
-
-The information is not missing. Measured threshold-free, the window features
-separate motion from idle almost perfectly on that capture: `0.9999` AUC for
-`l1_delta` and `0.9994` for `turb_autocorr`. Widening the band does not help
-because there is nothing left to collect; across `12` to `32` tones the mean AUC
-moves from `0.9943` to `0.9959`.
-
-What loses the recall is where the threshold lands, and only on that capture.
-Comparing the calibrated threshold against the best any threshold could do at
-the same false-positive cost, the corpus leaves `+0.34` points on the table on
-average, and `16` of `17` pairs leave `0.0-0.3`. ESP32 leaves `+4.7`.
-
-The cause is an unrepresentative calibration prefix. Startup calibration takes
-its quantile over the opening of the session, and on that capture the opening is
-`4.14x` noisier than the rest of it, so the threshold settles at `3.82x` the
-highest idle value the session ever produces. Most pairs have a prefix that is
-representative or quieter, which is why they lose nothing.
+Use `ml` where quiet-room robustness or held-out generalization matters more
+than zero-training deployment cost. The active Classic feature-selection record
+now lives in `FEATURES.md`; no additional pair or triplet is approved for export
+on the current corpus.
 
 ### Settled-Level Threshold Recovery
 
@@ -438,17 +365,6 @@ recordings stay silent all the way down to `1.0`, first alarming at `0.5`.
 Its limit is the mirror of its safety. A room that grows genuinely noisier after
 the threshold has come down cannot push it back up; only a recalibration does
 that.
-
-Use `ml` where either recall or alarm quietness matters more than startup cost.
-Classic remains the default because it needs no training set, no exported
-weights, and no per-deployment data.
-
-Raising the Classic ceiling is open feature-side research. The most promising
-direction is a third feature or a different pair: an offline sweep on
-2026-07-23 found a coherence-oriented candidate (`turb_zcr` plus
-`l1_delta_autocorr`) that cut replay false positives sharply against the
-current set, and its feature ids already exist in `csi_features.h`. That work
-needs its own fit and gate run before anything moves into the runtime.
 
 ### Implementation Status
 
