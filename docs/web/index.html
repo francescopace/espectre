@@ -22,7 +22,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=3.12.0">
+<link rel="stylesheet" href="styles.css?v=3.16.0">
 <script src="espectre-ble.js?v=3.2.0"></script>
 <script src="qrcode.js?v=3.2.0" defer></script>
 <script src="analytics.js?v=3.10.0" defer></script>
@@ -311,104 +311,70 @@
     </div>
   </section>
 
-  <section class="audience">
-    <div class="audience-grid">
-      <div class="audience-card">
-        <div class="eyebrow">For your home</div>
-        <h2>An ESP32 is all you need.</h2>
-        <p>Flash the firmware from your browser and you have a Wi-Fi motion sensor in minutes. One device, your existing router — no mesh of nodes like other solutions.</p>
-        <div class="spec-line"><span>1 × ESP32</span><span>·</span><span>your router</span><span>·</span><span>~5 minutes</span></div>
-        <div class="card-cta">
-          <a href="#flash" class="btn-primary">Flash it now →</a>
+  <section class="home-section home-start home-privacy">
+    <div class="home-section-inner">
+      <div class="home-privacy-grid">
+        <div class="home-privacy-copy">
+          <span class="home-kicker">PRIVATE BY DESIGN</span>
+          <h2>Motion sensing without cameras or microphones.</h2>
+          <p>ESPectre reads changes in the Wi-Fi channel. It does not capture images, record sound, or need a person to carry a device.</p>
+          <a href="/guides/detection/" class="home-text-link">See how Wi-Fi sensing works →</a>
         </div>
-      </div>
-      <div class="audience-card audience-card-inverse">
-        <div class="eyebrow">For your product</div>
-        <h2>Your firmware + ESPectre SDK = a motion sensor.</h2>
-        <p>Embed ESPectre into Wi-Fi products with reusable C++ layers and reference frontends. Future OEM paths, including a TuyaOpen/TuyaOS reference integration, are under evaluation.</p>
-        <div class="spec-line">Commercial licensing available</div>
-        <div class="card-cta">
-          <a href="#docs" class="btn-outline-inverse">Explore the SDK →</a>
+        <div class="home-privacy-points">
+          <article><span>01</span><div><h3>Nothing to watch or listen to</h3><p>The sensor measures radio-channel variation instead of collecting audiovisual content.</p></div></article>
+          <article><span>02</span><div><h3>Detection happens on-device</h3><p>Normal sensing frontends publish derived motion state and telemetry, not raw CSI.</p></div></article>
+          <article><span>03</span><div><h3>Raw collection is explicit</h3><p>CSI leaves the device only when you deliberately run the separate Streamer workflow.</p></div></article>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="band band-surface" id="how-it-works">
-    <div class="band-inner">
-      <h2 class="section-title">How it works</h2>
-      <p class="section-sub">Wi-Fi signals bounce around a room. When someone moves, the reflections change. ESPectre measures that.</p>
-      <div class="steps">
-        <div class="step">
-          <div class="step-num">01</div>
-          <h3>Flash an ESP32</h3>
-          <p>Plug the board into USB and install the firmware right here — no toolchain, no downloads.</p>
-        </div>
-        <div class="step">
-          <div class="step-num">02</div>
-          <h3>It reads the channel</h3>
-          <p>The device samples Channel State Information (CSI) and turns tiny radio changes into a motion score, on-device.</p>
-        </div>
-        <div class="step">
-          <div class="step-num">03</div>
-          <h3>It publishes events</h3>
-          <p>That score becomes a sensor your home already understands. Motion in, automation out.</p>
-        </div>
+  <section class="home-section">
+    <div class="home-section-inner">
+      <div class="home-section-head">
+        <span class="home-kicker">START HERE</span>
+        <h2>Start with a sensor, or build with the SDK.</h2>
+        <p>Flash a board, try the Native firmware live over Bluetooth, or add the sensing engine to a product you already build.</p>
       </div>
 
-      <div class="integrations">
-        <div class="integrations-title">Works with</div>
-        <div class="integration-chips">
-          <span class="integration-chip">Home Assistant <span class="proto proto-accent">ESPHOME / MQTT DISCOVERY</span></span>
-          <span class="integration-chip">Apple Home <span class="proto">MATTER · LIMITED VALIDATION</span></span>
-          <span class="integration-chip">Google Home <span class="proto">MATTER · LIMITED VALIDATION</span></span>
-          <span class="integration-chip">Alexa <span class="proto">MATTER · LIMITED VALIDATION</span></span>
-          <span class="integration-chip">SmartThings <span class="proto">MATTER VALIDATION</span></span>
-          <span class="integration-chip">Native app <span class="proto">BLE / MQTT</span></span>
-        </div>
-        <div class="integrations-planned">
-          <span class="integrations-planned-label">Under evaluation</span>
-          <span>Tuya app via Matter</span>
-          <span>TuyaOpen / TuyaOS products</span>
-          <span>Zigbee</span>
-          <a href="/roadmap/">View roadmap →</a>
-        </div>
-      </div>
-    </div>
-  </section>
+      <div class="home-path-grid">
+        <article class="home-path home-path-primary">
+          <div class="home-path-top"><span>01</span><span class="home-state">No code</span></div>
+          <h3>Turn an ESP32 into a sensor.</h3>
+          <p>Install ESPHome, Native, or Matter firmware from the browser, connect it to Wi-Fi, and start publishing motion.</p>
+          <ul>
+            <li>One supported ESP32 board</li>
+            <li>Your existing Wi-Fi network</li>
+            <li>No local development environment</li>
+          </ul>
+          <a href="#flash" class="btn-primary">Flash a board →</a>
+        </article>
 
-  <section class="band">
-    <div class="band-inner">
-      <h2 class="section-title">What you get either way</h2>
-      <p class="section-sub">The same two guarantees hold whether you flash a board tonight or ship ESPectre inside a product.</p>
-      <div class="values">
-        <div>
-          <h3>Private by physics</h3>
-          <p>There is nothing to record. The device measures how the radio channel changes, computes the motion score itself, and publishes only that score — the raw CSI stays on the device.</p>
-        </div>
-        <div>
-          <h3>Open source, all the way down</h3>
-          <p>Firmware, the shared C++ core, and the tooling are open source on <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener">GitHub</a> under GPLv3. Building a commercial product? A separate commercial license is available.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="band">
-    <div class="band-inner">
-      <div class="demo-card">
-        <div class="demo-copy">
-          <h2>See it sense you — right now</h2>
-          <p>Connect your ESPectre over Bluetooth once, and the connection follows you across every tool on this site. Wave a hand: the bar moves.</p>
-        </div>
-        <div class="demo-live">
-          <div class="js-demo-connected" hidden>
-            <div class="demo-meter-head"><span class="mono js-device-name">ESPectre</span><span class="mono js-motion-label">quiet</span></div>
-            <div class="meter meter-lg"><span class="js-energy-fill"></span></div>
-            <div class="demo-try">Try the <a href="#theremin">Theremin</a> or the <a href="#game">Game →</a></div>
+        <article class="home-path home-path-live">
+          <div class="home-path-top"><span>02</span><span class="home-state">Native + BLE</span></div>
+          <h3>Try your sensor live.</h3>
+          <p>After installing the Native firmware, connect the board over Bluetooth and watch its motion score react in your browser.</p>
+          <div class="demo-live">
+            <div class="js-demo-connected" hidden>
+              <div class="demo-meter-head"><span class="mono js-device-name">ESPectre</span><span class="mono js-motion-label">quiet</span></div>
+              <div class="meter meter-lg"><span class="js-energy-fill"></span></div>
+              <div class="demo-try">Continue with the <a href="#theremin">Theremin</a> or the <a href="#game">Game →</a></div>
+            </div>
+            <button class="demo-connect js-connect js-demo-disconnected">Connect your Native device</button>
           </div>
-          <button class="demo-connect js-connect js-demo-disconnected">Connect a device to try the live demo</button>
-        </div>
+        </article>
+
+        <article class="home-path">
+          <div class="home-path-top"><span>03</span><span class="home-state">C++ SDK</span></div>
+          <h3>Embed sensing in your product.</h3>
+          <p>Reuse the C++ core and ESP-IDF runtime while your firmware keeps ownership of boot, networking, UI, and product behavior.</p>
+          <ul>
+            <li>ESP-IDF 5.1+ and C++17</li>
+            <li>Reference frontends and public runtime contracts</li>
+            <li>GPLv3 or separate commercial licensing</li>
+          </ul>
+          <a href="#docs" class="btn-secondary">Explore the SDK →</a>
+        </article>
       </div>
     </div>
   </section>
