@@ -154,9 +154,9 @@ PAGES = (
         "output": "roadmap",
         "title": "Roadmap | ESPectre",
         "description": (
-            "ESPectre plans for integrations, embedded products, presence, "
-            "breathing and gesture research, web orchestration, and future "
-            "Wi-Fi Sensing hardware."
+            "ESPectre product direction after v3.0: easier adoption, optional "
+            "multi-device orchestration, sensing research, and future "
+            "standards-backed Wi-Fi Sensing hardware."
         ),
         "active_nav": "roadmap",
     },

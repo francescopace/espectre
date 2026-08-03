@@ -9,21 +9,21 @@ live in their owning feature, dataset, and performance documents.
 
 | Milestone  | Target        | Status      | Outcome                                                                                                                                                        |
 | ---------- | ------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **v3.0.0** | August 2026   | In progress | Release the modular sensing platform with shared runtime layers, stable protocol services, multiple firmware frontends, and validated Classic and ML detectors |
-| **v3.x**   | After v3.0.0  | Planned     | Improve developer workflows, integrations, hardware coverage, and sensing performance without delaying the v3.0 platform baseline                              |
+| **v3.0.0** | August 2026   | Released    | Modular sensing platform with shared runtime layers, stable protocol services, multiple firmware frontends, and validated Classic and ML detectors         |
+| **v3.x**   | After v3.0.0  | In progress | Improve developer workflows, integrations, hardware coverage, and sensing performance without changing the v3.0 platform baseline                              |
 | **v4.x**   | December 2026 | Planned     | Add an optional privacy-first web orchestration layer for onboarding, multi-node visibility, management, history, and alerting                                 |
 | **v5.x**   | Future        | Exploratory | Adopt practical IEEE 802.11bf / Wi-Fi Sensing hardware through the existing runtime and protocol architecture when embedded vendor APIs become available       |
 
 
 
 
-## v3.0.0 - Modular Sensing Platform
+## v3.0.0 - Released Platform Baseline
 
-**Goal**: release a reusable Wi-Fi sensing platform with shared sensing logic,
+**Outcome**: a reusable Wi-Fi sensing platform with shared sensing logic,
 a stable runtime contract, multiple frontend paths, and an embeddable foundation
 for custom firmware and OEM products.
 
-### Current Baseline
+### Shipped Baseline
 
 
 | Area              | State                        | Current outcome                                                                                                                                             |
@@ -31,33 +31,32 @@ for custom firmware and OEM products.
 | **Architecture**  | Ready                        | Shared `core`, `runtime`, ESP-IDF services, and frontend adapters are split, reviewed, and documented                                                       |
 | **Frontends**     | Ready with limits            | ESPHome has the most complete Home Assistant surface; Native MQTT Discovery, optional Micro-ESPectre discovery, and Streamer are available; Matter occupancy has limited controller validation |
 | **Protocol**      | Ready                        | BLE and MQTT provisioning, telemetry, status, info, commands, and reusable protocol services are documented in [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) |
-| **Detection**     | Ready pending final evidence | Current C++ and Python real-data, long-recording, low-RSSI, packet-rate, and parity gates pass across the maintained corpus                                 |
+| **Detection**     | Released baseline            | C++ and Python real-data, long-recording, low-RSSI, packet-rate, and parity gates pass across the maintained release corpus                               |
 | **Documentation** | Ready                        | Setup, architecture, protocol, tuning, performance, and frontend workflows describe the current v3 surface                                                  |
 
 
 Completed implementation and review work is recorded in
 [CHANGELOG.md](CHANGELOG.md) and the dated documents under `docs/review/`.
 
-### v3.0.0 Release Gate
+## v3.x - Product Quality and Reach
 
-Every open item in this section blocks the `v3.0.0` tag unless it is explicitly
-moved to the post-release v3.x backlog.
+Version 3.0 is the released platform baseline. The remaining work strengthens
+evidence, developer workflows, integrations, and hardware coverage without
+changing that baseline.
 
-#### Detector Release Evidence
+### Detector Evidence
 
 - [ ] Complete ClassicDetector and MLDetector tuning
 - [ ] Complete the remaining Classic replay-cache migration by replacing the
   packet-summary `detector_replay` cache with the canonical time-aware path,
   and close the row-versus-packet parity evidence for native, high-rate, and
   decimated streams before retiring `detector_replay`
-- [ ] Decide and document the `v3.0.0` validation claim for the original ESP32.
-  If full cross-environment support is part of the release claim, complete the
-  missing collection, retraining, and validation before tagging; otherwise move
-  the expanded ESP32 corpus to the v3.x validation backlog
+- [ ] Expand the original ESP32 corpus across environments, retrain where the
+  evidence requires it, and document the broader v3.x validation claim
 
 
 
-#### Product Surface
+### Product Surface
 
 - [x] Allow the Native BLE control surface to set the runtime
   `motion_on_hits` and `motion_off_hits` thresholds
@@ -74,28 +73,24 @@ moved to the post-release v3.x backlog.
 - [x] Review the embeddable `C++` SDK API and documentation, and align the
   published integration surface with standard `C++` SDK conventions where
   practical
-- [ ] Move esphome examples in esphome frontend
+- [ ] Move the ESPHome examples into the ESPHome frontend
 
 
 
-#### Release Assurance
+### Release Follow-Through
 
-- [ ] Complete the doc review.
-- [ ] Complete the security review.
-- [ ] Complete the code review.
-- [ ] Complete Google Analytics review.
+- [ ] Complete the remaining documentation review of the released baseline.
+- [ ] Complete the remaining security review of the released baseline.
+- [ ] Complete the remaining code review of the released baseline.
+- [ ] Complete the Google Analytics review.
 - [ ] Refresh the Home Assistant screenshots used by the documentation and
   website, replacing the current gauge with a suitable visualization
-- [ ] Finalize release notes and verify the complete binary artifact checklist
+- [ ] Audit the published release notes and complete binary artifact set
 - [ ] Re-enable the `CLA Signature Check` as a required status check for
   `develop`
 - [ ] Test the GitHub issue and pull request templates end to end
 
 
-
-## v3.x - Post-Release Outcomes
-
-These outcomes belong to the v3 series but do not block `v3.0.0`.
 
 ### Developer Experience and Distribution
 
@@ -139,11 +134,6 @@ These outcomes belong to the v3 series but do not block `v3.0.0`.
   information does not depend on decimation as a permanent mitigation
 - [ ] Evaluate broader PHY and band support, including Wi-Fi 6 / 802.11ax
   capabilities and 5 GHz operation where hardware and exposed APIs support it
-- [ ] Expand the original ESP32 corpus across dataset environments if that work
-  is not retained as a `v3.0.0` release gate
-
-
-
 ## Sensing Research
 
 Research outcomes are not release promises. A measured rejection or deferral is
