@@ -78,6 +78,9 @@ tools/benchmark_firmware.local.env
 # Documentation
 .papers/
 
+# Generated SDK API reference (doxygen docs/Doxyfile)
+output/api/
+
 # Local web flasher staging
 tmp/
 docs/web/flash/firmware/*/firmware-manifest-*.json

@@ -77,6 +77,7 @@ public:
      * @param csi_len Length of CSI data
      * @param selected_subcarriers Array of subcarrier indices
      * @param num_subcarriers Number of selected subcarriers
+     * @param rssi_dbm Link RSSI for this packet, or INT8_MIN when unknown
      */
     virtual void process_packet(const int8_t* csi_data, size_t csi_len,
                                 const uint8_t* selected_subcarriers = nullptr,

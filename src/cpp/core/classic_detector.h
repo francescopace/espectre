@@ -49,6 +49,37 @@ constexpr uint8_t CLASSIC_SETTLE_BLOCKS = 12U;
 constexpr uint8_t CLASSIC_SETTLE_BLOCK_EVALUATIONS = 20U;
 constexpr float CLASSIC_SETTLE_MARGIN_LOGITS = 2.8f;
 
+/**
+ * The default detector: self-calibrating, no training data required.
+ *
+ * Fuses turbulence autocorrelation with channel frequency-coherence curve
+ * spread into a motion probability, and adapts its threshold to the room
+ * during startup calibration. Prefer it unless you have a reason to run
+ * `MLDetector`.
+ *
+ * Most integrations never construct one: `RuntimeConfig::detection_algorithm`
+ * selects it and the runtime owns the lifecycle. Drive it directly only on the
+ * core-only path, where your firmware already captures CSI:
+ *
+ * @code
+ * espectre::ClassicDetector detector;
+ * // per packet, from your capture callback:
+ * detector.process_packet(csi, csi_len, espectre::DEFAULT_SUBCARRIERS,
+ *                         espectre::HT20_SELECTED_BAND_SIZE, rssi_dbm);
+ * // on your evaluation cadence:
+ * detector.update_state();
+ * if (detector.is_ready() && detector.get_state() == espectre::MotionState::MOTION) { ... }
+ * @endcode
+ *
+ * `is_ready()` is false until the window fills; results before that are not
+ * meaningful. See `runtime/esp_idf/csi_pipeline.cpp` for the reference
+ * normalization, cadence, and hit filtering around these calls, and
+ * `docs/ALGORITHMS.md` for the algorithm itself.
+ *
+ * @par Threading
+ * Not thread-safe. `process_packet()` and `update_state()` must not run
+ * concurrently.
+ */
 class ClassicDetector : public BaseDetector {
  public:
   /**

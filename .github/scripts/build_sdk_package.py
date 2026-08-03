@@ -24,6 +24,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
 RUNTIME_PROTOCOL_HEADER = CPP_ROOT / "runtime" / "espectre_protocol.h"
+SDK_VERSION_HEADER = CPP_ROOT / "runtime" / "espectre_sdk_version.h"
 LIBRARY_MANIFEST = CPP_ROOT / "library.json"
 IDF_COMPONENT_MANIFEST = CPP_ROOT / "idf_component.yml"
 SDK_SUPPORTED_ESP_IDF = ">=5.1.0"
@@ -37,9 +38,11 @@ SDK_REQUIRED_PATHS = (
     Path("src/cpp/CMakeLists.txt"),
     Path("src/cpp/Kconfig.projbuild"),
     Path("src/cpp/idf_component.yml"),
+    Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
     Path("src/cpp/library.json"),
     Path("src/cpp/core/ml_weights.h"),
+    Path("src/cpp/runtime/espectre_sdk_version.h"),
     Path("src/cpp/runtime/espectre_protocol.h"),
     Path("src/cpp/runtime/esp_idf/runtime_sensing_kconfig.cpp"),
     Path("src/cpp/runtime/esp_idf/espectre_config/CMakeLists.txt"),
@@ -54,6 +57,7 @@ SDK_TOP_LEVEL_FILES = (
     Path("src/cpp/CMakeLists.txt"),
     Path("src/cpp/Kconfig.projbuild"),
     Path("src/cpp/idf_component.yml"),
+    Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
     Path("src/cpp/library.json"),
     Path("LICENSE"),
@@ -91,6 +95,40 @@ def detect_protocol_version() -> str:
     )
     if not match:
         raise ValueError("Unable to detect ESPECTRE_PROTOCOL_VERSION")
+    return match.group(1)
+
+
+def detect_sdk_version() -> str:
+    """Read the compile-time SDK version integrators can guard against."""
+    source = SDK_VERSION_HEADER.read_text(encoding="utf-8")
+    match = re.search(r'#define\s+ESPECTRE_SDK_VERSION_STRING\s+"([^"]+)"', source)
+    if not match:
+        raise ValueError("Unable to detect ESPECTRE_SDK_VERSION_STRING")
+    version_string = match.group(1)
+
+    components = {}
+    for name in ("MAJOR", "MINOR", "PATCH"):
+        component = re.search(rf"#define\s+ESPECTRE_SDK_VERSION_{name}\s+(\d+)", source)
+        if not component:
+            raise ValueError(f"Unable to detect ESPECTRE_SDK_VERSION_{name}")
+        components[name] = component.group(1)
+
+    expected = f"{components['MAJOR']}.{components['MINOR']}.{components['PATCH']}"
+    if expected != version_string:
+        raise ValueError(
+            f"ESPECTRE_SDK_VERSION_STRING is {version_string!r} but the numeric macros say {expected!r}"
+        )
+    return version_string
+
+
+def idf_component_manifest_version() -> str:
+    match = re.search(
+        r'^version:\s*"?([^"\s]+)"?\s*$',
+        IDF_COMPONENT_MANIFEST.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if not match:
+        raise ValueError("Unable to detect the ESP-IDF component manifest version")
     return match.group(1)
 
 
@@ -139,6 +177,23 @@ def validate_layout(bundle_files: list[Path], library_manifest: dict) -> None:
     src_filter = library_manifest.get("build", {}).get("srcFilter", [])
     if "+<runtime/esp_idf/runtime_sensing_kconfig.cpp>" not in src_filter:
         raise ValueError("PlatformIO manifest is missing runtime_sensing_kconfig.cpp")
+
+    build_flags = library_manifest.get("build", {}).get("flags", [])
+    if "-I." not in build_flags:
+        raise ValueError("PlatformIO manifest does not expose the SDK root include dir")
+
+    # The compile-time macros integrators guard against are only useful if they
+    # agree with the package metadata a dependency manager resolves.
+    sdk_version = detect_sdk_version()
+    manifest_versions = {
+        "src/cpp/library.json": str(library_manifest["version"]),
+        "src/cpp/idf_component.yml": idf_component_manifest_version(),
+    }
+    mismatched = {path: value for path, value in manifest_versions.items() if value != sdk_version}
+    if mismatched:
+        raise ValueError(
+            f"ESPECTRE_SDK_VERSION_STRING is {sdk_version!r} but packaging metadata disagrees: {mismatched}"
+        )
 
 
 def stamp_library_manifest(path: Path, sdk_package_version: str) -> dict:
@@ -218,6 +273,7 @@ def build_manifest(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "commit": commit,
         "protocol_version": detect_protocol_version(),
+        "sdk_version": detect_sdk_version(),
         "supported_esp_idf": SDK_SUPPORTED_ESP_IDF,
         "bundle": {
             "root_dir": bundle_root,

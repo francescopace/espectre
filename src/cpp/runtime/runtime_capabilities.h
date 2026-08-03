@@ -24,12 +24,29 @@ namespace espectre {
  * characteristic is the frontend's own business, and only Native forwards it.
  */
 struct RuntimeCapabilities {
+  /** `set_threshold_runtime()` is honored. */
   bool supports_runtime_threshold_updates{false};
+  /** `set_motion_hits_runtime()` is honored; otherwise the controller refuses it. */
   bool supports_runtime_motion_hits_updates{false};
+  /**
+   * `set_detection_algorithm_runtime()` is honored.
+   *
+   * Driven by `RuntimeConfig::runtime_detector_selection_enabled`, since
+   * switching detectors also means persisting and restoring the choice.
+   */
   bool supports_runtime_detector_selection{false};
+  /** `trigger_recalibration()` is honored; otherwise the controller refuses it. */
   bool supports_manual_recalibration{false};
+  /**
+   * The runtime drives `IRuntimeListener::on_live_telemetry()` at all.
+   *
+   * Whether that reaches a BLE characteristic is the frontend's business; only
+   * Native forwards it today.
+   */
   bool supports_ble_telemetry{false};
+  /** The runtime reports the extended diagnostics block used by stats payloads. */
   bool supports_extended_diagnostics{false};
+  /** The runtime owns CSI traffic generation and can be asked to retune it. */
   bool supports_traffic_control{false};
 };
 

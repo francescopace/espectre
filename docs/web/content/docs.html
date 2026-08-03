@@ -16,6 +16,21 @@ idf_component_register(
 )
 
 <span class="c">// add optional source groups for BLE, MQTT, provisioning, or OTA as needed</span></pre></div>
+  <div class="code-block"><pre><span class="c">// main.cpp - one include reaches the whole supported surface</span>
+<span class="k">#include</span> <span class="s">"espectre_sdk.h"</span>
+
+<span class="k">class</span> <span class="nc">ProductFrontend</span> : <span class="k">public</span> espectre::IRuntimeListener {
+ <span class="k">public</span>:
+  <span class="k">bool</span> setup() { runtime_.set_config(espectre::RuntimeConfig{}); <span class="k">return</span> runtime_.setup(<span class="k">this</span>); }
+  <span class="k">void</span> loop() { runtime_.loop(); }
+
+  <span class="k">void</span> on_motion_state_changed(<span class="k">const</span> espectre::RuntimeSnapshot&amp; s) <span class="k">override</span> {
+    <span class="k">if</span> (s.ready_to_publish) publish(s.motion_state);
+  }
+
+ <span class="k">private</span>:
+  espectre::RuntimeFrontendController runtime_;
+};</pre></div>
   <div class="doc-links">
     <a href="/docs/api/" class="doc-link"><div class="doc-link-title">API reference -&gt;</div><div class="doc-link-sub">Real contracts: <code>RuntimeFrontendController</code>, <code>IEspectreRuntime</code>, listeners, snapshots, and capabilities.</div></a>
     <a href="/docs/examples/" class="doc-link"><div class="doc-link-title">Examples -&gt;</div><div class="doc-link-sub">Reference integration patterns derived from the shipped Native, Matter, and Streamer frontends.</div></a>

@@ -1,1 +1,55 @@
 rsource "runtime/esp_idf/espectre_config/Kconfig.projbuild"
+
+menu "ESPectre SDK"
+
+comment "Optional runtime capabilities. The sensing runtime is always built."
+
+config ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT
+    bool "Build the frontend support helpers"
+    default n
+    help
+        Shared bootstrap, control, sysinfo, and MQTT payload helpers used by
+        the reference frontends. Enable it if your integration reuses them
+        instead of wiring the runtime contracts yourself.
+
+config ESPECTRE_SDK_ENABLE_MQTT
+    bool "Build the ESP-IDF MQTT transport"
+    default n
+    help
+        Adds EspIdfMqttTransport, the shipped IMqttTransport implementation
+        over esp-mqtt. Leave it off if you implement IMqttTransport against
+        your own client.
+
+config ESPECTRE_SDK_ENABLE_BLE
+    bool "Build the NimBLE bindings"
+    default n
+    depends on BT_ENABLED
+    help
+        Adds NimbleBleBindings, the shipped IBleBindings implementation. It
+        needs Bluetooth enabled in the project. Without it, use
+        NoopBleBindings, which is header-only and always available.
+
+config ESPECTRE_SDK_ENABLE_PROVISIONING
+    bool "Build the Wi-Fi provisioning service"
+    default n
+    help
+        Adds the NVS-backed device config store and the Wi-Fi provisioning
+        service used to commission credentials over BLE.
+
+config ESPECTRE_SDK_ENABLE_OTA
+    bool "Build the HTTPS OTA service"
+    default n
+    help
+        Adds HttpsOtaService, which resolves a release manifest over HTTPS and
+        applies the image with esp_https_ota. Leave it off if your product
+        owns firmware updates.
+
+config ESPECTRE_SDK_ENABLE_STREAM_RUNTIME
+    bool "Build the CSI stream runtime"
+    default n
+    help
+        Adds the RuntimeProfile::STREAM backend, which ships raw CSI to a host
+        collector instead of detecting on-device. Intended for dataset
+        collection. Without it, a STREAM profile fails at setup().
+
+endmenu

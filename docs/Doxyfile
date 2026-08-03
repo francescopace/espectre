@@ -1,0 +1,85 @@
+# ESPectre - Doxygen configuration for the embeddable C++ SDK
+#
+# Generates a browsable reference for the supported integration surface only.
+# Internal headers are excluded on purpose: shipping them in the reference
+# would present the whole bundle as public API, which is the opposite of the
+# stability tiers documented in docs/EMBEDDING.md.
+#
+# Usage, from the repository root:
+#   doxygen docs/Doxyfile
+#
+# Output is written to output/api/ and is not committed.
+
+PROJECT_NAME           = "ESPectre SDK"
+PROJECT_BRIEF          = "Wi-Fi CSI motion sensing for ESP32 firmware"
+PROJECT_NUMBER         = 3.0.0
+
+OUTPUT_DIRECTORY       = output/api
+CREATE_SUBDIRS         = NO
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+
+# The landing page lives in espectre_sdk.h itself, so the entry point of the
+# reference is the entry point of the code. docs/EMBEDDING.md is deliberately
+# not an input: its links are repository-relative and only resolve on GitHub.
+INPUT                  = src/cpp/espectre_sdk.h \
+                         src/cpp/runtime/espectre_sdk_version.h \
+                         src/cpp/runtime/runtime_interface.h \
+                         src/cpp/runtime/runtime_events.h \
+                         src/cpp/runtime/runtime_snapshot.h \
+                         src/cpp/runtime/runtime_capabilities.h \
+                         src/cpp/runtime/runtime_sensing_schema.h \
+                         src/cpp/runtime/runtime_config_utils.h \
+                         src/cpp/runtime/csi_traffic_types.h \
+                         src/cpp/runtime/espectre_protocol.h \
+                         src/cpp/runtime/mqtt_transport.h \
+                         src/cpp/runtime/ble_bindings.h \
+                         src/cpp/runtime/ble_protocol.h \
+                         src/cpp/runtime/ota_service.h \
+                         src/cpp/runtime/firmware_version.h \
+                         src/cpp/runtime/esp_idf/runtime_frontend_controller.h \
+                         src/cpp/runtime/esp_idf/runtime_sensing_kconfig.h \
+                         src/cpp/core/base_detector.h \
+                         src/cpp/core/classic_detector.h \
+                         src/cpp/core/ml_detector.h \
+                         src/cpp/core/csi_format.h \
+                         src/cpp/core/detector_limits.h
+
+FILE_PATTERNS          = *.h
+RECURSIVE              = NO
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+
+JAVADOC_AUTOBRIEF      = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+SORT_MEMBER_DOCS       = NO
+SORT_BRIEF_DOCS        = NO
+
+# Members are documented in a deliberate reading order, and the source view is
+# where an integrator checks an assumption the prose did not answer.
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = NO
+
+# The reference is only useful if it is complete, so an undocumented member on
+# the supported surface is a build failure rather than a silent gap.
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = NO
+
+QUIET                  = YES
+
+# Host builds and ESP-IDF builds see different declarations; document the
+# ESP-IDF view, which is the one integrators ship.
+PREDEFINED             = ESP_PLATFORM=1 \
+                         ESPECTRE_ENABLE_STREAM_RUNTIME=1
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES

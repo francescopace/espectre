@@ -6,6 +6,7 @@ target_include_directories(espectre_test_mocks
         "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf"
         "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esphome"
         "${CMAKE_CURRENT_SOURCE_DIR}/support"
+        "${ESPECTRE_CPP_ROOT}"
         "${ESPECTRE_CPP_ROOT}/core"
         "${ESPECTRE_CPP_ROOT}/runtime"
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf"

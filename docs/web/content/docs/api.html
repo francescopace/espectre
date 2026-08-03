@@ -1,11 +1,10 @@
 <article class="article">
   <span class="guide-tag">SDK · API</span>
   <h1>API reference</h1>
-  <p class="article-lead">The current embedding surface is the shared runtime contract, not a single <code>Sensor</code> class. Most firmware integrations should reuse <code>RuntimeFrontendController</code>, implement <code>IRuntimeListener</code>, and feed product behavior from <code>RuntimeSnapshot</code>.</p>
+  <p class="article-lead">The embedding surface is the shared runtime contract, not a single <code>Sensor</code> class. Most firmware integrations include <code>espectre_sdk.h</code>, reuse <code>RuntimeFrontendController</code>, implement <code>IRuntimeListener</code>, and feed product behavior from <code>RuntimeSnapshot</code>.</p>
 
   <h2>Recommended integration surface</h2>
-  <pre class="code"><code><span class="k">#include</span> <span class="s">"runtime_frontend_controller.h"</span>
-<span class="k">#include</span> <span class="s">"runtime_events.h"</span>
+  <pre class="code"><code><span class="k">#include</span> <span class="s">"espectre_sdk.h"</span>
 
 <span class="k">class</span> <span class="nc">ProductFrontend</span> : <span class="k">public</span> espectre::IRuntimeListener {
  <span class="k">public</span>:
@@ -38,6 +37,12 @@
       <tr><td><code>RuntimeFrontendController::capabilities()</code></td><td>Returns the discovered runtime capabilities so frontends can expose only supported controls.</td></tr>
     </tbody>
   </table></div>
+
+  <div class="note"><strong>Three rules cover most integration mistakes.</strong> Gate everything user-visible on <code>snapshot.ready_to_publish</code>, because the runtime emits snapshots while it calibrates. Run <code>setup()</code>, <code>loop()</code>, and <code>shutdown()</code> on one task. Ask <code>capabilities()</code> before exposing a control instead of assuming the active runtime supports it.</div>
+
+  <h2>Threading contract</h2>
+  <p>The runtime carries no internal locking, and every <code>IRuntimeListener</code> callback is delivered on the caller's task: from <code>loop()</code> for sensing events, or inline on the task that invoked a control method. Work raised in the Wi-Fi CSI callback is deferred through an internal mailbox first, so no listener callback runs in interrupt or Wi-Fi driver context. Because callbacks run on your own task, blocking in them is allowed: publishing over MQTT or writing NVS costs loop latency, not CSI frames.</p>
+  <p>The transport seams follow their own stack instead. <code>IOtaService</code> callbacks arrive on the OTA worker task, and <code>IBleBindings</code> callbacks on the BLE host task; each header states its own contract.</p>
 
   <h2>Listener callbacks</h2>
   <pre class="code"><code><span class="k">void</span> on_motion_state_changed(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot) <span class="k">override</span>;
@@ -84,10 +89,23 @@
     <tbody>
       <tr><td>CMake / ESP-IDF</td><td>Include <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/espectre_sources.cmake" target="_blank" rel="noopener"><code>src/cpp/espectre_sources.cmake</code></a>, then add <code>ESPECTRE_CORE_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_SOURCES</code>, and any needed feature groups such as <code>ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES</code>, or <code>ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES</code>, plus <code>ESPECTRE_SHARED_INCLUDE_DIRS</code>.</td></tr>
       <tr><td>PlatformIO</td><td>Reuse the packaged source filter defined in <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/library.json" target="_blank" rel="noopener"><code>src/cpp/library.json</code></a>.</td></tr>
-      <tr><td>ESP-IDF component layout</td><td>The bundle now includes a component-shaped <code>src/cpp/</code> root with <code>CMakeLists.txt</code>, <code>idf_component.yml</code>, and <code>Kconfig.projbuild</code> for vendored component-style integration.</td></tr>
+      <tr><td>ESP-IDF component layout</td><td>Drop <code>src/cpp/</code> into your project's <code>components/</code> directory and add <code>espectre</code> to your own <code>REQUIRES</code>. The sensing runtime is always built; MQTT, BLE, provisioning, OTA, and the stream runtime are opt-in under the "ESPectre SDK" menuconfig menu.</td></tr>
       <tr><td>Core-only reuse</td><td>Consume the detector layer directly, and use <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/runtime/esp_idf/csi_pipeline.cpp" target="_blank" rel="noopener"><code>runtime/esp_idf/csi_pipeline.cpp</code></a> as the normalization and evaluation reference.</td></tr>
     </tbody>
   </table></div>
+  <p><code>ESPECTRE_SHARED_INCLUDE_DIRS</code> puts the SDK root on the include path, so both the flat form (<code>#include "runtime_interface.h"</code>) and the layer-prefixed form (<code>#include "runtime/runtime_interface.h"</code>) work. Prefer the prefixed form: the shared tree contains generic basenames such as <code>utils.h</code>, and the prefix keeps them from colliding with headers of your own.</p>
+
+  <h2>Versioning and stability</h2>
+  <p>Everything reachable from <code>espectre_sdk.h</code> is the supported surface and follows the SDK version contract. Every other header ships because the runtime needs it to compile and may change in any release.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Identifier</th><th>What it versions</th></tr></thead>
+    <tbody>
+      <tr><td><code>ESPECTRE_SDK_VERSION_STRING</code></td><td>The ESPectre sources you compiled against. Guard code with <code>ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)</code>.</td></tr>
+      <tr><td><code>espectre_firmware_version()</code></td><td>Your application version, supplied by your build system. This is what the protocol reports and what OTA compares against.</td></tr>
+      <tr><td><code>ESPECTRE_PROTOCOL_VERSION</code></td><td>The MQTT and BLE wire format.</td></tr>
+    </tbody>
+  </table></div>
+  <p>The headers carry Doxygen-compatible documentation. Generate a browsable reference for the supported surface with <code>doxygen docs/Doxyfile</code>.</p>
   <div class="note">Use <a href="/sdk/stable/"><code>stable</code></a> for the current release bundle, <a href="/sdk/main/"><code>snapshot</code></a> for the rolling <code>main</code> preview, and <a href="https://github.com/francescopace/espectre/releases/tag/snapshot-dev" target="_blank" rel="noopener"><code>snapshot-dev</code></a> when you need the <code>develop</code> prerelease. For the full integration guide, use <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">EMBEDDING.md</a>.</div>
 
   <div class="article-nav">

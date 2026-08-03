@@ -105,6 +105,14 @@ set(ESPECTRE_FRONTEND_STREAMER_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/streamer_frontend.cpp"
 )
 
+# SDK root. Exposes the `espectre_sdk.h` facade and lets integrators use
+# layer-prefixed includes such as "runtime/runtime_interface.h" instead of the
+# flat header names, which is what keeps generic basenames like `utils.h` from
+# colliding with the consuming project.
+set(ESPECTRE_SDK_ROOT_INCLUDE_DIRS
+    "${ESPECTRE_CPP_ROOT}"
+)
+
 set(ESPECTRE_CORE_INCLUDE_DIRS
     "${ESPECTRE_CPP_ROOT}/core"
 )
@@ -116,6 +124,7 @@ set(ESPECTRE_RUNTIME_INCLUDE_DIRS
 )
 
 set(ESPECTRE_SHARED_INCLUDE_DIRS
+    ${ESPECTRE_SDK_ROOT_INCLUDE_DIRS}
     ${ESPECTRE_CORE_INCLUDE_DIRS}
     ${ESPECTRE_RUNTIME_INCLUDE_DIRS}
 )

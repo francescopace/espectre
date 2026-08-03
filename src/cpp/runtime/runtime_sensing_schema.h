@@ -17,20 +17,49 @@
 #include "ml_detector.h"
 #include "threshold.h"
 
+/**
+ * @file runtime_sensing_schema.h
+ * @brief The schema behind `RuntimeConfig`: enums, defaults, and valid ranges.
+ *
+ * This is the single source of truth for what a sensing configuration may
+ * contain. Every tunable is declared as a `RUNTIME_<FIELD>_DEFAULT` plus, where
+ * a range applies, `_MIN` and `_MAX`. Read them instead of hardcoding limits,
+ * so a UI, a provisioning flow, or a config parser stays correct across SDK
+ * releases.
+ *
+ * The `static_assert` block at the end holds these values in lockstep with the
+ * detector and filter constants they mirror, so a drift between the runtime
+ * schema and `core/` fails the build rather than the device.
+ */
+
 namespace espectre {
 
+/** Which detector runs. See `docs/ALGORITHMS.md` for how they differ. */
 enum class DetectionAlgorithm {
+  /** Self-calibrating feature fusion. No training data needed. Default. */
   CLASSIC,
+  /** Neural detector using the trained weights in `core/ml_weights.h`. */
   ML,
 };
 
+/** Which runtime backend the controller builds. */
 enum class RuntimeProfile {
+  /** Detect motion on-device and report state. The normal profile. */
   SENSING,
+  /**
+   * Ship raw CSI to a host collector instead of detecting.
+   *
+   * For dataset collection and offline analysis. Requires a build with the
+   * stream runtime compiled in; `setup()` fails otherwise.
+   */
   STREAM,
 };
 
+/** Which packet the internal generator sends to solicit CSI from the AP. */
 enum class RuntimeTrafficMode {
+  /** DNS queries. Useful where ICMP is filtered. */
   DNS,
+  /** ICMP echo. Default. */
   PING,
 };
 

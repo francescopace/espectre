@@ -20,8 +20,12 @@ endchoice
 
 config ESPECTRE_SEGMENTATION_WINDOW_SIZE
     int "Segmentation window size"
-    range 10 200
+    range 100 200
     default 100
+    help
+        Detector window in packets. Below 100 the window features get too
+        noisy to separate motion from the quiet floor, so the runtime rejects
+        smaller values and falls back to the default.
 
 config ESPECTRE_TRAFFIC_GENERATOR_RATE
     int "Target valid CSI rate (pps)"

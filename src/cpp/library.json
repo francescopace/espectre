@@ -1,7 +1,7 @@
 {
   "name": "espectre-shared",
   "version": "3.0.0",
-  "description": "ESPectre shared core and ESP-IDF runtime",
+  "description": "ESPectre shared core and ESP-IDF runtime. Dual-licensed: GPL-3.0-only, or a commercial license for proprietary firmware.",
   "keywords": ["csi", "motion", "detection", "esp32"],
   "authors": [
     {
@@ -9,11 +9,17 @@
       "email": "francesco.pace@gmail.com"
     }
   ],
-  "license": "GPL-3.0",
+  "license": "GPL-3.0-only",
+  "homepage": "https://espectre.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/francescopace/espectre.git"
+  },
   "frameworks": "*",
   "platforms": "*",
   "build": {
     "flags": [
+      "-I.",
       "-Icore",
       "-Iruntime",
       "-Iruntime/esp_idf"

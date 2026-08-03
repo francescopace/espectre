@@ -71,7 +71,7 @@ moved to the post-release v3.x backlog.
 - [x] Add direct Home Assistant integration over MQTT with MQTT Discovery for
   the Native frontend and Micro-ESPectre, while preserving the canonical
   ESPectre MQTT protocol
-- [ ] Review the embeddable `C++` SDK API and documentation, and align the
+- [x] Review the embeddable `C++` SDK API and documentation, and align the
   published integration surface with standard `C++` SDK conventions where
   practical
 - [ ] Move esphome examples in esphome frontend
