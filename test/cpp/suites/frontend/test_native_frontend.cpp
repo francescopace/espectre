@@ -538,11 +538,26 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
   config.mqtt_host = "localhost";
+  frontend_runtime_shim::state.diagnostics.traffic_packets_total = 100U;
+  frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 100U;
+  frontend_runtime_shim::state.diagnostics.csi_accepted_total = 90U;
+  frontend_runtime_shim::state.diagnostics.csi_filtered_total = 10U;
 
   NativeFrontend frontend(&bindings, &mqtt);
   frontend.set_device_config(config);
   TEST_ASSERT_TRUE(frontend.setup());
+  const RuntimeDiagnosticsSnapshot diagnostics_baseline = frontend_runtime_shim::state.diagnostics;
+  const uint32_t diagnostics_baseline_ms = frontend.now_ms_();
+  frontend.diagnostics_sampler_.reset(diagnostics_baseline, diagnostics_baseline_ms);
+  frontend_runtime_shim::state.diagnostics.traffic_packets_total = 600U;
+  frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 580U;
+  frontend_runtime_shim::state.diagnostics.csi_accepted_total = 540U;
+  frontend_runtime_shim::state.diagnostics.csi_filtered_total = 40U;
+  frontend_runtime_shim::state.diagnostics.wifi_channel = 10U;
+  frontend_runtime_shim::state.diagnostics.wifi_rssi_dbm = -55;
   mqtt_transport_mock::state.publishes.clear();
+  frontend.sample_diagnostics_(diagnostics_baseline_ms + 5000U);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.empty());
 
   RuntimeSnapshot snapshot = make_ready_snapshot();
   frontend.on_motion_state_changed(snapshot);
@@ -562,6 +577,18 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"uptime\":") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"free_memory_kb\":") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"loop_time_ms\":") != std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"traffic_tx_pps\":100") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"csi_callback_pps\":96") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"csi_accepted_pps\":90") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"csi_filtered_pps\":6") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"wifi_channel\":10") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"wifi_rssi_dbm\":-55") !=
+                   std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"movement\":") == std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"threshold\":") == std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"state\":") == std::string::npos);

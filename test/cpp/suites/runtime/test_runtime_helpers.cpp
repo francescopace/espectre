@@ -184,7 +184,6 @@ void test_csi_capture_service_defers_channel_change_and_resets_session_baseline(
     TEST_ASSERT_EQUAL(1U, channel_change.callback_count);
     TEST_ASSERT_EQUAL(8U, channel_change.previous_channel);
     TEST_ASSERT_EQUAL(10U, channel_change.current_channel);
-    TEST_ASSERT_EQUAL(1U, service.channel_changes_total());
 
     TEST_ASSERT_EQUAL(ESP_OK, service.disable());
     TEST_ASSERT_EQUAL(ESP_OK, service.enable());
@@ -195,7 +194,6 @@ void test_csi_capture_service_defers_channel_change_and_resets_session_baseline(
 
     TEST_ASSERT_EQUAL(2U, packets.callback_count);
     TEST_ASSERT_EQUAL(1U, channel_change.callback_count);
-    TEST_ASSERT_EQUAL(1U, service.channel_changes_total());
 }
 
 void test_csi_format_classifier_rejects_ht40_before_normalization(void) {
@@ -362,6 +360,33 @@ void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {
     TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "startup_threshold=0.125000") != lines.end());
 }
 
+void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
+    RuntimeDiagnosticsSnapshot baseline;
+    baseline.traffic_packets_total = 100U;
+    baseline.csi_callbacks_total = 100U;
+    baseline.csi_accepted_total = 90U;
+    baseline.csi_filtered_total = 10U;
+
+    RuntimeDiagnosticsSampler sampler;
+    sampler.reset(baseline, 1000U);
+
+    RuntimeDiagnosticsSnapshot current = baseline;
+    current.traffic_packets_total = 600U;
+    current.csi_callbacks_total = 580U;
+    current.csi_accepted_total = 540U;
+    current.csi_filtered_total = 40U;
+    current.wifi_channel = 10U;
+    current.wifi_rssi_dbm = -55;
+
+    const RuntimeDiagnosticsSample sample = sampler.sample(current, 6000U);
+    TEST_ASSERT_EQUAL_FLOAT(100.0f, sample.traffic_tx_pps);
+    TEST_ASSERT_EQUAL_FLOAT(96.0f, sample.csi_callback_pps);
+    TEST_ASSERT_EQUAL_FLOAT(90.0f, sample.csi_accepted_pps);
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, sample.csi_filtered_pps);
+    TEST_ASSERT_EQUAL_UINT8(10U, sample.wifi_channel);
+    TEST_ASSERT_EQUAL_INT8(-55, sample.wifi_rssi_dbm);
+}
+
 void test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads(void) {
     MqttPayloadAssembler assembler;
 
@@ -400,6 +425,7 @@ int process(void) {
     RUN_TEST(test_csi_stream_transport_drops_stale_latest_sample);
     RUN_TEST(test_runtime_config_utils_validate_and_name_values);
     RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);
+    RUN_TEST(test_runtime_diagnostics_sampler_derives_five_second_rates);
     RUN_TEST(test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads);
     RUN_TEST(test_mqtt_payload_assembler_rejects_invalid_fragments);
     return UNITY_END();

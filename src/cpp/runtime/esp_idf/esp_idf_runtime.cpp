@@ -152,7 +152,6 @@ void EspIdfRuntime::loop() {
 
 RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   RuntimeDiagnosticsSnapshot diagnostics;
-#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
   wifi_ap_record_t ap_info{};
   if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
     diagnostics.wifi_rssi_dbm = ap_info.rssi;
@@ -162,8 +161,6 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   diagnostics.csi_callbacks_total = csi_pipeline_.capture_callback_invocations_total();
   diagnostics.csi_accepted_total = csi_pipeline_.accepted_packets_total();
   diagnostics.csi_filtered_total = csi_pipeline_.capture_filtered_packets_total();
-  diagnostics.channel_changes_total = csi_pipeline_.channel_changes_total();
-#endif
   return diagnostics;
 }
 

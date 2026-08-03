@@ -68,7 +68,8 @@ class SensorPublisher {
    */
   void log_status(const char *tag,
                   const RuntimeSnapshot &snapshot,
-                  uint32_t packets_per_publish);
+                  uint32_t packets_per_publish,
+                  const RuntimeDiagnosticsSample *diagnostics = nullptr);
   
   /**
    * Check if sensors are configured

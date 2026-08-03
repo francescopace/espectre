@@ -186,7 +186,8 @@ addresses, SSIDs, BSSIDs, access point MACs, or router identifiers by default.
 
 ### Stats
 
-Published on request or at low rate by clients that expose runtime diagnostics:
+Published by Native only in response to an explicit `stats` command. Other
+clients may expose the same schema on request or at a low rate:
 
 ```json
 {
@@ -195,7 +196,13 @@ Published on request or at low rate by clients that expose runtime diagnostics:
   "timestamp_ms": 123456,
   "uptime": 3821,
   "free_memory_kb": 182.4,
-  "loop_time_ms": 0.31
+  "loop_time_ms": 0.31,
+  "traffic_tx_pps": 100,
+  "csi_callback_pps": 96,
+  "csi_accepted_pps": 90,
+  "csi_filtered_pps": 6,
+  "wifi_channel": 10,
+  "wifi_rssi_dbm": -55
 }
 ```
 
@@ -205,6 +212,19 @@ normal operation. When available, `free_memory_kb` reports current free heap and
 excluding the outer task sleep or idle delay. Motion state, movement score,
 threshold, detector selection, and turbulence belong to
 telemetry or live config/info surfaces instead of `stats`.
+
+Native always includes the CSI and Wi-Fi fields in a requested `stats`
+response. It derives rates from the cumulative counters whenever the existing
+periodic sensing update runs, caches that completed sample, and does not add a
+diagnostic timer or publish it periodically. `traffic_tx_pps` is the
+traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback
+rate; `csi_accepted_pps` is the rate accepted by the capture pipeline; and
+`csi_filtered_pps` is the capture-filter drop rate. Before the first periodic
+sensing update completes, rate fields are zero.
+
+ESPHome exposes the same cached measurements as diagnostic entities. Their
+states are published only when the `Refresh Diagnostics` button is pressed.
+These on-demand diagnostics are independent of the optional runtime debug logs.
 
 ### Commands
 

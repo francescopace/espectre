@@ -216,6 +216,19 @@ Local implementation anchors:
 - [`espectre_protocol.cpp`](../../runtime/espectre_protocol.cpp):
   shared MQTT topic, payload, and command serialization
 
+### On-Demand MQTT Diagnostics
+
+The Native MQTT `stats` command always returns the base uptime, free-heap, and
+loop-time fields, plus traffic-generator, CSI, and Wi-Fi diagnostics. The
+frontend refreshes the cached diagnostic sample from the existing sensing
+update that also feeds the periodic status log. It adds that sample only to an
+explicitly requested `stats` response; it does not add a diagnostic timer or
+publish stats periodically. This on-demand surface is available in production
+and does not require runtime debug telemetry.
+
+The field definitions and command topic are documented in
+[`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
+
 ## Home Assistant MQTT Discovery
 
 The native frontend publishes a Home Assistant MQTT adapter surface on top of

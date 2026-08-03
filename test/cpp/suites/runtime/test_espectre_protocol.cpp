@@ -10,6 +10,7 @@
 #include "test_harness.h"
 
 #include "espectre_protocol.h"
+#include "runtime_diagnostics.h"
 
 #include <string>
 
@@ -118,6 +119,28 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   TEST_ASSERT_TRUE(stats.find("\"uptime\":44") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"free_memory_kb\":128.5") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"loop_time_ms\":6.25") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"traffic_tx_pps\"") == std::string::npos);
+}
+
+void test_stats_payload_includes_enabled_runtime_diagnostics_sample(void) {
+  EspectreDeviceConfig config;
+  RuntimeSnapshot snapshot;
+  RuntimeDiagnosticsSample diagnostics;
+  diagnostics.traffic_tx_pps = 100.0f;
+  diagnostics.csi_callback_pps = 96.0f;
+  diagnostics.csi_accepted_pps = 90.0f;
+  diagnostics.csi_filtered_pps = 6.0f;
+  diagnostics.wifi_channel = 10U;
+  diagnostics.wifi_rssi_dbm = -55;
+
+  const std::string stats = espectre_stats_payload(config, snapshot, 333, 44, 128.5f, 6.25f, &diagnostics);
+
+  TEST_ASSERT_TRUE(stats.find("\"traffic_tx_pps\":100") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"csi_callback_pps\":96") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"csi_accepted_pps\":90") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"csi_filtered_pps\":6") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"wifi_channel\":10") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"wifi_rssi_dbm\":-55") != std::string::npos);
 }
 
 void test_info_payload_uses_defaults_and_optional_sections(void) {
@@ -333,6 +356,7 @@ int process(void) {
   RUN_TEST(test_clear_mqtt_config_resets_runtime_defaults);
   RUN_TEST(test_parse_mqtt_batch_config_command_updates_all_fields);
   RUN_TEST(test_status_telemetry_and_stats_payloads_include_expected_fields);
+  RUN_TEST(test_stats_payload_includes_enabled_runtime_diagnostics_sample);
   RUN_TEST(test_info_payload_uses_defaults_and_optional_sections);
   RUN_TEST(test_info_payload_omits_optional_sections_when_empty);
   RUN_TEST(test_command_result_payload_includes_acceptance_and_message);

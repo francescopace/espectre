@@ -19,6 +19,7 @@
 
 #include "base_detector.h"
 #include "protocol_json.h"
+#include "runtime_diagnostics.h"
 #include "runtime_sensing_schema.h"
 
 namespace espectre {
@@ -317,20 +318,49 @@ std::string espectre_stats_payload(const EspectreDeviceConfig &config,
                                 uint32_t timestamp_ms,
                                 uint32_t uptime_s,
                                 float free_memory_kb,
-                                float loop_time_ms) {
+                                float loop_time_ms,
+                                const RuntimeDiagnosticsSample *diagnostics) {
   (void) snapshot;
-  char line[384];
+  char line[640];
   const std::string device_id = espectre_effective_device_id(config);
+  if (diagnostics == nullptr) {
+    std::snprintf(line,
+                  sizeof(line),
+                  "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"timestamp_ms\":%u,"
+                  "\"uptime\":%u,\"free_memory_kb\":%.6g,\"loop_time_ms\":%.6g}",
+                  ESPECTRE_PROTOCOL_VERSION,
+                  device_id.c_str(),
+                  static_cast<unsigned>(timestamp_ms),
+                  static_cast<unsigned>(uptime_s),
+                  static_cast<double>(free_memory_kb),
+                  static_cast<double>(loop_time_ms));
+    return line;
+  }
+  const char *wifi_rssi = diagnostics->wifi_rssi_dbm == INT8_MIN ? "null" : nullptr;
+  char wifi_rssi_value[16];
+  if (wifi_rssi == nullptr) {
+    std::snprintf(wifi_rssi_value, sizeof(wifi_rssi_value), "%d", diagnostics->wifi_rssi_dbm);
+    wifi_rssi = wifi_rssi_value;
+  }
   std::snprintf(line,
                 sizeof(line),
                 "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"timestamp_ms\":%u,"
-                "\"uptime\":%u,\"free_memory_kb\":%.6g,\"loop_time_ms\":%.6g}",
+                "\"uptime\":%u,\"free_memory_kb\":%.6g,\"loop_time_ms\":%.6g,"
+                "\"traffic_tx_pps\":%.6g,\"csi_callback_pps\":%.6g,"
+                "\"csi_accepted_pps\":%.6g,\"csi_filtered_pps\":%.6g,"
+                "\"wifi_channel\":%u,\"wifi_rssi_dbm\":%s}",
                 ESPECTRE_PROTOCOL_VERSION,
                 device_id.c_str(),
                 static_cast<unsigned>(timestamp_ms),
                 static_cast<unsigned>(uptime_s),
                 static_cast<double>(free_memory_kb),
-                static_cast<double>(loop_time_ms));
+                static_cast<double>(loop_time_ms),
+                static_cast<double>(diagnostics->traffic_tx_pps),
+                static_cast<double>(diagnostics->csi_callback_pps),
+                static_cast<double>(diagnostics->csi_accepted_pps),
+                static_cast<double>(diagnostics->csi_filtered_pps),
+                static_cast<unsigned>(diagnostics->wifi_channel),
+                wifi_rssi);
   return line;
 }
 

@@ -39,9 +39,6 @@ class CsiCaptureService {
   bool is_enabled() const { return enabled_; }
   uint32_t filtered_packets() const { return filtered_packets_.load(std::memory_order_relaxed); }
   uint32_t callback_invocations() const { return callback_invocations_.load(std::memory_order_relaxed); }
-  uint32_t channel_changes_total() const {
-    return channel_changes_total_.load(std::memory_order_relaxed);
-  }
   uint32_t null_or_empty_packets() const { return null_or_empty_packets_.load(std::memory_order_relaxed); }
   uint32_t normalized_invalid_packets() const {
     return normalized_invalid_packets_.load(std::memory_order_relaxed);
@@ -105,7 +102,6 @@ class CsiCaptureService {
   void *channel_change_callback_context_{nullptr};
   std::atomic<uint32_t> filtered_packets_{0U};
   std::atomic<uint32_t> callback_invocations_{0U};
-  std::atomic<uint32_t> channel_changes_total_{0U};
   std::atomic<uint32_t> null_or_empty_packets_{0U};
   std::atomic<uint32_t> normalized_invalid_packets_{0U};
   std::atomic<uint32_t> valid_packets_{0U};

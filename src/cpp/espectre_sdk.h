@@ -121,6 +121,7 @@
 #include "runtime/firmware_version.h"
 #include "runtime/runtime_capabilities.h"
 #include "runtime/runtime_config_utils.h"
+#include "runtime/runtime_diagnostics.h"
 #include "runtime/runtime_events.h"
 #include "runtime/runtime_interface.h"
 #include "runtime/runtime_sensing_schema.h"

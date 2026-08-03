@@ -14,6 +14,52 @@
 
 namespace espectre {
 
+namespace {
+
+uint64_t counter_delta(uint64_t current, uint64_t previous) {
+  return current >= previous ? current - previous : current;
+}
+
+float packets_per_second(uint64_t delta, uint32_t elapsed_ms) {
+  return elapsed_ms > 0U
+             ? static_cast<float>(delta) * 1000.0f / static_cast<float>(elapsed_ms)
+             : 0.0f;
+}
+
+}  // namespace
+
+void RuntimeDiagnosticsSampler::reset(const RuntimeDiagnosticsSnapshot &snapshot, uint32_t now_ms) {
+  previous_ = snapshot;
+  previous_ms_ = now_ms;
+  baseline_ready_ = true;
+}
+
+RuntimeDiagnosticsSample RuntimeDiagnosticsSampler::sample(const RuntimeDiagnosticsSnapshot &snapshot,
+                                                            uint32_t now_ms) {
+  RuntimeDiagnosticsSample result;
+  result.wifi_rssi_dbm = snapshot.wifi_rssi_dbm;
+  result.wifi_channel = snapshot.wifi_channel;
+  if (!baseline_ready_) {
+    reset(snapshot, now_ms);
+    return result;
+  }
+
+  const uint32_t elapsed_ms = now_ms - previous_ms_;
+  if (elapsed_ms == 0U) {
+    return result;
+  }
+  result.traffic_tx_pps = packets_per_second(
+      counter_delta(snapshot.traffic_packets_total, previous_.traffic_packets_total), elapsed_ms);
+  result.csi_callback_pps = packets_per_second(
+      counter_delta(snapshot.csi_callbacks_total, previous_.csi_callbacks_total), elapsed_ms);
+  result.csi_accepted_pps = packets_per_second(
+      counter_delta(snapshot.csi_accepted_total, previous_.csi_accepted_total), elapsed_ms);
+  result.csi_filtered_pps = packets_per_second(
+      counter_delta(snapshot.csi_filtered_total, previous_.csi_filtered_total), elapsed_ms);
+  reset(snapshot, now_ms);
+  return result;
+}
+
 void visit_runtime_diagnostics(const RuntimeConfig &config,
                                const RuntimeSnapshot &snapshot,
                                runtime_diagnostic_visitor_t visitor) {

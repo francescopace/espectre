@@ -67,7 +67,7 @@ The frontend maps runtime state into ESPHome and Home Assistant entities.
 | runtime threshold write | `threshold_number` |
 | runtime detector selection | `detector_select` |
 | runtime recalibration trigger | `calibrate_switch` |
-| low-rate CSI diagnostics | diagnostic sensors when `debug_telemetry: true` |
+| on-demand CSI diagnostics | diagnostic sensors and `diagnostics_button` |
 
 The default entities are created automatically when the `espectre:` component
 is declared.
@@ -100,15 +100,11 @@ control is exposed separately through the entities below:
 
 ### Diagnostic Telemetry
 
-Set `debug_telemetry: true` to add low-rate diagnostic entities to Home
-Assistant and enable the shared runtime timing logs:
-
-```yaml
-espectre:
-  debug_telemetry: true
-```
-
-The entities update every five seconds and are categorized as diagnostics:
+Diagnostic entities are always available in production builds. ESPectre
+refreshes their cached rate sample from the existing sensing update that also
+feeds the periodic status log, without adding a diagnostic timer or
+periodically publishing new Home Assistant states. Press `Refresh Diagnostics`
+to publish the latest cached sample on demand:
 
 | Entity | Meaning |
 |--------|---------|
@@ -118,13 +114,15 @@ The entities update every five seconds and are categorized as diagnostics:
 | `CSI Filtered Rate` | CSI packets per second rejected by capture validation |
 | `WiFi Channel` | Current primary channel reported by the associated access point |
 | `WiFi RSSI` | Current RSSI reported by the Wi-Fi association |
-| `CSI Channel Changes` | Cumulative channel changes observed while CSI capture was active |
 
 Comparing the three main rates localizes failures: traffic without callbacks
 points at capture/radio state, callbacks without accepted packets points at
 validation or identity filtering, and accepted packets without stable detector
-output points above the capture layer. Release configurations leave this option
-disabled; the `*-dev.yaml` examples enable it.
+output points above the capture layer.
+
+The optional `debug_telemetry: true` setting is separate: it enables periodic
+runtime DEBUG logs with heap, load, and timing metrics, but it is not required
+for these diagnostic entities or their sampling.
 
 ### Detection Algorithm Selection
 
@@ -173,13 +171,13 @@ espectre:
 | `threshold_number` | number | `Threshold` | Runtime probability threshold (0.0–1.0) |
 | `detector_select` | select | `Detector` | Runtime `classic` / `ml` selection |
 | `calibrate_switch` | switch | `Calibrate` | Startup recalibration trigger |
-| `traffic_rate_sensor` | sensor | `Traffic TX Rate` | Diagnostic traffic rate; created only with `debug_telemetry: true` |
+| `diagnostics_button` | button | `Refresh Diagnostics` | Publishes the latest cached diagnostic sample on demand |
+| `traffic_rate_sensor` | sensor | `Traffic TX Rate` | Diagnostic traffic rate |
 | `csi_callback_rate_sensor` | sensor | `CSI Callback Rate` | Raw CSI callback rate; diagnostic-only |
 | `csi_accepted_rate_sensor` | sensor | `CSI Accepted Rate` | Detector-input rate; diagnostic-only |
 | `csi_filtered_rate_sensor` | sensor | `CSI Filtered Rate` | Capture rejection rate; diagnostic-only |
 | `wifi_channel_sensor` | sensor | `WiFi Channel` | Current associated Wi-Fi channel; diagnostic-only |
 | `wifi_rssi_sensor` | sensor | `WiFi RSSI` | Current associated Wi-Fi RSSI; diagnostic-only |
-| `csi_channel_changes_sensor` | sensor | `CSI Channel Changes` | Cumulative channel changes observed during capture; diagnostic-only |
 
 All entities support standard ESPHome options such as:
 

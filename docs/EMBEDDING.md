@@ -117,6 +117,7 @@ evaluation cadence, and hit filtering before committing to a custom wiring.
 | `runtime/runtime_capabilities.h` | Which controls the active runtime honors |
 | `runtime/runtime_sensing_schema.h` | Defaults and valid ranges for every tunable |
 | `runtime/runtime_config_utils.h` | Validators, and name/enum conversion |
+| `runtime/runtime_diagnostics.h` | Capture and link counters, and the sampler that turns them into rates |
 | `runtime/esp_idf/runtime_frontend_controller.h` | The recommended entry point |
 | `runtime/esp_idf/runtime_sensing_kconfig.h` | Build a config from menuconfig |
 | `runtime/espectre_protocol.h` | Wire types, payload builders, command parsers |
@@ -125,6 +126,8 @@ evaluation cadence, and hit filtering before committing to a custom wiring.
 | `runtime/ota_service.h` | Implement to reach your own update channel |
 | `runtime/firmware_version.h` | The application version reported on the wire |
 | `core/classic_detector.h`, `core/ml_detector.h` | The core-only detector path |
+| `core/base_detector.h` | The shared detector lifecycle both detectors inherit |
+| `core/csi_format.h` | CSI layout, and the subcarrier band the detectors measure on |
 
 ## Runtime contract
 
@@ -178,6 +181,31 @@ it offers rather than inheriting a permissive default. Read
 `controller.capabilities()` after `setup()` and expose only what it advertises;
 the controller already refuses capability-gated calls, so this is about not
 showing a control that cannot work.
+
+### Diagnostics
+
+The runtime exposes cumulative capture and link counters separately from the
+sensing snapshot. `RuntimeFrontendController::diagnostics()` reads the totals,
+and `RuntimeDiagnosticsSampler` turns two reads into rates without requiring a
+separate timer:
+
+```cpp
+// once, at frontend startup
+sampler_.reset(runtime_.diagnostics(), now_ms);
+
+// whenever the existing periodic sensing callback runs
+latest_ = sampler_.sample(runtime_.diagnostics(), now_ms);
+```
+
+`RuntimeDiagnosticsSample::csi_accepted_pps` is the rate the detector actually
+sees, which is the number to compare against
+`RuntimeConfig::traffic_generator_rate` when a deployment underperforms.
+
+The shipped ESP-IDF runtime always collects these counters. Native and ESPHome
+refresh their cache from the same sensing update that feeds the periodic status
+log, then expose the cache only on an explicit `stats` request or a
+`Refresh Diagnostics` button press. `CONFIG_ESPECTRE_DEBUG_TELEMETRY` controls
+additional timing and load logs, not availability of these counters.
 
 ### Versioning
 
@@ -275,6 +303,10 @@ unpacking into your own firmware tree.
 - `test/cpp/suites/runtime/test_sdk_surface.cpp` compiles against
   `espectre_sdk.h` alone, so it fails if the facade stops reaching the
   documented surface or a published default drifts out of its range.
+- `test/python/test_sdk_surface_invariants.py` checks the surface against its
+  own documentation: every facade header appears in the API reference and this
+  guide's header map, and no type reachable from the facade is left as an
+  unresolved forward declaration.
 - The dataset collection and quality workflow is documented in
   [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md).
 
@@ -287,8 +319,13 @@ reference for the supported surface with:
 doxygen docs/Doxyfile
 ```
 
-The output lands in `output/api/html/`. It is generated on demand and is not
-committed.
+The output lands in `output/api/`. It is generated on demand and is not
+committed, so it never drifts from the headers.
+
+The same command works from an unpacked SDK bundle, which ships this guide and
+`docs/Doxyfile` alongside the sources. The published reference for the current
+release is at `https://espectre.dev/sdk/api/`, rebuilt from source on every
+deploy.
 
 ## Licensing
 

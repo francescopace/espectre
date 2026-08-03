@@ -37,6 +37,8 @@
 
 namespace espectre {
 
+struct RuntimeDiagnosticsSample;
+
 /** Protocol version reported in payloads. Bumped on a wire-format change. */
 inline constexpr const char *ESPECTRE_PROTOCOL_VERSION = "1.0";
 /** Default MQTT topic root. Override per device with `EspectreDeviceConfig::topic_prefix`. */
@@ -222,13 +224,19 @@ std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
                                     uint32_t timestamp_ms,
                                     uint32_t uptime_s,
                                     const char *frontend);
-/** Telemetry plus health counters, for frontends declaring extended diagnostics. */
+/**
+ * Health counters plus optional rate and link diagnostics.
+ *
+ * `diagnostics` carries CSI and link rates from `RuntimeDiagnosticsSampler`.
+ * Pass `nullptr` only for a frontend that does not expose extended diagnostics.
+ */
 std::string espectre_stats_payload(const EspectreDeviceConfig &config,
                                 const RuntimeSnapshot &snapshot,
                                 uint32_t timestamp_ms,
                                 uint32_t uptime_s,
                                 float free_memory_kb,
-                                float loop_time_ms);
+                                float loop_time_ms,
+                                const RuntimeDiagnosticsSample *diagnostics = nullptr);
 /**
  * Acknowledge a command, echoing its `command_id`.
  *

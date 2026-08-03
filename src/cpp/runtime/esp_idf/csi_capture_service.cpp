@@ -33,7 +33,6 @@ void CsiCaptureService::init(IWiFiCSI *wifi_csi) {
 void CsiCaptureService::reset_session() {
   filtered_packets_.store(0U, std::memory_order_relaxed);
   callback_invocations_.store(0U, std::memory_order_relaxed);
-  channel_changes_total_.store(0U, std::memory_order_relaxed);
   null_or_empty_packets_.store(0U, std::memory_order_relaxed);
   normalized_invalid_packets_.store(0U, std::memory_order_relaxed);
   valid_packets_.store(0U, std::memory_order_relaxed);
@@ -290,7 +289,6 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   if (previous_channel != 0U && packet_channel != previous_channel) {
     current_channel_.store(packet_channel, std::memory_order_relaxed);
     channel_change_pending_.store(true, std::memory_order_relaxed);
-    channel_changes_total_.fetch_add(1U, std::memory_order_relaxed);
     channel_change_event_.post(previous_channel, packet_channel);
     filtered_packets_.fetch_add(1U, std::memory_order_relaxed);
     return;

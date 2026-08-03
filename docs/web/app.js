@@ -994,6 +994,7 @@
 
     const monitor = {
         client: null,
+        baseTopic: null,
         demoTimer: null,
         demoT: 0,
         demoMove: 0.05,
@@ -1016,6 +1017,22 @@
         $('.js-mon-thr').textContent = threshold.toFixed(3);
         if (deviceId) $('.js-mon-dev').textContent = deviceId;
         monitorDrawChart();
+    }
+
+    function monitorStat(value, digits, suffix) {
+        if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+        return Number(value).toFixed(digits) + suffix;
+    }
+
+    function monitorStats(data) {
+        $('.js-mon-traffic').textContent = monitorStat(data.traffic_tx_pps, 1, ' pps');
+        $('.js-mon-callbacks').textContent = monitorStat(data.csi_callback_pps, 1, ' pps');
+        $('.js-mon-accepted').textContent = monitorStat(data.csi_accepted_pps, 1, ' pps');
+        $('.js-mon-filtered').textContent = monitorStat(data.csi_filtered_pps, 1, ' pps');
+        $('.js-mon-channel').textContent = monitorStat(data.wifi_channel, 0, '');
+        $('.js-mon-rssi').textContent = monitorStat(data.wifi_rssi_dbm, 0, ' dBm');
+        $('.js-mon-heap').textContent = monitorStat(data.free_memory_kb, 1, ' KiB');
+        $('.js-mon-loop').textContent = monitorStat(data.loop_time_ms, 2, ' ms');
     }
 
     function monitorDrawChart() {
@@ -1072,6 +1089,7 @@
             monitor.client.end(true);
             monitor.client = null;
         }
+        monitor.baseTopic = null;
         clearInterval(monitor.demoTimer);
         monitor.demoTimer = null;
     }
@@ -1098,6 +1116,7 @@
         }
         monitorStopAll();
         monitor.points = [];
+        monitor.baseTopic = base;
         const url = (tls ? 'wss://' : 'ws://') + host + ':' + port + path;
         monitorStatus('Connecting to ' + url + ' …');
         // The URL is not tracked: it would carry the user's broker address.
@@ -1113,10 +1132,10 @@
         });
         monitor.client = client;
         client.on('connect', () => {
-            client.subscribe(base + '/telemetry', (error) => {
+            client.subscribe([base + '/telemetry', base + '/stats'], (error) => {
                 monitorStatus(error
                     ? 'Subscribe failed: ' + error.message
-                    : 'Live — subscribed to ' + base + '/telemetry');
+                    : 'Live — subscribed to telemetry and on-demand stats.');
                 track('tool_connection', {
                     tool_name: 'monitor',
                     transport: 'mqtt_websocket',
@@ -1128,12 +1147,19 @@
         client.on('message', (topic, payload) => {
             try {
                 const data = JSON.parse(payload.toString());
-                monitorFeed(
-                    Number(data.movement_score ?? data.movement) || 0,
-                    Number(data.threshold) || 0,
-                    data.motion_state || data.state,
-                    data.device_id
-                );
+                if (topic === base + '/stats') {
+                    monitorStats(data);
+                    monitorStatus(data.traffic_tx_pps === undefined
+                        ? 'Diagnostics received — this firmware does not expose the extended fields.'
+                        : 'Diagnostics updated from the latest periodic status sample.');
+                } else {
+                    monitorFeed(
+                        Number(data.movement_score ?? data.movement) || 0,
+                        Number(data.threshold) || 0,
+                        data.motion_state || data.state,
+                        data.device_id
+                    );
+                }
             } catch (error) { /* ignore malformed payloads */ }
         });
         client.on('error', (error) => {
@@ -1170,9 +1196,38 @@
         }, 500);
     }
 
+    function monitorRequestStats() {
+        if (monitor.demoTimer) {
+            monitorStats({
+                traffic_tx_pps: 100,
+                csi_callback_pps: 96,
+                csi_accepted_pps: 90,
+                csi_filtered_pps: 6,
+                wifi_channel: 10,
+                wifi_rssi_dbm: -55,
+                free_memory_kb: 161.4,
+                loop_time_ms: 0.31
+            });
+            monitorStatus('Demo diagnostics — simulated sensing sample.');
+            return;
+        }
+        if (!monitor.client || !monitor.client.connected || !monitor.baseTopic) {
+            monitorStatus('Connect to a broker before requesting diagnostics.');
+            return;
+        }
+        const command = JSON.stringify({
+            protocol_version: '1.0',
+            command_id: 'web-stats-' + Date.now(),
+            command: 'stats'
+        });
+        monitor.client.publish(monitor.baseTopic + '/commands/request', command, { qos: 0, retain: false });
+        monitorStatus('Diagnostics requested — waiting for the stats response.');
+    }
+
     function monitorInit() {
         $('.js-mon-connect').addEventListener('click', monitorConnect);
         $('.js-mon-demo').addEventListener('click', monitorDemo);
+        $('.js-mon-stats').addEventListener('click', monitorRequestStats);
         window.addEventListener('resize', monitorResizeChart);
     }
 

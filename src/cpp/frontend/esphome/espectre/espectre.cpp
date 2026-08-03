@@ -36,6 +36,10 @@ void ESpectreComponent::setup() {
     this->mark_failed();
     return;
   }
+  const uint32_t diagnostics_now_ms = millis();
+  const RuntimeDiagnosticsSnapshot diagnostics = this->runtime_.diagnostics();
+  this->diagnostics_sampler_.reset(diagnostics, diagnostics_now_ms);
+  this->latest_diagnostics_ = this->diagnostics_sampler_.sample(diagnostics, diagnostics_now_ms);
   if (this->threshold_number_ != nullptr) {
     static_cast<ESpectreThresholdNumber *>(this->threshold_number_)
         ->update_detector_range(this->runtime_.config().detection_algorithm);
@@ -50,93 +54,39 @@ ESpectreComponent::~ESpectreComponent() {
 
 void ESpectreComponent::loop() {
   this->runtime_.loop();
-#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
-  this->publish_diagnostics_if_due_();
-#endif
 }
 
-#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
-void ESpectreComponent::publish_diagnostics_if_due_() {
-  const bool has_diagnostic_sensor = this->traffic_rate_sensor_ != nullptr ||
-                                     this->csi_callback_rate_sensor_ != nullptr ||
-                                     this->csi_accepted_rate_sensor_ != nullptr ||
-                                     this->csi_filtered_rate_sensor_ != nullptr ||
-                                     this->wifi_channel_sensor_ != nullptr ||
-                                     this->wifi_rssi_sensor_ != nullptr ||
-                                     this->csi_channel_changes_sensor_ != nullptr;
-  if (!has_diagnostic_sensor) {
-    return;
-  }
-
+void ESpectreComponent::sample_diagnostics_() {
   const uint32_t now_ms = millis();
-  const ::espectre::RuntimeDiagnosticsSnapshot diagnostics = this->runtime_.diagnostics();
-  if (!this->diagnostic_baseline_ready_) {
-    this->diagnostic_baseline_ready_ = true;
-    this->last_diagnostic_publish_ms_ = now_ms;
-    this->previous_traffic_packets_total_ = diagnostics.traffic_packets_total;
-    this->previous_csi_callbacks_total_ = diagnostics.csi_callbacks_total;
-    this->previous_csi_accepted_total_ = diagnostics.csi_accepted_total;
-    this->previous_csi_filtered_total_ = diagnostics.csi_filtered_total;
-    if (this->traffic_rate_sensor_ != nullptr) this->traffic_rate_sensor_->publish_state(0.0f);
-    if (this->csi_callback_rate_sensor_ != nullptr) this->csi_callback_rate_sensor_->publish_state(0.0f);
-    if (this->csi_accepted_rate_sensor_ != nullptr) this->csi_accepted_rate_sensor_->publish_state(0.0f);
-    if (this->csi_filtered_rate_sensor_ != nullptr) this->csi_filtered_rate_sensor_->publish_state(0.0f);
-    if (this->wifi_channel_sensor_ != nullptr) this->wifi_channel_sensor_->publish_state(diagnostics.wifi_channel);
-    if (this->wifi_rssi_sensor_ != nullptr) {
-      this->wifi_rssi_sensor_->publish_state(diagnostics.wifi_rssi_dbm == INT8_MIN
-                                                 ? NAN
-                                                 : static_cast<float>(diagnostics.wifi_rssi_dbm));
-    }
-    if (this->csi_channel_changes_sensor_ != nullptr) {
-      this->csi_channel_changes_sensor_->publish_state(diagnostics.channel_changes_total);
-    }
-    return;
-  }
+  this->latest_diagnostics_ = this->diagnostics_sampler_.sample(this->runtime_.diagnostics(), now_ms);
+}
 
-  const uint32_t elapsed_ms = now_ms - this->last_diagnostic_publish_ms_;
-  if (elapsed_ms < 5000U) {
-    return;
-  }
-  const auto counter_delta = [](uint64_t current, uint64_t previous) {
-    return current >= previous ? current - previous : current;
-  };
-  const auto to_rate = [elapsed_ms](uint64_t delta) {
-    return static_cast<float>(delta) * 1000.0f / static_cast<float>(elapsed_ms);
-  };
+void ESpectreComponent::publish_cached_diagnostics_() {
+  const RuntimeDiagnosticsSample &sample = this->latest_diagnostics_;
 
   if (this->traffic_rate_sensor_ != nullptr) {
-    this->traffic_rate_sensor_->publish_state(to_rate(counter_delta(
-        diagnostics.traffic_packets_total, this->previous_traffic_packets_total_)));
+    this->traffic_rate_sensor_->publish_state(sample.traffic_tx_pps);
   }
   if (this->csi_callback_rate_sensor_ != nullptr) {
-    this->csi_callback_rate_sensor_->publish_state(to_rate(counter_delta(
-        diagnostics.csi_callbacks_total, this->previous_csi_callbacks_total_)));
+    this->csi_callback_rate_sensor_->publish_state(sample.csi_callback_pps);
   }
   if (this->csi_accepted_rate_sensor_ != nullptr) {
-    this->csi_accepted_rate_sensor_->publish_state(to_rate(counter_delta(
-        diagnostics.csi_accepted_total, this->previous_csi_accepted_total_)));
+    this->csi_accepted_rate_sensor_->publish_state(sample.csi_accepted_pps);
   }
   if (this->csi_filtered_rate_sensor_ != nullptr) {
-    this->csi_filtered_rate_sensor_->publish_state(to_rate(counter_delta(
-        diagnostics.csi_filtered_total, this->previous_csi_filtered_total_)));
+    this->csi_filtered_rate_sensor_->publish_state(sample.csi_filtered_pps);
   }
-  if (this->wifi_channel_sensor_ != nullptr) this->wifi_channel_sensor_->publish_state(diagnostics.wifi_channel);
+  if (this->wifi_channel_sensor_ != nullptr) this->wifi_channel_sensor_->publish_state(sample.wifi_channel);
   if (this->wifi_rssi_sensor_ != nullptr) {
-    this->wifi_rssi_sensor_->publish_state(diagnostics.wifi_rssi_dbm == INT8_MIN
+    this->wifi_rssi_sensor_->publish_state(sample.wifi_rssi_dbm == INT8_MIN
                                                ? NAN
-                                               : static_cast<float>(diagnostics.wifi_rssi_dbm));
+                                               : static_cast<float>(sample.wifi_rssi_dbm));
   }
-  if (this->csi_channel_changes_sensor_ != nullptr) {
-    this->csi_channel_changes_sensor_->publish_state(diagnostics.channel_changes_total);
-  }
-
-  this->last_diagnostic_publish_ms_ = now_ms;
-  this->previous_traffic_packets_total_ = diagnostics.traffic_packets_total;
-  this->previous_csi_callbacks_total_ = diagnostics.csi_callbacks_total;
-  this->previous_csi_accepted_total_ = diagnostics.csi_accepted_total;
-  this->previous_csi_filtered_total_ = diagnostics.csi_filtered_total;
 }
-#endif
+
+void ESpectreComponent::publish_diagnostics_on_demand() {
+  this->publish_cached_diagnostics_();
+}
 
 void ESpectreComponent::set_threshold_runtime(float threshold) {
   this->runtime_.set_threshold_runtime(threshold);
@@ -166,6 +116,7 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
     this->threshold_republished_ = false;
   }
   this->runtime_.record_snapshot(snapshot);
+  this->sample_diagnostics_();
   if (!snapshot.ready_to_publish) {
     return;
   }
@@ -180,7 +131,7 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
     this->detector_republished_ = true;
   }
 
-  this->sensor_publisher_.log_status(TAG, snapshot, packets_received);
+  this->sensor_publisher_.log_status(TAG, snapshot, packets_received, &this->latest_diagnostics_);
   this->sensor_publisher_.publish_movement_metric(snapshot.movement_metric);
   this->sensor_publisher_.publish_intensity(snapshot.movement_metric, snapshot.threshold);
 }

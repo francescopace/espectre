@@ -645,6 +645,7 @@
       <div class="panel-actions">
         <button class="btn-primary btn-sm js-mon-connect">Connect broker</button>
         <button class="btn-ghost btn-sm js-mon-demo">Demo feed</button>
+        <button class="btn-ghost btn-sm js-mon-stats">Request diagnostics</button>
       </div>
       <div class="tool-note js-mon-status">Not connected.</div>
     </section>
@@ -659,6 +660,21 @@
       </div>
       <canvas class="mon-chart js-mon-chart" height="180"></canvas>
       <p class="tool-note">Movement score vs. threshold, last 60 seconds.</p>
+    </section>
+
+    <section class="panel">
+      <h2>On-demand diagnostics</h2>
+      <div class="diag-grid mon-stats-tiles">
+        <div class="stat"><div class="stat-label">Traffic TX</div><div class="stat-value js-mon-traffic">—</div></div>
+        <div class="stat"><div class="stat-label">CSI callbacks</div><div class="stat-value js-mon-callbacks">—</div></div>
+        <div class="stat"><div class="stat-label">CSI accepted</div><div class="stat-value js-mon-accepted">—</div></div>
+        <div class="stat"><div class="stat-label">CSI filtered</div><div class="stat-value js-mon-filtered">—</div></div>
+        <div class="stat"><div class="stat-label">Wi-Fi channel</div><div class="stat-value js-mon-channel">—</div></div>
+        <div class="stat"><div class="stat-label">Wi-Fi RSSI</div><div class="stat-value js-mon-rssi">—</div></div>
+        <div class="stat"><div class="stat-label">Free heap</div><div class="stat-value js-mon-heap">—</div></div>
+        <div class="stat"><div class="stat-label">Loop time</div><div class="stat-value js-mon-loop">—</div></div>
+      </div>
+      <p class="tool-note">Native publishes this block only after a manual request. Production firmware keeps the CSI and Wi-Fi diagnostics available without periodic publication.</p>
     </section>
   </div>
 </main>

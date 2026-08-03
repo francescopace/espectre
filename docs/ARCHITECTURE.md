@@ -125,6 +125,12 @@ For the ESPHome workflow, see
 `src/cpp/frontend/native/` exposes the runtime through the standalone BLE/MQTT
 surface and reuses the shared ESP-IDF frontend-support services for
 provisioning, device configuration, and OTA-related control flows.
+Native refreshes the shared diagnostics sample from the existing sensing update
+that feeds its status log, but publishes the cached CSI and Wi-Fi values only
+after an explicit MQTT `stats` command. ESPHome uses the same sampler and
+publishes its diagnostic entity states only after `Refresh Diagnostics` is
+pressed. Neither frontend adds a diagnostic timer, and both on-demand surfaces
+remain available in production builds independently of runtime debug logging.
 
 For the native workflow and protocol surface, see:
 

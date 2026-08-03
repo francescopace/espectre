@@ -13,7 +13,7 @@ import re
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import sensor, binary_sensor, number, select, switch
+from esphome.components import sensor, binary_sensor, button, number, select, switch
 from esphome.components.esp32 import add_idf_sdkconfig_option
 from esphome.const import (
     CONF_ID,
@@ -26,11 +26,10 @@ from esphome.const import (
     ENTITY_CATEGORY_DIAGNOSTIC,
     ICON_PULSE,
     DEVICE_CLASS_SIGNAL_STRENGTH,
-    STATE_CLASS_TOTAL_INCREASING,
 )
 
 DEPENDENCIES = ["wifi"]
-AUTO_LOAD = ["sensor", "binary_sensor", "number", "select", "switch"]
+AUTO_LOAD = ["sensor", "binary_sensor", "button", "number", "select", "switch"]
 
 # Configuration parameters
 CONF_SEGMENTATION_WINDOW_SIZE = "segmentation_window_size"
@@ -68,7 +67,7 @@ CONF_CSI_ACCEPTED_RATE_SENSOR = "csi_accepted_rate_sensor"
 CONF_CSI_FILTERED_RATE_SENSOR = "csi_filtered_rate_sensor"
 CONF_WIFI_CHANNEL_SENSOR = "wifi_channel_sensor"
 CONF_WIFI_RSSI_SENSOR = "wifi_rssi_sensor"
-CONF_CSI_CHANNEL_CHANGES_SENSOR = "csi_channel_changes_sensor"
+CONF_DIAGNOSTICS_BUTTON = "diagnostics_button"
 
 # Number controls
 CONF_THRESHOLD_NUMBER = "threshold_number"
@@ -82,6 +81,7 @@ ESpectreComponent = espectre_ns.class_("ESpectreComponent", cg.Component)
 ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.Number, cg.Component)
 ESpectreDetectorSelect = espectre_ns.class_("ESpectreDetectorSelect", select.Select, cg.Component)
 ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
+ESpectreDiagnosticsButton = espectre_ns.class_("ESpectreDiagnosticsButton", button.Button, cg.Component)
 
 _LIBRARY_ROOT = Path(__file__).resolve().parents[3]
 _SCHEMA_HEADER = _LIBRARY_ROOT / "runtime" / "runtime_sensing_schema.h"
@@ -223,9 +223,9 @@ CONFIG_SCHEMA = cv.Schema({
         device_class=DEVICE_CLASS_MOTION,
     ),
 
-    # Low-rate diagnostic entities. Codegen creates them only when
-    # debug_telemetry is enabled, so production firmware pays no entity or
-    # polling cost for these defaults.
+    # On-demand diagnostic entities. The component refreshes its internal
+    # sample from the existing sensing callback, but publishes these states
+    # only when the diagnostics button is pressed.
     cv.Optional(CONF_TRAFFIC_RATE_SENSOR, default={"name": "Traffic TX Rate"}): sensor.sensor_schema(
         unit_of_measurement="pkt/s",
         accuracy_decimals=1,
@@ -266,11 +266,10 @@ CONFIG_SCHEMA = cv.Schema({
         state_class=STATE_CLASS_MEASUREMENT,
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
     ),
-    cv.Optional(CONF_CSI_CHANNEL_CHANGES_SENSOR, default={"name": "CSI Channel Changes"}): sensor.sensor_schema(
-        accuracy_decimals=0,
-        state_class=STATE_CLASS_TOTAL_INCREASING,
+    cv.Optional(CONF_DIAGNOSTICS_BUTTON, default={"name": "Refresh Diagnostics"}): button.button_schema(
+        ESpectreDiagnosticsButton,
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
-        icon="mdi:access-point-network",
+        icon="mdi:refresh",
     ),
     
     # Number control for threshold adjustment from HA
@@ -351,19 +350,20 @@ async def to_code(config):
     sens = await binary_sensor.new_binary_sensor(config[CONF_MOTION_SENSOR])
     cg.add(var.set_motion_binary_sensor(sens))
 
-    if config[CONF_DEBUG_TELEMETRY]:
-        diagnostic_sensors = (
-            (CONF_TRAFFIC_RATE_SENSOR, var.set_traffic_rate_sensor),
-            (CONF_CSI_CALLBACK_RATE_SENSOR, var.set_csi_callback_rate_sensor),
-            (CONF_CSI_ACCEPTED_RATE_SENSOR, var.set_csi_accepted_rate_sensor),
-            (CONF_CSI_FILTERED_RATE_SENSOR, var.set_csi_filtered_rate_sensor),
-            (CONF_WIFI_CHANNEL_SENSOR, var.set_wifi_channel_sensor),
-            (CONF_WIFI_RSSI_SENSOR, var.set_wifi_rssi_sensor),
-            (CONF_CSI_CHANNEL_CHANGES_SENSOR, var.set_csi_channel_changes_sensor),
-        )
-        for config_key, setter in diagnostic_sensors:
-            sens = await sensor.new_sensor(config[config_key])
-            cg.add(setter(sens))
+    diagnostic_sensors = (
+        (CONF_TRAFFIC_RATE_SENSOR, var.set_traffic_rate_sensor),
+        (CONF_CSI_CALLBACK_RATE_SENSOR, var.set_csi_callback_rate_sensor),
+        (CONF_CSI_ACCEPTED_RATE_SENSOR, var.set_csi_accepted_rate_sensor),
+        (CONF_CSI_FILTERED_RATE_SENSOR, var.set_csi_filtered_rate_sensor),
+        (CONF_WIFI_CHANNEL_SENSOR, var.set_wifi_channel_sensor),
+        (CONF_WIFI_RSSI_SENSOR, var.set_wifi_rssi_sensor),
+    )
+    for config_key, setter in diagnostic_sensors:
+        sens = await sensor.new_sensor(config[config_key])
+        cg.add(setter(sens))
+
+    diagnostics_button = await button.new_button(config[CONF_DIAGNOSTICS_BUTTON])
+    cg.add(diagnostics_button.set_parent(var))
     
     # Register threshold number control
     # Note: number.new_number() handles component registration internally

@@ -14,7 +14,12 @@ PROJECT_NAME           = "ESPectre SDK"
 PROJECT_BRIEF          = "Wi-Fi CSI motion sensing for ESP32 firmware"
 PROJECT_NUMBER         = 3.0.0
 
-OUTPUT_DIRECTORY       = output/api
+# Doxygen creates OUTPUT_DIRECTORY only one level deep, so this stays a single
+# segment and the nesting happens through HTML_OUTPUT. That is what lets
+# `doxygen docs/Doxyfile` work from an unpacked SDK bundle, where no output
+# tree exists yet.
+OUTPUT_DIRECTORY       = output
+HTML_OUTPUT            = api
 CREATE_SUBDIRS         = NO
 GENERATE_HTML          = YES
 GENERATE_LATEX         = NO
@@ -31,6 +36,7 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/runtime_capabilities.h \
                          src/cpp/runtime/runtime_sensing_schema.h \
                          src/cpp/runtime/runtime_config_utils.h \
+                         src/cpp/runtime/runtime_diagnostics.h \
                          src/cpp/runtime/csi_traffic_types.h \
                          src/cpp/runtime/espectre_protocol.h \
                          src/cpp/runtime/mqtt_transport.h \
@@ -67,13 +73,19 @@ SOURCE_BROWSER         = YES
 INLINE_SOURCES         = NO
 STRIP_CODE_COMMENTS    = NO
 
-# The reference is only useful if it is complete, so an undocumented member on
-# the supported surface is a build failure rather than a silent gap.
+# A partially documented member is worse than an undocumented one, because it
+# reads as complete. WARN_NO_PARAMDOC is the gate that catches it, and
+# WARN_AS_ERROR makes CI fail on it instead of printing into a log nobody reads.
+#
+# EXTRACT_ALL stays YES deliberately. Turning it off would make
+# WARN_IF_UNDOCUMENTED live, which sounds stricter but demands @param and
+# @return on every one-line accessor: 210 warnings today, almost all of them
+# asking to restate a brief that is already clear.
 WARNINGS               = YES
 WARN_IF_UNDOCUMENTED   = YES
 WARN_IF_DOC_ERROR      = YES
 WARN_NO_PARAMDOC       = YES
-WARN_AS_ERROR          = NO
+WARN_AS_ERROR          = YES
 
 QUIET                  = YES
 

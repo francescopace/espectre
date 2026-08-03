@@ -106,6 +106,7 @@ config ESPECTRE_DEBUG_TELEMETRY
     help
         Enable periodic ESPectre runtime DEBUG telemetry with heap, load, and
         timing metrics. The logs appear when the relevant runtime tags are
-        raised to DEBUG, for example during firmware benchmarking.
+        raised to DEBUG, for example during firmware benchmarking. On-demand
+        CSI and Wi-Fi diagnostics are available independently of this option.
 
 endmenu

@@ -80,6 +80,7 @@ def _create_micro_src_tree(base_dir: Path) -> None:
         "mqtt/__init__.py",
         "mqtt/handler.py",
         "mqtt/commands.py",
+        "mqtt/home_assistant.py",
     ]
     for rel_path in files:
         target = base_dir / rel_path
@@ -323,7 +324,7 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
     mkdir_calls = [cmd for cmd in calls if "mkdir" in cmd]
     cp_calls = [cmd for cmd in calls if "cp" in cmd]
     assert len(mkdir_calls) == 2
-    assert len(cp_calls) == 21
+    assert len(cp_calls) == 22
     assert any(cmd[-1] == ":src/" for cmd in cp_calls)
     assert any(cmd[-1] == ":src/mqtt/" for cmd in cp_calls)
     assert any(cmd[-2].endswith("console_output.py") for cmd in cp_calls)
@@ -456,7 +457,7 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
             "'ml_detector.py', 'ml_weights.py', 'traffic_generator.py', 'console_output.py', 'main.py', 'mqtt']\n",
             stderr="",
         ),
-        SimpleNamespace(stdout="['__init__.py', 'handler.py', 'commands.py']\n", stderr=""),
+        SimpleNamespace(stdout="['__init__.py', 'handler.py', 'commands.py', 'home_assistant.py']\n", stderr=""),
         SimpleNamespace(stdout="True\n", stderr=""),
     ]
 

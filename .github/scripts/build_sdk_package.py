@@ -43,6 +43,8 @@ SDK_REQUIRED_PATHS = (
     Path("src/cpp/library.json"),
     Path("src/cpp/core/ml_weights.h"),
     Path("src/cpp/runtime/espectre_sdk_version.h"),
+    Path("docs/EMBEDDING.md"),
+    Path("docs/Doxyfile"),
     Path("src/cpp/runtime/espectre_protocol.h"),
     Path("src/cpp/runtime/esp_idf/runtime_sensing_kconfig.cpp"),
     Path("src/cpp/runtime/esp_idf/espectre_config/CMakeLists.txt"),
@@ -60,6 +62,12 @@ SDK_TOP_LEVEL_FILES = (
     Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
     Path("src/cpp/library.json"),
+    # The integration guide and the Doxygen config travel with the sources, so a
+    # bundle is self-contained: `doxygen docs/Doxyfile` from the bundle root
+    # rebuilds the API reference offline, because INPUT is relative to the
+    # working directory rather than to the config file.
+    Path("docs/EMBEDDING.md"),
+    Path("docs/Doxyfile"),
     Path("LICENSE"),
     Path("LICENSING.md"),
 )

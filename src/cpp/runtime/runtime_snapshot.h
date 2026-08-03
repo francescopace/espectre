@@ -26,8 +26,11 @@ enum class RuntimeSubcarrierSource {
  * Low-frequency counters and radio state used by optional diagnostic surfaces.
  *
  * This deliberately stays separate from `RuntimeSnapshot`: sensing snapshots
- * travel through the hot callback path, while diagnostics are queried on a
- * slow timer only when the frontend enables them.
+ * travel through the hot callback path, while frontends query diagnostics when
+ * they already handle a periodic sensing update.
+ *
+ * Counters are cumulative and monotonic within a session; pass them through
+ * `RuntimeDiagnosticsSampler` to turn them into rates.
  */
 struct RuntimeDiagnosticsSnapshot {
   /** RSSI of the current Wi-Fi association. `INT8_MIN` when unavailable. */
@@ -42,8 +45,6 @@ struct RuntimeDiagnosticsSnapshot {
   uint64_t csi_accepted_total{0U};
   /** CSI packets rejected by capture-level validation. */
   uint64_t csi_filtered_total{0U};
-  /** Wi-Fi channel changes observed while capture was active. */
-  uint32_t channel_changes_total{0U};
 };
 
 /**

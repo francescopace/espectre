@@ -165,6 +165,10 @@ bool NativeFrontend::setup() {
     bindings_->shutdown();
     return false;
   }
+  const uint32_t diagnostics_now_ms = now_ms_();
+  const RuntimeDiagnosticsSnapshot diagnostics = runtime_.diagnostics();
+  diagnostics_sampler_.reset(diagnostics, diagnostics_now_ms);
+  latest_diagnostics_ = diagnostics_sampler_.sample(diagnostics, diagnostics_now_ms);
 
   if (ota_service_ != nullptr) {
     ota_service_->set_prepare_for_update_callback([this]() { this->runtime_.quiesce_for_ota(); });
@@ -227,6 +231,7 @@ void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
 
 void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   runtime_.record_snapshot(snapshot);
+  sample_diagnostics_(now_ms_());
   // The snapshot is recorded either way, but nothing is published before the
   // runtime declares itself ready, matching ESPHome and Matter. Native used to
   // ignore the flag and emit MQTT telemetry during the not-ready window.
@@ -236,7 +241,7 @@ void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
   const uint32_t now = now_ms_();
   publish_mqtt_telemetry_(snapshot, now);
   publish_ha_state_(snapshot);
-  status_logger_.log_status(TAG, snapshot, packets_received);
+  status_logger_.log_status(TAG, snapshot, packets_received, &latest_diagnostics_);
 }
 
 void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
@@ -653,8 +658,18 @@ void NativeFrontend::publish_mqtt_stats_() {
       device_config_,
       "stats",
       espectre_stats_payload(
-          device_config_, runtime_.snapshot(), now, now / 1000U, current_free_memory_kb(), last_loop_time_ms_),
+          device_config_,
+          runtime_.snapshot(),
+          now,
+          now / 1000U,
+          current_free_memory_kb(),
+          last_loop_time_ms_,
+          &latest_diagnostics_),
       false);
+}
+
+void NativeFrontend::sample_diagnostics_(uint32_t now_ms) {
+  latest_diagnostics_ = diagnostics_sampler_.sample(runtime_.diagnostics(), now_ms);
 }
 
 void NativeFrontend::publish_mqtt_ota_status_(const EspectreOtaStatus &status) {

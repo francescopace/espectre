@@ -91,7 +91,13 @@ class RuntimeFrontendController {
    * query; use the listener callbacks to react to change.
    */
   const RuntimeSnapshot &snapshot() const { return snapshot_; }
-  /** Read low-rate backend counters without touching the cached sensing snapshot. */
+  /**
+   * Read backend counters without touching the cached sensing snapshot.
+   *
+   * Unlike `snapshot()`, this queries the backend on every call. Invoke it from
+   * an existing periodic sensing callback, not from the hot loop. Returns a
+   * zeroed snapshot before `setup()`.
+   */
   RuntimeDiagnosticsSnapshot diagnostics() const;
   /**
    * What the active backend supports. Meaningful only after `setup()`.

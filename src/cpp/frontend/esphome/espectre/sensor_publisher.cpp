@@ -35,8 +35,9 @@ void SensorPublisher::publish_intensity(float movement_metric, float threshold) 
 
 void SensorPublisher::log_status(const char *tag,
                                  const RuntimeSnapshot &snapshot,
-                                 uint32_t packets_per_publish) {
-  status_logger_.log_status(tag, snapshot, packets_per_publish);
+                                 uint32_t packets_per_publish,
+                                 const RuntimeDiagnosticsSample *diagnostics) {
+  status_logger_.log_status(tag, snapshot, packets_per_publish, diagnostics);
 }
 
 }  // namespace espectre_component

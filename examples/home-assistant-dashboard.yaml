@@ -77,8 +77,9 @@ views:
                 name: Recalibrate
             show_header_toggle: false
             state_color: false
-          # Optional: requires ESPHome debug sensors enabled in the device YAML
-          # (platform: debug → free / block / loop_time). See examples/espectre-*-dev.yaml.
+          # Optional ESPHome platform debug sensors (free / block / loop_time).
+          # These require the corresponding platform: debug configuration. See
+          # examples/espectre-*-dev.yaml.
           # - type: entities
           #   title: Debug Sensors
           #   entities:
@@ -88,6 +89,15 @@ views:
           #       name: Max Free Block
           #     - entity: sensor.espectre_loop_time
           #       name: Loop Time
+          #   show_header_toggle: false
+          #   state_color: false
+          # ESPectre diagnostics are always available. Press Refresh Diagnostics
+          # to publish the latest cached values to Home Assistant.
+          # - type: entities
+          #   title: ESPectre Diagnostics
+          #   entities:
+          #     - entity: button.espectre_refresh_diagnostics
+          #       name: Refresh Diagnostics
           #     - entity: sensor.espectre_traffic_tx_rate
           #       name: Traffic TX Rate
           #     - entity: sensor.espectre_csi_callback_rate
@@ -100,8 +110,6 @@ views:
           #       name: WiFi Channel
           #     - entity: sensor.espectre_wifi_rssi
           #       name: WiFi RSSI
-          #     - entity: sensor.espectre_csi_channel_changes
-          #       name: CSI Channel Changes
           #   show_header_toggle: false
           #   state_color: false
     cards: []

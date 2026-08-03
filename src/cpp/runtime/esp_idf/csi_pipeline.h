@@ -173,9 +173,6 @@ class CsiPipeline {
   uint64_t capture_filtered_packets_total() const {
     return capture_service_.filtered_packets();
   }
-  uint32_t channel_changes_total() const {
-    return capture_service_.channel_changes_total();
-  }
   /** RSSI of the most recently accepted CSI packet. */
   int8_t last_rssi_dbm() const { return last_rssi_dbm_; }
   /** Channel the most recently accepted CSI packet arrived on. */

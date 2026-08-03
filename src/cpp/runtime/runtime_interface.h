@@ -215,8 +215,18 @@ class IEspectreRuntime {
 
   /** Current sensing state. Cheap enough to poll from your loop. */
   virtual RuntimeSnapshot get_snapshot() const = 0;
-  /** Low-rate capture and traffic counters for diagnostic frontends. */
-  virtual RuntimeDiagnosticsSnapshot get_diagnostics() const = 0;
+  /**
+   * Capture, traffic, and link counters for diagnostic frontends.
+   *
+   * The counters are cumulative and monotonic within a session. Feed them to
+   * `RuntimeDiagnosticsSampler` from an existing periodic sensing callback to
+   * get rates without adding a diagnostic timer.
+   *
+   * Defaulted rather than pure so that adding it does not break out-of-tree
+   * backends. A runtime that collects nothing keeps the zeroed snapshot, which
+   * is what a frontend reads as "no counters from this backend".
+   */
+  virtual RuntimeDiagnosticsSnapshot get_diagnostics() const { return {}; }
   /** What this backend actually supports. Stable after `setup()`. */
   virtual RuntimeCapabilities get_capabilities() const = 0;
 

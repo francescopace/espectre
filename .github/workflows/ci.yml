@@ -136,6 +136,24 @@ jobs:
       - name: Build Static Pages
         run: python3 .github/scripts/build_static_pages.py
 
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen
+
+      - name: Generate SDK API Reference
+        # Written straight into the Pages tree so espectre.dev/sdk/api/ serves
+        # it. WARN_AS_ERROR is set in the Doxyfile, so a partially documented
+        # member on the published surface fails the build here rather than
+        # shipping a reference that reads as complete.
+        run: |
+          # Doxygen creates OUTPUT_DIRECTORY only one level deep, and
+          # docs/web/sdk/ is not tracked because everything under it is
+          # generated, so the parent has to exist first.
+          mkdir -p docs/web/sdk
+          ( cat docs/Doxyfile
+            echo "OUTPUT_DIRECTORY=docs/web/sdk"
+            echo "HTML_OUTPUT=api"
+          ) | doxygen -
+
       - name: Verify Website
         run: |
           test -f docs/web/sitemap.xml
@@ -161,6 +179,8 @@ jobs:
             || { echo "Missing generated media page"; exit 1; }
           test -f docs/web/roadmap/index.html \
             || { echo "Missing generated roadmap page"; exit 1; }
+          test -f docs/web/sdk/api/index.html \
+            || { echo "Missing generated SDK API reference"; exit 1; }
           if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
             test -f docs/web/flash/firmware/stable/firmware-manifest-stable.json
             test "$(find docs/web/flash/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15

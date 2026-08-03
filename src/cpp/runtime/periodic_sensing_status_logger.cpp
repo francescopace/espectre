@@ -15,7 +15,8 @@ namespace espectre {
 
 void PeriodicSensingStatusLogger::log_status(const char *tag,
                                              const RuntimeSnapshot &snapshot,
-                                             uint32_t packets_per_publish) {
+                                             uint32_t packets_per_publish,
+                                             const RuntimeDiagnosticsSample *diagnostics) {
   if (!tag) {
     return;
   }
@@ -32,7 +33,9 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
   const uint32_t now_ms = monotonic_now_ms();
 
   uint32_t rate_pps = 0;
-  if (last_log_time_ms_ > 0 && now_ms > last_log_time_ms_) {
+  if (diagnostics != nullptr) {
+    rate_pps = static_cast<uint32_t>(diagnostics->csi_accepted_pps);
+  } else if (last_log_time_ms_ > 0 && now_ms > last_log_time_ms_) {
     const uint32_t elapsed_ms = now_ms - last_log_time_ms_;
     if (elapsed_ms > 0) {
       rate_pps = static_cast<uint32_t>((static_cast<uint64_t>(packets_per_publish) * 1000U) / elapsed_ms);

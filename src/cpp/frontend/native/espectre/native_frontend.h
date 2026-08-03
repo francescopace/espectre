@@ -19,6 +19,7 @@
 #include "mqtt_transport.h"
 #include "ota_service.h"
 #include "periodic_sensing_status_logger.h"
+#include "runtime_diagnostics.h"
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
 
@@ -90,6 +91,7 @@ class NativeFrontend : public IRuntimeListener {
   void publish_mqtt_stats_();
   void publish_mqtt_ota_status_(const EspectreOtaStatus &status);
   void publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message);
+  void sample_diagnostics_(uint32_t now_ms);
   void send_system_info_();
   void append_ota_sysinfo_lines_(std::vector<std::string> *lines) const;
   uint32_t now_ms_() const;
@@ -106,6 +108,8 @@ class NativeFrontend : public IRuntimeListener {
   FrontendHaMqttSettings ha_settings_{};
   WifiProvisioningInfo wifi_info_{};
   DeferredLoopAction system_info_refresh_;
+  RuntimeDiagnosticsSampler diagnostics_sampler_;
+  RuntimeDiagnosticsSample latest_diagnostics_{};
   bool client_connected_{false};
   bool telemetry_subscribed_{false};
   float last_loop_time_ms_{0.0f};
