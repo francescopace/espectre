@@ -19,6 +19,7 @@ htmlcov/
 
 # Pytest
 .pytest_cache/
+.bench_*/
 
 # Shared NPZ cache
 .npz_cache/

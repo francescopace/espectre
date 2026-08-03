@@ -1204,6 +1204,7 @@ def get_available_long_test_dataset_specs(
     )
 
 
+@lru_cache(maxsize=None)
 def _load_long_test_packets_cached(path_value: str) -> _LongTestPacketView:
     """Load one long-recording packet stream as a zero-copy packet+metadata view."""
     arrays = load_npz_sensing_arrays(Path(path_value))
@@ -1339,6 +1340,41 @@ def _evaluate_ml_long_cached_rows(
     }
 
 
+def compute_classic_long_recording_result(
+    source_path: str | Path,
+    motion_start_packet: int,
+    *,
+    selected_subcarriers: Sequence[int] = DEFAULT_SUBCARRIERS,
+) -> Optional[Dict[str, float]]:
+    """Replay one long recording through ClassicDetector and persist the result."""
+    parameters = npz_cache.detector_replay_parameters(
+        replay_kind="classic_long_recording",
+        selected_subcarriers=selected_subcarriers,
+        replay_provenance={"motion_start_packet": int(motion_start_packet)},
+    )
+    cached = npz_cache.load_detector_replay_artifact(
+        source_path,
+        parameters=parameters,
+    )
+    if cached is not None:
+        return cached
+
+    packets = _load_long_test_packets_cached(str(source_path))
+    baseline_packets = packets[:motion_start_packet]
+    movement_packets = packets[motion_start_packet:]
+    result = evaluate_classic_long_recording(
+        baseline_packets,
+        movement_packets,
+    )
+    if result is not None:
+        npz_cache.save_detector_replay_artifact(
+            source_path,
+            parameters=parameters,
+            result=result,
+        )
+    return result
+
+
 def evaluate_ml_long_recording(
     baseline_packets: Sequence[Any],
     movement_packets: Sequence[Any],
@@ -1466,8 +1502,18 @@ def evaluate_ml_long_recording(
 def evaluate_classic_long_recording(
     baseline_packets: Sequence[Any],
     movement_packets: Sequence[Any],
+    *,
+    source_path: Optional[str | Path] = None,
+    motion_start_packet: Optional[int] = None,
 ) -> Optional[Dict[str, float]]:
     """Run startup-calibrated ClassicDetector at the production cadence."""
+    if source_path is not None and motion_start_packet is not None:
+        return compute_classic_long_recording_result(
+            source_path,
+            motion_start_packet,
+            selected_subcarriers=DEFAULT_SUBCARRIERS,
+        )
+
     calibrated = build_calibrated_classic_detector(
         baseline_packets,
         selected_subcarriers=DEFAULT_SUBCARRIERS,

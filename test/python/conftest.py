@@ -605,32 +605,6 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
         terminalreporter.write_line("-" * 105)
 
-    reports = []
-    for values in terminalreporter.stats.values():
-        if isinstance(values, list):
-            reports.extend(values)
-    ran_packet_rate_regression = any(
-        "test_packet_rate_adaptation_regression.py" in str(getattr(report, "nodeid", ""))
-        for report in reports
-    )
-    if ran_packet_rate_regression:
-        try:
-            import test_packet_rate_adaptation_regression as packet_rate_regression
-
-            summaries = packet_rate_regression.iter_all_summaries()
-            if not summaries:
-                raise RuntimeError("no packet-rate adaptation pairs matched average_packet_rate >= 500")
-            terminalreporter.write_line("")
-            terminalreporter.write_line("                         PACKET-RATE ADAPTATION SUMMARY")
-            terminalreporter.write_line("-" * 105)
-            for line in packet_rate_regression._format_compact_summary_table(summaries).splitlines():
-                terminalreporter.write_line(line)
-            terminalreporter.write_line("-" * 105)
-        except Exception as exc:
-            terminalreporter.write_line(
-                f"packet-rate adaptation summary unavailable: {exc}"
-            )
-
     # Cleanup
     if os.path.exists(_PERF_RESULTS_FILE):
         os.remove(_PERF_RESULTS_FILE)

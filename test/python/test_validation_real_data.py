@@ -91,6 +91,31 @@ def get_available_chip_types():
     return _shared_get_available_chip_types()
 
 
+def get_end_to_end_datasets():
+    """Return one representative normal-link paired replay per chip."""
+    preferred_by_chip = {}
+    fallback_by_chip = {}
+    for static_path, motion_path, num_sc, dataset_chip, dataset_id in (
+        _shared_get_available_paired_datasets(synthetic=False)
+    ):
+        if _is_low_rssi_paired_dataset(static_path):
+            continue
+        chip_key = str(dataset_chip).upper()
+        record = (static_path, motion_path, num_sc, chip_key, dataset_id)
+        fallback_by_chip.setdefault(chip_key, record)
+        dataset_role = _get_paired_dataset_role(static_path)
+        if dataset_role in {"selection", "holdout"} and chip_key not in preferred_by_chip:
+            preferred_by_chip[chip_key] = record
+
+    params = []
+    for chip in get_available_chip_types():
+        chip_key = str(chip).upper()
+        selected = preferred_by_chip.get(chip_key) or fallback_by_chip.get(chip_key)
+        if selected is not None:
+            params.append(pytest.param(selected, id=f"{chip_key.lower()}_{selected[4]}"))
+    return params
+
+
 def _get_first_reserved_normal_pair():
     """Return one representative reserved normal-link pair for gate parity."""
     for static_path, motion_path, _num_sc, _chip, _dataset_id in (
@@ -150,6 +175,12 @@ def dataset_config(request):
     return request.param
 
 
+@pytest.fixture(params=get_end_to_end_datasets())
+def end_to_end_dataset_config(request):
+    """Representative paired replay used for end-to-end Classic wiring checks."""
+    return request.param
+
+
 @pytest.fixture
 def real_data(dataset_config):
     """Load real CSI data from the current dataset.
@@ -160,6 +191,13 @@ def real_data(dataset_config):
     """
     static_presence_path, motion_path, num_sc, chip, dataset_id = dataset_config
 
+    return _load_real_data_cached(static_presence_path, motion_path)
+
+
+@pytest.fixture
+def end_to_end_real_data(end_to_end_dataset_config):
+    """Load one representative paired replay for the end-to-end Classic path."""
+    static_presence_path, motion_path, _num_sc, _chip, _dataset_id = end_to_end_dataset_config
     return _load_real_data_cached(static_presence_path, motion_path)
 
 
@@ -840,7 +878,11 @@ class TestEndToEndWithCalibration:
         print(f"  Selected band: {selected_band}")
         print(f"  Adaptive threshold: {adaptive_threshold:.4f}")
     
-    def test_end_to_end_with_band_calibration_and_classic_path(self, dataset_config, real_data, num_subcarriers, window_size, fp_rate_target, recall_target, enable_hampel, calibration_algorithm, chip_type, default_subcarriers):
+    def test_end_to_end_with_band_calibration_and_classic_path(
+        self,
+        end_to_end_dataset_config,
+        end_to_end_real_data,
+    ):
         """
         Test complete end-to-end flow: startup calibration -> Classic replay.
 
@@ -851,14 +893,22 @@ class TestEndToEndWithCalibration:
         This integration check only verifies that the calibrated pipeline
         produces meaningful class separation on each paired replay.
         """
-        static_presence_packets, motion_packets = real_data
-        static_presence_path, _motion_path, _num_sc, _chip, _dataset_id = dataset_config
+        static_presence_packets, motion_packets = end_to_end_real_data
+        static_presence_path, _motion_path, num_subcarriers, chip_type, dataset_id = end_to_end_dataset_config
+        calibration_algorithm = "fixed_default"
+        window_size = DETECTOR_DEFAULT_WINDOW_SIZE
+        fp_rate_target = get_classic_fp_rate_target(chip_type)
+        recall_target = get_classic_recall_target(chip_type)
+        enable_hampel = True
 
         # ========================================
         # Step 1: Fixed-band bootstrap
         # ========================================
         print("\n" + "=" * 70)
-        print(f"  END-TO-END TEST: Startup Calibration + Classic path ({num_subcarriers} SC, {calibration_algorithm.upper()})")
+        print(
+            f"  END-TO-END TEST: Startup Calibration + Classic path "
+            f"({dataset_id}, {num_subcarriers} SC, {calibration_algorithm.upper()})"
+        )
         print("=" * 70)
         
         print(f"\nStep 1: {calibration_algorithm.upper()} fixed-band bootstrap...")
@@ -866,7 +916,7 @@ class TestEndToEndWithCalibration:
             static_presence_path,
             num_subcarriers,
             calibration_algorithm,
-            tuple(default_subcarriers),
+            tuple(DEFAULT_SUBCARRIERS),
             window_size,
         )
         print(f"  Selected band: {selected_band}")

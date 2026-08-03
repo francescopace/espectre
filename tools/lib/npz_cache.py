@@ -462,6 +462,7 @@ def detector_replay_parameters(
     threshold: Optional[float] = None,
     feature_names: Any = (),
     secondary_source: Optional[str | Path] = None,
+    replay_provenance: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, Any]:
     """Return the persisted identity for one detector replay result."""
     parameters: dict[str, Any] = {
@@ -476,6 +477,8 @@ def detector_replay_parameters(
         parameters["threshold"] = float(threshold)
     if secondary_source is not None:
         parameters["secondary_source"] = source_manifest(secondary_source)
+    if replay_provenance is not None:
+        parameters["replay_provenance"] = _json_safe(dict(replay_provenance))
     if str(replay_kind).startswith("classic_"):
         parameters["classic_sources"] = _classic_detector_source_manifests()
     return parameters
