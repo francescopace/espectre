@@ -166,4 +166,8 @@ void RuntimeFrontendController::record_snapshot(const RuntimeSnapshot &snapshot)
   snapshot_ = snapshot;
 }
 
+RuntimeDiagnosticsSnapshot RuntimeFrontendController::diagnostics() const {
+  return runtime_ != nullptr ? runtime_->get_diagnostics() : RuntimeDiagnosticsSnapshot{};
+}
+
 }  // namespace espectre

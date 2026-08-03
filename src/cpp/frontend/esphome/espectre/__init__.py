@@ -21,8 +21,12 @@ from esphome.const import (
     DEVICE_CLASS_MOTION,
     UNIT_EMPTY,
     UNIT_PERCENT,
+    UNIT_DECIBEL_MILLIWATT,
     ENTITY_CATEGORY_CONFIG,
+    ENTITY_CATEGORY_DIAGNOSTIC,
     ICON_PULSE,
+    DEVICE_CLASS_SIGNAL_STRENGTH,
+    STATE_CLASS_TOTAL_INCREASING,
 )
 
 DEPENDENCIES = ["wifi"]
@@ -58,6 +62,13 @@ CONF_DEBUG_TELEMETRY = "debug_telemetry"
 CONF_MOVEMENT_SENSOR = "movement_sensor"
 CONF_INTENSITY_SENSOR = "intensity_sensor"
 CONF_MOTION_SENSOR = "motion_sensor"
+CONF_TRAFFIC_RATE_SENSOR = "traffic_rate_sensor"
+CONF_CSI_CALLBACK_RATE_SENSOR = "csi_callback_rate_sensor"
+CONF_CSI_ACCEPTED_RATE_SENSOR = "csi_accepted_rate_sensor"
+CONF_CSI_FILTERED_RATE_SENSOR = "csi_filtered_rate_sensor"
+CONF_WIFI_CHANNEL_SENSOR = "wifi_channel_sensor"
+CONF_WIFI_RSSI_SENSOR = "wifi_rssi_sensor"
+CONF_CSI_CHANNEL_CHANGES_SENSOR = "csi_channel_changes_sensor"
 
 # Number controls
 CONF_THRESHOLD_NUMBER = "threshold_number"
@@ -211,6 +222,56 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_MOTION_SENSOR, default={"name": "Motion Detected"}): binary_sensor.binary_sensor_schema(
         device_class=DEVICE_CLASS_MOTION,
     ),
+
+    # Low-rate diagnostic entities. Codegen creates them only when
+    # debug_telemetry is enabled, so production firmware pays no entity or
+    # polling cost for these defaults.
+    cv.Optional(CONF_TRAFFIC_RATE_SENSOR, default={"name": "Traffic TX Rate"}): sensor.sensor_schema(
+        unit_of_measurement="pkt/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:upload-network",
+    ),
+    cv.Optional(CONF_CSI_CALLBACK_RATE_SENSOR, default={"name": "CSI Callback Rate"}): sensor.sensor_schema(
+        unit_of_measurement="pkt/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:access-point",
+    ),
+    cv.Optional(CONF_CSI_ACCEPTED_RATE_SENSOR, default={"name": "CSI Accepted Rate"}): sensor.sensor_schema(
+        unit_of_measurement="pkt/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:check-network",
+    ),
+    cv.Optional(CONF_CSI_FILTERED_RATE_SENSOR, default={"name": "CSI Filtered Rate"}): sensor.sensor_schema(
+        unit_of_measurement="pkt/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:filter-outline",
+    ),
+    cv.Optional(CONF_WIFI_CHANNEL_SENSOR, default={"name": "WiFi Channel"}): sensor.sensor_schema(
+        accuracy_decimals=0,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:wifi-marker",
+    ),
+    cv.Optional(CONF_WIFI_RSSI_SENSOR, default={"name": "WiFi RSSI"}): sensor.sensor_schema(
+        unit_of_measurement=UNIT_DECIBEL_MILLIWATT,
+        accuracy_decimals=0,
+        device_class=DEVICE_CLASS_SIGNAL_STRENGTH,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+    ),
+    cv.Optional(CONF_CSI_CHANNEL_CHANGES_SENSOR, default={"name": "CSI Channel Changes"}): sensor.sensor_schema(
+        accuracy_decimals=0,
+        state_class=STATE_CLASS_TOTAL_INCREASING,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:access-point-network",
+    ),
     
     # Number control for threshold adjustment from HA
     cv.Optional(CONF_THRESHOLD_NUMBER, default={"name": "Threshold"}): number.number_schema(
@@ -289,6 +350,20 @@ async def to_code(config):
 
     sens = await binary_sensor.new_binary_sensor(config[CONF_MOTION_SENSOR])
     cg.add(var.set_motion_binary_sensor(sens))
+
+    if config[CONF_DEBUG_TELEMETRY]:
+        diagnostic_sensors = (
+            (CONF_TRAFFIC_RATE_SENSOR, var.set_traffic_rate_sensor),
+            (CONF_CSI_CALLBACK_RATE_SENSOR, var.set_csi_callback_rate_sensor),
+            (CONF_CSI_ACCEPTED_RATE_SENSOR, var.set_csi_accepted_rate_sensor),
+            (CONF_CSI_FILTERED_RATE_SENSOR, var.set_csi_filtered_rate_sensor),
+            (CONF_WIFI_CHANNEL_SENSOR, var.set_wifi_channel_sensor),
+            (CONF_WIFI_RSSI_SENSOR, var.set_wifi_rssi_sensor),
+            (CONF_CSI_CHANNEL_CHANGES_SENSOR, var.set_csi_channel_changes_sensor),
+        )
+        for config_key, setter in diagnostic_sensors:
+            sens = await sensor.new_sensor(config[config_key])
+            cg.add(setter(sens))
     
     # Register threshold number control
     # Note: number.new_number() handles component registration internally

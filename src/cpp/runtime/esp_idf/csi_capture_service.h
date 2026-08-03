@@ -24,6 +24,7 @@
 namespace espectre {
 
 using csi_capture_packet_callback_t = void (*)(void *, const wifi_csi_info_t *, const NormalizedCSIPayload &);
+using csi_capture_channel_change_callback_t = void (*)(void *, uint8_t, uint8_t);
 
 class CsiCaptureService {
  public:
@@ -38,6 +39,9 @@ class CsiCaptureService {
   bool is_enabled() const { return enabled_; }
   uint32_t filtered_packets() const { return filtered_packets_.load(std::memory_order_relaxed); }
   uint32_t callback_invocations() const { return callback_invocations_.load(std::memory_order_relaxed); }
+  uint32_t channel_changes_total() const {
+    return channel_changes_total_.load(std::memory_order_relaxed);
+  }
   uint32_t null_or_empty_packets() const { return null_or_empty_packets_.load(std::memory_order_relaxed); }
   uint32_t normalized_invalid_packets() const {
     return normalized_invalid_packets_.load(std::memory_order_relaxed);
@@ -79,19 +83,29 @@ class CsiCaptureService {
     packet_callback_context_ = context;
   }
 
+  void set_channel_change_callback(csi_capture_channel_change_callback_t callback,
+                                   void *context = nullptr) {
+    channel_change_callback_ = callback;
+    channel_change_callback_context_ = context;
+  }
+
  private:
   static void IRAM_ATTR csi_rx_callback_wrapper_(void *ctx, wifi_csi_info_t *data);
   esp_err_t configure_platform_specific_();
   bool accept_rx_timestamp_(const wifi_csi_info_t *data);
   void record_format_drop_(CsiFormatReasonCode reason_code);
+  void reset_channel_tracking_();
 
   bool enabled_{false};
   IWiFiCSI *wifi_csi_{nullptr};
   WiFiCSIReal default_wifi_csi_;
   csi_capture_packet_callback_t packet_callback_{nullptr};
   void *packet_callback_context_{nullptr};
+  csi_capture_channel_change_callback_t channel_change_callback_{nullptr};
+  void *channel_change_callback_context_{nullptr};
   std::atomic<uint32_t> filtered_packets_{0U};
   std::atomic<uint32_t> callback_invocations_{0U};
+  std::atomic<uint32_t> channel_changes_total_{0U};
   std::atomic<uint32_t> null_or_empty_packets_{0U};
   std::atomic<uint32_t> normalized_invalid_packets_{0U};
   std::atomic<uint32_t> valid_packets_{0U};
@@ -115,6 +129,7 @@ class CsiCaptureService {
   SerialSequenceTracker rx_timestamp_tracker_;
   PendingEvent<> collapse_log_event_;
   PendingEvent<> remap_log_event_;
+  PendingEvent<uint8_t, uint8_t> channel_change_event_;
   CsiFormatAssessment last_assessment_{};
   uint32_t consecutive_format_drops_{0U};
   NormalizedCSIPayloadTag last_accepted_normalization_tag_{NormalizedCSIPayloadTag::NONE};
@@ -123,6 +138,8 @@ class CsiCaptureService {
   // last confident answer keeps the stream internally consistent.
   Ht20BinLayout bin_layout_{Ht20BinLayout::UNKNOWN};
   bool has_accepted_packet_{false};
+  std::atomic<uint8_t> current_channel_{0U};
+  std::atomic<bool> channel_change_pending_{false};
 };
 
 }  // namespace espectre

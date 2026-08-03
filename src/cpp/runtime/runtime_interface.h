@@ -215,6 +215,8 @@ class IEspectreRuntime {
 
   /** Current sensing state. Cheap enough to poll from your loop. */
   virtual RuntimeSnapshot get_snapshot() const = 0;
+  /** Low-rate capture and traffic counters for diagnostic frontends. */
+  virtual RuntimeDiagnosticsSnapshot get_diagnostics() const = 0;
   /** What this backend actually supports. Stable after `setup()`. */
   virtual RuntimeCapabilities get_capabilities() const = 0;
 

@@ -26,6 +26,7 @@
 #include "runtime_config_utils.h"
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
+#include "sdkconfig.h"
 
 namespace esphome {
 namespace espectre_component {
@@ -81,6 +82,15 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_movement_sensor(sensor::Sensor *sensor) { this->sensor_publisher_.set_movement_sensor(sensor); }
   void set_intensity_sensor(sensor::Sensor *sensor) { this->sensor_publisher_.set_intensity_sensor(sensor); }
   void set_motion_binary_sensor(binary_sensor::BinarySensor *sensor) { this->sensor_publisher_.set_motion_binary_sensor(sensor); }
+#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
+  void set_traffic_rate_sensor(sensor::Sensor *sensor) { this->traffic_rate_sensor_ = sensor; }
+  void set_csi_callback_rate_sensor(sensor::Sensor *sensor) { this->csi_callback_rate_sensor_ = sensor; }
+  void set_csi_accepted_rate_sensor(sensor::Sensor *sensor) { this->csi_accepted_rate_sensor_ = sensor; }
+  void set_csi_filtered_rate_sensor(sensor::Sensor *sensor) { this->csi_filtered_rate_sensor_ = sensor; }
+  void set_wifi_channel_sensor(sensor::Sensor *sensor) { this->wifi_channel_sensor_ = sensor; }
+  void set_wifi_rssi_sensor(sensor::Sensor *sensor) { this->wifi_rssi_sensor_ = sensor; }
+  void set_csi_channel_changes_sensor(sensor::Sensor *sensor) { this->csi_channel_changes_sensor_ = sensor; }
+#endif
   
   // Setter for threshold number control
   void set_threshold_number(number::Number *num) { this->threshold_number_ = num; }
@@ -108,6 +118,9 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;
   void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) override;
   void on_runtime_fault(const char *message) override;
+#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
+  void publish_diagnostics_if_due_();
+#endif
 
   RuntimeFrontendController runtime_;
 
@@ -119,6 +132,23 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   // Switch controls
   switch_::Switch *calibrate_switch_{nullptr};
   select::Select *detector_select_{nullptr};
+
+#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
+  sensor::Sensor *traffic_rate_sensor_{nullptr};
+  sensor::Sensor *csi_callback_rate_sensor_{nullptr};
+  sensor::Sensor *csi_accepted_rate_sensor_{nullptr};
+  sensor::Sensor *csi_filtered_rate_sensor_{nullptr};
+  sensor::Sensor *wifi_channel_sensor_{nullptr};
+  sensor::Sensor *wifi_rssi_sensor_{nullptr};
+  sensor::Sensor *csi_channel_changes_sensor_{nullptr};
+
+  bool diagnostic_baseline_ready_{false};
+  uint32_t last_diagnostic_publish_ms_{0U};
+  uint64_t previous_traffic_packets_total_{0U};
+  uint64_t previous_csi_callbacks_total_{0U};
+  uint64_t previous_csi_accepted_total_{0U};
+  uint64_t previous_csi_filtered_total_{0U};
+#endif
 
   bool threshold_republished_{false};
   bool detector_republished_{false};

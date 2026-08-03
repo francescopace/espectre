@@ -88,6 +88,20 @@ views:
           #       name: Max Free Block
           #     - entity: sensor.espectre_loop_time
           #       name: Loop Time
+          #     - entity: sensor.espectre_traffic_tx_rate
+          #       name: Traffic TX Rate
+          #     - entity: sensor.espectre_csi_callback_rate
+          #       name: CSI Callback Rate
+          #     - entity: sensor.espectre_csi_accepted_rate
+          #       name: CSI Accepted Rate
+          #     - entity: sensor.espectre_csi_filtered_rate
+          #       name: CSI Filtered Rate
+          #     - entity: sensor.espectre_wifi_channel
+          #       name: WiFi Channel
+          #     - entity: sensor.espectre_wifi_rssi
+          #       name: WiFi RSSI
+          #     - entity: sensor.espectre_csi_channel_changes
+          #       name: CSI Channel Changes
           #   show_header_toggle: false
           #   state_color: false
     cards: []

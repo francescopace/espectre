@@ -13,7 +13,10 @@
 #include <string>
 
 #define private public
+#define protected public
 #include "esp_idf_runtime.h"
+#include "stream_esp_idf_runtime.h"
+#undef protected
 #undef private
 
 #include "nvs.h"
@@ -110,11 +113,93 @@ void test_runtime_motion_hits_runtime_updates_pipeline_and_persists(void) {
   TEST_ASSERT_EQUAL_UINT8(6U, saved_motion_off_hits);
 }
 
+void test_runtime_diagnostics_read_current_wifi_association(void) {
+  RuntimeConfig config;
+  EspIdfRuntime runtime(config);
+
+  const RuntimeDiagnosticsSnapshot diagnostics = runtime.get_diagnostics();
+
+  TEST_ASSERT_EQUAL_UINT8(6U, diagnostics.wifi_channel);
+  TEST_ASSERT_EQUAL_INT8(-55, diagnostics.wifi_rssi_dbm);
+}
+
+void test_runtime_channel_change_rearms_csi_and_restarts_calibration(void) {
+  RuntimeConfig config;
+  config.detection_algorithm = DetectionAlgorithm::CLASSIC;
+  config.csi_traffic_mode = CsiTrafficMode::DISABLED;
+  EspIdfRuntime runtime(config);
+  DetectorListener listener;
+  runtime.set_listener(&listener);
+  TEST_ASSERT_TRUE(runtime.configure_detector_());
+  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval);
+  runtime.csi_traffic_service_.init(to_csi_traffic_config(config, CsiTrafficMode::EXTERNAL));
+  TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
+
+  runtime.wifi_ready_ = true;
+  runtime.wifi_ip_info_.ip.addr = 0x0101A8C0U;
+  runtime.wifi_ip_info_.gw.addr = 0x0101A8C0U;
+  runtime.on_csi_channel_changed_(8U, 10U);
+
+  TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
+  TEST_ASSERT_TRUE(runtime.is_calibrating());
+  TEST_ASSERT_TRUE(runtime.get_snapshot().ready_to_publish);
+  TEST_ASSERT_EQUAL(MotionState::IDLE, runtime.get_snapshot().motion_state);
+  TEST_ASSERT_EQUAL(1, listener.calibration_starts);
+}
+
+void test_runtime_channel_change_cold_resets_ml_without_calibration(void) {
+  RuntimeConfig config;
+  config.detection_algorithm = DetectionAlgorithm::ML;
+  config.csi_traffic_mode = CsiTrafficMode::DISABLED;
+  EspIdfRuntime runtime(config);
+  TEST_ASSERT_TRUE(runtime.configure_detector_());
+  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval);
+  runtime.csi_traffic_service_.init(to_csi_traffic_config(config, CsiTrafficMode::EXTERNAL));
+  TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
+
+  int8_t csi_data[HT20_CSI_LEN] = {};
+  runtime.detector_->process_packet(csi_data, sizeof(csi_data), DEFAULT_SUBCARRIERS,
+                                    HT20_SELECTED_BAND_SIZE, -50);
+  TEST_ASSERT_TRUE(runtime.detector_->get_buffer_count() > 0U);
+
+  runtime.wifi_ready_ = true;
+  runtime.wifi_ip_info_.ip.addr = 0x0101A8C0U;
+  runtime.wifi_ip_info_.gw.addr = 0x0101A8C0U;
+  runtime.on_csi_channel_changed_(8U, 10U);
+
+  TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
+  TEST_ASSERT_FALSE(runtime.is_calibrating());
+  TEST_ASSERT_TRUE(runtime.get_snapshot().ready_to_publish);
+  TEST_ASSERT_EQUAL(0U, runtime.detector_->get_buffer_count());
+}
+
+void test_stream_runtime_channel_change_resets_capture_and_stream_session(void) {
+  RuntimeConfig config;
+  config.csi_traffic_mode = CsiTrafficMode::DISABLED;
+  StreamEspIdfRuntime runtime(config);
+  runtime.capture_service_.init();
+  TEST_ASSERT_EQUAL(ESP_OK, runtime.capture_service_.enable());
+  runtime.wifi_connected_.store(true, std::memory_order_relaxed);
+  runtime.state_.store(StreamEspIdfRuntime::WorkflowState::STREAMING, std::memory_order_relaxed);
+  runtime.snapshot_.ready_to_publish = true;
+
+  runtime.on_csi_channel_changed_(8U, 10U);
+
+  TEST_ASSERT_FALSE(runtime.capture_service_.is_enabled());
+  TEST_ASSERT_FALSE(runtime.get_snapshot().ready_to_publish);
+  TEST_ASSERT_EQUAL(StreamEspIdfRuntime::WorkflowState::WAIT_WIFI,
+                    runtime.state_.load(std::memory_order_relaxed));
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_runtime_detector_switch_updates_pipeline_threshold_and_calibration);
   RUN_TEST(test_runtime_motion_hits_runtime_updates_pipeline_and_persists);
+  RUN_TEST(test_runtime_diagnostics_read_current_wifi_association);
+  RUN_TEST(test_runtime_channel_change_rearms_csi_and_restarts_calibration);
+  RUN_TEST(test_runtime_channel_change_cold_resets_ml_without_calibration);
+  RUN_TEST(test_stream_runtime_channel_change_resets_capture_and_stream_session);
   return UNITY_END();
 }

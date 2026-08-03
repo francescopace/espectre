@@ -42,7 +42,13 @@ bool EspIdfRuntime::setup() {
 
 void EspIdfRuntime::shutdown() { frontend_runtime_shim::state.shutdown_called = true; }
 
-void EspIdfRuntime::loop() { frontend_runtime_shim::state.loop_calls++; }
+void EspIdfRuntime::loop() {
+  frontend_runtime_shim::state.loop_calls++;
+}
+
+RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
+  return frontend_runtime_shim::state.diagnostics;
+}
 
 void EspIdfRuntime::set_services_armed(bool armed) { frontend_runtime_shim::state.services_armed = armed; }
 

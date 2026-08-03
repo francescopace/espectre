@@ -93,6 +93,9 @@ bool EspIdfRuntime::setup() {
   csi_pipeline_.init(detector_.get(), config_.publish_interval);
   csi_pipeline_.set_evaluation_interval(config_.evaluation_interval);
   csi_pipeline_.set_motion_hit_thresholds(config_.motion_on_hits, config_.motion_off_hits);
+  csi_pipeline_.set_channel_change_callback([this](uint8_t previous_channel, uint8_t current_channel) {
+    on_csi_channel_changed_(previous_channel, current_channel);
+  });
   update_live_telemetry_callback_();
 
   if (wifi_lifecycle_.register_handlers([this](const esp_netif_ip_info_t &ip_info) {
@@ -145,6 +148,23 @@ void EspIdfRuntime::loop() {
                                              detection_timing.maximum_us);
   }
   csi_traffic_service_.loop();
+}
+
+RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
+  RuntimeDiagnosticsSnapshot diagnostics;
+#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
+  wifi_ap_record_t ap_info{};
+  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+    diagnostics.wifi_rssi_dbm = ap_info.rssi;
+    diagnostics.wifi_channel = ap_info.primary;
+  }
+  diagnostics.traffic_packets_total = csi_traffic_service_.get_pacing_total();
+  diagnostics.csi_callbacks_total = csi_pipeline_.capture_callback_invocations_total();
+  diagnostics.csi_accepted_total = csi_pipeline_.accepted_packets_total();
+  diagnostics.csi_filtered_total = csi_pipeline_.capture_filtered_packets_total();
+  diagnostics.channel_changes_total = csi_pipeline_.channel_changes_total();
+#endif
+  return diagnostics;
 }
 
 void EspIdfRuntime::log_calibration_progress_(uint8_t percent, uint32_t packets, uint16_t target_packets) {
@@ -402,6 +422,37 @@ void EspIdfRuntime::on_wifi_disconnected_() {
   if (listener_ != nullptr) {
     listener_->on_motion_state_changed(snapshot_);
   }
+}
+
+void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel) {
+  if (!wifi_ready_ || !services_armed_ || wifi_ip_info_.ip.addr == 0U || !csi_pipeline_.is_enabled()) {
+    return;
+  }
+
+  ESP_LOGW(RUNTIME_TAG,
+           "Rearming CSI session after Wi-Fi channel change: %u -> %u",
+           static_cast<unsigned>(previous_channel),
+           static_cast<unsigned>(current_channel));
+
+  const esp_netif_ip_info_t ip_info = wifi_ip_info_;
+  cancel_calibration_(false);
+  csi_pipeline_.set_local_identity(0U, nullptr);
+  const esp_err_t disable_err = csi_pipeline_.disable();
+  csi_traffic_service_.stop();
+  snapshot_.ready_to_publish = false;
+  snapshot_.motion_state = MotionState::IDLE;
+  if (listener_ != nullptr) {
+    listener_->on_motion_state_changed(snapshot_);
+  }
+  if (disable_err != ESP_OK) {
+    char message[96];
+    std::snprintf(message, sizeof(message), "Failed to rearm CSI after channel change: %s",
+                  esp_err_to_name(disable_err));
+    notify_fault_(message);
+    return;
+  }
+
+  on_wifi_connected_(ip_info);
 }
 
 bool EspIdfRuntime::start_calibration_() {

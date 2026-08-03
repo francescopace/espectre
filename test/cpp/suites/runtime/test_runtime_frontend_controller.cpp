@@ -92,6 +92,19 @@ void test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward(
   TEST_ASSERT_FALSE(controller.is_setup_complete());
 }
 
+void test_runtime_frontend_controller_reads_diagnostics_from_backend(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+
+  frontend_runtime_shim::state.diagnostics.wifi_channel = 10U;
+  frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 123U;
+  const RuntimeDiagnosticsSnapshot diagnostics = controller.diagnostics();
+
+  TEST_ASSERT_EQUAL(10U, diagnostics.wifi_channel);
+  TEST_ASSERT_EQUAL(123U, diagnostics.csi_callbacks_total);
+}
+
 void test_runtime_frontend_controller_threshold_runtime_updates_config_and_snapshot(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
@@ -190,6 +203,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_setup_propagates_state_and_handles_failure);
   RUN_TEST(test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward);
+  RUN_TEST(test_runtime_frontend_controller_reads_diagnostics_from_backend);
   RUN_TEST(test_runtime_frontend_controller_threshold_runtime_updates_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_motion_hits_runtime_updates_config);
   RUN_TEST(test_runtime_frontend_controller_recalibration_requires_capability_and_runtime);

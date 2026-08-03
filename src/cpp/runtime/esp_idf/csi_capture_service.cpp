@@ -33,6 +33,7 @@ void CsiCaptureService::init(IWiFiCSI *wifi_csi) {
 void CsiCaptureService::reset_session() {
   filtered_packets_.store(0U, std::memory_order_relaxed);
   callback_invocations_.store(0U, std::memory_order_relaxed);
+  channel_changes_total_.store(0U, std::memory_order_relaxed);
   null_or_empty_packets_.store(0U, std::memory_order_relaxed);
   normalized_invalid_packets_.store(0U, std::memory_order_relaxed);
   valid_packets_.store(0U, std::memory_order_relaxed);
@@ -56,10 +57,18 @@ void CsiCaptureService::reset_session() {
   rx_timestamp_tracker_.reset();
   collapse_log_event_.clear();
   remap_log_event_.clear();
+  reset_channel_tracking_();
   last_assessment_ = {};
   consecutive_format_drops_ = 0U;
   last_accepted_normalization_tag_ = NormalizedCSIPayloadTag::NONE;
+  bin_layout_ = Ht20BinLayout::UNKNOWN;
   has_accepted_packet_ = false;
+}
+
+void CsiCaptureService::reset_channel_tracking_() {
+  current_channel_.store(0U, std::memory_order_relaxed);
+  channel_change_pending_.store(false, std::memory_order_relaxed);
+  channel_change_event_.clear();
 }
 
 void CsiCaptureService::loop() {
@@ -68,6 +77,17 @@ void CsiCaptureService::loop() {
   }
   if (remap_log_event_.take()) {
     ESP_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
+  }
+  uint8_t previous_channel = 0U;
+  uint8_t current_channel = 0U;
+  if (channel_change_event_.take(previous_channel, current_channel)) {
+    ESP_LOGW(TAG, "Wi-Fi channel changed: %u -> %u, invalidating CSI capture session",
+             static_cast<unsigned>(previous_channel), static_cast<unsigned>(current_channel));
+    if (channel_change_callback_ != nullptr) {
+      channel_change_callback_(channel_change_callback_context_, previous_channel, current_channel);
+    } else {
+      channel_change_pending_.store(false, std::memory_order_relaxed);
+    }
   }
 }
 
@@ -79,6 +99,7 @@ esp_err_t CsiCaptureService::enable() {
 
   const uint32_t attempt = enable_attempts_.fetch_add(1U, std::memory_order_relaxed) + 1U;
   ESP_LOGI(TAG, "Arming CSI attempt=%" PRIu32, attempt);
+  reset_channel_tracking_();
   rx_timestamp_tracker_.reset();
 
   esp_err_t err = configure_platform_specific_();
@@ -133,6 +154,7 @@ esp_err_t CsiCaptureService::disable() {
 
   enabled_ = false;
   rx_timestamp_tracker_.reset();
+  reset_channel_tracking_();
   ESP_LOGI(TAG, "CSI disabled attempt=%" PRIu32 " disable=%s", attempt, esp_err_to_name(last_disable_err()));
   return ESP_OK;
 }
@@ -259,6 +281,21 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   }
 
   last_assessment_ = assessment;
+  const uint8_t packet_channel = data->rx_ctrl.channel;
+  const uint8_t previous_channel = current_channel_.load(std::memory_order_relaxed);
+  if (channel_change_pending_.load(std::memory_order_relaxed)) {
+    filtered_packets_.fetch_add(1U, std::memory_order_relaxed);
+    return;
+  }
+  if (previous_channel != 0U && packet_channel != previous_channel) {
+    current_channel_.store(packet_channel, std::memory_order_relaxed);
+    channel_change_pending_.store(true, std::memory_order_relaxed);
+    channel_changes_total_.fetch_add(1U, std::memory_order_relaxed);
+    channel_change_event_.post(previous_channel, packet_channel);
+    filtered_packets_.fetch_add(1U, std::memory_order_relaxed);
+    return;
+  }
+  current_channel_.store(packet_channel, std::memory_order_relaxed);
   last_accepted_normalization_tag_ = normalized.tag;
   has_accepted_packet_ = true;
   if (packet_callback_) {

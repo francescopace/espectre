@@ -239,6 +239,9 @@ Streamer-local transport:
 
 Runtime behavior notes:
 
+- when the shared capture service observes the first valid CSI packet on a new
+  Wi-Fi channel, Streamer rejects the transition packet, resets the UDP
+  transport session, and rearms CSI capture through its normal workflow
 - the streamer no longer uses the shared internal traffic generator to emit the
   CSI stream; the collector controls pacing directly by sending UDP pacing
   packets to `ESPECTRE_TRAFFIC_RX_PORT`
@@ -432,4 +435,3 @@ Notes:
 - max sequence gap is the worst observed burst loss in one capture, measured as
   the largest count of consecutive `stream_seq_num` values missing between two
   received records
-

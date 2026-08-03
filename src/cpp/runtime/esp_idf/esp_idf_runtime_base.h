@@ -30,6 +30,7 @@ class EspIdfRuntimeBase : public IEspectreRuntime {
       : config_(config), fault_tag_(fault_tag), unknown_fault_message_(unknown_fault_message) {}
 
   RuntimeSnapshot get_snapshot() const override { return snapshot_; }
+  RuntimeDiagnosticsSnapshot get_diagnostics() const override { return {}; }
   RuntimeCapabilities get_capabilities() const override { return capabilities_; }
   void set_listener(IRuntimeListener *listener) override { listener_ = listener; }
 

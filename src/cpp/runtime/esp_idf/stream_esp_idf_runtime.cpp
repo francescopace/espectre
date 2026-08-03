@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cstdio>
 
 #include "espectre_log.h"
 #include "espectre_protocol.h"
@@ -99,6 +100,7 @@ bool StreamEspIdfRuntime::setup() {
 
   capture_service_.init();
   capture_service_.set_packet_callback(&StreamEspIdfRuntime::capture_packet_callback_, this);
+  capture_service_.set_channel_change_callback(&StreamEspIdfRuntime::capture_channel_change_callback_, this);
 
   csi_traffic_service_.init(to_csi_traffic_config(config_, CsiTrafficMode::PACING));
   csi_traffic_service_.set_packet_callback(&StreamEspIdfRuntime::pacing_packet_callback_, this);
@@ -297,6 +299,29 @@ void StreamEspIdfRuntime::on_wifi_disconnected_() {
   snapshot_.ready_to_publish = false;
 }
 
+void StreamEspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel) {
+  if (!wifi_connected_.load(std::memory_order_relaxed) || !services_armed_ || !capture_service_.is_enabled()) {
+    return;
+  }
+
+  ESP_LOGW(TAG,
+           "Rearming stream after Wi-Fi channel change: %u -> %u",
+           static_cast<unsigned>(previous_channel),
+           static_cast<unsigned>(current_channel));
+
+  const esp_err_t disable_err = capture_service_.disable();
+  csi_traffic_service_.stop();
+  stream_transport_.reset_session();
+  snapshot_.ready_to_publish = false;
+  transition_to_(WorkflowState::WAIT_WIFI, "Wi-Fi channel changed");
+  if (disable_err != ESP_OK) {
+    char message[96];
+    std::snprintf(message, sizeof(message), "Failed to rearm CSI after channel change: %s",
+                  esp_err_to_name(disable_err));
+    notify_fault_(message);
+  }
+}
+
 void StreamEspIdfRuntime::transition_to_(WorkflowState next, const char *reason) {
   const WorkflowState prev = state_.exchange(next, std::memory_order_relaxed);
   if (prev != next) {
@@ -322,6 +347,15 @@ void StreamEspIdfRuntime::capture_packet_callback_(void *context,
   auto *runtime = static_cast<StreamEspIdfRuntime *>(context);
   if (runtime != nullptr) {
     runtime->handle_csi_packet_(info, normalized);
+  }
+}
+
+void StreamEspIdfRuntime::capture_channel_change_callback_(void *context,
+                                                           uint8_t previous_channel,
+                                                           uint8_t current_channel) {
+  auto *runtime = static_cast<StreamEspIdfRuntime *>(context);
+  if (runtime != nullptr) {
+    runtime->on_csi_channel_changed_(previous_channel, current_channel);
   }
 }
 

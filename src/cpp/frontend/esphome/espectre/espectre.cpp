@@ -22,6 +22,8 @@
 #include "runtime_listener_utils.h"
 #include "sdkconfig.h"
 
+#include <cmath>
+
 namespace esphome {
 namespace espectre_component {
 
@@ -48,7 +50,93 @@ ESpectreComponent::~ESpectreComponent() {
 
 void ESpectreComponent::loop() {
   this->runtime_.loop();
+#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
+  this->publish_diagnostics_if_due_();
+#endif
 }
+
+#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
+void ESpectreComponent::publish_diagnostics_if_due_() {
+  const bool has_diagnostic_sensor = this->traffic_rate_sensor_ != nullptr ||
+                                     this->csi_callback_rate_sensor_ != nullptr ||
+                                     this->csi_accepted_rate_sensor_ != nullptr ||
+                                     this->csi_filtered_rate_sensor_ != nullptr ||
+                                     this->wifi_channel_sensor_ != nullptr ||
+                                     this->wifi_rssi_sensor_ != nullptr ||
+                                     this->csi_channel_changes_sensor_ != nullptr;
+  if (!has_diagnostic_sensor) {
+    return;
+  }
+
+  const uint32_t now_ms = millis();
+  const ::espectre::RuntimeDiagnosticsSnapshot diagnostics = this->runtime_.diagnostics();
+  if (!this->diagnostic_baseline_ready_) {
+    this->diagnostic_baseline_ready_ = true;
+    this->last_diagnostic_publish_ms_ = now_ms;
+    this->previous_traffic_packets_total_ = diagnostics.traffic_packets_total;
+    this->previous_csi_callbacks_total_ = diagnostics.csi_callbacks_total;
+    this->previous_csi_accepted_total_ = diagnostics.csi_accepted_total;
+    this->previous_csi_filtered_total_ = diagnostics.csi_filtered_total;
+    if (this->traffic_rate_sensor_ != nullptr) this->traffic_rate_sensor_->publish_state(0.0f);
+    if (this->csi_callback_rate_sensor_ != nullptr) this->csi_callback_rate_sensor_->publish_state(0.0f);
+    if (this->csi_accepted_rate_sensor_ != nullptr) this->csi_accepted_rate_sensor_->publish_state(0.0f);
+    if (this->csi_filtered_rate_sensor_ != nullptr) this->csi_filtered_rate_sensor_->publish_state(0.0f);
+    if (this->wifi_channel_sensor_ != nullptr) this->wifi_channel_sensor_->publish_state(diagnostics.wifi_channel);
+    if (this->wifi_rssi_sensor_ != nullptr) {
+      this->wifi_rssi_sensor_->publish_state(diagnostics.wifi_rssi_dbm == INT8_MIN
+                                                 ? NAN
+                                                 : static_cast<float>(diagnostics.wifi_rssi_dbm));
+    }
+    if (this->csi_channel_changes_sensor_ != nullptr) {
+      this->csi_channel_changes_sensor_->publish_state(diagnostics.channel_changes_total);
+    }
+    return;
+  }
+
+  const uint32_t elapsed_ms = now_ms - this->last_diagnostic_publish_ms_;
+  if (elapsed_ms < 5000U) {
+    return;
+  }
+  const auto counter_delta = [](uint64_t current, uint64_t previous) {
+    return current >= previous ? current - previous : current;
+  };
+  const auto to_rate = [elapsed_ms](uint64_t delta) {
+    return static_cast<float>(delta) * 1000.0f / static_cast<float>(elapsed_ms);
+  };
+
+  if (this->traffic_rate_sensor_ != nullptr) {
+    this->traffic_rate_sensor_->publish_state(to_rate(counter_delta(
+        diagnostics.traffic_packets_total, this->previous_traffic_packets_total_)));
+  }
+  if (this->csi_callback_rate_sensor_ != nullptr) {
+    this->csi_callback_rate_sensor_->publish_state(to_rate(counter_delta(
+        diagnostics.csi_callbacks_total, this->previous_csi_callbacks_total_)));
+  }
+  if (this->csi_accepted_rate_sensor_ != nullptr) {
+    this->csi_accepted_rate_sensor_->publish_state(to_rate(counter_delta(
+        diagnostics.csi_accepted_total, this->previous_csi_accepted_total_)));
+  }
+  if (this->csi_filtered_rate_sensor_ != nullptr) {
+    this->csi_filtered_rate_sensor_->publish_state(to_rate(counter_delta(
+        diagnostics.csi_filtered_total, this->previous_csi_filtered_total_)));
+  }
+  if (this->wifi_channel_sensor_ != nullptr) this->wifi_channel_sensor_->publish_state(diagnostics.wifi_channel);
+  if (this->wifi_rssi_sensor_ != nullptr) {
+    this->wifi_rssi_sensor_->publish_state(diagnostics.wifi_rssi_dbm == INT8_MIN
+                                               ? NAN
+                                               : static_cast<float>(diagnostics.wifi_rssi_dbm));
+  }
+  if (this->csi_channel_changes_sensor_ != nullptr) {
+    this->csi_channel_changes_sensor_->publish_state(diagnostics.channel_changes_total);
+  }
+
+  this->last_diagnostic_publish_ms_ = now_ms;
+  this->previous_traffic_packets_total_ = diagnostics.traffic_packets_total;
+  this->previous_csi_callbacks_total_ = diagnostics.csi_callbacks_total;
+  this->previous_csi_accepted_total_ = diagnostics.csi_accepted_total;
+  this->previous_csi_filtered_total_ = diagnostics.csi_filtered_total;
+}
+#endif
 
 void ESpectreComponent::set_threshold_runtime(float threshold) {
   this->runtime_.set_threshold_runtime(threshold);

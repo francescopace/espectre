@@ -27,6 +27,7 @@ external_components:
 # All parameters shown with defaults
 espectre:
   id: espectre_csi
+  debug_telemetry: true
   # Traffic Generator
   traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
   traffic_generator_mode: ping   # ping (default) or dns
@@ -57,6 +58,10 @@ logger:
 
 # Home Assistant API
 api:
+
+# OTA updates
+ota:
+  - platform: esphome
 
 debug:
   update_interval: 5s

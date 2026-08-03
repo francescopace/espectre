@@ -42,6 +42,7 @@ inline RuntimeCapabilities sensing_runtime_capabilities() {
 struct State {
   bool setup_result{true};
   RuntimeSnapshot snapshot{};
+  RuntimeDiagnosticsSnapshot diagnostics{};
   RuntimeCapabilities capabilities{sensing_runtime_capabilities()};
   bool shutdown_called{false};
   int loop_calls{0};

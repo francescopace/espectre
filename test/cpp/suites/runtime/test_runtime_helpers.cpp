@@ -40,6 +40,12 @@ struct CapturedCsiPacket {
   bool first_word_invalid{true};
 };
 
+struct CapturedChannelChange {
+  uint32_t callback_count{0U};
+  uint8_t previous_channel{0U};
+  uint8_t current_channel{0U};
+};
+
 class CaptureWiFiMock final : public IWiFiCSI {
  public:
   esp_err_t set_csi_config(const wifi_csi_config_t *config) override {
@@ -81,6 +87,13 @@ void capture_csi_packet(void *context, const wifi_csi_info_t *info, const Normal
   captured->info_len = info != nullptr ? info->len : 0U;
   captured->normalized_len = normalized.len;
   captured->first_word_invalid = info == nullptr || info->first_word_invalid;
+}
+
+void capture_channel_change(void *context, uint8_t previous_channel, uint8_t current_channel) {
+  auto *captured = static_cast<CapturedChannelChange *>(context);
+  captured->callback_count++;
+  captured->previous_channel = previous_channel;
+  captured->current_channel = current_channel;
 }
 
 }  // namespace
@@ -135,6 +148,54 @@ void test_csi_capture_service_filters_duplicate_and_stale_timestamps(void) {
     TEST_ASSERT_EQUAL(1U, service.valid_packets());
     TEST_ASSERT_EQUAL(0U, service.filtered_packets());
     TEST_ASSERT_EQUAL(0U, service.rejected_out_of_order_packets());
+}
+
+void test_csi_capture_service_defers_channel_change_and_resets_session_baseline(void) {
+    CaptureWiFiMock wifi;
+    CsiCaptureService service;
+    CapturedCsiPacket packets;
+    CapturedChannelChange channel_change;
+    service.init(&wifi);
+    service.set_packet_callback(&capture_csi_packet, &packets);
+    service.set_channel_change_callback(&capture_channel_change, &channel_change);
+
+    std::array<int8_t, HT20_CSI_LEN> csi{};
+    wifi_csi_info_t info{};
+    info.buf = csi.data();
+    info.len = HT20_CSI_LEN;
+    info.rx_ctrl.sig_mode = 1U;
+    info.rx_ctrl.cwb = 0U;
+    info.rx_ctrl.channel = 8U;
+    info.rx_ctrl.timestamp = 100U;
+
+    TEST_ASSERT_EQUAL(ESP_OK, service.enable());
+    service.process_packet(&info);
+    TEST_ASSERT_EQUAL(1U, packets.callback_count);
+
+    info.rx_ctrl.channel = 10U;
+    info.rx_ctrl.timestamp = 101U;
+    service.process_packet(&info);
+    info.rx_ctrl.timestamp = 102U;
+    service.process_packet(&info);
+
+    TEST_ASSERT_EQUAL(1U, packets.callback_count);
+    TEST_ASSERT_EQUAL(0U, channel_change.callback_count);
+    service.loop();
+    TEST_ASSERT_EQUAL(1U, channel_change.callback_count);
+    TEST_ASSERT_EQUAL(8U, channel_change.previous_channel);
+    TEST_ASSERT_EQUAL(10U, channel_change.current_channel);
+    TEST_ASSERT_EQUAL(1U, service.channel_changes_total());
+
+    TEST_ASSERT_EQUAL(ESP_OK, service.disable());
+    TEST_ASSERT_EQUAL(ESP_OK, service.enable());
+    info.rx_ctrl.channel = 11U;
+    info.rx_ctrl.timestamp = 1U;
+    service.process_packet(&info);
+    service.loop();
+
+    TEST_ASSERT_EQUAL(2U, packets.callback_count);
+    TEST_ASSERT_EQUAL(1U, channel_change.callback_count);
+    TEST_ASSERT_EQUAL(1U, service.channel_changes_total());
 }
 
 void test_csi_format_classifier_rejects_ht40_before_normalization(void) {
@@ -331,6 +392,7 @@ int process(void) {
     RUN_TEST(test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi);
     RUN_TEST(test_original_esp32_csi_config_captures_ht_ltf_only);
     RUN_TEST(test_csi_capture_service_filters_duplicate_and_stale_timestamps);
+    RUN_TEST(test_csi_capture_service_defers_channel_change_and_resets_session_baseline);
     RUN_TEST(test_csi_format_classifier_rejects_ht40_before_normalization);
     RUN_TEST(test_csi_capture_service_tracks_format_drop_reasons);
     RUN_TEST(test_csi_stream_transport_serializes_v7_phy_metadata);

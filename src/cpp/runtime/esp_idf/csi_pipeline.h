@@ -77,6 +77,10 @@ using motion_state_callback_t = std::function<void(MotionState)>;
 // Callback type for live telemetry updates emitted on evaluation ticks.
 using live_telemetry_callback_t = std::function<void(float movement, float threshold)>;
 
+// Callback type for Wi-Fi channel changes observed by the CSI stream. The
+// callback is deferred to loop() so runtimes can safely rearm CSI hardware.
+using channel_change_callback_t = std::function<void(uint8_t previous_channel, uint8_t current_channel)>;
+
 // Callback type for intercepting normalized CSI packets before detector
 // processing. The interceptor is told whether this packet closes an evaluation
 // window and how many packets that window covers, so it evaluates on the same
@@ -163,6 +167,15 @@ class CsiPipeline {
   uint64_t rejected_out_of_order_packets_total() const {
     return capture_service_.rejected_out_of_order_packets();
   }
+  uint64_t capture_callback_invocations_total() const {
+    return capture_service_.callback_invocations();
+  }
+  uint64_t capture_filtered_packets_total() const {
+    return capture_service_.filtered_packets();
+  }
+  uint32_t channel_changes_total() const {
+    return capture_service_.channel_changes_total();
+  }
   /** RSSI of the most recently accepted CSI packet. */
   int8_t last_rssi_dbm() const { return last_rssi_dbm_; }
   /** Channel the most recently accepted CSI packet arrived on. */
@@ -179,6 +192,10 @@ class CsiPipeline {
    */
   void set_motion_state_callback(motion_state_callback_t callback) {
     motion_state_callback_ = callback;
+  }
+
+  void set_channel_change_callback(channel_change_callback_t callback) {
+    channel_change_callback_ = callback;
   }
   
   /**
@@ -198,6 +215,9 @@ class CsiPipeline {
   static void capture_packet_callback_(void *context,
                                        const wifi_csi_info_t *data,
                                        const NormalizedCSIPayload &normalized);
+  static void capture_channel_change_callback_(void *context,
+                                               uint8_t previous_channel,
+                                               uint8_t current_channel);
   void clear_detector_buffer_deferred_();
   void request_motion_state_callback_(MotionState previous_state, MotionState current_state);
   MotionState update_effective_motion_state_(MotionState detector_state);
@@ -210,13 +230,13 @@ class CsiPipeline {
   csi_processed_callback_t packet_callback_;
   motion_state_callback_t motion_state_callback_;
   live_telemetry_callback_t live_telemetry_callback_;
+  channel_change_callback_t channel_change_callback_;
   uint32_t publish_rate_{100};
   // Evaluation advances on elapsed packet time, not on packet count, so a
   // window keeps its deploy-time meaning when the stream runs off-nominal.
   EvaluationCadence cadence_{};
   volatile uint32_t packets_processed_{0};
   std::atomic<uint64_t> accepted_packets_total_{0U};
-  uint8_t current_channel_{0};
   int8_t last_rssi_dbm_{INT8_MIN};
   uint8_t last_channel_{0};
   uint8_t motion_on_hits_{RUNTIME_MOTION_ON_HITS_DEFAULT};
@@ -232,8 +252,6 @@ class CsiPipeline {
   PendingEvent<float, float> live_telemetry_event_;
   PendingEvent<MotionState, uint32_t> packet_publish_event_;
   PendingDetectionTiming detection_timing_;
-  PendingEvent<uint8_t, uint8_t> channel_change_event_;
-
   CsiCaptureService capture_service_;
 
   static constexpr uint8_t NUM_SUBCARRIERS = HT20_SELECTED_BAND_SIZE;

@@ -91,6 +91,55 @@ void test_espectre_component_loop_and_destructor_forward_to_runtime(void) {
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
 }
 
+void test_espectre_component_publishes_low_rate_csi_diagnostics(void) {
+  ESpectreComponentProbe component;
+  esphome::sensor::Sensor traffic_rate;
+  esphome::sensor::Sensor callback_rate;
+  esphome::sensor::Sensor accepted_rate;
+  esphome::sensor::Sensor filtered_rate;
+  esphome::sensor::Sensor channel;
+  esphome::sensor::Sensor rssi;
+  esphome::sensor::Sensor channel_changes;
+  component.set_traffic_rate_sensor(&traffic_rate);
+  component.set_csi_callback_rate_sensor(&callback_rate);
+  component.set_csi_accepted_rate_sensor(&accepted_rate);
+  component.set_csi_filtered_rate_sensor(&filtered_rate);
+  component.set_wifi_channel_sensor(&channel);
+  component.set_wifi_rssi_sensor(&rssi);
+  component.set_csi_channel_changes_sensor(&channel_changes);
+  component.setup();
+
+  frontend_runtime_shim::state.diagnostics.wifi_channel = 8U;
+  frontend_runtime_shim::state.diagnostics.wifi_rssi_dbm = -60;
+  frontend_runtime_shim::state.diagnostics.traffic_packets_total = 100U;
+  frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 100U;
+  frontend_runtime_shim::state.diagnostics.csi_accepted_total = 90U;
+  frontend_runtime_shim::state.diagnostics.csi_filtered_total = 10U;
+  component.loop();
+
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, traffic_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(8.0f, channel.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(-60.0f, rssi.get_state());
+
+  frontend_runtime_shim::state.diagnostics.wifi_channel = 10U;
+  frontend_runtime_shim::state.diagnostics.wifi_rssi_dbm = -55;
+  frontend_runtime_shim::state.diagnostics.traffic_packets_total = 600U;
+  frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 580U;
+  frontend_runtime_shim::state.diagnostics.csi_accepted_total = 540U;
+  frontend_runtime_shim::state.diagnostics.csi_filtered_total = 40U;
+  frontend_runtime_shim::state.diagnostics.channel_changes_total = 1U;
+  esphome::advance_mock_millis(5000U);
+  component.loop();
+
+  TEST_ASSERT_EQUAL_FLOAT(100.0f, traffic_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(96.0f, callback_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(90.0f, accepted_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(6.0f, filtered_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(10.0f, channel.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(-55.0f, rssi.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(1.0f, channel_changes.get_state());
+}
+
 void test_espectre_component_configuration_setters_update_runtime_config(void) {
   ESpectreComponentProbe component;
   esphome::sensor::Sensor movement_sensor;
@@ -323,6 +372,7 @@ int process(void) {
   RUN_TEST(test_espectre_component_setup_uses_mock_runtime_snapshot);
   RUN_TEST(test_espectre_component_setup_marks_failed_when_runtime_setup_fails);
   RUN_TEST(test_espectre_component_loop_and_destructor_forward_to_runtime);
+  RUN_TEST(test_espectre_component_publishes_low_rate_csi_diagnostics);
   RUN_TEST(test_espectre_component_configuration_setters_update_runtime_config);
   RUN_TEST(test_threshold_number_behaviors_cover_parent_and_no_parent_paths);
   RUN_TEST(test_calibrate_switch_behaviors_cover_all_user_paths);

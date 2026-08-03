@@ -55,12 +55,16 @@ class StreamEspIdfRuntime : public EspIdfRuntimeBase {
   const char *workflow_state_name_(WorkflowState state) const;
   void on_wifi_connected_();
   void on_wifi_disconnected_();
+  void on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel);
   void transition_to_(WorkflowState next, const char *reason);
   void handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized);
   void handle_pacing_packet_(const sockaddr_in &sender_addr, uint64_t pacing_total);
   static void capture_packet_callback_(void *context,
                                        const wifi_csi_info_t *info,
                                        const NormalizedCSIPayload &normalized);
+  static void capture_channel_change_callback_(void *context,
+                                               uint8_t previous_channel,
+                                               uint8_t current_channel);
   static void pacing_packet_callback_(void *context, const sockaddr_in &sender_addr, uint64_t pacing_total);
 
   CsiCaptureService capture_service_;

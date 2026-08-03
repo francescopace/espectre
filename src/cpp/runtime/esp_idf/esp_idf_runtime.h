@@ -29,6 +29,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
  public:
   explicit EspIdfRuntime(const RuntimeConfig &config);
 
+  RuntimeDiagnosticsSnapshot get_diagnostics() const override;
+
   bool setup() override;
   void shutdown() override;
   void loop() override;
@@ -49,6 +51,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void log_calibration_progress_(uint8_t percent, uint32_t packets, uint16_t target_packets);
   void on_wifi_connected_(const esp_netif_ip_info_t &ip_info);
   void on_wifi_disconnected_();
+  void on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel);
   bool start_calibration_();
   bool handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len,
                                             int8_t rssi_dbm, bool evaluation_due,

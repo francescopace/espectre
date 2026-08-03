@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include <cstdint>
+
 #include "base_detector.h"
 #include "csi_format.h"
 #include "threshold.h"
@@ -18,6 +20,30 @@ namespace espectre {
 enum class RuntimeSubcarrierSource {
   /** The fixed band validated for the shipped detectors. Currently the only mode. */
   FIXED_DEFAULT,
+};
+
+/**
+ * Low-frequency counters and radio state used by optional diagnostic surfaces.
+ *
+ * This deliberately stays separate from `RuntimeSnapshot`: sensing snapshots
+ * travel through the hot callback path, while diagnostics are queried on a
+ * slow timer only when the frontend enables them.
+ */
+struct RuntimeDiagnosticsSnapshot {
+  /** RSSI of the current Wi-Fi association. `INT8_MIN` when unavailable. */
+  int8_t wifi_rssi_dbm{INT8_MIN};
+  /** Primary channel of the current Wi-Fi association. Zero when unavailable. */
+  uint8_t wifi_channel{0U};
+  /** Traffic packets sent or observed by the active traffic source. */
+  uint64_t traffic_packets_total{0U};
+  /** Raw invocations of the ESP-IDF CSI callback. */
+  uint64_t csi_callbacks_total{0U};
+  /** CSI packets accepted by the sensing pipeline. */
+  uint64_t csi_accepted_total{0U};
+  /** CSI packets rejected by capture-level validation. */
+  uint64_t csi_filtered_total{0U};
+  /** Wi-Fi channel changes observed while capture was active. */
+  uint32_t channel_changes_total{0U};
 };
 
 /**

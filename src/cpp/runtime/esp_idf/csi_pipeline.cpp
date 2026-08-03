@@ -26,6 +26,7 @@ void CsiPipeline::init(BaseDetector* detector,
   publish_rate_ = publish_rate;
   capture_service_.init(wifi_csi);
   capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
+  capture_service_.set_channel_change_callback(&CsiPipeline::capture_channel_change_callback_, this);
   accepted_packets_total_.store(0U, std::memory_order_relaxed);
   reset_motion_state_filter_();
   
@@ -85,12 +86,6 @@ void CsiPipeline::request_motion_state_callback_(MotionState previous_state, Mot
 
 void CsiPipeline::loop() {
   capture_service_.loop();
-  uint8_t previous_channel = 0U;
-  uint8_t current_channel = 0U;
-  if (channel_change_event_.take(previous_channel, current_channel)) {
-    ESP_LOGW(TAG, "Wi-Fi channel changed: %u -> %u, resetting detection buffer",
-             static_cast<unsigned>(previous_channel), static_cast<unsigned>(current_channel));
-  }
   MotionState motion_state = MotionState::IDLE;
   if (motion_state_event_.take(motion_state) && motion_state_callback_) {
     motion_state_callback_(motion_state);
@@ -229,15 +224,6 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   
     // Periodic publish callback
     if (should_publish) {
-      // Detect WiFi channel changes
-      uint8_t packet_channel = data->rx_ctrl.channel;
-      if (current_channel_ != 0 && packet_channel != current_channel_) {
-        channel_change_event_.post(current_channel_, packet_channel);
-        clear_detector_buffer_deferred_();
-        current_state = effective_motion_state_;
-      }
-      current_channel_ = packet_channel;
-
       if (packet_callback_) {
         packet_publish_event_.post(current_state, packets_processed_);
       }
@@ -256,6 +242,15 @@ void CsiPipeline::capture_packet_callback_(void *context,
   auto *pipeline = static_cast<CsiPipeline *>(context);
   if (pipeline != nullptr) {
     pipeline->process_normalized_packet_(data, normalized);
+  }
+}
+
+void CsiPipeline::capture_channel_change_callback_(void *context,
+                                                   uint8_t previous_channel,
+                                                   uint8_t current_channel) {
+  auto *pipeline = static_cast<CsiPipeline *>(context);
+  if (pipeline != nullptr && pipeline->channel_change_callback_) {
+    pipeline->channel_change_callback_(previous_channel, current_channel);
   }
 }
 
@@ -287,11 +282,14 @@ esp_err_t CsiPipeline::disable() {
   enabled_ = false;
   packet_callback_ = nullptr;
   capture_service_.set_packet_callback(nullptr, nullptr);
+  clear_detector_buffer_deferred_();
   motion_state_event_.clear();
   live_telemetry_event_.clear();
   packet_publish_event_.clear();
   detection_timing_.clear();
-  channel_change_event_.clear();
+  packets_processed_ = 0U;
+  last_rssi_dbm_ = INT8_MIN;
+  last_channel_ = 0U;
   cadence_.reset();
   reset_motion_state_filter_();
   return ESP_OK;
