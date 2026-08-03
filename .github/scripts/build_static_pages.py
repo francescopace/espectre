@@ -93,10 +93,10 @@ PAGES = (
     {
         "source": "content/docs.html",
         "output": "docs",
-        "title": "Build with the SDK | ESPectre",
+        "title": "ESPectre SDK quick guide | ESPectre",
         "description": (
-            "Build with the ESPectre C++ sensing layers, review the current "
-            "runtime contracts, and explore integration examples and architecture."
+            "Embed the ESPectre C++ sensing runtime in an ESP-IDF product with "
+            "a concise setup path, integration examples, and architecture overview."
         ),
         "active_nav": "docs",
         "main_class": "page-narrow",
@@ -104,10 +104,10 @@ PAGES = (
     {
         "source": "content/docs/api.html",
         "output": "docs/api",
-        "title": "API reference | ESPectre",
+        "title": "API orientation | ESPectre",
         "description": (
-            "The current ESPectre embedding API: runtime lifecycle, listener "
-            "callbacks, snapshots, capabilities, and build integration."
+            "Find the main ESPectre SDK types, understand the runtime lifecycle, "
+            "and continue to the generated Doxygen API reference."
         ),
         "parent_href": "/docs/",
         "parent_label": "Docs",
@@ -118,8 +118,8 @@ PAGES = (
         "output": "docs/examples",
         "title": "Examples | ESPectre",
         "description": (
-            "Reference integration patterns for the ESPectre sensing layers, "
-            "from minimal sensors to MQTT, Matter, and detector experiments."
+            "Choose among the maintained ESPHome, Native, Matter, and Streamer "
+            "frontends when embedding ESPectre in a product."
         ),
         "parent_href": "/docs/",
         "parent_label": "Docs",
@@ -131,7 +131,7 @@ PAGES = (
         "title": "Architecture | ESPectre",
         "description": (
             "How ESPectre splits reusable sensing code across core, runtime, "
-            "and frontend layers for product integrations."
+            "and frontend layers, including ports to new platforms."
         ),
         "parent_href": "/docs/",
         "parent_label": "Docs",

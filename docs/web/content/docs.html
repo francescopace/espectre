@@ -1,41 +1,106 @@
-<h1 class="page-title">Build with the SDK</h1>
-<div class="docs-grid">
-  <p class="page-sub docs-intro">ESPectre is reusable source code first, with published SDK bundles that package the same shared C++ layers for repeatable installation. You still embed the shared runtime contracts into your own ESP-IDF firmware, but the site now exposes the current stable and snapshot bundles directly. <br>
-    Available under GPLv3 for open-source projects, or with <a href="mailto:contact@espectre.dev">commercial licensing</a> for closed-source products.</p>
-  <div class="code-block"><pre><span class="c"># CMakeLists.txt</span>
-<span class="k">include</span>(<span class="s">${CMAKE_CURRENT_LIST_DIR}/path/to/espectre/src/cpp/espectre_sources.cmake</span>)
+<article class="docs-quickstart">
+  <span class="guide-tag">SDK · QUICK GUIDE</span>
+  <div class="docs-hero">
+    <div>
+      <h1 class="page-title">Embed ESPectre in your firmware</h1>
+      <p class="page-sub docs-intro">Use the shared C++ sensing runtime inside an ESP-IDF product. This guide covers the shortest supported path; the generated reference documents every public type and member.</p>
+    </div>
+    <div class="docs-hero-actions">
+      <a href="/sdk/stable/" class="btn-primary">Download stable SDK</a>
+      <a href="/sdk/api/" class="btn-secondary">Open API reference</a>
+    </div>
+  </div>
 
+  <div class="docs-paths" aria-label="Choose an integration path">
+    <div class="docs-path docs-path-recommended">
+      <span class="docs-path-label">Recommended</span>
+      <h2>Full runtime</h2>
+      <p>Your firmware owns boot, Wi-Fi, provisioning, OTA, and product behavior. ESPectre owns CSI capture, calibration, detection, and events.</p>
+      <span class="docs-path-meta">ESP-IDF 5.1+ · C++17</span>
+    </div>
+    <div class="docs-path">
+      <span class="docs-path-label">Advanced</span>
+      <h2>Core only</h2>
+      <p>Use this only when your firmware already captures and normalizes CSI. You also own evaluation cadence, readiness, and hit filtering.</p>
+      <span class="docs-path-meta">Portable C++17</span>
+    </div>
+    <div class="docs-path">
+      <span class="docs-path-label">Platform port</span>
+      <h2>New runtime</h2>
+      <p>Implement <code>IEspectreRuntime</code> when CSI capture and lifecycle come from another platform, while reusing the shared core and event contracts.</p>
+      <span class="docs-path-meta">Arduino or Linux · not shipped today</span>
+    </div>
+  </div>
+
+  <div class="docs-steps">
+    <section class="docs-step">
+      <span class="docs-step-number">01</span>
+      <div class="docs-step-body">
+        <h2>Add the SDK</h2>
+        <p>Unpack the stable source bundle as <code>components/espectre/</code>, then declare the component from your application:</p>
+        <div class="code-block"><pre><span class="c"># main/CMakeLists.txt</span>
 idf_component_register(
-  SRCS
-    main.cpp
-    <span class="s">${ESPECTRE_CORE_SOURCES}</span>
-    <span class="s">${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}</span>
-  INCLUDE_DIRS
-    .
-    <span class="s">${ESPECTRE_SHARED_INCLUDE_DIRS}</span>
-)
+  SRCS <span class="s">"main.cpp"</span>
+  REQUIRES espectre
+)</pre></div>
+        <p class="docs-step-note">The SDK is source-based, so there is no chip-specific library to link. Optional BLE, MQTT, provisioning, OTA, and stream support stay disabled until selected in menuconfig.</p>
+      </div>
+    </section>
 
-<span class="c">// add optional source groups for BLE, MQTT, provisioning, or OTA as needed</span></pre></div>
-  <div class="code-block"><pre><span class="c">// main.cpp - one include reaches the whole supported surface</span>
-<span class="k">#include</span> <span class="s">"espectre_sdk.h"</span>
+    <section class="docs-step">
+      <span class="docs-step-number">02</span>
+      <div class="docs-step-body">
+        <h2>Drive the runtime</h2>
+        <p>Start it after your station has joined Wi-Fi, call <code>loop()</code> continuously, and react to the events your product needs:</p>
+        <div class="code-block"><pre><span class="k">#include</span> <span class="s">"espectre_sdk.h"</span>
 
 <span class="k">class</span> <span class="nc">ProductFrontend</span> : <span class="k">public</span> espectre::IRuntimeListener {
  <span class="k">public</span>:
-  <span class="k">bool</span> setup() { runtime_.set_config(espectre::RuntimeConfig{}); <span class="k">return</span> runtime_.setup(<span class="k">this</span>); }
+  <span class="k">bool</span> setup() {
+    runtime_.set_config(espectre::RuntimeConfig{});
+    <span class="k">return</span> runtime_.setup(<span class="k">this</span>);
+  }
+
   <span class="k">void</span> loop() { runtime_.loop(); }
 
-  <span class="k">void</span> on_motion_state_changed(<span class="k">const</span> espectre::RuntimeSnapshot&amp; s) <span class="k">override</span> {
-    <span class="k">if</span> (s.ready_to_publish) publish(s.motion_state);
+  <span class="k">void</span> on_motion_state_changed(
+      <span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot) <span class="k">override</span> {
+    runtime_.record_snapshot(snapshot);
+    <span class="k">if</span> (!snapshot.ready_to_publish) <span class="k">return</span>;
+    publish_motion(snapshot.motion_state == espectre::MotionState::MOTION);
   }
 
  <span class="k">private</span>:
   espectre::RuntimeFrontendController runtime_;
 };</pre></div>
-  <div class="doc-links">
-    <a href="/docs/api/" class="doc-link"><div class="doc-link-title">API reference -&gt;</div><div class="doc-link-sub">Real contracts: <code>RuntimeFrontendController</code>, <code>IEspectreRuntime</code>, listeners, snapshots, and capabilities.</div></a>
-    <a href="/docs/examples/" class="doc-link"><div class="doc-link-title">Examples -&gt;</div><div class="doc-link-sub">Reference integration patterns derived from the shipped Native, Matter, and Streamer frontends.</div></a>
-    <a href="/docs/architecture/" class="doc-link"><div class="doc-link-title">Architecture -&gt;</div><div class="doc-link-sub">How <code>core</code>, <code>runtime</code>, and <code>frontend</code> stay reusable, testable, and product-friendly.</div></a>
-    <a href="/sdk/api/" class="doc-link"><div class="doc-link-title">Generated reference -&gt;</div><div class="doc-link-sub">Every public type and member, generated from the shipped headers on each deploy.</div></a>
+      </div>
+    </section>
+
+    <section class="docs-step">
+      <span class="docs-step-number">03</span>
+      <div class="docs-step-body">
+        <h2>Keep three contracts</h2>
+        <ul class="checklist docs-contracts">
+          <li>Publish only when <code>snapshot.ready_to_publish</code> is true.</li>
+          <li>Run <code>setup()</code>, <code>loop()</code>, and <code>shutdown()</code> on one task.</li>
+          <li>Check <code>capabilities()</code> before exposing runtime controls.</li>
+        </ul>
+      </div>
+    </section>
   </div>
-</div>
-<div class="note">Published SDK channels now mirror the firmware release model: <a href="/sdk/stable/"><code>stable</code></a> for official releases, <a href="/sdk/main/"><code>snapshot</code></a> for the rolling <code>main</code> preview, and <a href="https://github.com/francescopace/espectre/releases/tag/snapshot-dev" target="_blank" rel="noopener"><code>snapshot-dev</code></a> on GitHub only for <code>develop</code>. Every bundle includes <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/espectre_sources.cmake" target="_blank" rel="noopener"><code>espectre_sources.cmake</code></a>, the PlatformIO manifest in <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/library.json" target="_blank" rel="noopener"><code>src/cpp/library.json</code></a>, and the component-shaped root under <code>src/cpp/</code>. For ESP-IDF builds, the optional source groups remain <code>ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES</code>, and <code>ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES</code>.</div>
+
+  <div class="docs-next">
+    <div class="docs-next-heading">
+      <span class="guide-tag">NEXT</span>
+      <h2>Go only as deep as you need</h2>
+    </div>
+    <div class="doc-links docs-link-grid">
+      <a href="/docs/examples/" class="doc-link"><div class="doc-link-title">Choose an example →</div><div class="doc-link-sub">Find the closest shipped frontend or integration pattern.</div></a>
+      <a href="/docs/architecture/#custom-runtime" class="doc-link"><div class="doc-link-title">Build a new runtime →</div><div class="doc-link-sub">Port capture and lifecycle to Arduino, Linux, or another platform.</div></a>
+      <a href="/docs/api/" class="doc-link"><div class="doc-link-title">Find the public surface →</div><div class="doc-link-sub">The four main SDK types, with a direct route to Doxygen.</div></a>
+      <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener" class="doc-link"><div class="doc-link-title">Read the full embedding guide ↗</div><div class="doc-link-sub">Build options, threading, capabilities, diagnostics, and versioning.</div></a>
+    </div>
+  </div>
+
+  <p class="docs-license">ESPectre is available under GPLv3 for open-source products, or under a separate <a href="mailto:contact@espectre.dev">commercial license</a> for proprietary firmware. Use the <a href="/sdk/main/"><code>snapshot</code> SDK</a> only to validate changes headed for the next release.</p>
+</article>

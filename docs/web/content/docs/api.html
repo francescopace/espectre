@@ -1,114 +1,50 @@
 <article class="article">
-  <span class="guide-tag">SDK · API</span>
-  <h1>API reference</h1>
-  <p class="article-lead">The embedding surface is the shared runtime contract, not a single <code>Sensor</code> class. Most firmware integrations include <code>espectre_sdk.h</code>, reuse <code>RuntimeFrontendController</code>, implement <code>IRuntimeListener</code>, and feed product behavior from <code>RuntimeSnapshot</code>.</p>
+  <span class="guide-tag">SDK · PUBLIC SURFACE</span>
+  <h1>API orientation</h1>
+  <p class="article-lead">Most integrations need four public types. Use this page to find the right entry point, then use the generated Doxygen reference for signatures, defaults, ranges, and member-level documentation.</p>
 
-  <h2>Recommended integration surface</h2>
-  <pre class="code"><code><span class="k">#include</span> <span class="s">"espectre_sdk.h"</span>
+  <a href="/sdk/api/" class="api-reference-cta">
+    <span>
+      <strong>Open the generated API reference</strong>
+      <small>Built from the current public headers on every deploy.</small>
+    </span>
+    <span aria-hidden="true">→</span>
+  </a>
 
-<span class="k">class</span> <span class="nc">ProductFrontend</span> : <span class="k">public</span> espectre::IRuntimeListener {
- <span class="k">public</span>:
-  <span class="k">bool</span> setup() {
-    espectre::RuntimeConfig config;
-    runtime_.set_config(config);
-    <span class="k">return</span> runtime_.setup(<span class="k">this</span>);
-  }
+  <h2>The four types to know</h2>
+  <div class="api-map">
+    <a href="/sdk/api/classespectre_1_1_runtime_frontend_controller.html">
+      <code>RuntimeFrontendController</code>
+      <span>Owns setup, the work loop, shutdown, cached state, and validated runtime controls.</span>
+    </a>
+    <a href="/sdk/api/structespectre_1_1_runtime_config.html">
+      <code>RuntimeConfig</code>
+      <span>Defines detector, traffic, cadence, filtering, and other startup settings.</span>
+    </a>
+    <a href="/sdk/api/classespectre_1_1_i_runtime_listener.html">
+      <code>IRuntimeListener</code>
+      <span>Delivers motion, periodic status, calibration, telemetry, and fault events.</span>
+    </a>
+    <a href="/sdk/api/structespectre_1_1_runtime_snapshot.html">
+      <code>RuntimeSnapshot</code>
+      <span>Carries motion state, movement score, threshold, link state, and readiness.</span>
+    </a>
+  </div>
 
-  <span class="k">void</span> loop() { runtime_.loop(); }
-  <span class="k">void</span> shutdown() { runtime_.shutdown(); }
+  <h2>Lifecycle at a glance</h2>
+  <div class="pipeline api-lifecycle" aria-label="Runtime lifecycle">
+    <div><strong><code>set_config()</code></strong><span>stage settings</span></div>
+    <div><strong><code>setup(listener)</code></strong><span>start sensing</span></div>
+    <div><strong><code>loop()</code></strong><span>deliver events</span></div>
+    <div><strong><code>shutdown()</code></strong><span>release runtime</span></div>
+  </div>
 
-  <span class="k">void</span> on_motion_state_changed(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot) <span class="k">override</span> {
-    runtime_.record_snapshot(snapshot);
-    <span class="k">if</span> (!snapshot.ready_to_publish) <span class="k">return</span>;
-    publish_motion(snapshot.motion_state, snapshot.movement_metric);
-  }
+  <div class="note"><strong>Supported means reachable from <code>espectre_sdk.h</code>.</strong> Headers outside that facade ship as implementation details and may change in any release.</div>
 
- <span class="k">private</span>:
-  espectre::RuntimeFrontendController runtime_;
-};</code></pre>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Type or method</th><th>What it does</th></tr></thead>
-    <tbody>
-      <tr><td><code>RuntimeFrontendController::set_config()</code></td><td>Stores the runtime configuration before setup, including detector choice, publish cadence, thresholds, hit-filter counts, and traffic settings.</td></tr>
-      <tr><td><code>RuntimeFrontendController::setup(listener)</code></td><td>Creates the runtime backend, applies the config, captures the initial snapshot and capabilities, and starts the sensing path.</td></tr>
-      <tr><td><code>RuntimeFrontendController::loop()</code></td><td>Runs the runtime work loop. Frontends call this from their main loop or task.</td></tr>
-      <tr><td><code>RuntimeFrontendController::shutdown()</code></td><td>Stops the sensing runtime cleanly.</td></tr>
-      <tr><td><code>RuntimeFrontendController::snapshot()</code></td><td>Returns the latest cached <code>RuntimeSnapshot</code> for status, UI, or protocol serialization.</td></tr>
-      <tr><td><code>RuntimeFrontendController::capabilities()</code></td><td>Returns the discovered runtime capabilities so frontends can expose only supported controls.</td></tr>
-    </tbody>
-  </table></div>
-
-  <div class="note"><strong>Three rules cover most integration mistakes.</strong> Gate everything user-visible on <code>snapshot.ready_to_publish</code>, because the runtime emits snapshots while it calibrates. Run <code>setup()</code>, <code>loop()</code>, and <code>shutdown()</code> on one task. Ask <code>capabilities()</code> before exposing a control instead of assuming the active runtime supports it.</div>
-
-  <h2>Threading contract</h2>
-  <p>The runtime carries no internal locking, and every <code>IRuntimeListener</code> callback is delivered on the caller's task: from <code>loop()</code> for sensing events, or inline on the task that invoked a control method. Work raised in the Wi-Fi CSI callback is deferred through an internal mailbox first, so no listener callback runs in interrupt or Wi-Fi driver context. Because callbacks run on your own task, blocking in them is allowed: publishing over MQTT or writing NVS costs loop latency, not CSI frames.</p>
-  <p>The transport seams follow their own stack instead. <code>IOtaService</code> callbacks arrive on the OTA worker task, and <code>IBleBindings</code> callbacks on the BLE host task; each header states its own contract.</p>
-
-  <h2>Listener callbacks</h2>
-  <pre class="code"><code><span class="k">void</span> on_motion_state_changed(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot) <span class="k">override</span>;
-<span class="k">void</span> on_periodic_update(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot, uint32_t packets_received) <span class="k">override</span>;
-<span class="k">void</span> on_threshold_changed(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot) <span class="k">override</span>;
-<span class="k">void</span> on_detector_changed(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot) <span class="k">override</span>;
-<span class="k">void</span> on_calibration_started(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot) <span class="k">override</span>;
-<span class="k">void</span> on_calibration_finished(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot, <span class="k">bool</span> success) <span class="k">override</span>;
-<span class="k">void</span> on_live_telemetry(<span class="k">float</span> movement, <span class="k">float</span> threshold) <span class="k">override</span>;
-<span class="k">void</span> on_runtime_fault(<span class="k">const</span> <span class="k">char</span>* message) <span class="k">override</span>;</code></pre>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Callback</th><th>When to use it</th></tr></thead>
-    <tbody>
-      <tr><td><code>on_motion_state_changed()</code></td><td>Edge-triggered motion updates after the hit filter. This is the hook Matter uses for occupancy publishing.</td></tr>
-      <tr><td><code>on_periodic_update()</code></td><td>Heartbeat-style updates with the current snapshot and packet count. Native uses it for periodic telemetry and status logging.</td></tr>
-      <tr><td><code>on_threshold_changed()</code> / <code>on_detector_changed()</code></td><td>React to runtime control changes and refresh any frontend-facing state.</td></tr>
-      <tr><td><code>on_calibration_started()</code> / <code>on_calibration_finished()</code></td><td>Show readiness and reset any frontend-side progress or status indicators.</td></tr>
-      <tr><td><code>on_live_telemetry()</code></td><td>Consume the high-rate movement stream when the frontend exposes a live channel, such as BLE notifications.</td></tr>
-      <tr><td><code>on_runtime_fault()</code></td><td>Surface runtime-owned failures into your product logs, diagnostics, or transport.</td></tr>
-    </tbody>
-  </table></div>
-
-  <h2>Snapshot and control surface</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Member</th><th>Meaning</th></tr></thead>
-    <tbody>
-      <tr><td><code>snapshot.motion_state</code></td><td>The current debounced state, typically <code>IDLE</code> or <code>MOTION</code>.</td></tr>
-      <tr><td><code>snapshot.movement_metric</code></td><td>The current motion-energy score produced by the detector pipeline.</td></tr>
-      <tr><td><code>snapshot.threshold</code></td><td>The active motion threshold on the same scale as <code>movement_metric</code>.</td></tr>
-      <tr><td><code>snapshot.calibrating</code> / <code>snapshot.ready_to_publish</code></td><td>Readiness flags for startup calibration and safe publication.</td></tr>
-      <tr><td><code>snapshot.detector_name</code></td><td>The active detector label, currently <code>classic</code> or <code>ml</code> when supported.</td></tr>
-      <tr><td><code>set_threshold_runtime(float)</code></td><td>Updates the threshold at runtime when the active frontend and runtime allow it.</td></tr>
-      <tr><td><code>set_detection_algorithm_runtime(DetectionAlgorithm)</code></td><td>Switches detector at runtime when capability-gated support is enabled.</td></tr>
-      <tr><td><code>trigger_recalibration()</code></td><td>Starts a fresh quiet-room baseline calibration.</td></tr>
-      <tr><td><code>set_services_armed(bool)</code></td><td>Arms or disarms runtime-owned services, which is how the Matter frontend keeps sensing quiet until commissioning completes.</td></tr>
-      <tr><td><code>set_live_telemetry_enabled(bool)</code></td><td>Toggles high-rate live telemetry without shutting down the runtime.</td></tr>
-    </tbody>
-  </table></div>
-
-  <h2>Build integration</h2>
-  <p>The published SDK bundles package the same source-first integration path documented in this repository. They are intended for vendoring or unpacking into your firmware tree, not as chip-specific binary libraries.</p>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Build path</th><th>What to include</th></tr></thead>
-    <tbody>
-      <tr><td>CMake / ESP-IDF</td><td>Include <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/espectre_sources.cmake" target="_blank" rel="noopener"><code>src/cpp/espectre_sources.cmake</code></a>, then add <code>ESPECTRE_CORE_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_SOURCES</code>, and any needed feature groups such as <code>ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES</code>, <code>ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES</code>, or <code>ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES</code>, plus <code>ESPECTRE_SHARED_INCLUDE_DIRS</code>.</td></tr>
-      <tr><td>PlatformIO</td><td>Reuse the packaged source filter defined in <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/library.json" target="_blank" rel="noopener"><code>src/cpp/library.json</code></a>.</td></tr>
-      <tr><td>ESP-IDF component layout</td><td>Drop <code>src/cpp/</code> into your project's <code>components/</code> directory and add <code>espectre</code> to your own <code>REQUIRES</code>. The sensing runtime is always built; MQTT, BLE, provisioning, OTA, and the stream runtime are opt-in under the "ESPectre SDK" menuconfig menu.</td></tr>
-      <tr><td>Core-only reuse</td><td>Consume the detector layer directly, and use <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/runtime/esp_idf/csi_pipeline.cpp" target="_blank" rel="noopener"><code>runtime/esp_idf/csi_pipeline.cpp</code></a> as the normalization and evaluation reference.</td></tr>
-    </tbody>
-  </table></div>
-  <p><code>ESPECTRE_SHARED_INCLUDE_DIRS</code> puts the SDK root on the include path, so both the flat form (<code>#include "runtime_interface.h"</code>) and the layer-prefixed form (<code>#include "runtime/runtime_interface.h"</code>) work. Prefer the prefixed form: the shared tree contains generic basenames such as <code>utils.h</code>, and the prefix keeps them from colliding with headers of your own.</p>
-
-  <h2>Versioning and stability</h2>
-  <p>Everything reachable from <code>espectre_sdk.h</code> is the supported surface and follows the SDK version contract. Every other header ships because the runtime needs it to compile and may change in any release.</p>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Identifier</th><th>What it versions</th></tr></thead>
-    <tbody>
-      <tr><td><code>ESPECTRE_SDK_VERSION_STRING</code></td><td>The ESPectre sources you compiled against. Guard code with <code>ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)</code>.</td></tr>
-      <tr><td><code>espectre_firmware_version()</code></td><td>Your application version, supplied by your build system. This is what the protocol reports and what OTA compares against.</td></tr>
-      <tr><td><code>ESPECTRE_PROTOCOL_VERSION</code></td><td>The MQTT and BLE wire format.</td></tr>
-    </tbody>
-  </table></div>
-  <p>This page is the orientation. For the per-class, per-member reference generated from the headers themselves, use the <a href="/sdk/api/">generated API reference</a>. It is rebuilt from source on every deploy, so it never drifts from the shipped headers. The same reference builds offline from a downloaded SDK bundle with <code>doxygen docs/Doxyfile</code>.</p>
-  <div class="note">Use <a href="/sdk/stable/"><code>stable</code></a> for the current release bundle, <a href="/sdk/main/"><code>snapshot</code></a> for the rolling <code>main</code> preview, and <a href="https://github.com/francescopace/espectre/releases/tag/snapshot-dev" target="_blank" rel="noopener"><code>snapshot-dev</code></a> when you need the <code>develop</code> prerelease. For the full integration guide, use <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">EMBEDDING.md</a>.</div>
+  <h2>Replacing the runtime</h2>
+  <p>A platform port implements <a href="/sdk/api/classespectre_1_1_i_espectre_runtime.html"><code>IEspectreRuntime</code></a>. The interface covers lifecycle, state, controls, diagnostics, capabilities, and listener delivery; the existing <code>RuntimeFrontendController</code> remains ESP-IDF-specific and does not inject an arbitrary backend.</p>
 
   <div class="article-nav">
-    <a href="/docs/examples/" class="doc-link"><div class="doc-link-title">Next: Examples -&gt;</div><div class="doc-link-sub">Four integrations, from minimal to Matter.</div></a>
+    <a href="/docs/examples/" class="doc-link"><div class="doc-link-title">Next: Choose an example →</div><div class="doc-link-sub">Match your product to a shipped frontend.</div></a>
   </div>
 </article>
