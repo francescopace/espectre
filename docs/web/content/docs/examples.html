@@ -18,7 +18,7 @@
   <p>Reference pattern: the shared controller usage in the Native, Matter, and Streamer frontends.</p>
 
   <h2>Native BLE and MQTT device</h2>
-  <p>The Native frontend is the reference when you need product-controlled provisioning, a lightweight BLE control surface, MQTT telemetry, or HTTPS OTA. It shows how to bridge runtime events into both push telemetry and command handling without changing the sensing layers.</p>
+  <p>The Native frontend is the reference when you need product-controlled provisioning, a lightweight BLE control surface, MQTT telemetry, Home Assistant MQTT Discovery, or HTTPS OTA. Its Home Assistant adapter remains additive, so product clients can keep using the canonical ESPectre topics as their source of truth.</p>
   <pre class="code"><code><span class="k">void</span> on_periodic_update(<span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot, uint32_t packets_received) <span class="k">override</span> {
   runtime_.record_snapshot(snapshot);
   <span class="k">if</span> (!snapshot.ready_to_publish) <span class="k">return</span>;

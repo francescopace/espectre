@@ -63,6 +63,9 @@ class MockConfig:
     MQTT_USERNAME = "user"
     MQTT_PASSWORD = "pass"
     MQTT_TOPIC_PREFIX = "test/espectre/devices"
+    MQTT_HA_DISCOVERY_ENABLED = False
+    MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
+    MQTT_DEVICE_LABEL = ""
     PUBLISH_INTERVAL = 100
     EVALUATION_INTERVAL = 25
     MOTION_ON_HITS = 3
@@ -136,6 +139,7 @@ def mock_mqtt_client_instance():
     client.set_callback = MagicMock()
     client.check_msg = MagicMock()
     client.disconnect = MagicMock()
+    client.set_last_will = MagicMock()
     return client
 
 
@@ -356,6 +360,75 @@ class TestMQTTHandler:
         
         # Should not raise exception
         handler.disconnect()
+
+    @patch('mqtt.handler.MQTTClient')
+    def test_ha_discovery_connect_and_birth_republish(
+        self,
+        mock_client_class,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_global_state,
+    ):
+        """HA-enabled sessions should publish discovery and republish on HA birth."""
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        client = MagicMock()
+        client.connect = MagicMock()
+        client.publish = MagicMock()
+        client.subscribe = MagicMock()
+        client.set_callback = MagicMock()
+        client.set_last_will = MagicMock()
+        mock_client_class.return_value = client
+
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
+        handler.connect()
+
+        client.set_last_will.assert_called_once_with(
+            "test/espectre/devices/test-device/ha/availability", "offline", retain=False
+        )
+        subscribed_topics = [call.args[0] for call in client.subscribe.call_args_list]
+        assert handler.cmd_topic in subscribed_topics
+        assert "homeassistant/status" in subscribed_topics
+        discovery_calls = [
+            call for call in client.publish.call_args_list if call.args[0].startswith("homeassistant/")
+        ]
+        assert len(discovery_calls) == 2
+        assert all(call.kwargs.get("retain") is True for call in discovery_calls)
+
+        client.publish.reset_mock()
+        handler._on_message(b"homeassistant/status", b"online")
+        republished = [call.args[0] for call in client.publish.call_args_list]
+        assert "homeassistant/binary_sensor/micro_test_device_motion/config" in republished
+        assert "test/espectre/devices/test-device/ha/availability" in republished
+
+    def test_publish_state_mirrors_ha_topics_when_enabled(
+        self,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+        mock_global_state,
+    ):
+        """HA-enabled state publishes should mirror simple HA topics."""
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+
+        handler.publish_state(
+            current_variance=0.75,
+            current_state=1,
+            current_threshold=1.0
+        )
+
+        published_topics = [call.args[0] for call in mock_mqtt_client_instance.publish.call_args_list]
+        assert handler.telemetry_topic in published_topics
+        assert "test/espectre/devices/test-device/ha/motion/state" in published_topics
+        assert "test/espectre/devices/test-device/ha/movement/state" in published_topics
     
     def test_publish_info(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
         """Test publish_info delegates to cmd_handler"""

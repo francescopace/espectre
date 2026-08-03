@@ -20,6 +20,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Home Assistant MQTT Discovery adapters for Native and Micro-ESPectre**:
+  both frontends publish retained discovery payloads, republish them after the
+  Home Assistant birth message, and keep the canonical ESPectre MQTT topics
+  unchanged. Discovery is enabled by default in published Native firmware and
+  remains opt-in for Micro-ESPectre.
 - **ESPHome Intensity sensor**: the frontend now publishes a derived `intensity_sensor` (`min(200, movement / threshold × 100)`) so Home Assistant gauges stay meaningful when Classic adapts the threshold at boot, without a template helper.
 - **Host-side ML candidate framework and a `--features` trainer flag**: production and host-only feature combinations can be evaluated without changing runtime extractors. Candidate-only runs require `--no-export`; export remains restricted to the current shared production feature set. The feature inventory and accumulated evidence live in [FEATURES.md](FEATURES.md).
 - **Dual licensing**: ESPectre is now offered under GPLv3 or a separate commercial license for proprietary integrations (`LICENSING.md`), and the CLA check returns alongside the DCO check so contributions can be distributed under both tracks.

@@ -57,6 +57,7 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "mqtt/__init__.py",
     "mqtt/handler.py",
     "mqtt/commands.py",
+    "mqtt/home_assistant.py",
 ]
 
 

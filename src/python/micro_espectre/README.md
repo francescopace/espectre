@@ -201,6 +201,27 @@ unless the device code explicitly persists them. Micro-ESPectre advertises
 `supports_ota: false`; the shared shell may display OTA commands, but this
 frontend rejects them because MicroPython deployment uses its own upload flow.
 
+### Home Assistant MQTT Discovery
+
+Micro-ESPectre can optionally publish a small Home Assistant adapter surface on
+top of the ESPectre protocol topics. Enable it in `config_local.py` when the
+same broker is shared with Home Assistant:
+
+```python
+MQTT_HA_DISCOVERY_ENABLED = True
+MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
+```
+
+When enabled, the runtime:
+
+- publishes retained discovery payloads for motion and movement score
+- publishes plain HA availability, motion, and movement state topics under the
+  existing device topic base
+- subscribes to `homeassistant/status` and republishes discovery when Home
+  Assistant announces `online`
+
+The canonical ESPectre protocol topics remain unchanged.
+
 ## Relevant Paths
 
 ```text

@@ -10,5 +10,6 @@ License: GPLv3
 
 from .handler import MQTTHandler
 from .commands import MQTTCommands
+from .home_assistant import HomeAssistantMqttAdapter
 
-__all__ = ['MQTTHandler', 'MQTTCommands']
+__all__ = ['MQTTHandler', 'MQTTCommands', 'HomeAssistantMqttAdapter']

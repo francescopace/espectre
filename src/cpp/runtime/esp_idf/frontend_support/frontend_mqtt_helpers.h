@@ -20,7 +20,7 @@
 
 namespace espectre {
 
-using FrontendMqttConnectedCallback = std::function<void()>;
+using FrontendMqttConnectedCallback = std::function<void(bool)>;
 using FrontendMqttInfoCallback = std::function<void()>;
 using FrontendMqttStatsCallback = std::function<void()>;
 using FrontendMqttThresholdCallback = std::function<bool(float threshold, std::string *message)>;

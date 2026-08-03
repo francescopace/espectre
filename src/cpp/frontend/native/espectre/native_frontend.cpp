@@ -41,6 +41,28 @@ namespace {
 static const char *const TAG = "espectre.native";
 constexpr uint8_t kTelemetryMotionStateIdle = 0;
 constexpr uint8_t kTelemetryMotionStateMotion = 1;
+constexpr const char *kHaOnlinePayload = "online";
+
+const char *motion_state_payload(MotionState state) {
+  return state == MotionState::MOTION ? "ON" : "OFF";
+}
+
+std::string float_payload(float value) {
+  char buffer[24];
+  std::snprintf(buffer, sizeof(buffer), "%.4f", static_cast<double>(value));
+  return buffer;
+}
+
+std::string normalize_text_token(const std::string &value) {
+  std::string normalized;
+  normalized.reserve(value.size());
+  for (const char ch : value) {
+    if (!std::isspace(static_cast<unsigned char>(ch))) {
+      normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    }
+  }
+  return normalized;
+}
 
 const char *ota_state_name(EspectreOtaState state) {
   switch (state) {
@@ -200,6 +222,7 @@ void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
     return;
   }
   publish_mqtt_telemetry_(snapshot, now_ms_());
+  publish_ha_state_(snapshot);
 }
 
 void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
@@ -212,6 +235,7 @@ void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
   }
   const uint32_t now = now_ms_();
   publish_mqtt_telemetry_(snapshot, now);
+  publish_ha_state_(snapshot);
   status_logger_.log_status(TAG, snapshot, packets_received);
 }
 
@@ -226,6 +250,7 @@ void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
   system_info_refresh_.request();
   publish_mqtt_info_();
   publish_mqtt_telemetry_(snapshot, now_ms_());
+  publish_ha_state_(snapshot);
 }
 
 void NativeFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
@@ -503,6 +528,17 @@ bool NativeFrontend::handle_ble_ota_command_(const char *command_name) {
   return true;
 }
 
+void NativeFrontend::handle_ha_birth_message_(const std::string &topic, const std::string &payload) {
+  if (topic != ha_settings_.birth_topic || !frontend_ha_mqtt_enabled()) {
+    return;
+  }
+  if (normalize_text_token(payload) == kHaOnlinePayload) {
+    publish_ha_discovery_();
+    publish_mqtt_status_(true);
+    publish_current_ha_state_();
+  }
+}
+
 void NativeFrontend::handle_connection_state_(bool connected) {
   client_connected_ = connected;
   if (connected) {
@@ -524,12 +560,66 @@ void NativeFrontend::setup_mqtt_() {
   (void) setup_frontend_mqtt_transport(mqtt_transport_,
                                        device_config_,
                                        [this](const std::string &payload) { this->handle_mqtt_command_(payload); },
-                                       [this]() {
-                                         this->publish_mqtt_info_();
-                                         this->publish_mqtt_status_(true);
+                                       [this](bool connected) {
+                                         this->system_info_refresh_.request();
+                                         if (connected) {
+                                           this->publish_mqtt_info_();
+                                           this->publish_mqtt_status_(true);
+                                           this->setup_ha_mqtt_();
+                                           this->publish_ha_discovery_();
+                                           this->publish_current_ha_state_();
+                                         }
                                        },
                                        TAG);
 }
+
+void NativeFrontend::setup_ha_mqtt_() {
+  if (!frontend_ha_mqtt_enabled() || mqtt_transport_ == nullptr) {
+    return;
+  }
+  ha_settings_ = build_frontend_ha_mqtt_settings(device_config_, device_info_, "native");
+  (void) mqtt_transport_->subscribe(
+      ha_settings_.birth_topic,
+      [this](const std::string &topic, const std::string &payload) { this->handle_ha_birth_message_(topic, payload); });
+  if (runtime_.capabilities().supports_runtime_detector_selection) {
+    (void) mqtt_transport_->subscribe(ha_settings_.detector_command_topic,
+                                      [this](const std::string &, const std::string &payload) {
+                                        const std::string detector = normalize_text_token(payload);
+                                        if (detector == RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME ||
+                                            detector == RUNTIME_DETECTION_ALGORITHM_ML_NAME) {
+                                          (void) this->handle_detector_write_(parse_detection_algorithm(detector.c_str()));
+                                        }
+                                      });
+  }
+}
+
+void NativeFrontend::publish_ha_discovery_() {
+  if (!frontend_ha_mqtt_enabled() || mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
+    return;
+  }
+  ha_settings_ = build_frontend_ha_mqtt_settings(device_config_, device_info_, "native");
+  const auto messages =
+      build_frontend_ha_discovery_messages(ha_settings_, device_info_, runtime_.capabilities().supports_runtime_detector_selection);
+  for (const auto &message : messages) {
+    (void) mqtt_transport_->publish(message.topic, message.payload, true);
+  }
+}
+
+void NativeFrontend::publish_ha_state_(const RuntimeSnapshot &snapshot) {
+  if (!frontend_ha_mqtt_enabled() || mqtt_transport_ == nullptr || !mqtt_transport_->connected() || !snapshot.ready_to_publish) {
+    return;
+  }
+  if (ha_settings_.movement_state_topic.empty()) {
+    ha_settings_ = build_frontend_ha_mqtt_settings(device_config_, device_info_, "native");
+  }
+  (void) mqtt_transport_->publish(ha_settings_.motion_state_topic, motion_state_payload(snapshot.motion_state), false);
+  (void) mqtt_transport_->publish(ha_settings_.movement_state_topic, float_payload(snapshot.movement_metric), false);
+  if (runtime_.capabilities().supports_runtime_detector_selection && snapshot.detector_name != nullptr) {
+    (void) mqtt_transport_->publish(ha_settings_.detector_state_topic, snapshot.detector_name, false);
+  }
+}
+
+void NativeFrontend::publish_current_ha_state_() { publish_ha_state_(runtime_.snapshot()); }
 
 void NativeFrontend::publish_mqtt_info_() {
   EspectreDeviceInfo info =

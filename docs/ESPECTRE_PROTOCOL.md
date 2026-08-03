@@ -73,6 +73,25 @@ espectre/v1/devices/{device_id}/commands/rejected
 Managed-service MQTT should use TLS and per-device credentials. Local lab MQTT
 may use a simpler broker/auth model, but should keep the same message shape.
 
+### Home Assistant MQTT Adapter Profile
+
+Native and Micro-ESPectre can publish an additive Home Assistant MQTT Discovery
+surface without changing the canonical ESPectre topics above. Discovery
+payloads use the standard
+`{discovery_prefix}/{component}/{object_id}/config` topic shape and are the only
+retained messages in this profile. Entity-shaped state topics live under
+`espectre/v1/devices/{device_id}/ha/...`.
+
+Both adapters subscribe to `homeassistant/status` and republish discovery when
+Home Assistant announces `online`; this birth message is a recovery trigger,
+not the only discovery bootstrap. Native derives availability from the
+canonical `status` payload and its existing Last Will, while Micro-ESPectre
+uses a plain `ha/availability` topic. The Native adapter is enabled in the
+published firmware defaults and can be disabled at build time; Micro-ESPectre
+keeps the adapter opt-in. See [`README.md`](../src/cpp/frontend/native/README.md)
+for Native and [`README.md`](../src/python/micro_espectre/README.md) for
+Micro-ESPectre entity surfaces and configuration options.
+
 ## Message Families
 
 ### Telemetry

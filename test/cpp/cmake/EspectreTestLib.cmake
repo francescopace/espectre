@@ -87,6 +87,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_bootstrap_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_control_helpers.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_ha_mqtt_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_mqtt_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_sysinfo_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/device_config_store.cpp"
@@ -100,6 +101,7 @@ target_link_libraries(espectre_runtime_testlib
 target_compile_definitions(espectre_runtime_testlib
     PUBLIC
         ESPECTRE_ENABLE_STREAM_RUNTIME=1
+        CONFIG_ESPECTRE_HA_DISCOVERY_ENABLED=1
 )
 
 add_library(espectre_frontend_esphome_testlib STATIC

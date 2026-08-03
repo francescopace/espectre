@@ -15,6 +15,7 @@
 #include <vector>
 #include "ble_bindings.h"
 #include "deferred_loop_action.h"
+#include "frontend_ha_mqtt_helpers.h"
 #include "mqtt_transport.h"
 #include "ota_service.h"
 #include "periodic_sensing_status_logger.h"
@@ -75,9 +76,14 @@ class NativeFrontend : public IRuntimeListener {
   bool handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t motion_off_hits);
   bool handle_detector_write_(DetectionAlgorithm algorithm);
   bool handle_ble_ota_command_(const char *command_name);
+  void handle_ha_birth_message_(const std::string &topic, const std::string &payload);
   void handle_connection_state_(bool connected);
   void handle_live_telemetry_subscription_(bool subscribed);
   void setup_mqtt_();
+  void setup_ha_mqtt_();
+  void publish_ha_discovery_();
+  void publish_ha_state_(const RuntimeSnapshot &snapshot);
+  void publish_current_ha_state_();
   void publish_mqtt_info_();
   void publish_mqtt_status_(bool online);
   void publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint32_t now_ms);
@@ -97,6 +103,7 @@ class NativeFrontend : public IRuntimeListener {
   PeriodicSensingStatusLogger status_logger_{};
   EspectreDeviceConfig device_config_{};
   EspectreDeviceInfo device_info_{};
+  FrontendHaMqttSettings ha_settings_{};
   WifiProvisioningInfo wifi_info_{};
   DeferredLoopAction system_info_refresh_;
   bool client_connected_{false};

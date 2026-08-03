@@ -36,4 +36,9 @@ CONFIG_BT_NIMBLE_SVC_GAP_DEVICE_NAME="ESPectre Sensor"
 # ESPectre sensing runtime
 CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC=y
 
+# Home Assistant MQTT adapter is enabled for published Native firmware and can
+# be disabled from menuconfig for broker-only deployments.
+CONFIG_ESPECTRE_HA_DISCOVERY_ENABLED=y
+CONFIG_ESPECTRE_HA_DISCOVERY_PREFIX="homeassistant"
+
 CONFIG_ESPECTRE_WIFI_CHANNEL=0

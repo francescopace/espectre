@@ -19,6 +19,7 @@ class IMqttTransport {
  public:
   using CommandCallback = std::function<void(const std::string &)>;
   using ConnectionCallback = std::function<void(bool)>;
+  using MessageCallback = std::function<void(const std::string &, const std::string &)>;
 
   virtual ~IMqttTransport() = default;
 
@@ -28,6 +29,7 @@ class IMqttTransport {
   virtual bool connected() const = 0;
   virtual bool publish(const std::string &topic, const std::string &payload, bool retain) = 0;
   virtual bool publish_suffix(const char *suffix, const std::string &payload, bool retain) = 0;
+  virtual bool subscribe(const std::string &topic, MessageCallback callback) = 0;
   virtual void set_command_callback(CommandCallback callback) = 0;
   virtual void set_connection_callback(ConnectionCallback callback) = 0;
 };

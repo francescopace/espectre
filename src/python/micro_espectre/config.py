@@ -21,6 +21,8 @@ MQTT_CLIENT_ID = "micro-espectre"
 MQTT_TOPIC_PREFIX = "espectre/v1/devices"
 MQTT_USERNAME = "mqtt"
 MQTT_PASSWORD = "mqtt"
+MQTT_HA_DISCOVERY_ENABLED = False
+MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
 
 # Traffic Generator Configuration
 # Generates WiFi traffic to ensure continuous CSI data

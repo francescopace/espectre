@@ -30,8 +30,8 @@ bool setup_frontend_mqtt_transport(IMqttTransport *transport,
 
   transport->set_command_callback(std::move(command_callback));
   transport->set_connection_callback([connected_callback = std::move(connected_callback)](bool connected) {
-    if (connected && connected_callback) {
-      connected_callback();
+    if (connected_callback) {
+      connected_callback(connected);
     }
   });
   if (!transport->setup(config)) {

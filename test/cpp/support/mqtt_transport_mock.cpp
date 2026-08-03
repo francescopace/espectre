@@ -40,6 +40,20 @@ bool MockMqttTransport::publish_suffix(const char *suffix, const std::string &pa
   return publish(espectre_topic(state.last_config, suffix), payload, retain);
 }
 
+bool MockMqttTransport::subscribe(const std::string &topic, MessageCallback callback) {
+  if (topic.empty() || !callback) {
+    return false;
+  }
+  for (auto &subscription : state.subscriptions) {
+    if (subscription.topic == topic) {
+      subscription.callback = std::move(callback);
+      return true;
+    }
+  }
+  state.subscriptions.push_back(Subscription{topic, std::move(callback)});
+  return true;
+}
+
 void MockMqttTransport::set_command_callback(CommandCallback callback) { state.command_callback = std::move(callback); }
 
 void MockMqttTransport::set_connection_callback(ConnectionCallback callback) {
@@ -49,6 +63,14 @@ void MockMqttTransport::set_connection_callback(ConnectionCallback callback) {
 void MockMqttTransport::emit_command(const std::string &payload) {
   if (state.command_callback) {
     state.command_callback(payload);
+  }
+}
+
+void MockMqttTransport::emit_message(const std::string &topic, const std::string &payload) {
+  for (const auto &subscription : state.subscriptions) {
+    if (subscription.topic == topic && subscription.callback) {
+      subscription.callback(topic, payload);
+    }
   }
 }
 

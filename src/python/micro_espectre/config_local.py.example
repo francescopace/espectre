@@ -21,3 +21,5 @@ MQTT_CLIENT_ID = "micro-espectre"
 MQTT_TOPIC_PREFIX = "espectre/v1/devices"
 MQTT_USERNAME = "username"
 MQTT_PASSWORD = "password"
+MQTT_HA_DISCOVERY_ENABLED = True
+MQTT_HA_DISCOVERY_PREFIX = "homeassistant"

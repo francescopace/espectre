@@ -48,4 +48,12 @@ menu "ESPectre Native Frontend"
         string "MQTT topic prefix"
         default "espectre/v1/devices"
 
+    config ESPECTRE_HA_DISCOVERY_ENABLED
+        bool "Enable Home Assistant MQTT Discovery adapter"
+        default y
+
+    config ESPECTRE_HA_DISCOVERY_PREFIX
+        string "Home Assistant MQTT discovery prefix"
+        default "homeassistant"
+
 endmenu

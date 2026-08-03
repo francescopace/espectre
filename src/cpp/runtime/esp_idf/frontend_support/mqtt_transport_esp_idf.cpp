@@ -87,6 +87,7 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   if (client_ != nullptr) {
     shutdown();
   }
+  subscriptions_.clear();
 
   broker_uri_ = make_broker_uri(config);
   mqtt_username_ = config.mqtt_username;
@@ -159,6 +160,20 @@ bool EspIdfMqttTransport::publish_suffix(const char *suffix, const std::string &
   return id >= 0;
 }
 
+bool EspIdfMqttTransport::subscribe(const std::string &topic, MessageCallback callback) {
+  if (topic.empty() || !callback) {
+    return false;
+  }
+  for (auto &subscription : subscriptions_) {
+    if (subscription.topic == topic) {
+      subscription.callback = std::move(callback);
+      return connected_ ? subscribe_topic_(topic) : true;
+    }
+  }
+  subscriptions_.push_back(TopicSubscription{topic, std::move(callback)});
+  return connected_ ? subscribe_topic_(topic) : true;
+}
+
 void EspIdfMqttTransport::set_command_callback(CommandCallback callback) {
   command_callback_ = std::move(callback);
 }
@@ -186,7 +201,7 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
   switch (event->event_id) {
     case MQTT_EVENT_CONNECTED:
       connected_ = true;
-      subscribe_commands_();
+      subscribe_registered_topics_();
       if (connection_callback_) {
         connection_callback_(true);
       }
@@ -194,23 +209,41 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
       break;
     case MQTT_EVENT_DISCONNECTED:
       connected_ = false;
+      command_payload_assembler_.reset();
       if (connection_callback_) {
         connection_callback_(false);
       }
       ESP_LOGW(TAG, "MQTT disconnected");
       break;
     case MQTT_EVENT_DATA:
-      if (command_callback_ && event->data != nullptr && event->data_len > 0) {
-        const auto result = command_payload_assembler_.append(
-            event->data,
-            static_cast<size_t>(event->data_len),
-            static_cast<size_t>(event->total_data_len),
-            static_cast<size_t>(event->current_data_offset));
-        if (result == MqttPayloadAssembler::Result::COMPLETE) {
-          command_callback_(command_payload_assembler_.payload());
-          command_payload_assembler_.reset();
-        } else if (result == MqttPayloadAssembler::Result::INVALID) {
-          ESP_LOGW(TAG, "Rejected invalid or oversized MQTT command payload");
+      if (event->topic == nullptr || event->topic_len <= 0 || event->data == nullptr || event->data_len <= 0) {
+        break;
+      }
+      {
+        const std::string topic(event->topic, static_cast<size_t>(event->topic_len));
+        if (topic == command_topic_ && command_callback_) {
+          const auto result = command_payload_assembler_.append(
+              event->data,
+              static_cast<size_t>(event->data_len),
+              static_cast<size_t>(event->total_data_len),
+              static_cast<size_t>(event->current_data_offset));
+          if (result == MqttPayloadAssembler::Result::COMPLETE) {
+            command_callback_(command_payload_assembler_.payload());
+            command_payload_assembler_.reset();
+          } else if (result == MqttPayloadAssembler::Result::INVALID) {
+            ESP_LOGW(TAG, "Rejected invalid or oversized MQTT command payload");
+          }
+          break;
+        }
+        if (event->current_data_offset != 0 || event->data_len != event->total_data_len) {
+          ESP_LOGW(TAG, "Ignoring fragmented MQTT payload on unsupported topic: %s", topic.c_str());
+          break;
+        }
+        for (const auto &subscription : subscriptions_) {
+          if (subscription.topic == topic && subscription.callback) {
+            subscription.callback(topic, std::string(event->data, static_cast<size_t>(event->data_len)));
+            break;
+          }
         }
       }
       break;
@@ -219,11 +252,21 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
   }
 }
 
-void EspIdfMqttTransport::subscribe_commands_() {
+bool EspIdfMqttTransport::subscribe_topic_(const std::string &topic) {
+  if (client_ == nullptr || topic.empty()) {
+    return false;
+  }
+  return esp_mqtt_client_subscribe(client_, topic.c_str(), 0) >= 0;
+}
+
+void EspIdfMqttTransport::subscribe_registered_topics_() {
   if (client_ == nullptr) {
     return;
   }
-  esp_mqtt_client_subscribe(client_, command_topic_.c_str(), 0);
+  (void) subscribe_topic_(command_topic_);
+  for (const auto &subscription : subscriptions_) {
+    (void) subscribe_topic_(subscription.topic);
+  }
 }
 
 }  // namespace espectre

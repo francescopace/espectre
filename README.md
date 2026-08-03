@@ -10,9 +10,10 @@
 **ESPectre** is an open-source Wi-Fi sensing platform for ESP32 devices.
 
 It detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or radar hardware.  
-It integrates directly with Home Assistant through ESPHome and offers a
-standards-based Matter occupancy-sensor path whose controller coverage is still
-being validated. It can also connect over BLE, MQTT, or custom integrations.
+It integrates directly with Home Assistant through ESPHome or Native MQTT
+Discovery and offers a standards-based Matter occupancy-sensor path whose
+controller coverage is still being validated. It can also connect over BLE,
+MQTT, or custom integrations.
 
 ## How It Works
 
@@ -32,11 +33,14 @@ For benchmarks and performance notes, see [docs/performance](docs/performance/RE
 
 ESPectre needs just one device to work, but you can put one in every room to build a room-level detection mesh:
 
-- **Smart home ready**: ESPHome remains the production path for Home Assistant.
+- **Smart home ready**: ESPHome provides the most complete Home Assistant
+  surface, while Native supports broker-based setups through MQTT Discovery.
 - **Matter path**: Matter firmware exposes a standard occupancy sensor.
   Controller validation is still limited; see the
   [Matter frontend](src/cpp/frontend/matter/README.md) for the current matrix.
-- **Native firmware**: standalone BLE, MQTT, and OTA firmware works without Home Assistant and can be driven by web clients or custom integrations.
+- **Native firmware**: standalone BLE, MQTT, OTA, and Home Assistant MQTT
+  Discovery firmware works with or without Home Assistant and can be driven by
+  web clients or custom integrations.
 - **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed in custom ESP32 firmware and OEM products.
 - **Research and ML tooling**: streamer firmware, collection tools, and training docs support CSI dataset creation and future sensing models.
 
@@ -77,9 +81,9 @@ Supported hardware:
 | ---------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | **ESPHome**            | Home Assistant users who want the most polished production path             | [ESPHome frontend](src/cpp/frontend/esphome/README.md)       |
 | **Matter**             | Controllers with Matter occupancy-sensor support; validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md)         |
-| **Native BLE/MQTT**    | Standalone devices, web clients, custom apps, and non-Home Assistant setups | [Native frontend](src/cpp/frontend/native/README.md)         |
+| **Native BLE/MQTT**    | Standalone devices, Home Assistant MQTT Discovery, web clients, and custom apps | [Native frontend](src/cpp/frontend/native/README.md)         |
 | **Streamer**           | CSI data capture, dataset collection, live experiments, and ML workflows    | [Streamer frontend](src/cpp/frontend/streamer/README.md)     |
-| **Micro-ESPectre**     | Python/MicroPython research and rapid algorithm prototyping                 | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
+| **Micro-ESPectre**     | Python/MicroPython prototyping and optional Home Assistant MQTT Discovery   | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 | **SDK-oriented reuse** | Custom firmware, smart-device makers, and OEM exploration                   | [ARCHITECTURE.md](docs/ARCHITECTURE.md)                      |
 
 
@@ -88,7 +92,7 @@ For the repository CLI surface, use [CLI.md](docs/CLI.md).
 
 ![ESPectre Home Assistant dashboard](docs/web/assets/guides/home-assistant-dashboard.png)
 
-*Home Assistant dashboard with motion state, movement score, detector selection, threshold control, and recalibration*
+*ESPHome dashboard with motion state, movement score, detector selection, threshold control, and recalibration*
 
 ## Platform Architecture
 
@@ -143,7 +147,7 @@ That matters for ESPectre: the project already has reusable sensing logic, runti
 | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | **v1.x** | Proved Wi-Fi motion detection on ESP32                                                                                         |
 | **v2.x** | Made ESPectre useful for Home Assistant through ESPHome and Micro-ESPectre                                                     |
-| **v3.x** | Turns ESPectre into a modular Wi-Fi sensing platform with Matter, native firmware, streamer tooling, and SDK-oriented reuse    |
+| **v3.x** | Turns ESPectre into a modular Wi-Fi sensing platform with Matter, Native MQTT Discovery, streamer tooling, and SDK-oriented reuse |
 | **v4.x** | Adds a privacy-first web orchestration layer for multi-node sensing, device management, history, alerts, and remote visibility |
 
 

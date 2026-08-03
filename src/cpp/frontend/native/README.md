@@ -14,8 +14,10 @@ operational notes. The shared protocol surface is documented in
 
 The native frontend is intentionally separate from the ESPHome frontend:
 
-- `ESPHome` remains focused on Home Assistant entities and YAML/codegen
-- `Native` exposes the standalone integration surface over BLE and MQTT
+- `ESPHome` remains focused on the most complete Home Assistant entity surface
+  and YAML/codegen
+- `Native` exposes the standalone integration surface over BLE and MQTT, plus
+  an additive Home Assistant MQTT Discovery adapter
 - `Matter` exposes the same runtime through Matter clusters
 
 The native frontend now also supports HTTPS OTA triggered from its MQTT command
@@ -213,6 +215,28 @@ Local implementation anchors:
   command handling, sysinfo emission, and telemetry serialization
 - [`espectre_protocol.cpp`](../../runtime/espectre_protocol.cpp):
   shared MQTT topic, payload, and command serialization
+
+## Home Assistant MQTT Discovery
+
+The native frontend publishes a Home Assistant MQTT adapter surface on top of
+the shared ESPectre MQTT protocol. It is enabled in the versioned firmware
+defaults and can be disabled by clearing
+`CONFIG_ESPECTRE_HA_DISCOVERY_ENABLED` in `menuconfig`. When enabled, the
+firmware:
+
+- publishes retained MQTT Discovery config for motion, movement score, and the
+  runtime detector select when detector switching is supported
+- publishes plain HA state topics under the same device topic base used by
+  ESPectre MQTT
+- derives HA availability from the canonical ESPectre `status` topic, including
+  its existing Last Will, so graceful and unexpected disconnects are reflected
+  without replacing the ESPectre lifecycle contract
+- subscribes to `homeassistant/status` and republishes discovery when Home
+  Assistant announces `online`
+
+This profile is additive. The canonical ESPectre topics under
+`espectre/v1/devices/{device_id}/...` remain unchanged for standalone clients
+and tooling.
 
 ## OTA
 

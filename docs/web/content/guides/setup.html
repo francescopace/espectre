@@ -16,13 +16,13 @@
     <div class="table-wrap"><table>
       <thead><tr><th>If you...</th><th>Flash</th><th>You get</th></tr></thead>
       <tbody>
-        <tr><td>Want a standalone sensor with browser tools or MQTT</td><td><strong>Native</strong></td><td>Bluetooth setup page, MQTT telemetry, live monitor, and the browser games</td></tr>
-        <tr><td>Use Home Assistant</td><td><strong>ESPHome</strong></td><td>Auto-discovered device with motion, movement level, threshold slider, and recalibrate switch</td></tr>
+        <tr><td>Want a standalone sensor, browser tools, MQTT, or Home Assistant through an existing broker</td><td><strong>Native</strong></td><td>Bluetooth setup, MQTT telemetry, Home Assistant MQTT Discovery, the live monitor, and browser games</td></tr>
+        <tr><td>Want the most complete Home Assistant integration and YAML configuration</td><td><strong>ESPHome</strong></td><td>Auto-discovered device with motion, movement level, threshold slider, and recalibrate switch</td></tr>
         <tr><td>Use a controller that supports Matter occupancy sensors</td><td><strong>Matter</strong></td><td>A standard occupancy sensor; controller validation is still limited, so check the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/matter/README.md" target="_blank" rel="noopener">current validation notes</a></td></tr>
         <tr><td>Want raw CSI data for research</td><td><strong>Streamer</strong></td><td>Raw capture over UDP; not flashable from the browser, see the <a href="/guides/custom-firmware/">custom firmware guide</a></td></tr>
       </tbody>
     </table></div>
-    <div class="note">Not sure? Pick Native, the default in the flasher: it works on its own and you can try every tool on this website. If you run Home Assistant, pick ESPHome instead.</div>
+    <div class="note">Not sure? Pick Native, the default in the flasher: it works on its own, supports Home Assistant through MQTT Discovery, and can use every tool on this website. Pick ESPHome when you want YAML configuration and the full Home Assistant control surface.</div>
 
     <h2>Step 2 — Flash from the browser</h2>
     <figure>
@@ -44,7 +44,7 @@
     <ol class="steps-list">
       <li><h3>Open the Configure page</h3><p>Go to <a href="/#configure">Configure</a> in Chrome or Edge and click <em>Connect</em>. Pick the <code>ESPectre BLE</code> device from the Bluetooth list. The board must be powered but does not need Wi-Fi yet.</p></li>
       <li><h3>Save Wi-Fi and MQTT</h3><p>Enter your network name and password. If you have an MQTT broker, add its host and port to get telemetry; if not, you can skip it and the sensor still works over Bluetooth.</p></li>
-      <li><h3>Watch it live</h3><p>Use the same Configure page to see the live movement bar, or open the <a href="/#monitor">Monitor</a> to chart MQTT telemetry from the browser.</p></li>
+      <li><h3>Use Home Assistant or watch it live</h3><p>When Home Assistant uses the same broker, Native publishes MQTT Discovery for motion, movement score, and detector selection when the firmware supports switching detectors. Otherwise, use the same Configure page to see the live movement bar, or open the <a href="/#monitor">Monitor</a> to chart MQTT telemetry from the browser.</p></li>
     </ol>
 
     <h3 class="subheading">ESPHome</h3>
@@ -78,7 +78,7 @@
       <article><h3>Flashing starts but fails midway</h3><ul><li>Close other tabs or programs using the port and retry.</li><li>Use a rear USB port or a powered hub: unstable power interrupts flashing.</li><li>Retry with <em>Erase</em> enabled to start from a clean flash.</li></ul></article>
       <article><h3>Device will not join Wi-Fi</h3><ul><li>Confirm the network is 2.4&nbsp;GHz; guest and 5&nbsp;GHz-only networks fail.</li><li>Re-enter the exact SSID and password: both are case-sensitive.</li><li>Move the board closer to the access point for the first join.</li></ul></article>
       <article><h3>Matter commissioning times out</h3><ul><li>Keep the phone within a meter of the board while pairing.</li><li>Make sure the phone's Bluetooth is on and the board is powered.</li><li>Power-cycle the board to reopen the commissioning window, then retry.</li></ul></article>
-      <article><h3>Native is not publishing MQTT</h3><ul><li>Check broker host, port, and credentials in <a href="/#configure">Configure</a>.</li><li>Confirm the broker is reachable from the device's network.</li><li>Use the <a href="/#monitor">Monitor</a> to see whether telemetry arrives.</li></ul></article>
+      <article><h3>Native MQTT or Home Assistant discovery is missing</h3><ul><li>Check broker host, port, and credentials in <a href="/#configure">Configure</a>.</li><li>Confirm Home Assistant and the device use the same broker.</li><li>Use the <a href="/#monitor">Monitor</a> to verify telemetry; discovery config should also appear as retained topics under <code>homeassistant/</code>.</li></ul></article>
       <article><h3>Motion triggers with nobody there</h3><ul><li>Recalibrate with the room genuinely empty and still.</li><li>Raise the threshold a little.</li><li>Check for fans, curtains moving in airflow, or pets: the sensor sees them too.</li></ul></article>
     </div>
 

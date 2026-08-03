@@ -13,8 +13,10 @@ from umqtt.simple import MQTTClient
 
 try:
     from src.mqtt.commands import MQTTCommands
+    from src.mqtt.home_assistant import HomeAssistantMqttAdapter
 except ImportError:
     from mqtt.commands import MQTTCommands
+    from mqtt.home_assistant import HomeAssistantMqttAdapter
 
 MQTT_RECONNECT_INITIAL_MS = 1000
 MQTT_RECONNECT_MAX_MS = 60000
@@ -56,6 +58,7 @@ class MQTTHandler:
         self.global_state = global_state
         self.client = None
         self.cmd_handler = None
+        self.ha_adapter = HomeAssistantMqttAdapter(config, detector, wlan, global_state)
         self.connected = False
         self._stopping = False
         self._next_reconnect_ms = 0
@@ -98,6 +101,7 @@ class MQTTHandler:
             user=self.config.MQTT_USERNAME,
             password=self.config.MQTT_PASSWORD
         )
+        self.ha_adapter.configure_client(self.client)
         
         print('Connecting to MQTT broker...')
         self.client.connect()
@@ -121,11 +125,14 @@ class MQTTHandler:
         
         # Subscribe to command topic
         self.client.subscribe(self.cmd_topic)
+        self.ha_adapter.subscribe_topics(self.client)
         self.connected = True
         self._next_reconnect_ms = 0
         self._reconnect_backoff_ms = MQTT_RECONNECT_INITIAL_MS
         self.publish_status(True)
         self.publish_info()
+        self.ha_adapter.publish_discovery(self.client)
+        self.ha_adapter.publish_state(self.client, self.last_variance, self.last_state)
         if not self.connected:
             raise OSError("MQTT connection lost during session setup")
 
@@ -176,6 +183,8 @@ class MQTTHandler:
             if topic_str == self.cmd_topic:
                 # Process command
                 self.cmd_handler.process_command(msg)
+            else:
+                self.ha_adapter.handle_message(self.client, topic_str, msg)
             
         except Exception as e:
             print(f"Error processing MQTT message: {e}")
@@ -200,6 +209,7 @@ class MQTTHandler:
             current_threshold: Current threshold
         """
         if not self.connected:
+            self.ha_adapter.record_state(current_variance, current_state)
             self.last_variance = current_variance
             self.last_state = current_state
             return
@@ -224,6 +234,7 @@ class MQTTHandler:
         
         try:
             self.client.publish(self.telemetry_topic, json.dumps(payload))
+            self.ha_adapter.publish_state(self.client, current_variance, current_state)
         except Exception as e:
             print(f"Error publishing to MQTT: {e}")
             self._mark_disconnected()
@@ -261,6 +272,7 @@ class MQTTHandler:
         }
         try:
             self.client.publish(self.status_topic, json.dumps(payload))
+            self.ha_adapter.publish_availability(self.client, online)
         except Exception as e:
             print(f"Error publishing MQTT status: {e}")
             if not self._stopping:

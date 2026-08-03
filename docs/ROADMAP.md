@@ -6,12 +6,16 @@ live in their owning feature, dataset, and performance documents.
 
 ## Release Horizons
 
-| Milestone | Target | Status | Outcome |
-| --- | --- | --- | --- |
-| **v3.0.0** | August 2026 | In progress | Release the modular sensing platform with shared runtime layers, stable protocol services, multiple firmware frontends, and validated Classic and ML detectors |
-| **v3.x** | After v3.0.0 | Planned | Improve developer workflows, integrations, hardware coverage, and sensing performance without delaying the v3.0 platform baseline |
-| **v4.x** | December 2026 | Planned | Add an optional privacy-first web orchestration layer for onboarding, multi-node visibility, management, history, and alerting |
-| **v5.x** | Future | Exploratory | Adopt practical IEEE 802.11bf / Wi-Fi Sensing hardware through the existing runtime and protocol architecture when embedded vendor APIs become available |
+
+| Milestone  | Target        | Status      | Outcome                                                                                                                                                        |
+| ---------- | ------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **v3.0.0** | August 2026   | In progress | Release the modular sensing platform with shared runtime layers, stable protocol services, multiple firmware frontends, and validated Classic and ML detectors |
+| **v3.x**   | After v3.0.0  | Planned     | Improve developer workflows, integrations, hardware coverage, and sensing performance without delaying the v3.0 platform baseline                              |
+| **v4.x**   | December 2026 | Planned     | Add an optional privacy-first web orchestration layer for onboarding, multi-node visibility, management, history, and alerting                                 |
+| **v5.x**   | Future        | Exploratory | Adopt practical IEEE 802.11bf / Wi-Fi Sensing hardware through the existing runtime and protocol architecture when embedded vendor APIs become available       |
+
+
+
 
 ## v3.0.0 - Modular Sensing Platform
 
@@ -21,13 +25,15 @@ for custom firmware and OEM products.
 
 ### Current Baseline
 
-| Area | State | Current outcome |
-| --- | --- | --- |
-| **Architecture** | Ready | Shared `core`, `runtime`, ESP-IDF services, and frontend adapters are split, reviewed, and documented |
-| **Frontends** | Ready with limits | ESPHome is the mature Home Assistant path; Native and Streamer are available; Matter occupancy is available with limited controller validation |
-| **Protocol** | Ready | BLE and MQTT provisioning, telemetry, status, info, commands, and reusable protocol services are documented in [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) |
-| **Detection** | Ready pending final evidence | Current C++ and Python real-data, long-recording, low-RSSI, packet-rate, and parity gates pass across the maintained corpus |
-| **Documentation** | Ready | Setup, architecture, protocol, tuning, performance, and frontend workflows describe the current v3 surface |
+
+| Area              | State                        | Current outcome                                                                                                                                             |
+| ----------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Architecture**  | Ready                        | Shared `core`, `runtime`, ESP-IDF services, and frontend adapters are split, reviewed, and documented                                                       |
+| **Frontends**     | Ready with limits            | ESPHome has the most complete Home Assistant surface; Native MQTT Discovery, optional Micro-ESPectre discovery, and Streamer are available; Matter occupancy has limited controller validation |
+| **Protocol**      | Ready                        | BLE and MQTT provisioning, telemetry, status, info, commands, and reusable protocol services are documented in [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) |
+| **Detection**     | Ready pending final evidence | Current C++ and Python real-data, long-recording, low-RSSI, packet-rate, and parity gates pass across the maintained corpus                                 |
+| **Documentation** | Ready                        | Setup, architecture, protocol, tuning, performance, and frontend workflows describe the current v3 surface                                                  |
+
 
 Completed implementation and review work is recorded in
 [CHANGELOG.md](CHANGELOG.md) and the dated documents under `docs/review/`.
@@ -49,6 +55,8 @@ moved to the post-release v3.x backlog.
   missing collection, retraining, and validation before tagging; otherwise move
   the expanded ESP32 corpus to the v3.x validation backlog
 
+
+
 #### Product Surface
 
 - [x] Allow the Native BLE control surface to set the runtime
@@ -60,16 +68,22 @@ moved to the post-release v3.x backlog.
 - [x] Add optional DNS-SD/mDNS discovery to the Streamer collection workflow,
   while keeping explicit targets as the deterministic fallback and preserving
   CSI demultiplexing by `device_id`
+- [x] Add direct Home Assistant integration over MQTT with MQTT Discovery for
+  the Native frontend and Micro-ESPectre, while preserving the canonical
+  ESPectre MQTT protocol
 - [ ] Review the embeddable `C++` SDK API and documentation, and align the
   published integration surface with standard `C++` SDK conventions where
   practical
 - [ ] Move esphome examples in esphome frontend
+
+
 
 #### Release Assurance
 
 - [ ] Complete the doc review.
 - [ ] Complete the security review.
 - [ ] Complete the code review.
+- [ ] Complete Google Analytics review.
 - [ ] Refresh the Home Assistant screenshots used by the documentation and
   website, replacing the current gauge with a suitable visualization
 - [ ] Finalize release notes and verify the complete binary artifact checklist
@@ -77,12 +91,13 @@ moved to the post-release v3.x backlog.
   `develop`
 - [ ] Test the GitHub issue and pull request templates end to end
 
+
+
 ## v3.x - Post-Release Outcomes
 
 These outcomes belong to the v3 series but do not block `v3.0.0`.
 
 ### Developer Experience and Distribution
-
 
 - [ ] Mature the published SDK distribution path beyond raw release assets:
   decide the supported install surfaces for `PlatformIO` and ESP-IDF component
@@ -92,6 +107,8 @@ These outcomes belong to the v3 series but do not block `v3.0.0`.
 - [ ] Evaluate publishing the web BLE client as a reusable third-party
   integration artifact with ESM and IIFE builds, npm packaging, and TypeScript
   definitions
+
+
 
 ### Product Integrations
 
@@ -105,11 +122,15 @@ These outcomes belong to the v3 series but do not block `v3.0.0`.
 - [ ] Add Native frontend support for local TFT/LCD status displays
 - [ ] Run an ESP32-C6 Zigbee coexistence spike before deciding whether to add a
   Zigbee occupancy frontend
-- [ ] Add direct Home Assistant integration over MQTT with MQTT Discovery for
-  the standalone frontends and micro-espectre
+- [ ] Evaluate same-Wi-Fi peer discovery for nearby ESPectre nodes, potentially
+  via ESP-NOW, and if reliable prototype multi-node broadcast coordination as
+  an alternative to the classic traffic generator to reduce router airtime use
+  without regressing CSI capture quality, latency, range, or interoperability
 - [ ] Evaluate a TuyaOpen reference integration that embeds the shared `core`
   and `runtime`, with licensing and cloud coupling documented as integrator-side
   prerequisites
+
+
 
 ### Runtime and Hardware Coverage
 
@@ -120,6 +141,8 @@ These outcomes belong to the v3 series but do not block `v3.0.0`.
   capabilities and 5 GHz operation where hardware and exposed APIs support it
 - [ ] Expand the original ESP32 corpus across dataset environments if that work
   is not retained as a `v3.0.0` release gate
+
+
 
 ## Sensing Research
 
@@ -143,6 +166,8 @@ a valid completion when its evidence and verdict are retained in
 - [ ] Evaluate breathing-related micro-motion only after the Presence versus
   Empty boundary is measurable, keeping the work explicitly non-medical
 
+
+
 ## v4.x - Web Orchestration Layer
 
 **Goal**: make multiple ESPectre devices behave like one coherent sensing
@@ -162,6 +187,8 @@ experiments do not block the first public orchestration release.
 - [ ] Complete the privacy model, threat model, retention defaults, and
   consent/cookie posture for each deployment profile
 
+
+
 ### Device Plane
 
 - [ ] Implement secure Web Bluetooth-assisted device claim with physical
@@ -172,6 +199,8 @@ experiments do not block the first public orchestration release.
   shared control plane
 - [ ] Add signed firmware artifact storage and OTA workflows
 
+
+
 ### Product MVP
 
 - [ ] Build the home map and room/device placement workflow
@@ -180,12 +209,16 @@ experiments do not block the first public orchestration release.
 - [ ] Add movement and status history with explicit retention controls
 - [ ] Add motion alert rules with email as the first notification path
 
+
+
 ### Launch Gate
 
 - [ ] Validate security, abuse resistance, privacy posture, tenant isolation,
   operational resilience, backup, and recovery
 - [ ] Document deployment, self-hosting, data retention, and managed-service
   responsibilities
+
+
 
 ### Later Experiments
 
@@ -217,13 +250,15 @@ Exploration should:
 - map standardized measurements to runtime snapshots and events
 - preserve frontend and protocol compatibility
 - measure whether the new hardware improves calibration, false-positive
-  control, and multi-node fusion
+control, and multi-node fusion
 - document migration from ESP32 CSI firmware without promising a delivery date
-  before suitable hardware APIs exist
+before suitable hardware APIs exist
+
+
 
 ## Roadmap Updates
 
-Last update: **July 30, 2026**
+Last update: **August 3, 2026**
 
 For discussion and proposed changes:
 

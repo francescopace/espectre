@@ -23,6 +23,7 @@ set(ESPECTRE_RUNTIME_COMMON_SOURCES
 set(ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_bootstrap_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_control_helpers.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_ha_mqtt_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_mqtt_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_sysinfo_helpers.cpp"
 )
