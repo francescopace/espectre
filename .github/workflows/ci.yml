@@ -137,7 +137,7 @@ jobs:
         run: python3 .github/scripts/build_static_pages.py
 
       - name: Install Doxygen
-        run: sudo apt-get update && sudo apt-get install -y doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
 
       - name: Generate SDK API Reference
         # Written straight into the Pages tree so espectre.dev/sdk/api/ serves
