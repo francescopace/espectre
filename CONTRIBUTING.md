@@ -109,6 +109,14 @@ pytest test/python -v --cov=src/python/micro_espectre --cov-report=term-missing
 python -m http.server 8080 --directory docs/web
 ```
 
+Direct single-config CMake builds and `run_all_tests.sh` default to
+`RelWithDebInfo` with assertions enabled; `run_coverage.sh` uses an instrumented
+`Debug` build.
+
+Python test auto-parallelism is capped at four workers because replay-heavy
+tests become slower under higher process counts. Set
+`PYTEST_XDIST_AUTO_NUM_WORKERS` to a positive integer to override the cap.
+
 The coverage helper is a Bash script used on macOS/Linux and CI. On Windows, run the CMake/CTest commands above for the host-side C++ suite, or use WSL/Git Bash if you specifically need the coverage script.
 
 ---

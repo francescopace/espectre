@@ -302,13 +302,15 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .npz_cache
-          key: ${{ format('npz-cache-v1-{0}-{1}', runner.os, hashFiles('data/dataset_info.json', 'src/python/micro_espectre/runtime_policy.py', 'tools/lib/csi_io.py', 'tools/lib/dataset_metadata.py', 'tools/lib/npz_cache.py', 'tools/lib/performance_report.py', 'tools/train_ml_model.py', 'tools/validate_dataset_quality.py')) }}
+          key: ${{ format('npz-cache-v1-{0}-{1}', runner.os, hashFiles('data/dataset_info.json', 'src/python/micro_espectre/runtime_policy.py', 'tools/lib/csi_io.py', 'tools/lib/dataset_metadata.py', 'tools/lib/npz_cache.py', 'tools/lib/performance_report.py', 'tools/train_ml_model.py', 'tools/validate_dataset_quality.py', 'test/python/test_packet_rate_adaptation_regression.py')) }}
           restore-keys: |
             npz-cache-v1-${{ runner.os }}-
 
       - name: Run Product and Performance Tests with Coverage
         run: |
           pytest test/python -n auto --dist worksteal -v --cov=src/python/micro_espectre --cov=src/python/espectre_cli --cov-report=xml --cov-report=term-missing
+        env:
+          PYTEST_XDIST_AUTO_NUM_WORKERS: '4'
       
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v7

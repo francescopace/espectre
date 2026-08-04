@@ -186,9 +186,14 @@ CUDA and Apple MPS are available only when requested explicitly through
 `--device cuda` or `--device mps`; this small MLP usually runs fastest and most
 predictably on CPU. Host-side tooling uses two cache layers: an in-process
 runtime memo for loaded arrays and packet views, and persisted artifacts under
-`.npz_cache/`. The canonical persisted ML artifact is one time-aware ready-packet row
-stream per capture. It stores every ready runtime feature row, contamination
-reset identity, and whether the row is a deployment evaluation tick.
+`.npz_cache/`. The persisted replay artifacts contain canonical time-aware rows
+rather than final detector summaries. ML stores one ready-packet feature stream
+per capture, including contamination reset identity and whether each row is a
+deployment evaluation tick. Classic stores its two raw feature values plus
+calibration weight, readiness, warmup eligibility, and reset identity at every
+production evaluation tick. Classic thresholds, decisions, and report metrics
+are recomputed from those rows, so detector-policy changes cannot reuse stale
+summary results.
 `stream_dense` training consumes every row; dataset-quality validation uses the
 same canonical stream; trainer gates, performance reporting, and replay tests
 project the marked runtime ticks. Numeric weight changes do not invalidate this
@@ -200,8 +205,8 @@ a research run with identical provenance therefore reuses them, while a seed,
 recipe, or implementation change cannot silently alias another run. Delete
 `.npz_cache/` to force a cold rebuild of persisted artifacts, or use
 `--no-cache` to bypass them for one run. The legacy per-feature
-`feature_column` cache, idle-baseline summary cache, and non-time-aware `dense`
-contract have been removed. Pruning is an explicit maintenance operation:
+`feature_column`, idle-baseline summary, and non-time-aware `dense` caches have
+been removed. Pruning is an explicit maintenance operation:
 `python tools/prune_npz_cache.py` scans all known persisted artifacts, while
 repeated `--artifact NAME` options restrict it to selected artifact types.
 Normal cache reads do not create `.npz_cache/` or artifact directories.

@@ -151,6 +151,9 @@ The main repository workflow and this training stack target Python `3.14`.
 - Default training uses `--fp-weight 1.75`, `--hidden-layers 24,12`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, and lineage-grouped CV with uniform sample weights
 - Caches canonical time-aware runtime-feature rows for repeated local runs; use
   `--no-cache` to bypass persisted rows for one run
+- Reuses time-aware Classic feature rows for paired, quiet, long-recording, and
+  performance-report validation; detector thresholds and metrics are always
+  recomputed from the cached rows
 - Reuses the seed embedded in the current exported weights when `--seed` is omitted
   (`--seed-search-until-improvement` still samples fresh seeds)
 - Optional `--augment` applies one or more train-time augmentation components;
@@ -204,6 +207,7 @@ left unreachable entries:
 
 ```bash
 python prune_npz_cache.py
+python prune_npz_cache.py --artifact classic_replay_rows
 python prune_npz_cache.py --artifact ml_replay_rows
 ```
 
@@ -300,8 +304,8 @@ datasets
   paired real-data and long-recording validation suites
 - Recomputes the published Classic and ML aggregate tables directly from the
   current `data/` captures
-- Builds and runs the host-side C++ integration suites before publishing so
-  Python and C++ drift is caught immediately
+- Builds the host-side C++ integration suites as `RelWithDebInfo` and runs them
+  before publishing so Python and C++ drift is caught immediately
 - Keeps the checked regression behavior and the published documentation aligned
   without copying metric logic into the Markdown file or trusting only one
   implementation

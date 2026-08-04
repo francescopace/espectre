@@ -8,11 +8,14 @@ License: GPLv3
 """
 
 
+from pathlib import Path
+
 import pytest
 
 from tools.lib.performance_report import (
     evaluate_classic_long_recording as _evaluate_classic_long_recording,
     evaluate_ml_long_recording as _evaluate_ml_long_recording,
+    get_available_long_test_dataset_specs,
 )
 
 from conftest import (
@@ -20,6 +23,53 @@ from conftest import (
     extract_motion_start_from_description,
     load_long_test_dataset,
 )
+
+
+def _assert_classic_replays_match(cached_metrics, packet_metrics) -> None:
+    assert packet_metrics is not None, "Classic packet calibration failed"
+    assert cached_metrics is not None, "Classic startup calibration failed"
+    for key in (
+        "baseline_eval_count",
+        "movement_eval_count",
+        "tp",
+        "fn",
+        "fp",
+        "tn",
+        "effective_alarms",
+        "false_motion_evaluations",
+    ):
+        assert cached_metrics[key] == packet_metrics[key]
+    for key in (
+        "adaptive_threshold",
+        "recall",
+        "precision",
+        "fp_rate",
+        "f1",
+    ):
+        assert cached_metrics[key] == pytest.approx(
+            packet_metrics[key], abs=1e-12
+        )
+
+
+def _representative_long_recording_param():
+    specs = get_available_long_test_dataset_specs()
+    if not specs:
+        return pytest.param(
+            None,
+            marks=pytest.mark.skip(
+                reason="No long-recording replays available in dataset_info.json"
+            ),
+            id="no_long_test_recordings",
+        )
+    spec = min(specs, key=lambda item: (int(item[2]), str(item[0])))
+    test_path, motion_start_packet, num_packets, chip, _entry = spec
+    return pytest.param(
+        spec,
+        id=(
+            f"{chip.lower()}_representative_{Path(test_path).stem}_"
+            f"{motion_start_packet}b_{num_packets - motion_start_packet}m"
+        ),
+    )
 
 
 class TestLongRecordings:
@@ -135,3 +185,29 @@ class TestLongRecordings:
         assert 0.0 <= classic_metrics["precision"] <= 100.0
         assert 0.0 <= classic_metrics["fp_rate"] <= 100.0
         assert 0.0 <= classic_metrics["f1"] <= 100.0
+
+
+@pytest.mark.parametrize(
+    "long_dataset",
+    [_representative_long_recording_param()],
+    indirect=False,
+)
+def test_classic_long_recording_cached_rows_match_packet_replay(long_dataset):
+    """Keep exact raw-versus-row parity on one deterministic long replay."""
+    if long_dataset is None:
+        pytest.skip("No long-recording replays available in dataset_info.json")
+
+    test_path, baseline_packets, movement_packets, motion_start_packet, _chip, _entry = (
+        load_long_test_dataset(long_dataset)
+    )
+    packet_metrics = _evaluate_classic_long_recording(
+        baseline_packets,
+        movement_packets,
+    )
+    cached_metrics = _evaluate_classic_long_recording(
+        baseline_packets,
+        movement_packets,
+        source_path=test_path,
+        motion_start_packet=motion_start_packet,
+    )
+    _assert_classic_replays_match(cached_metrics, packet_metrics)

@@ -8,6 +8,7 @@
 # Usage:
 #   ./run_coverage.sh           # Local run (prints summary)
 #   ./run_coverage.sh --ci      # CI run (writes coverage artifacts)
+#   CTEST_PARALLEL_LEVEL=2 ./run_coverage.sh
 
 set -euo pipefail
 
@@ -22,6 +23,29 @@ CI_MODE=false
 if [[ "${1:-}" == "--ci" ]]; then
     CI_MODE=true
 fi
+
+detect_parallel_jobs() {
+    local jobs="${CTEST_PARALLEL_LEVEL:-}"
+    if [[ -n "$jobs" ]] && [[ ! "$jobs" =~ ^[1-9][0-9]*$ ]]; then
+        echo "error: CTEST_PARALLEL_LEVEL must be a positive integer" >&2
+        return 1
+    fi
+    if [[ -z "$jobs" ]] && command -v getconf >/dev/null 2>&1; then
+        jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+    fi
+    if [[ -z "$jobs" ]] && command -v nproc >/dev/null 2>&1; then
+        jobs="$(nproc 2>/dev/null || true)"
+    fi
+    if [[ -z "$jobs" ]] && command -v sysctl >/dev/null 2>&1; then
+        jobs="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
+    fi
+    if [[ ! "$jobs" =~ ^[1-9][0-9]*$ ]]; then
+        jobs=1
+    fi
+    printf '%s\n' "$jobs"
+}
+
+PARALLEL_JOBS="$(detect_parallel_jobs)"
 
 detect_compiler() {
     if "${CXX:-c++}" --version 2>/dev/null | grep -qi clang; then
@@ -136,7 +160,9 @@ PY
 }
 
 run_clang_coverage() {
-    python3 - "$BUILD_DIR" "$WORKSPACE_ROOT" "$TMP_LCOV" "$CI_MODE" <<'PY'
+    python3 - "$BUILD_DIR" "$WORKSPACE_ROOT" "$TMP_LCOV" "$CI_MODE" \
+        "$PARALLEL_JOBS" <<'PY'
+import concurrent.futures
 import json
 import os
 import re
@@ -147,6 +173,7 @@ build_dir = os.path.abspath(sys.argv[1])
 workspace_root = os.path.realpath(sys.argv[2])
 lcov_output = os.path.abspath(sys.argv[3])
 ci_mode = sys.argv[4] == "true"
+parallel_jobs = max(1, int(sys.argv[5]))
 
 profiles_dir = os.path.join(build_dir, "profiles")
 os.makedirs(profiles_dir, exist_ok=True)
@@ -235,14 +262,11 @@ def write_lcov(path, records):
                 handle.write(f"BRDA:{line_no},{block_no},{branch_no},{hits}\n")
             handle.write("end_of_record\n")
 
-combined = {}
-overall_status = 0
-
-for test in ctest_data.get("tests", []):
+def run_test(test):
     name = test["name"]
     command = list(test.get("command", []))
     if not command:
-        continue
+        return None
     cwd = get_property(test, "WORKING_DIRECTORY", build_dir)
     executable = command[0]
     if not os.path.isabs(executable):
@@ -256,27 +280,47 @@ for test in ctest_data.get("tests", []):
     env = os.environ.copy()
     env["LLVM_PROFILE_FILE"] = profraw
 
-    print(f"Running {name} ...")
     result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True)
-    if result.stdout:
-        print(result.stdout, end="")
-    if result.returncode != 0:
-        overall_status = result.returncode
-        if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
-        print(f"[FAIL] {name}", file=sys.stderr)
-    else:
-        print(f"[PASS] {name}")
+    return name, executable, profraw, profdata, result
 
-    if not os.path.exists(profraw):
-        continue
+combined = {}
+overall_status = 0
+tests = list(ctest_data.get("tests", []))
 
-    subprocess.check_call([*llvm_profdata, "merge", "-sparse", profraw, "-o", profdata])
-    lcov_text = subprocess.check_output(
-        [*llvm_cov, "export", executable, "-instr-profile=" + profdata, "-format=lcov", workspace_root + "/src"],
-        text=True,
-    )
-    merge_records(combined, parse_lcov(lcov_text))
+with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_jobs) as executor:
+    for item in executor.map(run_test, tests):
+        if item is None:
+            continue
+        name, executable, profraw, profdata, result = item
+        print(f"Completed {name} ...")
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.returncode != 0:
+            overall_status = result.returncode
+            if result.stderr:
+                print(result.stderr, end="", file=sys.stderr)
+            print(f"[FAIL] {name}", file=sys.stderr)
+        else:
+            print(f"[PASS] {name}")
+
+        if not os.path.exists(profraw):
+            continue
+
+        subprocess.check_call(
+            [*llvm_profdata, "merge", "-sparse", profraw, "-o", profdata]
+        )
+        lcov_text = subprocess.check_output(
+            [
+                *llvm_cov,
+                "export",
+                executable,
+                "-instr-profile=" + profdata,
+                "-format=lcov",
+                workspace_root + "/src",
+            ],
+            text=True,
+        )
+        merge_records(combined, parse_lcov(lcov_text))
 
 write_lcov(lcov_output, combined)
 sys.exit(overall_status)
@@ -286,6 +330,7 @@ PY
 COMPILER="$(detect_compiler)"
 echo "ESPectre host-side coverage"
 echo "Compiler: $COMPILER"
+echo "Parallel jobs: $PARALLEL_JOBS"
 
 rm -rf "$BUILD_DIR"
 rm -f "$LCOV_OUTPUT" "$XML_OUTPUT" "$TMP_LCOV"
@@ -293,7 +338,7 @@ rm -f "$LCOV_OUTPUT" "$XML_OUTPUT" "$TMP_LCOV"
 cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Debug \
     -DESPECTRE_ENABLE_COVERAGE=ON
-cmake --build "$BUILD_DIR" -j
+cmake --build "$BUILD_DIR" --parallel "$PARALLEL_JOBS"
 
 TEST_RESULT=0
 if [[ "$COMPILER" == "clang" ]]; then
@@ -301,7 +346,8 @@ if [[ "$COMPILER" == "clang" ]]; then
     mv "$TMP_LCOV" "$LCOV_OUTPUT"
     summarize_lcov "$LCOV_OUTPUT"
 else
-    ctest --test-dir "$BUILD_DIR" --output-on-failure || TEST_RESULT=$?
+    ctest --test-dir "$BUILD_DIR" --parallel "$PARALLEL_JOBS" \
+        --output-on-failure || TEST_RESULT=$?
 
     if ! command -v gcovr >/dev/null 2>&1; then
         echo "Error: gcovr is required for GCC coverage"

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -22,6 +23,7 @@ ProgressCallback = Callable[[str], None]
 ReportData = dict[str, dict[str, dict[str, dict[str, float | int]]]]
 
 CPP_PERCENT_TOLERANCE = 0.05
+CPP_TEST_BUILD_TYPE = "RelWithDebInfo"
 CPP_PARITY_FILES = {
     "test_motion_detection": "test_motion_detection.json",
     "test_long_recordings": "test_long_recordings.json",
@@ -30,6 +32,22 @@ CPP_PARITY_FILES = {
 
 class CppParityError(RuntimeError):
     """Raised when the host-side C++ parity check fails."""
+
+
+def _parallel_jobs() -> int:
+    """Return the CTest concurrency override or all detected logical CPUs."""
+    configured = os.environ.get("CTEST_PARALLEL_LEVEL")
+    if configured:
+        try:
+            jobs = int(configured)
+        except ValueError as exc:
+            raise CppParityError(
+                "CTEST_PARALLEL_LEVEL must be a positive integer"
+            ) from exc
+        if jobs < 1:
+            raise CppParityError("CTEST_PARALLEL_LEVEL must be a positive integer")
+        return jobs
+    return max(1, os.cpu_count() or 1)
 
 
 def _emit_progress(progress: Optional[ProgressCallback], message: str) -> None:
@@ -63,22 +81,39 @@ def _run_command(command: list[str], cwd: Path, env: Optional[dict[str, str]] = 
 
 
 def _ensure_cpp_build(repo: Path, build_dir: Path, progress: Optional[ProgressCallback]) -> None:
-    if not (build_dir / "CMakeCache.txt").exists():
-        _emit_progress(progress, f"configuring host-side C++ tests in {build_dir}")
-        _run_command(
-            ["cmake", "-S", str(repo / "test" / "cpp"), "-B", str(build_dir)],
-            cwd=repo,
-        )
+    _emit_progress(
+        progress,
+        f"configuring {CPP_TEST_BUILD_TYPE} host-side C++ tests in {build_dir}",
+    )
+    _run_command(
+        [
+            "cmake",
+            "-S",
+            str(repo / "test" / "cpp"),
+            "-B",
+            str(build_dir),
+            f"-DCMAKE_BUILD_TYPE={CPP_TEST_BUILD_TYPE}",
+        ],
+        cwd=repo,
+    )
 
     _emit_progress(progress, f"building host-side C++ tests in {build_dir}")
     _run_command(
-        ["cmake", "--build", str(build_dir)],
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--config",
+            CPP_TEST_BUILD_TYPE,
+            "--parallel",
+            str(_parallel_jobs()),
+        ],
         cwd=repo,
     )
 
 
-def _run_cpp_suite(
-    suite_name: str,
+def _run_cpp_suites(
+    suite_names: tuple[str, ...],
     *,
     repo: Path,
     build_dir: Path,
@@ -87,9 +122,24 @@ def _run_cpp_suite(
 ) -> None:
     env = os.environ.copy()
     env["ESPECTRE_PARITY_OUTPUT_DIR"] = str(output_dir)
-    _emit_progress(progress, f"running C++ suite {suite_name}")
+    pattern = "^(" + "|".join(re.escape(name) for name in suite_names) + ")$"
+    _emit_progress(
+        progress,
+        f"running C++ suites in parallel: {', '.join(suite_names)}",
+    )
     _run_command(
-        ["ctest", "--test-dir", str(build_dir), "-R", suite_name, "--output-on-failure"],
+        [
+            "ctest",
+            "--test-dir",
+            str(build_dir),
+            "--build-config",
+            CPP_TEST_BUILD_TYPE,
+            "-R",
+            pattern,
+            "--parallel",
+            str(_parallel_jobs()),
+            "--output-on-failure",
+        ],
         cwd=repo,
         env=env,
     )
@@ -255,14 +305,13 @@ def verify_cpp_report_parity(
     _ensure_cpp_build(repo, resolved_build_dir, progress)
     with tempfile.TemporaryDirectory(prefix="espectre_cpp_parity_") as output_dir_value:
         output_dir = Path(output_dir_value)
-        for suite_name in CPP_PARITY_FILES:
-            _run_cpp_suite(
-                suite_name,
-                repo=repo,
-                build_dir=resolved_build_dir,
-                output_dir=output_dir,
-                progress=progress,
-            )
+        _run_cpp_suites(
+            tuple(CPP_PARITY_FILES),
+            repo=repo,
+            build_dir=resolved_build_dir,
+            output_dir=output_dir,
+            progress=progress,
+        )
         cpp_report_data = load_cpp_parity_payloads(output_dir)
 
     mismatches = compare_cpp_and_python_report_data(

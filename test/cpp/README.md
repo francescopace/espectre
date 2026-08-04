@@ -9,12 +9,13 @@ Host-side **CMake + CTest** suite for validating the ESPectre `core / runtime / 
 source .venv/bin/activate
 
 # Configure and run the full host-side suite
-cmake -S test/cpp -B test/cpp/build
-cmake --build test/cpp/build
-ctest --test-dir test/cpp/build --output-on-failure
+./test/cpp/run_all_tests.sh
 
 # Run specific suite
-ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
+./test/cpp/run_all_tests.sh -R test_motion_detection
+
+# Override automatic logical-CPU detection when needed
+CTEST_PARALLEL_LEVEL=2 ./test/cpp/run_all_tests.sh
 ```
 
 ---
@@ -40,6 +41,20 @@ The registered targets are grouped by the layer they exercise:
 `test/cpp/suites/CMakeLists.txt` is the executable registration source of truth;
 this list is the human-readable catalog.
 
+The normal test runner, direct single-config CMake builds, and the
+performance-report parity gate use `RelWithDebInfo` so replay-heavy suites run
+with compiler optimizations while retaining debug information and test
+assertions. Coverage builds remain `Debug` so their line and branch mapping
+stays reliable.
+
+The test, coverage, and performance-report launchers use every detected logical
+CPU by default. Set the standard `CTEST_PARALLEL_LEVEL` environment variable to
+a positive integer to limit concurrency on constrained hosts.
+
+`test_packet_rate_adaptation` replays 60-second prefixes at 120, 100, and 80
+pps, covering the upper, nominal, and lower boundaries of the supported
+detector cadence without repeating the full high-rate captures.
+
 
 ### Target Metrics (Motion Detection)
 - **Recall**: >95% for all chips (detect motion in motion datasets)
@@ -49,7 +64,7 @@ See [docs/performance](../../docs/performance/README.md) for detailed targets pe
 
 ### Performance Report Parity Gate
 - `tools/generate_performance_report.py` now depends on the host-side C++ integration suites staying aligned with the published Python replay metrics.
-- The report command builds `test/cpp/build` when needed, runs `test_motion_detection` and `test_long_recordings`, and compares their structured aggregate outputs against the Python report data before writing `docs/performance/README.md`.
+- The report command configures and builds `test/cpp/build` as `RelWithDebInfo`, runs `test_motion_detection` and `test_long_recordings`, and compares their structured aggregate outputs against the Python report data before writing `docs/performance/README.md`.
 - If the paired or long-recording aggregates drift, the report generation fails and prints the mismatched chip/algorithm/metric entries instead of publishing stale documentation.
 
 ---
@@ -107,6 +122,7 @@ test/
 │   └── frontend/
 ├── support/            # Harness and shared test-side support (cnpy, dataset loader, runtime shim)
 ├── CMakeLists.txt      # Host-side test entrypoint
+├── run_all_tests.sh    # Parallel build and test launcher
 └── run_coverage.sh     # Coverage script
 ```
 

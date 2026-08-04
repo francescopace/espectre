@@ -25,14 +25,18 @@ import numpy as np
 from .repo_paths import cpp_core_dir, python_src_dir, repo_root
 
 CACHE_LAYOUT_VERSION = 2
-DETECTOR_REPLAY_ARTIFACT_VERSION = 3
+CLASSIC_REPLAY_ROW_ARTIFACT_VERSION = 1
 ML_REPLAY_ROW_ARTIFACT_VERSION = 3
 
 CURRENT_ARTIFACT_VERSIONS = {
-    "detector_replay": DETECTOR_REPLAY_ARTIFACT_VERSION,
+    "classic_replay_rows": CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
     "ml_replay_rows": ML_REPLAY_ROW_ARTIFACT_VERSION,
 }
-OBSOLETE_ARTIFACT_NAMES = {"feature_matrix", "feature_column", "idle_baseline"}
+OBSOLETE_ARTIFACT_NAMES = {
+    "feature_matrix",
+    "feature_column",
+    "idle_baseline",
+}
 
 RUNTIME_CACHE_MAX_ENTRIES = 64
 
@@ -175,6 +179,7 @@ def _replay_policy_source_manifests() -> dict[str, Any]:
     sources = {
         "python_runtime_policy": python_src_dir() / "runtime_policy.py",
         "host_dataset_metadata": repo_root() / "tools" / "lib" / "dataset_metadata.py",
+        "host_classic_replay": repo_root() / "tools" / "lib" / "performance_report.py",
     }
     for name, path in sources.items():
         if path.exists():
@@ -454,33 +459,32 @@ def save_npz_artifact(
     return artifact_path
 
 
-def detector_replay_parameters(
+def classic_replay_row_parameters(
     *,
     replay_kind: str,
     selected_subcarriers: Any,
-    window_size: Optional[int] = None,
-    threshold: Optional[float] = None,
-    feature_names: Any = (),
+    timing: Mapping[str, Any],
+    replay_interval_us: int,
+    warmup_packets: int,
     secondary_source: Optional[str | Path] = None,
     replay_provenance: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Return the persisted identity for one detector replay result."""
+    """Return the identity for one time-aware Classic feature-row replay."""
     parameters: dict[str, Any] = {
+        "artifact_version": CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
         "replay_kind": str(replay_kind),
         "selected_subcarriers": [int(sc) for sc in selected_subcarriers],
-        "feature_names": [str(name) for name in feature_names],
+        "feature_names": ["turb_autocorr", "chan_freq_coh_curve_std"],
+        "timing": {str(key): int(value) for key, value in timing.items()},
+        "replay_interval_us": int(replay_interval_us),
+        "warmup_packets": int(warmup_packets),
         "replay_policy_sources": _replay_policy_source_manifests(),
+        "classic_sources": _classic_detector_source_manifests(),
     }
-    if window_size is not None:
-        parameters["window_size"] = int(window_size)
-    if threshold is not None:
-        parameters["threshold"] = float(threshold)
     if secondary_source is not None:
         parameters["secondary_source"] = source_manifest(secondary_source)
     if replay_provenance is not None:
         parameters["replay_provenance"] = _json_safe(dict(replay_provenance))
-    if str(replay_kind).startswith("classic_"):
-        parameters["classic_sources"] = _classic_detector_source_manifests()
     return parameters
 
 
@@ -528,11 +532,21 @@ def load_ml_replay_row_artifact(
         return None
     return {
         "X": np.asarray(payload.get("X", np.empty((0, 0))), dtype=np.float32),
-        "feature_names": np.asarray(payload.get("feature_names", np.empty(0))).astype(str).tolist(),
-        "packet_index": np.asarray(payload.get("packet_index", np.empty(0)), dtype=np.int32),
-        "evaluation_index": np.asarray(payload.get("evaluation_index", np.empty(0)), dtype=np.int32),
-        "reset_index": np.asarray(payload.get("reset_index", np.empty(0)), dtype=np.int32),
-        "evaluation_due": np.asarray(payload.get("evaluation_due", np.empty(0)), dtype=bool),
+        "feature_names": np.asarray(
+            payload.get("feature_names", np.empty(0))
+        ).astype(str).tolist(),
+        "packet_index": np.asarray(
+            payload.get("packet_index", np.empty(0)), dtype=np.int32
+        ),
+        "evaluation_index": np.asarray(
+            payload.get("evaluation_index", np.empty(0)), dtype=np.int32
+        ),
+        "reset_index": np.asarray(
+            payload.get("reset_index", np.empty(0)), dtype=np.int32
+        ),
+        "evaluation_due": np.asarray(
+            payload.get("evaluation_due", np.empty(0)), dtype=bool
+        ),
     }
 
 
@@ -564,41 +578,79 @@ def save_ml_replay_row_artifact(
     )
 
 
-def load_detector_replay_artifact(
+def load_classic_replay_row_artifact(
     source_path: str | Path,
     *,
     parameters: Mapping[str, Any],
 ) -> Optional[dict[str, Any]]:
-    """Load one persisted detector replay payload."""
+    """Load one persisted time-aware Classic replay-row artifact."""
     payload = load_npz_artifact(
         source_path,
-        artifact_name="detector_replay",
-        artifact_version=DETECTOR_REPLAY_ARTIFACT_VERSION,
+        artifact_name="classic_replay_rows",
+        artifact_version=CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
         parameters=parameters,
     )
     if payload is None:
         return None
-    result_json = payload.get("result_json")
-    if result_json is None:
-        return None
-    return json.loads(str(np.asarray(result_json).item()))
+    rows: dict[str, Any] = {}
+    for phase in ("calibration", "static", "motion"):
+        prefix = f"{phase}_"
+        rows[phase] = {
+            "X": np.asarray(
+                payload.get(prefix + "X", np.empty((0, 2))), dtype=np.float64
+            ),
+            "ready": np.asarray(
+                payload.get(prefix + "ready", np.empty(0)), dtype=bool
+            ),
+            "eligible": np.asarray(
+                payload.get(prefix + "eligible", np.empty(0)), dtype=bool
+            ),
+            "packet_index": np.asarray(
+                payload.get(prefix + "packet_index", np.empty(0)), dtype=np.int32
+            ),
+            "packet_weight": np.asarray(
+                payload.get(prefix + "packet_weight", np.empty(0)), dtype=np.int32
+            ),
+            "reset_index": np.asarray(
+                payload.get(prefix + "reset_index", np.empty(0)), dtype=np.int32
+            ),
+        }
+    return rows
 
 
-def save_detector_replay_artifact(
+def save_classic_replay_row_artifact(
     source_path: str | Path,
     *,
     parameters: Mapping[str, Any],
-    result: Mapping[str, Any],
+    rows: Mapping[str, Mapping[str, Any]],
 ) -> Path:
-    """Persist one detector replay payload."""
+    """Persist one canonical time-aware Classic replay-row artifact."""
+    payload: dict[str, np.ndarray] = {}
+    for phase in ("calibration", "static", "motion"):
+        phase_rows = rows.get(phase, {})
+        prefix = f"{phase}_"
+        payload[prefix + "X"] = np.asarray(
+            phase_rows.get("X", np.empty((0, 2))), dtype=np.float64
+        )
+        payload[prefix + "ready"] = np.asarray(
+            phase_rows.get("ready", np.empty(0)), dtype=bool
+        )
+        payload[prefix + "eligible"] = np.asarray(
+            phase_rows.get("eligible", np.empty(0)), dtype=bool
+        )
+        payload[prefix + "packet_index"] = np.asarray(
+            phase_rows.get("packet_index", np.empty(0)), dtype=np.int32
+        )
+        payload[prefix + "packet_weight"] = np.asarray(
+            phase_rows.get("packet_weight", np.empty(0)), dtype=np.int32
+        )
+        payload[prefix + "reset_index"] = np.asarray(
+            phase_rows.get("reset_index", np.empty(0)), dtype=np.int32
+        )
     return save_npz_artifact(
         source_path,
-        artifact_name="detector_replay",
-        artifact_version=DETECTOR_REPLAY_ARTIFACT_VERSION,
+        artifact_name="classic_replay_rows",
+        artifact_version=CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
         parameters=parameters,
-        payload={
-            "result_json": np.asarray(
-                json.dumps(_json_safe(dict(result)), sort_keys=True)
-            ),
-        },
+        payload=payload,
     )

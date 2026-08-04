@@ -444,34 +444,69 @@ def test_ml_replay_parameters_expose_version_to_derived_caches():
     assert parameters["artifact_version"] == npz_cache.ML_REPLAY_ROW_ARTIFACT_VERSION
 
 
-def test_detector_replay_artifact_roundtrip_preserves_secondary_source_identity(tmp_path):
+def test_classic_replay_row_artifact_roundtrip_preserves_secondary_source_identity(
+    tmp_path,
+):
     static_source = tmp_path / "static.npz"
     motion_source = tmp_path / "motion.npz"
     _write_source_npz(static_source, values=[1, 2, 3, 4])
     _write_source_npz(motion_source, values=[5, 6, 7, 8])
 
-    parameters = npz_cache.detector_replay_parameters(
+    parameters = npz_cache.classic_replay_row_parameters(
         replay_kind="classic_dataset",
         selected_subcarriers=(1, 2, 3),
-        window_size=4,
+        timing={
+            "interval_us": 10_000,
+            "window_packets": 4,
+            "lag": 1,
+            "autocorr_lag": 1,
+            "evaluation_interval": 2,
+        },
+        replay_interval_us=10_000,
+        warmup_packets=4,
         secondary_source=motion_source,
     )
-    result = {
-        "adaptive_threshold": 0.5,
-        "metrics": {"recall": 100.0, "fp_rate": 0.0},
+    rows = {
+        "calibration": {
+            "X": np.asarray([[0.05, 0.1]], dtype=np.float64),
+            "ready": np.asarray([True]),
+            "eligible": np.asarray([True]),
+            "packet_index": np.asarray([3]),
+            "packet_weight": np.asarray([2]),
+            "reset_index": np.asarray([0]),
+        },
+        "static": {
+            "X": np.asarray([[0.1, 0.2]], dtype=np.float64),
+            "ready": np.asarray([True]),
+            "eligible": np.asarray([True]),
+            "packet_index": np.asarray([3]),
+            "packet_weight": np.asarray([2]),
+            "reset_index": np.asarray([0]),
+        },
+        "motion": {
+            "X": np.asarray([[0.3, 0.4]], dtype=np.float64),
+            "ready": np.asarray([True]),
+            "eligible": np.asarray([True]),
+            "packet_index": np.asarray([3]),
+            "packet_weight": np.asarray([2]),
+            "reset_index": np.asarray([0]),
+        },
     }
-    npz_cache.save_detector_replay_artifact(
+    npz_cache.save_classic_replay_row_artifact(
         static_source,
         parameters=parameters,
-        result=result,
+        rows=rows,
     )
 
-    cached = npz_cache.load_detector_replay_artifact(
+    cached = npz_cache.load_classic_replay_row_artifact(
         static_source,
         parameters=parameters,
     )
 
-    assert cached == result
+    assert cached is not None
+    for phase in ("calibration", "static", "motion"):
+        for key in rows[phase]:
+            np.testing.assert_array_equal(cached[phase][key], rows[phase][key])
 
 
 def test_ml_replay_row_artifact_roundtrip_tracks_source_identity(tmp_path):
@@ -550,7 +585,7 @@ def test_ml_replay_row_key_tracks_features_but_not_numeric_weights(
     assert after_feature_change != first
 
 
-def test_classic_detector_replay_parameters_change_when_detector_changes(
+def test_classic_replay_row_parameters_change_when_detector_changes(
     monkeypatch, tmp_path
 ):
     python_dir = tmp_path / "src" / "python" / "micro_espectre"
@@ -567,62 +602,87 @@ def test_classic_detector_replay_parameters_change_when_detector_changes(
     monkeypatch.setattr(npz_cache, "python_src_dir", lambda: python_dir)
     monkeypatch.setattr(npz_cache, "cpp_core_dir", lambda: cpp_dir)
 
-    first = npz_cache.detector_replay_parameters(
+    timing = {
+        "interval_us": 10_000,
+        "window_packets": 4,
+        "lag": 1,
+        "autocorr_lag": 1,
+        "evaluation_interval": 2,
+    }
+    first = npz_cache.classic_replay_row_parameters(
         replay_kind="classic_dataset",
         selected_subcarriers=(1, 2, 3),
-        window_size=4,
+        timing=timing,
+        replay_interval_us=10_000,
+        warmup_packets=4,
     )
 
     python_detector.write_text("BASE_THRESHOLD = 0.7\n")
 
-    second = npz_cache.detector_replay_parameters(
+    second = npz_cache.classic_replay_row_parameters(
         replay_kind="classic_dataset",
         selected_subcarriers=(1, 2, 3),
-        window_size=4,
+        timing=timing,
+        replay_interval_us=10_000,
+        warmup_packets=4,
     )
 
     assert first["classic_sources"] != second["classic_sources"]
     assert first != second
 
 
-def test_classic_dataset_result_reuses_persisted_replay(monkeypatch, tmp_path):
+def test_classic_dataset_result_reuses_persisted_rows(monkeypatch, tmp_path):
     import tools.lib.performance_report as performance_report
 
     static_source = tmp_path / "static_pair.npz"
     motion_source = tmp_path / "motion_pair.npz"
     _write_source_npz(static_source, values=[1, 2, 3, 4])
     _write_source_npz(motion_source, values=[5, 6, 7, 8])
-    calls = {"load": 0, "compute": 0}
+    calls = {"load": 0, "build": 0}
+    packets = (
+        {"csi_data": [0] * 128, "device_ticks_us": 0, "seq_num": 0},
+        {"csi_data": [0] * 128, "device_ticks_us": 10_000, "seq_num": 1},
+    )
 
-    def fake_load_real_data_cached(*_args, **_kwargs):
+    def fake_load_packet_view(*_args, **_kwargs):
         calls["load"] += 1
-        return (("static",), ("motion",))
+        return packets
 
-    def fake_compute_classic_packet_result(*_args, **_kwargs):
-        calls["compute"] += 1
-        return 0.75, {"recall": 100.0, "fp_rate": 0.0}
+    phase = {
+        "X": np.empty((0, 2), dtype=np.float64),
+        "ready": np.empty(0, dtype=bool),
+        "eligible": np.empty(0, dtype=bool),
+        "packet_index": np.empty(0, dtype=np.int32),
+        "packet_weight": np.empty(0, dtype=np.int32),
+        "reset_index": np.empty(0, dtype=np.int32),
+    }
 
-    monkeypatch.setattr(performance_report, "load_real_data_cached", fake_load_real_data_cached)
+    def fake_build(*_args, timing, **_kwargs):
+        calls["build"] += 1
+        return {"static": phase, "motion": phase, "timing": dict(timing)}
+
     monkeypatch.setattr(
         performance_report,
-        "compute_classic_packet_result",
-        fake_compute_classic_packet_result,
+        "load_npz_packet_view",
+        fake_load_packet_view,
     )
-    performance_report.compute_classic_dataset_result.cache_clear()
+    monkeypatch.setattr(performance_report, "build_classic_replay_rows", fake_build)
 
-    first = performance_report.compute_classic_dataset_result(
+    first = performance_report.load_or_compute_classic_replay_rows(
         static_source,
         motion_source,
-        (1, 2, 3),
-        4,
+        selected_subcarriers=(1, 2, 3),
+        replay_kind="classic_dataset",
+        warmup_packets=4,
     )
-    performance_report.compute_classic_dataset_result.cache_clear()
-    second = performance_report.compute_classic_dataset_result(
+    second = performance_report.load_or_compute_classic_replay_rows(
         static_source,
         motion_source,
-        (1, 2, 3),
-        4,
+        selected_subcarriers=(1, 2, 3),
+        replay_kind="classic_dataset",
+        warmup_packets=4,
     )
 
-    assert first == second
-    assert calls == {"load": 1, "compute": 1}
+    assert first["cache_hit"] is False
+    assert second["cache_hit"] is True
+    assert calls == {"load": 3, "build": 1}

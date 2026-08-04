@@ -82,6 +82,29 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Changed
 
+- **Warm-cache Python validation now avoids replay oversubscription and repeated
+  feature extraction**: pytest auto-parallelism is capped at four workers in
+  local and CI runs, packet-rate variants persist time-aware Classic and ML rows
+  keyed by duration and target cadence, and long-recording raw-versus-row parity
+  uses one deterministic representative while every curated recording retains
+  its cached Classic and ML performance gates.
+
+- **Host-side C++ test launchers now use all detected logical CPUs**: the normal
+  runner, coverage workflow, and performance-report parity gate execute
+  independent suites concurrently; `CTEST_PARALLEL_LEVEL` limits concurrency
+  when required. Non-coverage test builds and the parity gate use
+  `RelWithDebInfo`, reducing the full-corpus motion replay from roughly 85 to 14
+  seconds without changing its Python parity or disabling test assertions;
+  coverage remains a `Debug` build. The C++ and Python packet-rate regressions
+  now focus 60-second prefixes on the supported 120, 100, and 80 pps boundary
+  cases, and the Python gate runs as part of the normal test suite.
+
+- **Classic host validation now reuses canonical time-aware feature rows**:
+  paired, empty-room, long-recording, and performance-report replays recompute
+  calibration and detector decisions from cached evaluation rows while
+  preserving exact row-versus-packet results across native, high-rate, and
+  decimated streams.
+
 - **Host ML workflows now share one canonical time-aware persisted row cache**:
   training, dataset-quality validation, performance reporting, and ML replay
   tests reuse the same reset- and evaluation-aware feature artifacts. Validation

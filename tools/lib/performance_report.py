@@ -22,6 +22,7 @@ from .bootstrap import setup_paths
 from .dataset_metadata import (
     admitted_dataset_role,
     build_calibrated_classic_detector,
+    build_classic_detector,
     dataset_info_revision,
     derive_detector_timing,
     load_dataset_info,
@@ -36,6 +37,7 @@ setup_paths()
 
 import config
 from config import (
+    CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
     EVALUATION_INTERVAL,
     MOTION_OFF_HITS,
@@ -438,11 +440,6 @@ def load_real_data_cached(static_presence_path: str | Path, motion_path: str | P
     )
 
 
-def load_empty_room_packets(empty_dataset_path: str | Path) -> tuple[dict[str, Any], ...]:
-    """Load empty-room packet streams through the shared in-process runtime cache."""
-    return load_npz_packet_view(Path(empty_dataset_path))
-
-
 def _resolve_ml_replay_feature_names(feature_names: Sequence[str] = ()) -> tuple[str, ...]:
     """Validate and normalize one requested ML replay feature subset."""
     requested = tuple(str(name) for name in (feature_names or tuple(RUNTIME_FEATURE_NAMES)))
@@ -656,6 +653,383 @@ def load_or_compute_ml_replay_rows(
     )
 
 
+def _empty_classic_replay_phase_rows() -> Dict[str, np.ndarray]:
+    """Return one empty phase in the canonical Classic replay-row schema."""
+    return {
+        "X": np.empty((0, 2), dtype=np.float64),
+        "ready": np.empty(0, dtype=bool),
+        "eligible": np.empty(0, dtype=bool),
+        "packet_index": np.empty(0, dtype=np.int32),
+        "packet_weight": np.empty(0, dtype=np.int32),
+        "reset_index": np.empty(0, dtype=np.int32),
+    }
+
+
+def _collect_classic_replay_phase_rows(
+    packets: Sequence[dict[str, Any]],
+    selected_subcarriers: Sequence[int],
+    timing: Mapping[str, int],
+    warmup_packets: int,
+    detector: Any,
+) -> Dict[str, np.ndarray]:
+    """Collect every production evaluation tick for one Classic replay phase."""
+    if not packets:
+        return _empty_classic_replay_phase_rows()
+
+    interval_us = int(timing["interval_us"])
+    window_packets = int(timing["window_packets"])
+    timing_tracker, cadence = timing_cadence_for_window(window_packets, interval_us)
+    packets_since_reset = 0
+    reset_index = 0
+    features: list[tuple[float, float]] = []
+    ready_values: list[bool] = []
+    eligible_values: list[bool] = []
+    packet_indices: list[int] = []
+    packet_weights: list[int] = []
+    reset_indices: list[int] = []
+
+    for packet_index, packet in enumerate(packets):
+        packet_timing = timing_tracker.observe_packet(packet)
+        if packet_timing["contaminated"]:
+            detector.reset()
+            cadence.reset()
+            timing_tracker.reset()
+            packet_timing = timing_tracker.observe_packet(packet)
+            packets_since_reset = 0
+            reset_index += 1
+        detector.process_packet(
+            packet["csi_data"],
+            selected_subcarriers,
+            rssi_dbm=packet.get("rssi_dbm"),
+        )
+        packets_since_reset += 1
+        cadence.note_packet(elapsed_us=packet_timing["coverage_us"])
+        if not cadence.should_evaluate():
+            continue
+        packet_weight = cadence.equivalent_packets_since_evaluation(interval_us)
+        values = detector.update_state()
+        cadence.after_evaluation()
+        ready = bool(detector.is_ready())
+        features.append(
+            (
+                float(values.get("turb_autocorr", 0.0)),
+                float(values.get("chan_freq_coh_curve_std", 0.0)),
+            )
+        )
+        ready_values.append(ready)
+        eligible_values.append(packets_since_reset >= int(warmup_packets))
+        packet_indices.append(int(packet_index))
+        packet_weights.append(int(packet_weight))
+        reset_indices.append(int(reset_index))
+
+    return {
+        "X": np.asarray(features, dtype=np.float64).reshape(-1, 2),
+        "ready": np.asarray(ready_values, dtype=bool),
+        "eligible": np.asarray(eligible_values, dtype=bool),
+        "packet_index": np.asarray(packet_indices, dtype=np.int32),
+        "packet_weight": np.asarray(packet_weights, dtype=np.int32),
+        "reset_index": np.asarray(reset_indices, dtype=np.int32),
+    }
+
+
+def build_classic_replay_rows(
+    static_presence_packets: Sequence[dict[str, Any]],
+    motion_packets: Sequence[dict[str, Any]],
+    selected_subcarriers: Sequence[int],
+    *,
+    timing: Optional[Mapping[str, int]] = None,
+    replay_interval_us: Optional[int] = None,
+    warmup_packets: int = DETECTOR_DEFAULT_WINDOW_SIZE,
+) -> Dict[str, Any]:
+    """Build time-aware Classic feature rows for one paired replay."""
+    measured_interval_us = (
+        measure_packet_interval_us(static_presence_packets)
+        if replay_interval_us is None
+        else max(1, int(replay_interval_us))
+    )
+    resolved_timing = dict(
+        timing or derive_detector_timing(measured_interval_us)
+    )
+    calibration_detector = build_classic_detector(
+        threshold=1.0,
+        timing=resolved_timing,
+    )
+    calibration_rows = _collect_classic_replay_phase_rows(
+        static_presence_packets,
+        selected_subcarriers,
+        resolved_timing,
+        warmup_packets,
+        calibration_detector,
+    )
+    calibrated = build_calibrated_classic_detector(
+        static_presence_packets,
+        selected_subcarriers=selected_subcarriers,
+    )
+    detector = (
+        build_classic_detector(threshold=1.0, timing=resolved_timing)
+        if calibrated is None
+        else calibrated[0]
+    )
+    replay_timing = dict(resolved_timing)
+    replay_timing["interval_us"] = measured_interval_us
+    static_rows = _collect_classic_replay_phase_rows(
+        static_presence_packets,
+        selected_subcarriers,
+        replay_timing,
+        warmup_packets,
+        detector,
+    )
+    # Production paired replay keeps the detector feature history across the
+    # phase boundary, while restarting cadence and the phase-local warmup count.
+    motion_rows = _collect_classic_replay_phase_rows(
+        motion_packets,
+        selected_subcarriers,
+        replay_timing,
+        warmup_packets,
+        detector,
+    )
+    return {
+        "calibration": calibration_rows,
+        "static": static_rows,
+        "motion": motion_rows,
+        "timing": resolved_timing,
+        "replay_interval_us": measured_interval_us,
+    }
+
+
+def load_or_compute_classic_replay_rows(
+    static_presence_path: str | Path,
+    motion_path: Optional[str | Path] = None,
+    *,
+    static_presence_packets: Optional[Sequence[dict[str, Any]]] = None,
+    motion_packets: Optional[Sequence[dict[str, Any]]] = None,
+    selected_subcarriers: Sequence[int],
+    replay_kind: str,
+    warmup_packets: Optional[int] = None,
+    replay_provenance: Optional[Mapping[str, Any]] = None,
+    use_cache: bool = True,
+) -> Dict[str, Any]:
+    """Load or build one persisted time-aware Classic replay-row artifact."""
+    static_packets = (
+        static_presence_packets
+        if static_presence_packets is not None
+        else load_npz_packet_view(Path(static_presence_path))
+    )
+    replay_interval_us = measure_packet_interval_us(static_packets)
+    timing = derive_detector_timing(replay_interval_us)
+    resolved_warmup = (
+        int(timing["window_packets"])
+        if warmup_packets is None
+        else max(0, int(warmup_packets))
+    )
+    parameters = npz_cache.classic_replay_row_parameters(
+        replay_kind=replay_kind,
+        selected_subcarriers=selected_subcarriers,
+        timing=timing,
+        replay_interval_us=replay_interval_us,
+        warmup_packets=resolved_warmup,
+        secondary_source=motion_path,
+        replay_provenance=replay_provenance,
+    )
+    if use_cache:
+        cached = npz_cache.load_classic_replay_row_artifact(
+            static_presence_path,
+            parameters=parameters,
+        )
+        if cached is not None:
+            cached["timing"] = timing
+            cached["replay_interval_us"] = replay_interval_us
+            cached["cache_hit"] = True
+            return cached
+
+    resolved_motion_packets = motion_packets
+    if resolved_motion_packets is None:
+        resolved_motion_packets = (
+            () if motion_path is None else load_npz_packet_view(Path(motion_path))
+        )
+    rows = build_classic_replay_rows(
+        static_packets,
+        resolved_motion_packets,
+        selected_subcarriers,
+        timing=timing,
+        replay_interval_us=replay_interval_us,
+        warmup_packets=resolved_warmup,
+    )
+    if use_cache:
+        npz_cache.save_classic_replay_row_artifact(
+            static_presence_path,
+            parameters=parameters,
+            rows=rows,
+        )
+    rows["cache_hit"] = False
+    return rows
+
+
+class _ClassicCalibrationRowDetector:
+    """Minimal detector view consumed by StartupThresholdCalibrator."""
+
+    def __init__(self) -> None:
+        self.ready = False
+        self.motion_metric = 0.0
+
+    def is_ready(self) -> bool:
+        return self.ready
+
+    def get_motion_metric(self) -> float:
+        return self.motion_metric
+
+
+def _calibrate_classic_replay_rows(
+    rows: Mapping[str, Any],
+    timing: Mapping[str, int],
+) -> Optional[float]:
+    """Reproduce Classic startup calibration from cached evaluation rows."""
+    from classic_detector import ClassicDetector
+    from threshold import (
+        StartupThresholdCalibrator,
+        get_detector_auto_factor,
+        get_detector_startup_gate,
+    )
+
+    detector = build_classic_detector(threshold=1.0, timing=dict(timing))
+    calibrator = StartupThresholdCalibrator(
+        CALIBRATION_BUFFER_SIZE,
+        auto_factor=get_detector_auto_factor(detector),
+        gate_enabled=get_detector_startup_gate(detector),
+    )
+    adapter = _ClassicCalibrationRowDetector()
+    startup_logits: list[float] = []
+    last_reset: Optional[int] = None
+    X = np.asarray(rows.get("X", np.empty((0, 2))), dtype=np.float64)
+    ready = np.asarray(rows.get("ready", np.empty(0)), dtype=bool)
+    weights = np.asarray(rows.get("packet_weight", np.empty(0)), dtype=np.int32)
+    resets = np.asarray(rows.get("reset_index", np.empty(0)), dtype=np.int32)
+
+    for values, row_ready, packet_weight, reset_index in zip(
+        X, ready, weights, resets
+    ):
+        current_reset = int(reset_index)
+        if last_reset is not None and current_reset != last_reset:
+            calibrator = StartupThresholdCalibrator(
+                CALIBRATION_BUFFER_SIZE,
+                auto_factor=get_detector_auto_factor(detector),
+                gate_enabled=get_detector_startup_gate(detector),
+            )
+            startup_logits = []
+        last_reset = current_reset
+        adapter.ready = bool(row_ready)
+        if adapter.ready:
+            logit = detector._calculate_logit(float(values[0]), float(values[1]))
+            adapter.motion_metric = detector._sigmoid(logit)
+            if len(startup_logits) < ClassicDetector.STARTUP_SAMPLE_LIMIT:
+                startup_logits.append(float(logit))
+        else:
+            adapter.motion_metric = 0.0
+        calibrator.observe_detector(adapter, packet_weight=int(packet_weight))
+        if calibrator.is_complete():
+            break
+
+    if not calibrator.is_successful():
+        return None
+    calibrator.calculate_threshold()
+    session_q95 = detector._quantile(startup_logits, detector.STARTUP_QUANTILE)
+    if session_q95 is None:
+        return float(detector.BASE_THRESHOLD)
+    base_logit = np.log(detector.BASE_THRESHOLD / (1.0 - detector.BASE_THRESHOLD))
+    adapted_logit = base_logit + detector.STARTUP_STRENGTH * (
+        session_q95 - detector.TRAIN_IDLE_Q95_LOGIT
+    )
+    return float(detector._sigmoid(float(adapted_logit)))
+
+
+def _score_classic_replay_phase_rows(
+    rows: Mapping[str, Any],
+    detector: Any,
+) -> list[bool]:
+    """Advance Classic decision state over one cached replay phase."""
+    states: list[bool] = []
+    X = np.asarray(rows.get("X", np.empty((0, 2))), dtype=np.float64)
+    ready = np.asarray(rows.get("ready", np.empty(0)), dtype=bool)
+    eligible = np.asarray(rows.get("eligible", np.empty(0)), dtype=bool)
+    resets = np.asarray(rows.get("reset_index", np.empty(0)), dtype=np.int32)
+    last_reset: Optional[int] = None
+    for values, row_ready, row_eligible, reset_index in zip(
+        X, ready, eligible, resets
+    ):
+        current_reset = int(reset_index)
+        if last_reset is not None and current_reset != last_reset:
+            detector.reset()
+        last_reset = current_reset
+        if not row_ready:
+            detector._current_probability = 0.0
+            detector._state = MotionState.IDLE
+            if row_eligible:
+                states.append(False)
+            continue
+        detector._current_turb_autocorr = float(values[0])
+        detector._current_chan_freq_coh_curve_std = float(values[1])
+        detector._current_logit = detector._calculate_logit(
+            detector._current_turb_autocorr,
+            detector._current_chan_freq_coh_curve_std,
+        )
+        detector._current_probability = detector._sigmoid(detector._current_logit)
+        detector._observe_settled_level()
+        detector._state = (
+            MotionState.MOTION
+            if detector._current_probability > detector._threshold
+            else MotionState.IDLE
+        )
+        if row_eligible:
+            states.append(detector._state == MotionState.MOTION)
+    return states
+
+
+def compute_classic_row_result(
+    rows: Mapping[str, Any],
+) -> Optional[tuple[float, Dict[str, float]]]:
+    """Evaluate one paired Classic replay from canonical time-aware rows."""
+    timing = dict(rows["timing"])
+    adaptive_threshold = _calibrate_classic_replay_rows(
+        rows["calibration"], timing
+    )
+    if adaptive_threshold is None:
+        return None
+    detector = build_classic_detector(
+        threshold=adaptive_threshold,
+        timing=timing,
+    )
+    detector._adapted_threshold_ready = True
+    baseline_states = _score_classic_replay_phase_rows(rows["static"], detector)
+    motion_states = _score_classic_replay_phase_rows(rows["motion"], detector)
+    tp = sum(1 for state in motion_states if state)
+    fn = len(motion_states) - tp
+    fp = sum(1 for state in baseline_states if state)
+    tn = len(baseline_states) - fp
+    recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
+    precision = tp / (tp + fp) * 100.0 if (tp + fp) > 0 else 0.0
+    fp_rate = fp / len(baseline_states) * 100.0 if baseline_states else 0.0
+    f1 = (
+        2 * (precision / 100.0) * (recall / 100.0)
+        / ((precision + recall) / 100.0)
+        * 100.0
+        if (precision + recall) > 0
+        else 0.0
+    )
+    return adaptive_threshold, {
+        "tp": tp,
+        "fn": fn,
+        "tn": tn,
+        "fp": fp,
+        "recall": recall,
+        "precision": precision,
+        "fp_rate": fp_rate,
+        "f1": f1,
+        "num_baseline": len(baseline_states),
+        "num_movement": len(motion_states),
+        **_evaluate_idle_runtime_policy_evaluations(baseline_states),
+    }
+
+
 def evaluate_detector_packets(
     detector: Any,
     static_presence_packets: Sequence[dict[str, Any]],
@@ -810,40 +1184,15 @@ def compute_classic_dataset_result(
     selected_band: tuple[int, ...],
     window_size: int,
 ) -> Optional[tuple[float, Dict[str, float]]]:
-    """Run the Classic replay once per dataset and cache the resulting metrics."""
-    parameters = npz_cache.detector_replay_parameters(
+    """Run Classic inference over canonical time-aware replay rows."""
+    rows = load_or_compute_classic_replay_rows(
         replay_kind="classic_dataset",
+        static_presence_path=static_presence_path,
+        motion_path=motion_path,
         selected_subcarriers=selected_band,
-        window_size=window_size,
-        secondary_source=motion_path,
+        warmup_packets=window_size,
     )
-    cached = npz_cache.load_detector_replay_artifact(
-        static_presence_path,
-        parameters=parameters,
-    )
-    if cached is not None:
-        return float(cached["adaptive_threshold"]), dict(cached["metrics"])
-    static_presence_packets, motion_packets = load_real_data_cached(
-        static_presence_path,
-        motion_path,
-    )
-    result = compute_classic_packet_result(
-        static_presence_packets,
-        motion_packets,
-        selected_band,
-        window_size,
-    )
-    if result is not None:
-        adaptive_threshold, metrics = result
-        npz_cache.save_detector_replay_artifact(
-            static_presence_path,
-            parameters=parameters,
-            result={
-                "adaptive_threshold": float(adaptive_threshold),
-                "metrics": metrics,
-            },
-        )
-    return result
+    return compute_classic_row_result(rows)
 
 
 def compute_ml_packet_result(
@@ -1054,35 +1403,22 @@ def compute_classic_empty_fp_result(
     empty_dataset_path: str | Path,
     selected_subcarriers: tuple[int, ...],
 ) -> Dict[str, float]:
-    """Run the empty-room Classic FP replay once per dataset and cache it."""
-    parameters = npz_cache.detector_replay_parameters(
+    """Run empty-room Classic inference over canonical time-aware rows."""
+    rows = load_or_compute_classic_replay_rows(
+        empty_dataset_path,
         replay_kind="classic_empty_fp",
         selected_subcarriers=selected_subcarriers,
     )
-    cached = npz_cache.load_detector_replay_artifact(
-        empty_dataset_path,
-        parameters=parameters,
-    )
-    if cached is not None:
-        return dict(cached["metrics"])
-    packets = load_empty_room_packets(empty_dataset_path)
-    calibrated = build_calibrated_classic_detector(
-        packets, selected_subcarriers=selected_subcarriers
-    )
-    if calibrated is None:
+    result = compute_classic_row_result(rows)
+    if result is None:
         return {}
-    detector, _threshold = calibrated
-    timing = derive_detector_timing(measure_packet_interval_us(packets))
-    window_size = timing["window_packets"]
-    metrics = _idle_stream_metrics(
-        replay_idle_stream(detector, packets, selected_subcarriers, window_size)
-    )
-    npz_cache.save_detector_replay_artifact(
-        empty_dataset_path,
-        parameters=parameters,
-        result={"metrics": metrics},
-    )
-    return metrics
+    _adaptive_threshold, metrics = result
+    return {
+        "motion_packets": int(metrics["fp"]),
+        "eval_count": int(metrics["num_baseline"]),
+        "fp_rate": float(metrics["fp_rate"]),
+        "effective_alarms": int(metrics["effective_alarms"]),
+    }
 
 
 def compute_ml_empty_fp_result(
@@ -1346,33 +1682,38 @@ def compute_classic_long_recording_result(
     *,
     selected_subcarriers: Sequence[int] = DEFAULT_SUBCARRIERS,
 ) -> Optional[Dict[str, float]]:
-    """Replay one long recording through ClassicDetector and persist the result."""
-    parameters = npz_cache.detector_replay_parameters(
-        replay_kind="classic_long_recording",
-        selected_subcarriers=selected_subcarriers,
-        replay_provenance={"motion_start_packet": int(motion_start_packet)},
-    )
-    cached = npz_cache.load_detector_replay_artifact(
-        source_path,
-        parameters=parameters,
-    )
-    if cached is not None:
-        return cached
-
+    """Replay one long recording through cached time-aware Classic rows."""
     packets = _load_long_test_packets_cached(str(source_path))
     baseline_packets = packets[:motion_start_packet]
     movement_packets = packets[motion_start_packet:]
-    result = evaluate_classic_long_recording(
-        baseline_packets,
-        movement_packets,
+    rows = load_or_compute_classic_replay_rows(
+        source_path,
+        replay_kind="classic_long_recording",
+        static_presence_packets=baseline_packets,
+        motion_packets=movement_packets,
+        selected_subcarriers=selected_subcarriers,
+        warmup_packets=DETECTOR_DEFAULT_WINDOW_SIZE,
+        replay_provenance={"motion_start_packet": int(motion_start_packet)},
     )
-    if result is not None:
-        npz_cache.save_detector_replay_artifact(
-            source_path,
-            parameters=parameters,
-            result=result,
-        )
-    return result
+    result = compute_classic_row_result(rows)
+    if result is None:
+        return None
+    adaptive_threshold, metrics = result
+    return {
+        "baseline_eval_count": int(metrics["num_baseline"]),
+        "movement_eval_count": int(metrics["num_movement"]),
+        "adaptive_threshold": float(adaptive_threshold),
+        "tp": int(metrics["tp"]),
+        "fn": int(metrics["fn"]),
+        "fp": int(metrics["fp"]),
+        "tn": int(metrics["tn"]),
+        "recall": float(metrics["recall"]),
+        "precision": float(metrics["precision"]),
+        "fp_rate": float(metrics["fp_rate"]),
+        "f1": float(metrics["f1"]),
+        "effective_alarms": int(metrics["effective_alarms"]),
+        "false_motion_evaluations": int(metrics["false_motion_evaluations"]),
+    }
 
 
 def evaluate_ml_long_recording(

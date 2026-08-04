@@ -21,8 +21,10 @@ from tools.lib.csi_analysis import calculate_spatial_turbulence
 from tools.lib.performance_report import (
     STRESS_TARGET_FP_RATE,
     STRESS_TARGET_RECALL,
+    _idle_stream_metrics,
     compute_classic_dataset_result as _compute_classic_dataset_result,
     compute_classic_empty_fp_result as _compute_classic_empty_fp_result,
+    compute_classic_packet_result,
     compute_ml_dataset_result as _compute_ml_dataset_result,
     compute_ml_empty_fp_result as _compute_ml_empty_fp_result,
     evaluate_detector_packets,
@@ -33,11 +35,13 @@ from tools.lib.performance_report import (
     is_low_rssi_paired_dataset as _is_low_rssi_paired_dataset,
     load_real_data_cached as _load_real_data_cached,
     measure_packet_interval_us,
+    replay_idle_stream,
     timing_cadence_for_window,
 )
 from tools.lib.csi_io import load_npz_packet_view
 from tools.lib.dataset_metadata import (
     build_calibrated_classic_detector,
+    derive_detector_timing,
 )
 from tools.train_ml_model import (
     _load_exported_model_arrays,
@@ -1171,6 +1175,45 @@ def test_ml_cached_paired_gate_matches_packet_replay():
     _assert_paired_gate_row_match(expected, actual)
 
 
+def test_classic_cached_paired_gate_matches_packet_replay():
+    """Cached Classic rows must match packet replay on one reserved pair."""
+    static_path, motion_path = _get_first_reserved_normal_pair()
+    static_packets, motion_packets = _load_real_data_cached(
+        static_path,
+        motion_path,
+    )
+    expected = compute_classic_packet_result(
+        static_packets,
+        motion_packets,
+        tuple(DEFAULT_SUBCARRIERS),
+        DETECTOR_DEFAULT_WINDOW_SIZE,
+    )
+    actual = _compute_classic_dataset_result(
+        static_path,
+        motion_path,
+        tuple(DEFAULT_SUBCARRIERS),
+        DETECTOR_DEFAULT_WINDOW_SIZE,
+    )
+    assert expected is not None
+    assert actual is not None
+    expected_threshold, expected_metrics = expected
+    actual_threshold, actual_metrics = actual
+    assert actual_threshold == pytest.approx(expected_threshold, abs=1e-12)
+    for key in (
+        "tp",
+        "fn",
+        "tn",
+        "fp",
+        "num_baseline",
+        "num_movement",
+        "effective_alarms",
+        "false_motion_evaluations",
+    ):
+        assert actual_metrics[key] == expected_metrics[key]
+    for key in ("recall", "precision", "fp_rate", "f1"):
+        assert actual_metrics[key] == pytest.approx(expected_metrics[key], abs=1e-12)
+
+
 def test_ml_cached_quiet_gate_matches_packet_replay():
     """Cached quiet rows must match packet replay on one reserved empty replay."""
     empty_datasets = _shared_get_available_empty_datasets()
@@ -1192,3 +1235,32 @@ def test_ml_cached_quiet_gate_matches_packet_replay():
         threshold=0.5,
     )
     _assert_quiet_gate_row_match(expected, actual)
+
+
+def test_classic_cached_quiet_gate_matches_packet_replay():
+    """Cached Classic quiet rows must match packet replay on one empty capture."""
+    empty_datasets = _shared_get_available_empty_datasets()
+    if not empty_datasets:
+        pytest.skip("No reserved empty datasets available for quiet gate parity")
+    empty_path = empty_datasets[0]
+    packets = _load_npz_packets_cached(empty_path)
+    calibrated = build_calibrated_classic_detector(
+        packets,
+        selected_subcarriers=DEFAULT_SUBCARRIERS,
+    )
+    assert calibrated is not None
+    detector, _threshold = calibrated
+    timing = derive_detector_timing(measure_packet_interval_us(packets))
+    expected = _idle_stream_metrics(
+        replay_idle_stream(
+            detector,
+            packets,
+            DEFAULT_SUBCARRIERS,
+            timing["window_packets"],
+        )
+    )
+    actual = _compute_classic_empty_fp_result(
+        empty_path,
+        tuple(DEFAULT_SUBCARRIERS),
+    )
+    assert actual == expected

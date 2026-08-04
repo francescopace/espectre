@@ -1,9 +1,10 @@
 """
 ESPectre - Packet-rate adaptation regression tests
 
-Regression coverage for every explicit static-presence/motion pair whose
-metadata reports ``average_packet_rate >= 500``. Each high-rate pair is
-decimated to slower effective packet rates, and the test checks that:
+Regression coverage for 60-second prefixes of every explicit
+static-presence/motion pair whose metadata reports
+``average_packet_rate >= 500``. Each high-rate pair is decimated across the
+supported operating region, and the test checks that:
 
 - the derived detector timing follows the measured cadence,
 - evaluation ticks stay time-based instead of packet-count based, and
@@ -13,7 +14,6 @@ decimated to slower effective packet rates, and the test checks that:
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -25,17 +25,18 @@ from conftest import DATA_DIR, DATASET_INFO_PATH
 from runtime_policy import derive_detector_timing
 from tools.lib.dataset_metadata import measure_packet_interval_us
 from tools.lib.performance_report import (
-    compute_classic_dataset_result,
-    compute_ml_dataset_result,
+    _compute_ml_row_result,
+    compute_classic_row_result,
     compute_classic_packet_result,
-    compute_ml_packet_result,
+    load_or_compute_classic_replay_rows,
+    load_or_compute_ml_replay_rows,
     load_real_data_cached,
 )
 
 
 MINIMUM_SOURCE_AVERAGE_PACKET_RATE = 500.0
-TARGET_PPS = (500, 400, 300, 200, 120, 100, 80)
-PACKET_RATE_REGRESSION_ENV = "ESPECTRE_RUN_PACKET_RATE_REGRESSION"
+REPLAY_DURATION_SECONDS = 60
+TARGET_PPS = (120, 100, 80)
 
 
 @dataclass(frozen=True)
@@ -208,6 +209,9 @@ def _decimated_pair(
     target_pps: int,
 ) -> tuple[tuple[dict, ...], tuple[dict, ...]]:
     static_packets, motion_packets = _load_source_pair(pair_spec)
+    source_packet_limit = pair_spec.source_pps * REPLAY_DURATION_SECONDS
+    static_packets = static_packets[:source_packet_limit]
+    motion_packets = motion_packets[:source_packet_limit]
     return (
         _decimate_packets(static_packets, source_pps=pair_spec.source_pps, target_pps=target_pps),
         _decimate_packets(motion_packets, source_pps=pair_spec.source_pps, target_pps=target_pps),
@@ -219,42 +223,64 @@ def _rate_summary(pair_spec: PacketRateSourcePair, target_pps: int) -> dict[str,
     static_packets, motion_packets = _decimated_pair(pair_spec, target_pps)
     interval_us = measure_packet_interval_us(static_packets)
     timing = derive_detector_timing(interval_us)
+    static_path = _dataset_path("static_presence", pair_spec.static_filename)
+    motion_path = _dataset_path("motion", pair_spec.motion_filename)
+    replay_provenance = {
+        "transform": "packet_rate_decimation",
+        "transform_version": 1,
+        "pair_id": pair_spec.pair_id,
+        "source_pps": pair_spec.source_pps,
+        "target_pps": target_pps,
+        "duration_seconds": REPLAY_DURATION_SECONDS,
+    }
 
-    if target_pps == 500 and pair_spec.source_pps == 500:
-        static_path = _dataset_path("static_presence", pair_spec.static_filename)
-        motion_path = _dataset_path("motion", pair_spec.motion_filename)
-        classic_dataset_result = compute_classic_dataset_result(
+    classic_packet_result = compute_classic_packet_result(
+        static_packets,
+        motion_packets,
+        tuple(DEFAULT_SUBCARRIERS),
+        SEG_WINDOW_SIZE,
+    )
+    assert classic_packet_result is not None, (
+        f"Classic packet replay calibration failed at {target_pps} pps"
+    )
+    classic_packet_threshold, classic_packet_metrics = classic_packet_result
+
+    classic_result = compute_classic_row_result(
+        load_or_compute_classic_replay_rows(
             static_path,
             motion_path,
-            tuple(DEFAULT_SUBCARRIERS),
-            SEG_WINDOW_SIZE,
+            static_presence_packets=static_packets,
+            motion_packets=motion_packets,
+            selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
+            replay_kind="classic_packet_rate_adaptation",
+            warmup_packets=SEG_WINDOW_SIZE,
+            replay_provenance=replay_provenance,
         )
-        assert classic_dataset_result is not None, "Classic startup calibration failed at 500 pps"
-        classic_threshold, classic_metrics = classic_dataset_result
-        ml_metrics, _feature_payload = compute_ml_dataset_result(
-            static_path,
-            motion_path,
-            tuple(DEFAULT_SUBCARRIERS),
-            SEG_WINDOW_SIZE,
-            0.5,
-        )
-    else:
-        classic_result = compute_classic_packet_result(
-            static_packets,
-            motion_packets,
-            tuple(DEFAULT_SUBCARRIERS),
-            SEG_WINDOW_SIZE,
-        )
-        assert classic_result is not None, f"Classic startup calibration failed at {target_pps} pps"
-        classic_threshold, classic_metrics = classic_result
+    )
+    assert classic_result is not None, (
+        f"Classic row replay calibration failed at {target_pps} pps"
+    )
+    classic_threshold, classic_metrics = classic_result
 
-        ml_metrics, _feature_payload = compute_ml_packet_result(
-            static_packets,
-            motion_packets,
-            tuple(DEFAULT_SUBCARRIERS),
-            SEG_WINDOW_SIZE,
-            0.5,
-        )
+    static_ml_rows = load_or_compute_ml_replay_rows(
+        static_path,
+        packets=static_packets,
+        selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
+        window_size=SEG_WINDOW_SIZE,
+        stream_provenance={**replay_provenance, "phase": "static_presence"},
+    )
+    motion_ml_rows = load_or_compute_ml_replay_rows(
+        motion_path,
+        packets=motion_packets,
+        selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
+        window_size=SEG_WINDOW_SIZE,
+        stream_provenance={**replay_provenance, "phase": "motion"},
+    )
+    ml_metrics, _feature_payload = _compute_ml_row_result(
+        static_ml_rows,
+        motion_ml_rows,
+        0.5,
+    )
 
     return {
         "pair_id": pair_spec.pair_id,
@@ -267,6 +293,8 @@ def _rate_summary(pair_spec: PacketRateSourcePair, target_pps: int) -> dict[str,
         "timing": timing,
         "classic_threshold": classic_threshold,
         "classic": classic_metrics,
+        "classic_packet_threshold": classic_packet_threshold,
+        "classic_packet": classic_packet_metrics,
         "ml": ml_metrics,
     }
 
@@ -317,12 +345,7 @@ def _format_compact_summary_table(summaries: list[dict[str, object]]) -> str:
 
 @pytest.mark.parametrize("pair_spec", _pair_params())
 def test_packet_rate_adaptation_regression_matrix(pair_spec: PacketRateSourcePair) -> None:
-    """Validate one full packet-rate sweep while reusing cached summaries."""
-    if os.environ.get(PACKET_RATE_REGRESSION_ENV, "").strip().lower() not in {"1", "true", "yes"}:
-        pytest.skip(
-            f"set {PACKET_RATE_REGRESSION_ENV}=1 to run the extended packet-rate regression"
-        )
-
+    """Validate the supported packet-rate range on bounded replay prefixes."""
     summaries = [_rate_summary(pair_spec, target_pps) for target_pps in TARGET_PPS]
     baseline_counts = [summary["classic"]["num_baseline"] for summary in summaries]
     movement_counts = [summary["classic"]["num_movement"] for summary in summaries]
@@ -333,15 +356,14 @@ def test_packet_rate_adaptation_regression_matrix(pair_spec: PacketRateSourcePai
     )
     print(_format_compact_summary_table(summaries))
 
-    assert min(baseline_counts) >= 675
-    assert max(baseline_counts) <= 720
-    assert max(baseline_counts) - min(baseline_counts) <= 30
+    assert min(baseline_counts) >= 220
+    assert max(baseline_counts) <= 245
+    assert max(baseline_counts) - min(baseline_counts) <= 20
 
-    assert min(movement_counts) >= 335
-    assert max(movement_counts) <= 360
+    assert min(movement_counts) >= 220
+    assert max(movement_counts) <= 245
     assert max(movement_counts) - min(movement_counts) <= 20
 
-    baseline = summaries[0]
     for summary, target_pps in zip(summaries, TARGET_PPS):
         timing = summary["timing"]
         expected_interval_us = int(round(1_000_000.0 / float(target_pps)))
@@ -359,39 +381,37 @@ def test_packet_rate_adaptation_regression_matrix(pair_spec: PacketRateSourcePai
                 f"instead of {expected_value}"
             )
 
-        if target_pps == 500:
-            continue
+        assert summary["classic_threshold"] == pytest.approx(
+            summary["classic_packet_threshold"], abs=1e-12
+        )
+        for key in (
+            "tp",
+            "fn",
+            "tn",
+            "fp",
+            "num_baseline",
+            "num_movement",
+            "effective_alarms",
+            "false_motion_evaluations",
+        ):
+            assert summary["classic"][key] == summary["classic_packet"][key]
+        for key in ("recall", "precision", "fp_rate", "f1"):
+            assert summary["classic"][key] == pytest.approx(
+                summary["classic_packet"][key], abs=1e-12
+            )
 
         classic = summary["classic"]
         ml = summary["ml"]
-        if pair_spec.source_pps <= 500:
-            assert classic["recall"] >= 95.0, (
-                f"Classic recall regressed at {target_pps} pps: {classic['recall']:.1f}%"
-            )
-            assert classic["fp_rate"] <= 1.0, (
-                f"Classic FP rate regressed at {target_pps} pps: {classic['fp_rate']:.1f}%"
-            )
-            assert ml["recall"] >= 95.0, (
-                f"ML recall regressed at {target_pps} pps: {ml['recall']:.1f}%"
-            )
-            assert ml["fp_rate"] <= 1.0, (
-                f"ML FP rate regressed at {target_pps} pps: {ml['fp_rate']:.1f}%"
-            )
-            continue
-
-        assert classic["recall"] >= max(90.0, baseline["classic"]["recall"] - 2.0), (
-            f"Classic recall regressed at {target_pps} pps: {classic['recall']:.1f}% "
-            f"(baseline {baseline['classic']['recall']:.1f}%)"
+        assert classic["recall"] >= 95.0, (
+            f"Classic recall regressed at {target_pps} pps: {classic['recall']:.1f}%"
         )
-        assert classic["fp_rate"] <= max(1.0, baseline["classic"]["fp_rate"] + 1.0), (
-            f"Classic FP rate regressed at {target_pps} pps: {classic['fp_rate']:.1f}% "
-            f"(baseline {baseline['classic']['fp_rate']:.1f}%)"
+        classic_fp_limit = 1.2 if target_pps <= 80 else 1.0
+        assert classic["fp_rate"] <= classic_fp_limit, (
+            f"Classic FP rate regressed at {target_pps} pps: {classic['fp_rate']:.1f}%"
         )
-        assert ml["recall"] >= max(88.0, baseline["ml"]["recall"] - 2.0), (
-            f"ML recall regressed at {target_pps} pps: {ml['recall']:.1f}% "
-            f"(baseline {baseline['ml']['recall']:.1f}%)"
+        assert ml["recall"] >= 95.0, (
+            f"ML recall regressed at {target_pps} pps: {ml['recall']:.1f}%"
         )
-        assert ml["fp_rate"] <= max(1.0, baseline["ml"]["fp_rate"] + 1.0), (
-            f"ML FP rate regressed at {target_pps} pps: {ml['fp_rate']:.1f}% "
-            f"(baseline {baseline['ml']['fp_rate']:.1f}%)"
+        assert ml["fp_rate"] <= 1.0, (
+            f"ML FP rate regressed at {target_pps} pps: {ml['fp_rate']:.1f}%"
         )

@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.22)
 
 project(espectre_tests LANGUAGES C CXX)
 
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Host-side test build type" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+        Debug Release RelWithDebInfo MinSizeRel)
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
@@ -13,6 +19,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # diagnostics the shared core relies on. -Wswitch in particular is what reports
 # an MLFeatureId enumerator that ml_feature_source() forgot to classify.
 add_compile_options(-Wall)
+if(MSVC)
+    add_compile_options($<$<CONFIG:RelWithDebInfo>:/UNDEBUG>)
+else()
+    add_compile_options($<$<CONFIG:RelWithDebInfo>:-UNDEBUG>)
+endif()
 
 set(ESPECTRE_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(ESPECTRE_CPP_ROOT "${ESPECTRE_REPO_ROOT}/src/cpp")

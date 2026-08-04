@@ -7,12 +7,12 @@ live in their owning feature, dataset, and performance documents.
 ## Release Horizons
 
 
-| Milestone  | Target        | Status      | Outcome                                                                                                                                                        |
-| ---------- | ------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **v3.0.0** | August 2026   | Released    | Modular sensing platform with shared runtime layers, stable protocol services, multiple firmware frontends, and validated Classic and ML detectors         |
-| **v3.x**   | After v3.0.0  | In progress | Improve developer workflows, integrations, hardware coverage, and sensing performance without changing the v3.0 platform baseline                              |
-| **v4.x**   | December 2026 | Planned     | Add an optional privacy-first web orchestration layer for onboarding, multi-node visibility, management, history, and alerting                                 |
-| **v5.x**   | Future        | Exploratory | Adopt practical IEEE 802.11bf / Wi-Fi Sensing hardware through the existing runtime and protocol architecture when embedded vendor APIs become available       |
+| Milestone  | Target        | Status      | Outcome                                                                                                                                                  |
+| ---------- | ------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **v3.0.0** | August 2026   | Released    | Modular sensing platform with shared runtime layers, stable protocol services, multiple firmware frontends, and validated Classic and ML detectors       |
+| **v3.x**   | After v3.0.0  | In progress | Improve developer workflows, integrations, hardware coverage, and sensing performance without changing the v3.0 platform baseline                        |
+| **v4.x**   | December 2026 | Planned     | Add an optional privacy-first web orchestration layer for onboarding, multi-node visibility, management, history, and alerting                           |
+| **v5.x**   | Future        | Exploratory | Adopt practical IEEE 802.11bf / Wi-Fi Sensing hardware through the existing runtime and protocol architecture when embedded vendor APIs become available |
 
 
 
@@ -26,13 +26,13 @@ for custom firmware and OEM products.
 ### Shipped Baseline
 
 
-| Area              | State                        | Current outcome                                                                                                                                             |
-| ----------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Architecture**  | Ready                        | Shared `core`, `runtime`, ESP-IDF services, and frontend adapters are split, reviewed, and documented                                                       |
-| **Frontends**     | Ready with limits            | ESPHome has the most complete Home Assistant surface; Native MQTT Discovery, optional Micro-ESPectre discovery, and Streamer are available; Matter occupancy has limited controller validation |
-| **Protocol**      | Ready                        | BLE and MQTT provisioning, telemetry, status, info, commands, and reusable protocol services are documented in [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) |
-| **Detection**     | Released baseline            | C++ and Python real-data, long-recording, low-RSSI, packet-rate, and parity gates pass across the maintained release corpus                               |
-| **Documentation** | Ready                        | Setup, architecture, protocol, tuning, performance, and frontend workflows describe the current v3 surface                                                  |
+| Area              | State             | Current outcome                                                                                                                                                                                |
+| ----------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Architecture**  | Ready             | Shared `core`, `runtime`, ESP-IDF services, and frontend adapters are split, reviewed, and documented                                                                                          |
+| **Frontends**     | Ready with limits | ESPHome has the most complete Home Assistant surface; Native MQTT Discovery, optional Micro-ESPectre discovery, and Streamer are available; Matter occupancy has limited controller validation |
+| **Protocol**      | Ready             | BLE and MQTT provisioning, telemetry, status, info, commands, and reusable protocol services are documented in [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md)                                    |
+| **Detection**     | Released baseline | C++ and Python real-data, long-recording, low-RSSI, packet-rate, and parity gates pass across the maintained release corpus                                                                    |
+| **Documentation** | Ready             | Setup, architecture, protocol, tuning, performance, and frontend workflows describe the current v3 surface                                                                                     |
 
 
 Completed implementation and review work is recorded in
@@ -47,10 +47,9 @@ changing that baseline.
 ### Detector Evidence
 
 - [ ] Complete ClassicDetector and MLDetector tuning
-- [ ] Complete the remaining Classic replay-cache migration by replacing the
-  packet-summary `detector_replay` cache with the canonical time-aware path,
-  and close the row-versus-packet parity evidence for native, high-rate, and
-  decimated streams before retiring `detector_replay`
+- [x] Persist canonical time-aware Classic replay rows, and close the
+  row-versus-packet parity evidence for native, high-rate, and decimated
+  streams
 - [ ] Expand the original ESP32 corpus across environments, retrain where the
   evidence requires it, and document the broader v3.x validation claim
 
@@ -134,6 +133,9 @@ changing that baseline.
   information does not depend on decimation as a permanent mitigation
 - [ ] Evaluate broader PHY and band support, including Wi-Fi 6 / 802.11ax
   capabilities and 5 GHz operation where hardware and exposed APIs support it
+
+
+
 ## Sensing Research
 
 Research outcomes are not release promises. A measured rejection or deferral is
@@ -145,7 +147,7 @@ a valid completion when its evidence and verdict are retained in
   for packet-to-packet gain drift; the current ESP-IDF callback exposes
   scaling configuration but no measured per-packet scale, so production
   features remain scale invariant
-- [ ] Validate the leading scale-invariant, multi-axis research model against
+- [x] Validate the leading scale-invariant, multi-axis research model against
   new paired environments and firmware resource limits before deciding whether
   to promote its feature set
 - [ ] Evaluate Presence versus Empty as a distinct task using scale-invariant

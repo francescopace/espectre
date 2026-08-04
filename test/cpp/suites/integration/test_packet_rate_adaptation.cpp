@@ -1,9 +1,9 @@
 /*
  * ESPectre - Packet-rate adaptation regression test
  *
- * Replays one explicit 500 pps C3 pair after synthetic decimation and checks
- * that the C++ Classic and ML implementations stay robust as the effective
- * packet rate drops toward the nominal operating region.
+ * Replays 60-second prefixes of explicit high-rate pairs after synthetic
+ * decimation and checks that the C++ Classic and ML implementations stay
+ * robust across the supported 80-120 pps operating region.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -33,7 +33,8 @@ namespace replay = espectre::test::replay;
 namespace {
 
 constexpr double kMinimumSourceAveragePacketRate = 500.0;
-constexpr int kTargetPps[] = {500, 400, 300, 200, 120, 100, 80};
+constexpr int kReplayDurationSeconds = 60;
+constexpr int kTargetPps[] = {120, 100, 80};
 constexpr size_t kTargetCount = sizeof(kTargetPps) / sizeof(kTargetPps[0]);
 
 struct PacketRateSourceSelection {
@@ -198,17 +199,17 @@ const csi_test_data::CsiData& source_motion(const PacketRateSourceSelection& sel
 csi_test_data::CsiData decimate_capture(const csi_test_data::CsiData& source,
                                         int source_pps,
                                         int target_pps) {
-  if (target_pps >= source_pps) {
-    return source;
-  }
-
   csi_test_data::CsiData result;
   result.packet_size = source.packet_size;
   result.num_subcarriers = source.num_subcarriers;
 
-  const double stride = static_cast<double>(source_pps) / static_cast<double>(target_pps);
+  const int resolved_target_pps = std::min(source_pps, target_pps);
+  const int source_packet_limit = std::min(
+      source.num_packets, source_pps * kReplayDurationSeconds);
+  const double stride =
+      static_cast<double>(source_pps) / static_cast<double>(resolved_target_pps);
   const uint32_t interval_us = static_cast<uint32_t>(
-      std::lround(1000000.0 / static_cast<double>(target_pps)));
+      std::lround(1000000.0 / static_cast<double>(resolved_target_pps)));
   double cursor = 0.0;
   bool seeded_seq = false;
   uint32_t next_seq_num = 0U;
@@ -219,7 +220,7 @@ csi_test_data::CsiData decimate_capture(const csi_test_data::CsiData& source,
 
   while (true) {
     const int source_index = static_cast<int>(std::llround(cursor));
-    if (source_index >= source.num_packets) {
+    if (source_index >= source_packet_limit) {
       break;
     }
 
@@ -392,6 +393,7 @@ void print_summary_table(const PacketRateSourceSelection& selection,
          selection.pair_id.c_str(),
          selection.nominal_pps,
          selection.average_packet_rate);
+  printf("Replay prefix: %d seconds per phase\n", kReplayDurationSeconds);
   printf("                         PACKET-RATE ADAPTATION SUMMARY (C++)\n");
   printf("---------------------------------------------------------------------------------------------------------\n");
   printf("pps | timing           | Classic R/FP  | ML R/FP       | eval idle/motion\n");
@@ -423,12 +425,12 @@ void test_packet_rate_adaptation_regression(void) {
 
     print_summary_table(selection, results);
 
-    int min_baseline_eval = results[1].classic.baseline_eval;
-    int max_baseline_eval = results[1].classic.baseline_eval;
-    int min_motion_eval = results[1].classic.motion_eval;
-    int max_motion_eval = results[1].classic.motion_eval;
+    int min_baseline_eval = results[0].classic.baseline_eval;
+    int max_baseline_eval = results[0].classic.baseline_eval;
+    int min_motion_eval = results[0].classic.motion_eval;
+    int max_motion_eval = results[0].classic.motion_eval;
 
-    for (size_t i = 1; i < results.size(); i++) {
+    for (size_t i = 0; i < results.size(); i++) {
       const RateResult& result = results[i];
       min_baseline_eval = std::min(min_baseline_eval, result.classic.baseline_eval);
       max_baseline_eval = std::max(max_baseline_eval, result.classic.baseline_eval);
@@ -450,29 +452,19 @@ void test_packet_rate_adaptation_regression(void) {
       TEST_ASSERT_EQUAL(expected_timing.evaluation_interval, actual_timing.evaluation_interval);
     }
 
-    TEST_ASSERT_TRUE(min_baseline_eval >= 675);
-    TEST_ASSERT_TRUE(max_baseline_eval <= 720);
-    TEST_ASSERT_TRUE((max_baseline_eval - min_baseline_eval) <= 30);
-    TEST_ASSERT_TRUE(min_motion_eval >= 335);
-    TEST_ASSERT_TRUE(max_motion_eval <= 360);
+    TEST_ASSERT_TRUE(min_baseline_eval >= 220);
+    TEST_ASSERT_TRUE(max_baseline_eval <= 245);
+    TEST_ASSERT_TRUE((max_baseline_eval - min_baseline_eval) <= 20);
+    TEST_ASSERT_TRUE(min_motion_eval >= 220);
+    TEST_ASSERT_TRUE(max_motion_eval <= 245);
     TEST_ASSERT_TRUE((max_motion_eval - min_motion_eval) <= 20);
 
-    const ReplayMetrics& baseline_classic = results[0].classic;
-    const ReplayMetrics& baseline_ml = results[0].ml;
-    for (size_t i = 1; i < results.size(); i++) {
-      if (selection.nominal_pps <= 500) {
-        TEST_ASSERT_TRUE(results[i].classic.recall >= 95.0f);
-        const float classic_fp_limit = results[i].target_pps <= 80 ? 1.2f : 1.0f;
-        TEST_ASSERT_TRUE(results[i].classic.fp_rate <= classic_fp_limit);
-        TEST_ASSERT_TRUE(results[i].ml.recall >= 95.0f);
-        TEST_ASSERT_TRUE(results[i].ml.fp_rate <= 1.0f);
-        continue;
-      }
-
-      TEST_ASSERT_TRUE(results[i].classic.recall >= std::max(90.0f, baseline_classic.recall - 2.0f));
-      TEST_ASSERT_TRUE(results[i].classic.fp_rate <= std::max(1.0f, baseline_classic.fp_rate + 1.0f));
-      TEST_ASSERT_TRUE(results[i].ml.recall >= std::max(88.0f, baseline_ml.recall - 2.0f));
-      TEST_ASSERT_TRUE(results[i].ml.fp_rate <= std::max(1.0f, baseline_ml.fp_rate + 1.0f));
+    for (const RateResult& result : results) {
+      TEST_ASSERT_TRUE(result.classic.recall >= 95.0f);
+      const float classic_fp_limit = result.target_pps <= 80 ? 1.2f : 1.0f;
+      TEST_ASSERT_TRUE(result.classic.fp_rate <= classic_fp_limit);
+      TEST_ASSERT_TRUE(result.ml.recall >= 95.0f);
+      TEST_ASSERT_TRUE(result.ml.fp_rate <= 1.0f);
     }
   }
 }

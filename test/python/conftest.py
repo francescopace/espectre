@@ -53,6 +53,29 @@ from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE, HAMPEL_WINDOW, HAMPEL_T
 DATA_DIR = data_dir()
 DATASET_INFO_PATH = DATA_DIR / 'dataset_info.json'
 UNIT_TEST_SUBCARRIERS = DEFAULT_SUBCARRIERS
+DEFAULT_XDIST_AUTO_WORKERS = 4
+
+
+def pytest_xdist_auto_num_workers(config):
+    """Cap replay-heavy auto parallelism while preserving an explicit override."""
+    del config
+    process_cpu_count = getattr(os, "process_cpu_count", os.cpu_count)
+    available_workers = max(1, process_cpu_count() or 1)
+    configured = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
+    if configured is not None:
+        try:
+            workers = int(configured)
+        except ValueError as exc:
+            raise pytest.UsageError(
+                "PYTEST_XDIST_AUTO_NUM_WORKERS must be a positive integer"
+            ) from exc
+        if workers < 1:
+            raise pytest.UsageError(
+                "PYTEST_XDIST_AUTO_NUM_WORKERS must be a positive integer"
+            )
+        return min(workers, available_workers)
+
+    return min(DEFAULT_XDIST_AUTO_WORKERS, available_workers)
 
 
 def get_classic_fp_rate_target(chip_type=None):
