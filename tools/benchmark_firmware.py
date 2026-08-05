@@ -37,7 +37,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.python.espectre_cli.common import detect_chip_type, get_serial_port
 from src.python.espectre_cli.mqtt_shell import send_mqtt_command_and_wait
-from src.python.espectre_cli.targets import ESPHOME_CONFIGS, IDF_FRONTENDS
+from src.python.espectre_cli.targets import ESPHOME_CONFIGS, ESPHOME_EXAMPLES_DIR, IDF_FRONTENDS
 
 
 BENCHMARK_LOCAL_ENV_PATH = SCRIPT_DIR / "benchmark_firmware.local.env"
@@ -871,7 +871,7 @@ def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tupl
 
 def _latest_firmware_artifact(frontend: str) -> Path | None:
     if frontend == "esphome":
-        candidates = list((REPO_ROOT / "examples" / ".esphome").glob("build/*/.pioenvs/*/firmware.bin"))
+        candidates = list((ESPHOME_EXAMPLES_DIR / ".esphome").glob("build/*/.pioenvs/*/firmware.bin"))
     else:
         app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
         build_dir = os.environ.get("ESPECTRE_IDF_BUILD_DIR", "build")

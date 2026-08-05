@@ -271,7 +271,9 @@ provide application-only OTA payloads for Native. GitHub Pages stages only the
 full-flash images used by the browser flasher. The published `ESPHome` image
 uses the default `Classic` detector, and CI pins its `git_ref` substitution to
 the exact source commit used to build the published binary. Subsequent ESPHome
-updates are compiled and installed through ESPHome Device Builder.
+updates are compiled and installed through ESPHome Device Builder; see
+[`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) for which
+revision an adopted configuration compiles from.
 
 The published `Matter` image also uses the default `Classic` detector. The
 `ML` detector remains available through local firmware builds; it is not

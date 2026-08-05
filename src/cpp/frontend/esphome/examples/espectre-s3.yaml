@@ -1,19 +1,13 @@
-# ESPectre - ESP32-C5 Configuration
+# ESPectre - ESP32-S3 Configuration
 # WiFi CSI-based motion detection with Home Assistant integration
 #
-# TESTED: This platform is validated for HT20 CSI motion detection.
-# ESP32-C5 uses the same modern CSI API as ESP32-C6 with WiFi 6 support.
-# ESPectre enforces 2.4 GHz mode and remaps 57->64 subcarriers at runtime.
-#
-# Compatible boards:
-# - ESP32-C5-DevKitC
-# - ESP32-C5-DevKitM
-# - Any ESP32-C5 board
+# Tested boards:
+# - ESP32-S3-DevKitC-1 (WROOM-1-N16R8)
 #
 # Provisioning:
 # - Via BLE: Use the ESPHome app or Home Assistant companion app
+# - Via USB: Use ESPHome web tools (https://web.esphome.io)
 # - Via WiFi: Connect to "ESPectre Fallback" AP and configure
-# Note: USB provisioning (improv_serial) not yet supported on ESP32-C5
 
 substitutions:
   git_ref: main # branch, tag, or commit
@@ -30,10 +24,15 @@ esphome:
     version: ${git_ref}
 
 esp32:
-  variant: ESP32C5
+  variant: ESP32S3
   cpu_frequency: 240MHz
   framework:
     type: esp-idf
+
+# PSRAM support (8MB on most S3 boards)
+psram:
+  mode: octal
+  speed: 80MHz
 
 # Load ESPectre component from GitHub
 external_components:
@@ -41,7 +40,7 @@ external_components:
       type: git
       url: https://github.com/francescopace/espectre
       ref: ${git_ref}
-      path: src/cpp/frontend/esphome
+      path: src/cpp/frontend/esphome/components
     components: [ espectre ]
     refresh: always
 
@@ -52,7 +51,7 @@ espectre:
 
 # Dashboard import for easy adoption
 dashboard_import:
-  package_import_url: github://francescopace/espectre/examples/espectre-c5.yaml@${git_ref}
+  package_import_url: github://francescopace/espectre/src/cpp/frontend/esphome/examples/espectre-s3.yaml@${git_ref}
 
 # WiFi with fallback AP for provisioning
 wifi:
@@ -65,7 +64,8 @@ captive_portal:
 esp32_improv:
   authorizer: none
 
-# Note: improv_serial is not yet supported on ESP32-C5
+# Improv provisioning via USB
+improv_serial:
 
 # Logging
 logger:

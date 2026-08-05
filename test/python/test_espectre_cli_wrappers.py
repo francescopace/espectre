@@ -173,7 +173,7 @@ def test_prompt_chip_type_handles_valid_and_invalid_choices(monkeypatch) -> None
 
 
 def test_resolve_esphome_config_supports_chip_and_explicit_path() -> None:
-    relative = Path("examples/espectre-c3.yaml")
+    relative = Path("src/cpp/frontend/esphome/examples/espectre-c3.yaml")
 
     assert targets.resolve_esphome_config("c3", True, None).name == "espectre-c3-dev.yaml"
     assert targets.resolve_esphome_config("c3", False, None).name == "espectre-c3.yaml"

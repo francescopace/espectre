@@ -85,12 +85,12 @@ set(ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES
 )
 
 set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/calibrate_switch.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/detector_select.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/diagnostics_button.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/espectre.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/sensor_publisher.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/threshold_number.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/calibrate_switch.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/detector_select.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/diagnostics_button.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/espectre.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/sensor_publisher.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/threshold_number.cpp"
 )
 
 set(ESPECTRE_FRONTEND_MATTER_SOURCES

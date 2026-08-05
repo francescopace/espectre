@@ -79,7 +79,7 @@ views:
             state_color: false
           # Optional ESPHome platform debug sensors (free / block / loop_time).
           # These require the corresponding platform: debug configuration. See
-          # examples/espectre-*-dev.yaml.
+          # src/cpp/frontend/esphome/examples/espectre-*-dev.yaml.
           # - type: entities
           #   title: Debug Sensors
           #   entities:

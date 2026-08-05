@@ -561,8 +561,8 @@ metrics rather than just pass/fail.
 
 | Hook | ESPHome | Native | Matter |
 | --- | --- | --- | --- |
-| `on_threshold_changed` | [espectre.cpp:100-102](../../src/cpp/frontend/esphome/espectre/espectre.cpp) | [native_frontend.cpp:178-180](../../src/cpp/frontend/native/espectre/native_frontend.cpp) | [matter_frontend.cpp:75-78](../../src/cpp/frontend/matter/espectre/matter_frontend.cpp) |
-| `on_detector_changed` | [espectre.cpp:109-111](../../src/cpp/frontend/esphome/espectre/espectre.cpp) | [native_frontend.cpp:185-187](../../src/cpp/frontend/native/espectre/native_frontend.cpp) | — |
+| `on_threshold_changed` | [espectre.cpp:100-102](../../src/cpp/frontend/esphome/components/espectre/espectre.cpp) | [native_frontend.cpp:178-180](../../src/cpp/frontend/native/espectre/native_frontend.cpp) | [matter_frontend.cpp:75-78](../../src/cpp/frontend/matter/espectre/matter_frontend.cpp) |
+| `on_detector_changed` | [espectre.cpp:109-111](../../src/cpp/frontend/esphome/components/espectre/espectre.cpp) | [native_frontend.cpp:185-187](../../src/cpp/frontend/native/espectre/native_frontend.cpp) | — |
 
 All open with the same two statements: `runtime_.record_snapshot(snapshot)`
 followed by writing the snapshot value back into `runtime_.config()`.
@@ -927,7 +927,7 @@ detector store *that*, so a single clamp exists.
 
 | Frontend | `on_motion_state_changed` | Honours `ready_to_publish`? |
 | --- | --- | --- |
-| ESPHome | publishes binary sensor immediately ([espectre.cpp:65-74](../../src/cpp/frontend/esphome/espectre/espectre.cpp)) | yes |
+| ESPHome | publishes binary sensor immediately ([espectre.cpp:65-74](../../src/cpp/frontend/esphome/components/espectre/espectre.cpp)) | yes |
 | Matter | publishes occupancy immediately ([matter_frontend.cpp:57-64](../../src/cpp/frontend/matter/espectre/matter_frontend.cpp)) | yes |
 | Native | records the snapshot only ([native_frontend.cpp:167-169](../../src/cpp/frontend/native/espectre/native_frontend.cpp)) | **no** |
 | Streamer | records the snapshot only ([streamer_frontend.cpp:74](../../src/cpp/frontend/streamer/espectre/streamer_frontend.cpp)) | n/a (detector-free) |
@@ -1273,7 +1273,7 @@ the ordering anomaly stays visible.
 
 ### M-7 — `set_detection_algorithm()` has a hidden side effect {#m-7}
 
-[espectre.h:57-60](../../src/cpp/frontend/esphome/espectre/espectre.h):
+[espectre.h:57-60](../../src/cpp/frontend/esphome/components/espectre/espectre.h):
 
 ```cpp
 void set_detection_algorithm(const std::string &algo) {

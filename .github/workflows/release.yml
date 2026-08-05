@@ -18,15 +18,15 @@ jobs:
       matrix:
         include:
           - chip: ESP32
-            config: examples/espectre-esp32.yaml
+            config: src/cpp/frontend/esphome/examples/espectre-esp32.yaml
           - chip: ESP32-S3
-            config: examples/espectre-s3.yaml
+            config: src/cpp/frontend/esphome/examples/espectre-s3.yaml
           - chip: ESP32-C3
-            config: examples/espectre-c3.yaml
+            config: src/cpp/frontend/esphome/examples/espectre-c3.yaml
           - chip: ESP32-C5
-            config: examples/espectre-c5.yaml
+            config: src/cpp/frontend/esphome/examples/espectre-c5.yaml
           - chip: ESP32-C6
-            config: examples/espectre-c6.yaml
+            config: src/cpp/frontend/esphome/examples/espectre-c6.yaml
     
     steps:
       - uses: actions/checkout@v7
@@ -44,7 +44,7 @@ jobs:
           path: |
             ~/.platformio
             ~/.esphome/cache
-          key: pio-${{ runner.os }}-${{ matrix.chip }}-${{ hashFiles('requirements.txt', 'examples/*.yaml') }}
+          key: pio-${{ runner.os }}-${{ matrix.chip }}-${{ hashFiles('requirements.txt', 'src/cpp/frontend/esphome/examples/*.yaml') }}
           restore-keys: |
             pio-${{ runner.os }}-${{ matrix.chip }}-
             pio-${{ runner.os }}-
@@ -62,7 +62,7 @@ jobs:
           mkdir -p output
           VERSION="${GITHUB_REF_NAME}"
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
-          find examples/.esphome/build -name "firmware.factory.bin" -exec cp {} output/ \;
+          find src/cpp/frontend/esphome/examples/.esphome/build -name "firmware.factory.bin" -exec cp {} output/ \;
           mv "output/firmware.factory.bin" "output/espectre-${VERSION}-${CHIP}.bin"
       
       - name: Upload firmware artifact

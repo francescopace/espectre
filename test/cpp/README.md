@@ -130,7 +130,7 @@ Production code under test lives outside `test/`:
 
 - `../src/cpp/core/` for reusable detection logic
 - `../src/cpp/runtime/` for the shared runtime contract and `../src/cpp/runtime/esp_idf/` for the current runtime orchestration
-- `../src/cpp/frontend/esphome/espectre/` for the ESPHome component manifest and adapter layer
+- `../src/cpp/frontend/esphome/components/espectre/` for the ESPHome component manifest and adapter layer
 - `../src/cpp/frontend/matter/espectre/` for the Matter adapter and surface mapping
 
 ---

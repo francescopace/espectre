@@ -18,19 +18,21 @@ The ESPHome frontend is responsible for:
 
 ## Directory Layout
 
-- [`__init__.py`](espectre/__init__.py):
+- [`__init__.py`](components/espectre/__init__.py):
   YAML schema, validation, codegen, shared local PlatformIO library registration, and ESPHome build flags
-- [`espectre.cpp`](espectre/espectre.cpp),
-  [`espectre.h`](espectre/espectre.h):
+- [`espectre.cpp`](components/espectre/espectre.cpp),
+  [`espectre.h`](components/espectre/espectre.h):
   ESPHome adapter over the shared runtime frontend controller
-- [`sensor_publisher.cpp`](espectre/sensor_publisher.cpp):
+- [`sensor_publisher.cpp`](components/espectre/sensor_publisher.cpp):
   movement and motion publishing
-- [`threshold_number.cpp`](espectre/threshold_number.cpp):
+- [`threshold_number.cpp`](components/espectre/threshold_number.cpp):
   runtime threshold control
-- [`detector_select.cpp`](espectre/detector_select.cpp):
+- [`detector_select.cpp`](components/espectre/detector_select.cpp):
   persisted runtime detector selection
-- [`calibrate_switch.cpp`](espectre/calibrate_switch.cpp):
+- [`calibrate_switch.cpp`](components/espectre/calibrate_switch.cpp):
   runtime recalibration trigger
+- [`examples/`](examples/):
+  production, local-development, S3 variant, and Home Assistant dashboard examples
 
 ## Getting Started
 
@@ -74,7 +76,7 @@ is declared.
 
 ## Configuration Surface
 
-The ESPHome YAML schema is defined in [`__init__.py`](espectre/__init__.py).
+The ESPHome YAML schema is defined in [`__init__.py`](components/espectre/__init__.py).
 This README covers ESPHome-specific syntax and entity mapping. See
 [`SETUP.md`](../../../../docs/SETUP.md) for the shared configuration overview
 and [`TUNING.md`](../../../../docs/TUNING.md) for the "when and why" of tuning.
@@ -237,16 +239,24 @@ The ESPHome frontend exposes movement, intensity, motion, threshold control,
 and recalibration as Home Assistant entities.
 
 To manage configuration and OTA updates, install ESPHome Device Builder and
-adopt the discovered device. The imported configuration keeps the Git ref
-embedded by the installed firmware: release builds remain pinned to their
-release tag, while snapshot builds remain pinned to their source commit. Change
-the ref after `@` in the adopted `packages` URL when you want ESPHome to compile
-and install a newer version:
+adopt the discovered device. The adopted configuration compiles the component
+from the `git_ref` substitution, which defaults to `main` and therefore tracks
+the latest release, so the device follows each new release without manual edits.
+
+To stay on one version instead, declare `git_ref` in the adopted configuration:
 
 ```yaml
-packages:
-  francescopace.espectre: github://francescopace/espectre/examples/espectre-c6.yaml@3.0.0
+substitutions:
+  git_ref: "3.0.0"
 ```
+
+The same value also drives the import URL the device republishes after the next
+build, so this one declaration is enough.
+
+The `@` suffix of the adopted `packages` URL is a separate ref, and it selects
+which revision of the example YAML is downloaded. Change it to `@${git_ref}` to
+keep both on the same revision. This matters for snapshot builds, whose URL
+carries their source commit while the component still follows `main`.
 
 ### Dashboard Examples
 
@@ -254,7 +264,7 @@ Examples live in:
 
 | File | Description |
 |------|-------------|
-| [`home-assistant-dashboard.yaml`](../../../../examples/home-assistant-dashboard.yaml) | Production dashboard with motion entities |
+| [`home-assistant-dashboard.yaml`](examples/home-assistant-dashboard.yaml) | Production dashboard with motion entities |
 
 To import a dashboard:
 
@@ -334,7 +344,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/francescopace/espectre
-      path: src/cpp/frontend/esphome
+      path: src/cpp/frontend/esphome/components
     components: [espectre]
 ```
 
@@ -344,7 +354,7 @@ Local development examples consume it with:
 external_components:
   - source:
       type: local
-      path: ../src/cpp/frontend/esphome
+      path: ../components
     components: [espectre]
 ```
 
@@ -475,7 +485,7 @@ esphome logs <your-config>.yaml --device espectre.local
 
 ## Packaging Notes
 
-[`__init__.py`](espectre/__init__.py) registers the local
+[`__init__.py`](components/espectre/__init__.py) registers the local
 [`library.json`](../../library.json) package so PlatformIO builds the
 canonical shared sources directly from `src/cpp/core/` and
 `src/cpp/runtime/esp_idf/`. This keeps ESPHome packaging aligned with the main

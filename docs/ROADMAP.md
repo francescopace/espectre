@@ -79,7 +79,7 @@ Completed implementation and review work is recorded in
 - [x] Review the embeddable `C++` SDK API and documentation, and align the
   published integration surface with standard `C++` SDK conventions where
   practical
-- [ ] Move the ESPHome examples into the ESPHome frontend
+- [x] Move the ESPHome examples into the ESPHome frontend
 
 ### RC1 Runtime and Hardware Coverage
 

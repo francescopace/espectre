@@ -13,32 +13,35 @@ from pathlib import Path
 
 from .common import REPO_ROOT
 
+FRONTEND_DIR = REPO_ROOT / "src" / "cpp" / "frontend"
+ESPHOME_EXAMPLES_DIR = FRONTEND_DIR / "esphome" / "examples"
+
 ESPHOME_CONFIGS = {
     "esp32": {
-        "dev": REPO_ROOT / "examples" / "espectre-esp32-dev.yaml",
-        "release": REPO_ROOT / "examples" / "espectre-esp32.yaml",
+        "dev": ESPHOME_EXAMPLES_DIR / "espectre-esp32-dev.yaml",
+        "release": ESPHOME_EXAMPLES_DIR / "espectre-esp32.yaml",
     },
     "c3": {
-        "dev": REPO_ROOT / "examples" / "espectre-c3-dev.yaml",
-        "release": REPO_ROOT / "examples" / "espectre-c3.yaml",
+        "dev": ESPHOME_EXAMPLES_DIR / "espectre-c3-dev.yaml",
+        "release": ESPHOME_EXAMPLES_DIR / "espectre-c3.yaml",
     },
     "c5": {
-        "dev": REPO_ROOT / "examples" / "espectre-c5-dev.yaml",
-        "release": REPO_ROOT / "examples" / "espectre-c5.yaml",
+        "dev": ESPHOME_EXAMPLES_DIR / "espectre-c5-dev.yaml",
+        "release": ESPHOME_EXAMPLES_DIR / "espectre-c5.yaml",
     },
     "c6": {
-        "dev": REPO_ROOT / "examples" / "espectre-c6-dev.yaml",
-        "release": REPO_ROOT / "examples" / "espectre-c6.yaml",
+        "dev": ESPHOME_EXAMPLES_DIR / "espectre-c6-dev.yaml",
+        "release": ESPHOME_EXAMPLES_DIR / "espectre-c6.yaml",
     },
     "s3": {
-        "dev": REPO_ROOT / "examples" / "espectre-s3-dev.yaml",
-        "release": REPO_ROOT / "examples" / "espectre-s3.yaml",
+        "dev": ESPHOME_EXAMPLES_DIR / "espectre-s3-dev.yaml",
+        "release": ESPHOME_EXAMPLES_DIR / "espectre-s3.yaml",
     },
 }
 
 IDF_FRONTENDS = {
     "native": {
-        "app_dir": REPO_ROOT / "src" / "cpp" / "frontend" / "native" / "app",
+        "app_dir": FRONTEND_DIR / "native" / "app",
         "targets": {
             "esp32": "esp32",
             "c3": "esp32c3",
@@ -48,7 +51,7 @@ IDF_FRONTENDS = {
         },
     },
     "matter": {
-        "app_dir": REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app",
+        "app_dir": FRONTEND_DIR / "matter" / "app",
         "targets": {
             "esp32": "esp32",
             "c3": "esp32c3",
@@ -58,7 +61,7 @@ IDF_FRONTENDS = {
         },
     },
     "streamer": {
-        "app_dir": REPO_ROOT / "src" / "cpp" / "frontend" / "streamer" / "app",
+        "app_dir": FRONTEND_DIR / "streamer" / "app",
         "targets": {
             "esp32": "esp32",
             "c3": "esp32c3",

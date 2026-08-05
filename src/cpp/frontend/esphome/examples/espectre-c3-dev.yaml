@@ -1,5 +1,5 @@
-# ESPectre - ESP32-C6 Dev (local components)
-# Usage: esphome run examples/espectre-c6-dev.yaml
+# ESPectre - ESP32-C3 Dev (local components)
+# Usage: esphome run src/cpp/frontend/esphome/examples/espectre-c3-dev.yaml
 
 esphome:
   name: espectre
@@ -7,12 +7,15 @@ esphome:
   min_version: 2026.6.0
   # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
   # name_add_mac_suffix: true
+  # Uncomment for ESP32-C3 Super Mini clones with flash issues (use DIO instead of QIO)
+  # platformio_options:
+  #   board_build.flash_mode: dio
   project:
     name: francescopace.espectre
     version: dev
 
 esp32:
-  variant: ESP32C6
+  variant: ESP32C3
   framework:
     type: esp-idf
 
@@ -20,10 +23,11 @@ esp32:
 external_components:
   - source:
       type: local
-      path: ../src/cpp/frontend/esphome
+      path: ../components
     components: [ espectre ]
 
 # ESPectre - WiFi CSI Motion Detection
+# Note: For Super Mini boards, keep traffic_generator_rate <= 94
 # All parameters shown with defaults
 espectre:
   id: espectre_csi
@@ -36,13 +40,13 @@ espectre:
   # Segmentation parameters
   segmentation_window_size: 100  # Analysis window size in packets (10-200)
   # Filters
-  hampel_enabled: true          # Outlier removal (default: true)
+  hampel_enabled: true         # Outlier removal (default: true)
   hampel_window: 7              # Filter window size (3-11, odd numbers)
   hampel_threshold: 5.0         # Outlier detection threshold (1.0-10.0)
   lowpass_enabled: false        # Noise reduction (default: false)
   lowpass_cutoff: 11.0          # Cutoff frequency in Hz (5.0-20.0)
 
-# WiFi for development
+# WiFi (using secrets for development)
 wifi:
   networks:
     - ssid: !secret wifi_ssid

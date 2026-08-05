@@ -231,7 +231,7 @@ boundary for the non-ESPHome standalone firmware paths.
 ## Packaging Note For ESPHome
 
 ESPHome still expects a component-shaped entry point under the external
-components root. For that reason, `src/cpp/frontend/esphome/espectre/` acts as
+components root. For that reason, `src/cpp/frontend/esphome/components/espectre/` acts as
 the ESPHome packaging root even though the shared sources live under
 `src/cpp/core/` and `src/cpp/runtime/`.
 

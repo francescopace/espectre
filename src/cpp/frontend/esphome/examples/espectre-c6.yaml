@@ -1,8 +1,8 @@
-# ESPectre - ESP32 (Original/WROOM-32) Configuration
+# ESPectre - ESP32-C6 Configuration
 # WiFi CSI-based motion detection with Home Assistant integration
-##
+#
 # Tested boards:
-# - ESP32-WROOM-32D Mini (CH340)
+# - Waveshare ESP32-C6-DEV (WROOM-1-N8)
 #
 # Provisioning:
 # - Via BLE: Use the ESPHome app or Home Assistant companion app
@@ -24,8 +24,7 @@ esphome:
     version: ${git_ref}
 
 esp32:
-  board: esp32dev
-  cpu_frequency: 240MHz
+  variant: ESP32C6
   framework:
     type: esp-idf
 
@@ -35,7 +34,7 @@ external_components:
       type: git
       url: https://github.com/francescopace/espectre
       ref: ${git_ref}
-      path: src/cpp/frontend/esphome
+      path: src/cpp/frontend/esphome/components
     components: [ espectre ]
     refresh: always
 
@@ -46,7 +45,7 @@ espectre:
 
 # Dashboard import for easy adoption
 dashboard_import:
-  package_import_url: github://francescopace/espectre/examples/espectre-esp32.yaml@${git_ref}
+  package_import_url: github://francescopace/espectre/src/cpp/frontend/esphome/examples/espectre-c6.yaml@${git_ref}
 
 # WiFi with fallback AP for provisioning
 wifi:

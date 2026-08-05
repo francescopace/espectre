@@ -84,7 +84,7 @@ The production firmware code now lives under `src/`:
 
 - `src/cpp/core/` for reusable detectors and math
 - `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current ESP-IDF-specific orchestration
-- `src/cpp/frontend/esphome/espectre/` for the ESPHome adapter/component root
+- `src/cpp/frontend/esphome/components/espectre/` for the ESPHome adapter/component root
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the rationale behind the split and the planned evolution toward additional runtimes/frontends.
 

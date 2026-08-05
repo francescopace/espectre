@@ -83,7 +83,7 @@ ESpectreDetectorSelect = espectre_ns.class_("ESpectreDetectorSelect", select.Sel
 ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
 ESpectreDiagnosticsButton = espectre_ns.class_("ESpectreDiagnosticsButton", button.Button, cg.Component)
 
-_LIBRARY_ROOT = Path(__file__).resolve().parents[3]
+_LIBRARY_ROOT = Path(__file__).resolve().parents[4]
 _SCHEMA_HEADER = _LIBRARY_ROOT / "runtime" / "runtime_sensing_schema.h"
 _SCHEMA_CONST_PATTERN = re.compile(
     r"constexpr\s+(?:const char \*const|bool|float|uint8_t|uint16_t|uint32_t)\s+"

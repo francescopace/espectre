@@ -1,5 +1,5 @@
-# ESPectre - ESP32-S3 Dev (local components)
-# Usage: esphome run examples/espectre-s3-dev.yaml
+# ESPectre - ESP32-C5 Dev (local components)
+# Usage: esphome run src/cpp/frontend/esphome/examples/espectre-c5-dev.yaml
 
 esphome:
   name: espectre
@@ -12,21 +12,16 @@ esphome:
     version: dev
 
 esp32:
-  variant: ESP32S3
+  variant: ESP32C5
   cpu_frequency: 240MHz
   framework:
     type: esp-idf
-
-# PSRAM support (8MB on most S3 boards)
-psram:
-  mode: octal
-  speed: 80MHz
 
 # Local component for development
 external_components:
   - source:
       type: local
-      path: ../src/cpp/frontend/esphome
+      path: ../components
     components: [ espectre ]
 
 # ESPectre - WiFi CSI Motion Detection
