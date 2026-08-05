@@ -71,10 +71,14 @@ inline void fill_coherence_cross(const std::complex<float>* current,
     }
 }
 
+// The aligned sum is `sum_k cross[k] * w^bin[k]` for `w = exp(-i * ramp)`, and
+// the live bins of one contiguous band are consecutive, so the sum is a
+// polynomial in `w`. Horner evaluates it with one sine and cosine pair for the
+// whole band instead of one per bin. Only the magnitude is used, so the shared
+// `w^start_bin` factor cancels and the band's absolute position drops out.
 inline float delay_compensated_coherence_band_from_cross(const std::complex<float>* cross,
                                                          const float* magnitude,
-                                                         uint8_t start, uint8_t count,
-                                                         uint8_t start_bin) {
+                                                         uint8_t start, uint8_t count) {
     if (count < 2U) {
         return 0.0f;
     }
@@ -90,10 +94,10 @@ inline float delay_compensated_coherence_band_from_cross(const std::complex<floa
         ramp_sum += cross[start + i] * std::conj(cross[start + i - 1U]);
     }
     const float ramp = std::atan2(ramp_sum.imag(), ramp_sum.real());
-    std::complex<float> aligned(0.0f, 0.0f);
-    for (uint8_t i = 0; i < count; i++) {
-        const float angle = -ramp * static_cast<float>(start_bin + i);
-        aligned += cross[start + i] * std::complex<float>(std::cos(angle), std::sin(angle));
+    const std::complex<float> w(std::cos(-ramp), std::sin(-ramp));
+    std::complex<float> aligned = cross[start + count - 1U];
+    for (int16_t i = static_cast<int16_t>(count) - 2; i >= 0; i--) {
+        aligned = aligned * w + cross[start + i];
     }
     return std::abs(aligned) / total;
 }
@@ -115,38 +119,41 @@ inline float delay_compensated_coherence_from_cross(const std::complex<float>* c
         ramp_sum += cross[i] * std::conj(cross[i - 1U]);
     }
     const float ramp = std::atan2(ramp_sum.imag(), ramp_sum.real());
-    std::complex<float> aligned(0.0f, 0.0f);
-    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        const float angle = -ramp * static_cast<float>(HT20_LIVE_BINS[i]);
-        aligned += cross[i] * std::complex<float>(std::cos(angle), std::sin(angle));
+    const std::complex<float> w(std::cos(-ramp), std::sin(-ramp));
+    // One Horner pass per half. The DC null makes the bins jump between them,
+    // so the upper half re-enters through `w^(bin[half] - bin[0])`; the shared
+    // `w^bin[0]` factor cancels under the magnitude.
+    std::complex<float> lower = cross[HT20_LIVE_HALF_SIZE - 1U];
+    std::complex<float> upper = cross[HT20_LIVE_BAND_SIZE - 1U];
+    for (int16_t j = static_cast<int16_t>(HT20_LIVE_HALF_SIZE) - 2; j >= 0; j--) {
+        lower = lower * w + cross[j];
+        upper = upper * w + cross[HT20_LIVE_HALF_SIZE + j];
     }
-    return std::abs(aligned) / total;
+    const float gap = static_cast<float>(HT20_LIVE_BINS[HT20_LIVE_HALF_SIZE]) -
+                      static_cast<float>(HT20_LIVE_BINS[0]);
+    const std::complex<float> shift(std::cos(-ramp * gap), std::sin(-ramp * gap));
+    return std::abs(lower + shift * upper) / total;
 }
 
 inline void subband_coherences_from_cross(const std::complex<float>* cross,
                                           const float* magnitude, float* out) {
-    out[0] = delay_compensated_coherence_band_from_cross(cross, magnitude, 0U,
-                                                         HT20_COHERENCE_SUBBAND_SIZE, 4U);
-    out[1] = delay_compensated_coherence_band_from_cross(cross, magnitude, 14U,
-                                                         HT20_COHERENCE_SUBBAND_SIZE, 18U);
-    out[2] = delay_compensated_coherence_band_from_cross(cross, magnitude, 28U,
-                                                         HT20_COHERENCE_SUBBAND_SIZE, 33U);
-    out[3] = delay_compensated_coherence_band_from_cross(cross, magnitude, 42U,
-                                                         HT20_COHERENCE_SUBBAND_SIZE, 47U);
+    for (uint8_t b = 0; b < HT20_COHERENCE_SUBBAND_COUNT; b++) {
+        out[b] = delay_compensated_coherence_band_from_cross(
+            cross, magnitude, static_cast<uint8_t>(b * HT20_COHERENCE_SUBBAND_SIZE),
+            HT20_COHERENCE_SUBBAND_SIZE);
+    }
 }
 
 inline float delay_compensated_coherence_band(const std::complex<float>* current,
                                               const std::complex<float>* reference,
-                                              uint8_t start, uint8_t count,
-                                              uint8_t start_bin) {
+                                              uint8_t start, uint8_t count) {
     if (current == nullptr || reference == nullptr || count < 2U) {
         return 0.0f;
     }
     std::complex<float> cross[HT20_LIVE_BAND_SIZE]{};
     float magnitude[HT20_LIVE_BAND_SIZE]{};
     fill_coherence_cross(current, reference, cross, magnitude);
-    return delay_compensated_coherence_band_from_cross(cross, magnitude, start, count,
-                                                       start_bin);
+    return delay_compensated_coherence_band_from_cross(cross, magnitude, start, count);
 }
 
 inline float delay_compensated_coherence(const std::complex<float>* current,

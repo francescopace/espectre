@@ -139,6 +139,24 @@ inline void assert_float_within(float delta, float expected, float actual, const
   fail(file, line, oss.str());
 }
 
+// Comparing a single-precision runtime value against a double-precision
+// reference needs the reference to stay in double, so the tolerance cannot be
+// narrowed to float on the way in.
+inline void assert_double_within(double delta, double expected, double actual, const char *file,
+                                 int line, const char *message = nullptr) {
+  if (std::fabs(expected - actual) <= delta) {
+    return;
+  }
+
+  std::ostringstream oss;
+  oss.precision(12);
+  oss << "Expected double within " << delta << " of " << expected << " but got " << actual;
+  if (message != nullptr) {
+    oss << " (" << message << ")";
+  }
+  fail(file, line, oss.str());
+}
+
 inline void assert_null(const void *value, const char *file, int line, const char *message = nullptr) {
   if (value == nullptr) {
     return;
@@ -231,6 +249,9 @@ inline void assert_equal_array(const T *expected, const T *actual, std::size_t s
 
 #define TEST_ASSERT_FLOAT_WITHIN(delta, expected, actual) \
   ::espectre::test::assert_float_within((delta), (expected), (actual), __FILE__, __LINE__)
+
+#define TEST_ASSERT_DOUBLE_WITHIN(delta, expected, actual) \
+  ::espectre::test::assert_double_within((delta), (expected), (actual), __FILE__, __LINE__)
 
 #define TEST_ASSERT_EQUAL_STRING(expected, actual) \
   ::espectre::test::assert_equal_string((expected), (actual), __FILE__, __LINE__)

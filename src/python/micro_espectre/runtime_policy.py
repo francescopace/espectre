@@ -232,11 +232,37 @@ def equivalent_packet_weight(elapsed_us, nominal_interval_us, fallback_packets=1
 def _packet_field(packet, key):
     """Return one field from a dict-like packet or packet object."""
     if isinstance(packet, MappingABC):
-        value = packet.get(key)
-        if value is None and key == "seq_num":
-            return packet.get("stream_seq_num")
-        return value
+        return _mapping_field(packet, key)
     return getattr(packet, key, None)
+
+
+def _mapping_field(packet, key):
+    """Return one field from a packet already known to be dict-like."""
+    value = packet.get(key)
+    if value is None and key == "seq_num":
+        return packet.get("stream_seq_num")
+    return value
+
+
+def _packet_fields(packet, keys, out):
+    """Return several fields from one packet, checking its shape once.
+
+    The abstract base class check does not depend on the key, and it is the
+    expensive part: `Mapping.__instancecheck__` walks the ABC registry, while
+    the lookup that follows is a plain dict hit. Every packet reads three
+    fields, so hoisting the check out of the per-field call removes two thirds
+    of that cost from the timing path.
+    """
+    if isinstance(packet, MappingABC):
+        for i in range(len(keys)):
+            out[i] = _mapping_field(packet, keys[i])
+    else:
+        for i in range(len(keys)):
+            out[i] = getattr(packet, keys[i], None)
+    return out
+
+
+_TIMING_PACKET_FIELDS = ("seq_num", "device_ticks_us", "wifi_rx_ts_us")
 
 
 def _unsigned_delta(current, previous, modulus):
@@ -265,6 +291,7 @@ class PacketTimingTracker:
             if rate_estimator is None
             else rate_estimator
         )
+        self._field_values = [None] * len(_TIMING_PACKET_FIELDS)
         self.reset()
 
     def reset(self):
@@ -292,9 +319,9 @@ class PacketTimingTracker:
 
     def observe_packet(self, packet):
         """Return timing metadata for one packet."""
-        seq_num = _packet_field(packet, "seq_num")
-        device_ticks_us = _packet_field(packet, "device_ticks_us")
-        wifi_rx_ts_us = _packet_field(packet, "wifi_rx_ts_us")
+        seq_num, device_ticks_us, wifi_rx_ts_us = _packet_fields(
+            packet, _TIMING_PACKET_FIELDS, self._field_values
+        )
 
         # Loss is measured against the cadence the stream has actually shown,
         # not against a hardcoded step of one. A capture that natively delivers

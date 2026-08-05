@@ -89,18 +89,12 @@ Completed implementation and review work is recorded in
 - [ ] Benchmark `SIZE` versus `PERF` compiler optimization across the
   maintained firmware frontends, and adopt performance-oriented builds where
   device-side gains justify the binary-size and fit trade-offs
-- [ ] Evaluate replacing the per-bin trigonometric derotation in
-  delay-compensated coherence with an incremental complex recurrence. The live
-  bins are consecutive, so one sine and cosine pair can stand in for 56, and
-  the derotation is the dominant cost of the coherence path. Adoption is gated
-  on the `C++`/Python parity and detector performance validations, because the
-  recurrence accumulates drift in the single precision the firmware and the
-  device runtime use, where the current form does not
-- [ ] Reduce the per-packet overhead that remains in the shared runtime policy
-  and the amplitude-profile helper: the packet-field accessor pays an abstract
-  base class check per field per packet, and the normalized amplitude profile
-  still allocates two lists per packet on the MicroPython path, which costs
-  garbage collection rather than host time
+- [x] Replace the per-bin trigonometric derotation in delay-compensated
+  coherence with a Horner evaluation of the same polynomial, rather than the
+  incremental recurrence originally proposed, which drifts more for no gain.
+  Adopted after the parity and detector performance validations held
+- [x] Reduce the per-packet overhead in the shared runtime policy and the
+  amplitude-profile helper
 - [ ] Evaluate adjacent-subcarrier aggregation on the current 12-of-64 CSI path
   to reduce noise without hiding useful short-timescale or frequency-local
   structure, and adopt it only if the `C++`/Python parity and detector

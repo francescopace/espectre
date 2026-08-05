@@ -17,13 +17,20 @@ from ml_feature_trackers import (
     HT20_LIVE_BINS,
     HT20_LIVE_WIDTH,
     ChannelCoherenceTracker,
-    _SUBBAND_BIN_INDICES,
     _SUBBAND_SPANS,
     complex_profile,
     delay_compensated_coherence,
     subband_coherences,
 )
 from tools.lib import host_feature_trackers as host
+
+# The reference keeps the absolute bins the definition is written in. The
+# runtime no longer needs them, because the derotation factors them out as one
+# shared phase per band, so deriving them here keeps the reference independent.
+_SUBBAND_BIN_INDICES = tuple(
+    tuple(float(HT20_LIVE_BINS[i]) for i in range(start, stop))
+    for start, stop in _SUBBAND_SPANS
+)
 
 # NumPy reassociates its sums and the shared buffers change nothing else, so
 # both paths land far below this bound. It is still many orders tighter than any

@@ -82,6 +82,32 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Changed
 
+- **Delay-compensated coherence now evaluates its derotation with Horner
+  instead of one sine and cosine pair per bin**: the aligned sum is
+  `sum_k cross[k] * w**bin[k]` for `w = exp(-i * ramp)`, and the live bins of a
+  contiguous band are consecutive, so the sum is a polynomial in `w`. Each band
+  now costs one sine and cosine pair instead of one per bin, and because only
+  the magnitude is used, the shared `w**start_bin` factor cancels and a band's
+  absolute position drops out of the computation entirely. The MicroPython
+  coherence tracker falls from 223.54 to 139.98 ms over 3000 packets. The
+  roadmap had proposed an incremental power recurrence for this; that form was
+  measured and rejected, since it drifts further than Horner without being
+  faster. On the host `C++` build Horner is not faster than the trigonometric
+  form it replaces, and its device-side cost was not measured. Accuracy against
+  a double-precision reference moves from 3.6e-7 to 1.1e-6 on coherent
+  profiles, which is roughly four thousand times finer than the `int8` CSI
+  payload itself resolves; the detector performance and parity validations are
+  unchanged, chip for chip.
+
+- **The runtime policy checks a packet's shape once per packet rather than once
+  per field**: `Mapping.__instancecheck__` walks the ABC registry while the
+  lookup that follows is a plain dict hit, and every packet reads three timing
+  fields. The normalized amplitude profile also accepts a caller buffer, as its
+  `C++` counterpart already did, which removes two list allocations per packet
+  from the MicroPython path. Abstract base class checks over a paired replay
+  drop from 242k to 127k and profiled `observe_packet` from 0.814 to 0.701
+  seconds, below wall-clock noise on the replay itself.
+
 - **The coherence trackers now size their lag rings to the configured lag and
   share one cross-product array per reference**: the profile rings were static
   arrays dimensioned to `L1_DELTA_LAG_MAX`, while the 100 ms contract resolves

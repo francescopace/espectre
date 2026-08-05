@@ -39,12 +39,10 @@ _SUBBAND_PROFILE_INDICES = tuple(
     tuple(_LIVE_BIN_TO_INDEX[bin_index] for bin_index in subband)
     for subband in HT20_COHERENCE_SUBBANDS
 )
-_SUBBAND_BIN_INDICES = tuple(
-    tuple(float(bin_index) for bin_index in subband)
-    for subband in HT20_COHERENCE_SUBBANDS
-)
 # Each subband is contiguous in profile index, and together they tile the live
 # band, so a shared cross-product array can be read by span instead of by index.
+# The absolute bins of a subband are not needed: the derotation factors them out
+# as one shared phase, which the magnitude discards.
 _SUBBAND_SPANS = tuple(
     (indices[0], indices[-1] + 1) for indices in _SUBBAND_PROFILE_INDICES
 )
@@ -110,14 +108,21 @@ def _delay_compensated_coherence_from_cross(cross, magnitude):
     for left, right in zip(_ADJACENT_LEFT, _ADJACENT_RIGHT):
         ramp_sum += cross[left] * cross[right].conjugate()
     ramp = math.atan2(ramp_sum.imag, ramp_sum.real)
-    aligned = 0j
-    for i in range(HT20_LIVE_WIDTH):
-        angle = -ramp * _BIN_INDEX[i]
-        aligned += cross[i] * complex(math.cos(angle), math.sin(angle))
-    return abs(aligned) / total
+    w = complex(math.cos(-ramp), math.sin(-ramp))
+    # One Horner pass per half. The DC null makes the bins jump between them,
+    # so the upper half re-enters through `w ** (bin[half] - bin[0])`; the
+    # shared `w ** bin[0]` factor cancels under the magnitude.
+    lower = cross[_LIVE_BAND_SPLIT - 1]
+    upper = cross[HT20_LIVE_WIDTH - 1]
+    for j in range(_LIVE_BAND_SPLIT - 2, -1, -1):
+        lower = lower * w + cross[j]
+        upper = upper * w + cross[_LIVE_BAND_SPLIT + j]
+    gap = _BIN_INDEX[_LIVE_BAND_SPLIT] - _BIN_INDEX[0]
+    shift = complex(math.cos(-ramp * gap), math.sin(-ramp * gap))
+    return abs(lower + shift * upper) / total
 
 
-def _subband_coherence_from_cross(cross, magnitude, start, stop, bin_index):
+def _subband_coherence_from_cross(cross, magnitude, start, stop):
     total = 0.0
     for i in range(start, stop):
         total += magnitude[i]
@@ -127,19 +132,17 @@ def _subband_coherence_from_cross(cross, magnitude, start, stop, bin_index):
     for i in range(start + 1, stop):
         ramp_sum += cross[i] * cross[i - 1].conjugate()
     ramp = math.atan2(ramp_sum.imag, ramp_sum.real)
-    aligned = 0j
-    for pos in range(stop - start):
-        angle = -ramp * bin_index[pos]
-        aligned += cross[start + pos] * complex(math.cos(angle), math.sin(angle))
+    w = complex(math.cos(-ramp), math.sin(-ramp))
+    aligned = cross[stop - 1]
+    for i in range(stop - 2, start - 1, -1):
+        aligned = aligned * w + cross[i]
     return abs(aligned) / total
 
 
 def _subband_coherences_from_cross(cross, magnitude, out):
     for i in range(len(_SUBBAND_SPANS)):
         start, stop = _SUBBAND_SPANS[i]
-        out[i] = _subband_coherence_from_cross(
-            cross, magnitude, start, stop, _SUBBAND_BIN_INDICES[i]
-        )
+        out[i] = _subband_coherence_from_cross(cross, magnitude, start, stop)
     return out
 
 
@@ -158,16 +161,27 @@ def subband_coherences(current, reference):
     )
 
 
-def normalized_amplitude_profile(profile):
-    """Return the channel magnitude divided by its packet L2 norm."""
-    amplitudes = [abs(value) for value in profile]
+def normalized_amplitude_profile(profile, out=None):
+    """Return the channel magnitude divided by its packet L2 norm.
+
+    Passing `out` keeps the per-packet path free of the two list allocations the
+    magnitude and the normalized result would otherwise cost, which is garbage
+    collection the device does not need to do inside a CSI callback.
+    """
+    amplitudes = out if out is not None else [0.0] * HT20_LIVE_WIDTH
     total = 0.0
-    for value in amplitudes:
+    for i in range(HT20_LIVE_WIDTH):
+        value = abs(profile[i])
+        amplitudes[i] = value
         total += value * value
     norm = math.sqrt(total)
     if norm <= 0.0:
-        return [0.0] * len(amplitudes)
-    return [value / norm for value in amplitudes]
+        for i in range(HT20_LIVE_WIDTH):
+            amplitudes[i] = 0.0
+        return amplitudes
+    for i in range(HT20_LIVE_WIDTH):
+        amplitudes[i] = amplitudes[i] / norm
+    return amplitudes
 
 
 def motion_participation(energy):
@@ -287,6 +301,7 @@ class ChannelShapeTracker:
         self._frequency_curve_sum = 0.0
         self._frequency_curve_square_sum = 0.0
         self._complex_profile = [0j] * HT20_LIVE_WIDTH
+        self._amplitude_profile = [0.0] * HT20_LIVE_WIDTH
         self._coherence_squares = new_frequency_coherence_squares()
         self._coherence_values = [0.0] * len(FREQUENCY_COHERENCE_OFFSETS)
 
@@ -341,7 +356,7 @@ class ChannelShapeTracker:
 
     def process_packet(self, csi_data):
         complex_values = complex_profile(csi_data, self._complex_profile)
-        profile = normalized_amplitude_profile(complex_values)
+        profile = normalized_amplitude_profile(complex_values, self._amplitude_profile)
         slot = self._index
         if self._ring_filled[slot]:
             delta = [0.0] * HT20_LIVE_WIDTH

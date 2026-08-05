@@ -77,62 +77,69 @@ float reference_frequency_coherence(const std::complex<float>* profile, uint8_t 
     return std::abs(numerator) / denominator;
 }
 
-// One contiguous subband, written from scratch off the two profiles. Comparing
-// the shared-buffer path only against the standalone wrapper would be circular:
-// both run the same span arithmetic, so a span bug would agree with itself.
-float reference_subband_coherence(const std::complex<float>* current,
-                                  const std::complex<float>* reference,
-                                  uint8_t start, uint8_t count, uint8_t start_bin) {
-    std::vector<std::complex<float>> cross;
-    float total = 0.0f;
+// One contiguous subband, written from scratch off the two profiles and in
+// double precision, so it stands for the true value rather than for another
+// single-precision approximation. Comparing the runtime only against a float
+// reference would be circular twice over: same span arithmetic, and same
+// rounding behaviour.
+double reference_subband_coherence(const std::complex<float>* current,
+                                   const std::complex<float>* reference,
+                                   uint8_t start, uint8_t count, uint8_t start_bin) {
+    std::vector<std::complex<double>> cross;
+    double total = 0.0;
     for (uint8_t i = 0; i < count; i++) {
-        cross.push_back(current[start + i] * std::conj(reference[start + i]));
+        cross.push_back(std::complex<double>(current[start + i]) *
+                        std::conj(std::complex<double>(reference[start + i])));
         total += std::abs(cross[i]);
     }
-    if (total <= 0.0f) {
-        return 0.0f;
+    if (total <= 0.0) {
+        return 0.0;
     }
-    std::complex<float> ramp_sum(0.0f, 0.0f);
+    std::complex<double> ramp_sum(0.0, 0.0);
     for (uint8_t i = 1; i < count; i++) {
         ramp_sum += cross[i] * std::conj(cross[i - 1U]);
     }
-    const float ramp = std::atan2(ramp_sum.imag(), ramp_sum.real());
-    std::complex<float> aligned(0.0f, 0.0f);
+    const double ramp = std::atan2(ramp_sum.imag(), ramp_sum.real());
+    std::complex<double> aligned(0.0, 0.0);
     for (uint8_t i = 0; i < count; i++) {
-        const float angle = -ramp * static_cast<float>(start_bin + i);
-        aligned += cross[i] * std::complex<float>(std::cos(angle), std::sin(angle));
+        const double angle = -ramp * static_cast<double>(start_bin + i);
+        aligned += cross[i] * std::complex<double>(std::cos(angle), std::sin(angle));
     }
     return std::abs(aligned) / total;
 }
 
-// The full live band, written from scratch. The DC gap makes one index pair
-// non-adjacent in frequency, and it must stay out of the ramp estimate.
-float reference_full_band_coherence(const std::complex<float>* current,
-                                    const std::complex<float>* reference) {
-    std::vector<std::complex<float>> cross;
-    float total = 0.0f;
+
+// The full live band, written from scratch and in double precision. The DC gap
+// makes one index pair non-adjacent in frequency, and it must stay out of the
+// ramp estimate.
+double reference_full_band_coherence(const std::complex<float>* current,
+                                     const std::complex<float>* reference) {
+    std::vector<std::complex<double>> cross;
+    double total = 0.0;
     for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        cross.push_back(current[i] * std::conj(reference[i]));
+        cross.push_back(std::complex<double>(current[i]) *
+                        std::conj(std::complex<double>(reference[i])));
         total += std::abs(cross[i]);
     }
-    if (total <= 0.0f) {
-        return 0.0f;
+    if (total <= 0.0) {
+        return 0.0;
     }
-    std::complex<float> ramp_sum(0.0f, 0.0f);
+    std::complex<double> ramp_sum(0.0, 0.0);
     for (uint8_t i = 1; i < HT20_LIVE_BAND_SIZE; i++) {
         if (HT20_LIVE_BINS[i] - HT20_LIVE_BINS[i - 1U] != 1U) {
             continue;
         }
         ramp_sum += cross[i] * std::conj(cross[i - 1U]);
     }
-    const float ramp = std::atan2(ramp_sum.imag(), ramp_sum.real());
-    std::complex<float> aligned(0.0f, 0.0f);
+    const double ramp = std::atan2(ramp_sum.imag(), ramp_sum.real());
+    std::complex<double> aligned(0.0, 0.0);
     for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        const float angle = -ramp * static_cast<float>(HT20_LIVE_BINS[i]);
-        aligned += cross[i] * std::complex<float>(std::cos(angle), std::sin(angle));
+        const double angle = -ramp * static_cast<double>(HT20_LIVE_BINS[i]);
+        aligned += cross[i] * std::complex<double>(std::cos(angle), std::sin(angle));
     }
     return std::abs(aligned) / total;
 }
+
 
 uint16_t reference_pair_count(uint8_t offset) {
     uint16_t pairs = 0;
@@ -189,8 +196,57 @@ struct SeededProfiles {
         }
     }
 
+    float next_unit() { return (next_component() + 128.0f) / 256.0f; }
+
+    // A coherent pair: one shared channel shape, a per-packet delay ramp, and a
+    // small perturbation. This is the regime real CSI sits in, and the one the
+    // detector is tuned on; independent random profiles are not.
+    void fill_coherent_pair(std::complex<float>* current, std::complex<float>* reference) {
+        const double delay = (next_unit() - 0.5f) * 0.08;
+        for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
+            const double amplitude = 20.0 + 100.0 * next_unit();
+            const double phase = 6.283185307 * next_unit();
+            const std::complex<double> channel = std::polar(amplitude, phase);
+            const std::complex<double> rotated =
+                channel * std::polar(1.0, delay * static_cast<double>(HT20_LIVE_BINS[i])) *
+                (1.0 + 0.01 * (next_unit() - 0.5f));
+            current[i] = std::complex<float>(static_cast<float>(channel.real()),
+                                             static_cast<float>(channel.imag()));
+            reference[i] = std::complex<float>(static_cast<float>(rotated.real()),
+                                               static_cast<float>(rotated.imag()));
+        }
+    }
+
     uint32_t state;
 };
+
+// Both entry points must land on the double-precision reference within the
+// caller's single-precision bound, and the shared-buffer path must land exactly
+// where the standalone wrappers do: same products, same order, same
+// normalization.
+void check_coherence_against_reference(const std::complex<float>* current,
+                                       const std::complex<float>* reference,
+                                       std::complex<float>* cross, float* magnitude,
+                                       double bound) {
+    fill_coherence_cross(current, reference, cross, magnitude);
+    const double full = delay_compensated_coherence_from_cross(cross, magnitude);
+    TEST_ASSERT_TRUE(full == delay_compensated_coherence(current, reference));
+    TEST_ASSERT_DOUBLE_WITHIN(bound, reference_full_band_coherence(current, reference), full);
+
+    float shared_bands[HT20_COHERENCE_SUBBAND_COUNT]{};
+    float direct_bands[HT20_COHERENCE_SUBBAND_COUNT]{};
+    subband_coherences_from_cross(cross, magnitude, shared_bands);
+    subband_coherences(current, reference, direct_bands);
+    for (uint8_t b = 0; b < HT20_COHERENCE_SUBBAND_COUNT; b++) {
+        const uint8_t start = static_cast<uint8_t>(b * HT20_COHERENCE_SUBBAND_SIZE);
+        TEST_ASSERT_TRUE(shared_bands[b] == direct_bands[b]);
+        TEST_ASSERT_DOUBLE_WITHIN(
+            bound,
+            reference_subband_coherence(current, reference, start,
+                                        HT20_COHERENCE_SUBBAND_SIZE, HT20_LIVE_BINS[start]),
+            shared_bands[b]);
+    }
+}
 
 }  // namespace
 
@@ -303,31 +359,31 @@ void test_coherence_shares_cross_products_across_band_and_subbands(void) {
     std::complex<float> cross[HT20_LIVE_BAND_SIZE]{};
     float magnitude[HT20_LIVE_BAND_SIZE]{};
 
-    for (uint16_t trial = 0; trial < 32U; trial++) {
+    // Two regimes, because they bound the error for different reasons.
+    //
+    // Uniform random profiles are adversarial: they leave the aligned sum
+    // almost fully cancelled, and the relative error of a cancelled sum in
+    // single precision is large no matter how it is evaluated. Measured over
+    // 20000 such trials, Horner and the per-bin trigonometric form it replaced
+    // both sit at roughly 1.8e-5, indistinguishable.
+    //
+    // Coherent profiles are the production regime, and there the two forms
+    // separate: roughly 1.1e-6 for Horner against 3.6e-7 for the per-bin form.
+    // Both bounds are far below what the data can carry, since the CSI payload
+    // is int8 and its own resolution is around 4e-3.
+    const double adversarial_bound = 5e-5;
+    const double coherent_bound = 1e-5;
+
+    for (uint16_t trial = 0; trial < 512U; trial++) {
         generator.fill(current);
         generator.fill(reference);
-
-        // The shared-buffer path must land exactly where the standalone
-        // wrappers do: same products, same order, same normalization.
-        fill_coherence_cross(current, reference, cross, magnitude);
-        TEST_ASSERT_TRUE(delay_compensated_coherence_from_cross(cross, magnitude) ==
-                         delay_compensated_coherence(current, reference));
-        TEST_ASSERT_FLOAT_WITHIN(1e-6f,
-                                 reference_full_band_coherence(current, reference),
-                                 delay_compensated_coherence_from_cross(cross, magnitude));
-
-        float shared_bands[HT20_COHERENCE_SUBBAND_COUNT]{};
-        float direct_bands[HT20_COHERENCE_SUBBAND_COUNT]{};
-        subband_coherences_from_cross(cross, magnitude, shared_bands);
-        subband_coherences(current, reference, direct_bands);
-        for (uint8_t b = 0; b < HT20_COHERENCE_SUBBAND_COUNT; b++) {
-            const uint8_t start = static_cast<uint8_t>(b * HT20_COHERENCE_SUBBAND_SIZE);
-            const float expected = reference_subband_coherence(
-                current, reference, start, HT20_COHERENCE_SUBBAND_SIZE,
-                HT20_LIVE_BINS[start]);
-            TEST_ASSERT_TRUE(shared_bands[b] == direct_bands[b]);
-            TEST_ASSERT_FLOAT_WITHIN(1e-6f, expected, shared_bands[b]);
-        }
+        check_coherence_against_reference(current, reference, cross, magnitude,
+                                          adversarial_bound);
+    }
+    for (uint16_t trial = 0; trial < 512U; trial++) {
+        generator.fill_coherent_pair(current, reference);
+        check_coherence_against_reference(current, reference, cross, magnitude,
+                                          coherent_bound);
     }
 
     // Null inputs stay guarded on every entry point.
