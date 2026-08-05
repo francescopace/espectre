@@ -356,25 +356,33 @@ def _frequency_coherence_pairs(offset: int) -> Tuple[Tuple[int, int], ...]:
     )
 
 
-_FREQUENCY_COHERENCE_INDICES = {
-    offset: (
-        np.asarray(
-            [left for left, _ in _frequency_coherence_pairs(offset)],
-            dtype=np.intp,
-        ),
-        np.asarray(
-            [right for _, right in _frequency_coherence_pairs(offset)],
-            dtype=np.intp,
-        ),
-    )
-    for offset in (2, 4, 12)
-}
+# `cross_subcarrier_ratio_distance` keeps a materialized pair table because it
+# masks pair by pair. Frequency coherence reads the band through the halves
+# below instead, so only the offset it uses is tabulated here.
 _FREQUENCY_COHERENCE_LEFT = np.asarray(
-    _FREQUENCY_COHERENCE_INDICES[4][0],
+    [left for left, _ in _frequency_coherence_pairs(4)],
+    dtype=np.intp,
 )
 _FREQUENCY_COHERENCE_RIGHT = np.asarray(
-    _FREQUENCY_COHERENCE_INDICES[4][1],
+    [right for _, right in _frequency_coherence_pairs(4)],
+    dtype=np.intp,
 )
+
+FREQUENCY_COHERENCE_OFFSETS: Tuple[int, ...] = (2, 4, 12)
+# The DC null splits the live band into two equal runs that are contiguous in
+# both bin number and profile index, so a pair separated by `offset` bins is
+# always `left + offset` inside one run. Coherence reshapes the band into those
+# runs, which keeps it on views rather than the temporary arrays fancy indexing
+# builds on every call.
+_LIVE_BAND_SPLIT = next(
+    (
+        i
+        for i in range(1, len(HT20_LIVE_BINS))
+        if HT20_LIVE_BINS[i] - HT20_LIVE_BINS[i - 1] != 1
+    ),
+    len(HT20_LIVE_BINS),
+)
+_LIVE_BAND_HALVES = len(HT20_LIVE_BINS) // _LIVE_BAND_SPLIT
 
 
 def cross_subcarrier_ratio_distance(
@@ -428,12 +436,20 @@ def frequency_coherence(profile: np.ndarray, offset: int = 4) -> float:
     therefore a compact proxy for frequency coherence, and hence multipath
     delay structure, without requiring a stable absolute phase.
     """
-    indices = _FREQUENCY_COHERENCE_INDICES.get(int(offset))
-    if indices is None:
+    offset = int(offset)
+    if offset not in FREQUENCY_COHERENCE_OFFSETS:
         return 0.0
-    left = profile[indices[0]]
-    right = profile[indices[1]]
-    denominator = float(np.linalg.norm(left) * np.linalg.norm(right))
+    if profile.shape != (len(HT20_LIVE_BINS),):
+        return 0.0
+    # Row `i` is live-band half `i`, so a pair at `offset` is a plain column
+    # shift and both operands stay views. Fancy indexing would materialize the
+    # pair arrays on every call instead.
+    halves = profile.reshape(_LIVE_BAND_HALVES, _LIVE_BAND_SPLIT)
+    left = halves[:, :_LIVE_BAND_SPLIT - offset]
+    right = halves[:, offset:]
+    left_squared = float(np.vdot(left, left).real)
+    right_squared = float(np.vdot(right, right).real)
+    denominator = np.sqrt(left_squared) * np.sqrt(right_squared)
     if denominator <= 0.0:
         return 0.0
     return float(abs(np.vdot(left, right)) / denominator)

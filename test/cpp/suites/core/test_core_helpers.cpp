@@ -15,6 +15,7 @@
 #include "classic_detector.h"
 #include "ml_detector.h"
 #include "csi_features.h"
+#include "ml_feature_trackers.h"
 #include "threshold.h"
 #include "csi_format.h"
 #include "utils.h"
@@ -45,7 +46,171 @@ void fill_past_window(Detector& detector, uint16_t packets) {
     }
 }
 
+// The definition, written straight from the bin table the way the original
+// full 56x56 scan walked it. Frequency coherence now walks the two contiguous
+// live-band halves instead, so this keeps the pair set, the pair order, and the
+// normalization pinned to the formula rather than to the current loop shape.
+float reference_frequency_coherence(const std::complex<float>* profile, uint8_t offset) {
+    std::complex<float> numerator(0.0f, 0.0f);
+    float left_norm = 0.0f;
+    float right_norm = 0.0f;
+    for (uint8_t left = 0; left < HT20_LIVE_BAND_SIZE; left++) {
+        for (uint8_t right = 0; right < HT20_LIVE_BAND_SIZE; right++) {
+            const int bin_delta = static_cast<int>(HT20_LIVE_BINS[right]) -
+                                  static_cast<int>(HT20_LIVE_BINS[left]);
+            if (bin_delta != static_cast<int>(offset)) {
+                continue;
+            }
+            if (HT20_LIVE_BINS[left] < HT20_DC_SUBCARRIER &&
+                HT20_DC_SUBCARRIER < HT20_LIVE_BINS[right]) {
+                continue;
+            }
+            numerator += std::conj(profile[left]) * profile[right];
+            left_norm += std::norm(profile[left]);
+            right_norm += std::norm(profile[right]);
+        }
+    }
+    const float denominator = std::sqrt(left_norm) * std::sqrt(right_norm);
+    if (denominator <= 0.0f) {
+        return 0.0f;
+    }
+    return std::abs(numerator) / denominator;
+}
+
+uint16_t reference_pair_count(uint8_t offset) {
+    uint16_t pairs = 0;
+    for (uint8_t left = 0; left < HT20_LIVE_BAND_SIZE; left++) {
+        for (uint8_t right = 0; right < HT20_LIVE_BAND_SIZE; right++) {
+            const int bin_delta = static_cast<int>(HT20_LIVE_BINS[right]) -
+                                  static_cast<int>(HT20_LIVE_BINS[left]);
+            if (bin_delta != static_cast<int>(offset)) {
+                continue;
+            }
+            if (HT20_LIVE_BINS[left] < HT20_DC_SUBCARRIER &&
+                HT20_DC_SUBCARRIER < HT20_LIVE_BINS[right]) {
+                continue;
+            }
+            pairs++;
+        }
+    }
+    return pairs;
+}
+
+// Deterministic 32-bit LCG: the profiles must be reproducible across runs and
+// platforms, which <random> does not guarantee for its distributions.
+struct SeededProfiles {
+    explicit SeededProfiles(uint32_t seed) : state(seed) {}
+
+    float next_component() {
+        state = state * 1664525U + 1013904223U;
+        return static_cast<float>(static_cast<int>((state >> 16U) & 0xFFU) - 128);
+    }
+
+    void fill(std::complex<float>* profile) {
+        for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
+            const float real = next_component();
+            const float imag = next_component();
+            profile[i] = std::complex<float>(real, imag);
+        }
+    }
+
+    uint32_t state;
+};
+
 }  // namespace
+
+void test_frequency_coherence_matches_the_reference_formula(void) {
+    const uint8_t offsets[] = {2U, 4U, 12U};
+    const uint16_t expected_pairs[] = {52U, 48U, 32U};
+
+    // The half walk must reproduce exactly the pairs the full scan found.
+    for (uint8_t i = 0; i < 3U; i++) {
+        TEST_ASSERT_EQUAL(expected_pairs[i], reference_pair_count(offsets[i]));
+    }
+
+    // A null profile is guarded rather than dereferenced.
+    for (uint8_t i = 0; i < 3U; i++) {
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, frequency_coherence(nullptr, offsets[i]));
+    }
+
+    // An all-zero profile hits the denominator guard.
+    std::complex<float> zeros[HT20_LIVE_BAND_SIZE]{};
+    for (uint8_t i = 0; i < 3U; i++) {
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, frequency_coherence(zeros, offsets[i]));
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, reference_frequency_coherence(zeros, offsets[i]));
+    }
+
+    // Deterministic profiles: flat, ramped, sign-flipping, and one silent half.
+    std::complex<float> flat[HT20_LIVE_BAND_SIZE];
+    std::complex<float> ramp[HT20_LIVE_BAND_SIZE];
+    std::complex<float> alternating[HT20_LIVE_BAND_SIZE];
+    std::complex<float> half_silent[HT20_LIVE_BAND_SIZE];
+    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
+        flat[i] = std::complex<float>(7.0f, -3.0f);
+        ramp[i] = std::complex<float>(static_cast<float>(i) - 28.0f, 0.5f * i);
+        alternating[i] = (i % 2U == 0U) ? std::complex<float>(9.0f, 2.0f)
+                                        : std::complex<float>(-9.0f, -2.0f);
+        half_silent[i] = (i < HT20_LIVE_HALF_SIZE) ? std::complex<float>(0.0f, 0.0f)
+                                                   : std::complex<float>(5.0f, 4.0f);
+    }
+    const std::complex<float>* deterministic[] = {flat, ramp, alternating, half_silent};
+    for (const std::complex<float>* profile : deterministic) {
+        for (uint8_t i = 0; i < 3U; i++) {
+            TEST_ASSERT_FLOAT_WITHIN(1e-6f,
+                                     reference_frequency_coherence(profile, offsets[i]),
+                                     frequency_coherence(profile, offsets[i]));
+        }
+    }
+
+    // Seeded pseudo-random profiles over the int8 range CSI actually delivers.
+    SeededProfiles generator(20260805U);
+    std::complex<float> random_profile[HT20_LIVE_BAND_SIZE];
+    for (uint16_t trial = 0; trial < 64U; trial++) {
+        generator.fill(random_profile);
+        for (uint8_t i = 0; i < 3U; i++) {
+            TEST_ASSERT_FLOAT_WITHIN(1e-6f,
+                                     reference_frequency_coherence(random_profile, offsets[i]),
+                                     frequency_coherence(random_profile, offsets[i]));
+        }
+    }
+
+    // Offsets with no pair inside a half yield no coherence.
+    const uint8_t unsupported[] = {28U, 29U, 55U, 200U};
+    for (uint8_t offset : unsupported) {
+        TEST_ASSERT_EQUAL(0U, reference_pair_count(offset));
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, frequency_coherence(random_profile, offset));
+    }
+}
+
+void test_frequency_coherences_matches_single_offset_calls(void) {
+    SeededProfiles generator(991U);
+    std::complex<float> profile[HT20_LIVE_BAND_SIZE];
+    float combined[FREQUENCY_COHERENCE_COUNT]{};
+
+    TEST_ASSERT_EQUAL(3U, FREQUENCY_COHERENCE_COUNT);
+    TEST_ASSERT_EQUAL_UINT8(2U, FREQUENCY_COHERENCE_OFFSETS[0]);
+    TEST_ASSERT_EQUAL_UINT8(4U, FREQUENCY_COHERENCE_OFFSETS[1]);
+    TEST_ASSERT_EQUAL_UINT8(12U, FREQUENCY_COHERENCE_OFFSETS[2]);
+
+    for (uint16_t trial = 0; trial < 32U; trial++) {
+        generator.fill(profile);
+        frequency_coherences(profile, combined);
+        for (uint8_t i = 0; i < FREQUENCY_COHERENCE_COUNT; i++) {
+            // Same helpers on the same inputs, so this is exact rather than near.
+            TEST_ASSERT_TRUE(combined[i] ==
+                             frequency_coherence(profile, FREQUENCY_COHERENCE_OFFSETS[i]));
+        }
+    }
+
+    // A null profile zeroes the whole output instead of leaving it stale.
+    for (uint8_t i = 0; i < FREQUENCY_COHERENCE_COUNT; i++) {
+        combined[i] = 0.5f;
+    }
+    frequency_coherences(nullptr, combined);
+    for (uint8_t i = 0; i < FREQUENCY_COHERENCE_COUNT; i++) {
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, combined[i]);
+    }
+}
 
 void test_utils_statistical_helpers_cover_edge_cases(void) {
     float no_values = calculate_mean(nullptr, 0);
@@ -434,6 +599,8 @@ int process(void) {
     RUN_TEST(test_motion_first_accepts_after_a_long_quiet_prefix);
     RUN_TEST(test_detector_startup_gate_traits);
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
+    RUN_TEST(test_frequency_coherence_matches_the_reference_formula);
+    RUN_TEST(test_frequency_coherences_matches_single_offset_calls);
     RUN_TEST(test_classic_detector_move_semantics_and_base_accessors);
     RUN_TEST(test_ml_detector_move_semantics_and_cv_state);
     return UNITY_END();

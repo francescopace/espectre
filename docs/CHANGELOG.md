@@ -82,6 +82,20 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Changed
 
+- **Frequency coherence now walks the two live-band halves instead of scanning
+  every subcarrier pair**: the DC null splits the HT20 live band into two
+  contiguous 28-bin runs, so a pair at offset `d` is always `left + d` inside
+  one run. `C++` drops the `56x56` scan it ran once per offset, and both `C++`
+  and MicroPython cache the 56 squared magnitudes once per packet and share
+  them across offsets `2`, `4`, and `12` through a combined entry point;
+  MicroPython also reuses preallocated per-packet buffers, and the host NumPy
+  path reads the halves as array views rather than materializing pair arrays.
+  The pair sets (`52`, `48`, and `32`), the pair order, and the resulting
+  features are unchanged, and `C++` `test_motion_detection` falls from roughly
+  13.4 to 3.1 seconds. `test/python/test_frequency_coherence.py` and the new
+  `core` helper tests pin all three implementations to the formula written out
+  pair by pair from the bin table.
+
 - **Warm-cache Python validation now avoids replay oversubscription and repeated
   feature extraction**: pytest auto-parallelism is capped at four workers in
   local and CI runs, packet-rate variants persist time-aware Classic and ML rows
