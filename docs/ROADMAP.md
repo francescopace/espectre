@@ -54,6 +54,10 @@ Completed implementation and review work is recorded in
 ### Detector Evidence
 
 - [ ] Complete ClassicDetector and MLDetector tuning
+- [ ] Re-evaluate the robust-dispersion turbulence features under
+  adjacent-subcarrier aggregation, including candidates retired before that
+  evidence existed, and adopt only if an ML retrain clears the promotion gates
+  without splitting the amplitude path between the two detectors
 - [x] Persist canonical time-aware Classic replay rows, and close the
   row-versus-packet parity evidence for native, high-rate, and decimated
   streams
@@ -95,10 +99,12 @@ Completed implementation and review work is recorded in
   Adopted after the parity and detector performance validations held
 - [x] Reduce the per-packet overhead in the shared runtime policy and the
   amplitude-profile helper
-- [ ] Evaluate adjacent-subcarrier aggregation on the current 12-of-64 CSI path
+- [x] Evaluate adjacent-subcarrier aggregation on the current 12-of-64 CSI path
   to reduce noise without hiding useful short-timescale or frequency-local
   structure, and adopt it only if the `C++`/Python parity and detector
-  performance validations improve
+  performance validations improve. Rejected: the amplitude-level noise gain is
+  real but does not reach the detector, and Classic separability degrades
+  monotonically with the group width
 - [ ] Evaluate broader PHY and band support, including Wi-Fi 6 / 802.11ax
   capabilities and 5 GHz operation where hardware and exposed APIs support it
 

@@ -115,8 +115,10 @@ The latest diagnostic snapshot and interpretation live in
 [ALGORITHMS.md](ALGORITHMS.md). Recompute the values after changing the dataset,
 feature set, preprocessing, model architecture, or training policy.
 The production ML path also stays aligned with the same fixed 12-tone HT20 band
-used by Classic, so retrain and re-export whenever that band changes. For how
-the band was derived from channel coherence, and why the count stays at 12, see
+used by Classic for its turbulence and L1 features, and with the same 56-bin
+live band for its coherence and channel-shape features, so retrain and re-export
+whenever either band changes. For how the 12-tone band was derived from channel
+coherence, and why the count stays at 12, see
 [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md).
 
 ## Default Behavior

@@ -124,6 +124,68 @@ Combination results:
   with `0.04%` max FP and no alarms, but paired non-regression rejected the
   combination.
 
+### Adjacent-Subcarrier Aggregation
+
+The August 5, 2026 screen asked whether averaging adjacent bins into each of the
+twelve selected subcarriers improves the features that read the amplitude
+buffer. It is an input-path transform rather than a candidate feature, so it
+changes existing features instead of adding one.
+
+Corpus: the 19 `train` pairs, replayed through the production detectors with the
+aggregation injected at the amplitude-buffer fill. Metric: per-pair separation
+`max(AUC, 1-AUC)`, which keeps inverted-polarity features comparable. This is a
+screen, not a promotion gate: no grouped-CV, replay, or quiet-gate run was
+performed, because the Classic result did not warrant one.
+
+| Feature | Worst pair, baseline | Worst pair, W=3 | Same limiting pair | Mean paired delta |
+| --- | ---: | ---: | --- | ---: |
+| `turb_mad_over_mean` | 0.6190 | 0.8155 | yes | +0.0139 |
+| `turb_zcr` | 0.9685 | 0.9457 | yes | -0.0006 |
+| `turb_autocorr` | 0.9734 | 0.9502 | yes | -0.0011 |
+| `l1_delta_autocorr` | 0.8403 | 0.8687 | no | +0.0042 |
+| `l1_delta_lag_ratio` | 0.9824 | 0.9576 | no | -0.0009 |
+
+The five channel-shape and coherence features read the full 56-bin live profile,
+never the twelve-tone buffer, and are bit-identical under aggregation.
+
+The two statistics computed on the turbulence series, `turb_autocorr` and
+`turb_zcr`, lose on the same limiting pair, while `turb_mad_over_mean` gains
+sharply on its own: its quiet floor is the noise being reduced, rather than what
+keeps the quiet series structureless. The two `l1_delta` rows are not evidence
+either way, because their worst pair is a different recording in the two
+configurations and their mean paired deltas are small. Classic is built on
+`turb_autocorr`, so aggregation was rejected for the shared path; see
+[2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md](adr/2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md)
+for the noise measurements, the width sweep, and the mechanism.
+
+`turb_mad_over_mean` is not alone: the robust-dispersion statistics of the
+turbulence series all move the same way, including several retired candidates.
+The rows below reconstruct those statistics on the unmodified production
+turbulence series; the harness reproduces the production `turb_mad_over_mean`
+worst pair exactly, so the reconstructions share its basis.
+
+| Candidate | Worst pair, baseline | Worst pair, W=3 | Same limiting pair |
+| --- | ---: | ---: | --- |
+| `turb_iqr_over_mean` | 0.6317 | 0.8308 | yes |
+| `turb_mad_over_mean` (production) | 0.6190 | 0.8155 | yes |
+| `turb_p95_over_mean` | 0.6219 | 0.7865 | yes |
+| `turb_min_over_mean` | 0.5237 | 0.6864 | yes |
+| `turb_p05_over_mean` | 0.5732 | 0.6673 | yes |
+| `turb_cv` | 0.5103 | 0.6451 | yes |
+| `turb_range_over_mean` | 0.5855 | 0.5432 | yes |
+| `turb_max_over_mean` | 0.5819 | 0.5210 | yes |
+
+Robust dispersion statistics gain on the limiting pair, while the two max-based
+extremes lose it, so "extreme-order statistics are the most noise-sensitive and
+therefore gain most" is not what the corpus shows. `turb_iqr_over_mean`, a
+Relative-8 member dropped at the Core-6 transition, edges past the current
+production feature. `corr_amp_d1` was the strongest prior candidate, having been
+rejected because at lag 1 it mostly measured receiver noise, and it did not
+benefit: median separation falls `0.8920` to `0.8793`.
+
+All of this is ML-side and screening-grade. The ADR records what a retrain would
+have to settle before any of it could be promoted.
+
 ### Classic Linear Candidate Replay
 
 The July 30, 2026 Classic campaign asked whether a linear pair or triplet from

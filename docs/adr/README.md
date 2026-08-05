@@ -67,6 +67,7 @@ instead of repeating its historical rationale.
 - [`2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
 - [`2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md`](2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md)
 - [`2026-07-23-adopt-classifier-first-ht20-sensing-contract.md`](2026-07-23-adopt-classifier-first-ht20-sensing-contract.md)
+- [`2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md`](2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md)
 
 ### ML
 

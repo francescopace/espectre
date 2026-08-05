@@ -399,6 +399,52 @@ python analyze_seed_dispersion.py report.json --metric recall
 
 ---
 
+### 12. Subcarrier Aggregation Benchmark (`benchmark_subcarrier_aggregation.py`)
+
+**Purpose**: Measure what averaging adjacent bins into each of the twelve
+selected subcarriers does to the detectors
+
+Aggregation is injected by replacing the production amplitude-buffer fill for
+the duration of a run, so the whole runtime chain replays behind it and the
+features come from the production detectors rather than a reimplementation.
+Only the twelve-tone path can move, since the channel-shape and coherence
+features read the 56-bin live complex profile; `--mode features` re-checks that
+on every run and warns if any full-width feature moved.
+
+Four modes answer different questions:
+
+| Mode | Question | Uses a detection metric |
+| --- | --- | --- |
+| `channel` | how much per-tone noise is there, how correlated is it between adjacent bins, and what signal-to-noise gain does averaging predict | no |
+| `classic` | does Classic separability improve, with the fusion coefficients refit per configuration | yes |
+| `features` | which of the production ten features move, and in which direction | yes |
+| `candidates` | how do dispersion and order statistics of the turbulence series behave, retired candidates included | yes |
+
+Read the results as separation `max(AUC, 1-AUC)` per pair, which keeps
+inverted-polarity features comparable. The median saturates near `1.0` for most
+features, so the worst pair carries the evidence, and it is only a paired
+comparison when the `same pair` column says the limiting recording is the same
+in both configurations.
+
+In `candidates` mode, `turb_mad_over_mean` is the reference row: it is a
+production feature, so it must reproduce the `features` mode result. If the two
+disagree, the statistics defined in the tool have drifted from the production
+feature and the retired candidates around them are not trustworthy.
+
+The measured verdict, the width sweep, and the mechanism are recorded in
+[`2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md`](../docs/adr/2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md)
+and [FEATURES.md](../docs/FEATURES.md). This tool never writes runtime
+artifacts.
+
+```bash
+python benchmark_subcarrier_aggregation.py --mode channel
+python benchmark_subcarrier_aggregation.py --mode classic --widths 2 3 5
+python benchmark_subcarrier_aggregation.py --mode features --widths 3
+python benchmark_subcarrier_aggregation.py --mode candidates --widths 3 --json out.json
+```
+
+---
+
 ## Usage Examples
 
 ### Basic Analysis Workflow

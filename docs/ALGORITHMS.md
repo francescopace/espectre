@@ -34,7 +34,9 @@ motion:
 The current production detector definition is:
 
 - AGC stays active
-- the shared fixed 12-subcarrier set is used
+- the shared fixed 12-subcarrier set feeds the turbulence and L1-displacement
+  features, while the coherence and channel-shape features read the full
+  56-bin live band
 - the classic path uses weighted `turb_autocorr + chan_freq_coh_curve_std` fusion
 - the classic runtime has no voting branch or legacy low-RSSI blend term
 - the ML path uses the compact ten-feature scale-invariant production set
@@ -46,8 +48,10 @@ Steady-state detector flow:
 ```text
 CSI packet
   -> fixed 12-subcarrier amplitudes
-  -> CV turbulence (std / mean)
-  -> optional Hampel / low-pass filtering
+       -> CV turbulence (std / mean)
+       -> optional Hampel / low-pass filtering
+  -> 56-bin live complex profile
+       -> coherence and channel-shape trackers
   -> detector-specific metric or feature extraction
   -> thresholded motion state
 ```
@@ -134,7 +138,8 @@ same AGC-active normalization model is used across:
 
 ## Fixed Subcarrier Set
 
-Both detectors use the same fixed 12-subcarrier set:
+Both detectors sample the same fixed 12-subcarrier set for their turbulence and
+L1-displacement features:
 
 ```text
 [4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60]
@@ -155,6 +160,29 @@ subcarriers while quiet noise is nearly per-tone independent, so span is what
 buys independent looks. For the full rationale behind the band and the count,
 see
 [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md).
+
+### Live Band For Frequency-Domain Features
+
+The 12-tone set is a sampling of the spectrum, and it serves the features that
+build a time series out of it. The channel-shape and coherence features instead
+measure structure across frequency inside a single packet, so they read the full
+HT20 live band: bins `4..31` and `33..60`, that is the 56 subcarriers left after
+the guard bands and the DC null.
+
+| Feature family | Band | Why |
+| --- | --- | --- |
+| `turb_*`, `l1_delta_*` | 12 selected tones | builds a time series, where span buys independent looks |
+| `chan_shape_*`, `chan_freq_coh_*`, `chan_coh_*` | 56 live bins | measures shape across frequency, which decimation would remove |
+
+The split follows from what each family measures, rather than from two
+independent band choices. Within-packet frequency coherence is evaluated on bin
+pairs at fixed separations of `2`, `4`, and `12` bins, and the 12-tone set has a
+minimum spacing of 4, so it contains no pair at all at separations `2` and `12`.
+Those features are undefined on the sampled band, not merely degraded by it.
+
+Both runtimes define the live band identically, as `HT20_LIVE_BINS` in
+[`ml_feature_trackers.h`](../src/cpp/core/ml_feature_trackers.h) and
+[`ml_feature_trackers.py`](../src/python/micro_espectre/ml_feature_trackers.py).
 
 Why HT20 stays the preferred active contract:
 
@@ -238,9 +266,10 @@ filtered turbulence stream feeds the ML `turb_*` features.
 
 ### Channel Frequency-Coherence Curve Spread
 
-Classic's second input comes from the complex CSI profile over the shared
-12-tone HT20 band. For a fixed subcarrier separation `d`, within-packet
-frequency coherence is:
+Classic's second input comes from the complex CSI profile over the 56-bin HT20
+live band, not over the sampled 12-tone set: at separations `2` and `12` the
+sampled set contains no bin pair at all. For a fixed subcarrier separation `d`,
+within-packet frequency coherence is:
 
 ```text
 coh_d = |sum_k conj(H[k]) H[k + d]| /

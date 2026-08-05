@@ -1,0 +1,762 @@
+#!/usr/bin/env python3
+"""
+ESPectre - Adjacent-Subcarrier Aggregation Benchmark
+
+Research-only harness that measures what averaging adjacent bins into each of
+the twelve selected subcarriers does to the detectors. It never writes runtime
+artifacts.
+
+Aggregation is injected by replacing the production amplitude-buffer fill for
+the duration of a run, so the whole runtime chain replays unchanged behind it
+and the features come from the production detectors rather than from a
+reimplementation. Only the twelve-tone path can move: the channel-shape and
+coherence features read the 56-bin live complex profile and are bit-identical
+under aggregation, which every run re-checks in `features` mode.
+
+Modes:
+    channel     per-tone noise, adjacent-bin coherence, and the predicted
+                signal-to-noise gain, using no detection metric
+    classic     Classic per-pair separability across group widths, with the
+                fusion coefficients refit per configuration
+    features    per-feature effect across the production ten-feature set
+    candidates  dispersion and order statistics of the turbulence series,
+                including candidates retired before this evidence existed
+
+Usage:
+    python tools/benchmark_subcarrier_aggregation.py --mode channel
+    python tools/benchmark_subcarrier_aggregation.py --mode classic
+    python tools/benchmark_subcarrier_aggregation.py --mode classic --coherent
+    python tools/benchmark_subcarrier_aggregation.py --mode candidates --json out.json
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import sys
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterator, List, Sequence, Tuple
+
+import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.lib.bootstrap import setup_paths  # noqa: E402
+
+setup_paths()
+
+import config  # noqa: E402
+from classic_detector import ClassicDetector  # noqa: E402
+from ml_detector import MLDetector  # noqa: E402
+from ml_weights import FEATURE_NAMES  # noqa: E402
+from segmentation import SegmentationContext  # noqa: E402
+from tools.fit_classic_detector import (  # noqa: E402
+    balanced_sample_weights,
+    build_corpus,
+    fit_coefficients,
+    iter_training_pairs,
+    logits,
+)
+from tools.lib.csi_io import load_npz_as_packets, load_npz_csi_data  # noqa: E402
+from tools.lib.dataset_metadata import (  # noqa: E402
+    derive_detector_timing,
+    load_dataset_info,
+    measure_packet_interval_us,
+    resolve_entry_path,
+)
+from tools.lib.performance_report import (  # noqa: E402
+    note_evaluation_tick,
+    timing_cadence_for_window,
+)
+
+# Guard-band and DC limits of the centered HT20 convention. Clamping matters:
+# bins 3 and 61 are guard nulls, so an unclamped 3-wide window around the edge
+# tones would average a hard zero into two of the twelve profile entries.
+GUARD_LOW = 4
+GUARD_HIGH = 60
+DC_BIN = 32
+
+LIVE_BINS: Tuple[int, ...] = tuple(range(4, 32)) + tuple(range(33, 61))
+DEFAULT_WIDTHS: Tuple[int, ...] = (2, 3, 5)
+CORRELATION_LAGS: Tuple[int, ...] = (1, 2, 3, 4, 5, 10, 14)
+
+# Features that read the twelve-tone amplitude buffer. The rest come from the
+# live complex profile and must not move under aggregation.
+BUFFER_FED_FEATURES = frozenset({
+    "turb_mad_over_mean",
+    "turb_autocorr",
+    "turb_zcr",
+    "l1_delta_autocorr",
+    "l1_delta_lag_ratio",
+})
+
+CANDIDATE_NAMES: Tuple[str, ...] = (
+    "turb_mad_over_mean",
+    "turb_cv",
+    "turb_iqr_over_mean",
+    "turb_p95_over_mean",
+    "turb_p05_over_mean",
+    "turb_max_over_mean",
+    "turb_min_over_mean",
+    "turb_range_over_mean",
+    "turb_peak_over_mad",
+    "waveform_length_over_mean",
+    "turb_skewness",
+    "corr_amp_d1",
+)
+
+BASELINE_FILL = SegmentationContext._fill_amplitude_buffer
+
+
+# =============================================================================
+# Aggregation
+# =============================================================================
+def aggregation_groups(band: Sequence[int], width: int) -> Tuple[Tuple[int, ...], ...]:
+    """Bins averaged for each selected subcarrier at one group width.
+
+    The window is centered on the selected bin, shifted rather than shrunk when
+    it would run past the usable edge, and never includes the DC null.
+    """
+    groups: List[Tuple[int, ...]] = []
+    for subcarrier in band:
+        half = (width - 1) // 2
+        low, high = subcarrier - half, subcarrier + (width - 1 - half)
+        if low < GUARD_LOW:
+            low, high = GUARD_LOW, GUARD_LOW + width - 1
+        if high > GUARD_HIGH:
+            low, high = GUARD_HIGH - width + 1, GUARD_HIGH
+        groups.append(tuple(b for b in range(low, high + 1) if b != DC_BIN))
+    return tuple(groups)
+
+
+def make_aggregating_fill(width: int, coherent: bool) -> Callable[..., int]:
+    """Build a drop-in `_fill_amplitude_buffer` that averages adjacent bins.
+
+    `coherent` averages the complex values before taking the magnitude, rather
+    than averaging magnitudes. It suppresses zero-mean noise better in
+    principle, but the channel phase rotates across the group, so the group
+    partially cancels itself by a delay-dependent amount.
+    """
+    cache: Dict[Tuple[int, ...], Tuple[Tuple[int, ...], ...]] = {}
+
+    def fill(csi_data, selected_subcarriers, out_buffer) -> int:
+        if selected_subcarriers is None:
+            return BASELINE_FILL(csi_data, selected_subcarriers, out_buffer)
+        key = tuple(selected_subcarriers)
+        groups = cache.get(key)
+        if groups is None:
+            groups = aggregation_groups(key, width)
+            cache[key] = groups
+
+        written = 0
+        max_slots = len(out_buffer)
+        csi_len = len(csi_data)
+        for bins in groups:
+            if written >= max_slots:
+                break
+            acc_real = acc_imag = acc_magnitude = 0.0
+            count = 0
+            for sc_idx in bins:
+                index = sc_idx * 2
+                if index + 1 >= csi_len:
+                    continue
+                imag = csi_data[index]
+                real = csi_data[index + 1]
+                imag = float(imag if imag < 128 else imag - 256)
+                real = float(real if real < 128 else real - 256)
+                if coherent:
+                    acc_real += real
+                    acc_imag += imag
+                else:
+                    acc_magnitude += math.sqrt(real * real + imag * imag)
+                count += 1
+            if count == 0:
+                continue
+            if coherent:
+                out_buffer[written] = math.sqrt(
+                    acc_real * acc_real + acc_imag * acc_imag
+                ) / count
+            else:
+                out_buffer[written] = acc_magnitude / count
+            written += 1
+        return written
+
+    return fill
+
+
+@contextmanager
+def aggregated_amplitudes(width: int | None, coherent: bool = False) -> Iterator[None]:
+    """Replace the production amplitude fill for the duration of the block.
+
+    Patching is deliberate. The alternative, threading a research-only option
+    through `segmentation.py`, would put an experiment knob in device code for
+    a transform that is not adopted.
+    """
+    try:
+        if width is not None:
+            SegmentationContext._fill_amplitude_buffer = staticmethod(
+                make_aggregating_fill(width, coherent)
+            )
+        yield
+    finally:
+        SegmentationContext._fill_amplitude_buffer = staticmethod(BASELINE_FILL)
+
+
+def configurations(widths: Sequence[int], coherent: bool) -> List[Tuple[str, Any]]:
+    """Baseline first, then one entry per requested group width."""
+    kind = "coherent" if coherent else "magnitude"
+    return [("baseline", None)] + [(f"W={w} {kind}", w) for w in widths]
+
+
+# =============================================================================
+# Metrics
+# =============================================================================
+def auc(positive: np.ndarray, negative: np.ndarray) -> float:
+    """Rank-based AUC with ties sharing the average rank."""
+    if len(positive) == 0 or len(negative) == 0:
+        return float("nan")
+    values = np.concatenate([positive, negative])
+    order = values.argsort()
+    ranks = np.empty(len(values), dtype=np.float64)
+    ranks[order] = np.arange(1, len(values) + 1)
+    _, inverse, counts = np.unique(values, return_inverse=True, return_counts=True)
+    sums = np.zeros(len(counts))
+    np.add.at(sums, inverse, ranks)
+    ranks = (sums / counts)[inverse]
+    rank_sum = ranks[: len(positive)].sum()
+    return float(
+        (rank_sum - len(positive) * (len(positive) + 1) / 2)
+        / (len(positive) * len(negative))
+    )
+
+
+def separation(values: np.ndarray) -> np.ndarray:
+    """Discrimination strength regardless of polarity.
+
+    A feature at AUC 0.00 separates as well as one at 1.00, and the production
+    set contains both, so raw AUC is not comparable across features.
+    """
+    return np.maximum(values, 1.0 - values)
+
+
+def report_paired(
+    names: Sequence[str],
+    baseline: np.ndarray,
+    candidate: np.ndarray,
+    title: str,
+) -> None:
+    """Print median, worst pair, and whether the worst pair is the same one.
+
+    The median saturates near 1.0 for most of these features, so the worst pair
+    carries the evidence. It is only a paired comparison when the limiting
+    recording is the same in both configurations, which is reported per row
+    because it often is not.
+    """
+    base, cand = separation(baseline), separation(candidate)
+    print(f"\n{title}")
+    print(
+        f"{'feature':<32}{'med base':>9}{'med cand':>9}{'worst base':>11}"
+        f"{'worst cand':>11}{'same pair':>10}{'mean delta':>11}"
+    )
+    print("-" * 93)
+    for i, name in enumerate(names):
+        same = base[:, i].argmin() == cand[:, i].argmin()
+        print(
+            f"{name:<32}{np.median(base[:, i]):>9.4f}{np.median(cand[:, i]):>9.4f}"
+            f"{base[:, i].min():>11.4f}{cand[:, i].min():>11.4f}"
+            f"{str(same):>10}{(cand[:, i] - base[:, i]).mean():>+11.4f}"
+        )
+
+
+# =============================================================================
+# Mode: channel statistics
+# =============================================================================
+def live_amplitudes(csi: np.ndarray) -> np.ndarray:
+    """(packets, 56) live-band magnitudes from a raw int8 CSI matrix."""
+    iq = csi.reshape(csi.shape[0], -1, 2).astype(np.float64)
+    complex_profile = iq[:, :, 1] + 1j * iq[:, :, 0]
+    return np.abs(complex_profile[:, list(LIVE_BINS)])
+
+
+def fast_fluctuation(series: np.ndarray) -> np.ndarray:
+    """Packet-to-packet fluctuation: the lag-1 first difference over sqrt(2).
+
+    The turbulence autocorrelation runs at lag 1 packet, so this is the band
+    that matters, not slow session drift.
+    """
+    return np.diff(series, axis=0) / math.sqrt(2.0)
+
+
+def adjacent_correlation(fluctuation: np.ndarray, lag: int) -> float:
+    """Mean correlation between tones `lag` bins apart, skipping the DC gap."""
+    values = []
+    for i in range(fluctuation.shape[1] - lag):
+        if LIVE_BINS[i + lag] - LIVE_BINS[i] != lag:
+            continue
+        left, right = fluctuation[:, i], fluctuation[:, i + lag]
+        left_sd, right_sd = left.std(), right.std()
+        if left_sd > 0 and right_sd > 0:
+            values.append(
+                float(
+                    ((left - left.mean()) * (right - right.mean())).mean()
+                    / (left_sd * right_sd)
+                )
+            )
+    return float(np.mean(values)) if values else float("nan")
+
+
+def run_channel(args: argparse.Namespace) -> Dict[str, Any]:
+    """Measure the noise and the coherence that decide whether averaging helps."""
+    files = load_dataset_info()["files"]
+    quiet_entries = [("empty", e) for e in files["empty"][: args.limit]]
+    motion_entries = [("motion", e) for e in files["motion"][: args.limit]]
+
+    raw_quiet: List[float] = []
+    correlations: Dict[str, Dict[int, List[float]]] = {"quiet": {}, "motion": {}}
+    scaled: Dict[str, List[float]] = {"quiet": [], "motion": []}
+    for lag in CORRELATION_LAGS:
+        correlations["quiet"][lag] = []
+        correlations["motion"][lag] = []
+
+    for label, entries in (("quiet", quiet_entries), ("motion", motion_entries)):
+        for index, (folder, entry) in enumerate(entries, 1):
+            csi = load_npz_csi_data(resolve_entry_path(folder, entry))
+            if csi.shape[1] != 128 or csi.shape[0] < 400:
+                continue
+            amplitude = live_amplitudes(csi)
+            packet_mean = amplitude.mean(axis=1, keepdims=True)
+            normalized = np.divide(
+                amplitude, packet_mean, out=np.zeros_like(amplitude), where=packet_mean > 0
+            )
+            fluctuation = fast_fluctuation(normalized)
+            scaled[label].append(float(fluctuation.std(axis=0).mean()))
+            if label == "quiet":
+                raw = fast_fluctuation(amplitude / amplitude.mean(axis=0, keepdims=True))
+                raw_quiet.append(float(raw.std(axis=0).mean()))
+            for lag in CORRELATION_LAGS:
+                correlations[label][lag].append(adjacent_correlation(fluctuation, lag))
+            if args.progress:
+                print(f"  [{label} {index}/{len(entries)}]", end="\r", flush=True)
+
+    raw = float(np.nanmean(raw_quiet))
+    quiet = float(np.nanmean(scaled["quiet"]))
+    motion = float(np.nanmean(scaled["motion"]))
+    print("\nPacket-to-packet per-tone fluctuation (relative units)")
+    print(f"  quiet, common-mode gain included : {raw:.5f}")
+    print(f"  quiet, common-mode gain removed  : {quiet:.5f}")
+    print(f"  motion, common-mode gain removed : {motion:.5f}")
+    print(f"  gain share of raw quiet jitter   : {1 - quiet / raw:.1%}")
+    print("\nThe gain share is common to every tone, so no cross-tone average")
+    print("removes it; the production features already discard it by being")
+    print("scale-invariant, so only the remaining residual is in play.")
+
+    print("\nAdjacent-bin correlation of the gain-removed fast fluctuation")
+    print(f"{'lag (sc)':>9}{'MHz':>8}{'quiet':>9}{'motion':>9}")
+    curve: Dict[str, Dict[int, float]] = {"quiet": {}, "motion": {}}
+    for lag in CORRELATION_LAGS:
+        curve["quiet"][lag] = float(np.nanmean(correlations["quiet"][lag]))
+        curve["motion"][lag] = float(np.nanmean(correlations["motion"][lag]))
+        print(
+            f"{lag:>9}{lag * 0.3125:>8.2f}"
+            f"{curve['quiet'][lag]:>9.3f}{curve['motion'][lag]:>9.3f}"
+        )
+
+    print("\nPredicted effect of averaging W adjacent bins, from the measured curve")
+    print(f"{'W':>3}{'ideal noise':>13}{'noise':>9}{'signal':>9}{'SNR gain':>10}")
+    predicted: Dict[int, Dict[str, float]] = {}
+    for width in args.widths:
+        if any(lag not in curve["quiet"] for lag in range(1, width)):
+            continue
+
+        def factor(kind: str, w: int = width) -> float:
+            total = w + 2 * sum((w - lag) * curve[kind][lag] for lag in range(1, w))
+            return float(math.sqrt(total) / w)
+
+        noise, signal = factor("quiet"), factor("motion")
+        predicted[width] = {"noise": noise, "signal": signal, "snr_gain": signal / noise}
+        print(
+            f"{width:>3}{1 / math.sqrt(width):>13.3f}{noise:>9.3f}"
+            f"{signal:>9.3f}{signal / noise:>10.3f}"
+        )
+
+    return {
+        "quiet_raw": raw,
+        "quiet_scaled": quiet,
+        "motion_scaled": motion,
+        "correlation": {k: {str(a): b for a, b in v.items()} for k, v in curve.items()},
+        "predicted": {str(k): v for k, v in predicted.items()},
+    }
+
+
+# =============================================================================
+# Mode: Classic
+# =============================================================================
+def run_classic(args: argparse.Namespace) -> Dict[str, Any]:
+    """Score Classic per-pair separability across group widths.
+
+    Coefficients are refit per configuration, because scoring a changed input
+    under the baseline's coefficients measures the mismatch rather than the
+    change.
+    """
+    pairs = iter_training_pairs()
+    band = list(config.DEFAULT_SUBCARRIERS)
+    window = config.SEG_WINDOW_SIZE
+    print(f"train pairs: {len(pairs)}")
+
+    results: Dict[str, Any] = {}
+    per_config: List[Tuple[str, np.ndarray, np.ndarray]] = []
+    for label, width in configurations(args.widths, args.coherent):
+        with aggregated_amplitudes(width, args.coherent):
+            corpus = build_corpus(pairs, band, window, progress=False)
+
+        features, labels = corpus["x"], corpus["y"]
+        session, chip = corpus["session"], corpus["chip"]
+        deoverlapped = corpus["deoverlapped"]
+        weights = balanced_sample_weights(
+            labels[deoverlapped], chip[deoverlapped], session[deoverlapped]
+        )
+        coefficients = fit_coefficients(
+            features[deoverlapped], labels[deoverlapped], weights
+        )
+        fused = logits(features, coefficients)
+
+        turb_rows, fused_rows = [], []
+        for name in np.unique(session):
+            mask = session == name
+            positive, negative = mask & (labels == 1), mask & (labels == 0)
+            if positive.sum() == 0 or negative.sum() == 0:
+                continue
+            turb_rows.append(auc(features[positive, 0], features[negative, 0]))
+            fused_rows.append(auc(fused[positive], fused[negative]))
+
+        turb = separation(np.asarray(turb_rows))
+        fusion = separation(np.asarray(fused_rows))
+        per_config.append((label, turb, fusion))
+        results[label] = {
+            "turb_autocorr": {"median": float(np.median(turb)), "worst": float(turb.min())},
+            "fused": {"median": float(np.median(fusion)), "worst": float(fusion.min())},
+        }
+        print(
+            f"{label:<20} turb_autocorr med={np.median(turb):.4f} worst={turb.min():.4f}"
+            f" | fused med={np.median(fusion):.4f} worst={fusion.min():.4f}"
+        )
+
+    base_turb, base_fused = per_config[0][1], per_config[0][2]
+    print("\nPaired per-pair delta against baseline (positive favours aggregation)")
+    print(f"{'configuration':<20}{'turb mean':>11}{'turb wins':>11}"
+          f"{'fused mean':>12}{'fused wins':>12}")
+    for label, turb, fusion in per_config[1:]:
+        turb_delta, fused_delta = turb - base_turb, fusion - base_fused
+        print(
+            f"{label:<20}{turb_delta.mean():>+11.4f}"
+            f"{f'{(turb_delta > 0).sum()}/{len(turb_delta)}':>11}"
+            f"{fused_delta.mean():>+12.4f}"
+            f"{f'{(fused_delta > 0).sum()}/{len(fused_delta)}':>12}"
+        )
+    return results
+
+
+# =============================================================================
+# Mode: production feature set
+# =============================================================================
+def ml_feature_rows(packets: Sequence[Dict[str, Any]], band: Sequence[int]) -> np.ndarray:
+    """Replay one recording and collect the production feature vectors.
+
+    Reads the detector's own extractor rather than reassembling the feature
+    vector here, so the trackers, filters, and timing stay production behaviour.
+    """
+    timing = derive_detector_timing(measure_packet_interval_us(packets))
+    detector = MLDetector(
+        window_size=timing["window_packets"],
+        lag=timing["lag"],
+        autocorr_lag=timing["autocorr_lag"],
+    )
+    tracker, cadence = timing_cadence_for_window(
+        timing["window_packets"], measure_packet_interval_us(packets)
+    )
+    rows = []
+    for packet in packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence, packet=packet, timing_tracker=tracker
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            tracker.reset()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence, packet=packet, timing_tracker=tracker
+            )
+        detector.process_packet(packet["csi_data"], band)
+        if not should_evaluate or not detector.is_ready():
+            continue
+        rows.append(list(detector._extract_features()))
+    return np.asarray(rows, dtype=np.float64).reshape(-1, len(FEATURE_NAMES))
+
+
+def run_features(args: argparse.Namespace) -> Dict[str, Any]:
+    """Score every production feature under one group width."""
+    width = args.widths[0]
+    pairs = iter_training_pairs()
+    band = list(config.DEFAULT_SUBCARRIERS)
+
+    scores: Dict[str, np.ndarray] = {}
+    for label, configured in configurations([width], args.coherent):
+        rows = []
+        with aggregated_amplitudes(configured, args.coherent):
+            for index, pair in enumerate(pairs, 1):
+                quiet = ml_feature_rows(load_npz_as_packets(pair["static_path"]), band)
+                motion = ml_feature_rows(load_npz_as_packets(pair["motion_path"]), band)
+                if len(quiet) == 0 or len(motion) == 0:
+                    continue
+                rows.append(
+                    [auc(motion[:, i], quiet[:, i]) for i in range(len(FEATURE_NAMES))]
+                )
+                if args.progress:
+                    print(f"  [{label}] {index}/{len(pairs)}", end="\r", flush=True)
+        scores[label] = np.asarray(rows)
+
+    baseline, candidate = scores["baseline"], scores[list(scores)[1]]
+    report_paired(FEATURE_NAMES, baseline, candidate, f"Production feature set, W={width}")
+
+    untouched = [n for n in FEATURE_NAMES if n not in BUFFER_FED_FEATURES]
+    moved = [
+        name
+        for name in untouched
+        if not np.allclose(
+            baseline[:, FEATURE_NAMES.index(name)],
+            candidate[:, FEATURE_NAMES.index(name)],
+        )
+    ]
+    if moved:
+        print(f"\nWARNING: full-width features moved under aggregation: {moved}")
+        print("They read the live complex profile and must be unaffected; the")
+        print("injection reached further than the twelve-tone buffer.")
+    else:
+        print(f"\nSelf-check passed: the {len(untouched)} full-width features are")
+        print("bit-identical, so the injection reached only the twelve-tone buffer.")
+    return {
+        name: {
+            "baseline": float(np.median(separation(baseline)[:, i])),
+            "candidate": float(np.median(separation(candidate)[:, i])),
+        }
+        for i, name in enumerate(FEATURE_NAMES)
+    }
+
+
+# =============================================================================
+# Mode: turbulence-series candidates
+# =============================================================================
+def candidate_values(turbulence: np.ndarray, profiles: np.ndarray) -> List[float]:
+    """Dispersion and order statistics of one turbulence window.
+
+    `turb_mad_over_mean` is the production feature and acts as the reference
+    row: it must reproduce the `features` mode result, which is what makes the
+    retired candidates around it trustworthy. It uses the true median absolute
+    deviation, matching `csi_features.calc_mad`; the mean absolute deviation is
+    a different statistic and does not reproduce it.
+    """
+    count = len(turbulence)
+    mean = float(turbulence.mean())
+    if mean <= 0.0 or count < 4:
+        return [0.0] * len(CANDIDATE_NAMES)
+
+    median = float(np.median(turbulence))
+    mad = float(np.median(np.abs(turbulence - median)))
+    q05, q25, q75, q95 = (float(v) for v in np.percentile(turbulence, [5, 25, 75, 95]))
+    sd = float(turbulence.std())
+    high, low = float(turbulence.max()), float(turbulence.min())
+    waveform_length = float(np.abs(np.diff(turbulence)).mean())
+    skewness = float(((turbulence - mean) ** 3).mean() / sd**3) if sd > 0 else 0.0
+
+    # corr_amp_d1: mean correlation between consecutive amplitude profiles.
+    # Retired because at lag 1 it mostly measured receiver noise, which makes it
+    # the strongest prior candidate for benefiting from aggregation.
+    current, previous = profiles[1:], profiles[:-1]
+    current = current - current.mean(axis=1, keepdims=True)
+    previous = previous - previous.mean(axis=1, keepdims=True)
+    denominator = np.sqrt((current * current).sum(axis=1) * (previous * previous).sum(axis=1))
+    correlation = np.divide(
+        (current * previous).sum(axis=1),
+        denominator,
+        out=np.zeros(len(current)),
+        where=denominator > 0,
+    )
+
+    return [
+        mad / mean,
+        sd / mean,
+        (q75 - q25) / mean,
+        q95 / mean,
+        q05 / mean,
+        high / mean,
+        low / mean,
+        (high - low) / mean,
+        (high - mean) / mad if mad > 0 else 0.0,
+        waveform_length / mean,
+        skewness,
+        float(correlation.mean()),
+    ]
+
+
+def candidate_rows(packets: Sequence[Dict[str, Any]], band: Sequence[int]) -> np.ndarray:
+    """Replay one recording and score the candidates on each evaluated window.
+
+    The turbulence series and the amplitude profiles come from the unmodified
+    production path; only the statistics computed over them are defined here.
+    """
+    timing = derive_detector_timing(measure_packet_interval_us(packets))
+    window = timing["window_packets"]
+    detector = ClassicDetector(
+        window_size=window, lag=timing["lag"], autocorr_lag=timing["autocorr_lag"]
+    )
+    tracker, cadence = timing_cadence_for_window(
+        window, measure_packet_interval_us(packets)
+    )
+    context = detector._context
+    history: List[List[float]] = []
+    rows = []
+    for packet in packets:
+        should_evaluate, contaminated = note_evaluation_tick(
+            cadence, packet=packet, timing_tracker=tracker
+        )
+        if contaminated:
+            detector.reset()
+            cadence.reset()
+            tracker.reset()
+            history.clear()
+            should_evaluate, _ = note_evaluation_tick(
+                cadence, packet=packet, timing_tracker=tracker
+            )
+        detector.process_packet(packet["csi_data"], band)
+        history.append(list(context._amplitude_buffer[: context._amplitude_count]))
+        if len(history) > window:
+            del history[0]
+        if not should_evaluate or not detector.is_ready():
+            continue
+
+        count = context.buffer_count
+        if count < context.window_size:
+            turbulence = np.asarray(context.turbulence_buffer[:count], dtype=np.float64)
+        else:
+            # The ring is full, so the oldest sample sits at the write index.
+            turbulence = np.asarray(
+                [
+                    context.turbulence_buffer[(context.buffer_index + i) % count]
+                    for i in range(count)
+                ],
+                dtype=np.float64,
+            )
+        profiles = np.asarray(history, dtype=np.float64)
+        if profiles.ndim != 2 or profiles.shape[0] < 2:
+            continue
+        rows.append(candidate_values(turbulence, profiles))
+    return np.asarray(rows, dtype=np.float64).reshape(-1, len(CANDIDATE_NAMES))
+
+
+def run_candidates(args: argparse.Namespace) -> Dict[str, Any]:
+    """Score the turbulence-series candidates, retired ones included."""
+    width = args.widths[0]
+    pairs = iter_training_pairs()
+    band = list(config.DEFAULT_SUBCARRIERS)
+
+    scores: Dict[str, np.ndarray] = {}
+    for label, configured in configurations([width], args.coherent):
+        rows = []
+        with aggregated_amplitudes(configured, args.coherent):
+            for index, pair in enumerate(pairs, 1):
+                quiet = candidate_rows(load_npz_as_packets(pair["static_path"]), band)
+                motion = candidate_rows(load_npz_as_packets(pair["motion_path"]), band)
+                if len(quiet) == 0 or len(motion) == 0:
+                    continue
+                rows.append(
+                    [auc(motion[:, i], quiet[:, i]) for i in range(len(CANDIDATE_NAMES))]
+                )
+                if args.progress:
+                    print(f"  [{label}] {index}/{len(pairs)}", end="\r", flush=True)
+        scores[label] = np.asarray(rows)
+
+    baseline, candidate = scores["baseline"], scores[list(scores)[1]]
+    report_paired(
+        CANDIDATE_NAMES, baseline, candidate, f"Turbulence-series candidates, W={width}"
+    )
+    print("\n`turb_mad_over_mean` is the reference row: compare it against the")
+    print("`features` mode result. If the two disagree, the statistics defined")
+    print("here have drifted from the production feature and the retired")
+    print("candidates around them are not trustworthy.")
+    return {
+        name: {
+            "baseline_worst": float(separation(baseline)[:, i].min()),
+            "candidate_worst": float(separation(candidate)[:, i].min()),
+        }
+        for i, name in enumerate(CANDIDATE_NAMES)
+    }
+
+
+# =============================================================================
+# Entry point
+# =============================================================================
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Benchmark adjacent-subcarrier aggregation on the 12-tone path",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("channel", "classic", "features", "candidates"),
+        default="classic",
+        help="which measurement to run (default: classic)",
+    )
+    parser.add_argument(
+        "--widths",
+        type=int,
+        nargs="+",
+        default=list(DEFAULT_WIDTHS),
+        help="group widths in bins; features and candidates modes use the first",
+    )
+    parser.add_argument(
+        "--coherent",
+        action="store_true",
+        help="average complex values instead of magnitudes",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="channel mode only: recordings per class (default: 20)",
+    )
+    parser.add_argument("--json", type=Path, help="also write the results as JSON")
+    parser.add_argument(
+        "--no-progress",
+        dest="progress",
+        action="store_false",
+        help="suppress per-recording progress output",
+    )
+    args = parser.parse_args()
+    if any(w < 2 for w in args.widths):
+        parser.error("group widths must be at least 2; the baseline is always included")
+    return args
+
+
+def main() -> int:
+    args = parse_args()
+    runners = {
+        "channel": run_channel,
+        "classic": run_classic,
+        "features": run_features,
+        "candidates": run_candidates,
+    }
+    results = runners[args.mode](args)
+    if args.json:
+        args.json.write_text(json.dumps({"mode": args.mode, "results": results}, indent=1))
+        print(f"\nwrote {args.json}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
