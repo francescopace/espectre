@@ -77,6 +77,63 @@ float reference_frequency_coherence(const std::complex<float>* profile, uint8_t 
     return std::abs(numerator) / denominator;
 }
 
+// One contiguous subband, written from scratch off the two profiles. Comparing
+// the shared-buffer path only against the standalone wrapper would be circular:
+// both run the same span arithmetic, so a span bug would agree with itself.
+float reference_subband_coherence(const std::complex<float>* current,
+                                  const std::complex<float>* reference,
+                                  uint8_t start, uint8_t count, uint8_t start_bin) {
+    std::vector<std::complex<float>> cross;
+    float total = 0.0f;
+    for (uint8_t i = 0; i < count; i++) {
+        cross.push_back(current[start + i] * std::conj(reference[start + i]));
+        total += std::abs(cross[i]);
+    }
+    if (total <= 0.0f) {
+        return 0.0f;
+    }
+    std::complex<float> ramp_sum(0.0f, 0.0f);
+    for (uint8_t i = 1; i < count; i++) {
+        ramp_sum += cross[i] * std::conj(cross[i - 1U]);
+    }
+    const float ramp = std::atan2(ramp_sum.imag(), ramp_sum.real());
+    std::complex<float> aligned(0.0f, 0.0f);
+    for (uint8_t i = 0; i < count; i++) {
+        const float angle = -ramp * static_cast<float>(start_bin + i);
+        aligned += cross[i] * std::complex<float>(std::cos(angle), std::sin(angle));
+    }
+    return std::abs(aligned) / total;
+}
+
+// The full live band, written from scratch. The DC gap makes one index pair
+// non-adjacent in frequency, and it must stay out of the ramp estimate.
+float reference_full_band_coherence(const std::complex<float>* current,
+                                    const std::complex<float>* reference) {
+    std::vector<std::complex<float>> cross;
+    float total = 0.0f;
+    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
+        cross.push_back(current[i] * std::conj(reference[i]));
+        total += std::abs(cross[i]);
+    }
+    if (total <= 0.0f) {
+        return 0.0f;
+    }
+    std::complex<float> ramp_sum(0.0f, 0.0f);
+    for (uint8_t i = 1; i < HT20_LIVE_BAND_SIZE; i++) {
+        if (HT20_LIVE_BINS[i] - HT20_LIVE_BINS[i - 1U] != 1U) {
+            continue;
+        }
+        ramp_sum += cross[i] * std::conj(cross[i - 1U]);
+    }
+    const float ramp = std::atan2(ramp_sum.imag(), ramp_sum.real());
+    std::complex<float> aligned(0.0f, 0.0f);
+    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
+        const float angle = -ramp * static_cast<float>(HT20_LIVE_BINS[i]);
+        aligned += cross[i] * std::complex<float>(std::cos(angle), std::sin(angle));
+    }
+    return std::abs(aligned) / total;
+}
+
 uint16_t reference_pair_count(uint8_t offset) {
     uint16_t pairs = 0;
     for (uint8_t left = 0; left < HT20_LIVE_BAND_SIZE; left++) {
@@ -94,6 +151,24 @@ uint16_t reference_pair_count(uint8_t offset) {
         }
     }
     return pairs;
+}
+
+// A packet whose amplitude varies across the band, and whose shape depends on
+// `shape`. Constant packets are useless here: the amplitude profile is L2
+// normalized, so every constant packet collapses onto the same profile no
+// matter its magnitude, and a ring addressing bug would go unnoticed.
+std::vector<int8_t> make_shaped_packet(uint16_t shape) {
+    std::vector<int8_t> packet(HT20_CSI_LEN);
+    uint32_t state = 0x9E3779B9U ^ (static_cast<uint32_t>(shape) * 2654435761U);
+    for (uint16_t sc = 0; sc < HT20_NUM_SUBCARRIERS; ++sc) {
+        state = state * 1664525U + 1013904223U;
+        const int8_t q = static_cast<int8_t>(static_cast<int>((state >> 16U) & 0x3FU) + 8);
+        state = state * 1664525U + 1013904223U;
+        const int8_t i = static_cast<int8_t>(static_cast<int>((state >> 16U) & 0x3FU) + 8);
+        packet[sc * 2] = q;
+        packet[sc * 2 + 1] = i;
+    }
+    return packet;
 }
 
 // Deterministic 32-bit LCG: the profiles must be reproducible across runs and
@@ -210,6 +285,160 @@ void test_frequency_coherences_matches_single_offset_calls(void) {
     for (uint8_t i = 0; i < FREQUENCY_COHERENCE_COUNT; i++) {
         TEST_ASSERT_EQUAL_FLOAT(0.0f, combined[i]);
     }
+}
+
+void test_coherence_shares_cross_products_across_band_and_subbands(void) {
+    // Sharing one cross-product array is only valid because the four subbands
+    // tile the live band exactly, with no gap and no overlap.
+    const uint8_t starts[] = {0U, 14U, 28U, 42U};
+    for (uint8_t b = 0; b < HT20_COHERENCE_SUBBAND_COUNT; b++) {
+        TEST_ASSERT_EQUAL_UINT8(b * HT20_COHERENCE_SUBBAND_SIZE, starts[b]);
+    }
+    TEST_ASSERT_EQUAL(HT20_LIVE_BAND_SIZE,
+                      HT20_COHERENCE_SUBBAND_COUNT * HT20_COHERENCE_SUBBAND_SIZE);
+
+    SeededProfiles generator(5150U);
+    std::complex<float> current[HT20_LIVE_BAND_SIZE];
+    std::complex<float> reference[HT20_LIVE_BAND_SIZE];
+    std::complex<float> cross[HT20_LIVE_BAND_SIZE]{};
+    float magnitude[HT20_LIVE_BAND_SIZE]{};
+
+    for (uint16_t trial = 0; trial < 32U; trial++) {
+        generator.fill(current);
+        generator.fill(reference);
+
+        // The shared-buffer path must land exactly where the standalone
+        // wrappers do: same products, same order, same normalization.
+        fill_coherence_cross(current, reference, cross, magnitude);
+        TEST_ASSERT_TRUE(delay_compensated_coherence_from_cross(cross, magnitude) ==
+                         delay_compensated_coherence(current, reference));
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f,
+                                 reference_full_band_coherence(current, reference),
+                                 delay_compensated_coherence_from_cross(cross, magnitude));
+
+        float shared_bands[HT20_COHERENCE_SUBBAND_COUNT]{};
+        float direct_bands[HT20_COHERENCE_SUBBAND_COUNT]{};
+        subband_coherences_from_cross(cross, magnitude, shared_bands);
+        subband_coherences(current, reference, direct_bands);
+        for (uint8_t b = 0; b < HT20_COHERENCE_SUBBAND_COUNT; b++) {
+            const uint8_t start = static_cast<uint8_t>(b * HT20_COHERENCE_SUBBAND_SIZE);
+            const float expected = reference_subband_coherence(
+                current, reference, start, HT20_COHERENCE_SUBBAND_SIZE,
+                HT20_LIVE_BINS[start]);
+            TEST_ASSERT_TRUE(shared_bands[b] == direct_bands[b]);
+            TEST_ASSERT_FLOAT_WITHIN(1e-6f, expected, shared_bands[b]);
+        }
+    }
+
+    // Null inputs stay guarded on every entry point.
+    float bands[HT20_COHERENCE_SUBBAND_COUNT]{};
+    for (uint8_t b = 0; b < HT20_COHERENCE_SUBBAND_COUNT; b++) {
+        bands[b] = 0.5f;
+    }
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, delay_compensated_coherence(nullptr, reference));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, delay_compensated_coherence(current, nullptr));
+    subband_coherences(nullptr, reference, bands);
+    for (uint8_t b = 0; b < HT20_COHERENCE_SUBBAND_COUNT; b++) {
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, bands[b]);
+    }
+
+    // An all-zero reference drives the denominator guard rather than a divide.
+    std::complex<float> zeros[HT20_LIVE_BAND_SIZE]{};
+    fill_coherence_cross(zeros, zeros, cross, magnitude);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, delay_compensated_coherence_from_cross(cross, magnitude));
+    subband_coherences_from_cross(cross, magnitude, bands);
+    for (uint8_t b = 0; b < HT20_COHERENCE_SUBBAND_COUNT; b++) {
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, bands[b]);
+    }
+}
+
+void test_coherence_tracker_refills_the_cross_buffer_per_reference(void) {
+    // The tracker fills one shared cross buffer for the lagged reference and
+    // then again for the adjacent one. Reusing the first fill would leave the
+    // adjacent coherence reading the lagged products, so this drives both and
+    // compares against values computed independently per reference.
+    const uint16_t lag = 3U;
+    const uint16_t packets = 9U;
+    ChannelCoherenceTracker tracker;
+    tracker.configure(64U, lag);
+
+    std::vector<std::array<std::complex<float>, HT20_LIVE_BAND_SIZE>> profiles;
+    for (uint16_t p = 0; p < packets; p++) {
+        const auto packet = make_shaped_packet(static_cast<uint16_t>(p * 7U + 1U));
+        std::array<std::complex<float>, HT20_LIVE_BAND_SIZE> profile{};
+        extract_ht20_live_complex_profile(packet.data(), packet.size(), profile.data());
+        profiles.push_back(profile);
+        tracker.process_packet(packet.data(), packet.size());
+    }
+
+    double lag_sum = 0.0;
+    uint16_t lag_count = 0;
+    for (uint16_t i = lag; i < packets; i++) {
+        lag_sum += delay_compensated_coherence(profiles[i].data(),
+                                               profiles[i - lag].data());
+        lag_count++;
+    }
+    double adjacent_sum = 0.0;
+    uint16_t adjacent_count = 0;
+    for (uint16_t i = 1U; i < packets; i++) {
+        adjacent_sum += delay_compensated_coherence(profiles[i].data(),
+                                                    profiles[i - 1U].data());
+        adjacent_count++;
+    }
+
+    TEST_ASSERT_EQUAL(lag_count, tracker.count());
+    const float expected_gap = static_cast<float>(adjacent_sum / adjacent_count -
+                                                  lag_sum / lag_count);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, expected_gap, tracker.coherence_gap());
+    // Non-vacuity: the two references really do disagree here, so a stale
+    // buffer could not pass by accident.
+    TEST_ASSERT_TRUE(std::fabs(expected_gap) > 1e-4f);
+}
+
+void test_lag_ring_holds_exactly_the_configured_lag(void) {
+    // The lag rings are sized to the configured lag rather than to
+    // L1_DELTA_LAG_MAX, so the flattened indexing has to keep addressing the
+    // right slot. Feeding a sequence whose period equals the lag makes the
+    // lagged reference identical to the current packet, which pins the
+    // addressing: the lagged distance collapses to zero only if the ring
+    // really wrapped onto the matching packet.
+    for (uint16_t lag = 1U; lag <= 4U; lag++) {
+        ChannelShapeTracker tracker;
+        tracker.configure(64U, lag);
+
+        std::vector<std::vector<int8_t>> period;
+        for (uint16_t p = 0; p < lag; p++) {
+            period.push_back(make_shaped_packet(static_cast<uint16_t>(p + 1U)));
+        }
+        for (uint16_t step = 0; step < lag * 6U; step++) {
+            const std::vector<int8_t>& packet = period[step % lag];
+            tracker.process_packet(packet.data(), packet.size());
+        }
+
+        // Every lagged comparison saw an identical profile, so the motion
+        // energy stays empty and the participation ratio reports nothing.
+        TEST_ASSERT_EQUAL(lag * 5U, tracker.count());
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, tracker.shape_spread());
+
+        // Non-vacuity: break the period and the very same tracker reports
+        // motion energy, so the zero above is a real match and not a tracker
+        // that simply never compared anything.
+        ChannelShapeTracker moving;
+        moving.configure(64U, lag);
+        for (uint16_t step = 0; step < lag * 6U; step++) {
+            const auto packet = make_shaped_packet(static_cast<uint16_t>(step + 1U));
+            moving.process_packet(packet.data(), packet.size());
+        }
+        TEST_ASSERT_EQUAL(lag * 5U, moving.count());
+        TEST_ASSERT_TRUE(moving.shape_spread() > 0.0f);
+    }
+
+    // A tracker configured with no capacity is never fed and holds no ring.
+    ChannelShapeTracker unused;
+    unused.configure(0U, 8U);
+    auto packet = make_constant_packet(4, 6);
+    unused.process_packet(packet.data(), packet.size());
+    TEST_ASSERT_EQUAL(0, unused.count());
 }
 
 void test_utils_statistical_helpers_cover_edge_cases(void) {
@@ -601,6 +830,9 @@ int process(void) {
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
     RUN_TEST(test_frequency_coherence_matches_the_reference_formula);
     RUN_TEST(test_frequency_coherences_matches_single_offset_calls);
+    RUN_TEST(test_coherence_shares_cross_products_across_band_and_subbands);
+    RUN_TEST(test_coherence_tracker_refills_the_cross_buffer_per_reference);
+    RUN_TEST(test_lag_ring_holds_exactly_the_configured_lag);
     RUN_TEST(test_classic_detector_move_semantics_and_base_accessors);
     RUN_TEST(test_ml_detector_move_semantics_and_cv_state);
     return UNITY_END();

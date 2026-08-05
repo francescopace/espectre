@@ -58,45 +58,51 @@ inline void extract_ht20_live_complex_profile(const int8_t* csi_data, size_t csi
     }
 }
 
-inline float delay_compensated_coherence_band(const std::complex<float>* current,
-                                              const std::complex<float>* reference,
-                                              uint8_t start, uint8_t count,
-                                              uint8_t start_bin) {
-    if (current == nullptr || reference == nullptr || count < 2U) {
+// The four subbands tile the live band exactly (0-13, 14-27, 28-41, 42-55), so
+// the full-band and subband coherences of one reference read the very same
+// cross products. Building them once here lets both consumers share the array
+// instead of each recomputing all 56 products and their magnitudes.
+inline void fill_coherence_cross(const std::complex<float>* current,
+                                 const std::complex<float>* reference,
+                                 std::complex<float>* cross, float* magnitude) {
+    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
+        cross[i] = current[i] * std::conj(reference[i]);
+        magnitude[i] = std::abs(cross[i]);
+    }
+}
+
+inline float delay_compensated_coherence_band_from_cross(const std::complex<float>* cross,
+                                                         const float* magnitude,
+                                                         uint8_t start, uint8_t count,
+                                                         uint8_t start_bin) {
+    if (count < 2U) {
         return 0.0f;
     }
-    std::complex<float> cross[HT20_COHERENCE_SUBBAND_SIZE]{};
     float total = 0.0f;
     for (uint8_t i = 0; i < count; i++) {
-        cross[i] = current[start + i] * std::conj(reference[start + i]);
-        total += std::abs(cross[i]);
+        total += magnitude[start + i];
     }
     if (total <= 0.0f) {
         return 0.0f;
     }
     std::complex<float> ramp_sum(0.0f, 0.0f);
     for (uint8_t i = 1; i < count; i++) {
-        ramp_sum += cross[i] * std::conj(cross[i - 1U]);
+        ramp_sum += cross[start + i] * std::conj(cross[start + i - 1U]);
     }
     const float ramp = std::atan2(ramp_sum.imag(), ramp_sum.real());
     std::complex<float> aligned(0.0f, 0.0f);
     for (uint8_t i = 0; i < count; i++) {
         const float angle = -ramp * static_cast<float>(start_bin + i);
-        aligned += cross[i] * std::complex<float>(std::cos(angle), std::sin(angle));
+        aligned += cross[start + i] * std::complex<float>(std::cos(angle), std::sin(angle));
     }
     return std::abs(aligned) / total;
 }
 
-inline float delay_compensated_coherence(const std::complex<float>* current,
-                                         const std::complex<float>* reference) {
-    if (current == nullptr || reference == nullptr) {
-        return 0.0f;
-    }
-    std::complex<float> cross[HT20_LIVE_BAND_SIZE]{};
+inline float delay_compensated_coherence_from_cross(const std::complex<float>* cross,
+                                                    const float* magnitude) {
     float total = 0.0f;
     for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        cross[i] = current[i] * std::conj(reference[i]);
-        total += std::abs(cross[i]);
+        total += magnitude[i];
     }
     if (total <= 0.0f) {
         return 0.0f;
@@ -117,20 +123,59 @@ inline float delay_compensated_coherence(const std::complex<float>* current,
     return std::abs(aligned) / total;
 }
 
+inline void subband_coherences_from_cross(const std::complex<float>* cross,
+                                          const float* magnitude, float* out) {
+    out[0] = delay_compensated_coherence_band_from_cross(cross, magnitude, 0U,
+                                                         HT20_COHERENCE_SUBBAND_SIZE, 4U);
+    out[1] = delay_compensated_coherence_band_from_cross(cross, magnitude, 14U,
+                                                         HT20_COHERENCE_SUBBAND_SIZE, 18U);
+    out[2] = delay_compensated_coherence_band_from_cross(cross, magnitude, 28U,
+                                                         HT20_COHERENCE_SUBBAND_SIZE, 33U);
+    out[3] = delay_compensated_coherence_band_from_cross(cross, magnitude, 42U,
+                                                         HT20_COHERENCE_SUBBAND_SIZE, 47U);
+}
+
+inline float delay_compensated_coherence_band(const std::complex<float>* current,
+                                              const std::complex<float>* reference,
+                                              uint8_t start, uint8_t count,
+                                              uint8_t start_bin) {
+    if (current == nullptr || reference == nullptr || count < 2U) {
+        return 0.0f;
+    }
+    std::complex<float> cross[HT20_LIVE_BAND_SIZE]{};
+    float magnitude[HT20_LIVE_BAND_SIZE]{};
+    fill_coherence_cross(current, reference, cross, magnitude);
+    return delay_compensated_coherence_band_from_cross(cross, magnitude, start, count,
+                                                       start_bin);
+}
+
+inline float delay_compensated_coherence(const std::complex<float>* current,
+                                         const std::complex<float>* reference) {
+    if (current == nullptr || reference == nullptr) {
+        return 0.0f;
+    }
+    std::complex<float> cross[HT20_LIVE_BAND_SIZE]{};
+    float magnitude[HT20_LIVE_BAND_SIZE]{};
+    fill_coherence_cross(current, reference, cross, magnitude);
+    return delay_compensated_coherence_from_cross(cross, magnitude);
+}
+
 inline void subband_coherences(const std::complex<float>* current,
                                const std::complex<float>* reference,
                                float* out) {
     if (out == nullptr) {
         return;
     }
-    out[0] = delay_compensated_coherence_band(current, reference, 0U,
-                                              HT20_COHERENCE_SUBBAND_SIZE, 4U);
-    out[1] = delay_compensated_coherence_band(current, reference, 14U,
-                                              HT20_COHERENCE_SUBBAND_SIZE, 18U);
-    out[2] = delay_compensated_coherence_band(current, reference, 28U,
-                                              HT20_COHERENCE_SUBBAND_SIZE, 33U);
-    out[3] = delay_compensated_coherence_band(current, reference, 42U,
-                                              HT20_COHERENCE_SUBBAND_SIZE, 47U);
+    if (current == nullptr || reference == nullptr) {
+        for (uint8_t i = 0; i < HT20_COHERENCE_SUBBAND_COUNT; i++) {
+            out[i] = 0.0f;
+        }
+        return;
+    }
+    std::complex<float> cross[HT20_LIVE_BAND_SIZE]{};
+    float magnitude[HT20_LIVE_BAND_SIZE]{};
+    fill_coherence_cross(current, reference, cross, magnitude);
+    subband_coherences_from_cross(cross, magnitude, out);
 }
 
 inline void normalized_amplitude_profile(const std::complex<float>* profile,
@@ -251,6 +296,7 @@ class ChannelShapeTracker {
     frequency_coherence_ring_.assign(capacity_, 0.0f);
     frequency_curve_ring_.assign(capacity_, 0.0f);
     motion_energy_ring_.assign(static_cast<size_t>(capacity_) * HT20_LIVE_BAND_SIZE, 0.0f);
+    ring_.assign(lag_profile_size_(), 0.0f);
     clear();
   }
 
@@ -293,11 +339,12 @@ class ChannelShapeTracker {
     normalized_amplitude_profile(complex_values, profile);
 
     const uint16_t slot = ring_index_;
+    const size_t ring_base = static_cast<size_t>(slot) * HT20_LIVE_BAND_SIZE;
     if (ring_filled_[slot]) {
         float squared_sum = 0.0f;
         float delta[HT20_LIVE_BAND_SIZE]{};
         for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-            const float diff = profile[i] - ring_[slot][i];
+            const float diff = profile[i] - ring_[ring_base + i];
             delta[i] = diff * diff;
             squared_sum += delta[i];
         }
@@ -333,7 +380,7 @@ class ChannelShapeTracker {
 
     for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
         previous_[i] = profile[i];
-        ring_[slot][i] = profile[i];
+        ring_[ring_base + i] = profile[i];
     }
     has_previous_ = true;
     ring_filled_[slot] = true;
@@ -376,6 +423,12 @@ class ChannelShapeTracker {
   }
 
  private:
+  // A tracker configured with no capacity is never fed, so it holds no ring.
+  size_t lag_profile_size_() const {
+    return capacity_ == 0U ? 0U
+                           : static_cast<size_t>(lag_) * HT20_LIVE_BAND_SIZE;
+  }
+
   void push_scalar_(float value, std::vector<float>& ring, uint16_t& slot,
                     uint16_t& count, float& total) {
     if (ring.empty()) {
@@ -450,7 +503,10 @@ class ChannelShapeTracker {
   uint16_t lag_{1U};
   uint16_t ring_index_{0U};
   bool has_previous_{false};
-  std::array<std::array<float, HT20_LIVE_BAND_SIZE>, L1_DELTA_LAG_MAX> ring_{};
+  // Sized to the configured lag rather than L1_DELTA_LAG_MAX: the ceiling is
+  // 32 while the 100 ms contract resolves to 10 packets at the nominal rate,
+  // so a static array would leave two thirds of 32 x 56 floats unused.
+  std::vector<float> ring_{};
   std::array<bool, L1_DELTA_LAG_MAX> ring_filled_{};
   std::array<float, HT20_LIVE_BAND_SIZE> previous_{};
   std::array<float, HT20_LIVE_BAND_SIZE> motion_energy_{};
@@ -488,6 +544,7 @@ class ChannelCoherenceTracker {
     adjacent_ring_.assign(capacity_, 0.0f);
     subband_lag_ring_.assign(static_cast<size_t>(capacity_) * HT20_COHERENCE_SUBBAND_COUNT, 0.0f);
     subband_adjacent_ring_.assign(static_cast<size_t>(capacity_) * HT20_COHERENCE_SUBBAND_COUNT, 0.0f);
+    ring_.assign(lag_profile_size_(), std::complex<float>(0.0f, 0.0f));
     clear();
   }
 
@@ -520,28 +577,35 @@ class ChannelCoherenceTracker {
     }
     std::complex<float> profile[HT20_LIVE_BAND_SIZE]{};
     extract_ht20_live_complex_profile(csi_data, csi_len, profile);
+    // One cross-product array per reference, shared by the full band and the
+    // four subbands that tile it.
+    std::complex<float> cross[HT20_LIVE_BAND_SIZE]{};
+    float magnitude[HT20_LIVE_BAND_SIZE]{};
     const uint16_t slot = ring_index_;
+    const size_t ring_base = static_cast<size_t>(slot) * HT20_LIVE_BAND_SIZE;
     if (ring_filled_[slot]) {
-        const float lag_value = delay_compensated_coherence(profile, ring_[slot].data());
+        fill_coherence_cross(profile, &ring_[ring_base], cross, magnitude);
+        const float lag_value = delay_compensated_coherence_from_cross(cross, magnitude);
         push_scalar_(lag_value, lag_ring_, lag_slot_, lag_count_, lag_sum_);
         float lag_subbands[HT20_COHERENCE_SUBBAND_COUNT]{};
-        subband_coherences(profile, ring_[slot].data(), lag_subbands);
+        subband_coherences_from_cross(cross, magnitude, lag_subbands);
         push_subbands_(lag_subbands, subband_lag_ring_, subband_lag_slot_,
                        subband_lag_count_, subband_lag_sum_);
     }
     if (has_previous_) {
-        const float adjacent_value = delay_compensated_coherence(profile, previous_.data());
+        fill_coherence_cross(profile, previous_.data(), cross, magnitude);
+        const float adjacent_value = delay_compensated_coherence_from_cross(cross, magnitude);
         push_scalar_(adjacent_value, adjacent_ring_, adjacent_slot_,
                      adjacent_count_, adjacent_sum_);
         float adjacent_subbands[HT20_COHERENCE_SUBBAND_COUNT]{};
-        subband_coherences(profile, previous_.data(), adjacent_subbands);
+        subband_coherences_from_cross(cross, magnitude, adjacent_subbands);
         push_subbands_(adjacent_subbands, subband_adjacent_ring_,
                        subband_adjacent_slot_, subband_adjacent_count_,
                        subband_adjacent_sum_);
     }
     for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
         previous_[i] = profile[i];
-        ring_[slot][i] = profile[i];
+        ring_[ring_base + i] = profile[i];
     }
     has_previous_ = true;
     ring_filled_[slot] = true;
@@ -578,6 +642,12 @@ class ChannelCoherenceTracker {
   }
 
  private:
+  // A tracker configured with no capacity is never fed, so it holds no ring.
+  size_t lag_profile_size_() const {
+    return capacity_ == 0U ? 0U
+                           : static_cast<size_t>(lag_) * HT20_LIVE_BAND_SIZE;
+  }
+
   void push_scalar_(float value, std::vector<float>& ring, uint16_t& slot,
                     uint16_t& count, double& total) {
     if (ring.empty()) {
@@ -619,7 +689,10 @@ class ChannelCoherenceTracker {
   uint16_t lag_{1U};
   uint16_t ring_index_{0U};
   bool has_previous_{false};
-  std::array<std::array<std::complex<float>, HT20_LIVE_BAND_SIZE>, L1_DELTA_LAG_MAX> ring_{};
+  // Sized to the configured lag, as in ChannelShapeTracker. This ring holds
+  // complex samples, so a static L1_DELTA_LAG_MAX array is the single largest
+  // allocation in the whole ML detector.
+  std::vector<std::complex<float>> ring_{};
   std::array<bool, L1_DELTA_LAG_MAX> ring_filled_{};
   std::array<std::complex<float>, HT20_LIVE_BAND_SIZE> previous_{};
   std::vector<float> lag_ring_{};

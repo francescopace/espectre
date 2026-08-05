@@ -55,6 +55,12 @@ _SUBBAND_BIN_INDICES: Tuple[np.ndarray, ...] = tuple(
     np.asarray(subband, dtype=np.float64)
     for subband in HT20_COHERENCE_SUBBANDS
 )
+# Each subband is contiguous in profile index, and together they tile the live
+# band, so a shared cross-product array can be sliced by span instead of gathered
+# by index.
+_SUBBAND_SPANS: Tuple[Tuple[int, int], ...] = tuple(
+    (int(indices[0]), int(indices[-1]) + 1) for indices in _SUBBAND_PROFILE_INDICES
+)
 
 COHERENCE_GAP_LOW_THRESHOLD = 0.02
 
@@ -119,8 +125,29 @@ def delay_compensated_coherence(current: np.ndarray, reference: np.ndarray) -> f
     in ``[0, 1]``: near 1 when the channel is unchanged, lower as movement
     decorrelates it.
     """
+    cross, magnitude = coherence_cross(current, reference)
+    return delay_compensated_coherence_from_cross(cross, magnitude)
+
+
+def coherence_cross(
+    current: np.ndarray,
+    reference: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return the cross products of one reference and their magnitudes.
+
+    The four subbands tile the live band exactly, so the full-band and subband
+    coherences of a reference read the very same products. Building them once
+    lets both consumers share the arrays instead of each recomputing all 56.
+    """
     cross = current * np.conj(reference)
-    magnitude = np.abs(cross)
+    return cross, np.abs(cross)
+
+
+def delay_compensated_coherence_from_cross(
+    cross: np.ndarray,
+    magnitude: np.ndarray,
+) -> float:
+    """Full live-band coherence from cached cross products."""
     total = magnitude.sum()
     if total <= 0.0:
         return 0.0
@@ -129,34 +156,41 @@ def delay_compensated_coherence(current: np.ndarray, reference: np.ndarray) -> f
     return float(abs(aligned.sum()) / total)
 
 
-def _contiguous_delay_compensated_coherence(
-    current: np.ndarray,
-    reference: np.ndarray,
+def _subband_coherence_from_cross(
+    cross: np.ndarray,
+    magnitude: np.ndarray,
+    start: int,
+    stop: int,
     bin_index: np.ndarray,
 ) -> float:
-    """Delay-compensated coherence for one contiguous frequency band."""
-    cross = current * np.conj(reference)
-    magnitude = np.abs(cross)
-    total = magnitude.sum()
+    """Delay-compensated coherence for one contiguous band of the shared array."""
+    band = cross[start:stop]
+    total = magnitude[start:stop].sum()
     if total <= 0.0:
         return 0.0
-    ramp = np.angle(np.sum(cross[1:] * np.conj(cross[:-1])))
-    aligned = cross * np.exp(-1j * ramp * bin_index)
+    ramp = np.angle(np.sum(band[1:] * np.conj(band[:-1])))
+    aligned = band * np.exp(-1j * ramp * bin_index)
     return float(abs(aligned.sum()) / total)
+
+
+def subband_coherences_from_cross(
+    cross: np.ndarray,
+    magnitude: np.ndarray,
+    out: np.ndarray = None,
+) -> np.ndarray:
+    """Fill the four subband coherences from cached cross products."""
+    values = np.empty(len(_SUBBAND_SPANS), dtype=np.float64) if out is None else out
+    for i, (start, stop) in enumerate(_SUBBAND_SPANS):
+        values[i] = _subband_coherence_from_cross(
+            cross, magnitude, start, stop, _SUBBAND_BIN_INDICES[i]
+        )
+    return values
 
 
 def subband_coherences(current: np.ndarray, reference: np.ndarray) -> np.ndarray:
     """Return delay-compensated coherence for four contiguous HT20 bands."""
-    values = np.empty(len(HT20_COHERENCE_SUBBANDS), dtype=np.float64)
-    for i, (indices, bin_index) in enumerate(
-        zip(_SUBBAND_PROFILE_INDICES, _SUBBAND_BIN_INDICES)
-    ):
-        values[i] = _contiguous_delay_compensated_coherence(
-            current[indices],
-            reference[indices],
-            bin_index,
-        )
-    return values
+    cross, magnitude = coherence_cross(current, reference)
+    return subband_coherences_from_cross(cross, magnitude)
 
 
 def turbulence_band_power_ratio(series: Sequence[float]) -> float:
@@ -958,12 +992,15 @@ class ChannelCoherenceTracker:
         lag_value = None
         adjacent_value = None
         if self._ring_filled[slot]:
-            lag_value = delay_compensated_coherence(profile, self._ring[slot])
+            # One cross-product array per reference, shared by the full band and
+            # the four subbands that tile it.
+            cross, magnitude = coherence_cross(profile, self._ring[slot])
+            lag_value = delay_compensated_coherence_from_cross(cross, magnitude)
             self._lag_slot, self._lag_count, self._lag_sum = self._push(
                 lag_value, self._lag_ring, self._lag_slot, self._lag_count, self._lag_sum
             )
             if self.track_subbands:
-                lag_subbands = subband_coherences(profile, self._ring[slot])
+                lag_subbands = subband_coherences_from_cross(cross, magnitude)
                 (
                     self._subband_lag_slot,
                     self._subband_lag_count,
@@ -987,14 +1024,15 @@ class ChannelCoherenceTracker:
                     self._subband_lag_median_sum,
                 )
         if self._has_previous:
-            adjacent_value = delay_compensated_coherence(profile, self._previous)
+            cross, magnitude = coherence_cross(profile, self._previous)
+            adjacent_value = delay_compensated_coherence_from_cross(cross, magnitude)
             (self._adjacent_slot, self._adjacent_count,
              self._adjacent_sum) = self._push(
                 adjacent_value, self._adjacent_ring, self._adjacent_slot,
                 self._adjacent_count, self._adjacent_sum
             )
             if self.track_subbands:
-                adjacent_subbands = subband_coherences(profile, self._previous)
+                adjacent_subbands = subband_coherences_from_cross(cross, magnitude)
                 (
                     self._subband_adjacent_slot,
                     self._subband_adjacent_count,

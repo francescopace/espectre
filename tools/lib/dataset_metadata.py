@@ -441,6 +441,11 @@ def build_calibrated_classic_detector(
     )
     for pkt in packets:
         csi_data = pkt["csi_data"] if isinstance(pkt, MappingABC) else pkt
+        # The detector indexes this payload element by element dozens of times
+        # per packet, and a NumPy element read builds a NumPy scalar. `int8` is
+        # already signed, so this preserves every value exactly.
+        if hasattr(csi_data, "tolist"):
+            csi_data = csi_data.tolist()
         rssi_dbm = _packet_field(pkt, "rssi_dbm")
         timing = timing_tracker.observe_packet(pkt)
         if timing["contaminated"]:

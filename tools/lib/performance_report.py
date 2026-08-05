@@ -556,7 +556,7 @@ def build_ml_replay_rows(
                 timing_tracker=timing_tracker,
             )
             packets_since_reset = 0
-        detector.process_packet(packet["csi_data"], selected_subcarriers)
+        detector.process_packet(_packet_csi_data(packet), selected_subcarriers)
         packets_since_reset += 1
         if packets_since_reset < window_size or not detector.is_ready():
             continue
@@ -698,7 +698,7 @@ def _collect_classic_replay_phase_rows(
             packets_since_reset = 0
             reset_index += 1
         detector.process_packet(
-            packet["csi_data"],
+            _packet_csi_data(packet),
             selected_subcarriers,
             rssi_dbm=packet.get("rssi_dbm"),
         )
@@ -1069,7 +1069,7 @@ def evaluate_detector_packets(
             )
             packets_since_reset = 0
         detector.process_packet(
-            pkt["csi_data"],
+            _packet_csi_data(pkt),
             selected_band,
             rssi_dbm=pkt.get("rssi_dbm"),
         )
@@ -1106,7 +1106,7 @@ def evaluate_detector_packets(
             )
             packets_since_reset = 0
         detector.process_packet(
-            pkt["csi_data"],
+            _packet_csi_data(pkt),
             selected_band,
             rssi_dbm=pkt.get("rssi_dbm"),
         )
@@ -1371,7 +1371,7 @@ def replay_idle_stream(
             )
             packets_since_reset = 0
         detector.process_packet(
-            pkt["csi_data"],
+            _packet_csi_data(pkt),
             selected_subcarriers,
             rssi_dbm=pkt.get("rssi_dbm"),
         )
@@ -1606,8 +1606,16 @@ def get_available_long_test_datasets(chips: Optional[Iterable[str]] = None) -> l
 
 
 def _packet_csi_data(packet: Any) -> Any:
-    """Return CSI bytes from a packet dictionary or a compact CSI row."""
-    return packet["csi_data"] if isinstance(packet, MappingABC) else packet
+    """Return CSI bytes from a packet dictionary or a compact CSI row.
+
+    The payload is handed to the MicroPython detectors, which index it element
+    by element dozens of times per packet. The packet view stores int8 NumPy
+    arrays, and every element read from one builds a NumPy scalar, so plain
+    Python ints are worth roughly a factor of two on replay. `int8` is already
+    signed, so `tolist()` preserves every value exactly.
+    """
+    csi_data = packet["csi_data"] if isinstance(packet, MappingABC) else packet
+    return csi_data.tolist() if isinstance(csi_data, np.ndarray) else csi_data
 
 
 def _packet_rssi_dbm(packet: Any) -> Any:

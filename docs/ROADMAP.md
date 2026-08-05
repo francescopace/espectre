@@ -9,21 +9,24 @@ live in their owning feature, dataset, and performance documents.
 
 | Milestone  | Target        | Status      | Outcome                                                                                                                                                  |
 | ---------- | ------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **v3.0.0** | August 2026   | Released    | Modular sensing platform with shared runtime layers, stable protocol services, multiple firmware frontends, and validated Classic and ML detectors       |
-| **v3.x**   | After v3.0.0  | In progress | Improve developer workflows, integrations, hardware coverage, and sensing performance without changing the v3.0 platform baseline                        |
+| **v3.0.0-rc1** | August 2026   | Planned     | First release candidate for the v3 platform baseline, with frozen scope and release-artifact validation                                                   |
+| **v3.0.0-rc2** | Early September 2026   | Planned     | Second release candidate for targeted fixes from `rc1`, without widening the v3.0 scope                                                                   |
+| **v3.0.0**     | Mid September 2026   | Planned     | First stable v3 release with shared runtime layers, stable protocol services, multiple firmware frontends, and validated Classic and ML detectors        |
+| **v3.0.x**     | After v3.0.0  | Planned     | Post-release hardening, compatibility fixes, and packaging or documentation corrections that preserve the v3.0 contract                                   |
+| **v3.x**       | After v3.0.0  | Planned     | Improve developer workflows, integrations, hardware coverage, and sensing performance beyond the 3.0 baseline without redefining the platform contract    |
 | **v4.x**   | December 2026 | Planned     | Add an optional privacy-first web orchestration layer for onboarding, multi-node visibility, management, history, and alerting                           |
 | **v5.x**   | Future        | Exploratory | Adopt practical IEEE 802.11bf / Wi-Fi Sensing hardware through the existing runtime and protocol architecture when embedded vendor APIs become available |
 
 
 
 
-## v3.0.0 - Released Platform Baseline
+## v3.0.0 - Release Track
 
-**Outcome**: a reusable Wi-Fi sensing platform with shared sensing logic,
-a stable runtime contract, multiple frontend paths, and an embeddable foundation
-for custom firmware and OEM products.
+**Outcome**: ship the first stable v3 platform release with shared sensing
+logic, a stable runtime contract, multiple frontend paths, and an embeddable
+foundation for custom firmware and OEM products.
 
-### Shipped Baseline
+### Candidate Baseline
 
 
 | Area              | State             | Current outcome                                                                                                                                                                                |
@@ -31,18 +34,22 @@ for custom firmware and OEM products.
 | **Architecture**  | Ready             | Shared `core`, `runtime`, ESP-IDF services, and frontend adapters are split, reviewed, and documented                                                                                          |
 | **Frontends**     | Ready with limits | ESPHome has the most complete Home Assistant surface; Native MQTT Discovery, optional Micro-ESPectre discovery, and Streamer are available; Matter occupancy has limited controller validation |
 | **Protocol**      | Ready             | BLE and MQTT provisioning, telemetry, status, info, commands, and reusable protocol services are documented in [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md)                                    |
-| **Detection**     | Released baseline | C++ and Python real-data, long-recording, low-RSSI, packet-rate, and parity gates pass across the maintained release corpus                                                                    |
+| **Detection**     | Release candidate | C++ and Python real-data, long-recording, low-RSSI, packet-rate, and parity gates pass across the maintained release corpus                                                                    |
 | **Documentation** | Ready             | Setup, architecture, protocol, tuning, performance, and frontend workflows describe the current v3 surface                                                                                     |
 
 
 Completed implementation and review work is recorded in
 [CHANGELOG.md](CHANGELOG.md) and the dated documents under `docs/review/`.
 
-## v3.x - Product Quality and Reach
+### Release Sequence
 
-Version 3.0 is the released platform baseline. The remaining work strengthens
-evidence, developer workflows, integrations, and hardware coverage without
-changing that baseline.
+1. Cut `3.0.0-rc1` once the candidate baseline, documentation set, and release
+   artifact inventory, and runtime/hardware coverage checks are internally
+   consistent.
+2. Cut `3.0.0-rc2` only for targeted fixes found during `rc1` validation,
+   without widening the release scope.
+3. Tag `3.0.0` after the release-readiness checklist and frozen-scope
+   validation pass.
 
 ### Detector Evidence
 
@@ -74,13 +81,38 @@ changing that baseline.
   practical
 - [ ] Move the ESPHome examples into the ESPHome frontend
 
+### RC1 Runtime and Hardware Coverage
 
+- [ ] Improve Micro-ESPectre beyond its current approximately 70 pps ceiling
+- [ ] Improve detector quality at high CSI packet rates so short-timescale
+  information does not depend on decimation as a permanent mitigation
+- [ ] Benchmark `SIZE` versus `PERF` compiler optimization across the
+  maintained firmware frontends, and adopt performance-oriented builds where
+  device-side gains justify the binary-size and fit trade-offs
+- [ ] Evaluate replacing the per-bin trigonometric derotation in
+  delay-compensated coherence with an incremental complex recurrence. The live
+  bins are consecutive, so one sine and cosine pair can stand in for 56, and
+  the derotation is the dominant cost of the coherence path. Adoption is gated
+  on the `C++`/Python parity and detector performance validations, because the
+  recurrence accumulates drift in the single precision the firmware and the
+  device runtime use, where the current form does not
+- [ ] Reduce the per-packet overhead that remains in the shared runtime policy
+  and the amplitude-profile helper: the packet-field accessor pays an abstract
+  base class check per field per packet, and the normalized amplitude profile
+  still allocates two lists per packet on the MicroPython path, which costs
+  garbage collection rather than host time
+- [ ] Evaluate adjacent-subcarrier aggregation on the current 12-of-64 CSI path
+  to reduce noise without hiding useful short-timescale or frequency-local
+  structure, and adopt it only if the `C++`/Python parity and detector
+  performance validations improve
+- [ ] Evaluate broader PHY and band support, including Wi-Fi 6 / 802.11ax
+  capabilities and 5 GHz operation where hardware and exposed APIs support it
 
-### Release Follow-Through
+### Release Readiness
 
-- [ ] Complete the remaining documentation review of the released baseline.
-- [ ] Complete the remaining security review of the released baseline.
-- [ ] Complete the remaining code review of the released baseline.
+- [ ] Complete the remaining documentation review of the 3.0 baseline.
+- [ ] Complete the remaining security review of the 3.0 baseline.
+- [ ] Complete the remaining code review of the 3.0 baseline.
 - [ ] Complete the Google Analytics review.
 - [ ] Refresh the Home Assistant screenshots used by the documentation and
   website, replacing the current gauge with a suitable visualization
@@ -90,6 +122,19 @@ changing that baseline.
 - [ ] Test the GitHub issue and pull request templates end to end
 
 
+
+## v3.0.x - Post-Release Hardening
+
+Version 3.0.x is reserved for post-release hardening that preserves the v3.0
+contract, including compatibility fixes, packaging corrections, and
+documentation or release-process follow-up discovered after the stable tag.
+Concrete items land here after `3.0.0` ships.
+
+## v3.x - Product Quality and Reach
+
+These items start after `3.0.0` ships. They improve developer workflows,
+integrations, and broader product reach beyond the 3.0 baseline without
+redefining the v3 platform contract.
 
 ### Developer Experience and Distribution
 
@@ -123,16 +168,6 @@ changing that baseline.
 - [ ] Evaluate a TuyaOpen reference integration that embeds the shared `core`
   and `runtime`, with licensing and cloud coupling documented as integrator-side
   prerequisites
-
-
-
-### Runtime and Hardware Coverage
-
-- [ ] Improve Micro-ESPectre beyond its current approximately 70 pps ceiling
-- [ ] Improve detector quality at high CSI packet rates so short-timescale
-  information does not depend on decimation as a permanent mitigation
-- [ ] Evaluate broader PHY and band support, including Wi-Fi 6 / 802.11ax
-  capabilities and 5 GHz operation where hardware and exposed APIs support it
 
 
 
@@ -250,7 +285,7 @@ before suitable hardware APIs exist
 
 ## Roadmap Updates
 
-Last update: **August 3, 2026**
+Last update: **August 5, 2026**
 
 For discussion and proposed changes:
 

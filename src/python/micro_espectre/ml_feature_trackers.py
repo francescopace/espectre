@@ -43,6 +43,11 @@ _SUBBAND_BIN_INDICES = tuple(
     tuple(float(bin_index) for bin_index in subband)
     for subband in HT20_COHERENCE_SUBBANDS
 )
+# Each subband is contiguous in profile index, and together they tile the live
+# band, so a shared cross-product array can be read by span instead of by index.
+_SUBBAND_SPANS = tuple(
+    (indices[0], indices[-1] + 1) for indices in _SUBBAND_PROFILE_INDICES
+)
 FREQUENCY_COHERENCE_OFFSETS = (2, 4, 12)
 # The DC null splits the live band into two runs that are contiguous in both
 # bin number and profile index, so a pair separated by `offset` bins is always
@@ -77,34 +82,28 @@ def complex_profile(csi_data, out=None):
     return profile
 
 
-def _delay_compensated_coherence_band(current, reference, indices, bin_index):
-    total = 0.0
-    cross = [0j] * len(indices)
-    for pos, index in enumerate(indices):
-        value = current[index] * reference[index].conjugate()
-        cross[pos] = value
-        total += abs(value)
-    if total <= 0.0:
-        return 0.0
-    ramp_sum = 0j
-    for pos in range(1, len(cross)):
-        ramp_sum += cross[pos] * cross[pos - 1].conjugate()
-    ramp = math.atan2(ramp_sum.imag, ramp_sum.real)
-    aligned = 0j
-    for pos, value in enumerate(cross):
-        angle = -ramp * bin_index[pos]
-        aligned += value * complex(math.cos(angle), math.sin(angle))
-    return abs(aligned) / total
+def new_coherence_cross_scratch():
+    """Return reusable per-reference buffers for the coherence path."""
+    return ([0j] * HT20_LIVE_WIDTH, [0.0] * HT20_LIVE_WIDTH)
 
 
-def delay_compensated_coherence(current, reference):
-    """Coherence between two HT20 live-band profiles with delay removed."""
-    total = 0.0
-    cross = [0j] * HT20_LIVE_WIDTH
+def _fill_coherence_cross(current, reference, cross, magnitude):
+    """Cache the cross products of one reference and their magnitudes.
+
+    The four subbands tile the live band exactly, so the full-band and subband
+    coherences of a reference read the very same products. Building them here
+    lets both consumers share the array instead of each recomputing all 56.
+    """
     for i in range(HT20_LIVE_WIDTH):
         value = current[i] * reference[i].conjugate()
         cross[i] = value
-        total += abs(value)
+        magnitude[i] = abs(value)
+
+
+def _delay_compensated_coherence_from_cross(cross, magnitude):
+    total = 0.0
+    for i in range(HT20_LIVE_WIDTH):
+        total += magnitude[i]
     if total <= 0.0:
         return 0.0
     ramp_sum = 0j
@@ -118,13 +117,45 @@ def delay_compensated_coherence(current, reference):
     return abs(aligned) / total
 
 
-def subband_coherences(current, reference):
-    values = [0.0] * len(_SUBBAND_PROFILE_INDICES)
-    for i, indices in enumerate(_SUBBAND_PROFILE_INDICES):
-        values[i] = _delay_compensated_coherence_band(
-            current, reference, indices, _SUBBAND_BIN_INDICES[i]
+def _subband_coherence_from_cross(cross, magnitude, start, stop, bin_index):
+    total = 0.0
+    for i in range(start, stop):
+        total += magnitude[i]
+    if total <= 0.0:
+        return 0.0
+    ramp_sum = 0j
+    for i in range(start + 1, stop):
+        ramp_sum += cross[i] * cross[i - 1].conjugate()
+    ramp = math.atan2(ramp_sum.imag, ramp_sum.real)
+    aligned = 0j
+    for pos in range(stop - start):
+        angle = -ramp * bin_index[pos]
+        aligned += cross[start + pos] * complex(math.cos(angle), math.sin(angle))
+    return abs(aligned) / total
+
+
+def _subband_coherences_from_cross(cross, magnitude, out):
+    for i in range(len(_SUBBAND_SPANS)):
+        start, stop = _SUBBAND_SPANS[i]
+        out[i] = _subband_coherence_from_cross(
+            cross, magnitude, start, stop, _SUBBAND_BIN_INDICES[i]
         )
-    return values
+    return out
+
+
+def delay_compensated_coherence(current, reference):
+    """Coherence between two HT20 live-band profiles with delay removed."""
+    cross, magnitude = new_coherence_cross_scratch()
+    _fill_coherence_cross(current, reference, cross, magnitude)
+    return _delay_compensated_coherence_from_cross(cross, magnitude)
+
+
+def subband_coherences(current, reference):
+    cross, magnitude = new_coherence_cross_scratch()
+    _fill_coherence_cross(current, reference, cross, magnitude)
+    return _subband_coherences_from_cross(
+        cross, magnitude, [0.0] * len(_SUBBAND_SPANS)
+    )
 
 
 def normalized_amplitude_profile(profile):
@@ -451,6 +482,9 @@ class ChannelCoherenceTracker:
         self._subband_lag_count = 0
         self._subband_adjacent_slot = 0
         self._subband_adjacent_count = 0
+        self._complex_profile = [0j] * HT20_LIVE_WIDTH
+        self._cross, self._cross_magnitude = new_coherence_cross_scratch()
+        self._subband_values = [0.0] * subband_count
 
     def _push(self, value, ring, slot, count, total):
         if count < self.window_size:
@@ -477,15 +511,20 @@ class ChannelCoherenceTracker:
         return slot, count, total
 
     def process_packet(self, csi_data):
-        profile = complex_profile(csi_data)
+        profile = complex_profile(csi_data, self._complex_profile)
+        cross = self._cross
+        magnitude = self._cross_magnitude
         slot = self._index
         if self._ring_filled[slot]:
-            lag_value = delay_compensated_coherence(profile, self._ring[slot])
+            _fill_coherence_cross(profile, self._ring[slot], cross, magnitude)
+            lag_value = _delay_compensated_coherence_from_cross(cross, magnitude)
             self._lag_slot, self._lag_count, self._lag_sum = self._push(
                 lag_value, self._lag_ring, self._lag_slot, self._lag_count,
                 self._lag_sum,
             )
-            lag_subbands = subband_coherences(profile, self._ring[slot])
+            lag_subbands = _subband_coherences_from_cross(
+                cross, magnitude, self._subband_values
+            )
             (
                 self._subband_lag_slot,
                 self._subband_lag_count,
@@ -495,7 +534,8 @@ class ChannelCoherenceTracker:
                 self._subband_lag_count, self._subband_lag_sum,
             )
         if self._has_previous:
-            adjacent_value = delay_compensated_coherence(profile, self._previous)
+            _fill_coherence_cross(profile, self._previous, cross, magnitude)
+            adjacent_value = _delay_compensated_coherence_from_cross(cross, magnitude)
             (
                 self._adjacent_slot,
                 self._adjacent_count,
@@ -504,7 +544,9 @@ class ChannelCoherenceTracker:
                 adjacent_value, self._adjacent_ring, self._adjacent_slot,
                 self._adjacent_count, self._adjacent_sum,
             )
-            adjacent_subbands = subband_coherences(profile, self._previous)
+            adjacent_subbands = _subband_coherences_from_cross(
+                cross, magnitude, self._subband_values
+            )
             (
                 self._subband_adjacent_slot,
                 self._subband_adjacent_count,

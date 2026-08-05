@@ -82,6 +82,29 @@ Historical decision context for the Classic and ML promotions now lives in:
 
 ### Changed
 
+- **The coherence trackers now size their lag rings to the configured lag and
+  share one cross-product array per reference**: the profile rings were static
+  arrays dimensioned to `L1_DELTA_LAG_MAX`, while the 100 ms contract resolves
+  to 10 packets at the nominal rate, so two thirds of the largest buffers in
+  the detector went unused; they are now allocated to the real lag at
+  configuration time, and a tracker configured with no capacity holds no ring
+  at all. The full-band and subband coherences of one reference also read a
+  single cross-product array, because the four subbands tile the live band
+  exactly instead of each rebuilding all 56 products. Measured on a 100-packet
+  window at lag 10, `ClassicDetector` falls from 33,160 to 28,256 bytes and
+  `MLDetector` from 52,624 to 37,888 bytes, and the MicroPython coherence
+  tracker gains roughly 8 percent with the host subband path gaining 10.
+  Feature values are unchanged.
+
+- **Host replay now hands the detectors plain integer CSI payloads**: the packet
+  view stores `int8` NumPy arrays, and the MicroPython runtime indexes a payload
+  dozens of times per packet, so every element read was building a NumPy scalar.
+  The replay harness converts once per packet, which is worth roughly a factor
+  of two in the profile extraction helpers and cuts the raw uncached Classic
+  replay from 2.800 to 2.452 seconds over 26,564 packets. `int8` is already
+  signed, so every value is preserved exactly and the replay feature checksum
+  is unchanged.
+
 - **Frequency coherence now walks the two live-band halves instead of scanning
   every subcarrier pair**: the DC null splits the HT20 live band into two
   contiguous 28-bin runs, so a pair at offset `d` is always `left + d` inside
