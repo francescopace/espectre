@@ -1,5 +1,24 @@
 menu "ESPectre Sensing"
 
+choice ESPECTRE_WIFI_BAND_POLICY
+    prompt "Wi-Fi band policy"
+    default ESPECTRE_WIFI_BAND_2G
+    help
+        Keep the production CSI PHY at HT20 while choosing which radio band
+        may be used. 5 GHz and automatic selection require dual-band silicon.
+
+    config ESPECTRE_WIFI_BAND_2G
+        bool "2.4 GHz only"
+
+    config ESPECTRE_WIFI_BAND_5G
+        bool "5 GHz only"
+        depends on SOC_WIFI_SUPPORT_5G
+
+    config ESPECTRE_WIFI_BAND_AUTO
+        bool "Automatic 2.4/5 GHz selection"
+        depends on SOC_WIFI_SUPPORT_5G
+endchoice
+
 choice ESPECTRE_DETECTION_ALGORITHM
     prompt "Detection algorithm"
     default ESPECTRE_DETECTION_ALGORITHM_CLASSIC

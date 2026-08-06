@@ -92,7 +92,7 @@ string, so arguments can be validated without a connected device.
 |---|---|---|
 | `setThreshold(value)` | `SET_THRESHOLD` | number in `0.0-1.0` |
 | `setDetector(name)` | `SET_DETECTOR` | `classic` or `ml` |
-| `setWifiConfig({ ssid, password, bssid, channel })` | `SET_WIFI_CONFIG` | `ssid` required; `channel` 0-14 (0 = auto); `bssid` empty or MAC |
+| `setWifiConfig({ ssid, password, bssid, channel })` | `SET_WIFI_CONFIG` | `ssid` required; `channel` 0 (auto) or a 20 MHz center compatible with the firmware-selected band; `bssid` empty or MAC |
 | `clearWifiConfig()` | `CLEAR_WIFI` | — |
 | `setMqttConfig({ host, port, username, password, topicPrefix })` | `SET_MQTT_CONFIG` | `host` required; `port` 1-65535; credentials optional |
 | `clearMqttConfig()` | `CLEAR_MQTT_CONFIG` | — |

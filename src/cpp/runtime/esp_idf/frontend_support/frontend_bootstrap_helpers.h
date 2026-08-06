@@ -40,6 +40,7 @@ struct FrontendWifiStationOptions {
   WifiProvisioningService::ChangeCallback change_callback{};
   standalone_wifi_callback_t connected_callback{};
   standalone_wifi_callback_t disconnected_callback{};
+  WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
 };
 
 EspectreDeviceConfig load_frontend_device_config(const FrontendDeviceConfigDefaults &defaults,

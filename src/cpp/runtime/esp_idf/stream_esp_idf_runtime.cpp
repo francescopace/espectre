@@ -222,7 +222,8 @@ bool StreamEspIdfRuntime::init_wifi_station_() {
                            CONFIG_ESPECTRE_WIFI_BSSID,
                            static_cast<uint8_t>(CONFIG_ESPECTRE_WIFI_CHANNEL),
                            kWifiConnectMaxRetry,
-                           true},
+                           true,
+                           config_.wifi_band_policy},
       [this]() { this->on_wifi_connected_(); },
       [this]() { this->on_wifi_disconnected_(); });
   if (!check_esp(setup_err, "wifi_manager_.setup")) {

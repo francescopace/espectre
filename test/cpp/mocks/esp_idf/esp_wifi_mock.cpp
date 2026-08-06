@@ -44,6 +44,10 @@ void esp_wifi_mock_reset(void) {
   g_esp_wifi_mock.set_promiscuous_result = ESP_OK;
   g_esp_wifi_mock.set_protocols_result = ESP_OK;
   g_esp_wifi_mock.set_band_mode_result = ESP_OK;
+  g_esp_wifi_mock.get_band_mode_result = ESP_OK;
+  // Matches the ESP-IDF default on a 5 GHz-capable part, so the tests start
+  // from the state real hardware boots into.
+  g_esp_wifi_mock.band_mode = WIFI_BAND_MODE_AUTO;
 }
 
 namespace {

@@ -90,6 +90,14 @@ prerequisites when `IP_EVENT_STA_GOT_IP` is drained from the runtime loop.
 ESPHome, Native, Matter, and Streamer must not apply these radio settings in
 their frontend code.
 
+The frontend or SDK integrator explicitly selects `2g`, `5g`, or `auto`; `2g`
+is the validated default, while `5g` and `auto` are available only on dual-band
+targets. The lifecycle applies that band mode first, then pins an 802.11n
+protocol ceiling and HT20 bandwidth on the selected band or bands. Fixed-band
+policies use the single-band ESP-IDF APIs, while AUTO uses the per-band APIs.
+See
+[`2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md`](adr/2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md).
+
 The `GOT_IP` payload is also the source of truth for the local address,
 netmask, and gateway used during service startup. The runtime passes that
 gateway directly to the internal traffic generator instead of querying the

@@ -101,7 +101,8 @@ bool EspIdfRuntime::setup() {
   if (wifi_lifecycle_.register_handlers([this](const esp_netif_ip_info_t &ip_info) {
                                           on_wifi_connected_(ip_info);
                                         },
-                                        [this]() { on_wifi_disconnected_(); }) != ESP_OK) {
+                                        [this]() { on_wifi_disconnected_(); },
+                                        config_.wifi_band_policy) != ESP_OK) {
     notify_fault_("Failed to register Wi-Fi handlers");
     return false;
   }

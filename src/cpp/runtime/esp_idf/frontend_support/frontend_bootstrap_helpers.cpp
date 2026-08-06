@@ -11,6 +11,8 @@
 
 #include "device_config_store.h"
 #include "espectre_log.h"
+#include "runtime_config_utils.h"
+#include "wifi_band_helpers.h"
 
 namespace espectre {
 
@@ -55,8 +57,14 @@ esp_err_t setup_frontend_wifi_station(WifiProvisioningService *provisioning,
   if (options.start_manager && wifi_manager == nullptr) {
     return ESP_ERR_INVALID_STATE;
   }
-  if (options.configured_channel < 0 || options.configured_channel > 14) {
-    ESP_LOGW(log_tag, "Invalid Wi-Fi channel: %d", options.configured_channel);
+  if (!wifi_band_policy_is_supported(options.band_policy)) {
+    ESP_LOGW(log_tag, "Unsupported Wi-Fi band policy: %s", wifi_band_policy_name(options.band_policy));
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+  if (!wifi_channel_is_supported(options.configured_channel) ||
+      !wifi_channel_matches_band_policy(options.configured_channel, options.band_policy)) {
+    ESP_LOGW(log_tag, "Invalid Wi-Fi channel: %d (expected %s)", options.configured_channel,
+             wifi_channel_supported_description(options.band_policy));
     return ESP_ERR_INVALID_ARG;
   }
 
@@ -67,6 +75,7 @@ esp_err_t setup_frontend_wifi_station(WifiProvisioningService *provisioning,
   defaults.channel = static_cast<uint8_t>(options.configured_channel);
   defaults.max_retry = options.max_retry;
   defaults.manage_csi_lifecycle = options.manage_csi_lifecycle;
+  defaults.band_policy = options.band_policy;
 
   provisioning->set_change_callback(options.change_callback);
   const esp_err_t setup_err =

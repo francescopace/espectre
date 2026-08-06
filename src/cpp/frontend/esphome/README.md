@@ -129,9 +129,20 @@ for these diagnostic entities or their sampling.
 ### Detection Algorithm Selection
 
 ```yaml
+wifi:
+  band_mode: 2.4GHz  # ESP32-C5: also accepts 5GHz or AUTO
+
 espectre:
   detection_algorithm: classic  # or ml
 ```
+
+ESPHome owns Wi-Fi association policy through `wifi.band_mode`; it is not an
+`espectre:` property. On ESP32-C5 it accepts `2.4GHz`, `5GHz`, or `AUTO` and is
+optional; when omitted, ESPectre follows ESPHome's `AUTO` default. Other
+supported targets are single-band and remain fixed to 2.4 GHz. ESPectre mirrors
+the effective ESPHome selection into its runtime and keeps the production
+sensing contract at HT20 on the selected band. The examples select `2.4GHz`
+because detection quality on 5 GHz is not yet characterized.
 
 Threshold behavior:
 

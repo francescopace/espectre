@@ -17,7 +17,9 @@
 #include "esp_netif.h"
 #include "esp_netif_ip_addr.h"
 #include "esp_wifi.h"
+#include "runtime_config_utils.h"
 #include "runtime_time.h"
+#include "wifi_band_helpers.h"
 
 namespace espectre {
 
@@ -86,6 +88,18 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
                                        standalone_wifi_callback_t connected_cb,
                                        standalone_wifi_callback_t disconnected_cb) {
   config_ = config;
+  if (!wifi_band_policy_is_supported(config_.band_policy)) {
+    ESP_LOGE(TAG, "Wi-Fi band policy is not supported by this target: %s",
+             wifi_band_policy_name(config_.band_policy));
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+  if (!wifi_channel_is_supported(config_.channel) ||
+      !wifi_channel_matches_band_policy(config_.channel, config_.band_policy)) {
+    ESP_LOGE(TAG, "Invalid Wi-Fi channel: %u (expected %s)",
+             static_cast<unsigned>(config_.channel),
+             wifi_channel_supported_description(config_.band_policy));
+    return ESP_ERR_INVALID_ARG;
+  }
   connected_cb_ = connected_cb;
   disconnected_cb_ = disconnected_cb;
 
@@ -137,7 +151,8 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
     err = wifi_lifecycle_.register_handlers([this](const esp_netif_ip_info_t &) {
                                               handle_lifecycle_connected_();
                                             },
-                                            [this]() { handle_lifecycle_disconnected_(); });
+                                            [this]() { handle_lifecycle_disconnected_(); },
+                                            config_.band_policy);
     if (err != ESP_OK) {
       ESP_LOGE(TAG, "Wi-Fi lifecycle handler registration failed: %s", esp_err_to_name(err));
       return err;
@@ -295,6 +310,20 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
     return ESP_ERR_INVALID_STATE;
   }
 
+  if (!wifi_band_policy_is_supported(config.band_policy)) {
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+  if (!wifi_channel_is_supported(config.channel) ||
+      !wifi_channel_matches_band_policy(config.channel, config.band_policy)) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  // The lifecycle handler captures this policy during setup. A live band
+  // change would require re-registering the handler before reconnecting.
+  if (config.band_policy != config_.band_policy) {
+    ESP_LOGE(TAG, "Cannot change the Wi-Fi band policy without restarting the Wi-Fi service");
+    return ESP_ERR_INVALID_STATE;
+  }
+
   config_ = config;
   clear_cached_ip_info_();
   wifi_retry_count_ = 0;
@@ -371,7 +400,7 @@ void StandaloneWifiService::handle_wifi_started_() {
   // register its STA_START policy handler after ours. Apply the radio policy
   // here before associating so set_protocol cannot abort an in-flight connect.
   if (!config_.manage_csi_lifecycle) {
-    const esp_err_t policy_err = WiFiLifecycleManager::apply_started_csi_policy();
+    const esp_err_t policy_err = WiFiLifecycleManager::apply_started_csi_policy(config_.band_policy);
     if (policy_err != ESP_OK) {
       ESP_LOGW(TAG, "Failed to apply CSI Wi-Fi policy before connect: %s", esp_err_to_name(policy_err));
     }

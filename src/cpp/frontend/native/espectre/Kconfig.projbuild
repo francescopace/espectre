@@ -15,9 +15,14 @@ menu "ESPectre Native Frontend"
         default ""
 
     config ESPECTRE_WIFI_CHANNEL
-        int "Optional Wi-Fi channel lock (0 = auto)"
+        int "Optional Wi-Fi channel hint (0 = auto)"
+        range 0 177 if SOC_WIFI_SUPPORT_5G
         range 0 14
         default 0
+        help
+            Starts association on one channel. 0 scans normally. The runtime
+            rejects values that are not 20 MHz channel centers or do not match
+            the selected Wi-Fi band. Pair with a BSSID for a fixed AP radio.
 
     config ESPECTRE_MQTT_ENABLED
         bool "Enable MQTT telemetry"

@@ -15,6 +15,7 @@
 
 #include "espectre_log.h"
 #include "protocol_json.h"
+#include "wifi_band_helpers.h"
 
 namespace espectre {
 
@@ -24,6 +25,7 @@ static const char *const TAG = "espectre.wifi_prov";
 
 bool assign_wifi_config_field(const std::string &field,
                               const std::string &value,
+                              WifiBandPolicy band_policy,
                               StoredWifiConfig *config,
                               std::string *error) {
   if (config == nullptr) {
@@ -65,9 +67,14 @@ bool assign_wifi_config_field(const std::string &field,
   if (field == "channel") {
     char *end_ptr = nullptr;
     const long parsed = std::strtol(value.c_str(), &end_ptr, 10);
-    if (end_ptr == value.c_str() || end_ptr == nullptr || *end_ptr != '\0' || parsed < 0 || parsed > 14) {
+    // The range check bounds the narrowing cast; the channel plan itself is
+    // what actually decides which of those values is a channel.
+    if (end_ptr == value.c_str() || end_ptr == nullptr || *end_ptr != '\0' ||
+        parsed < 0 || parsed > 255 ||
+        !wifi_channel_is_supported(static_cast<int>(parsed)) ||
+        !wifi_channel_matches_band_policy(static_cast<int>(parsed), band_policy)) {
       if (error != nullptr) {
-        *error = "channel must be 0..14";
+        *error = std::string("channel must be ") + wifi_channel_supported_description(band_policy);
       }
       return false;
     }
@@ -103,6 +110,18 @@ esp_err_t WifiProvisioningService::load_or_set_defaults(const WifiProvisioningDe
     wifi_config_.channel = defaults.channel;
     wifi_config_.has_saved_config = false;
   }
+  if (!wifi_channel_is_supported(wifi_config_.channel) ||
+      !wifi_channel_matches_band_policy(wifi_config_.channel, defaults_.band_policy)) {
+    ESP_LOGW(TAG, "Stored Wi-Fi channel %u does not match band policy; restoring automatic scan",
+             static_cast<unsigned>(wifi_config_.channel));
+    wifi_config_.channel = WIFI_CHANNEL_AUTO;
+    if (wifi_config_.has_saved_config) {
+      const esp_err_t save_err = save_stored_wifi_config(wifi_config_);
+      if (save_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to persist the normalized Wi-Fi channel: %s", esp_err_to_name(save_err));
+      }
+    }
+  }
   refresh_cached_strings_();
   notify_changed_();
   return ESP_OK;
@@ -126,6 +145,7 @@ esp_err_t WifiProvisioningService::setup_station(const WifiProvisioningDefaults 
   wifi_config.channel = wifi_config_.channel;
   wifi_config.max_retry = defaults_.max_retry;
   wifi_config.manage_csi_lifecycle = defaults_.manage_csi_lifecycle;
+  wifi_config.band_policy = defaults_.band_policy;
   auto on_connected = [this, connected_cb]() {
     if (connected_cb) {
       connected_cb();
@@ -160,7 +180,7 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
     StoredWifiConfig updated = wifi_config_;
     bool has_ssid = false;
     for (const auto &pair : pairs) {
-      if (!assign_wifi_config_field(pair.first, pair.second, &updated, &error)) {
+      if (!assign_wifi_config_field(pair.first, pair.second, defaults_.band_policy, &updated, &error)) {
         set_message(error.c_str());
         return false;
       }
@@ -216,6 +236,7 @@ bool WifiProvisioningService::apply_live(std::string *message) {
   wifi_config.channel = wifi_config_.channel;
   wifi_config.max_retry = defaults_.max_retry;
   wifi_config.manage_csi_lifecycle = defaults_.manage_csi_lifecycle;
+  wifi_config.band_policy = defaults_.band_policy;
 
   const esp_err_t err = wifi_manager_->update_station_config(wifi_config);
   notify_changed_();
@@ -223,19 +244,6 @@ bool WifiProvisioningService::apply_live(std::string *message) {
     *message = err == ESP_OK ? "Wi-Fi config applied" : esp_err_to_name(err);
   }
   return err == ESP_OK;
-}
-
-bool WifiProvisioningService::parse_wifi_channel_(const std::string &value, uint8_t *channel) const {
-  if (channel == nullptr || value.empty()) {
-    return false;
-  }
-  char *end_ptr = nullptr;
-  const long parsed = std::strtol(value.c_str(), &end_ptr, 10);
-  if (end_ptr == value.c_str() || end_ptr == nullptr || *end_ptr != '\0' || parsed < 0 || parsed > 14) {
-    return false;
-  }
-  *channel = static_cast<uint8_t>(parsed);
-  return true;
 }
 
 void WifiProvisioningService::refresh_cached_strings_() {

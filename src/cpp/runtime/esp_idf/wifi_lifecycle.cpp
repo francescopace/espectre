@@ -10,6 +10,7 @@
 #include "espectre_log.h"
 #include "esp_wifi.h"
 #include "sdkconfig.h"
+#include "wifi_band_helpers.h"
 
 #if defined(CONFIG_ESP_COEX_SW_COEXIST_ENABLE) && __has_include("esp_coexist.h")
 #include "esp_coexist.h"
@@ -23,8 +24,8 @@ static const char *WIFI_LIFECYCLE_TAG = "WiFiLifecycle";
 namespace {
 
 enum class WiFiProtocolPolicyPath : uint8_t {
-  ALREADY_BGN,
-  SET_BGN,
+  ALREADY_PINNED,
+  PINNED,
 };
 
 struct WiFiProtocolPolicyResult {
@@ -32,11 +33,46 @@ struct WiFiProtocolPolicyResult {
   WiFiProtocolPolicyPath path;
 };
 
+// The sensing contract is the validated HT-LTF 20 MHz path with 64
+// subcarriers, not a band. The integrator owns the band choice; the lifecycle
+// pins every selected band to an 11n-max protocol set and to HT20.
+//
 // ESP-IDF exposes 802.11n on 2.4 GHz through the supported b/g/n protocol
-// combination. WIFI_PROTOCOL_11N alone is not a valid station mode on the
-// published ESPectre targets, so we prefer it first and fall back to b/g/n.
+// combination; WIFI_PROTOCOL_11N alone is not a valid station mode on the
+// published ESPectre targets. 802.11b/g do not exist on 5 GHz, where 802.11a is
+// the legacy OFDM floor under 802.11n.
 constexpr uint16_t WIFI_PROTOCOL_CSI_2G = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
 constexpr wifi_bandwidth_t WIFI_BANDWIDTH_CSI = WIFI_BW_HT20;
+#if ESPECTRE_WIFI_DUAL_BAND
+constexpr uint16_t WIFI_PROTOCOL_CSI_5G = WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N;
+#endif
+
+const char *wifi_csi_policy_target_(WifiBandPolicy policy) {
+  switch (policy) {
+#if ESPECTRE_WIFI_DUAL_BAND
+    case WifiBandPolicy::BAND_5G:
+      return "5 GHz HT20 11a/n (11ac and 11ax disabled)";
+    case WifiBandPolicy::AUTO:
+      return "HT20 on both bands (2.4 GHz 11b/g/n, 5 GHz 11a/n; 11ac and 11ax disabled)";
+#endif
+    case WifiBandPolicy::BAND_2G:
+    default:
+      return "2.4 GHz HT20 11b/g/n (802.11ax disabled)";
+  }
+}
+
+const char *wifi_band_policy_to_str_(WifiBandPolicy policy) {
+  switch (policy) {
+    case WifiBandPolicy::BAND_2G:
+      return "2g";
+    case WifiBandPolicy::BAND_5G:
+      return "5g";
+    case WifiBandPolicy::AUTO:
+      return "auto";
+    default:
+      return "unknown";
+  }
+}
 
 const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
   switch (bw) {
@@ -63,40 +99,82 @@ const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
 
 const char *protocol_policy_path_to_str_(WiFiProtocolPolicyPath path) {
   switch (path) {
-    case WiFiProtocolPolicyPath::ALREADY_BGN:
-      return "11b/g/n already active";
-    case WiFiProtocolPolicyPath::SET_BGN:
-      return "set 11b/g/n explicitly";
+    case WiFiProtocolPolicyPath::ALREADY_PINNED:
+      return "11n ceiling already active";
+    case WiFiProtocolPolicyPath::PINNED:
+      return "pinned the 11n ceiling explicitly";
     default:
       return "unknown";
   }
 }
 
-WiFiProtocolPolicyResult set_wifi_protocol_for_csi_() {
+#if ESPECTRE_WIFI_DUAL_BAND
+wifi_band_mode_t band_mode_for_policy_(WifiBandPolicy policy) {
+  switch (policy) {
+    case WifiBandPolicy::BAND_5G:
+      return WIFI_BAND_MODE_5G_ONLY;
+    case WifiBandPolicy::AUTO:
+      return WIFI_BAND_MODE_AUTO;
+    case WifiBandPolicy::BAND_2G:
+    default:
+      return WIFI_BAND_MODE_2G_ONLY;
+  }
+}
+
+// Must run before the protocol and bandwidth policy. It selects which legacy
+// or per-band ESP-IDF API is valid and prevents an integrator's explicit band
+// choice from being overwritten by the sensing runtime.
+esp_err_t set_wifi_band_mode_for_csi_(WifiBandPolicy policy) {
+  const wifi_band_mode_t requested = band_mode_for_policy_(policy);
+  wifi_band_mode_t current = requested;
+  if (esp_wifi_get_band_mode(&current) == ESP_OK && current == requested) {
+    return ESP_OK;
+  }
+  return esp_wifi_set_band_mode(requested);
+}
+#endif
+
+WiFiProtocolPolicyResult set_wifi_protocol_for_csi_(WifiBandPolicy policy) {
+#if ESPECTRE_WIFI_DUAL_BAND
+  if (policy == WifiBandPolicy::AUTO) {
+    wifi_protocols_t current{};
+    if (esp_wifi_get_protocols(WIFI_IF_STA, &current) == ESP_OK &&
+        current.ghz_2g == WIFI_PROTOCOL_CSI_2G && current.ghz_5g == WIFI_PROTOCOL_CSI_5G) {
+      return WiFiProtocolPolicyResult{ESP_OK, WiFiProtocolPolicyPath::ALREADY_PINNED};
+    }
+    wifi_protocols_t protocols{WIFI_PROTOCOL_CSI_2G, WIFI_PROTOCOL_CSI_5G};
+    const esp_err_t ret = esp_wifi_set_protocols(WIFI_IF_STA, &protocols);
+    return WiFiProtocolPolicyResult{ret, WiFiProtocolPolicyPath::PINNED};
+  }
+#endif
+  const uint8_t requested_protocol =
+#if ESPECTRE_WIFI_DUAL_BAND
+      policy == WifiBandPolicy::BAND_5G ? WIFI_PROTOCOL_CSI_5G : WIFI_PROTOCOL_CSI_2G;
+#else
+      WIFI_PROTOCOL_CSI_2G;
+#endif
   uint8_t current_protocol = 0U;
   if (esp_wifi_get_protocol(WIFI_IF_STA, &current_protocol) == ESP_OK) {
-    if (current_protocol == WIFI_PROTOCOL_CSI_2G) {
-      return WiFiProtocolPolicyResult{ESP_OK, WiFiProtocolPolicyPath::ALREADY_BGN};
+    if (current_protocol == requested_protocol) {
+      return WiFiProtocolPolicyResult{ESP_OK, WiFiProtocolPolicyPath::ALREADY_PINNED};
     }
   }
-  const esp_err_t ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G);
-  return WiFiProtocolPolicyResult{ret, WiFiProtocolPolicyPath::SET_BGN};
+  const esp_err_t ret = esp_wifi_set_protocol(WIFI_IF_STA, requested_protocol);
+  return WiFiProtocolPolicyResult{ret, WiFiProtocolPolicyPath::PINNED};
 }
 
-esp_err_t get_wifi_protocol_for_log_(uint16_t *protocol) {
-  if (protocol == nullptr) {
-    return ESP_ERR_INVALID_ARG;
+esp_err_t set_wifi_bandwidth_for_csi_(WifiBandPolicy policy) {
+#if ESPECTRE_WIFI_DUAL_BAND
+  if (policy == WifiBandPolicy::AUTO) {
+    wifi_bandwidths_t current{};
+    if (esp_wifi_get_bandwidths(WIFI_IF_STA, &current) == ESP_OK &&
+        current.ghz_2g == WIFI_BANDWIDTH_CSI && current.ghz_5g == WIFI_BANDWIDTH_CSI) {
+      return ESP_OK;
+    }
+    wifi_bandwidths_t bandwidths{WIFI_BANDWIDTH_CSI, WIFI_BANDWIDTH_CSI};
+    return esp_wifi_set_bandwidths(WIFI_IF_STA, &bandwidths);
   }
-  uint8_t protocol_bitmap = 0;
-  esp_err_t err = esp_wifi_get_protocol(WIFI_IF_STA, &protocol_bitmap);
-  if (err != ESP_OK) {
-    return err;
-  }
-  *protocol = protocol_bitmap;
-  return ESP_OK;
-}
-
-esp_err_t set_wifi_bandwidth_for_csi_() {
+#endif
   wifi_bandwidth_t current_bandwidth = WIFI_BW_HT20;
   if (esp_wifi_get_bandwidth(WIFI_IF_STA, &current_bandwidth) == ESP_OK &&
       current_bandwidth == WIFI_BANDWIDTH_CSI) {
@@ -105,42 +183,94 @@ esp_err_t set_wifi_bandwidth_for_csi_() {
   return esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BANDWIDTH_CSI);
 }
 
-esp_err_t get_wifi_bandwidth_for_log_(wifi_bandwidth_t *bw) {
-  return esp_wifi_get_bandwidth(WIFI_IF_STA, bw);
+void log_wifi_protocol_state_(const char *log_tag, WifiBandPolicy policy) {
+#if ESPECTRE_WIFI_DUAL_BAND
+  if (policy == WifiBandPolicy::AUTO) {
+    wifi_protocols_t protocols{};
+    const esp_err_t err = esp_wifi_get_protocols(WIFI_IF_STA, &protocols);
+    if (err != ESP_OK) {
+      ESP_LOGW(log_tag, "Wi-Fi protocol: unavailable (%s)", esp_err_to_name(err));
+      return;
+    }
+    ESP_LOGD(log_tag, "Wi-Fi protocol: 2.4 GHz 0x%04X, 5 GHz 0x%04X",
+             static_cast<unsigned>(protocols.ghz_2g), static_cast<unsigned>(protocols.ghz_5g));
+    if ((protocols.ghz_2g & WIFI_PROTOCOL_11N) == 0U ||
+        (protocols.ghz_5g & WIFI_PROTOCOL_11N) == 0U) {
+      ESP_LOGW(log_tag, "Wi-Fi protocol does not include 11n on both bands");
+    }
+    return;
+  }
+#endif
+  uint8_t protocol = 0U;
+  const esp_err_t err = esp_wifi_get_protocol(WIFI_IF_STA, &protocol);
+  if (err != ESP_OK) {
+    ESP_LOGW(log_tag, "Wi-Fi protocol: unavailable (%s)", esp_err_to_name(err));
+    return;
+  }
+  const int has_11n = (protocol & WIFI_PROTOCOL_11N) ? 1 : 0;
+  ESP_LOGD(log_tag, "Wi-Fi protocol: band=%s bitmap=0x%04X (802.11n=%d)",
+           wifi_band_policy_to_str_(policy), static_cast<unsigned>(protocol), has_11n);
+  if (has_11n == 0) {
+    ESP_LOGW(log_tag, "Wi-Fi protocol does not include 11n support: 0x%04X",
+             static_cast<unsigned>(protocol));
+  }
+}
+
+void log_wifi_bandwidth_state_(const char *log_tag, WifiBandPolicy policy) {
+#if ESPECTRE_WIFI_DUAL_BAND
+  if (policy == WifiBandPolicy::AUTO) {
+    wifi_bandwidths_t bandwidths{};
+    const esp_err_t err = esp_wifi_get_bandwidths(WIFI_IF_STA, &bandwidths);
+    if (err != ESP_OK) {
+      ESP_LOGW(log_tag, "Wi-Fi bandwidth: unavailable (%s)", esp_err_to_name(err));
+      return;
+    }
+    ESP_LOGD(log_tag, "Wi-Fi bandwidth: 2.4 GHz %s, 5 GHz %s",
+             bandwidth_to_str_(bandwidths.ghz_2g), bandwidth_to_str_(bandwidths.ghz_5g));
+    return;
+  }
+#endif
+  wifi_bandwidth_t bw = WIFI_BW_HT20;
+  const esp_err_t err = esp_wifi_get_bandwidth(WIFI_IF_STA, &bw);
+  if (err != ESP_OK) {
+    ESP_LOGW(log_tag, "Wi-Fi bandwidth: unavailable (%s)", esp_err_to_name(err));
+    return;
+  }
+  ESP_LOGD(log_tag, "Wi-Fi bandwidth: band=%s width=%s",
+           wifi_band_policy_to_str_(policy), bandwidth_to_str_(bw));
 }
 
 }  // namespace
 
-esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy() {
-  esp_err_t ret;
-
-#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
-  // Force 2.4 GHz before setting the protocol bitmap. On HE-capable targets
-  // this lets esp_wifi_set_protocol() remove 802.11ax cleanly for HT20 CSI.
-  ret = esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY);
-  if (ret != ESP_OK) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to force 2.4 GHz band mode: %s", esp_err_to_name(ret));
-    // Non-fatal: continue, but runtime may still associate on 5 GHz in AUTO mode.
-  } else {
-    ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi band mode: 2.4 GHz only");
+esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy(WifiBandPolicy band_policy) {
+  if (!wifi_band_policy_is_supported(band_policy)) {
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi band policy is not supported by this target: %s",
+             wifi_band_policy_to_str_(band_policy));
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+#if ESPECTRE_WIFI_DUAL_BAND
+  const esp_err_t band_err = set_wifi_band_mode_for_csi_(band_policy);
+  if (band_err != ESP_OK) {
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to apply Wi-Fi band policy %s: %s",
+             wifi_band_policy_to_str_(band_policy), esp_err_to_name(band_err));
+    return band_err;
   }
 #endif
 
   // Configure WiFi protocol mode (MUST be done before CSI configuration)
-  // This initializes internal WiFi structures required for CSI
-  // HT20 only: configure the documented 2.4 GHz b/g/n bitmap for stable
-  // 64-subcarrier CSI across the published ESPectre targets.
-  const WiFiProtocolPolicyResult protocol_result = set_wifi_protocol_for_csi_();
-  ret = protocol_result.err;
+  // This initializes internal WiFi structures required for CSI.
+  // What sensing requires today is an 11n protocol ceiling on every selected
+  // band, so VHT-LTF and HE-LTF do not replace the validated HT-LTF path.
+  const WiFiProtocolPolicyResult protocol_result = set_wifi_protocol_for_csi_(band_policy);
+  esp_err_t ret = protocol_result.err;
   if (ret != ESP_OK) {
     ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set Wi-Fi protocol: %s", esp_err_to_name(ret));
     return ret;
   }
-  ESP_LOGI(WIFI_LIFECYCLE_TAG,
-           "Wi-Fi CSI protocol policy: path=%s target=2.4 GHz HT20 (802.11ax disabled)",
-           protocol_policy_path_to_str_(protocol_result.path));
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI protocol policy: path=%s target=%s",
+           protocol_policy_path_to_str_(protocol_result.path), wifi_csi_policy_target_(band_policy));
   // HT20 bandwidth for 64 subcarriers
-  ret = set_wifi_bandwidth_for_csi_();
+  ret = set_wifi_bandwidth_for_csi_(band_policy);
   if (ret != ESP_OK) {
     ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to set bandwidth: %s", esp_err_to_name(ret));
     // Non-fatal: continue anyway
@@ -149,7 +279,7 @@ esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy() {
   return ESP_OK;
 }
 
-esp_err_t WiFiLifecycleManager::apply_started_csi_policy() {
+esp_err_t WiFiLifecycleManager::apply_started_csi_policy(WifiBandPolicy band_policy) {
 #ifdef ESPECTRE_HAVE_ESP_COEXIST
   const esp_err_t coex_err = esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
   if (coex_err != ESP_OK) {
@@ -158,13 +288,13 @@ esp_err_t WiFiLifecycleManager::apply_started_csi_policy() {
   }
 #endif
 
-  const esp_err_t policy_err = apply_csi_wifi_policy();
+  const esp_err_t policy_err = apply_csi_wifi_policy(band_policy);
   if (policy_err != ESP_OK) {
     ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to apply started Wi-Fi CSI policy: %s",
              esp_err_to_name(policy_err));
     return policy_err;
   }
-  log_csi_runtime_state(WIFI_LIFECYCLE_TAG);
+  log_csi_runtime_state(WIFI_LIFECYCLE_TAG, band_policy);
   return ESP_OK;
 }
 
@@ -182,7 +312,7 @@ esp_err_t WiFiLifecycleManager::init() {
     // up by now, so applying it late is valid and strictly better than
     // dropping the connection.
     ESP_LOGW(WIFI_LIFECYCLE_TAG, "STA start was not observed; applying Wi-Fi CSI policy late");
-    const esp_err_t late_err = apply_started_csi_policy();
+    const esp_err_t late_err = apply_started_csi_policy(band_policy_);
     started_policy_attempted_.store(true, std::memory_order_relaxed);
     started_policy_err_.store(late_err, std::memory_order_relaxed);
     started_policy_applied_.store(late_err == ESP_OK, std::memory_order_relaxed);
@@ -208,16 +338,23 @@ esp_err_t WiFiLifecycleManager::init() {
   }
 
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI lifecycle ready");
-  log_csi_runtime_state(WIFI_LIFECYCLE_TAG);
+  log_csi_runtime_state(WIFI_LIFECYCLE_TAG, band_policy_);
   ready_ = true;
 
   return ESP_OK;
 }
 
 esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t connected_cb,
-                                                  wifi_disconnected_callback_t disconnected_cb) {
+                                                  wifi_disconnected_callback_t disconnected_cb,
+                                                  WifiBandPolicy band_policy) {
+  if (!wifi_band_policy_is_supported(band_policy)) {
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi band policy is not supported by this target: %s",
+             wifi_band_policy_to_str_(band_policy));
+    return ESP_ERR_NOT_SUPPORTED;
+  }
   connected_callback_ = connected_cb;
   disconnected_callback_ = disconnected_cb;
+  band_policy_ = band_policy;
   
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
   started_policy_applied_.store(false, std::memory_order_relaxed);
@@ -323,7 +460,7 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
   return ESP_OK;
 }
 
-void WiFiLifecycleManager::log_csi_runtime_state(const char *tag) {
+void WiFiLifecycleManager::log_csi_runtime_state(const char *tag, WifiBandPolicy band_policy) {
   const char *log_tag = tag != nullptr ? tag : WIFI_LIFECYCLE_TAG;
   bool promiscuous = false;
   esp_wifi_get_promiscuous(&promiscuous);
@@ -339,32 +476,16 @@ void WiFiLifecycleManager::log_csi_runtime_state(const char *tag) {
     ESP_LOGW(log_tag, "Wi-Fi power save: unavailable (%s)", esp_err_to_name(ps_err));
   }
 
-  uint16_t protocol = 0;
-  esp_err_t protocol_err = get_wifi_protocol_for_log_(&protocol);
-  if (protocol_err == ESP_OK) {
-    const int has_11b = (protocol & WIFI_PROTOCOL_11B) ? 1 : 0;
-    const int has_11g = (protocol & WIFI_PROTOCOL_11G) ? 1 : 0;
-    const int has_11n = (protocol & WIFI_PROTOCOL_11N) ? 1 : 0;
-#ifdef WIFI_PROTOCOL_11AX
-    const int has_11ax = (protocol & WIFI_PROTOCOL_11AX) ? 1 : 0;
-#else
-    const int has_11ax = 0;
-#endif
-    ESP_LOGD(log_tag, "Wi-Fi protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
-             protocol, has_11b, has_11g, has_11n, has_11ax);
-    if ((protocol & WIFI_PROTOCOL_11N) == 0) {
-      ESP_LOGW(log_tag, "Wi-Fi protocol does not include 11n support: 0x%04X", protocol);
-    }
-  } else {
-    ESP_LOGW(log_tag, "Wi-Fi protocol: unavailable (%s)", esp_err_to_name(protocol_err));
-  }
+  log_wifi_protocol_state_(log_tag, band_policy);
+  log_wifi_bandwidth_state_(log_tag, band_policy);
 
-  wifi_bandwidth_t bw = WIFI_BW_HT20;
-  esp_err_t bw_err = get_wifi_bandwidth_for_log_(&bw);
-  if (bw_err == ESP_OK) {
-    ESP_LOGD(log_tag, "Wi-Fi bandwidth: %s", bandwidth_to_str_(bw));
-  } else {
-    ESP_LOGW(log_tag, "Wi-Fi bandwidth: unavailable (%s)", esp_err_to_name(bw_err));
+  // The associated band is the one operational fact the per-band settings do
+  // not reveal, and it decides which of them is actually in force.
+  uint8_t primary_channel = 0U;
+  wifi_second_chan_t second_channel = WIFI_SECOND_CHAN_NONE;
+  if (esp_wifi_get_channel(&primary_channel, &second_channel) == ESP_OK && primary_channel != 0U) {
+    ESP_LOGD(log_tag, "Wi-Fi channel: %u (%s)", static_cast<unsigned>(primary_channel),
+             primary_channel > WIFI_CHANNEL_2G_MAX ? "5 GHz" : "2.4 GHz");
   }
 }
 
@@ -395,7 +516,7 @@ void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event
   }
   if (event_id == WIFI_EVENT_STA_START) {
     if (!manager->started_policy_applied_.load(std::memory_order_relaxed)) {
-      const esp_err_t err = apply_started_csi_policy();
+      const esp_err_t err = apply_started_csi_policy(manager->band_policy_);
       manager->started_policy_attempted_.store(true, std::memory_order_relaxed);
       manager->started_policy_err_.store(err, std::memory_order_relaxed);
       if (err == ESP_OK) {

@@ -31,6 +31,16 @@
 
 namespace espectre {
 
+/** Wi-Fi band selection requested by the embedding frontend. */
+enum class WifiBandPolicy : uint8_t {
+  /** Restrict association to 2.4 GHz. This is the validated production default. */
+  BAND_2G = 0,
+  /** Restrict association to 5 GHz. Supported only by dual-band targets. */
+  BAND_5G = 1,
+  /** Let a dual-band radio choose between 2.4 GHz and 5 GHz. */
+  AUTO = 2,
+};
+
 /**
  * Everything the runtime needs to know before `setup()`.
  *
@@ -50,6 +60,13 @@ namespace espectre {
 struct RuntimeConfig {
   /** Which backend to build: motion sensing, or raw CSI streaming to a collector. */
   RuntimeProfile runtime_profile{RuntimeProfile::SENSING};
+  /**
+   * Band available to the station while the runtime keeps the PHY at HT20.
+   *
+   * `BAND_5G` and `AUTO` require dual-band silicon. Keeping `BAND_2G` as the
+   * default preserves the band covered by the production detector corpus.
+   */
+  WifiBandPolicy wifi_band_policy{WifiBandPolicy::BAND_2G};
   /** Detector to run. Classic self-calibrates; ML uses the trained weights. */
   DetectionAlgorithm detection_algorithm{DetectionAlgorithm::CLASSIC};
   /**

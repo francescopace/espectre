@@ -73,6 +73,23 @@ void test_wifi_provisioning_loads_saved_config(void) {
   TEST_ASSERT_EQUAL_UINT8(11, service.config().channel);
 }
 
+void test_wifi_provisioning_normalizes_an_incompatible_stored_channel(void) {
+  StoredWifiConfig saved;
+  saved.ssid = "SavedSSID";
+  saved.channel = 36;
+  saved.has_saved_config = true;
+  TEST_ASSERT_EQUAL(ESP_OK, save_stored_wifi_config(saved));
+
+  WifiProvisioningService service(nullptr);
+  TEST_ASSERT_EQUAL(ESP_OK, service.load_or_set_defaults(make_defaults()));
+  TEST_ASSERT_TRUE(service.config().has_saved_config);
+  TEST_ASSERT_EQUAL_UINT8(0, service.config().channel);
+
+  StoredWifiConfig normalized;
+  TEST_ASSERT_EQUAL(ESP_OK, load_stored_wifi_config(&normalized));
+  TEST_ASSERT_EQUAL_UINT8(0, normalized.channel);
+}
+
 void test_wifi_provisioning_records_load_error_and_falls_back_to_defaults(void) {
   nvs_mock_set_open_result(ESP_FAIL);
   WifiProvisioningService service(nullptr);
@@ -93,6 +110,10 @@ void test_wifi_provisioning_commands_validate_and_persist_config(void) {
   TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CONFIG:ssid=&password=secret&channel=9", &message));
   TEST_ASSERT_EQUAL_STRING("SSID must be 1..32 bytes", message.c_str());
   TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&channel=15", &message));
+  TEST_ASSERT_EQUAL_STRING("channel must be 0..14", message.c_str());
+  // A 2.4 GHz-only radio must reject a 5 GHz channel it cannot tune, rather
+  // than accept a lock that would silently prevent association.
+  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&channel=36", &message));
   TEST_ASSERT_EQUAL_STRING("channel must be 0..14", message.c_str());
 
   TEST_ASSERT_TRUE(
@@ -148,6 +169,7 @@ int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_wifi_provisioning_loads_defaults_when_no_saved_config);
   RUN_TEST(test_wifi_provisioning_loads_saved_config);
+  RUN_TEST(test_wifi_provisioning_normalizes_an_incompatible_stored_channel);
   RUN_TEST(test_wifi_provisioning_records_load_error_and_falls_back_to_defaults);
   RUN_TEST(test_wifi_provisioning_commands_validate_and_persist_config);
   RUN_TEST(test_wifi_provisioning_apply_updates_wifi_manager_live);

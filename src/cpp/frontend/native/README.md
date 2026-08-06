@@ -170,11 +170,15 @@ RX/TX buffers, plus lwIP mailbox and IRAM optimizations.
 | `ESPECTRE_WIFI_SSID` | Wi-Fi SSID |
 | `ESPECTRE_WIFI_PASSWORD` | Wi-Fi password |
 | `ESPECTRE_WIFI_BSSID` | Optional BSSID lock |
-| `ESPECTRE_WIFI_CHANNEL` | Optional channel lock (`0` = auto) |
+| `ESPECTRE_WIFI_BAND_2G`, `ESPECTRE_WIFI_BAND_5G`, `ESPECTRE_WIFI_BAND_AUTO` | Build-time band policy; exactly one selected |
+| `ESPECTRE_WIFI_CHANNEL` | Optional channel hint (`0` = auto) |
 
-When `ESPECTRE_WIFI_BSSID` is set, the firmware uses fast scan and pins the
-association to that AP radio. Leave `ESPECTRE_WIFI_CHANNEL=0` unless you need
-to force a known 2.4 GHz channel for repeatable CSI captures.
+`ESPECTRE_WIFI_BAND_2G` is the default. An ESP32-C5 integrator can instead
+select `ESPECTRE_WIFI_BAND_5G` or `ESPECTRE_WIFI_BAND_AUTO`; the sensing PHY
+remains HT20 in all three cases. When `ESPECTRE_WIFI_BSSID` is set, the firmware
+uses fast scan and pins the association to that AP radio. Leave
+`ESPECTRE_WIFI_CHANNEL=0` unless you need a channel hint for repeatable CSI
+captures. The channel must belong to the selected band.
 
 Runtime provisioning behavior:
 

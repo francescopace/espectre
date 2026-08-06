@@ -15,6 +15,7 @@
 #include <functional>
 
 #include "pending_event.h"
+#include "runtime_interface.h"
 
 namespace espectre {
 
@@ -44,7 +45,8 @@ class WiFiLifecycleManager {
    * @return ESP_OK on success
    */
   esp_err_t register_handlers(wifi_connected_callback_t connected_cb,
-                              wifi_disconnected_callback_t disconnected_cb);
+                              wifi_disconnected_callback_t disconnected_cb,
+                              WifiBandPolicy band_policy = WifiBandPolicy::BAND_2G);
   
   /**
    * Unregister WiFi event handlers
@@ -65,12 +67,12 @@ class WiFiLifecycleManager {
    * and before association. Safe to call more than once; later calls are
    * no-ops once protocol, bandwidth, and power-save already match.
    */
-  static esp_err_t apply_started_csi_policy();
+  static esp_err_t apply_started_csi_policy(WifiBandPolicy band_policy = WifiBandPolicy::BAND_2G);
 
  private:
   esp_err_t init();
-  static esp_err_t apply_csi_wifi_policy();
-  static void log_csi_runtime_state(const char *tag);
+  static esp_err_t apply_csi_wifi_policy(WifiBandPolicy band_policy);
+  static void log_csi_runtime_state(const char *tag, WifiBandPolicy band_policy);
 
   // Static handlers for ESP-IDF C API (separated by event type)
   static void ip_event_handler_(void* arg, esp_event_base_t event_base,
@@ -98,6 +100,7 @@ class WiFiLifecycleManager {
   // apart, because esp_wifi_set_protocol can itself return the same
   // ESP_ERR_INVALID_STATE this is seeded with.
   std::atomic<bool> started_policy_attempted_{false};
+  WifiBandPolicy band_policy_{WifiBandPolicy::BAND_2G};
   bool ready_{false};
 };
 

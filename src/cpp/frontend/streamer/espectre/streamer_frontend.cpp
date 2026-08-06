@@ -13,6 +13,7 @@
 
 #include "device_identity.h"
 #include "espectre_log.h"
+#include "runtime_sensing_kconfig.h"
 #include "sdkconfig.h"
 
 namespace espectre {
@@ -25,7 +26,7 @@ constexpr uint8_t kCollectorPacingPayload[] = {'E', 'S', 'P', 'E'};
 }  // namespace
 
 RuntimeConfig StreamerFrontend::build_runtime_config_() const {
-  RuntimeConfig config;
+  RuntimeConfig config = make_runtime_sensing_config_from_kconfig();
   config.runtime_profile = RuntimeProfile::STREAM;
   config.csi_traffic_mode = CsiTrafficMode::PACING;
   config.csi_traffic_udp_port = static_cast<uint16_t>(CONFIG_ESPECTRE_TRAFFIC_RX_PORT);

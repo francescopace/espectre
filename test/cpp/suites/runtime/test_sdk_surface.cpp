@@ -65,6 +65,8 @@ void test_default_runtime_config_is_a_working_sensing_config(void) {
   const RuntimeConfig config;
 
   TEST_ASSERT_EQUAL(static_cast<int>(RuntimeProfile::SENSING), static_cast<int>(config.runtime_profile));
+  TEST_ASSERT_EQUAL(static_cast<int>(WifiBandPolicy::BAND_2G),
+                    static_cast<int>(config.wifi_band_policy));
   TEST_ASSERT_EQUAL(static_cast<int>(DetectionAlgorithm::CLASSIC),
                     static_cast<int>(config.detection_algorithm));
   TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::INTERNAL), static_cast<int>(config.csi_traffic_mode));

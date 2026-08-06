@@ -25,6 +25,7 @@ struct WifiProvisioningDefaults {
   uint8_t channel{0U};
   int max_retry{8};
   bool manage_csi_lifecycle{false};
+  WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
 };
 
 class WifiProvisioningService {
@@ -46,7 +47,6 @@ class WifiProvisioningService {
   esp_err_t last_load_result() const { return last_load_result_; }
 
  private:
-  bool parse_wifi_channel_(const std::string &value, uint8_t *channel) const;
   void refresh_cached_strings_();
   void notify_changed_();
 

@@ -188,21 +188,26 @@ Why HT20 stays the preferred active contract:
 
 - it gives the project one centered, already validated 64-subcarrier sensing
   view shared by runtime detection, offline validation, and ML training
-- in normal modern 2.4 GHz deployments, `802.11n` support is effectively
-  ubiquitous, so standardizing on `HT20` is usually a practical constraint
-  rather than a deployment blocker
+- `802.11n` support is effectively ubiquitous on both bands, so standardizing on
+  `HT20` is usually a practical constraint rather than a deployment blocker
+- the layout is a property of the PHY, not of the band, so the same contract
+  holds on either band. The integrator selects `2g`, `5g`, or `auto`, with `2g`
+  as the validated default and the latter two available only on dual-band
+  targets; the runtime then pins an `802.11n` ceiling and `HT20` on the selected
+  band or bands; see
+  [`2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md`](adr/2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md)
 - the fixed 12-tone band sits inside the HT-LTF data-bearing region with
   explicit guard-band and DC-null margins
-- newer VHT and HE layouts matter for PHY provenance, but they do not by
-  themselves justify switching production Classic or ML onto grouped or
-  virtual-subcarrier assumptions
+- VHT20 is a distinct, currently unvalidated capture path despite sharing the
+  64-point, 56-active-tone grid; HE20 instead has a 256-point, 242-active-tone
+  layout. Neither is accepted by the production Classic or ML path yet
 
 ![Legacy, HT, VHT, and HE LTF placement compared on the same 20 MHz slice](web/assets/guides/ht20-ltf-layout-preferred.png)
 *HT20 is the stable, validated sensing view ESPectre standardizes on today: it
 matches the current detector contract directly, is broadly available on modern
-2.4 GHz networks, and keeps the active sensing surface simple. Wider or newer
-PHY layouts are still recorded through per-record provenance, but they need
-separate evidence before they become the production baseline.*
+networks in either band, and keeps the active sensing surface simple. VHT20 is
+the nearest candidate extension, while HE20 and wider layouts need more
+substantial mapping work; all require separate evidence before production.*
 
 Non-HT20 payloads are normalized onto the same internal 64-subcarrier HT20
 index grid before fixed-subcarrier extraction. Short layouts are centered so

@@ -113,6 +113,19 @@ describe('command builders: validation', () => {
         assertValidationError(() => Client.buildWifiConfigCommand({ ssid: 'a', channel: -1 }), /channel/);
         assertValidationError(() => Client.buildWifiConfigCommand({ ssid: 'a', channel: NaN }), /channel/);
         assertValidationError(() => Client.buildWifiConfigCommand({ ssid: 'a', channel: 1.5 }), /channel/);
+        // Between the 20 MHz centers of the 5 GHz band plan.
+        assertValidationError(() => Client.buildWifiConfigCommand({ ssid: 'a', channel: 37 }), /channel/);
+        assertValidationError(() => Client.buildWifiConfigCommand({ ssid: 'a', channel: 150 }), /channel/);
+        assertValidationError(() => Client.buildWifiConfigCommand({ ssid: 'a', channel: 181 }), /channel/);
+    });
+
+    it('accepts 5 GHz channel locks and leaves radio capability to the device', () => {
+        assert.equal(
+            Client.buildWifiConfigCommand({ ssid: 'Net', channel: 36 }),
+            'SET_WIFI_CONFIG:ssid=Net&password=&bssid=&channel=36');
+        assert.equal(
+            Client.buildWifiConfigCommand({ ssid: 'Net', channel: 149 }),
+            'SET_WIFI_CONFIG:ssid=Net&password=&bssid=&channel=149');
     });
 
     it('rejects a malformed BSSID', () => {

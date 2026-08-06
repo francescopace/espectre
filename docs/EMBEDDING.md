@@ -79,6 +79,13 @@ single-antenna Wi-Fi CSI with AGC active and HT20 bandwidth. No extra sensors
 or radio hardware are required. See [SETUP.md](SETUP.md) for the current
 per-frontend target matrix.
 
+Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`.
+`BAND_2G` is the default and is supported by every target; `BAND_5G` and `AUTO`
+require dual-band silicon, currently ESP32-C5 among the published targets. The
+runtime applies that choice and pins an 802.11n protocol ceiling plus HT20 on
+the selected band or bands. Unsupported policies fail setup instead of falling
+back silently, and packets outside the HT20 contract are dropped and counted.
+
 ## Integration paths
 
 ### Full runtime (recommended)

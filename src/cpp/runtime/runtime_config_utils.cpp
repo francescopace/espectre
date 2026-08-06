@@ -38,6 +38,18 @@ const char *runtime_profile_name(RuntimeProfile profile) {
   return profile == RuntimeProfile::STREAM ? "stream" : "sensing";
 }
 
+const char *wifi_band_policy_name(WifiBandPolicy policy) {
+  switch (policy) {
+    case WifiBandPolicy::BAND_5G:
+      return "5g";
+    case WifiBandPolicy::AUTO:
+      return "auto";
+    case WifiBandPolicy::BAND_2G:
+    default:
+      return "2g";
+  }
+}
+
 const char *traffic_mode_name(RuntimeTrafficMode mode) {
   return mode == RuntimeTrafficMode::PING ? RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME
                                           : RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME;
@@ -71,6 +83,16 @@ DetectionAlgorithm parse_detection_algorithm(const char *algorithm) {
   return (algorithm != nullptr && std::strcmp(algorithm, RUNTIME_DETECTION_ALGORITHM_ML_NAME) == 0)
              ? DetectionAlgorithm::ML
              : DetectionAlgorithm::CLASSIC;
+}
+
+WifiBandPolicy parse_wifi_band_policy(const char *policy) {
+  if (policy != nullptr && std::strcmp(policy, "5g") == 0) {
+    return WifiBandPolicy::BAND_5G;
+  }
+  if (policy != nullptr && std::strcmp(policy, "auto") == 0) {
+    return WifiBandPolicy::AUTO;
+  }
+  return WifiBandPolicy::BAND_2G;
 }
 
 RuntimeConfig make_runtime_sensing_config() { return RuntimeConfig{}; }

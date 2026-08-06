@@ -442,7 +442,7 @@ Current BLE `sysinfo` identity/config keys include:
 | `wifi_connected` | Whether the Wi-Fi station is currently connected |
 | `wifi_ssid` | Current persisted Wi-Fi SSID |
 | `wifi_bssid` | Current persisted Wi-Fi BSSID lock |
-| `wifi_channel` | Current persisted Wi-Fi channel lock |
+| `wifi_channel` | Current persisted Wi-Fi channel hint (`0` = automatic scan) |
 
 Capability-oriented `sysinfo` keys may include:
 

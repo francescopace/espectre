@@ -298,6 +298,16 @@ typedef struct {
   esp_err_t set_band_mode_result;
   int set_band_mode_call_count;
   wifi_band_mode_t last_band_mode;
+
+  esp_err_t get_band_mode_result;
+  wifi_band_mode_t band_mode;
+
+  // Monotonic tick stamped on the radio-policy setters. The band mode must be
+  // widened before the per-band protocol is pinned, and only the relative order
+  // of those calls proves it; call counts alone cannot.
+  int call_sequence;
+  int set_band_mode_sequence;
+  int set_protocols_sequence;
 } esp_wifi_mock_state_t;
 
 extern esp_wifi_mock_state_t g_esp_wifi_mock;
@@ -411,8 +421,19 @@ static inline esp_err_t esp_wifi_set_bandwidth(wifi_interface_t ifx,
 
 static inline esp_err_t esp_wifi_set_band_mode(wifi_band_mode_t band_mode) {
   g_esp_wifi_mock.set_band_mode_call_count++;
+  g_esp_wifi_mock.set_band_mode_sequence = ++g_esp_wifi_mock.call_sequence;
   g_esp_wifi_mock.last_band_mode = band_mode;
+  if (g_esp_wifi_mock.set_band_mode_result == ESP_OK) {
+    g_esp_wifi_mock.band_mode = band_mode;
+  }
   return g_esp_wifi_mock.set_band_mode_result;
+}
+
+static inline esp_err_t esp_wifi_get_band_mode(wifi_band_mode_t *band_mode) {
+  if (band_mode) {
+    *band_mode = g_esp_wifi_mock.band_mode;
+  }
+  return g_esp_wifi_mock.get_band_mode_result;
 }
 
 static inline esp_err_t esp_wifi_set_protocol(wifi_interface_t ifx,
@@ -435,6 +456,7 @@ static inline esp_err_t esp_wifi_set_protocols(wifi_interface_t ifx,
                                                wifi_protocols_t *protocols) {
   (void)ifx;
   g_esp_wifi_mock.set_protocols_call_count++;
+  g_esp_wifi_mock.set_protocols_sequence = ++g_esp_wifi_mock.call_sequence;
   if (protocols) {
     g_esp_wifi_mock.last_protocols = *protocols;
     if (g_esp_wifi_mock.set_protocols_result == ESP_OK) {

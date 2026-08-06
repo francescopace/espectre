@@ -68,7 +68,7 @@ and installed through ESPHome Device Builder after the device is adopted.
 Supported hardware:
 
 - ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, and classic ESP32
-- a normal 2.4 GHz Wi-Fi network
+- a normal Wi-Fi network; 2.4 GHz on every board, plus 5 GHz on the ESP32-C5
 
 ![ESP32 boards with internal and external antennas](docs/web/assets/guides/esp32-boards.jpg)
 

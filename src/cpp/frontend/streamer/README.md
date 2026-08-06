@@ -182,6 +182,7 @@ CONFIG_ESPECTRE_WIFI_SSID="YourSSID"
 CONFIG_ESPECTRE_WIFI_PASSWORD="YourPassword"
 # CONFIG_ESPECTRE_WIFI_BSSID is not set
 CONFIG_ESPECTRE_WIFI_CHANNEL=0
+CONFIG_ESPECTRE_WIFI_BAND_2G=y
 ```
 
 Recommended workflow for local Wi-Fi configuration:
@@ -190,9 +191,11 @@ Recommended workflow for local Wi-Fi configuration:
 2. set `CONFIG_ESPECTRE_WIFI_SSID` and `CONFIG_ESPECTRE_WIFI_PASSWORD`
 3. leave `CONFIG_ESPECTRE_WIFI_BSSID` unset unless you intentionally want to
    pin the streamer to a specific AP radio
-4. leave `CONFIG_ESPECTRE_WIFI_CHANNEL` unless you intentionally want to
-   pin the streamer to a specific AP channel
-5. build via `./espectre streamer build --chip <esp32|c3|c5|c6|s3>`, which
+4. keep `CONFIG_ESPECTRE_WIFI_BAND_2G=y`, or explicitly select 5 GHz or AUTO on
+   ESP32-C5
+5. leave `CONFIG_ESPECTRE_WIFI_CHANNEL=0` unless you intentionally want to hint
+   a specific AP channel
+6. build via `./espectre streamer build --chip <esp32|c3|c5|c6|s3>`, which
    automatically passes `sdkconfig.defaults`, the matching
    `sdkconfig.defaults.<idf_target>` when present, and `sdkconfig.wifi` to
    `idf.py`;
@@ -209,11 +212,15 @@ Notes:
   requires it, but streamer credentials are no longer loaded from NVS
 - keep `CONFIG_ESPECTRE_WIFI_BSSID` unset for normal use; the streamer will
   scan all channels and connect to the strongest matching AP
+- keep `CONFIG_ESPECTRE_WIFI_BAND_2G=y` for the validated default; only an
+  ESP32-C5 build may select `CONFIG_ESPECTRE_WIFI_BAND_5G` or
+  `CONFIG_ESPECTRE_WIFI_BAND_AUTO`, and the sensing PHY remains HT20
 - set `CONFIG_ESPECTRE_WIFI_BSSID="aa:bb:cc:dd:ee:ff"` only when you need to
   force a specific AP radio for repeatable RF tests; this also enables fast
   scan instead of the default full scan
-- set `CONFIG_ESPECTRE_WIFI_CHANNEL=<1-14>` together with BSSID when you want
-  deterministic BSSID+channel association for CSI captures
+- set `CONFIG_ESPECTRE_WIFI_CHANNEL` together with BSSID when you want
+  deterministic BSSID+channel association for CSI captures; the channel must
+  belong to the selected band
 - if you change `sdkconfig.defaults`, `sdkconfig.wifi`, or the frontend Kconfig
   surface and the generated `sdkconfig` appears stale, rebuild with
   `./espectre streamer build --chip <esp32|c3|c5|c6|s3> --clean` so ESP-IDF

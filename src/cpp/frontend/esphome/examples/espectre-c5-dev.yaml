@@ -45,6 +45,8 @@ espectre:
 
 # WiFi for development
 wifi:
+  # Optional on ESP32-C5; ESPHome defaults to AUTO when omitted.
+  band_mode: 2.4GHz
   networks:
     - ssid: !secret wifi_ssid
       password: !secret wifi_password

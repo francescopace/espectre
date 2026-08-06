@@ -27,6 +27,7 @@ struct StandaloneWifiConfig {
   uint8_t channel{0U};
   int max_retry{8};
   bool manage_csi_lifecycle{false};
+  WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
 };
 
 struct StandaloneWifiInfo {

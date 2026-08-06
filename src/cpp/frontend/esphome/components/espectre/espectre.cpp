@@ -180,6 +180,7 @@ void ESpectreComponent::dump_config() {
   const RuntimeConfig &config = this->runtime_.config();
   const RuntimeSnapshot &snapshot = this->runtime_.snapshot();
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");
+  ESP_LOGCONFIG(TAG, " ├─ Wi-Fi band ......... %s", wifi_band_policy_name(config.wifi_band_policy));
   ESP_LOGCONFIG(TAG, " ├─ Detector ........... %s", snapshot.detector_name);
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.6f", snapshot.threshold);
   ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", config.segmentation_window_size);

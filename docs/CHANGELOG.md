@@ -77,11 +77,24 @@ Historical decision context for the Classic and ML promotions now lives in:
 - **Original ESP32 streamer stability under sustained collection**: the streamer now stays on the shared HT20 sensing contract, while the pacing-health path reports sustained callback deficits as telemetry instead of trying to recover them by cycling CSI capture.
 - **Embedded traffic-generator pacing no longer over-cuts under CSI surplus**: shared C++ and Micro-ESPectre adaptive pacing now react to local socket backpressure, keep a `70%` floor of the CSI target, settle between reductions, and avoid the previous proportional slash that could drop send rate from `100` toward below `50` pps.
 - **Original ESP32 CSI stall handling is now passive telemetry across sensing runtimes**: streamer and Micro-ESPectre log sustained callback deficits for diagnostics, instead of trying to recover them by rearming CSI capture.
-- **Shared CSI Wi-Fi protocol policy**: all published ESP-IDF targets now configure the supported 2.4 GHz BGN bitmap directly instead of first attempting the unsupported `WIFI_PROTOCOL_11N`-only combination.
+- **Shared CSI Wi-Fi protocol policy**: all published ESP-IDF targets now configure the supported 802.11n protocol ceiling directly instead of first attempting the unsupported `WIFI_PROTOCOL_11N`-only combination.
 - **Native Wi-Fi association after CSI STA_START policy**: standalone station connect now applies the CSI radio policy before `esp_wifi_connect()` when it does not own the lifecycle handlers, and clears the connect latch on `WIFI_EVENT_STA_STOP` so BLE coexistence or protocol renegotiation can reassociate instead of leaving the radio idle.
 
 ### Changed
 
+- **Sensing keeps HT20 while making the Wi-Fi band explicit**: 2.4 GHz remains
+  the validated default on every target, while an ESP32-C5 integrator can choose
+  5 GHz or automatic dual-band selection through the shared Kconfig,
+  `RuntimeConfig`, or ESPHome's native `wifi.band_mode` setting. ESPHome C5
+  configurations follow ESPHome's `AUTO` default when the setting is omitted,
+  and the ESPectre component mirrors the effective choice into the shared
+  runtime instead of defining a second Wi-Fi option.
+  The lifecycle pins `11b/g/n` on
+  2.4 GHz and `11a/n` on 5 GHz, with HT20 on every selected band; unsupported
+  choices fail instead of falling back silently. Optional channel hints must
+  match the chosen band. Detection quality on 5 GHz is not yet characterized:
+  every ESPectre dataset was collected on 2.4 GHz. See
+  [`2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md`](adr/2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md).
 - **Delay-compensated coherence now evaluates its derotation with Horner
   instead of one sine and cosine pair per bin**: the aligned sum is
   `sum_k cross[k] * w**bin[k]` for `w = exp(-i * ramp)`, and the live bins of a

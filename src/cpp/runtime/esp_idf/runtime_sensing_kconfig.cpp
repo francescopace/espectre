@@ -18,6 +18,15 @@
 #ifndef CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC
 #define CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC 1
 #endif
+#ifndef CONFIG_ESPECTRE_WIFI_BAND_2G
+#define CONFIG_ESPECTRE_WIFI_BAND_2G 1
+#endif
+#ifndef CONFIG_ESPECTRE_WIFI_BAND_5G
+#define CONFIG_ESPECTRE_WIFI_BAND_5G 0
+#endif
+#ifndef CONFIG_ESPECTRE_WIFI_BAND_AUTO
+#define CONFIG_ESPECTRE_WIFI_BAND_AUTO 0
+#endif
 #ifndef CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML
 #define CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML 0
 #endif
@@ -119,6 +128,14 @@ uint8_t clamp_uint8_or_default_(uint8_t value, uint8_t default_value, uint8_t mi
 
 RuntimeConfig make_runtime_sensing_config_from_kconfig() {
   RuntimeConfig config = make_runtime_sensing_config();
+
+#if CONFIG_ESPECTRE_WIFI_BAND_5G
+  config.wifi_band_policy = WifiBandPolicy::BAND_5G;
+#elif CONFIG_ESPECTRE_WIFI_BAND_AUTO
+  config.wifi_band_policy = WifiBandPolicy::AUTO;
+#else
+  config.wifi_band_policy = WifiBandPolicy::BAND_2G;
+#endif
 
 #if CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML
   config.detection_algorithm = DetectionAlgorithm::ML;

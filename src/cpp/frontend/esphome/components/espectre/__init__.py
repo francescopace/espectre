@@ -14,9 +14,15 @@ import re
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, binary_sensor, button, number, select, switch
-from esphome.components.esp32 import add_idf_sdkconfig_option
+from esphome.components.esp32 import (
+    add_idf_sdkconfig_option,
+    const as esp32_const,
+    get_esp32_variant,
+)
+from esphome.components.wifi import CONF_BAND_MODE
 from esphome.const import (
     CONF_ID,
+    CONF_WIFI,
     STATE_CLASS_MEASUREMENT,
     DEVICE_CLASS_MOTION,
     UNIT_EMPTY,
@@ -27,6 +33,7 @@ from esphome.const import (
     ICON_PULSE,
     DEVICE_CLASS_SIGNAL_STRENGTH,
 )
+from esphome.core import CORE
 
 DEPENDENCIES = ["wifi"]
 AUTO_LOAD = ["sensor", "binary_sensor", "button", "number", "select", "switch"]
@@ -89,6 +96,12 @@ _SCHEMA_CONST_PATTERN = re.compile(
     r"constexpr\s+(?:const char \*const|bool|float|uint8_t|uint16_t|uint32_t)\s+"
     r"(RUNTIME_[A-Z0-9_]+)\s*=\s*([^;]+);"
 )
+
+_WIFI_BAND_POLICY_BY_MODE = {
+    "AUTO": "auto",
+    "2.4GHZ": "2g",
+    "5GHZ": "5g",
+}
 
 
 def _library_uri(path: Path) -> str:
@@ -160,7 +173,6 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=SEGMENTATION_WINDOW_SIZE_DEFAULT): cv.int_range(
         min=SEGMENTATION_WINDOW_SIZE_MIN, max=SEGMENTATION_WINDOW_SIZE_MAX
     ),
-    
     # Traffic generator (0 = disabled, use external WiFi traffic)
     cv.Optional(CONF_TRAFFIC_GENERATOR_RATE, default=TRAFFIC_GENERATOR_RATE_DEFAULT): cv.int_range(
         min=TRAFFIC_GENERATOR_RATE_MIN, max=TRAFFIC_GENERATOR_RATE_MAX
@@ -293,6 +305,15 @@ CONFIG_SCHEMA = cv.Schema({
 }).extend(cv.COMPONENT_SCHEMA)
 
 
+def _runtime_wifi_band_policy():
+    if get_esp32_variant() != esp32_const.VARIANT_ESP32C5:
+        return "2g"
+
+    # ESPHome defaults ESP32-C5 to AUTO when wifi.band_mode is omitted.
+    band_mode = str(CORE.config[CONF_WIFI].get(CONF_BAND_MODE, "AUTO"))
+    return _WIFI_BAND_POLICY_BY_MODE[band_mode]
+
+
 async def to_code(config):
     cg.add_library("espectre-shared", None, _library_uri(_LIBRARY_ROOT))
 
@@ -322,6 +343,10 @@ async def to_code(config):
     # Threshold is selected automatically at startup and remains adjustable
     # through the runtime number control.
     cg.add(var.set_segmentation_window_size(config[CONF_SEGMENTATION_WINDOW_SIZE]))
+    # ESPHome owns association policy through wifi.band_mode. Mirror that
+    # validated choice into the shared runtime so its HT20 radio setup uses the
+    # matching fixed-band or per-band ESP-IDF APIs.
+    cg.add(var.set_wifi_band_policy(_runtime_wifi_band_policy()))
     cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
     cg.add(var.set_traffic_generator_adaptive(config[CONF_TRAFFIC_GENERATOR_ADAPTIVE]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))

@@ -72,6 +72,11 @@ add_espectre_test(test_wifi_lifecycle
     LIBRARIES espectre_runtime_testlib
 )
 
+add_espectre_test(test_wifi_lifecycle_dual_band
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_wifi_lifecycle_dual_band.cpp"
+    LIBRARIES espectre_runtime_dual_band_testlib
+)
+
 add_espectre_test(test_pending_event
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_pending_event.cpp"
     LIBRARIES espectre_runtime_testlib

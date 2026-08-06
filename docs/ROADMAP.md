@@ -10,12 +10,10 @@ live in their owning feature, dataset, and performance documents.
 | Milestone  | Target        | Status      | Outcome                                                                                                                                                  |
 | ---------- | ------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **v3.0.0-rc1** | August 2026   | Planned     | First release candidate for the v3 platform baseline, with frozen scope and release-artifact validation                                                   |
-| **v3.0.0-rc2** | Early September 2026   | Planned     | Second release candidate for targeted fixes from `rc1`, without widening the v3.0 scope                                                                   |
-| **v3.0.0**     | Mid September 2026   | Planned     | First stable v3 release with shared runtime layers, stable protocol services, multiple firmware frontends, and validated Classic and ML detectors        |
-| **v3.0.x**     | After v3.0.0  | Planned     | Post-release hardening, compatibility fixes, and packaging or documentation corrections that preserve the v3.0 contract                                   |
-| **v3.x**       | After v3.0.0  | Planned     | Improve developer workflows, integrations, hardware coverage, and sensing performance beyond the 3.0 baseline without redefining the platform contract    |
-| **v4.x**   | December 2026 | Planned     | Add an optional privacy-first web orchestration layer for onboarding, multi-node visibility, management, history, and alerting                           |
-| **v5.x**   | Future        | Exploratory | Adopt practical IEEE 802.11bf / Wi-Fi Sensing hardware through the existing runtime and protocol architecture when embedded vendor APIs become available |
+| **v3.0.0-rc2** | September 2026   | Planned     | Second release candidate for targeted fixes from `rc1`, without widening the v3.0 scope                                                                   |
+| **v3.0.0**     | October 2026   | Planned     | First stable v3 release with shared runtime layers, stable protocol services, multiple firmware frontends, and validated Classic and ML detectors        |
+| **v4.0.0**   | December 2026 | Planned     | Add an optional privacy-first web orchestration layer for onboarding, multi-node visibility, management, history, and alerting                           |
+| **v5.0.0**   | Future        | Exploratory | Adopt practical IEEE 802.11bf / Wi-Fi Sensing hardware through the existing runtime and protocol architecture when embedded vendor APIs become available |
 
 
 
@@ -105,8 +103,14 @@ Completed implementation and review work is recorded in
   performance validations improve. Rejected: the amplitude-level noise gain is
   real but does not reach the detector, and Classic separability degrades
   monotonically with the group width
-- [ ] Evaluate broader PHY and band support, including Wi-Fi 6 / 802.11ax
-  capabilities and 5 GHz operation where hardware and exposed APIs support it
+- [x] Evaluate broader PHY and band support, including Wi-Fi 6 / 802.11ax
+  capabilities and 5 GHz operation where hardware and exposed APIs support it.
+  Adopted for the band, rejected for the PHY: the shared radio policy now pins
+  an 802.11n ceiling and HT20 on every band the radio can use instead of forcing
+  2.4 GHz, so dual-band parts can join 5 GHz and band-steered networks, while
+  VHT and HE tone plans stay out because they are not the 64-subcarrier grid the
+  detectors and every dataset are defined on. Detection quality on 5 GHz is not
+  yet characterized
 
 ### Release Readiness
 
@@ -185,6 +189,22 @@ a valid completion when its evidence and verdict are retained in
 - [x] Validate the leading scale-invariant, multi-axis research model against
   new paired environments and firmware resource limits before deciding whether
   to promote its feature set
+- [ ] Characterize detection quality on 5 GHz, which the shared radio policy now
+  exposes as an explicit ESP32-C5 option but no corpus covers, using paired
+  dual-band HT20 captures on the same hardware and rooms before making any
+  claim about the band
+- [ ] Validate VHT20 as a possible v3.x production extension after the 5 GHz
+  HT20 baseline: verify VHT-LTF acquisition and provenance, prove that its
+  64-point, 56-active-tone grid can reuse the HT20 normalization safely, and
+  run both detectors on a representative paired corpus before enabling it
+- [ ] Study HE20 later in v3.x as a distinct sensing path: define how its
+  256-point, 242-active-tone layout maps into detector inputs, prototype the
+  mapping host-side, and require C++/Python parity plus detector validation
+  before considering runtime support
+- [ ] Evaluate HT40 and wider PHY layouts as separate sensing contracts: each
+  one needs its own subcarrier grid, normalization, corpus, and detector
+  validation, so the gate is whether the added bandwidth beats that cost rather
+  than whether the hardware exposes it
 - [ ] Evaluate Presence versus Empty as a distinct task using scale-invariant
   micro-motion and quiet-floor evidence
 - [ ] Evaluate brief gesture detection only after the high-rate sensing path
@@ -281,11 +301,9 @@ control, and multi-node fusion
 - document migration from ESP32 CSI firmware without promising a delivery date
 before suitable hardware APIs exist
 
-
-
 ## Roadmap Updates
 
-Last update: **August 5, 2026**
+Last update: **August 7, 2026**
 
 For discussion and proposed changes:
 

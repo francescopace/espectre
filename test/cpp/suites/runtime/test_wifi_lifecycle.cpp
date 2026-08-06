@@ -75,6 +75,19 @@ void test_wifi_lifecycle_init_reports_bgn_configuration_failure(void) {
                     g_esp_wifi_mock.last_protocol_bitmap);
 }
 
+void test_wifi_lifecycle_rejects_dual_band_policies_on_single_band_targets(void) {
+  WiFiLifecycleManager manager;
+  TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED,
+                    manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {},
+                                              WifiBandPolicy::BAND_5G));
+  TEST_ASSERT_EQUAL(0, g_esp_event_mock.register_call_count);
+
+  TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED,
+                    manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {},
+                                              WifiBandPolicy::AUTO));
+  TEST_ASSERT_EQUAL(0, g_esp_event_mock.register_call_count);
+}
+
 // STA_START can fire before the handlers are registered, for instance when a
 // host frontend brings the station up first. The policy is then never
 // attempted, and failing at GOT_IP consumed the event and left CSI off with
@@ -451,6 +464,7 @@ int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_wifi_lifecycle_init_configures_protocol_bandwidth_and_promiscuous);
   RUN_TEST(test_wifi_lifecycle_init_reports_bgn_configuration_failure);
+  RUN_TEST(test_wifi_lifecycle_rejects_dual_band_policies_on_single_band_targets);
   RUN_TEST(test_wifi_lifecycle_applies_policy_late_when_sta_start_was_missed);
   RUN_TEST(test_wifi_lifecycle_does_not_retry_a_policy_that_actually_failed);
   RUN_TEST(test_wifi_lifecycle_started_policy_skips_matching_radio_settings);

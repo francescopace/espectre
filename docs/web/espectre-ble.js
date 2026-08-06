@@ -90,6 +90,23 @@
         return value;
     }
 
+    /**
+     * Accepts 0 (auto), a 2.4 GHz channel, or a 5 GHz 20 MHz channel center.
+     * Whether the device can actually tune a 5 GHz channel depends on its
+     * radio, so that check stays with the firmware.
+     */
+    function requireWifiChannel(value, label) {
+        const is2g = Number.isInteger(value) && value >= 0 && value <= 14;
+        const is5g = Number.isInteger(value) && (
+            (((value >= 36 && value <= 64) || (value >= 100 && value <= 144)) && value % 4 === 0) ||
+            (value >= 149 && value <= 177 && value % 4 === 1));
+        if (!is2g && !is5g) {
+            throw new ESPectreValidationError(
+                `${label} must be 0..14, or a 5 GHz channel (36..64, 100..144, 149..177)`);
+        }
+        return value;
+    }
+
     /* ------------------------------------------------------------- client */
 
     class ESPectreBleClient {
@@ -194,12 +211,12 @@
          * @param {string} options.ssid
          * @param {string} [options.password='']
          * @param {string} [options.bssid=''] - Empty, or `aa:bb:cc:dd:ee:ff`.
-         * @param {number} [options.channel=0] - 0 (auto) to 14.
+         * @param {number} [options.channel=0] - 0 (auto), 1..14, or a 5 GHz channel.
          * @returns {string}
          */
         static buildWifiConfigCommand({ ssid, password = '', bssid = '', channel = 0 } = {}) {
             requireNonEmptyString(ssid, 'ssid');
-            requireIntegerInRange(channel, 0, 14, 'channel');
+            requireWifiChannel(channel, 'channel');
             if (bssid !== '' && !BSSID_PATTERN.test(bssid)) {
                 throw new ESPectreValidationError('bssid must be empty or match aa:bb:cc:dd:ee:ff');
             }

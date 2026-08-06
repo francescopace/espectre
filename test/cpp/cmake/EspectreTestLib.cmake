@@ -104,6 +104,23 @@ target_compile_definitions(espectre_runtime_testlib
         CONFIG_ESPECTRE_HA_DISCOVERY_ENABLED=1
 )
 
+# The dual-band radio policy is selected at compile time by CONFIG_SOC_WIFI_SUPPORT_5G,
+# which the host sdkconfig mock leaves off because it models a 2.4 GHz-only part.
+# Compiling the same lifecycle unit a second time with the capability forced on is
+# what keeps the ESP32-C5 branch under host test.
+add_library(espectre_runtime_dual_band_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
+)
+target_link_libraries(espectre_runtime_dual_band_testlib
+    PUBLIC
+        espectre_test_framework
+        espectre_test_mocks
+)
+target_compile_definitions(espectre_runtime_dual_band_testlib
+    PUBLIC
+        CONFIG_SOC_WIFI_SUPPORT_5G=1
+)
+
 add_library(espectre_frontend_esphome_testlib STATIC
     ${ESPECTRE_FRONTEND_ESPHOME_SOURCES}
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
@@ -143,6 +160,7 @@ foreach(target_name
         espectre_test_support
         espectre_core_testlib
         espectre_runtime_testlib
+        espectre_runtime_dual_band_testlib
         espectre_frontend_esphome_testlib
         espectre_frontend_native_testlib
         espectre_frontend_matter_testlib)

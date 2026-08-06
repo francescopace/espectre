@@ -129,7 +129,8 @@ bool init_wifi_station() {
                                                     false,
                                                     sync_frontend_wifi_info,
                                                     sync_frontend_wifi_info,
-                                                    sync_frontend_wifi_info},
+                                                    sync_frontend_wifi_info,
+                                                    espectre::make_runtime_sensing_config_from_kconfig().wifi_band_policy},
       TAG,
       "Using Wi-Fi credentials provisioned over BLE");
   if (setup_err != ESP_OK) {

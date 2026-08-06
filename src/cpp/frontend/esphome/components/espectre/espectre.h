@@ -56,6 +56,9 @@ class ESpectreComponent : public Component, public IRuntimeListener {
 
   // Setters for YAML configuration
   void set_segmentation_window_size(uint16_t size) { this->runtime_.config().segmentation_window_size = size; }
+  void set_wifi_band_policy(const std::string &policy) {
+    this->runtime_.config().wifi_band_policy = parse_wifi_band_policy(policy.c_str());
+  }
   void set_traffic_generator_rate(uint32_t rate) { this->runtime_.config().traffic_generator_rate = rate; }
   void set_traffic_generator_adaptive(bool adaptive) {
     this->runtime_.config().traffic_generator_adaptive = adaptive;

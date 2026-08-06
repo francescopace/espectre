@@ -27,7 +27,11 @@ The SDK now mirrors the same channel model: `stable` is published at
 
 - ESP32 board with CSI support
 - USB cable for flashing
-- 2.4 GHz Wi-Fi network
+- Wi-Fi network on a band the board supports: 2.4 GHz on every supported chip,
+  or 5 GHz on the dual-band ESP32-C5. Firmware defaults to 2.4 GHz; an ESP32-C5
+  integrator can explicitly select 5 GHz or automatic band selection. The
+  runtime pins the selected band or bands to HT20. Detection quality on 5 GHz
+  is not characterized yet
 
 Current chip support by frontend:
 
@@ -342,7 +346,7 @@ These options belong to the shared sensing runtime and apply to all sensing
 frontends. This table is the canonical reference for names, defaults, and
 ranges; the exact user-facing syntax differs by frontend:
 
-- `ESPHome`: YAML under `espectre:`
+- `ESPHome`: YAML under `espectre:`, except the ESP32-C5 band policy, which uses ESPHome's native `wifi.band_mode`
 - `Native`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
 - `Matter`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
 
@@ -357,6 +361,7 @@ Support in this phase:
 
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
+| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5; ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
 | `detection_algorithm` | `classic` or `ml` | `classic`, including Matter | Shared detector family |
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; adjustable from the frontend during the session |
 | `segmentation_window_size` | int | `100` | `100-200` packets |

@@ -57,6 +57,7 @@ instead of repeating its historical rationale.
 - [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
 - [`2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md`](2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md)
 - [`2026-07-15-adopt-persisted-runtime-detector-selection.md`](2026-07-15-adopt-persisted-runtime-detector-selection.md)
+- [`2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md`](2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md)
 
 ### Detection
 
