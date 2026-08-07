@@ -175,18 +175,18 @@ jobs:
         run: |
           python .github/scripts/stage_web_firmware.py \
             --firmware-dir main-firmware \
-            --output-dir docs/web/flash/firmware/main \
+            --output-dir docs/web/artifacts/firmware/main \
             --channel main \
             --version main \
             --release-tag snapshot \
-            --url-prefix /flash/firmware/main \
+            --url-prefix /artifacts/firmware/main \
             --commit "${{ github.event.workflow_run.head_sha }}"
 
       - name: Stage main web SDK
         run: |
           python .github/scripts/stage_web_sdk.py \
             --sdk-dir main-sdk \
-            --output-dir docs/web/sdk/main \
+            --output-dir docs/web/artifacts/sdk/main \
             --channel main
 
       - name: Download stable release assets
@@ -210,11 +210,11 @@ jobs:
           if ls stable-firmware/*.bin >/dev/null 2>&1; then
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir stable-firmware \
-              --output-dir docs/web/flash/firmware/stable \
+              --output-dir docs/web/artifacts/firmware/stable \
               --channel stable \
               --version "${stable_tag}" \
               --release-tag "${stable_tag}" \
-              --url-prefix /flash/firmware/stable
+              --url-prefix /artifacts/firmware/stable
           else
             echo "No stable firmware downloaded; leaving stable channel empty."
           fi
@@ -224,11 +224,16 @@ jobs:
           if ls stable-sdk/sdk-manifest-*.json >/dev/null 2>&1; then
             python .github/scripts/stage_web_sdk.py \
               --sdk-dir stable-sdk \
-              --output-dir docs/web/sdk/stable \
+              --output-dir docs/web/artifacts/sdk/stable \
               --channel stable
           else
             echo "No stable SDK downloaded; leaving stable SDK channel empty."
           fi
+
+      - name: Stage Browser Dependencies
+        run: |
+          npm --prefix docs/web ci --ignore-scripts
+          npm --prefix docs/web run stage:vendor
 
       - name: Build Static Pages
         run: python3 .github/scripts/build_static_pages.py
@@ -237,9 +242,13 @@ jobs:
         run: |
           test -f docs/web/sitemap.xml
           test -f docs/web/index.html
-          test -f docs/web/app.js
-          test -f docs/web/styles.css
-          test -f docs/web/espectre-ble.js
+          test -f docs/web/assets/js/app.js
+          test -f docs/web/assets/css/styles.css
+          test -f docs/web/assets/js/espectre-ble.js
+          test -f docs/web/vendor/qrcodejs-1.0.0/qrcode.min.js
+          test -f docs/web/vendor/esp-web-tools-10.4.0/install-button.js
+          test -f docs/web/vendor/mqtt-5.3.0/mqtt.min.js
+          test -f docs/web/privacy/index.html
           for route in flash configure monitor theremin game guides \
               guide-hardware guide-setup guide-detection guide-firmware \
               docs docs-api docs-examples docs-architecture media roadmap; do
@@ -258,12 +267,12 @@ jobs:
             || { echo "Missing generated media page"; exit 1; }
           test -f docs/web/roadmap/index.html \
             || { echo "Missing generated roadmap page"; exit 1; }
-          test -f docs/web/flash/firmware/main/firmware-manifest-main.json
-          test "$(find docs/web/flash/firmware/main -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
-          test -f docs/web/sdk/main/index.html
-          test -f docs/web/sdk/main/sdk-manifest-main.json
-          test -f docs/web/sdk/stable/index.html
-          test -f docs/web/sdk/stable/sdk-manifest-stable.json
+          test -f docs/web/artifacts/firmware/main/firmware-manifest-main.json
+          test "$(find docs/web/artifacts/firmware/main -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
+          test -f docs/web/artifacts/sdk/main/index.html
+          test -f docs/web/artifacts/sdk/main/sdk-manifest-main.json
+          test -f docs/web/artifacts/sdk/stable/index.html
+          test -f docs/web/artifacts/sdk/stable/sdk-manifest-stable.json
           echo "Website build verified!"
 
       - name: Setup Pages

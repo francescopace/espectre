@@ -269,8 +269,8 @@ channels:
 
 | Channel | Source | Intended use |
 |---------|--------|--------------|
-| `stable` | semver GitHub Release and `https://espectre.dev/sdk/stable/` | Production integrations and reproducible open-source or commercial builds |
-| `snapshot` | rolling `snapshot` GitHub prerelease and `https://espectre.dev/sdk/main/` | Validate `main` before the next stable release |
+| `stable` | semver GitHub Release and `https://espectre.dev/artifacts/sdk/stable/` | Production integrations and reproducible open-source or commercial builds |
+| `snapshot` | rolling `snapshot` GitHub prerelease and `https://espectre.dev/artifacts/sdk/main/` | Validate `main` before the next stable release |
 | `snapshot-dev` | rolling `snapshot-dev` GitHub prerelease only | Pre-main validation from `develop` |
 
 Each SDK bundle includes:
@@ -331,7 +331,7 @@ committed, so it never drifts from the headers.
 
 The same command works from an unpacked SDK bundle, which ships this guide and
 `docs/Doxyfile` alongside the sources. The published reference for the current
-release is at `https://espectre.dev/sdk/api/`, rebuilt from source on every
+release is at `https://espectre.dev/artifacts/sdk/api/`, rebuilt from source on every
 deploy.
 
 ## Licensing

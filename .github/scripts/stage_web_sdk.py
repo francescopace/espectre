@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
 
 def styles_version() -> str:
     index = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
-    match = re.search(r'href="styles\.css\?v=([0-9.]+)"', index)
+    match = re.search(r'href="/assets/css/styles\.css\?v=([0-9.]+)"', index)
     if not match:
         raise ValueError("styles.css version not found in docs/web/index.html")
     return match.group(1)
@@ -76,13 +76,14 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} | ESPectre</title>
 <meta name="description" content="{description}">
-<link rel="canonical" href="https://espectre.dev/sdk/{channel}/">
-<link rel="icon" type="image/png" href="/assets/brand/favicon.png">
+<link rel="canonical" href="https://espectre.dev/artifacts/sdk/{channel}/">
+<link rel="icon" type="image/png" href="/assets/images/brand/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v={styles_css_version}">
-<script src="/analytics.js?v={styles_css_version}" defer></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/styles.css?v={styles_css_version}">
+<script src="/assets/js/navigation.js?v={styles_css_version}" defer></script>
+<script src="/assets/js/analytics.js?v={styles_css_version}" defer></script>
 </head>
 <body>
 <header class="site-header">
@@ -91,7 +92,10 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
       <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="var(--accent)"/><circle cx="12.2" cy="13.5" r="1.9" fill="var(--bg)"/><circle cx="19.8" cy="13.5" r="1.9" fill="var(--bg)"/></svg>
       ESPectre
     </a>
-    <nav class="main-nav" aria-label="Main">
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-navigation">
+      <span aria-hidden="true">☰</span><span class="sr-only">Open navigation</span>
+    </button>
+    <nav class="main-nav" id="main-navigation" aria-label="Main">
       <a href="/" class="nav-link">Home</a>
       <a href="/#tools" class="nav-link">Tools</a>
       <a href="/guides/" class="nav-link">Guides</a>
@@ -151,11 +155,24 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
       <a href="/docs/">Docs</a>
       <a href="/media/">Media</a>
       <a href="/roadmap/">Roadmap</a>
+      <a href="/privacy/">Privacy</a>
+      <button class="footer-link-button js-cookie-settings" type="button">Cookie settings</button>
       <a href="mailto:contact@espectre.dev">Contact</a>
       <a href="mailto:security@espectre.dev">Security</a>
     </div>
   </div>
 </footer>
+<aside class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" hidden>
+  <div>
+    <strong id="consent-title">Optional analytics</strong>
+    <p>Help improve ESPectre with privacy-conscious usage analytics. Browser-tool credentials and device identifiers are never included.</p>
+    <a href="/privacy/">Read the privacy notice</a>
+  </div>
+  <div class="consent-actions">
+    <button class="btn-ghost js-consent-reject" type="button">Reject</button>
+    <button class="btn-primary btn-sm js-consent-accept" type="button">Accept analytics</button>
+  </div>
+</aside>
 </body>
 </html>
 """

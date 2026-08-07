@@ -355,7 +355,7 @@ SET_DEVICE_CONFIG:device_label=Living Room
 SET_MQTT_CONFIG:host=192.168.1.20&port=1883&username=mqtt&password=secret-password&topic_prefix=espectre%2Fv1%2Fdevices
 CLEAR_MQTT_CONFIG
 CLEAR_DEVICE_CONFIG
-SET_WIFI_CONFIG:ssid=Lab%20Network&password=secret-password&channel=6&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff
+SET_WIFI_CONFIG:ssid=Lab%20Network&password=secret-password&channel=6&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&band_policy=2g
 CLEAR_WIFI
 ```
 
@@ -375,7 +375,8 @@ Identity/config semantics for the current BLE control surface:
 - `CLEAR_MQTT_CONFIG` clears only broker-related MQTT settings and disables the
   active MQTT transport
 - `CLEAR_DEVICE_CONFIG` resets device-facing naming and MQTT settings while keeping the firmware-generated `device_id`
-- `SET_WIFI_CONFIG:...` replaces the full persisted Wi-Fi station block in one write and applies it immediately
+- `SET_WIFI_CONFIG:...` replaces the full persisted Wi-Fi station block in one write; credentials, BSSID, and channel changes apply immediately, while a changed `band_policy` applies after restart so the Wi-Fi and CSI runtimes restart together
+- `band_policy` accepts `2g`, `5g`, or `auto`; firmware rejects `5g` and `auto` unless the target reports `supports_wifi_5ghz=true`
 - `CLEAR_WIFI` clears only persisted Wi-Fi station settings
 
 ## Current BLE Telemetry Surface
@@ -443,6 +444,8 @@ Current BLE `sysinfo` identity/config keys include:
 | `wifi_ssid` | Current persisted Wi-Fi SSID |
 | `wifi_bssid` | Current persisted Wi-Fi BSSID lock |
 | `wifi_channel` | Current persisted Wi-Fi channel hint (`0` = automatic scan) |
+| `wifi_band_policy` | Persisted association policy: `2g`, `5g`, or `auto` |
+| `wifi_password_set` | Whether a non-empty Wi-Fi password is persisted; `false` is valid for an open network |
 
 Capability-oriented `sysinfo` keys may include:
 
@@ -458,12 +461,14 @@ Capability-oriented `sysinfo` keys may include:
 | `supports_live_telemetry` | Whether BLE telemetry notifications are exposed |
 | `supports_extended_diagnostics` | Whether implementation-specific runtime diagnostics are exposed |
 | `supports_ota` | Whether BLE clients can expose OTA-related controls |
+| `supports_wifi_5ghz` | Whether the target radio can accept the `5g` and `auto` Wi-Fi band policies |
 
 Current BLE `sysinfo` diagnostic keys may include:
 
 | Key | Meaning |
 |-----|---------|
 | `chip` | Target chip reported by the firmware, such as `esp32c3` |
+| `firmware_version` | Running firmware version |
 | `detector` | Active detector name: `classic`, or `ml` |
 | `window` | Detection window size in packets |
 | `lowpass` | Whether the low-pass stage is enabled |
@@ -473,9 +478,11 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `hampel_threshold` | Hampel threshold in MAD units |
 | `traffic_mode` | Internal traffic generator mode such as `ping` or `dns` |
 | `traffic_rate` | Internal traffic generator target rate in packets per second |
+| `traffic_adaptive` | Whether adaptive traffic-rate control is enabled |
 | `publish_interval` | Periodic publish cadence in packets |
 | `evaluation_interval` | Detector evaluation cadence in packets |
 | `motion_hits` | Motion-on/off consecutive hit thresholds |
+| `subcarriers` | Active CSI subcarrier source, such as `fixed` |
 | `ota_state` | Current OTA state reported by the shared HTTPS OTA service |
 | `ota_busy` | Whether an OTA worker is active |
 | `ota_update_available` | Whether the last OTA check found an update |
@@ -490,11 +497,14 @@ not treat the full diagnostic set or its formatting as a stable contract.
 
 Wi-Fi provisioning values are persisted in NVS by ESP-IDF firmware targets that
 use the shared provisioning service. `SET_WIFI_CONFIG:...` saves the full Wi-Fi
-block, updates the station configuration, and reconnects Wi-Fi without
-restarting the BLE transport. `CLEAR_WIFI` erases provisioned values and
-disconnects the station without rebooting. The standalone BLE firmware uses the
-same surface for its full runtime frontend, while the streamer firmware exposes
-Wi-Fi provisioning, device naming, and a reduced sysinfo subset.
+block. Credential, BSSID, and channel changes update the station configuration
+and reconnect Wi-Fi without restarting the BLE transport. A changed
+`band_policy` is saved but takes effect after restart, because Wi-Fi association
+and the CSI runtime must start with the same policy. `CLEAR_WIFI` erases
+provisioned values and disconnects the station without rebooting unless it also
+restores a different build-default band policy, which likewise takes effect
+after restart. The standalone BLE firmware uses this surface for its full
+runtime frontend.
 
 MQTT settings are also persisted in NVS as one block. `SET_MQTT_CONFIG:...`
 replaces the saved MQTT broker settings and reinitializes the active MQTT

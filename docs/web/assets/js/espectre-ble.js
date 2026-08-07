@@ -54,6 +54,7 @@
 
     const BSSID_PATTERN = /^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/;
     const DETECTORS = Object.freeze(['classic', 'ml']);
+    const WIFI_BAND_POLICIES = Object.freeze(['2g', '5g', 'auto']);
     const DEFAULT_TOPIC_PREFIX = 'espectre/v1/devices';
 
     /**
@@ -105,6 +106,22 @@
                 `${label} must be 0..14, or a 5 GHz channel (36..64, 100..144, 149..177)`);
         }
         return value;
+    }
+
+    function requireWifiBandPolicy(value) {
+        if (!WIFI_BAND_POLICIES.includes(value)) {
+            throw new ESPectreValidationError(
+                `bandPolicy must be one of: ${WIFI_BAND_POLICIES.join(', ')}`);
+        }
+        return value;
+    }
+
+    function requireChannelMatchesBandPolicy(channel, bandPolicy) {
+        if (channel === 0 || bandPolicy === 'auto') return;
+        const channelIs2g = channel <= 14;
+        if ((bandPolicy === '2g' && !channelIs2g) || (bandPolicy === '5g' && channelIs2g)) {
+            throw new ESPectreValidationError(`channel does not match the ${bandPolicy} band policy`);
+        }
     }
 
     /* ------------------------------------------------------------- client */
@@ -212,15 +229,24 @@
          * @param {string} [options.password='']
          * @param {string} [options.bssid=''] - Empty, or `aa:bb:cc:dd:ee:ff`.
          * @param {number} [options.channel=0] - 0 (auto), 1..14, or a 5 GHz channel.
+         * @param {string} [options.bandPolicy] - Optional `2g`, `5g`, or `auto` policy.
          * @returns {string}
          */
-        static buildWifiConfigCommand({ ssid, password = '', bssid = '', channel = 0 } = {}) {
+        static buildWifiConfigCommand({
+            ssid, password = '', bssid = '', channel = 0, bandPolicy
+        } = {}) {
             requireNonEmptyString(ssid, 'ssid');
             requireWifiChannel(channel, 'channel');
+            if (bandPolicy !== undefined) {
+                requireWifiBandPolicy(bandPolicy);
+                requireChannelMatchesBandPolicy(channel, bandPolicy);
+            }
             if (bssid !== '' && !BSSID_PATTERN.test(bssid)) {
                 throw new ESPectreValidationError('bssid must be empty or match aa:bb:cc:dd:ee:ff');
             }
-            return 'SET_WIFI_CONFIG:' + encodeFields({ ssid, password, bssid, channel });
+            const fields = { ssid, password, bssid, channel };
+            if (bandPolicy !== undefined) fields.band_policy = bandPolicy;
+            return 'SET_WIFI_CONFIG:' + encodeFields(fields);
         }
 
         /**

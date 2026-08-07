@@ -6,11 +6,12 @@
   <url><loc>https://espectre.dev/docs/api/</loc><changefreq>weekly</changefreq></url>
   <url><loc>https://espectre.dev/docs/examples/</loc><changefreq>weekly</changefreq></url>
   <url><loc>https://espectre.dev/docs/architecture/</loc><changefreq>weekly</changefreq></url>
-  <url><loc>https://espectre.dev/sdk/api/</loc><changefreq>weekly</changefreq></url>
-  <url><loc>https://espectre.dev/sdk/stable/</loc><changefreq>weekly</changefreq></url>
-  <url><loc>https://espectre.dev/sdk/main/</loc><changefreq>weekly</changefreq></url>
+  <url><loc>https://espectre.dev/artifacts/sdk/api/</loc><changefreq>weekly</changefreq></url>
+  <url><loc>https://espectre.dev/artifacts/sdk/stable/</loc><changefreq>weekly</changefreq></url>
+  <url><loc>https://espectre.dev/artifacts/sdk/main/</loc><changefreq>weekly</changefreq></url>
   <url><loc>https://espectre.dev/media/</loc><changefreq>monthly</changefreq></url>
   <url><loc>https://espectre.dev/roadmap/</loc><changefreq>weekly</changefreq></url>
+  <url><loc>https://espectre.dev/privacy/</loc><changefreq>yearly</changefreq></url>
   <url><loc>https://espectre.dev/guides/hardware/</loc><changefreq>weekly</changefreq></url>
   <url><loc>https://espectre.dev/guides/setup/</loc><changefreq>weekly</changefreq></url>
   <url><loc>https://espectre.dev/guides/detection/</loc><changefreq>weekly</changefreq></url>

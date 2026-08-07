@@ -28,6 +28,7 @@
 #include "runtime_diagnostics.h"
 #include "runtime_listener_utils.h"
 #include "sdkconfig.h"
+#include "wifi_band_helpers.h"
 
 #if __has_include("esp_heap_caps.h")
 #include "esp_heap_caps.h"
@@ -713,14 +714,20 @@ void NativeFrontend::send_system_info_() {
                           runtime_.capabilities().supports_runtime_detector_selection,
                           runtime_.capabilities().supports_ble_telemetry,
                           runtime_.capabilities().supports_extended_diagnostics,
-                          ota_service_ != nullptr},
+                          ota_service_ != nullptr,
+                          ESPECTRE_WIFI_DUAL_BAND != 0},
       device_config_,
       sysinfo_device_info,
       true,
-      false,
+      true,
       mqtt_transport_ != nullptr && mqtt_transport_->connected(),
       SysinfoWifiState{
-          wifi_info_.ssid, wifi_info_.bssid, wifi_info_.channel, wifi_info_.password_set, device_info_.network.channel > 0U,
+          wifi_info_.ssid,
+          wifi_info_.bssid,
+          wifi_info_.channel,
+          wifi_info_.password_set,
+          device_info_.network.channel > 0U,
+          wifi_info_.band_policy,
       },
   });
   char line[96];

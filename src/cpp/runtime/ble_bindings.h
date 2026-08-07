@@ -28,7 +28,7 @@ namespace espectre {
  *
  * The service and characteristic UUIDs are fixed in `ble_protocol.h`, and the
  * command grammar is specified in `docs/ESPECTRE_PROTOCOL.md`. Keeping to both
- * is what lets the web BLE client in `docs/web/espectre-ble.js` talk to your
+ * is what lets the web BLE client in `docs/web/assets/js/espectre-ble.js` talk to your
  * firmware unchanged.
  *
  * @par Threading

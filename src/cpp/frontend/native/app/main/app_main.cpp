@@ -59,6 +59,7 @@ void sync_frontend_wifi_info() {
   info.channel = wifi_config.channel;
   info.has_saved_config = wifi_config.has_saved_config;
   info.password_set = g_wifi_provisioning.password_set();
+  info.band_policy = wifi_config.band_policy;
   g_frontend->set_wifi_provisioning_info(info);
 
   espectre::EspectreDeviceInfo device_info;
@@ -77,6 +78,7 @@ void sync_frontend_wifi_info() {
 
 espectre::RuntimeConfig make_runtime_config() {
   espectre::RuntimeConfig config = espectre::make_runtime_sensing_config_from_kconfig();
+  config.wifi_band_policy = g_wifi_provisioning.config().band_policy;
   uint8_t saved_motion_on_hits = 0U;
   uint8_t saved_motion_off_hits = 0U;
   bool has_saved_motion_hits = false;

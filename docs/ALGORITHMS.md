@@ -29,7 +29,7 @@ feeding those signals into either:
 Representative raw CSI amplitude windows for empty room, static presence, and
 motion:
 
-![CSI amplitude heatmaps for empty, static presence, and motion](web/assets/guides/csi-amplitude-heatmap.webp)
+![CSI amplitude heatmaps for empty, static presence, and motion](web/assets/images/guides/csi-amplitude-heatmap.webp)
 
 The current production detector definition is:
 
@@ -202,7 +202,7 @@ Why HT20 stays the preferred active contract:
   64-point, 56-active-tone grid; HE20 instead has a 256-point, 242-active-tone
   layout. Neither is accepted by the production Classic or ML path yet
 
-![Legacy, HT, VHT, and HE LTF placement compared on the same 20 MHz slice](web/assets/guides/ht20-ltf-layout-preferred.png)
+![Legacy, HT, VHT, and HE LTF placement compared on the same 20 MHz slice](web/assets/images/guides/ht20-ltf-layout-preferred.png)
 *HT20 is the stable, validated sensing view ESPectre standardizes on today: it
 matches the current detector contract directly, is broadly available on modern
 networks in either band, and keeps the active sensing surface simple. VHT20 is

@@ -4,40 +4,38 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ESPectre — Wi-Fi motion sensing</title>
-<meta name="description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor: no cameras, no extra hardware, just the router you already own. Flash from the browser, or embed the C++ SDK into your own firmware.">
+<meta name="description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor: no cameras, no dedicated sensing hardware, and no cloud dependency. Flash from the browser, or embed the C++ SDK into your own firmware.">
 <link rel="canonical" href="https://espectre.dev/">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://espectre.dev/">
 <meta property="og:title" content="ESPectre — Wi-Fi motion sensing">
-<meta property="og:description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor. No cameras, no extra hardware.">
-<meta property="og:image" content="https://espectre.dev/assets/brand/espectre-og.jpg">
+<meta property="og:description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor. No cameras or dedicated sensing hardware.">
+<meta property="og:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="ESPectre — Wi-Fi motion sensing">
-<meta name="twitter:description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor. No cameras, no extra hardware.">
-<meta name="twitter:image" content="https://espectre.dev/assets/brand/espectre-og.jpg">
-<link rel="icon" type="image/svg+xml" href="/assets/brand/espectre-logo.svg">
-<link rel="alternate icon" type="image/png" href="/assets/brand/favicon.png">
+<meta name="twitter:description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor. No cameras or dedicated sensing hardware.">
+<meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
+<link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg">
+<link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=3.16.0">
-<script src="espectre-ble.js?v=3.2.0"></script>
-<script src="qrcode.js?v=3.2.0" defer></script>
-<script src="analytics.js?v=3.10.0" defer></script>
-<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
-<script src="https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js" defer></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/styles.css?v=3.18.2">
+<script src="/assets/js/espectre-ble.js?v=3.18.2"></script>
+<script src="/assets/js/navigation.js?v=3.18.2" defer></script>
+<script src="/assets/js/analytics.js?v=3.18.2" defer></script>
 </head>
 <body>
 
 <header class="site-header">
   <div class="site-header-inner">
     <a href="#home" class="brand" data-route-link="home">
-      <img src="/assets/brand/espectre-logo.svg" alt="" width="35" height="35" aria-hidden="true">
+      <img src="/assets/images/brand/espectre-logo.svg" alt="" width="35" height="35" aria-hidden="true">
       ESPectre
     </a>
-    <nav class="main-nav" aria-label="Main">
+    <nav class="main-nav" id="main-navigation" aria-label="Main">
       <a href="#home" class="nav-link" data-route-link="home">Home</a>
       <a href="#tools" class="nav-link" data-route-link="tools">Tools</a>
       <a href="#guides" class="nav-link" data-route-link="guides">Guides</a>
@@ -46,6 +44,9 @@
       <a href="#docs" class="nav-link" data-route-link="docs">Docs</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
     </nav>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-navigation">
+      <span aria-hidden="true">☰</span><span class="sr-only">Open navigation</span>
+    </button>
     <div class="conn">
       <span class="conn-idle-group js-conn-disconnected">
         <button class="conn-pill conn-disconnected js-connect">
@@ -57,7 +58,7 @@
         <span class="spinner"></span>
         Connecting…
       </div>
-      <button class="conn-pill conn-connected js-conn-connected js-dropdown-toggle" hidden>
+      <button class="conn-pill conn-connected js-conn-connected js-dropdown-toggle" aria-expanded="false" hidden>
         <span class="dot dot-ok pulse"></span>
         <span class="js-device-name">ESPectre</span>
         <span class="demo-tag js-demo-tag" hidden>DEMO</span>
@@ -93,46 +94,52 @@
       <div class="scrolly-scenes" aria-hidden="true">
         <div class="scrolly-scene scrolly-hero js-scrolly-scene is-active" data-scene="0">
           <div class="hero-media">
-            <img class="hero-frame hero-frame-disconnected"
-              src="/assets/home/hero-esp32-c3-poster.jpg" alt="" width="1920" height="1080"
-              fetchpriority="high">
-            <img class="hero-frame hero-frame-connected"
-              src="/assets/home/hero-esp32-c3-connected.jpg" alt="" width="1920" height="1080">
+            <picture>
+              <source media="(max-width: 720px)" srcset="/assets/images/home/hero-esp32-c3-poster-mobile.webp">
+              <img class="hero-frame hero-frame-disconnected"
+                src="/assets/images/home/hero-esp32-c3-poster.jpg" alt="" width="1920" height="1080"
+                fetchpriority="high">
+            </picture>
+            <picture>
+              <source media="(max-width: 720px)" srcset="/assets/images/home/hero-esp32-c3-connected-mobile.webp">
+              <img class="hero-frame hero-frame-connected"
+                src="/assets/images/home/hero-esp32-c3-connected.jpg" alt="" width="1920" height="1080">
+            </picture>
           </div>
           <div class="hero-scrim"></div>
         </div>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="1">
-          <img src="/assets/home/scene-motion-lights.jpg" alt="" width="1920" height="1080">
+          <img data-src="/assets/images/home/scene-motion-lights.jpg" data-src-mobile="/assets/images/home/scene-motion-lights-mobile.webp" alt="" width="1920" height="1080">
         </figure>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="2">
-          <img src="/assets/home/scene-intrusion-alarm.jpg" alt="" width="1920" height="1080" loading="lazy">
+          <img data-src="/assets/images/home/scene-intrusion-alarm.jpg" data-src-mobile="/assets/images/home/scene-intrusion-alarm-mobile.webp" alt="" width="1920" height="1080">
         </figure>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="3">
-          <img src="/assets/home/scene-smart-heating.jpg" alt="" width="1920" height="1080" loading="lazy">
+          <img data-src="/assets/images/home/scene-smart-heating.jpg" data-src-mobile="/assets/images/home/scene-smart-heating-mobile.webp" alt="" width="1920" height="1080">
         </figure>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="4">
-          <img src="/assets/home/scene-vacant-climate.jpg" alt="" width="1920" height="1080" loading="lazy">
+          <img data-src="/assets/images/home/scene-vacant-climate.jpg" data-src-mobile="/assets/images/home/scene-vacant-climate-mobile.webp" alt="" width="1920" height="1080">
         </figure>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="5">
-          <img src="/assets/home/scene-presence-research.jpg" alt="" width="1920" height="1080" loading="lazy">
+          <img data-src="/assets/images/home/scene-presence-research.jpg" data-src-mobile="/assets/images/home/scene-presence-research-mobile.webp" alt="" width="1920" height="1080">
         </figure>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="6">
-          <img src="/assets/home/scene-industrial-flow.jpg" alt="" width="1920" height="1080" loading="lazy">
+          <img data-src="/assets/images/home/scene-industrial-flow.jpg" data-src-mobile="/assets/images/home/scene-industrial-flow-mobile.webp" alt="" width="1920" height="1080">
         </figure>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="7">
-          <img src="/assets/home/scene-school-privacy.jpg" alt="" width="1672" height="941" loading="lazy">
+          <img data-src="/assets/images/home/scene-school-privacy.jpg" data-src-mobile="/assets/images/home/scene-school-privacy-mobile.webp" alt="" width="1672" height="941">
         </figure>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="8">
-          <img src="/assets/home/scene-gym-activity.jpg" alt="" width="1672" height="941" loading="lazy">
+          <img data-src="/assets/images/home/scene-gym-activity.jpg" data-src-mobile="/assets/images/home/scene-gym-activity-mobile.webp" alt="" width="1672" height="941">
         </figure>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="9">
-          <img src="/assets/home/scene-matter-integration.jpg" alt="" width="1920" height="1080" loading="lazy">
+          <img data-src="/assets/images/home/scene-matter-integration.jpg" data-src-mobile="/assets/images/home/scene-matter-integration-mobile.webp" alt="" width="1920" height="1080">
         </figure>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="10">
-          <img src="/assets/home/scene-cloud-home-map.jpg" alt="" width="1672" height="941" loading="lazy">
+          <img data-src="/assets/images/home/scene-cloud-home-map.jpg" data-src-mobile="/assets/images/home/scene-cloud-home-map-mobile.webp" alt="" width="1672" height="941">
         </figure>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="11">
-          <img src="/assets/home/scene-embedded-sdk.jpg" alt="" width="1920" height="1080" loading="lazy">
+          <img data-src="/assets/images/home/scene-embedded-sdk.jpg" data-src-mobile="/assets/images/home/scene-embedded-sdk-mobile.webp" alt="" width="1920" height="1080">
         </figure>
       </div>
       <div class="scrolly-scrim" aria-hidden="true"></div>
@@ -427,14 +434,14 @@
     <section class="panel">
       <h2>Firmware</h2>
       <div class="fields">
-        <div class="field"><label>Frontend</label><select id="flash-frontend"></select></div>
-        <div class="field"><label>Channel</label>
+        <div class="field"><label for="flash-frontend">Frontend</label><select id="flash-frontend"></select></div>
+        <div class="field"><label for="flash-channel">Channel</label>
           <select id="flash-channel">
             <option value="stable">Latest Release</option>
             <option value="main">Release Preview</option>
           </select>
         </div>
-        <div class="field"><label>Chip</label><select id="flash-chip"></select></div>
+        <div class="field"><label for="flash-chip">Chip</label><select id="flash-chip"></select></div>
       </div>
     </section>
     <section class="panel">
@@ -499,83 +506,103 @@
     </div>
 
     <div class="config-grid">
-      <section class="panel">
+      <section class="panel" data-capability="supports_wifi_provisioning">
         <h2>Wi-Fi</h2>
         <div class="fields">
-          <div class="field"><label>SSID</label><input type="text" id="cfg-ssid" placeholder="HomeNet-5G"></div>
-          <div class="field"><label>Password</label><input type="password" id="cfg-wifi-pass" placeholder="••••••••"></div>
+          <div class="field"><label for="cfg-ssid">SSID</label><input type="text" id="cfg-ssid" placeholder="HomeNet-5G" autocomplete="off"></div>
+          <div class="field"><label for="cfg-wifi-pass">Password</label><input type="password" id="cfg-wifi-pass" placeholder="••••••••" autocomplete="off" spellcheck="false"></div>
+          <div class="field"><label for="cfg-wifi-band">Band</label><select id="cfg-wifi-band"><option value="2g">2.4 GHz</option></select><span class="field-help js-wifi-band-help">5 GHz is available only on supported devices.</span></div>
           <div class="field-row field-row-2-1">
-            <div class="field"><label>BSSID <span class="opt">(optional)</span></label><input type="text" id="cfg-bssid" class="mono-input" placeholder="aa:bb:cc:dd:ee:ff"></div>
-            <div class="field"><label>Channel</label><input type="number" id="cfg-channel" placeholder="auto"></div>
+            <div class="field"><label for="cfg-bssid">BSSID <span class="opt">(optional)</span></label><input type="text" id="cfg-bssid" class="mono-input" placeholder="aa:bb:cc:dd:ee:ff" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="cfg-channel">Channel</label><input type="number" id="cfg-channel" placeholder="auto"></div>
           </div>
         </div>
         <div class="panel-actions">
-          <button class="btn-primary btn-sm js-wifi-save">Save</button>
-          <button class="btn-ghost btn-sm js-wifi-clear">Clear</button>
+          <button class="btn-primary btn-sm js-wifi-save">Save Wi-Fi</button>
+          <button class="btn-ghost btn-sm js-wifi-clear">Clear Wi-Fi</button>
         </div>
+        <p class="tool-note js-wifi-restart-note" hidden>Changing the band is saved immediately and takes effect after restarting the device.</p>
       </section>
 
-      <section class="panel">
+      <section class="panel" data-capability="supports_mqtt_config">
         <h2>MQTT</h2>
         <div class="fields">
           <div class="field-row field-row-2-1">
-            <div class="field"><label>Broker host</label><input type="text" id="cfg-mqtt-host" class="mono-input" placeholder="192.168.1.20"></div>
-            <div class="field"><label>Port</label><input type="number" id="cfg-mqtt-port" placeholder="1883"></div>
+            <div class="field"><label for="cfg-mqtt-host">Broker host</label><input type="text" id="cfg-mqtt-host" class="mono-input" placeholder="192.168.1.20" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="cfg-mqtt-port">Port</label><input type="number" id="cfg-mqtt-port" placeholder="1883"></div>
           </div>
           <div class="field-row">
-            <div class="field"><label>Username</label><input type="text" id="cfg-mqtt-user" placeholder="mqtt"></div>
-            <div class="field"><label>Password</label><input type="password" id="cfg-mqtt-pass" placeholder="••••••••"></div>
+            <div class="field"><label for="cfg-mqtt-user">Username</label><input type="text" id="cfg-mqtt-user" placeholder="mqtt" autocomplete="off"></div>
+            <div class="field"><label for="cfg-mqtt-pass">Password</label><input type="password" id="cfg-mqtt-pass" placeholder="••••••••" autocomplete="off" spellcheck="false"></div>
           </div>
-          <div class="field"><label>Topic prefix</label><input type="text" id="cfg-topic-prefix" class="mono-input" placeholder="espectre/v1/devices"></div>
+          <div class="field"><label for="cfg-topic-prefix">Topic prefix</label><input type="text" id="cfg-topic-prefix" class="mono-input" placeholder="espectre/v1/devices" autocomplete="off" spellcheck="false"></div>
         </div>
         <div class="panel-actions">
-          <button class="btn-primary btn-sm js-mqtt-save">Save</button>
-          <button class="btn-ghost btn-sm js-mqtt-clear">Clear</button>
+          <button class="btn-primary btn-sm js-mqtt-save">Save MQTT</button>
+          <button class="btn-ghost btn-sm js-mqtt-clear">Clear MQTT</button>
         </div>
       </section>
 
-      <section class="panel">
+      <section class="panel" data-capability="supports_device_config">
         <h2>Device</h2>
         <div class="fields">
-          <div class="field"><label>Device ID</label><div class="readonly-value" id="cfg-device-id">—</div></div>
-          <div class="field"><label>Device name</label><div class="readonly-value" id="cfg-device-name">—</div></div>
-          <div class="field"><label>Label</label><input type="text" id="cfg-label" placeholder="Living Room"></div>
+          <div class="field"><span class="field-label">Device ID</span><div class="readonly-value" id="cfg-device-id">—</div></div>
+          <div class="field"><span class="field-label">Device name</span><div class="readonly-value" id="cfg-device-name">—</div></div>
+          <div class="field"><label for="cfg-label">Label</label><input type="text" id="cfg-label" placeholder="Living Room" autocomplete="off"></div>
         </div>
         <div class="panel-actions">
-          <button class="btn-primary btn-sm js-dev-save">Save</button>
-          <button class="btn-ghost btn-sm js-dev-clear">Clear</button>
+          <button class="btn-primary btn-sm js-dev-save">Save device</button>
+          <button class="btn-ghost btn-sm js-dev-clear">Clear device</button>
         </div>
       </section>
 
       <section class="panel">
         <h2>Runtime</h2>
         <div class="fields">
-          <div class="field-row">
-            <div class="field"><label>Motion on hits</label><input type="number" id="cfg-motion-on" min="1" max="20" placeholder="4"></div>
-            <div class="field"><label>Motion off hits</label><input type="number" id="cfg-motion-off" min="1" max="20" placeholder="3"></div>
+          <div class="field-row" data-capability="supports_runtime_threshold">
+            <div class="field"><label for="cfg-threshold">Threshold</label><input type="number" id="cfg-threshold" min="0" max="1" step="0.001" placeholder="0.5"></div>
           </div>
-          <div class="field"><label>OTA state</label><div class="readonly-value" id="cfg-ota-state">—</div></div>
-          <div class="field"><label>Target version</label><div class="readonly-value" id="cfg-ota-target">—</div></div>
-          <div class="field"><label>OTA message</label><div class="readonly-value" id="cfg-ota-message">—</div></div>
+          <div class="field" data-capability="supports_runtime_detector"><label for="cfg-detector">Detector</label><select id="cfg-detector"><option value="classic">Classic</option><option value="ml">ML</option></select></div>
+          <div class="field-row" data-capability="supports_runtime_motion_hits">
+            <div class="field"><label for="cfg-motion-on">Motion on hits</label><input type="number" id="cfg-motion-on" min="1" max="20" placeholder="4"></div>
+            <div class="field"><label for="cfg-motion-off">Motion off hits</label><input type="number" id="cfg-motion-off" min="1" max="20" placeholder="3"></div>
+          </div>
+          <div class="field" data-capability="supports_ota"><span class="field-label">OTA state</span><div class="readonly-value" id="cfg-ota-state">—</div></div>
+          <div class="field" data-capability="supports_ota"><span class="field-label">Current version</span><div class="readonly-value" id="cfg-ota-current">—</div></div>
+          <div class="field" data-capability="supports_ota"><span class="field-label">Update available</span><div class="readonly-value" id="cfg-ota-available">—</div></div>
+          <div class="field" data-capability="supports_ota"><span class="field-label">Target version</span><div class="readonly-value" id="cfg-ota-target">—</div></div>
+          <div class="field" data-capability="supports_ota"><span class="field-label">OTA message</span><div class="readonly-value" id="cfg-ota-message">—</div></div>
         </div>
         <div class="panel-actions">
-          <button class="btn-primary btn-sm js-motion-save">Save motion hits</button>
-          <button class="btn-ghost btn-sm js-ota-status">Refresh OTA</button>
-          <button class="btn-ghost btn-sm js-ota-check">Check update</button>
-          <button class="btn-ghost btn-sm js-ota-start">Start OTA</button>
+          <button class="btn-primary btn-sm js-threshold-save" data-capability="supports_runtime_threshold">Save threshold</button>
+          <button class="btn-primary btn-sm js-detector-save" data-capability="supports_runtime_detector">Save detector</button>
+          <button class="btn-primary btn-sm js-motion-save" data-capability="supports_runtime_motion_hits">Save motion hits</button>
+          <button class="btn-ghost btn-sm js-ota-status" data-capability="supports_ota">Refresh OTA</button>
+          <button class="btn-ghost btn-sm js-ota-check" data-capability="supports_ota">Check update</button>
+          <button class="btn-ghost btn-sm js-ota-start" data-capability="supports_ota">Start OTA</button>
         </div>
+        <p class="tool-note js-runtime-unavailable" hidden>This firmware does not expose runtime or OTA controls over Bluetooth.</p>
       </section>
 
       <section class="panel">
         <h2>Diagnostics</h2>
         <div class="diag-grid">
           <div class="stat"><div class="stat-label">Protocol</div><div class="stat-value" id="diag-protocol">—</div></div>
+          <div class="stat"><div class="stat-label">Firmware</div><div class="stat-value" id="diag-firmware">—</div></div>
           <div class="stat"><div class="stat-label">Chip</div><div class="stat-value" id="diag-chip">—</div></div>
           <div class="stat"><div class="stat-label">Detector</div><div class="stat-value" id="diag-detector">—</div></div>
+          <div class="stat"><div class="stat-label">Threshold</div><div class="stat-value" id="diag-threshold">—</div></div>
+          <div class="stat"><div class="stat-label">Startup threshold</div><div class="stat-value" id="diag-startup-threshold">—</div></div>
           <div class="stat"><div class="stat-label">Window</div><div class="stat-value" id="diag-window">—</div></div>
+          <div class="stat"><div class="stat-label">Subcarriers</div><div class="stat-value" id="diag-subcarriers">—</div></div>
+          <div class="stat"><div class="stat-label">Low-pass</div><div class="stat-value" id="diag-lowpass">—</div></div>
+          <div class="stat"><div class="stat-label">Hampel</div><div class="stat-value" id="diag-hampel">—</div></div>
           <div class="stat"><div class="stat-label">Traffic</div><div class="stat-value" id="diag-traffic">—</div></div>
           <div class="stat"><div class="stat-label">Publish</div><div class="stat-value" id="diag-publish">—</div></div>
+          <div class="stat"><div class="stat-label">Evaluation</div><div class="stat-value" id="diag-evaluation">—</div></div>
           <div class="stat"><div class="stat-label">Wi-Fi</div><div class="stat-value" id="diag-wifi">—</div></div>
+          <div class="stat"><div class="stat-label">Wi-Fi band</div><div class="stat-value" id="diag-wifi-band">—</div></div>
+          <div class="stat"><div class="stat-label">Wi-Fi password</div><div class="stat-value" id="diag-wifi-password">—</div></div>
           <div class="stat"><div class="stat-label">MQTT</div><div class="stat-value" id="diag-mqtt">—</div></div>
           <div class="stat"><div class="stat-label">OTA</div><div class="stat-value" id="diag-ota">—</div></div>
         </div>
@@ -595,18 +622,18 @@
       <h2>Broker</h2>
       <div class="fields">
         <div class="field-row field-row-2-1">
-          <div class="field"><label>Host</label><input type="text" id="mon-host" class="mono-input" placeholder="192.168.1.20"></div>
-          <div class="field"><label>Port</label><input type="number" id="mon-port" placeholder="9001"></div>
+            <div class="field"><label for="mon-host">Host</label><input type="text" id="mon-host" class="mono-input" placeholder="192.168.1.20" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="mon-port">Port</label><input type="number" id="mon-port" placeholder="9001"></div>
         </div>
         <div class="field-row">
-          <div class="field"><label>WebSocket path</label><input type="text" id="mon-path" class="mono-input" value="/mqtt"></div>
-          <div class="field field-check"><label>&nbsp;</label><label class="check"><input type="checkbox" id="mon-tls"> TLS (wss)</label></div>
+          <div class="field"><label for="mon-path">WebSocket path</label><input type="text" id="mon-path" class="mono-input" value="/mqtt" autocomplete="off" spellcheck="false"></div>
+          <div class="field field-check"><span class="field-spacer" aria-hidden="true"></span><label class="check" for="mon-tls"><input type="checkbox" id="mon-tls"> TLS (wss)</label></div>
         </div>
         <div class="field-row">
-          <div class="field"><label>Username</label><input type="text" id="mon-user" placeholder="mqtt"></div>
-          <div class="field"><label>Password</label><input type="password" id="mon-pass" placeholder="••••••••"></div>
+          <div class="field"><label for="mon-user">Username</label><input type="text" id="mon-user" placeholder="mqtt" autocomplete="off"></div>
+          <div class="field"><label for="mon-pass">Password</label><input type="password" id="mon-pass" placeholder="••••••••" autocomplete="off" spellcheck="false"></div>
         </div>
-        <div class="field"><label>Device base topic</label><input type="text" id="mon-topic" class="mono-input" placeholder="espectre/v1/devices/0x00007c2c6742bbac"></div>
+        <div class="field"><label for="mon-topic">Device base topic</label><input type="text" id="mon-topic" class="mono-input" placeholder="espectre/v1/devices/0x00007c2c6742bbac" autocomplete="off" spellcheck="false"></div>
       </div>
       <div class="panel-actions">
         <button class="btn-primary btn-sm js-mon-connect">Connect broker</button>
@@ -667,7 +694,7 @@
       <div class="theremin-controls">
         <button class="btn-primary js-th-toggle">▶ Start sound</button>
         <div class="field field-inline">
-          <label>Waveform</label>
+          <label for="th-wave">Waveform</label>
           <select id="th-wave">
             <option value="sine">Sine</option>
             <option value="triangle">Triangle</option>
@@ -695,7 +722,7 @@
   <div class="js-has-conn" hidden>
     <div class="game-stage panel">
       <div class="game-orb js-game-orb">
-        <img class="game-scan" src="/assets/game/game-radar.svg" alt="" aria-hidden="true">
+        <img class="game-scan" src="/assets/images/game/game-radar.svg" alt="" aria-hidden="true">
       </div>
       <div class="game-msg js-game-msg">Stand still. Move fast. React to survive.</div>
       <div class="game-stats">
@@ -800,20 +827,36 @@
 <footer class="site-footer">
   <div class="site-footer-inner">
     <div class="footer-brand">
-      <img src="/assets/brand/espectre-logo.svg" alt="" width="16" height="16" aria-hidden="true">
+      <img src="/assets/images/brand/espectre-logo.svg" alt="" width="16" height="16" aria-hidden="true">
       ESPectre © 2026 · Open source Wi-Fi sensing platform
     </div>
     <div class="footer-links">
+      <a href="/guides/">Guides</a>
+      <a href="/docs/">Docs</a>
       <a href="/media/">Media</a>
       <a href="/roadmap/">Roadmap</a>
+      <a href="/privacy/">Privacy</a>
+      <button type="button" class="footer-link-button js-cookie-settings">Cookie settings</button>
       <a href="mailto:contact@espectre.dev">Commercial Licensing</a>
       <a href="mailto:security@espectre.dev">Security</a>
     </div>
   </div>
 </footer>
 
-<div class="toast js-toast" hidden></div>
+<div class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" hidden>
+  <div>
+    <strong id="consent-title">Optional analytics</strong>
+    <p>Help improve ESPectre by allowing privacy-conscious Google Analytics. Device credentials and identifiers are never sent.</p>
+    <a href="/privacy/">Privacy details</a>
+  </div>
+  <div class="consent-actions">
+    <button type="button" class="btn-ghost js-consent-reject">Reject</button>
+    <button type="button" class="btn-primary js-consent-accept">Accept analytics</button>
+  </div>
+</div>
 
-<script src="app.js?v=3.10.0"></script>
+<div class="toast js-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+
+<script src="/assets/js/app.js?v=3.18.2"></script>
 </body>
 </html>

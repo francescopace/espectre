@@ -13,6 +13,7 @@
 
 #include "esp_err.h"
 #include "espectre_protocol.h"
+#include "runtime_interface.h"
 
 namespace espectre {
 
@@ -21,6 +22,8 @@ struct StoredWifiConfig {
   std::string password;
   std::string bssid;
   uint8_t channel{0U};
+  WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
+  bool has_saved_band_policy{false};
   bool has_saved_config{false};
 };
 

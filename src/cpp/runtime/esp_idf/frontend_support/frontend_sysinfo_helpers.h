@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "espectre_protocol.h"
+#include "runtime_interface.h"
 
 namespace espectre {
 
@@ -26,6 +27,7 @@ struct SysinfoCapabilities {
   bool supports_live_telemetry{false};
   bool supports_extended_diagnostics{false};
   bool supports_ota{false};
+  bool supports_wifi_5ghz{false};
 };
 
 struct SysinfoWifiState {
@@ -34,6 +36,7 @@ struct SysinfoWifiState {
   uint8_t channel{0U};
   bool password_set{false};
   bool connected{false};
+  WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
 };
 
 struct FrontendSysinfoBase {

@@ -33,6 +33,7 @@ class NativeFrontend : public IRuntimeListener {
     uint8_t channel{0U};
     bool has_saved_config{false};
     bool password_set{false};
+    WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
   };
 
   using ProvisioningCommandCallback = std::function<bool(const std::string &command, std::string *message)>;

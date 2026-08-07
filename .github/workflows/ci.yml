@@ -86,14 +86,14 @@ jobs:
             gh release download "$STABLE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir stable-sdk --clobber
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir stable-firmware \
-              --output-dir docs/web/flash/firmware/stable \
+              --output-dir docs/web/artifacts/firmware/stable \
               --channel stable \
               --version "$STABLE_TAG" \
               --release-tag "$STABLE_TAG" \
-              --url-prefix /flash/firmware/stable
+              --url-prefix /artifacts/firmware/stable
             python .github/scripts/stage_web_sdk.py \
               --sdk-dir stable-sdk \
-              --output-dir docs/web/sdk/stable \
+              --output-dir docs/web/artifacts/sdk/stable \
               --channel stable
           else
             echo "No stable release found; skipping stable channel staging."
@@ -113,15 +113,15 @@ jobs:
             SNAPSHOT_COMMIT="$(gh release view snapshot --json targetCommitish --jq '.targetCommitish // ""')"
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir snapshot-firmware \
-              --output-dir docs/web/flash/firmware/main \
+              --output-dir docs/web/artifacts/firmware/main \
               --channel main \
               --version main \
               --release-tag snapshot \
-              --url-prefix /flash/firmware/main \
+              --url-prefix /artifacts/firmware/main \
               --commit "$SNAPSHOT_COMMIT"
             python .github/scripts/stage_web_sdk.py \
               --sdk-dir snapshot-sdk \
-              --output-dir docs/web/sdk/main \
+              --output-dir docs/web/artifacts/sdk/main \
               --channel main
           else
             echo "No snapshot release found; skipping main channel staging."
@@ -130,6 +130,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
       
+      - name: Stage Browser Dependencies
+        run: |
+          npm --prefix docs/web ci --ignore-scripts
+          npm --prefix docs/web run stage:vendor
+
       - name: Test Web Client
         run: node --test 'test/web/*.mjs'
 
@@ -140,17 +145,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
 
       - name: Generate SDK API Reference
-        # Written straight into the Pages tree so espectre.dev/sdk/api/ serves
+        # Written straight into the Pages tree so
+        # espectre.dev/artifacts/sdk/api/ serves
         # it. WARN_AS_ERROR is set in the Doxyfile, so a partially documented
         # member on the published surface fails the build here rather than
         # shipping a reference that reads as complete.
         run: |
           # Doxygen creates OUTPUT_DIRECTORY only one level deep, and
-          # docs/web/sdk/ is not tracked because everything under it is
+          # docs/web/artifacts/ is not tracked because everything under it is
           # generated, so the parent has to exist first.
-          mkdir -p docs/web/sdk
+          mkdir -p docs/web/artifacts/sdk
           ( cat docs/Doxyfile
-            echo "OUTPUT_DIRECTORY=docs/web/sdk"
+            echo "OUTPUT_DIRECTORY=docs/web/artifacts/sdk"
             echo "HTML_OUTPUT=api"
           ) | doxygen -
 
@@ -158,9 +164,13 @@ jobs:
         run: |
           test -f docs/web/sitemap.xml
           test -f docs/web/index.html
-          test -f docs/web/app.js
-          test -f docs/web/styles.css
-          test -f docs/web/espectre-ble.js
+          test -f docs/web/assets/js/app.js
+          test -f docs/web/assets/css/styles.css
+          test -f docs/web/assets/js/espectre-ble.js
+          test -f docs/web/vendor/qrcodejs-1.0.0/qrcode.min.js
+          test -f docs/web/vendor/esp-web-tools-10.4.0/install-button.js
+          test -f docs/web/vendor/mqtt-5.3.0/mqtt.min.js
+          test -f docs/web/privacy/index.html
           for route in flash configure monitor theremin game guides \
               guide-hardware guide-setup guide-detection guide-firmware \
               docs docs-api docs-examples docs-architecture media roadmap; do
@@ -179,15 +189,15 @@ jobs:
             || { echo "Missing generated media page"; exit 1; }
           test -f docs/web/roadmap/index.html \
             || { echo "Missing generated roadmap page"; exit 1; }
-          test -f docs/web/sdk/api/index.html \
+          test -f docs/web/artifacts/sdk/api/index.html \
             || { echo "Missing generated SDK API reference"; exit 1; }
           if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
-            test -f docs/web/flash/firmware/stable/firmware-manifest-stable.json
-            test "$(find docs/web/flash/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
-            test -f docs/web/sdk/stable/index.html
-            test -f docs/web/sdk/stable/sdk-manifest-stable.json
-            test -f docs/web/sdk/main/index.html
-            test -f docs/web/sdk/main/sdk-manifest-main.json
+            test -f docs/web/artifacts/firmware/stable/firmware-manifest-stable.json
+            test "$(find docs/web/artifacts/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
+            test -f docs/web/artifacts/sdk/stable/index.html
+            test -f docs/web/artifacts/sdk/stable/sdk-manifest-stable.json
+            test -f docs/web/artifacts/sdk/main/index.html
+            test -f docs/web/artifacts/sdk/main/sdk-manifest-main.json
           fi
           echo "Website verified!"
       

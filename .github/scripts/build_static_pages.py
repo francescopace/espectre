@@ -13,9 +13,10 @@ match the fragments. To preview the static pages locally, run:
 
     python3 .github/scripts/build_static_pages.py
 
-The pages reuse the site stylesheet (version read from index.html so cache
-busting stays in lockstep) with a lightweight static header, and default to
-the light theme like the app; there is no runtime JS except analytics.
+The pages reuse the site assets (version read from index.html so cache busting
+stays in lockstep) with a lightweight static header, and default to the light
+theme like the app. Runtime JavaScript is limited to responsive navigation and
+consent-gated analytics.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -154,11 +155,22 @@ PAGES = (
         "output": "roadmap",
         "title": "Roadmap | ESPectre",
         "description": (
-            "ESPectre product direction after v3.0: easier adoption, optional "
+            "ESPectre product direction toward v3.0 and beyond: easier adoption, optional "
             "multi-device orchestration, sensing research, and future "
             "standards-backed Wi-Fi Sensing hardware."
         ),
         "active_nav": "roadmap",
+    },
+    {
+        "source": "content/privacy.html",
+        "output": "privacy",
+        "title": "Website privacy and analytics | ESPectre",
+        "description": (
+            "How the ESPectre website handles analytics consent, cookies, "
+            "browser-tool data, retention, and privacy choices."
+        ),
+        "active_nav": "privacy",
+        "content_group": "privacy",
     },
 )
 
@@ -174,17 +186,18 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 <meta property="og:url" content="{canonical}">
 <meta property="og:title" content="{title}">
 <meta property="og:description" content="{description}">
-<meta property="og:image" content="{origin}/assets/brand/espectre-og.jpg">
+<meta property="og:image" content="{origin}/assets/images/brand/espectre-og.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{title}">
 <meta name="twitter:description" content="{description}">
-<meta name="twitter:image" content="{origin}/assets/brand/espectre-og.jpg">
-<link rel="icon" type="image/png" href="/assets/brand/favicon.png">
+<meta name="twitter:image" content="{origin}/assets/images/brand/espectre-og.jpg">
+<link rel="icon" type="image/png" href="/assets/images/brand/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v={styles_version}">
-<script src="/analytics.js?v={styles_version}" defer></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/styles.css?v={styles_version}">
+<script src="/assets/js/navigation.js?v={styles_version}" defer></script>
+<script src="/assets/js/analytics.js?v={styles_version}" defer></script>
 </head>
 <body>
 
@@ -194,7 +207,10 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
       <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="var(--accent)"/><circle cx="12.2" cy="13.5" r="1.9" fill="var(--bg)"/><circle cx="19.8" cy="13.5" r="1.9" fill="var(--bg)"/></svg>
       ESPectre
     </a>
-    <nav class="main-nav" aria-label="Main">
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-navigation">
+      <span aria-hidden="true">☰</span><span class="sr-only">Open navigation</span>
+    </button>
+    <nav class="main-nav" id="main-navigation" aria-label="Main">
       <a href="/" class="nav-link">Home</a>
       <a href="/#tools" class="nav-link">Tools</a>
       <a href="/guides/" class="nav-link{guides_active}">Guides</a>
@@ -222,11 +238,25 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
       <a href="/docs/">Docs</a>
       <a href="/media/">Media</a>
       <a href="/roadmap/">Roadmap</a>
+      <a href="/privacy/">Privacy</a>
+      <button class="footer-link-button js-cookie-settings" type="button">Cookie settings</button>
       <a href="mailto:contact@espectre.dev">Contact</a>
       <a href="mailto:security@espectre.dev">Security</a>
     </div>
   </div>
 </footer>
+
+<aside class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" hidden>
+  <div>
+    <strong id="consent-title">Optional analytics</strong>
+    <p>Help improve ESPectre with privacy-conscious usage analytics. Browser-tool credentials and device identifiers are never included.</p>
+    <a href="/privacy/">Read the privacy notice</a>
+  </div>
+  <div class="consent-actions">
+    <button class="btn-ghost js-consent-reject" type="button">Reject</button>
+    <button class="btn-primary btn-sm js-consent-accept" type="button">Accept analytics</button>
+  </div>
+</aside>
 
 </body>
 </html>
@@ -235,7 +265,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 def styles_version() -> str:
     """Reads the cache-busting version index.html uses for styles.css."""
     index = (WEB_ROOT / "index.html").read_text()
-    match = re.search(r'href="styles\.css\?v=([0-9.]+)"', index)
+    match = re.search(r'href="/assets/css/styles\.css\?v=([0-9.]+)"', index)
     if not match:
         sys.exit("error: styles.css version not found in index.html")
     return match.group(1)

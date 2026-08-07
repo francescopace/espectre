@@ -1,12 +1,41 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
-<title>ESPectre</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page not found | ESPectre</title>
 <meta name="robots" content="noindex">
-<meta http-equiv="refresh" content="0; url=/">
-<link rel="canonical" href="https://espectre.dev/">
-<script>location.replace('/');</script>
+<link rel="icon" type="image/png" href="/assets/images/brand/favicon.png">
+<link rel="stylesheet" href="/assets/css/styles.css?v=3.18.2">
+<script src="/assets/js/navigation.js?v=3.18.2" defer></script>
 </head>
-<body><p>That page has moved. <a href="/">Go to ESPectre</a>.</p></body>
+<body>
+<header class="site-header">
+  <div class="site-header-inner">
+    <a href="/" class="brand">ESPectre</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-navigation">
+      <span aria-hidden="true">☰</span><span class="sr-only">Open navigation</span>
+    </button>
+    <nav class="main-nav" id="main-navigation" aria-label="Main">
+      <a href="/" class="nav-link">Home</a>
+      <a href="/#tools" class="nav-link">Tools</a>
+      <a href="/guides/" class="nav-link">Guides</a>
+      <a href="/docs/" class="nav-link">Docs</a>
+      <a href="/roadmap/" class="nav-link">Roadmap</a>
+    </nav>
+  </div>
+</header>
+<main class="page-narrow page-article">
+  <article class="article error-page">
+    <span class="guide-tag">404 · PAGE NOT FOUND</span>
+    <h1>This signal went missing.</h1>
+    <p class="article-lead">The address may be outdated or mistyped. Continue from the homepage, the guides, or the SDK documentation.</p>
+    <div class="hero-actions">
+      <a class="btn-primary" href="/">Go to homepage</a>
+      <a class="btn-secondary" href="/guides/">Browse guides</a>
+      <a class="btn-secondary" href="/docs/">Open docs</a>
+    </div>
+  </article>
+</main>
+</body>
 </html>

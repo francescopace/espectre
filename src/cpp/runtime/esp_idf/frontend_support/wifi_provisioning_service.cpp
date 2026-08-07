@@ -15,6 +15,7 @@
 
 #include "espectre_log.h"
 #include "protocol_json.h"
+#include "runtime_config_utils.h"
 #include "wifi_band_helpers.h"
 
 namespace espectre {
@@ -25,7 +26,6 @@ static const char *const TAG = "espectre.wifi_prov";
 
 bool assign_wifi_config_field(const std::string &field,
                               const std::string &value,
-                              WifiBandPolicy band_policy,
                               StoredWifiConfig *config,
                               std::string *error) {
   if (config == nullptr) {
@@ -71,14 +71,31 @@ bool assign_wifi_config_field(const std::string &field,
     // what actually decides which of those values is a channel.
     if (end_ptr == value.c_str() || end_ptr == nullptr || *end_ptr != '\0' ||
         parsed < 0 || parsed > 255 ||
-        !wifi_channel_is_supported(static_cast<int>(parsed)) ||
-        !wifi_channel_matches_band_policy(static_cast<int>(parsed), band_policy)) {
+        !wifi_channel_is_supported(static_cast<int>(parsed))) {
       if (error != nullptr) {
-        *error = std::string("channel must be ") + wifi_channel_supported_description(band_policy);
+        *error = std::string("channel must be ") + wifi_channel_supported_description();
       }
       return false;
     }
     config->channel = static_cast<uint8_t>(parsed);
+    return true;
+  }
+  if (field == "band_policy") {
+    if (value != "2g" && value != "5g" && value != "auto") {
+      if (error != nullptr) {
+        *error = "band_policy must be 2g, 5g, or auto";
+      }
+      return false;
+    }
+    const WifiBandPolicy policy = parse_wifi_band_policy(value.c_str());
+    if (!wifi_band_policy_is_supported(policy)) {
+      if (error != nullptr) {
+        *error = "5 GHz Wi-Fi is not supported by this device";
+      }
+      return false;
+    }
+    config->band_policy = policy;
+    config->has_saved_band_policy = true;
     return true;
   }
   if (error != nullptr) {
@@ -100,6 +117,9 @@ esp_err_t WifiProvisioningService::load_or_set_defaults(const WifiProvisioningDe
   last_load_result_ = load_err;
   if (load_err == ESP_OK && stored_config.has_saved_config) {
     wifi_config_ = stored_config;
+    if (!wifi_config_.has_saved_band_policy) {
+      wifi_config_.band_policy = defaults.band_policy;
+    }
   } else {
     if (load_err != ESP_OK) {
       ESP_LOGW(TAG, "Failed to load stored Wi-Fi config: %s; using build defaults", esp_err_to_name(load_err));
@@ -108,10 +128,17 @@ esp_err_t WifiProvisioningService::load_or_set_defaults(const WifiProvisioningDe
     wifi_config_.password = defaults.password != nullptr ? defaults.password : "";
     wifi_config_.bssid = defaults.bssid != nullptr ? defaults.bssid : "";
     wifi_config_.channel = defaults.channel;
+    wifi_config_.band_policy = defaults.band_policy;
+    wifi_config_.has_saved_band_policy = false;
     wifi_config_.has_saved_config = false;
   }
+  if (!wifi_band_policy_is_supported(wifi_config_.band_policy)) {
+    ESP_LOGW(TAG, "Stored Wi-Fi band policy is unsupported; restoring build default");
+    wifi_config_.band_policy = defaults_.band_policy;
+    wifi_config_.has_saved_band_policy = false;
+  }
   if (!wifi_channel_is_supported(wifi_config_.channel) ||
-      !wifi_channel_matches_band_policy(wifi_config_.channel, defaults_.band_policy)) {
+      !wifi_channel_matches_band_policy(wifi_config_.channel, wifi_config_.band_policy)) {
     ESP_LOGW(TAG, "Stored Wi-Fi channel %u does not match band policy; restoring automatic scan",
              static_cast<unsigned>(wifi_config_.channel));
     wifi_config_.channel = WIFI_CHANNEL_AUTO;
@@ -145,7 +172,7 @@ esp_err_t WifiProvisioningService::setup_station(const WifiProvisioningDefaults 
   wifi_config.channel = wifi_config_.channel;
   wifi_config.max_retry = defaults_.max_retry;
   wifi_config.manage_csi_lifecycle = defaults_.manage_csi_lifecycle;
-  wifi_config.band_policy = defaults_.band_policy;
+  wifi_config.band_policy = wifi_config_.band_policy;
   auto on_connected = [this, connected_cb]() {
     if (connected_cb) {
       connected_cb();
@@ -178,9 +205,10 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
       return false;
     }
     StoredWifiConfig updated = wifi_config_;
+    const WifiBandPolicy previous_band_policy = wifi_config_.band_policy;
     bool has_ssid = false;
     for (const auto &pair : pairs) {
-      if (!assign_wifi_config_field(pair.first, pair.second, defaults_.band_policy, &updated, &error)) {
+      if (!assign_wifi_config_field(pair.first, pair.second, &updated, &error)) {
         set_message(error.c_str());
         return false;
       }
@@ -192,6 +220,11 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
       set_message("SSID must be 1..32 bytes");
       return false;
     }
+    if (!wifi_channel_matches_band_policy(updated.channel, updated.band_policy)) {
+      set_message((std::string("channel must be ") +
+                   wifi_channel_supported_description(updated.band_policy)).c_str());
+      return false;
+    }
     updated.has_saved_config = true;
     const esp_err_t err = save_stored_wifi_config(updated);
     if (err != ESP_OK) {
@@ -201,6 +234,10 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
     wifi_config_ = std::move(updated);
     refresh_cached_strings_();
     notify_changed_();
+    if (wifi_config_.band_policy != previous_band_policy) {
+      set_message("Wi-Fi config saved; restart required to apply the band policy");
+      return true;
+    }
     return apply_live(message);
   }
 
@@ -210,9 +247,23 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
       set_message(esp_err_to_name(err));
       return false;
     }
+    const WifiBandPolicy previous_band_policy = wifi_config_.band_policy;
     wifi_config_ = StoredWifiConfig{};
+    wifi_config_.band_policy = defaults_.band_policy;
     refresh_cached_strings_();
     notify_changed_();
+    if (wifi_config_.band_policy != previous_band_policy) {
+      const WifiBandPolicy restored_band_policy = wifi_config_.band_policy;
+      wifi_config_.band_policy = previous_band_policy;
+      const bool applied = apply_live(message);
+      wifi_config_.band_policy = restored_band_policy;
+      notify_changed_();
+      if (!applied) {
+        return false;
+      }
+      set_message("Wi-Fi config cleared; restart required to restore the default band policy");
+      return true;
+    }
     return apply_live(message);
   }
 
@@ -236,7 +287,7 @@ bool WifiProvisioningService::apply_live(std::string *message) {
   wifi_config.channel = wifi_config_.channel;
   wifi_config.max_retry = defaults_.max_retry;
   wifi_config.manage_csi_lifecycle = defaults_.manage_csi_lifecycle;
-  wifi_config.band_policy = defaults_.band_policy;
+  wifi_config.band_policy = wifi_config_.band_policy;
 
   const esp_err_t err = wifi_manager_->update_station_config(wifi_config);
   notify_changed_();

@@ -5,7 +5,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
 
-<h1>ESPectre <img src="docs/web/assets/brand/espectre-logo.svg" alt="ESPectre logo" width="40" align="absmiddle" /></h1>
+<h1>ESPectre <img src="docs/web/assets/images/brand/espectre-logo.svg" alt="ESPectre logo" width="40" align="absmiddle" /></h1>
 
 **ESPectre** is an open-source Wi-Fi sensing platform for ESP32 devices.
 
@@ -70,7 +70,7 @@ Supported hardware:
 - ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, and classic ESP32
 - a normal Wi-Fi network; 2.4 GHz on every board, plus 5 GHz on the ESP32-C5
 
-![ESP32 boards with internal and external antennas](docs/web/assets/guides/esp32-boards.jpg)
+![ESP32 boards with internal and external antennas](docs/web/assets/images/guides/esp32-boards.jpg)
 
 *ESP32-S3 DevKit boards with external antennas*
 
@@ -90,7 +90,7 @@ Supported hardware:
 For shared prerequisites and supported targets, use [SETUP.md](docs/SETUP.md).
 For the repository CLI surface, use [CLI.md](docs/CLI.md).
 
-![ESPectre Home Assistant dashboard](docs/web/assets/guides/home-assistant-dashboard.png)
+![ESPectre Home Assistant dashboard](docs/web/assets/images/guides/home-assistant-dashboard.png)
 
 *ESPHome dashboard with motion state, movement score, detector selection, threshold control, and recalibration*
 

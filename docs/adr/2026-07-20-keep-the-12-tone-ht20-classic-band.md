@@ -30,7 +30,7 @@ subcarrier expectations.
 
 The PHY layout comparison below is a useful visual summary of that choice:
 
-![Legacy, HT, VHT, and HE LTF placement compared on the same 20 MHz slice](../web/assets/guides/ht20-ltf-layout-preferred.png)
+![Legacy, HT, VHT, and HE LTF placement compared on the same 20 MHz slice](../web/assets/images/guides/ht20-ltf-layout-preferred.png)
 *HT20 is the current production sensing contract because it already matches the
 project's validated 64-subcarrier view and fixed 12-tone band directly. Wider
 or newer PHY layouts may still be preserved as provenance, but they introduce

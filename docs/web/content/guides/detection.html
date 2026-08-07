@@ -6,11 +6,11 @@
     <h2>The idea in one minute</h2>
     <p>Wi-Fi signals reach the ESP32 over many paths at once: direct, bounced off walls, furniture, and people. Each received packet carries Channel State Information (CSI), a per-subcarrier measurement of how the radio channel looked at that instant. When nobody moves, those measurements are remarkably stable. When a person moves, the reflected paths change and the measurements start to scatter. ESPectre measures that scatter, on the device, packet by packet.</p>
     <figure>
-      <img src="/assets/guides/csi-multipath-motion.webp" alt="Wi-Fi signals traveling directly and reflecting around a person before reaching an ESP32" loading="lazy">
+      <img src="/assets/images/guides/csi-multipath-motion.webp" alt="Wi-Fi signals traveling directly and reflecting around a person before reaching an ESP32" loading="lazy">
       <figcaption>The ESP32 receives the same Wi-Fi packet over several paths. Movement changes the reflected paths, making the measured channel vary over time.</figcaption>
     </figure>
     <figure>
-      <img src="/assets/guides/csi-amplitude-heatmap.webp" alt="Three CSI amplitude heatmaps comparing empty room, static presence, and motion" loading="lazy">
+      <img src="/assets/images/guides/csi-amplitude-heatmap.webp" alt="Three CSI amplitude heatmaps comparing empty room, static presence, and motion" loading="lazy">
       <figcaption>What that looks like in CSI: empty and static presence stay mostly grainy and stable, while walking produces broad vertical bands of change across subcarriers.</figcaption>
     </figure>
 

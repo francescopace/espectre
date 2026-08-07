@@ -370,7 +370,7 @@ Examples:
 
   # Publication-ready export for docs / website
   python tools/plot_heatmap.py --chip C6 --environment living_room --detrend \\
-      --publication --output docs/web/assets/guides/csi-amplitude-heatmap.webp --no-show
+      --publication --output docs/web/assets/images/guides/csi-amplitude-heatmap.webp --no-show
         """,
     )
     parser.add_argument(

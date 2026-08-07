@@ -25,8 +25,53 @@
     const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
     // analytics.js is optional: the app must work with it blocked or absent.
-    const track = (name, params) => window.trackEvent && window.trackEvent(name, params);
+    const track = (name, params) => window.trackEvent ? window.trackEvent(name, params) : false;
     const errorType = (error) => (error && error.name) || 'Error';
+    const activeToolName = () => NAV_GROUPS.tools.includes(route) ? route : 'device';
+    const LOCAL_DEVELOPMENT_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+    const dependencyPromises = new Map();
+    const browserDependencyPromises = new Map();
+
+    function loadScriptOnce(src, { module = false } = {}) {
+        if (dependencyPromises.has(src)) return dependencyPromises.get(src);
+        const promise = new Promise((resolve, reject) => {
+            const existing = document.querySelector(`script[src="${src}"]`);
+            if (existing && existing.dataset.loaded === 'true') {
+                resolve();
+                return;
+            }
+            const script = existing || document.createElement('script');
+            if (module) script.type = 'module';
+            script.src = src;
+            script.addEventListener('load', () => {
+                script.dataset.loaded = 'true';
+                resolve();
+            }, { once: true });
+            script.addEventListener('error', () => {
+                script.remove();
+                reject(new Error(`Unable to load ${src}`));
+            }, { once: true });
+            if (!existing) document.head.appendChild(script);
+        });
+        dependencyPromises.set(src, promise);
+        promise.catch(() => dependencyPromises.delete(src));
+        return promise;
+    }
+
+    function loadBrowserDependency(localSrc, developmentCdnSrc, options = {}) {
+        if (browserDependencyPromises.has(localSrc)) {
+            return browserDependencyPromises.get(localSrc);
+        }
+        const promise = loadScriptOnce(localSrc, options).catch((error) => {
+            if (!LOCAL_DEVELOPMENT_HOSTS.has(location.hostname)) throw error;
+            console.warn(`Local dependency unavailable; using development CDN fallback: ${developmentCdnSrc}`);
+            return loadScriptOnce(developmentCdnSrc, options);
+        });
+        browserDependencyPromises.set(localSrc, promise);
+        promise.catch(() => browserDependencyPromises.delete(localSrc));
+        return promise;
+    }
 
     /* ==================================================== shared connection */
 
@@ -49,6 +94,48 @@
     let uptimeTimer = null;
     let route = 'home';
     let lastTrackedProfile = null;
+    let wifiBandPolicyAvailable = false;
+    let currentWifiBandPolicy = '2g';
+
+    const sysinfoBoolean = (value) => value === true || value === 'true' || value === '1';
+
+    function applyConfigureCapabilities(snapshot) {
+        $$('[data-capability]').forEach((element) => {
+            element.hidden = !sysinfoBoolean(snapshot[element.dataset.capability]);
+        });
+        const runtimeCapabilities = [
+            'supports_runtime_threshold',
+            'supports_runtime_motion_hits',
+            'supports_runtime_detector',
+            'supports_ota'
+        ];
+        const hasRuntimeControl = runtimeCapabilities.some((key) => sysinfoBoolean(snapshot[key]));
+        const unavailable = $('.js-runtime-unavailable');
+        if (unavailable) unavailable.hidden = hasRuntimeControl;
+    }
+
+    function applyWifiBandOptions(snapshot) {
+        const select = document.getElementById('cfg-wifi-band');
+        if (!select) return;
+        const supports5ghz = sysinfoBoolean(snapshot.supports_wifi_5ghz);
+        const selected = snapshot.wifi_band_policy || '2g';
+        select.replaceChildren(new Option('2.4 GHz', '2g'));
+        if (supports5ghz) {
+            select.add(new Option('5 GHz', '5g'));
+            select.add(new Option('Automatic (2.4/5 GHz)', 'auto'));
+        }
+        currentWifiBandPolicy = [...select.options].some((option) => option.value === selected)
+            ? selected
+            : '2g';
+        select.value = currentWifiBandPolicy;
+        wifiBandPolicyAvailable = snapshot.wifi_band_policy !== undefined;
+        const help = $('.js-wifi-band-help');
+        if (help) {
+            help.textContent = supports5ghz
+                ? 'Band changes take effect after restarting the device.'
+                : 'This device supports 2.4 GHz only.';
+        }
+    }
 
     /*
      * Classic and ML both emit a probability on an absolute 0..1 scale, so
@@ -79,7 +166,7 @@
         });
         client.on('sysinfo', (snapshot) => applySysinfo(snapshot));
         client.on('disconnect', () => {
-            teardownConnection();
+            teardownConnection('unexpected');
             toast('Device disconnected.');
         });
         return client;
@@ -89,14 +176,18 @@
         if (conn.status !== 'disconnected') return;
         if (!window.ESPectreBleClient || !window.ESPectreBleClient.supported) {
             track('tool_connection', {
-                tool_name: route, transport: 'bluetooth', result: 'unsupported'
+                tool_name: activeToolName(), entry_point: route,
+                transport: 'bluetooth', result: 'unsupported'
             });
             toast('Web Bluetooth is not available in this browser — starting demo mode.');
             connectDemo();
             return;
         }
         setStatus('connecting');
-        track('tool_connection', { tool_name: route, transport: 'bluetooth', result: 'attempt' });
+        track('tool_connection', {
+            tool_name: activeToolName(), entry_point: route,
+            transport: 'bluetooth', result: 'attempt'
+        });
         try {
             bleClient = makeBleClient();
             await bleClient.connect();
@@ -106,7 +197,10 @@
             conn.connectedAt = Date.now();
             setStatus('connected');
             startUptime();
-            track('tool_connection', { tool_name: route, transport: 'bluetooth', result: 'success' });
+            track('tool_connection', {
+                tool_name: activeToolName(), entry_point: route,
+                transport: 'bluetooth', result: 'success'
+            });
             try {
                 await bleClient.requestSysinfo();
             } catch (error) {
@@ -118,7 +212,8 @@
             // The chooser being dismissed is a user choice, not a failure.
             const cancelled = error && error.name === 'NotFoundError';
             track('tool_connection', {
-                tool_name: route,
+                tool_name: activeToolName(),
+                entry_point: route,
                 transport: 'bluetooth',
                 result: cancelled ? 'cancelled' : 'failure',
                 error_type: errorType(error)
@@ -129,6 +224,8 @@
     }
 
     function applySysinfo(snapshot) {
+        applyConfigureCapabilities(snapshot);
+        applyWifiBandOptions(snapshot);
         const chip = (snapshot.chip || '').toUpperCase();
         const frontend = snapshot.frontend || '';
         const proto = snapshot.proto_version || snapshot.espectre_protocol_version || '';
@@ -143,7 +240,7 @@
         const set = (id, value) => {
             const el = document.getElementById(id);
             if (el && value !== undefined && value !== '') {
-                if (el.tagName === 'INPUT') el.value = value;
+                if (el.tagName === 'INPUT' || el.tagName === 'SELECT') el.value = value;
                 else el.textContent = value;
             }
         };
@@ -157,6 +254,8 @@
         set('cfg-ssid', snapshot.wifi_ssid);
         set('cfg-bssid', snapshot.wifi_bssid);
         set('cfg-channel', snapshot.wifi_channel);
+        set('cfg-threshold', snapshot.threshold);
+        set('cfg-detector', snapshot.detector);
         set('cfg-mqtt-host', snapshot.mqtt_host);
         set('cfg-mqtt-port', snapshot.mqtt_port);
         set('cfg-mqtt-user', snapshot.mqtt_username);
@@ -165,19 +264,46 @@
         set('cfg-device-name', snapshot.device_name);
         set('cfg-label', snapshot.device_label);
         set('cfg-ota-state', snapshot.ota_state || '—');
+        set('cfg-ota-current', snapshot.ota_current_version || '—');
+        if (snapshot.ota_update_available !== undefined) {
+            set('cfg-ota-available', sysinfoBoolean(snapshot.ota_update_available) ? 'yes' : 'no');
+        }
         set('cfg-ota-target', snapshot.ota_target_version || '—');
         set('cfg-ota-message', snapshot.ota_message || '—');
         set('diag-protocol', proto || '—');
+        set('diag-firmware', snapshot.firmware_version || snapshot.version || '—');
         set('diag-chip', chip || '—');
         set('diag-detector', snapshot.detector);
+        set('diag-threshold', snapshot.threshold);
+        set('diag-startup-threshold', snapshot.startup_threshold);
         set('diag-window', snapshot.window);
+        set('diag-subcarriers', snapshot.subcarriers);
+        set('diag-lowpass', snapshot.lowpass
+            ? snapshot.lowpass + (snapshot.lowpass_cutoff ? ' · ' + snapshot.lowpass_cutoff + ' Hz' : '')
+            : undefined);
+        set('diag-hampel', snapshot.hampel
+            ? snapshot.hampel + (snapshot.hampel_window ? ' · window ' + snapshot.hampel_window : '')
+                + (snapshot.hampel_threshold ? ' · ' + snapshot.hampel_threshold + ' MAD' : '')
+            : undefined);
         set('diag-traffic', snapshot.traffic_rate
-            ? snapshot.traffic_rate + ' pkt/s'
+            ? [snapshot.traffic_mode, snapshot.traffic_rate + ' pkt/s',
+                snapshot.traffic_adaptive === 'on' ? 'adaptive' : 'fixed'].filter(Boolean).join(' · ')
             : snapshot.traffic_mode);
         set('diag-publish', snapshot.publish_interval && 'every ' + snapshot.publish_interval + ' pkts');
-        set('diag-ota', snapshot.ota_state || '—');
+        set('diag-evaluation', snapshot.evaluation_interval && 'every ' + snapshot.evaluation_interval + ' pkts');
+        set('diag-ota', [
+            snapshot.ota_state,
+            sysinfoBoolean(snapshot.ota_busy) ? 'busy' : '',
+            sysinfoBoolean(snapshot.ota_update_available) ? 'update available' : '',
+            snapshot.ota_current_version && 'current ' + snapshot.ota_current_version,
+            snapshot.ota_target_version && 'target ' + snapshot.ota_target_version
+        ].filter(Boolean).join(' · ') || '—');
         const boolLabel = (v) => (v === 'true' || v === '1' ? 'connected' : 'disconnected');
         if (snapshot.wifi_connected !== undefined) set('diag-wifi', boolLabel(snapshot.wifi_connected));
+        set('diag-wifi-band', snapshot.wifi_band_policy);
+        if (snapshot.wifi_password_set !== undefined) {
+            set('diag-wifi-password', sysinfoBoolean(snapshot.wifi_password_set) ? 'set' : 'not set / open');
+        }
         if (snapshot.mqtt_connected !== undefined) set('diag-mqtt', boolLabel(snapshot.mqtt_connected));
 
         // Real hardware only: demo values would pollute the adoption report.
@@ -186,9 +312,13 @@
             if (profile !== lastTrackedProfile) {
                 lastTrackedProfile = profile;
                 track('device_profile', {
-                    tool_name: route,
+                    tool_name: activeToolName(),
+                    entry_point: route,
                     frontend: snapshot.frontend.toLowerCase(),
-                    chip: snapshot.chip.toLowerCase()
+                    chip: snapshot.chip.toLowerCase(),
+                    detector: String(snapshot.detector || 'unknown').toLowerCase(),
+                    protocol_version: String(proto || 'unknown'),
+                    firmware_version: String(snapshot.firmware_version || snapshot.version || 'unknown')
                 });
             }
         }
@@ -199,6 +329,7 @@
 
     function connectDemo() {
         if (conn.status !== 'disconnected') return;
+        track('tool_demo_start', { tool_name: activeToolName(), entry_point: route });
         setStatus('connecting');
         setTimeout(() => {
             conn.mode = 'demo';
@@ -211,14 +342,37 @@
             setStatus('connected');
             startUptime();
             applySysinfo({
-                chip: 'esp32-s3',
+                chip: 'esp32-c5',
                 frontend: 'native',
-                proto_version: '1.4',
+                proto_version: '1.0',
+                firmware_version: '3.0.0-dev',
+                supports_wifi_provisioning: 'true',
+                supports_mqtt_config: 'true',
+                supports_device_config: 'true',
+                supports_runtime_threshold: 'true',
+                supports_runtime_motion_hits: 'true',
+                supports_runtime_detector: 'true',
+                supports_live_telemetry: 'true',
+                supports_extended_diagnostics: 'true',
+                supports_ota: 'true',
+                supports_wifi_5ghz: 'true',
                 detector: 'classic',
-                window: '64',
+                threshold: '0.500000',
+                startup_threshold: '0.482000',
+                window: '100',
+                subcarriers: 'fixed',
+                lowpass: 'off',
+                hampel: 'on',
+                hampel_window: '5',
+                hampel_threshold: '3.0',
+                traffic_mode: 'ping',
                 traffic_rate: '98',
-                publish_interval: '10',
+                traffic_adaptive: 'on',
+                publish_interval: '100',
+                evaluation_interval: '25',
                 wifi_connected: 'true',
+                wifi_band_policy: '2g',
+                wifi_password_set: 'true',
                 mqtt_connected: 'true',
                 wifi_ssid: 'HomeNet-5G',
                 mqtt_host: '192.168.1.20',
@@ -230,6 +384,9 @@
                 device_label: 'Living Room',
                 motion_hits: '4/3',
                 ota_state: 'idle',
+                ota_busy: 'false',
+                ota_update_available: 'false',
+                ota_current_version: '3.0.0-dev',
                 ota_target_version: '',
                 ota_message: ''
             });
@@ -283,10 +440,23 @@
             bleClient = null;
             client.disconnect().catch((error) => console.warn(error));
         }
-        teardownConnection();
+        teardownConnection('user');
     }
 
-    function teardownConnection() {
+    function teardownConnection(reason = 'route_change') {
+        const previousMode = conn.mode;
+        const durationSeconds = conn.connectedAt
+            ? Math.max(0, Math.round((Date.now() - conn.connectedAt) / 1000))
+            : 0;
+        if (previousMode) {
+            track('tool_disconnect', {
+                tool_name: activeToolName(),
+                entry_point: route,
+                input_mode: previousMode === 'demo' ? 'demo' : 'bluetooth',
+                reason,
+                duration_seconds: durationSeconds
+            });
+        }
         clearInterval(demoTimer);
         clearInterval(uptimeTimer);
         demoTimer = null;
@@ -300,6 +470,7 @@
         conn.motion = false;
         conn.deviceSub = '—';
         conn.detector = '—';
+        conn.connectedAt = 0;
         gameReset();
         thereminStop();
         setStatus('disconnected');
@@ -325,6 +496,7 @@
         $('.js-conn-connecting').hidden = conn.status !== 'connecting';
         $('.js-conn-connected').hidden = !connected;
         $('.js-dropdown').hidden = !(connected && dropdownOpen);
+        $('.js-dropdown-toggle').setAttribute('aria-expanded', String(connected && dropdownOpen));
         $('.js-demo-tag').hidden = conn.mode !== 'demo';
 
         $('.js-demo-connected').hidden = !connected;
@@ -372,12 +544,23 @@
                 || (NAV_GROUPS[target] || []).includes(route);
             link.classList.toggle('active', active);
         });
+        document.title = window.getRouteTitle
+            ? window.getRouteTitle(route)
+            : 'ESPectre — Wi-Fi motion sensing';
         window.scrollTo(0, 0);
         if (route !== 'theremin') thereminStop();
         if (route === 'monitor') monitorResizeChart();
         if ($(`[data-page="${route}"] .js-static-content`)) loadStaticContent(route);
         if (route === 'home') updateReleaseBadge();
-        if (route === 'flash') flashRefresh();
+        if (route === 'flash') {
+            loadBrowserDependency(
+                '/vendor/esp-web-tools-10.4.0/install-button.js',
+                'https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module',
+                { module: true }
+            )
+                .catch((error) => flashStatus(error.message, 'is-error'));
+            flashRefresh();
+        }
         // The router owns navigation, so it reports it.
         if (window.trackRouteView) window.trackRouteView(route);
     }
@@ -480,20 +663,7 @@
 
     let activeScrollyScene = -1;
     let scrollyFrame = null;
-    let scrollyWheelAwaitingImpulse = false;
-    let scrollyWheelDirection = 0;
-    let scrollyWheelLowMagnitude = Infinity;
-    let scrollyWheelLastAt = 0;
-    let scrollyTouchStartY = null;
-    let scrollyTouchCaptured = false;
-    let scrollyTouchAdvanced = false;
     let heroFrameTimer = null;
-    const SCROLLY_WHEEL_MIN_DELTA = 4;
-    const SCROLLY_WHEEL_MIN_IMPULSE = 12;
-    const SCROLLY_WHEEL_ACCELERATION = 3;
-    const SCROLLY_WHEEL_RESTART_GAP = 180;
-    const SCROLLY_WHEEL_RESTART_DELTA = 40;
-    const SCROLLY_TOUCH_THRESHOLD = 28;
     const HERO_FRAME_HOLD = 2000;
 
     function scrollySceneFromPosition(section, sceneCount) {
@@ -501,14 +671,6 @@
         const travel = Math.max(1, rect.height - window.innerHeight);
         const progress = Math.min(1, Math.max(0, -rect.top / travel));
         return Math.min(sceneCount - 1, Math.floor(progress * sceneCount));
-    }
-
-    function scrollToScrollyScene(section, scene, sceneCount) {
-        const rect = section.getBoundingClientRect();
-        const sectionTop = window.scrollY + rect.top;
-        const travel = Math.max(1, rect.height - window.innerHeight);
-        const sceneStep = travel / sceneCount;
-        window.scrollTo(0, sectionTop + sceneStep * scene + (scene > 0 ? 1 : 0));
     }
 
     function stopHeroFrameSequence() {
@@ -534,6 +696,18 @@
         if (scene === activeScrollyScene) return;
         activeScrollyScene = scene;
 
+        const scenes = $$('.js-scrolly-scene');
+        const useMobileAsset = window.matchMedia('(max-width: 720px)').matches;
+        [scene, scene + 1].forEach((index) => {
+            const image = scenes[index] && scenes[index].querySelector('img[data-src]');
+            if (!image) return;
+            image.src = useMobileAsset && image.dataset.srcMobile
+                ? image.dataset.srcMobile
+                : image.dataset.src;
+            image.removeAttribute('data-src');
+            image.removeAttribute('data-src-mobile');
+        });
+
         $$('.js-scrolly-scene, .js-scrolly-caption, .js-scrolly-marker').forEach((el) => {
             el.classList.toggle('is-active', Number(el.dataset.scene) === scene);
         });
@@ -548,16 +722,8 @@
         const section = $('.js-scrolly');
         if (!section || section.offsetParent === null) return;
 
-        const rect = section.getBoundingClientRect();
         const sceneCount = $$('.js-scrolly-scene').length;
-        let scene = scrollySceneFromPosition(section, sceneCount);
-        const stageEngaged = rect.top <= 1 && rect.bottom >= window.innerHeight - 1;
-
-        if (stageEngaged && activeScrollyScene >= 0 && Math.abs(scene - activeScrollyScene) > 1) {
-            scene = activeScrollyScene + Math.sign(scene - activeScrollyScene);
-            scrollToScrollyScene(section, scene, sceneCount);
-        }
-        setScrollyScene(scene);
+        setScrollyScene(scrollySceneFromPosition(section, sceneCount));
     }
 
     function queueScrollyRender() {
@@ -565,166 +731,18 @@
         scrollyFrame = requestAnimationFrame(renderScrolly);
     }
 
-    function scrollyStageEngaged(section) {
-        const rect = section.getBoundingClientRect();
-        return rect.top <= 1 && rect.bottom >= window.innerHeight - 1;
-    }
-
-    function stepScrolly(direction) {
-        const section = $('.js-scrolly');
-        const sceneCount = $$('.js-scrolly-scene').length;
-        const current = activeScrollyScene >= 0
-            ? activeScrollyScene
-            : scrollySceneFromPosition(section, sceneCount);
-        const next = Math.max(0, Math.min(sceneCount - 1, current + direction));
-        if (next === current) return false;
-
-        setScrollyScene(next);
-        scrollToScrollyScene(section, next, sceneCount);
-        return true;
-    }
-
-    function scrollyWheelImpulseReady(direction, magnitude) {
-        const now = Date.now();
-        const initialImpulse = !scrollyWheelAwaitingImpulse
-            && magnitude >= SCROLLY_WHEEL_MIN_DELTA;
-        const reversedImpulse = scrollyWheelAwaitingImpulse
-            && direction !== scrollyWheelDirection
-            && magnitude >= SCROLLY_WHEEL_MIN_IMPULSE;
-        const acceleratedImpulse = scrollyWheelAwaitingImpulse
-            && direction === scrollyWheelDirection
-            && magnitude >= SCROLLY_WHEEL_MIN_IMPULSE
-            && magnitude >= scrollyWheelLowMagnitude * SCROLLY_WHEEL_ACCELERATION;
-        const restartedWheel = scrollyWheelAwaitingImpulse
-            && now - scrollyWheelLastAt >= SCROLLY_WHEEL_RESTART_GAP
-            && magnitude >= SCROLLY_WHEEL_RESTART_DELTA;
-        const ready = initialImpulse || reversedImpulse || acceleratedImpulse || restartedWheel;
-
-        scrollyWheelLastAt = now;
-        if (ready) {
-            scrollyWheelAwaitingImpulse = true;
-            scrollyWheelDirection = direction;
-            scrollyWheelLowMagnitude = magnitude;
-        } else {
-            scrollyWheelLowMagnitude = Math.min(scrollyWheelLowMagnitude, magnitude);
-        }
-        return ready;
-    }
-
-    function scrollyWheel(event) {
-        const section = $('.js-scrolly');
-        if (!section || section.offsetParent === null || !scrollyStageEngaged(section)) return;
-
-        const magnitude = Math.abs(event.deltaY);
-        if (magnitude === 0) return;
-        const direction = Math.sign(event.deltaY);
-        if (!scrollyWheelImpulseReady(direction, magnitude)) {
-            event.preventDefault();
-            return;
-        }
-
-        const sceneCount = $$('.js-scrolly-scene').length;
-        const atStart = activeScrollyScene === 0 && direction < 0;
-        const atEnd = activeScrollyScene === sceneCount - 1 && direction > 0;
-        if (atStart) return;
-        if (atEnd) {
-            const rect = section.getBoundingClientRect();
-            const sectionTop = window.scrollY + rect.top;
-            const travel = Math.max(1, rect.height - window.innerHeight);
-            event.preventDefault();
-            window.scrollTo(0, sectionTop + travel + Math.max(2, magnitude));
-            return;
-        }
-
-        event.preventDefault();
-        stepScrolly(direction);
-    }
-
-    function scrollyKeydown(event) {
-        const interactive = event.target.closest
-            && event.target.closest('a, button, input, select, textarea, [contenteditable]');
-        if (event.repeat || interactive) return;
-
-        let direction = 0;
-        if (event.key === ' ') direction = event.shiftKey ? -1 : 1;
-        else if (['ArrowDown', 'PageDown'].includes(event.key)) direction = 1;
-        else if (['ArrowUp', 'PageUp'].includes(event.key)) direction = -1;
-        if (!direction) return;
-
-        const section = $('.js-scrolly');
-        if (!section || section.offsetParent === null || !scrollyStageEngaged(section)) return;
-
-        const sceneCount = $$('.js-scrolly-scene').length;
-        const atStart = activeScrollyScene === 0 && direction < 0;
-        const atEnd = activeScrollyScene === sceneCount - 1 && direction > 0;
-        if (atStart || atEnd) return;
-
-        event.preventDefault();
-        stepScrolly(direction);
-    }
-
-    function scrollyTouchStart(event) {
-        const section = $('.js-scrolly');
-        const interactive = event.target.closest
-            && event.target.closest('a, button, input, select, textarea, [contenteditable]');
-        if (
-            interactive
-            || event.touches.length !== 1
-            || !section
-            || section.offsetParent === null
-            || !scrollyStageEngaged(section)
-        ) {
-            scrollyTouchCaptured = false;
-            scrollyTouchAdvanced = false;
-            return;
-        }
-        scrollyTouchStartY = event.touches[0].clientY;
-        scrollyTouchCaptured = true;
-        scrollyTouchAdvanced = false;
-    }
-
-    function scrollyTouchMove(event) {
-        if (!scrollyTouchCaptured || scrollyTouchStartY === null || event.touches.length !== 1) return;
-        const distance = scrollyTouchStartY - event.touches[0].clientY;
-        if (Math.abs(distance) < SCROLLY_TOUCH_THRESHOLD) {
-            event.preventDefault();
-            return;
-        }
-
-        const direction = Math.sign(distance);
-        const sceneCount = $$('.js-scrolly-scene').length;
-        const atStart = activeScrollyScene === 0 && direction < 0;
-        const atEnd = activeScrollyScene === sceneCount - 1 && direction > 0;
-        if (atStart || atEnd) {
-            scrollyTouchCaptured = false;
-            return;
-        }
-
-        event.preventDefault();
-        if (!scrollyTouchAdvanced && stepScrolly(direction)) scrollyTouchAdvanced = true;
-    }
-
-    function scrollyTouchEnd() {
-        scrollyTouchCaptured = false;
-        scrollyTouchAdvanced = false;
-        scrollyTouchStartY = null;
-    }
-
     function scrollyInit() {
         window.addEventListener('scroll', queueScrollyRender, { passive: true });
         window.addEventListener('resize', queueScrollyRender);
-        window.addEventListener('wheel', scrollyWheel, { passive: false });
-        window.addEventListener('keydown', scrollyKeydown);
-        window.addEventListener('touchstart', scrollyTouchStart, { passive: true });
-        window.addEventListener('touchmove', scrollyTouchMove, { passive: false });
-        window.addEventListener('touchend', scrollyTouchEnd, { passive: true });
-        window.addEventListener('touchcancel', scrollyTouchEnd, { passive: true });
         renderScrolly();
     }
 
     /* =============================================================== flash */
 
-    const flash = { manifests: {}, installUrl: null, badgeChecked: false };
+    const flash = {
+        manifests: {}, installUrl: null, badgeChecked: false,
+        installerObserver: null, watchedDialogs: new WeakSet(), catalogReports: new Set()
+    };
 
     /*
      * Presentation order for the Flash selectors. Anything not listed keeps
@@ -750,7 +768,7 @@
     async function flashLoadManifest(channel) {
         if (flash.manifests[channel]) return flash.manifests[channel];
         const response = await fetch(
-            '/flash/firmware/' + channel + '/firmware-manifest-' + channel + '.json',
+            '/artifacts/firmware/' + channel + '/firmware-manifest-' + channel + '.json',
             { cache: 'no-store' }
         );
         if (!response.ok) {
@@ -782,6 +800,18 @@
 
             const frontends = Object.entries(manifest.frontends || {})
                 .sort(([a], [b]) => byPreferredOrder(FRONTEND_ORDER, a, b));
+            const successKey = channelSel.value + ':success';
+            if (!flash.catalogReports.has(successKey)) {
+                const reported = track('firmware_catalog', {
+                    channel: channelSel.value,
+                    result: 'success',
+                    frontend_count: frontends.length,
+                    artifact_count: frontends.reduce(
+                        (total, [, frontend]) => total + (frontend.artifacts || []).length, 0
+                    )
+                });
+                if (reported) flash.catalogReports.add(successKey);
+            }
             const previousFrontend = frontendSel.value;
             frontendSel.innerHTML = '';
             for (const [key, value] of frontends) {
@@ -832,10 +862,16 @@
             );
             installButton.setAttribute('manifest', flash.installUrl);
 
-            summary.innerHTML =
-                '<strong>' + artifact.chip_label + '</strong><br>' +
-                manifest.frontends[frontendSel.value].label + ' · ' + manifest.release_tag +
-                ' <span class="mono-sub">(' + manifest.channel + ')</span>';
+            summary.replaceChildren();
+            const model = document.createElement('strong');
+            model.textContent = artifact.chip_label;
+            const detail = document.createTextNode(
+                manifest.frontends[frontendSel.value].label + ' · ' + manifest.release_tag + ' '
+            );
+            const channel = document.createElement('span');
+            channel.className = 'mono-sub';
+            channel.textContent = '(' + manifest.channel + ')';
+            summary.append(model, document.createElement('br'), detail, channel);
             download.href = flashResolveUrl(artifact.url);
             download.textContent = 'Download binary';
 
@@ -847,9 +883,15 @@
         } catch (error) {
             summary.textContent = 'Firmware metadata is currently unavailable.';
             flashStatus(error.message, 'is-error');
-            track('firmware_catalog', {
-                channel: channelSel.value, result: 'failure', error_type: errorType(error)
-            });
+            const failureKey = channelSel.value + ':failure';
+            if (!flash.catalogReports.has(failureKey)) {
+                const reported = track('firmware_catalog', {
+                    channel: channelSel.value,
+                    result: 'failure',
+                    error_type: errorType(error)
+                });
+                if (reported) flash.catalogReports.add(failureKey);
+            }
         }
     }
 
@@ -899,8 +941,13 @@
             track('matter_qr_read', { result: 'unsupported' });
             return;
         }
-        if (typeof window.QRCode !== 'function') {
-            status.textContent = 'The local QR renderer could not be loaded.';
+        try {
+            await loadBrowserDependency(
+                '/vendor/qrcodejs-1.0.0/qrcode.min.js',
+                'https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js'
+            );
+        } catch (error) {
+            status.textContent = 'The QR renderer could not be loaded.';
             track('matter_qr_read', { result: 'failure', error_type: 'QrRendererMissing' });
             return;
         }
@@ -961,6 +1008,63 @@
         }
     }
 
+    function flashParams() {
+        return {
+            frontend: document.getElementById('flash-frontend').value,
+            channel: document.getElementById('flash-channel').value,
+            chip: document.getElementById('flash-chip').value
+        };
+    }
+
+    function watchFirmwareInstallDialog(dialog) {
+        if (flash.watchedDialogs.has(dialog)) return;
+        flash.watchedDialogs.add(dialog);
+        let started = false;
+        let reported = false;
+        let shadowObserver = null;
+
+        const report = (result) => {
+            if (reported) return;
+            reported = true;
+            track('firmware_install_result', { ...flashParams(), result });
+            if (shadowObserver) shadowObserver.disconnect();
+        };
+        const inspect = () => {
+            const text = dialog.shadowRoot ? dialog.shadowRoot.textContent : '';
+            if (/Installing|Preparing installation/i.test(text)) started = true;
+            if (/Installation complete!/i.test(text)) report('success');
+            else if (/Installation failed/i.test(text)) report('failure');
+        };
+        const attach = () => {
+            if (!dialog.shadowRoot || shadowObserver) return false;
+            shadowObserver = new MutationObserver(inspect);
+            shadowObserver.observe(dialog.shadowRoot, {
+                childList: true, subtree: true, characterData: true
+            });
+            inspect();
+            return true;
+        };
+        if (!attach()) [0, 50, 200].forEach((delay) => setTimeout(attach, delay));
+
+        const removalObserver = new MutationObserver(() => {
+            if (dialog.isConnected) return;
+            removalObserver.disconnect();
+            if (started && !reported) report('cancelled');
+            if (shadowObserver) shadowObserver.disconnect();
+        });
+        removalObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    function observeFirmwareInstaller() {
+        if (flash.installerObserver) return;
+        const inspect = () => {
+            document.querySelectorAll('ewt-install-dialog').forEach(watchFirmwareInstallDialog);
+        };
+        flash.installerObserver = new MutationObserver(inspect);
+        flash.installerObserver.observe(document.body, { childList: true, subtree: true });
+        inspect();
+    }
+
     function flashInit() {
         const selectionType = {
             'flash-frontend': 'frontend', 'flash-channel': 'channel', 'flash-chip': 'chip'
@@ -976,11 +1080,6 @@
                 flashRefresh();
             });
         });
-        const flashParams = () => ({
-            frontend: document.getElementById('flash-frontend').value,
-            channel: document.getElementById('flash-channel').value,
-            chip: document.getElementById('flash-chip').value
-        });
         $('.js-flash-install').addEventListener('click', () => {
             track('firmware_install_start', flashParams());
         });
@@ -988,6 +1087,7 @@
             track('firmware_download', flashParams());
         });
         $('.js-matter-read').addEventListener('click', matterReadQr);
+        observeFirmwareInstaller();
     }
 
     /* ============================================================= monitor */
@@ -1094,11 +1194,18 @@
         monitor.demoTimer = null;
     }
 
-    function monitorConnect() {
-        if (typeof window.mqtt === 'undefined') {
-            monitorStatus('MQTT library not loaded yet — try again in a moment.');
+    async function monitorConnect() {
+        try {
+            await loadBrowserDependency(
+                '/vendor/mqtt-5.3.0/mqtt.min.js',
+                'https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js'
+            );
+        } catch (error) {
+            monitorStatus('The local MQTT client could not be loaded.');
             track('tool_connection', {
-                tool_name: 'monitor', transport: 'mqtt_websocket', result: 'unsupported'
+                tool_name: 'monitor', entry_point: route,
+                transport: 'mqtt_websocket', result: 'dependency_failure',
+                error_type: errorType(error)
             });
             return;
         }
@@ -1110,7 +1217,8 @@
         if (!host || !base) {
             monitorStatus('Set the broker host and a device base topic first.');
             track('tool_connection', {
-                tool_name: 'monitor', transport: 'mqtt_websocket', result: 'validation_failure'
+                tool_name: 'monitor', entry_point: route,
+                transport: 'mqtt_websocket', result: 'validation_failure'
             });
             return;
         }
@@ -1121,7 +1229,8 @@
         monitorStatus('Connecting to ' + url + ' …');
         // The URL is not tracked: it would carry the user's broker address.
         track('tool_connection', {
-            tool_name: 'monitor', transport: 'mqtt_websocket', result: 'attempt'
+            tool_name: 'monitor', entry_point: route,
+            transport: 'mqtt_websocket', result: 'attempt'
         });
         const client = window.mqtt.connect(url, {
             username: document.getElementById('mon-user').value || undefined,
@@ -1138,6 +1247,7 @@
                     : 'Live — subscribed to telemetry and on-demand stats.');
                 track('tool_connection', {
                     tool_name: 'monitor',
+                    entry_point: route,
                     transport: 'mqtt_websocket',
                     result: error ? 'subscription_failure' : 'success',
                     ...(error ? { error_type: errorType(error) } : {})
@@ -1166,6 +1276,7 @@
             monitorStatus('Connection failed: ' + error.message);
             track('tool_connection', {
                 tool_name: 'monitor',
+                entry_point: route,
                 transport: 'mqtt_websocket',
                 result: 'failure',
                 error_type: errorType(error)
@@ -1180,6 +1291,7 @@
     function monitorDemo() {
         monitorStopAll();
         monitor.points = [];
+        track('tool_demo_start', { tool_name: 'monitor', entry_point: route });
         monitorStatus('Demo feed — simulated node, no broker involved.');
         monitor.demoTimer = setInterval(() => {
             monitor.demoT += 0.5;
@@ -1358,20 +1470,30 @@
     async function cfgSaveWifi() {
         const ssid = cfgValue('cfg-ssid').trim();
         const password = cfgValue('cfg-wifi-pass');
-        // Site policy: the form requires a password even though the protocol
-        // allows open networks; format validation belongs to the library.
-        if (!ssid || !password) {
-            cfgValidationFailed('set_wifi', 'Wi-Fi needs both SSID and password.');
+        if (!ssid) {
+            cfgValidationFailed('set_wifi', 'Wi-Fi needs an SSID.');
             return;
         }
-        const ok = await cfgApply('set_wifi', 'Wi-Fi credentials saved; station reconnecting.',
+        const bandPolicy = cfgValue('cfg-wifi-band');
+        const bandChanged = wifiBandPolicyAvailable && bandPolicy !== currentWifiBandPolicy;
+        const ok = await cfgApply(
+            'set_wifi',
+            bandChanged ? 'Wi-Fi saved; restart required to apply the band.' : 'Wi-Fi saved; station reconnecting.',
             () => window.ESPectreBleClient.buildWifiConfigCommand({
                 ssid,
                 password,
                 bssid: cfgValue('cfg-bssid').trim(),
-                channel: Number(cfgValue('cfg-channel') || 0)
+                channel: Number(cfgValue('cfg-channel') || 0),
+                ...(wifiBandPolicyAvailable ? { bandPolicy } : {})
             }));
-        if (ok) document.getElementById('cfg-wifi-pass').value = '';
+        if (ok) {
+            document.getElementById('cfg-wifi-pass').value = '';
+            if (bandChanged) {
+                currentWifiBandPolicy = bandPolicy;
+                $('.js-wifi-restart-note').hidden = false;
+                toast('Wi-Fi saved. Restart the device to apply the new band.');
+            }
+        }
     }
 
     async function cfgClearWifi() {
@@ -1387,10 +1509,8 @@
         const host = cfgValue('cfg-mqtt-host').trim();
         const username = cfgValue('cfg-mqtt-user').trim();
         const password = cfgValue('cfg-mqtt-pass');
-        // Site policy: credentials are required here; the library accepts
-        // anonymous brokers.
-        if (!host || !username || !password || !cfgValue('cfg-mqtt-port')) {
-            cfgValidationFailed('set_mqtt', 'MQTT needs host, port, username, and password.');
+        if (!host || !cfgValue('cfg-mqtt-port')) {
+            cfgValidationFailed('set_mqtt', 'MQTT needs a host and port.');
             return;
         }
         const ok = await cfgApply('set_mqtt', 'MQTT settings saved.',
@@ -1432,6 +1552,18 @@
         if (ok) cfgRefreshSysinfo();
     }
 
+    async function cfgSaveThreshold() {
+        const ok = await cfgApply('set_threshold', 'Runtime threshold updated.',
+            () => window.ESPectreBleClient.buildThresholdCommand(Number(cfgValue('cfg-threshold'))));
+        if (ok) cfgRefreshSysinfo();
+    }
+
+    async function cfgSaveDetector() {
+        const ok = await cfgApply('set_detector', 'Runtime detector updated.',
+            () => window.ESPectreBleClient.buildDetectorCommand(cfgValue('cfg-detector')));
+        if (ok) cfgRefreshSysinfo();
+    }
+
     async function cfgOtaStatus() {
         const ok = await cfgApply('ota_status', 'OTA status requested.',
             () => window.ESPectreBleClient.buildOtaStatusCommand());
@@ -1457,6 +1589,8 @@
         $('.js-mqtt-clear').addEventListener('click', cfgClearMqtt);
         $('.js-dev-save').addEventListener('click', cfgSaveDevice);
         $('.js-dev-clear').addEventListener('click', cfgClearDevice);
+        $('.js-threshold-save').addEventListener('click', cfgSaveThreshold);
+        $('.js-detector-save').addEventListener('click', cfgSaveDetector);
         $('.js-motion-save').addEventListener('click', cfgSaveMotionHits);
         $('.js-ota-status').addEventListener('click', cfgOtaStatus);
         $('.js-ota-check').addEventListener('click', cfgOtaCheck);
@@ -1634,5 +1768,8 @@
         setRoute((location.hash || '#home').slice(1), { force: true });
     }
 
+    document.addEventListener('espectre:analytics-enabled', () => {
+        if (route === 'flash') flashRefresh();
+    });
     document.addEventListener('DOMContentLoaded', init);
 })();

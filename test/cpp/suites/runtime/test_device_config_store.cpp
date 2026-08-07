@@ -88,6 +88,7 @@ void test_wifi_config_store_round_trips_and_clears_saved_values(void) {
   stored.password = "top-secret";
   stored.bssid = "aa:bb:cc:dd:ee:ff";
   stored.channel = 11;
+  stored.band_policy = WifiBandPolicy::BAND_2G;
 
   TEST_ASSERT_EQUAL(ESP_OK, save_stored_wifi_config(stored));
 
@@ -98,12 +99,15 @@ void test_wifi_config_store_round_trips_and_clears_saved_values(void) {
   TEST_ASSERT_EQUAL_STRING("top-secret", loaded.password.c_str());
   TEST_ASSERT_EQUAL_STRING("aa:bb:cc:dd:ee:ff", loaded.bssid.c_str());
   TEST_ASSERT_EQUAL_UINT8(11, loaded.channel);
+  TEST_ASSERT_TRUE(loaded.has_saved_band_policy);
+  TEST_ASSERT_TRUE(loaded.band_policy == WifiBandPolicy::BAND_2G);
 
   TEST_ASSERT_EQUAL(ESP_OK, clear_stored_wifi_config());
   TEST_ASSERT_EQUAL(ESP_OK, load_stored_wifi_config(&loaded));
   TEST_ASSERT_FALSE(loaded.has_saved_config);
   TEST_ASSERT_TRUE(loaded.ssid.empty());
   TEST_ASSERT_EQUAL_UINT8(0, loaded.channel);
+  TEST_ASSERT_FALSE(loaded.has_saved_band_policy);
 }
 
 void test_wifi_config_store_marks_saved_when_only_ssid_exists(void) {
@@ -117,6 +121,15 @@ void test_wifi_config_store_marks_saved_when_only_ssid_exists(void) {
   TEST_ASSERT_TRUE(loaded.password.empty());
   TEST_ASSERT_TRUE(loaded.bssid.empty());
   TEST_ASSERT_EQUAL_UINT8(0, loaded.channel);
+  TEST_ASSERT_FALSE(loaded.has_saved_band_policy);
+}
+
+void test_wifi_config_store_rejects_an_invalid_saved_band_policy(void) {
+  nvs_mock_put_str("wifi_ssid", "LabSSID");
+  nvs_mock_put_u8("wifi_band", 99U);
+
+  StoredWifiConfig loaded;
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_stored_wifi_config(&loaded));
 }
 
 void test_device_config_store_handles_missing_namespace_and_invalid_args(void) {
@@ -265,6 +278,7 @@ int process(void) {
   RUN_TEST(test_wifi_config_store_handles_missing_namespace_and_invalid_args);
   RUN_TEST(test_wifi_config_store_round_trips_and_clears_saved_values);
   RUN_TEST(test_wifi_config_store_marks_saved_when_only_ssid_exists);
+  RUN_TEST(test_wifi_config_store_rejects_an_invalid_saved_band_policy);
   RUN_TEST(test_device_config_store_handles_missing_namespace_and_invalid_args);
   RUN_TEST(test_device_config_store_round_trips_current_fields);
   RUN_TEST(test_device_config_store_applies_defaults_for_unsaved_fields);

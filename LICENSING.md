@@ -20,7 +20,7 @@ The web integration client is licensed under the
 application, including proprietary ones, can embed it to talk to ESPectre
 devices over the documented BLE protocol:
 
-- `docs/web/espectre-ble.js` — the client
+- `docs/web/assets/js/espectre-ble.js` — the client
 - `test/web/test_espectre_ble.mjs` — its unit tests
 
 Each file carries its own license header. Apache-2.0 is GPLv3-compatible, so

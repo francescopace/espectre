@@ -8,7 +8,7 @@
       <li>An ESP32, ESP32-C3, ESP32-C5, ESP32-C6, or ESP32-S3 board.</li>
       <li>A USB cable that carries data, not only power. If in doubt, try another cable first: it is the single most common problem.</li>
       <li>Chrome or Edge on desktop. Browser flashing uses Web Serial, which Firefox and Safari do not support.</li>
-      <li>The name and password of your 2.4&nbsp;GHz Wi-Fi network. ESP32 boards cannot join 5&nbsp;GHz-only networks.</li>
+      <li>The name of a Wi-Fi network supported by the board, plus its password unless the network is open. Native firmware defaults to 2.4&nbsp;GHz; Configure offers 5&nbsp;GHz and automatic band selection only when an ESP32-C5 reports that capability.</li>
     </ul>
 
     <h2>Step 1 — Choose your firmware</h2>
@@ -26,7 +26,7 @@
 
     <h2>Step 2 — Flash from the browser</h2>
     <figure>
-      <img src="/assets/guides/flash-connect-usb.webp" alt="A USB data cable connecting an ESP32 development board to a laptop" loading="lazy">
+      <img src="/assets/images/guides/flash-connect-usb.webp" alt="A USB data cable connecting an ESP32 development board to a laptop" loading="lazy">
       <figcaption>Connect the board directly to the computer with a USB data cable before opening the browser flasher.</figcaption>
     </figure>
     <ol class="steps-list">
@@ -43,20 +43,15 @@
     <h3 class="subheading">Native</h3>
     <ol class="steps-list">
       <li><h3>Open the Configure page</h3><p>Go to <a href="/#configure">Configure</a> in Chrome or Edge and click <em>Connect</em>. Pick the <code>ESPectre BLE</code> device from the Bluetooth list. The board must be powered but does not need Wi-Fi yet.</p></li>
-      <li><h3>Save Wi-Fi and MQTT</h3><p>Enter your network name and password. If you have an MQTT broker, add its host and port to get telemetry; if not, you can skip it and the sensor still works over Bluetooth.</p></li>
+      <li><h3>Save Wi-Fi and MQTT</h3><p>Enter your network name and its password, or leave the password empty for an open network. On a dual-band ESP32-C5, choose 2.4&nbsp;GHz, 5&nbsp;GHz, or automatic selection; restart the device after changing the band. If you have an MQTT broker, add its host and port, with optional credentials, to get telemetry. If not, you can skip it and the sensor still works over Bluetooth.</p></li>
       <li><h3>Use Home Assistant or watch it live</h3><p>When Home Assistant uses the same broker, Native publishes MQTT Discovery for motion, movement score, and detector selection when the firmware supports switching detectors. Otherwise, use the same Configure page to see the live movement bar, or open the <a href="/#monitor">Monitor</a> to chart MQTT telemetry from the browser.</p></li>
     </ol>
 
     <h3 class="subheading">ESPHome</h3>
     <ol class="steps-list">
-      <li><h3>Configure Wi-Fi in the flasher</h3><p>Right after installation, the same dialog offers <em>Configure Wi-Fi</em>. Enter your 2.4&nbsp;GHz network name and password. On ESP32-C5 this dialog is not available yet: connect to the <code>ESPectre Fallback</code> hotspot the device creates and enter the credentials there.</p></li>
+      <li><h3>Configure Wi-Fi in the flasher</h3><p>Right after installation, the same dialog offers <em>Configure Wi-Fi</em>. Enter your network name and password. Published images use 2.4&nbsp;GHz. On ESP32-C5 this dialog is not available yet: connect to the <code>ESPectre Fallback</code> hotspot the device creates and enter the credentials there.</p></li>
       <li><h3>Add it in Home Assistant</h3><p>Within a minute, Home Assistant shows a notification for a discovered ESPHome device. Accept it, and you get the motion sensor, movement level, threshold control, and recalibrate switch.</p></li>
     </ol>
-    <figure>
-      <img src="/assets/guides/home-assistant-dashboard.png" alt="Home Assistant dashboard showing the ESPectre movement gauge, motion state, threshold slider, and recalibrate switch" loading="lazy">
-      <figcaption>The device in Home Assistant: movement level on a 0.0–1.0 scale, motion state, threshold slider, and recalibrate switch.</figcaption>
-    </figure>
-
     <h3 class="subheading">Matter</h3>
     <ol class="steps-list">
       <li><h3>Get the QR code</h3><p>After flashing, the flasher shows the device's Matter QR code and manual pairing code. Each device has its own code, and reflashing does not change it, so you can save it.</p></li>
@@ -76,7 +71,7 @@
     <div class="mini-cards">
       <article><h3>No serial port appears</h3><ul><li>Try another USB cable: charge-only cables are the top cause.</li><li>Try another USB port, ideally directly on the computer.</li><li>Hold <strong>BOOT</strong> while plugging in, then retry Connect.</li></ul></article>
       <article><h3>Flashing starts but fails midway</h3><ul><li>Close other tabs or programs using the port and retry.</li><li>Use a rear USB port or a powered hub: unstable power interrupts flashing.</li><li>Retry with <em>Erase</em> enabled to start from a clean flash.</li></ul></article>
-      <article><h3>Device will not join Wi-Fi</h3><ul><li>Confirm the network is 2.4&nbsp;GHz; guest and 5&nbsp;GHz-only networks fail.</li><li>Re-enter the exact SSID and password: both are case-sensitive.</li><li>Move the board closer to the access point for the first join.</li></ul></article>
+      <article><h3>Device will not join Wi-Fi</h3><ul><li>Confirm that the selected band is available. Configure exposes 5&nbsp;GHz and automatic selection only on capable ESP32-C5 devices, and a band change requires a restart.</li><li>Re-enter the exact SSID and password: both are case-sensitive.</li><li>Move the board closer to the access point for the first join.</li></ul></article>
       <article><h3>Matter commissioning times out</h3><ul><li>Keep the phone within a meter of the board while pairing.</li><li>Make sure the phone's Bluetooth is on and the board is powered.</li><li>Power-cycle the board to reopen the commissioning window, then retry.</li></ul></article>
       <article><h3>Native MQTT or Home Assistant discovery is missing</h3><ul><li>Check broker host, port, and credentials in <a href="/#configure">Configure</a>.</li><li>Confirm Home Assistant and the device use the same broker.</li><li>Use the <a href="/#monitor">Monitor</a> to verify telemetry; discovery config should also appear as retained topics under <code>homeassistant/</code>.</li></ul></article>
       <article><h3>Motion triggers with nobody there</h3><ul><li>Recalibrate with the room genuinely empty and still.</li><li>Raise the threshold a little.</li><li>Check for fans, curtains moving in airflow, or pets: the sensor sees them too.</li></ul></article>

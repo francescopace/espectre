@@ -8,8 +8,8 @@ This guide covers the shared entry points and links you to the frontend-specific
 Use `Latest Release` for the newest official firmware, or `Release Preview` for the newest development build from `main`. A separate `Developer Preview` GitHub Release is also published from `develop` for pre-main validation, but GitHub Pages continues to expose only `Latest Release` and `Release Preview`.
 
 The SDK now mirrors the same channel model: `stable` is published at
-`https://espectre.dev/sdk/stable/`, `snapshot` at
-`https://espectre.dev/sdk/main/`, and `snapshot-dev` remains GitHub-only as the
+`https://espectre.dev/artifacts/sdk/stable/`, `snapshot` at
+`https://espectre.dev/artifacts/sdk/main/`, and `snapshot-dev` remains GitHub-only as the
 `snapshot-dev` prerelease.
 
 ## Choose Your Frontend
@@ -243,8 +243,8 @@ flashing a published frontend, use the SDK bundle channels:
 
 | Channel | Surface | Best for |
 |---------|---------|----------|
-| `stable` | `https://espectre.dev/sdk/stable/` and semver GitHub Releases | production integrations and reproducible builds |
-| `snapshot` | `https://espectre.dev/sdk/main/` and the rolling `snapshot` prerelease | validating the latest `main` changes before release |
+| `stable` | `https://espectre.dev/artifacts/sdk/stable/` and semver GitHub Releases | production integrations and reproducible builds |
+| `snapshot` | `https://espectre.dev/artifacts/sdk/main/` and the rolling `snapshot` prerelease | validating the latest `main` changes before release |
 | `snapshot-dev` | `snapshot-dev` GitHub prerelease only | pre-main validation from `develop` |
 
 The bundle is source-first. It includes:
@@ -305,16 +305,16 @@ If your browser does not support Web Serial, the same page exposes direct downlo
 For local preview of the web flasher with same-origin firmware assets:
 
 1. Build the firmware you want to test, or download the published binaries into a local directory.
-2. Stage a channel manifest and matching binaries under `docs/web/flash/firmware/<channel>/`:
+2. Stage a channel manifest and matching binaries under `docs/web/artifacts/firmware/<channel>/`:
 
 ```bash
 python .github/scripts/stage_web_firmware.py \
   --firmware-dir /path/to/firmware \
-  --output-dir docs/web/flash/firmware/stable \
+  --output-dir docs/web/artifacts/firmware/stable \
   --channel stable \
   --version 3.0.0 \
   --release-tag 3.0.0 \
-  --url-prefix /flash/firmware/stable
+  --url-prefix /artifacts/firmware/stable
 ```
 
 3. Serve the site root locally:
@@ -323,7 +323,7 @@ python .github/scripts/stage_web_firmware.py \
 python -m http.server 8080 --directory docs/web
 ```
 
-4. Open `http://localhost:8080/flash/` in a Chromium-based browser and verify the selected firmware resolves from `/flash/firmware/...`.
+4. Open `http://localhost:8080/flash/` in a Chromium-based browser and verify the selected firmware resolves from `/artifacts/firmware/...`.
 
 ## After Flashing
 
@@ -361,7 +361,7 @@ Support in this phase:
 
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
-| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5; ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
+| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5; Native can persist the policy over BLE and applies a changed policy after restart; ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
 | `detection_algorithm` | `classic` or `ml` | `classic`, including Matter | Shared detector family |
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; adjustable from the frontend during the session |
 | `segmentation_window_size` | int | `100` | `100-200` packets |

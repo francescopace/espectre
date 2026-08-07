@@ -112,6 +112,7 @@ Current capabilities:
 - clear the persisted device-facing configuration without disconnecting
 - expose the immutable BLE pairing name as the shared `device_name`
 - provision or clear Wi-Fi credentials over BLE
+- select `2g`, `5g`, or `auto` over BLE when sysinfo reports `supports_wifi_5ghz=true`
 - provision or clear MQTT configuration over BLE
 - request OTA status, check for updates, and start HTTPS OTA over BLE
 
@@ -182,8 +183,9 @@ captures. The channel must belong to the selected band.
 
 Runtime provisioning behavior:
 
-- `SET_WIFI_CONFIG` persists the full Wi-Fi block in NVS and reconnects the
-  station immediately without restarting BLE
+- `SET_WIFI_CONFIG` persists the full Wi-Fi block in NVS; credential, BSSID,
+  and channel changes reconnect immediately without restarting BLE, while a
+  changed `band_policy` applies after restart so Wi-Fi and CSI use the same policy
 - `CLEAR_WIFI` erases stored Wi-Fi values and disconnects the station
 - `SET_MQTT_CONFIG` persists the full MQTT broker block in NVS and reinitializes
   the MQTT transport
@@ -309,7 +311,7 @@ Check these first:
 Check the active Wi-Fi values first:
 
 1. request fresh sysinfo and inspect `wifi_ssid`, `wifi_bssid`,
-   `wifi_channel`, and `wifi_connected`
+   `wifi_channel`, `wifi_band_policy`, and `wifi_connected`
 2. in the Configure page, press `Save Wi-Fi` and wait for the
    station reconnect after the atomic `SET_WIFI_CONFIG` update
 3. if no provisioning has been stored yet, verify the Kconfig defaults used at

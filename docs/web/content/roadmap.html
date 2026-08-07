@@ -3,24 +3,24 @@
 
   <header class="roadmap-hero">
     <h1>Local sensing, from one device to a system.</h1>
-    <p>ESPectre is moving from a released sensing platform toward easier product integration, optional multi-device orchestration, and future standards-backed Wi-Fi sensing.</p>
+    <p>ESPectre is preparing the v3 platform baseline while working toward easier product integration, optional multi-device orchestration, and future standards-backed Wi-Fi sensing.</p>
   </header>
 
   <section class="roadmap-baseline" aria-labelledby="roadmap-baseline-title">
     <div class="roadmap-baseline-mark">
-      <span class="roadmap-status status-available">Released</span>
+      <span class="roadmap-status status-progress">Planned · October 2026</span>
       <strong>v3.0</strong>
       <small>Platform baseline</small>
     </div>
     <div class="roadmap-baseline-body">
-      <span class="roadmap-eyebrow">The foundation is here</span>
+      <span class="roadmap-eyebrow">The foundation is being finalized</span>
       <h2 id="roadmap-baseline-title">One sensing core, multiple ways to ship.</h2>
-      <p>Version 3.0 established ESPectre as a reusable platform rather than a single firmware image.</p>
+      <p>Version 3.0 is the planned stable baseline for ESPectre as a reusable platform rather than a single firmware image.</p>
       <ul class="roadmap-shipped">
-        <li>Shared C++ core and runtime</li>
-        <li>ESPHome, Native, Matter, and Streamer frontends</li>
+        <li>Shared C++ core and runtime release baseline</li>
+        <li>ESPHome, Native, Matter, and Streamer release artifacts</li>
         <li>Embeddable SDK and stable protocol services</li>
-        <li>Validated Classic and ML detector paths</li>
+        <li>Classic and ML detector release validation</li>
       </ul>
     </div>
   </section>
@@ -38,13 +38,14 @@
           <span class="roadmap-horizon-number">01</span>
           <span class="roadmap-status status-progress">Now · v3.x</span>
         </div>
-        <h3>Make the platform easier to adopt.</h3>
+        <h3>Strengthen the platform in measured steps.</h3>
         <p class="roadmap-outcome">Outcome: a dependable sensing component for developers, integrators, and device makers.</p>
-        <ul>
-          <li>Simpler SDK distribution and developer workflows</li>
-          <li>Broader Matter, hardware, and controller validation</li>
-          <li>Better sensing quality across rates and environments</li>
-          <li>Measured evaluation of displays, Zigbee, TuyaOpen, and peer coordination</li>
+        <ul class="roadmap-minor-sequence" aria-label="Version 3 minor release sequence">
+          <li><strong>3.1</strong> Sensing quality and performance</li>
+          <li><strong>3.2</strong> SDK and integration distribution</li>
+          <li><strong>3.3</strong> Matter product readiness</li>
+          <li><strong>3.4</strong> Local displays and node coordination</li>
+          <li class="roadmap-minor-conditional"><strong>3.5</strong> Embedded ecosystem candidates <small>Conditional</small></li>
         </ul>
       </article>
 
@@ -57,7 +58,7 @@
         <p class="roadmap-outcome">Outcome: optional orchestration without making raw CSI a cloud dependency.</p>
         <ul>
           <li>Secure onboarding, ownership, and fleet visibility</li>
-          <li>Room and device map with near-realtime state</li>
+          <li>Room and device map with near-real-time state</li>
           <li>Remote settings, signed updates, history, and alerts</li>
           <li>Local, self-hosted, and managed deployment profiles</li>
         </ul>
@@ -83,10 +84,15 @@
   <section class="roadmap-research" aria-labelledby="roadmap-research-title">
     <div class="roadmap-section-head">
       <span class="guide-tag">RESEARCH TRACKS</span>
-      <h2 id="roadmap-research-title">Measured before promoted.</h2>
+      <h2 id="roadmap-research-title">Measured before promotion.</h2>
       <p>These tracks may become products, remain research tools, or be rejected. They are not release commitments.</p>
     </div>
     <div class="roadmap-research-grid">
+      <article>
+        <span class="roadmap-status status-research">Research</span>
+        <h3>Bands and new PHYs</h3>
+        <p>Validate 5 GHz HT20 first, then consider VHT20, HE20, and wider layouts only when each path has representative detector evidence.</p>
+      </article>
       <article>
         <span class="roadmap-status status-research">Research</span>
         <h3>Stationary presence</h3>
@@ -103,12 +109,6 @@
         <p>Explore micro-motion only after presence is measurable. This remains experimental and is not a medical measurement.</p>
       </article>
     </div>
-  </section>
-
-  <section class="roadmap-principles" aria-label="Product principles">
-    <div><span>01</span><strong>Local first</strong><p>Raw CSI stays inside the sensing environment by default.</p></div>
-    <div><span>02</span><strong>One reusable core</strong><p>Frontends and future hardware share the same product contracts.</p></div>
-    <div><span>03</span><strong>Evidence before claims</strong><p>Validation gates decide what moves from research into production.</p></div>
   </section>
 
   <div class="roadmap-source">

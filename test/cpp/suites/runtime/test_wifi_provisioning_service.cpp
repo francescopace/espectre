@@ -51,6 +51,7 @@ void test_wifi_provisioning_loads_defaults_when_no_saved_config(void) {
   TEST_ASSERT_EQUAL_STRING("default-secret", service.config().password.c_str());
   TEST_ASSERT_EQUAL_STRING("11:22:33:44:55:66", service.config().bssid.c_str());
   TEST_ASSERT_EQUAL_UINT8(6, service.config().channel);
+  TEST_ASSERT_TRUE(service.config().band_policy == WifiBandPolicy::BAND_2G);
   TEST_ASSERT_TRUE(service.password_set());
 }
 
@@ -71,6 +72,7 @@ void test_wifi_provisioning_loads_saved_config(void) {
   TEST_ASSERT_EQUAL_STRING("saved-secret", service.config().password.c_str());
   TEST_ASSERT_EQUAL_STRING("aa:bb:cc:dd:ee:ff", service.config().bssid.c_str());
   TEST_ASSERT_EQUAL_UINT8(11, service.config().channel);
+  TEST_ASSERT_TRUE(service.config().band_policy == WifiBandPolicy::BAND_2G);
 }
 
 void test_wifi_provisioning_normalizes_an_incompatible_stored_channel(void) {
@@ -115,9 +117,15 @@ void test_wifi_provisioning_commands_validate_and_persist_config(void) {
   // than accept a lock that would silently prevent association.
   TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&channel=36", &message));
   TEST_ASSERT_EQUAL_STRING("channel must be 0..14", message.c_str());
+  TEST_ASSERT_FALSE(
+      service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&band_policy=5g&channel=36", &message));
+  TEST_ASSERT_EQUAL_STRING("5 GHz Wi-Fi is not supported by this device", message.c_str());
+  TEST_ASSERT_FALSE(
+      service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&band_policy=wide&channel=0", &message));
+  TEST_ASSERT_EQUAL_STRING("band_policy must be 2g, 5g, or auto", message.c_str());
 
   TEST_ASSERT_TRUE(
-      service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&channel=9", &message));
+      service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&channel=9&band_policy=2g", &message));
 
   WifiProvisioningService reloaded(nullptr);
   TEST_ASSERT_EQUAL(ESP_OK, reloaded.load_or_set_defaults(make_defaults()));
@@ -126,6 +134,8 @@ void test_wifi_provisioning_commands_validate_and_persist_config(void) {
   TEST_ASSERT_EQUAL_STRING("secret", reloaded.config().password.c_str());
   TEST_ASSERT_EQUAL_STRING("aa:bb:cc:dd:ee:ff", reloaded.config().bssid.c_str());
   TEST_ASSERT_EQUAL_UINT8(9, reloaded.config().channel);
+  TEST_ASSERT_TRUE(reloaded.config().has_saved_band_policy);
+  TEST_ASSERT_TRUE(reloaded.config().band_policy == WifiBandPolicy::BAND_2G);
 }
 
 void test_wifi_provisioning_apply_updates_wifi_manager_live(void) {

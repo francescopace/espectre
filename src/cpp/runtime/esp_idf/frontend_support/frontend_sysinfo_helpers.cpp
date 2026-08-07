@@ -10,6 +10,8 @@
 
 #include <cstdio>
 
+#include "runtime_config_utils.h"
+
 namespace espectre {
 
 namespace {
@@ -64,6 +66,7 @@ void append_sysinfo_protocol_lines(std::vector<std::string> *lines,
   append_bool_line(lines, "supports_live_telemetry", capabilities.supports_live_telemetry);
   append_bool_line(lines, "supports_extended_diagnostics", capabilities.supports_extended_diagnostics);
   append_bool_line(lines, "supports_ota", capabilities.supports_ota);
+  append_bool_line(lines, "supports_wifi_5ghz", capabilities.supports_wifi_5ghz);
 }
 
 void append_sysinfo_identity_lines(std::vector<std::string> *lines,
@@ -96,6 +99,7 @@ void append_sysinfo_wifi_lines(std::vector<std::string> *lines, const SysinfoWif
   append_kv_line(lines, "wifi_ssid", wifi.ssid.c_str());
   append_kv_line(lines, "wifi_bssid", wifi.bssid.c_str());
   append_u32_line(lines, "wifi_channel", static_cast<unsigned>(wifi.channel));
+  append_kv_line(lines, "wifi_band_policy", wifi_band_policy_name(wifi.band_policy));
   append_bool_line(lines, "wifi_password_set", wifi.password_set);
 }
 

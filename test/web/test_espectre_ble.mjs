@@ -1,7 +1,7 @@
 /*
  * ESPectre - Web Bluetooth client unit tests
  *
- * Covers the hardware-independent surface of docs/web/espectre-ble.js: the
+ * Covers the hardware-independent surface of docs/web/assets/js/espectre-ble.js: the
  * pure command builders and their validation, the telemetry parser, and the
  * event API. The GATT paths need a physical device and are exercised through
  * the website's Configure tool instead.
@@ -21,7 +21,7 @@ import { createRequire } from 'node:module';
 
 // The library is a classic script that exports onto `window`.
 globalThis.window = globalThis.window ?? {};
-createRequire(import.meta.url)('../../docs/web/espectre-ble.js');
+createRequire(import.meta.url)('../../docs/web/assets/js/espectre-ble.js');
 
 const Client = window.ESPectreBleClient;
 const ValidationError = window.ESPectreValidationError;
@@ -42,10 +42,11 @@ describe('command builders: wire format', () => {
                 ssid: 'Lab Network',
                 password: 'secret-password',
                 bssid: 'aa:bb:cc:dd:ee:ff',
-                channel: 6
+                channel: 6,
+                bandPolicy: '2g'
             }),
             'SET_WIFI_CONFIG:ssid=Lab%20Network&password=secret-password'
-            + '&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&channel=6'
+            + '&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&channel=6&band_policy=2g'
         );
     });
 
@@ -126,6 +127,24 @@ describe('command builders: validation', () => {
         assert.equal(
             Client.buildWifiConfigCommand({ ssid: 'Net', channel: 149 }),
             'SET_WIFI_CONFIG:ssid=Net&password=&bssid=&channel=149');
+    });
+
+    it('encodes and validates an explicit Wi-Fi band policy', () => {
+        assert.equal(
+            Client.buildWifiConfigCommand({ ssid: 'Net', channel: 36, bandPolicy: '5g' }),
+            'SET_WIFI_CONFIG:ssid=Net&password=&bssid=&channel=36&band_policy=5g');
+        assert.equal(
+            Client.buildWifiConfigCommand({ ssid: 'Net', channel: 0, bandPolicy: 'auto' }),
+            'SET_WIFI_CONFIG:ssid=Net&password=&bssid=&channel=0&band_policy=auto');
+        assertValidationError(
+            () => Client.buildWifiConfigCommand({ ssid: 'Net', channel: 36, bandPolicy: '2g' }),
+            /does not match/);
+        assertValidationError(
+            () => Client.buildWifiConfigCommand({ ssid: 'Net', channel: 6, bandPolicy: '5g' }),
+            /does not match/);
+        assertValidationError(
+            () => Client.buildWifiConfigCommand({ ssid: 'Net', bandPolicy: '6g' }),
+            /bandPolicy/);
     });
 
     it('rejects a malformed BSSID', () => {

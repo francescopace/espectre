@@ -84,4 +84,3 @@ output/api/
 
 # Local web flasher staging
 tmp/
-docs/web/flash/firmware/*/firmware-manifest-*.json

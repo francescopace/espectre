@@ -14,7 +14,7 @@ need a Chromium-based browser; the BLE connection additionally needs
 
 ## Static content pages
 
-Guides, docs, media, and the roadmap use shared HTML fragments for both SPA
+Guides, docs, media, the roadmap, and the privacy notice use shared HTML fragments for both SPA
 hash routes and canonical, indexable paths. Generate the standalone pages
 before previewing their direct URLs:
 
@@ -24,19 +24,73 @@ python3 .github/scripts/build_static_pages.py
 
 Edit shared fragments under `content/`, including `content/guides.html`,
 `content/guides/*.html`, `content/docs.html`, `content/docs/*.html`,
-`content/media.html`, and `content/roadmap.html`. Keep public images under
-`assets/`, and do not edit generated route `index.html` pages.
+`content/media.html`, `content/roadmap.html`, and `content/privacy.html`. Keep
+stylesheets under `assets/css/`, public images under `assets/images/`, and
+first-party scripts under `assets/js/`. Do not edit generated route
+`index.html` pages.
 
-## Generated SDK pages
+## Browser dependencies
 
-The website also stages generated SDK download pages under `sdk/stable/` and
-`sdk/main/`. Those pages are not edited by hand: CI generates them from the
-published SDK manifest with `.github/scripts/stage_web_sdk.py`, in the same way
-firmware assets under `flash/firmware/` are staged from release artifacts.
+Security-sensitive browser tools use pinned, same-origin copies under
+the generated `vendor/` directory in production:
+
+- ESP Web Tools 10.4.0 for serial firmware installation;
+- MQTT.js 5.3.0 for the MQTT-over-WebSocket monitor; and
+- QRCode.js 1.0.0 for Matter pairing codes.
+
+Install and stage the pinned packages locally with:
+
+```bash
+npm --prefix docs/web ci --ignore-scripts
+npm --prefix docs/web run stage:vendor
+```
+
+`package-lock.json` is the source of truth for dependency versions. CI stages
+the same files before deployment, while `vendor/` and `node_modules/` remain
+ignored. When a dependency is absent during development on `localhost`, the
+site may fall back to the matching version on unpkg. Production never uses
+that fallback and treats missing same-origin dependencies as an error.
+
+## Analytics and consent
+
+`assets/js/analytics.js` enables GA4 only on `espectre.dev` and only after explicit
+consent. Local previews never load the Google tag. The site stores the choice
+under `espectre.analytics.consent.v1`, disables advertising storage and Google
+Signals, and exposes Cookie settings in every generated footer. The public
+policy is owned by `content/privacy.html`.
+
+The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs
+and passwords, broker addresses and credentials, device identifiers, Bluetooth
+identifiers, Matter pairing codes, raw CSI, and MQTT payloads.
+
+| Journey | Events and required parameters | Intended use |
+|---|---|---|
+| Navigation | `page_view` (`page_path`, `page_title`, `content_group`), `select_tool`, `select_guide`, `select_documentation` | Content and entry-point performance |
+| Browser support | `tool_capability` (`tool_name`, `capability`, `result`) | Separate unsupported browsers from product failures |
+| Firmware | `firmware_catalog`, `firmware_selection`, `firmware_install_start`, `firmware_install_result`, `firmware_download` | Measure catalog availability and the complete install funnel |
+| Device tools | `tool_connection`, `tool_disconnect`, `tool_demo_start`, `device_profile` | Connection quality and supported platform adoption |
+| Configuration | `configure_change`, `matter_qr_read` | Outcome and normalized error category only |
+| Experiences | `theremin_configuration`, `game_start`, `game_over` | Optional tool engagement |
+
+Outcome events use `result` values such as `success`, `failure`, `cancelled`,
+`unsupported`, or `validation_failure`. Failures use a normalized `error_type`;
+never add raw exception messages. `frontend`, `chip`, `channel`, `transport`,
+`entry_point`, and `tool_name` are candidate event-scoped custom dimensions.
+Property-side configuration, retention, internal-traffic filters, key events,
+and funnel explorations must be verified in GA4 after deployment.
+
+## Generated artifacts
+
+The website stages all downloadable output under the generated `artifacts/`
+tree. SDK downloads live under `artifacts/sdk/stable/` and
+`artifacts/sdk/main/`, the Doxygen reference lives under
+`artifacts/sdk/api/`, and firmware lives under
+`artifacts/firmware/<channel>/`. CI recreates the entire tree before deployment;
+none of its contents are tracked.
 
 ## BLE client API
 
-`espectre-ble.js` is a dependency-free client for the ESPectre BLE surface
+`assets/js/espectre-ble.js` is a dependency-free client for the ESPectre BLE surface
 defined in `docs/ESPECTRE_PROTOCOL.md`. It exposes two globals:
 `ESPectreBleClient` and `ESPectreValidationError`. Web Bluetooth needs a
 Chromium-based browser and a secure context (HTTPS or `localhost`); check
@@ -92,7 +146,7 @@ string, so arguments can be validated without a connected device.
 |---|---|---|
 | `setThreshold(value)` | `SET_THRESHOLD` | number in `0.0-1.0` |
 | `setDetector(name)` | `SET_DETECTOR` | `classic` or `ml` |
-| `setWifiConfig({ ssid, password, bssid, channel })` | `SET_WIFI_CONFIG` | `ssid` required; `channel` 0 (auto) or a 20 MHz center compatible with the firmware-selected band; `bssid` empty or MAC |
+| `setWifiConfig({ ssid, password, bssid, channel, bandPolicy })` | `SET_WIFI_CONFIG` | `ssid` required; credentials optional; `bandPolicy` is optional `2g`, `5g`, or `auto`; `channel` is 0 (auto) or a matching 20 MHz center; `bssid` is empty or a MAC |
 | `clearWifiConfig()` | `CLEAR_WIFI` | — |
 | `setMqttConfig({ host, port, username, password, topicPrefix })` | `SET_MQTT_CONFIG` | `host` required; `port` 1-65535; credentials optional |
 | `clearMqttConfig()` | `CLEAR_MQTT_CONFIG` | — |
@@ -101,9 +155,10 @@ string, so arguments can be validated without a connected device.
 | `requestSysinfo()` | `REQ_SYSINFO` | — |
 | `writeControl(command)` | any | Escape hatch for commands the library does not model |
 
-The library validates protocol correctness only; product policies (for
-example, this site requires a Wi-Fi password even though the protocol allows
-open networks) belong to the caller.
+The library validates protocol correctness only. The device remains
+authoritative for hardware capabilities: clients should offer `5g` and `auto`
+only when sysinfo reports `supports_wifi_5ghz=true`. A changed band policy is
+persisted immediately and takes effect after the device restarts.
 
 ### Errors
 
@@ -114,8 +169,8 @@ independent of the device `proto_version` reported in sysinfo.
 
 ### Tests
 
-The hardware-independent parts (command builders, validation, telemetry
-parser, event API) are covered by unit tests:
+The hardware-independent BLE surface and website analytics and structural
+contracts are covered by unit tests:
 
 ```bash
 node --test 'test/web/*.mjs'

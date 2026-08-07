@@ -107,6 +107,9 @@ void test_native_frontend_connection_and_sysinfo_paths(void) {
   frontend_runtime_shim::state.snapshot.motion_state = MotionState::MOTION;
   MockBleBindings bindings;
   NativeFrontend frontend(&bindings);
+  EspectreDeviceInfo info;
+  info.firmware_version = "3.0.0-test";
+  frontend.set_device_info(info);
   TEST_ASSERT_TRUE(frontend.setup());
 
   bindings.emit_connection(true);
@@ -130,13 +133,21 @@ void test_native_frontend_connection_and_sysinfo_paths(void) {
                              "supports_runtime_motion_hits=true") != ble_bindings_mock::state.sysinfo_lines.end());
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
+                             "supports_wifi_5ghz=false") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
+                             "wifi_band_policy=2g") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
+                             "firmware_version=3.0.0-test") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
                              "wifi_connected=false") != ble_bindings_mock::state.sysinfo_lines.end());
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
                              "mqtt_connected=false") != ble_bindings_mock::state.sysinfo_lines.end());
   TEST_ASSERT_EQUAL_STRING("END", ble_bindings_mock::state.sysinfo_lines.back().c_str());
 
-  EspectreDeviceInfo info;
   info.frontend = "native";
   info.network.channel = 6;
   frontend.set_device_info(info);

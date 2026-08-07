@@ -19,6 +19,7 @@ constexpr const char *kWifiSsidKey = "wifi_ssid";
 constexpr const char *kWifiPasswordKey = "wifi_pass";
 constexpr const char *kWifiBssidKey = "wifi_bssid";
 constexpr const char *kWifiChannelKey = "wifi_chan";
+constexpr const char *kWifiBandPolicyKey = "wifi_band";
 constexpr const char *kDeviceLabelKey = "device_label";
 constexpr const char *kMqttHostKey = "mqtt_host";
 constexpr const char *kMqttPortKey = "mqtt_port";
@@ -87,6 +88,15 @@ esp_err_t load_stored_wifi_config(StoredWifiConfig *config) {
   if (err == ESP_OK && channel_err != ESP_OK && channel_err != ESP_ERR_NVS_NOT_FOUND) {
     err = channel_err;
   }
+  uint8_t band_policy = 0U;
+  const esp_err_t band_err = nvs_get_u8(handle, kWifiBandPolicyKey, &band_policy);
+  if (err == ESP_OK && band_err != ESP_OK && band_err != ESP_ERR_NVS_NOT_FOUND) {
+    err = band_err;
+  }
+  if (err == ESP_OK && band_err == ESP_OK &&
+      band_policy > static_cast<uint8_t>(WifiBandPolicy::AUTO)) {
+    err = ESP_ERR_INVALID_STATE;
+  }
   nvs_close(handle);
 
   if (err != ESP_OK) {
@@ -94,6 +104,10 @@ esp_err_t load_stored_wifi_config(StoredWifiConfig *config) {
   }
 
   loaded.channel = channel;
+  if (band_err == ESP_OK) {
+    loaded.band_policy = static_cast<WifiBandPolicy>(band_policy);
+    loaded.has_saved_band_policy = true;
+  }
   loaded.has_saved_config = !loaded.ssid.empty();
   *config = loaded;
   return ESP_OK;
@@ -115,6 +129,9 @@ esp_err_t save_stored_wifi_config(const StoredWifiConfig &config) {
   }
   if (err == ESP_OK) {
     err = nvs_set_u8(handle, kWifiChannelKey, config.channel);
+  }
+  if (err == ESP_OK) {
+    err = nvs_set_u8(handle, kWifiBandPolicyKey, static_cast<uint8_t>(config.band_policy));
   }
   if (err == ESP_OK) {
     err = nvs_commit(handle);
@@ -146,6 +163,10 @@ esp_err_t clear_stored_wifi_config() {
     result = err2;
   }
   err2 = nvs_erase_key(handle, kWifiChannelKey);
+  if (result == ESP_OK && err2 != ESP_ERR_NVS_NOT_FOUND) {
+    result = err2;
+  }
+  err2 = nvs_erase_key(handle, kWifiBandPolicyKey);
   if (result == ESP_OK && err2 != ESP_ERR_NVS_NOT_FOUND) {
     result = err2;
   }

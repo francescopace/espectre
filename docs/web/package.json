@@ -1,0 +1,13 @@
+{
+  "name": "espectre-web",
+  "private": true,
+  "scripts": {
+    "stage:vendor": "python3 ../../.github/scripts/stage_web_vendor.py",
+    "test": "node --test '../../test/web/*.mjs'"
+  },
+  "dependencies": {
+    "esp-web-tools": "10.4.0",
+    "mqtt": "5.3.0",
+    "qrcodejs": "1.0.0"
+  }
+}
