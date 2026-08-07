@@ -187,7 +187,8 @@ public:
      * @param enabled Whether to enable the filter
      * @param cutoff_hz Cutoff frequency (5.0-20.0 Hz)
      */
-    void configure_lowpass(bool enabled, float cutoff_hz = LOWPASS_CUTOFF_DEFAULT);
+    virtual void configure_lowpass(
+        bool enabled, float cutoff_hz = LOWPASS_CUTOFF_DEFAULT);
     
     /**
      * Configure Hampel filter

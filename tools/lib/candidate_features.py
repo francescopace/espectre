@@ -14,7 +14,10 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
 
+import numpy as np
+
 from .host_feature_trackers import (
+    AGGREGATED_SPECTRAL_FEATURES,
     CHANNEL_COHERENCE_FEATURES,
     CHANNEL_SHAPE_FEATURES,
     COMPOSITE_FEATURES,
@@ -31,6 +34,7 @@ from .host_feature_trackers import (
 CANDIDATE_FEATURES: Tuple[str, ...] = (
     CHANNEL_COHERENCE_FEATURES
     + SPECTRAL_FEATURES
+    + AGGREGATED_SPECTRAL_FEATURES
     + PHASE_FEATURES
     + CHANNEL_SHAPE_FEATURES
     + COMPOSITE_FEATURES
@@ -55,6 +59,11 @@ def needs_subband_coherence(feature_names: Iterable[str]) -> bool:
 def needs_turbulence_series(feature_names: Iterable[str]) -> bool:
     """Return whether any requested candidate reads the turbulence window."""
     return any(name in SPECTRAL_FEATURES for name in feature_names)
+
+
+def needs_aggregated_turbulence(feature_names: Iterable[str]) -> bool:
+    """Return whether any requested candidate reads the aggregated window."""
+    return any(name in AGGREGATED_SPECTRAL_FEATURES for name in feature_names)
 
 
 def needs_phase_residual(feature_names: Iterable[str]) -> bool:
@@ -102,14 +111,83 @@ def candidate_values(
     feature_names: Iterable[str],
     coherence_tracker: ChannelCoherenceTracker = None,
     turbulence_series: Sequence[float] = None,
+    aggregated_turbulence_series: Sequence[float] = None,
     phase_tracker: PhaseResidualTracker = None,
     shape_tracker: ChannelShapeTracker = None,
 ) -> Dict[str, float]:
     """Evaluate the requested candidates from their preprocessed trackers."""
     values: Dict[str, float] = {}
+    turbulence = None
+    if turbulence_series is not None:
+        turbulence = np.asarray(turbulence_series, dtype=np.float64)
+    aggregated_turbulence = None
+    if aggregated_turbulence_series is not None:
+        aggregated_turbulence = np.asarray(
+            aggregated_turbulence_series,
+            dtype=np.float64,
+        )
+    mean_denom = None
+    iqr = None
+    q95 = None
+    aggregated_mean_denom = None
+    aggregated_mad = None
+    aggregated_q95 = None
+
     for name in feature_names:
         if name not in CANDIDATE_FEATURES:
             continue
+        if name in SPECTRAL_FEATURES:
+            if turbulence is None:
+                raise ValueError(
+                    f"{name} needs the turbulence window; pass the explicitly "
+                    f"preprocessed stream"
+                )
+            if len(turbulence) < 4:
+                values[name] = 0.0
+                continue
+            mean = float(np.mean(turbulence))
+            if mean_denom is None:
+                mean_denom = abs(mean) if abs(mean) > 1e-6 else 1e-6
+            if name == 'turb_iqr_over_mean':
+                if iqr is None:
+                    q25, q75 = np.percentile(turbulence, [25, 75])
+                    iqr = float(q75 - q25)
+                values[name] = iqr / mean_denom
+                continue
+            if name == 'turb_p95_over_mean':
+                if q95 is None:
+                    q95 = float(np.percentile(turbulence, 95))
+                values[name] = q95 / mean_denom
+                continue
+        if name in AGGREGATED_SPECTRAL_FEATURES:
+            if aggregated_turbulence is None:
+                raise ValueError(
+                    f"{name} needs the aggregated turbulence window; pass the "
+                    f"explicitly preprocessed aggregated stream"
+                )
+            if len(aggregated_turbulence) < 4:
+                values[name] = 0.0
+                continue
+            aggregated_mean = float(np.mean(aggregated_turbulence))
+            if aggregated_mean_denom is None:
+                aggregated_mean_denom = (
+                    abs(aggregated_mean)
+                    if abs(aggregated_mean) > 1e-6
+                    else 1e-6
+                )
+            if name == 'turb_mad_over_mean_aggr':
+                if aggregated_mad is None:
+                    median = float(np.median(aggregated_turbulence))
+                    aggregated_mad = float(
+                        np.median(np.abs(aggregated_turbulence - median))
+                    )
+                values[name] = aggregated_mad / aggregated_mean_denom
+                continue
+            if name == 'turb_p95_over_mean_aggr':
+                if aggregated_q95 is None:
+                    aggregated_q95 = float(np.percentile(aggregated_turbulence, 95))
+                values[name] = aggregated_q95 / aggregated_mean_denom
+                continue
         if name in CHANNEL_COHERENCE_FEATURES and coherence_tracker is None:
             raise ValueError(
                 f"{name} needs the channel coherence tracker; pass the "

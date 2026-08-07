@@ -20,7 +20,8 @@ Scope matters here, because the "12-of-64 path" is narrower than it sounds.
 Classic fuses `turb_autocorr` and `chan_freq_coh_curve_std`, and only the first
 reads the 12-tone amplitude buffer; `chan_freq_coh_curve_std` reads the 56-bin
 live complex profile and cannot move under this change. Of the ten production ML
-features, five read the buffer and five do not.
+features shipped when this decision was recorded, five read the buffer and five
+do not.
 
 This is distinct from the pair averaging archived on 2026-07-20, which averaged
 *selected* tones together and so halved the number of spatial looks. Aggregation

@@ -18,7 +18,7 @@ Modes:
                 signal-to-noise gain, using no detection metric
     classic     Classic per-pair separability across group widths, with the
                 fusion coefficients refit per configuration
-    features    per-feature effect across the production ten-feature set
+    features    per-feature effect across the production seven-feature set
     candidates  dispersion and order statistics of the turbulence series,
                 including candidates retired before this evidence existed
 
@@ -38,9 +38,8 @@ import argparse
 import json
 import math
 import sys
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 
@@ -56,7 +55,6 @@ import config  # noqa: E402
 from classic_detector import ClassicDetector  # noqa: E402
 from ml_detector import MLDetector  # noqa: E402
 from ml_weights import FEATURE_NAMES  # noqa: E402
-from segmentation import SegmentationContext  # noqa: E402
 from tools.fit_classic_detector import (  # noqa: E402
     balanced_sample_weights,
     build_corpus,
@@ -71,17 +69,11 @@ from tools.lib.dataset_metadata import (  # noqa: E402
     measure_packet_interval_us,
     resolve_entry_path,
 )
+from tools.lib.adjacent_aggregation import aggregated_amplitudes  # noqa: E402
 from tools.lib.performance_report import (  # noqa: E402
     note_evaluation_tick,
     timing_cadence_for_window,
 )
-
-# Guard-band and DC limits of the centered HT20 convention. Clamping matters:
-# bins 3 and 61 are guard nulls, so an unclamped 3-wide window around the edge
-# tones would average a hard zero into two of the twelve profile entries.
-GUARD_LOW = 4
-GUARD_HIGH = 60
-DC_BIN = 32
 
 LIVE_BINS: Tuple[int, ...] = tuple(range(4, 32)) + tuple(range(33, 61))
 DEFAULT_WIDTHS: Tuple[int, ...] = (2, 3, 5)
@@ -111,103 +103,6 @@ CANDIDATE_NAMES: Tuple[str, ...] = (
     "turb_skewness",
     "corr_amp_d1",
 )
-
-BASELINE_FILL = SegmentationContext._fill_amplitude_buffer
-
-
-# =============================================================================
-# Aggregation
-# =============================================================================
-def aggregation_groups(band: Sequence[int], width: int) -> Tuple[Tuple[int, ...], ...]:
-    """Bins averaged for each selected subcarrier at one group width.
-
-    The window is centered on the selected bin, shifted rather than shrunk when
-    it would run past the usable edge, and never includes the DC null.
-    """
-    groups: List[Tuple[int, ...]] = []
-    for subcarrier in band:
-        half = (width - 1) // 2
-        low, high = subcarrier - half, subcarrier + (width - 1 - half)
-        if low < GUARD_LOW:
-            low, high = GUARD_LOW, GUARD_LOW + width - 1
-        if high > GUARD_HIGH:
-            low, high = GUARD_HIGH - width + 1, GUARD_HIGH
-        groups.append(tuple(b for b in range(low, high + 1) if b != DC_BIN))
-    return tuple(groups)
-
-
-def make_aggregating_fill(width: int, coherent: bool) -> Callable[..., int]:
-    """Build a drop-in `_fill_amplitude_buffer` that averages adjacent bins.
-
-    `coherent` averages the complex values before taking the magnitude, rather
-    than averaging magnitudes. It suppresses zero-mean noise better in
-    principle, but the channel phase rotates across the group, so the group
-    partially cancels itself by a delay-dependent amount.
-    """
-    cache: Dict[Tuple[int, ...], Tuple[Tuple[int, ...], ...]] = {}
-
-    def fill(csi_data, selected_subcarriers, out_buffer) -> int:
-        if selected_subcarriers is None:
-            return BASELINE_FILL(csi_data, selected_subcarriers, out_buffer)
-        key = tuple(selected_subcarriers)
-        groups = cache.get(key)
-        if groups is None:
-            groups = aggregation_groups(key, width)
-            cache[key] = groups
-
-        written = 0
-        max_slots = len(out_buffer)
-        csi_len = len(csi_data)
-        for bins in groups:
-            if written >= max_slots:
-                break
-            acc_real = acc_imag = acc_magnitude = 0.0
-            count = 0
-            for sc_idx in bins:
-                index = sc_idx * 2
-                if index + 1 >= csi_len:
-                    continue
-                imag = csi_data[index]
-                real = csi_data[index + 1]
-                imag = float(imag if imag < 128 else imag - 256)
-                real = float(real if real < 128 else real - 256)
-                if coherent:
-                    acc_real += real
-                    acc_imag += imag
-                else:
-                    acc_magnitude += math.sqrt(real * real + imag * imag)
-                count += 1
-            if count == 0:
-                continue
-            if coherent:
-                out_buffer[written] = math.sqrt(
-                    acc_real * acc_real + acc_imag * acc_imag
-                ) / count
-            else:
-                out_buffer[written] = acc_magnitude / count
-            written += 1
-        return written
-
-    return fill
-
-
-@contextmanager
-def aggregated_amplitudes(width: int | None, coherent: bool = False) -> Iterator[None]:
-    """Replace the production amplitude fill for the duration of the block.
-
-    Patching is deliberate. The alternative, threading a research-only option
-    through `segmentation.py`, would put an experiment knob in device code for
-    a transform that is not adopted.
-    """
-    try:
-        if width is not None:
-            SegmentationContext._fill_amplitude_buffer = staticmethod(
-                make_aggregating_fill(width, coherent)
-            )
-        yield
-    finally:
-        SegmentationContext._fill_amplitude_buffer = staticmethod(BASELINE_FILL)
-
 
 def configurations(widths: Sequence[int], coherent: bool) -> List[Tuple[str, Any]]:
     """Baseline first, then one entry per requested group width."""
@@ -556,11 +451,11 @@ def run_features(args: argparse.Namespace) -> Dict[str, Any]:
 def candidate_values(turbulence: np.ndarray, profiles: np.ndarray) -> List[float]:
     """Dispersion and order statistics of one turbulence window.
 
-    `turb_mad_over_mean` is the production feature and acts as the reference
-    row: it must reproduce the `features` mode result, which is what makes the
-    retired candidates around it trustworthy. It uses the true median absolute
-    deviation, matching `csi_features.calc_mad`; the mean absolute deviation is
-    a different statistic and does not reproduce it.
+    `turb_mad_over_mean` is the historical production reference for this
+    screen: it must reproduce the `features` mode result, which is what makes
+    the retired candidates around it trustworthy. It uses the true median
+    absolute deviation, matching `csi_features.calc_mad`; the mean absolute
+    deviation is a different statistic and does not reproduce it.
     """
     count = len(turbulence)
     mean = float(turbulence.mean())

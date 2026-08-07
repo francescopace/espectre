@@ -157,8 +157,8 @@ The main repository workflow and this training stack target Python `3.14`.
 - Reuses the seed embedded in the current exported weights when `--seed` is omitted
   (`--seed-search-until-improvement` still samples fresh seeds)
 - Optional `--augment` applies one or more train-time augmentation components;
-  `--augment` alone means `base`, while `drift` and `burst-loss` can be mixed in
-  (`base`, `drift`, `burst-loss`; inference stays clean)
+  `--augment` alone means `base,drift,burst-loss`, while explicit component
+  lists support ablations (inference stays clean)
 - Reports blocked out-of-fold metrics plus worst and worst-five-tail session,
   lineage, chip, and source-file groups, splitting session metrics by real and
   synthetic provenance when synthetic derivatives are present
@@ -186,9 +186,9 @@ python train_ml_model.py --no-cache       # Bypass persisted time-aware rows
 python train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python train_ml_model.py --seed-search-until-improvement 20  # Evaluate all seeds and keep the best robust improvement
 python train_ml_model.py --seed 12345 --force-promote  # Deliberate baseline reset: export even if the gates fail
-python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr --no-export  # Evaluate a feature subset
-python train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio,chan_coh_gap --no-export  # Evaluate a host-side coherence candidate without export
-python train_ml_model.py --augment            # Same as --augment base
+python train_ml_model.py --features turb_iqr_over_mean_aggr,turb_autocorr,turb_zcr,l1_delta_autocorr --no-export  # Evaluate a feature subset
+python train_ml_model.py --features turb_iqr_over_mean_aggr,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio,chan_coh_lag_ratio --no-export  # Evaluate a host-side candidate without export
+python train_ml_model.py --augment            # Same as --augment base,drift,burst-loss
 python train_ml_model.py --augment drift      # Slow correlated drift only
 python train_ml_model.py --augment base,drift
 python train_ml_model.py --augment base,drift,burst-loss
@@ -417,7 +417,7 @@ Four modes answer different questions:
 | --- | --- | --- |
 | `channel` | how much per-tone noise is there, how correlated is it between adjacent bins, and what signal-to-noise gain does averaging predict | no |
 | `classic` | does Classic separability improve, with the fusion coefficients refit per configuration | yes |
-| `features` | which of the production ten features move, and in which direction | yes |
+| `features` | which of the production seven features move, and in which direction | yes |
 | `candidates` | how do dispersion and order statistics of the turbulence series behave, retired candidates included | yes |
 
 Read the results as separation `max(AUC, 1-AUC)` per pair, which keeps
@@ -426,10 +426,10 @@ features, so the worst pair carries the evidence, and it is only a paired
 comparison when the `same pair` column says the limiting recording is the same
 in both configurations.
 
-In `candidates` mode, `turb_mad_over_mean` is the reference row: it is a
-production feature, so it must reproduce the `features` mode result. If the two
-disagree, the statistics defined in the tool have drifted from the production
-feature and the retired candidates around them are not trustworthy.
+In `candidates` mode, `turb_mad_over_mean` remains the historical reference row
+for the original screen. The promoted runtime instead computes
+`turb_iqr_over_mean_aggr` on a dedicated `W=5` ML-only buffer; the benchmark
+continues to preserve the broader width sweep as research evidence.
 
 The measured verdict, the width sweep, and the mechanism are recorded in
 [`2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md`](../docs/adr/2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md)
@@ -442,6 +442,40 @@ python benchmark_subcarrier_aggregation.py --mode classic --widths 2 3 5
 python benchmark_subcarrier_aggregation.py --mode features --widths 3
 python benchmark_subcarrier_aggregation.py --mode candidates --widths 3 --json out.json
 ```
+
+---
+
+### 13. Classic Candidate Replay (`replay_classic_candidates.py`)
+
+**Purpose**: Fit and replay research-only one- or two-feature Classic detector
+candidates without writing runtime artifacts
+
+The tool fits coefficients only on de-overlapped clean `train` rows, evaluates
+the production startup calibration and settled-level policy at the runtime
+cadence, and reports discovery, historical holdout, `exclude`, paired, and
+empty-room metrics separately. `--include-train-empty` admits only train-role
+empty recordings as grouped hard negatives.
+
+`--stress-augment` keeps the clean-fitted coefficients and operating point
+fixed, then replays `base`, `drift`, `burst-loss`, and the combined packet
+recipe. The stress is packet-domain only; ML feature-space jitter is not an
+inference stream. Candidates are ranked by their worst discovery score across
+clean and augmented replays, while holdout and `exclude` remain diagnostics.
+
+```bash
+python replay_classic_candidates.py \
+  --features turb_autocorr \
+  --features turb_autocorr,chan_freq_coh_curve_std
+
+python replay_classic_candidates.py \
+  --include-train-empty \
+  --stress-augment \
+  --features turb_autocorr,turb_zcr \
+  --features turb_iqr_over_mean_aggr,l1_delta_lag_ratio
+```
+
+The current verdict and retained metrics are recorded in
+[FEATURES.md](../docs/FEATURES.md).
 
 ---
 

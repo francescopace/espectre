@@ -23,6 +23,7 @@ except ImportError:
 # (~100 ms at 100 pps).
 L1_DELTA_LAG = 10
 L1_DELTA_STARTUP_THRESHOLD_FACTOR = 1.1
+TURB_IQR_AGGREGATION_WIDTH = 5
 
 
 def calc_autocorrelation(turbulence_buffer, buffer_count, mean=None, variance=None, lag=1):
@@ -115,23 +116,33 @@ def calc_zero_crossing_rate(values, count, center):
 # strong-link capture to training took a weak-link pair from 0% to 100% false
 # positives, because its idle displacement (0.2653) sat above its own motion
 # (0.1830) and above the added capture's motion (0.0587). The promoted compact
-# model keeps only scale-invariant members and adds the selected coherence and
-# channel-shape dynamics that survived the 2026-07-29 feature sweep.
-PHASELESS10_FEATURES = [
-    'turb_mad_over_mean',
+# model keeps only scale-invariant members and the two channel-shape dynamics
+# that survived the 2026-08-08 joint ablation and seed search.
+PHASELESS7_FEATURES = [
+    'turb_iqr_over_mean_aggr',
     'turb_autocorr',
     'turb_zcr',
     'l1_delta_autocorr',
     'l1_delta_lag_ratio',
     'chan_shape_spread',
-    'chan_freq_coh_cv',
     'chan_freq_coh_curve_std',
-    'chan_coh_gap',
-    'chan_coh_subband_gap_median',
 ]
 
-DEFAULT_FEATURES = PHASELESS10_FEATURES
-ALL_FEATURES = tuple(DEFAULT_FEATURES)
+DEFAULT_FEATURES = PHASELESS7_FEATURES
+# Retain extractors needed to compare a newly trained schema against the
+# immediately preceding exported artifact. Generated models still select only
+# DEFAULT_FEATURES; legacy names are not part of the production default.
+LEGACY_FEATURES = (
+    'turb_mad_over_mean',
+    'chan_freq_coh_cv',
+    'chan_coh_gap',
+    'chan_coh_subband_gap_median',
+)
+ALL_FEATURES = tuple(DEFAULT_FEATURES) + LEGACY_FEATURES
+
+AGGREGATED_TURBULENCE_FEATURES = frozenset({
+    'turb_iqr_over_mean_aggr',
+})
 
 CHANNEL_SHAPE_FEATURES = frozenset({
     'chan_shape_spread',
@@ -472,10 +483,13 @@ def extract_features_by_name(
     turbulence_buffer,
     buffer_count,
     feature_names=None,
+    aggregated_turbulence_buffer=None,
+    aggregated_turbulence_count=None,
     l1_series=None,
     l1_series_count=None,
     out=None,
     reuse_turbulence_buffer=False,
+    reuse_aggregated_turbulence_buffer=False,
     l1_delta_lag_ratio=None,
     chan_shape_spread=None,
     chan_freq_coh_cv=None,
@@ -490,6 +504,14 @@ def extract_features_by_name(
     for name in feature_names:
         if name not in ALL_FEATURES:
             raise ValueError(f"Unknown feature: {name}")
+    if (
+        any(name in AGGREGATED_TURBULENCE_FEATURES for name in feature_names)
+        and aggregated_turbulence_buffer is None
+    ):
+        raise ValueError(
+            "aggregated_turbulence_buffer is required when an aggregated "
+            "turbulence feature is selected"
+        )
     if 'l1_delta_lag_ratio' in feature_names and l1_delta_lag_ratio is None:
         raise ValueError(
             "l1_delta_lag_ratio is required when that feature is selected; "
@@ -540,6 +562,50 @@ def extract_features_by_name(
     turb_std = math.sqrt(turb_var) if turb_var > 0 else 0.0
     abs_mean = abs(turb_mean)
     mean_denom = abs_mean if abs_mean > 1e-6 else 1e-6
+
+    aggregated_iqr_over_mean = None
+    if any(name in AGGREGATED_TURBULENCE_FEATURES for name in feature_names):
+        aggregated_n = (
+            len(aggregated_turbulence_buffer)
+            if aggregated_turbulence_count is None
+            else min(
+                int(aggregated_turbulence_count),
+                len(aggregated_turbulence_buffer),
+            )
+        )
+        if aggregated_n < 2:
+            aggregated_iqr_over_mean = 0.0
+        else:
+            if (
+                isinstance(aggregated_turbulence_buffer, list)
+                and reuse_aggregated_turbulence_buffer
+                and len(aggregated_turbulence_buffer) == aggregated_n
+            ):
+                aggregated_values = aggregated_turbulence_buffer
+            else:
+                aggregated_values = list(aggregated_turbulence_buffer)[:aggregated_n]
+            aggregated_mean = sum(aggregated_values) / aggregated_n
+            aggregated_denom = max(abs(aggregated_mean), 1e-6)
+            aggregated_values.sort()
+            q25_position = (aggregated_n - 1) * 0.25
+            q75_position = (aggregated_n - 1) * 0.75
+            q25_lower = int(q25_position)
+            q75_lower = int(q75_position)
+            q25_fraction = q25_position - q25_lower
+            q75_fraction = q75_position - q75_lower
+            q25 = (
+                aggregated_values[q25_lower] * (1.0 - q25_fraction)
+                + aggregated_values[min(q25_lower + 1, aggregated_n - 1)]
+                * q25_fraction
+            )
+            q75 = (
+                aggregated_values[q75_lower] * (1.0 - q75_fraction)
+                + aggregated_values[min(q75_lower + 1, aggregated_n - 1)]
+                * q75_fraction
+            )
+            aggregated_iqr_over_mean = (
+                q75 - q25
+            ) / aggregated_denom
 
     turb_mad = None
     turb_autocorr = None
@@ -596,7 +662,9 @@ def extract_features_by_name(
 
     features = out if out is not None else []
     for feature_index, name in enumerate(feature_names):
-        if name == 'turb_mad_over_mean':
+        if name == 'turb_iqr_over_mean_aggr':
+            value = aggregated_iqr_over_mean
+        elif name == 'turb_mad_over_mean':
             if turb_mad is None:
                 turb_mad = calc_mad(turb_list, n)
             value = turb_mad / mean_denom

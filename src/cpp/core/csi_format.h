@@ -211,6 +211,60 @@ inline uint8_t extract_subcarrier_amplitudes(const int8_t* csi_data,
     return valid_count;
 }
 
+/**
+ * Extract one mean magnitude per selected tone from adjacent live HT20 bins.
+ *
+ * Windows are clamped to bins 4..60 and skip the DC null at bin 32. This is
+ * the production counterpart of
+ * `SegmentationContext._fill_adjacent_aggregated_amplitude_buffer`.
+ */
+inline uint8_t extract_adjacent_aggregated_subcarrier_amplitudes(
+        const int8_t* csi_data,
+        size_t csi_len,
+        const uint8_t* subcarriers,
+        uint8_t num_subcarriers,
+        uint8_t width,
+        float* out,
+        uint8_t out_capacity) {
+    if (csi_data == nullptr || csi_len < 2U || subcarriers == nullptr ||
+        num_subcarriers == 0U || width == 0U || out == nullptr) {
+        return 0U;
+    }
+
+    const int total_subcarriers = static_cast<int>(csi_len / 2U);
+    const int half = static_cast<int>((width - 1U) / 2U);
+    uint8_t written = 0U;
+    for (uint8_t i = 0U; i < num_subcarriers && written < out_capacity; ++i) {
+        int low = static_cast<int>(subcarriers[i]) - half;
+        int high = static_cast<int>(subcarriers[i]) +
+                   static_cast<int>(width - 1U) - half;
+        if (low < HT20_GUARD_BAND_LOW) {
+            low = HT20_GUARD_BAND_LOW;
+            high = HT20_GUARD_BAND_LOW + width - 1U;
+        }
+        if (high > HT20_GUARD_BAND_HIGH) {
+            low = HT20_GUARD_BAND_HIGH - width + 1U;
+            high = HT20_GUARD_BAND_HIGH;
+        }
+
+        float magnitude_sum = 0.0f;
+        uint8_t count = 0U;
+        for (int bin = low; bin <= high; ++bin) {
+            if (bin == HT20_DC_SUBCARRIER || bin < 0 ||
+                bin >= total_subcarriers) {
+                continue;
+            }
+            magnitude_sum += calculate_magnitude(
+                csi_data[bin * 2 + 1], csi_data[bin * 2]);
+            ++count;
+        }
+        if (count > 0U) {
+            out[written++] = magnitude_sum / static_cast<float>(count);
+        }
+    }
+    return written;
+}
+
 inline float calculate_spatial_turbulence_from_amplitudes(const float* amplitudes,
                                                           uint8_t count) {
     if (amplitudes == nullptr || count == 0) {

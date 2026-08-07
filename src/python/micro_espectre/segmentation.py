@@ -44,7 +44,8 @@ class SegmentationContext:
                  enable_hampel=True,
                  hampel_window=7,
                  hampel_threshold=5.0,
-                 allocate_amplitude_buffer=True):
+                 allocate_amplitude_buffer=True,
+                 adjacent_aggregation_width=None):
         """
         Initialize segmentation context
 
@@ -57,6 +58,7 @@ class SegmentationContext:
             hampel_threshold: Hampel filter threshold in MAD units (default: 5.0)
         """
         self.window_size = window_size
+        self.adjacent_aggregation_width = adjacent_aggregation_width
 
         # Turbulence circular buffer (pre-allocated)
         self.turbulence_buffer = [0.0] * window_size
@@ -174,6 +176,50 @@ class SegmentationContext:
         return n
 
     @staticmethod
+    def _fill_adjacent_aggregated_amplitude_buffer(
+        csi_data,
+        selected_subcarriers,
+        out_buffer,
+        width,
+    ):
+        """Fill amplitudes by averaging adjacent live-bin magnitudes."""
+        if selected_subcarriers is None or width is None or width < 1:
+            return 0
+
+        n = 0
+        max_slots = len(out_buffer)
+        csi_len = len(csi_data)
+        half = (width - 1) // 2
+        for subcarrier in selected_subcarriers:
+            if n >= max_slots:
+                break
+            low = subcarrier - half
+            high = subcarrier + (width - 1 - half)
+            if low < 4:
+                low, high = 4, 4 + width - 1
+            if high > 60:
+                low, high = 60 - width + 1, 60
+
+            total = 0.0
+            count = 0
+            for sc_idx in range(low, high + 1):
+                if sc_idx == 32:
+                    continue
+                i = sc_idx * 2
+                if i + 1 >= csi_len:
+                    continue
+                imag = csi_data[i]
+                real = csi_data[i + 1]
+                imag = float(imag if imag < 128 else imag - 256)
+                real = float(real if real < 128 else real - 256)
+                total += math.sqrt(real * real + imag * imag)
+                count += 1
+            if count:
+                out_buffer[n] = total / count
+                n += 1
+        return n
+
+    @staticmethod
     def _turbulence_from_amplitude_buffer(amplitude_buffer, count):
         """Compute gain-invariant spatial turbulence from amplitudes."""
         if count < 2:
@@ -231,9 +277,17 @@ class SegmentationContext:
             self._amplitude_count = 0
             return 0.0
 
-        self._amplitude_count = self._fill_amplitude_buffer(
-            csi_data, selected_subcarriers, self._amplitude_buffer
-        )
+        if self.adjacent_aggregation_width is None:
+            self._amplitude_count = self._fill_amplitude_buffer(
+                csi_data, selected_subcarriers, self._amplitude_buffer
+            )
+        else:
+            self._amplitude_count = self._fill_adjacent_aggregated_amplitude_buffer(
+                csi_data,
+                selected_subcarriers,
+                self._amplitude_buffer,
+                self.adjacent_aggregation_width,
+            )
         return self._turbulence_from_amplitude_buffer(self._amplitude_buffer, self._amplitude_count)
 
     def calculate_spatial_turbulence(self, csi_data, selected_subcarriers=None, return_amplitudes=False):

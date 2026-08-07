@@ -784,6 +784,7 @@ void test_ml_feature_helpers_cover_guard_paths(void) {
     // than reading past its end.
     MLStatNeeds needs;
     needs.sorted = true;
+    needs.mad = true;
     MLSeriesStats stats;
     compute_ml_series_stats(sample, 4, &stats, needs, MLSeriesScratch{});
     TEST_ASSERT_EQUAL_FLOAT(0.0f, stats.mad);

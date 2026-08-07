@@ -19,6 +19,13 @@ def test_parse_combination_specs_rejects_duplicates() -> None:
         bench.parse_combination_specs(["a,a"], 2, "pair")
 
 
+def test_classic_replay_accepts_only_one_or_two_features() -> None:
+    assert replay.parse_feature_sets(["a", "a,b"]) == [("a",), ("a", "b")]
+
+    with pytest.raises(replay.ReplayError, match="expected 1 or 2"):
+        replay.parse_feature_sets(["a,b,c"])
+
+
 def test_resolve_candidate_combinations_prefers_explicit_triplets() -> None:
     args = argparse.Namespace(
         pair=[],
@@ -113,6 +120,176 @@ def test_session_centering_uses_only_runtime_startup_prefix() -> None:
 
     expected_shift = 0.5 * np.quantile([0.0, 1.0], 0.95)
     assert centered == pytest.approx(scores - expected_shift)
+
+
+def test_robust_startup_calibration_maps_reference_standardized_threshold() -> None:
+    rows = np.asarray([[6.0], [10.0], [14.0]], dtype=np.float64)
+    coefficients = {
+        "center": np.asarray([0.0]),
+        "scale": np.asarray([1.0]),
+        "weight": np.asarray([1.0]),
+        "intercept": 0.0,
+    }
+    policy = replay.calibration_policy(
+        replay.CALIBRATION_ROBUST_LOGIT,
+        startup_strength=1.0,
+        robust_scale_floor_ratio=0.25,
+    )
+    references = {
+        "idle_q95_logit": 0.0,
+        "final_location": 0.0,
+        "final_scale": 2.0,
+    }
+
+    threshold = replay.calibrated_startup_threshold(
+        rows,
+        np.asarray([6.0, 10.0, 14.0]),
+        coefficients,
+        replay.probability(1.0),
+        policy,
+        references,
+        startup_sample_limit=3,
+    )
+
+    # Reference z=0.5 maps to median=10 plus 0.5 * session IQR=4.
+    assert replay.probability_logit(threshold) == pytest.approx(12.0)
+
+
+def test_robust_oof_calibration_standardizes_raw_session_logits() -> None:
+    scores = np.asarray([6.0, 10.0, 14.0, 18.0], dtype=np.float64)
+    labels = np.asarray([0, 0, 0, 1], dtype=np.int8)
+    sessions = np.asarray(["a"] * 4, dtype=object)
+    coefficients = {
+        "center": np.asarray([0.0]),
+        "scale": np.asarray([1.0]),
+        "weight": np.asarray([1.0]),
+        "intercept": 0.0,
+    }
+    policy = replay.calibration_policy(
+        replay.CALIBRATION_ROBUST_LOGIT,
+        startup_strength=1.0,
+        robust_scale_floor_ratio=0.25,
+    )
+
+    calibrated = replay.calibrated_replay_scores(
+        scores,
+        scores.reshape(-1, 1),
+        labels,
+        sessions,
+        coefficients,
+        policy,
+        {"oof_location": 0.0, "oof_scale": 2.0},
+        startup_sample_limit=3,
+    )
+
+    np.testing.assert_allclose(calibrated, [-1.0, 0.0, 1.0, 2.0])
+
+
+def test_feature_startup_calibration_shifts_each_feature_before_fusion() -> None:
+    rows = np.asarray([[3.0, 5.0], [3.0, 5.0]], dtype=np.float64)
+    coefficients = {
+        "center": np.asarray([0.0, 0.0]),
+        "scale": np.asarray([2.0, 4.0]),
+        "weight": np.asarray([2.0, 4.0]),
+        "intercept": 0.0,
+    }
+    policy = replay.calibration_policy(
+        replay.CALIBRATION_FEATURE_SHIFT,
+        startup_strength=0.5,
+        feature_startup_quantile=0.5,
+    )
+    references = {
+        "idle_q95_logit": 0.0,
+        "feature_location": [1.0, 2.0],
+    }
+
+    threshold = replay.calibrated_startup_threshold(
+        rows,
+        np.asarray([8.0, 8.0]),
+        coefficients,
+        0.5,
+        policy,
+        references,
+        startup_sample_limit=2,
+    )
+
+    # w/scale=[1, 1], so half of the contribution shift 8-3 is 2.5 logits.
+    assert replay.probability_logit(threshold) == pytest.approx(2.5)
+
+
+def test_guarded_upward_recovery_is_bounded_by_startup_threshold() -> None:
+    rows = np.asarray(
+        [[value] for value in ([-4.0] * 240 + [-1.3] * 60 + [-0.5] * 40)],
+        dtype=np.float64,
+    )
+    coefficients = {
+        "center": np.asarray([0.0]),
+        "scale": np.asarray([1.0]),
+        "weight": np.asarray([1.0]),
+        "intercept": 0.0,
+    }
+    policy = replay.calibration_policy(
+        replay.CALIBRATION_GUARDED_UPWARD,
+        startup_strength=0.5,
+        upward_blocks=3,
+        upward_quantile=0.95,
+        upward_max_positive_fraction=0.5,
+    )
+    initial_threshold = replay.probability(1.0)
+
+    metrics = replay.replay_one_stream(
+        rows,
+        coefficients,
+        base_threshold=initial_threshold,
+        idle_q95=0.0,
+        startup_strength=0.5,
+        startup_sample_limit=37,
+        settle_margin_logits=2.8,
+        initial_threshold=initial_threshold,
+        calibration=policy,
+        references={"idle_q95_logit": 0.0},
+    )
+
+    assert metrics["threshold"] == pytest.approx(initial_threshold)
+    assert metrics["threshold"] <= metrics["initial_threshold"]
+    assert metrics["positive_count"] == 0
+
+
+def test_guarded_upward_recovery_freezes_on_predominantly_positive_blocks() -> None:
+    rows = np.asarray(
+        [[value] for value in ([-4.0] * 240 + [2.0] * 100)],
+        dtype=np.float64,
+    )
+    coefficients = {
+        "center": np.asarray([0.0]),
+        "scale": np.asarray([1.0]),
+        "weight": np.asarray([1.0]),
+        "intercept": 0.0,
+    }
+    policy = replay.calibration_policy(
+        replay.CALIBRATION_GUARDED_UPWARD,
+        startup_strength=0.5,
+        upward_blocks=3,
+        upward_quantile=0.95,
+        upward_max_positive_fraction=0.5,
+    )
+    initial_threshold = replay.probability(1.0)
+
+    metrics = replay.replay_one_stream(
+        rows,
+        coefficients,
+        base_threshold=initial_threshold,
+        idle_q95=0.0,
+        startup_strength=0.5,
+        startup_sample_limit=37,
+        settle_margin_logits=2.8,
+        initial_threshold=initial_threshold,
+        calibration=policy,
+        references={"idle_q95_logit": 0.0},
+    )
+
+    assert metrics["threshold"] < initial_threshold
+    assert metrics["positive_count"] >= 100
 
 
 def test_threshold_free_fit_roles_do_not_include_holdout() -> None:

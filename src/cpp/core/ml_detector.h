@@ -91,6 +91,9 @@ public:
         bool enabled,
         uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
         float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT) override;
+    void configure_lowpass(
+        bool enabled,
+        float cutoff_hz = LOWPASS_CUTOFF_DEFAULT) override;
 
 private:
     /**
@@ -122,6 +125,9 @@ private:
      */
     MLSeriesScratch series_scratch_() const;
 
+    void add_aggregated_turbulence_(float turbulence);
+    const float* ordered_aggregated_turbulence_(uint16_t& count) const;
+
     /**
      * Run MLP inference on features.
      *
@@ -144,6 +150,7 @@ private:
     bool uses_l1_series_;
     bool uses_shape_tracker_;
     bool uses_coherence_tracker_;
+    bool uses_aggregated_turbulence_;
     uint16_t lag_;
     L1DeltaTracker l1_tracker_;
     ChannelShapeTracker shape_tracker_;
@@ -153,6 +160,12 @@ private:
     // window-sized lands on the CSI callback stack. Carved by the accessors
     // above; see feature_scratch_size_() for the layout.
     float* feature_scratch_;
+    float* aggregated_turbulence_buffer_;
+    mutable float* aggregated_turbulence_ordered_;
+    uint16_t aggregated_turbulence_index_;
+    uint16_t aggregated_turbulence_count_;
+    hampel_filter_state_t aggregated_hampel_state_;
+    lowpass_filter_state_t aggregated_lowpass_state_;
 };
 
 }  // namespace espectre

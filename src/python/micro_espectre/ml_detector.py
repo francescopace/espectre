@@ -21,8 +21,9 @@ try:
     from src.segmentation import SegmentationContext
     from src.csi_features import (
         CHANNEL_COHERENCE_FEATURES, CHANNEL_SHAPE_FEATURES,
+        AGGREGATED_TURBULENCE_FEATURES,
         L1_DELTA_LAG, L1_SERIES_FEATURES, L1_TRACKER_FEATURES,
-        L1DeltaTracker, extract_features_by_name,
+        TURB_IQR_AGGREGATION_WIDTH, L1DeltaTracker, extract_features_by_name,
     )
     from src.ml_feature_trackers import ChannelCoherenceTracker, ChannelShapeTracker
     from src.config import DEFAULT_SUBCARRIERS
@@ -31,8 +32,9 @@ except ImportError:
     from segmentation import SegmentationContext
     from csi_features import (
         CHANNEL_COHERENCE_FEATURES, CHANNEL_SHAPE_FEATURES,
+        AGGREGATED_TURBULENCE_FEATURES,
         L1_DELTA_LAG, L1_SERIES_FEATURES, L1_TRACKER_FEATURES,
-        L1DeltaTracker, extract_features_by_name,
+        TURB_IQR_AGGREGATION_WIDTH, L1DeltaTracker, extract_features_by_name,
     )
     from ml_feature_trackers import ChannelCoherenceTracker, ChannelShapeTracker
     from config import DEFAULT_SUBCARRIERS
@@ -227,6 +229,21 @@ class MLDetector(IDetector):
         self._use_coherence_tracker = any(
             name in CHANNEL_COHERENCE_FEATURES for name in FEATURE_NAMES
         )
+        self._use_aggregated_turbulence = any(
+            name in AGGREGATED_TURBULENCE_FEATURES for name in FEATURE_NAMES
+        )
+        self._aggregated_context = (
+            SegmentationContext(
+                window_size=window_size,
+                enable_lowpass=enable_lowpass,
+                lowpass_cutoff=lowpass_cutoff,
+                enable_hampel=enable_hampel,
+                hampel_window=hampel_window,
+                hampel_threshold=hampel_threshold,
+                adjacent_aggregation_width=TURB_IQR_AGGREGATION_WIDTH,
+            )
+            if self._use_aggregated_turbulence else None
+        )
         delta_window = max(2, window_size - L1_DELTA_LAG)
         if self._use_amplitude_history:
             self._l1_tracker = L1DeltaTracker(
@@ -252,6 +269,9 @@ class MLDetector(IDetector):
             if self._use_coherence_tracker else None
         )
         self._ordered_turbulence = [0.0] * window_size
+        self._ordered_aggregated_turbulence = (
+            [0.0] * window_size if self._use_aggregated_turbulence else None
+        )
         self._feature_buffer = [0.0] * len(FEATURE_NAMES)
         workspace_size = max(
             len(FEATURE_MEAN),
@@ -275,6 +295,8 @@ class MLDetector(IDetector):
             rssi_dbm: Optional per-packet RSSI metadata (ignored by ML)
         """
         self._packet_count += 1
+        if selected_subcarriers is None:
+            selected_subcarriers = DEFAULT_SUBCARRIERS
 
         if self._use_amplitude_history:
             turbulence = self._context.calculate_spatial_turbulence(
@@ -296,6 +318,14 @@ class MLDetector(IDetector):
 
         # Add to buffer
         self._context.add_turbulence(turbulence)
+        if self._aggregated_context is not None:
+            aggregated_turbulence = (
+                self._aggregated_context.calculate_spatial_turbulence(
+                    csi_data,
+                    selected_subcarriers,
+                )
+            )
+            self._aggregated_context.add_turbulence(aggregated_turbulence)
     
     def update_state(self):
         """
@@ -368,9 +398,28 @@ class MLDetector(IDetector):
         l1_count = 0
         if self._l1_series_buffer is not None:
             l1_count = self._l1_tracker.copy_deltas_into(self._l1_series_buffer)
+        aggregated_count = 0
+        aggregated_turbulence = None
+        if self._aggregated_context is not None:
+            aggregated_ctx = self._aggregated_context
+            aggregated_turbulence = self._ordered_aggregated_turbulence
+            aggregated_count = aggregated_ctx.buffer_count
+            if aggregated_count < aggregated_ctx.window_size:
+                for i in range(aggregated_count):
+                    aggregated_turbulence[i] = (
+                        aggregated_ctx.turbulence_buffer[i]
+                    )
+            else:
+                aggregated_idx = aggregated_ctx.buffer_index
+                for i in range(aggregated_count):
+                    aggregated_turbulence[i] = aggregated_ctx.turbulence_buffer[
+                        (aggregated_idx + i) % aggregated_count
+                    ]
         return extract_features_by_name(
             turb_list, count,
             feature_names=FEATURE_NAMES,
+            aggregated_turbulence_buffer=aggregated_turbulence,
+            aggregated_turbulence_count=aggregated_count,
             l1_series=self._l1_series_buffer,
             l1_series_count=l1_count,
             l1_delta_lag_ratio=(
@@ -413,6 +462,7 @@ class MLDetector(IDetector):
             ),
             out=self._feature_buffer,
             reuse_turbulence_buffer=True,
+            reuse_aggregated_turbulence_buffer=True,
         )
     
     def get_state(self):
@@ -444,6 +494,12 @@ class MLDetector(IDetector):
             return False
         if self._coherence_tracker is not None and self._coherence_tracker.count() < (self._context.window_size - L1_DELTA_LAG):
             return False
+        if (
+            self._aggregated_context is not None
+            and self._aggregated_context.buffer_count
+            < self._aggregated_context.window_size
+        ):
+            return False
         return True
     
     def reset(self):
@@ -459,6 +515,8 @@ class MLDetector(IDetector):
             self._shape_tracker.reset()
         if self._coherence_tracker is not None:
             self._coherence_tracker.reset()
+        if self._aggregated_context is not None:
+            self._aggregated_context.reset(full=True)
         self.probability_history = []
         self.state_history = []
     

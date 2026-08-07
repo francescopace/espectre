@@ -118,14 +118,35 @@ void test_ml_detector_get_name(void) {
     TEST_ASSERT_EQUAL_STRING("ML", detector.get_name());
 }
 
+void test_ml_production_feature_schema(void) {
+    const uint8_t expected[] = {
+        ML_FEAT_TURB_IQR_OVER_MEAN_AGGR,
+        ML_FEAT_TURB_AUTOCORR,
+        ML_FEAT_TURB_ZCR,
+        ML_FEAT_L1_DELTA_AUTOCORR,
+        ML_FEAT_L1_DELTA_LAG_RATIO,
+        ML_FEAT_CHAN_SHAPE_SPREAD,
+        ML_FEAT_CHAN_FREQ_COH_CURVE_STD,
+    };
+    TEST_ASSERT_EQUAL_UINT8(sizeof(expected), ML_MODEL_INPUT_SIZE);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(
+        expected, ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE);
+
+    MLDetector detector;
+    TEST_ASSERT_TRUE(detector.uses_shape_tracker_);
+    TEST_ASSERT_FALSE(detector.uses_coherence_tracker_);
+}
+
 void test_ml_detector_hampel_master_switch_controls_both_streams(void) {
     MLDetector detector;
     detector.configure_hampel(true, 5U, 3.0f);
     TEST_ASSERT_TRUE(detector.hampel_state_.enabled);
+    TEST_ASSERT_TRUE(detector.aggregated_hampel_state_.enabled);
     TEST_ASSERT_TRUE(detector.l1_tracker_.hampel_state_.enabled);
 
     detector.configure_hampel(false, 5U, 3.0f);
     TEST_ASSERT_FALSE(detector.hampel_state_.enabled);
+    TEST_ASSERT_FALSE(detector.aggregated_hampel_state_.enabled);
     TEST_ASSERT_FALSE(detector.l1_tracker_.hampel_state_.enabled);
 }
 
@@ -239,7 +260,8 @@ void test_feature_extraction_basic(void) {
     }
 
     // Extract exactly the exported feature set (turbulence and/or L1-delta).
-    extract_ml_features_by_id(turb_buffer, 50, delta_buffer, 50,
+    extract_ml_features_by_id(turb_buffer, 50, turb_buffer, 50,
+                              delta_buffer, 50,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
                               scratch, 1.75f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
@@ -260,7 +282,7 @@ void test_feature_extraction_empty_buffer(void) {
     // The tracker reports 1.0 when it holds no deltas, which is what the
     // detector would pass here, so the lag ratio is the one exported feature
     // whose empty-buffer value is not zero.
-    extract_ml_features_by_id(turb_buffer, 0, nullptr, 0,
+    extract_ml_features_by_id(turb_buffer, 0, nullptr, 0, nullptr, 0,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
                               scratch, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
@@ -293,7 +315,8 @@ void test_candidate_feature_python_parity(void) {
     float sorted_scratch[50];
     float abs_devs[50];
     const MLSeriesScratch scratch{sorted_scratch, abs_devs, 50U};
-    extract_ml_features_by_id(turb_buffer, 50, delta_buffer, 50,
+    extract_ml_features_by_id(turb_buffer, 50, nullptr, 0,
+                              delta_buffer, 50,
                               candidate_ids, 3, features, scratch, 1.75f,
                               0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
@@ -314,25 +337,39 @@ void test_zero_crossing_rate_alternating_signal(void) {
 }
 
 void test_ml_series_needs_tracks_only_referenced_stats(void) {
-    // Production ids: turb {mad, autocorr, zcr}, delta {autocorr}, plus the
+    // Production ids: normal turb {autocorr, zcr}, aggregated turb {iqr},
+    // delta {autocorr}, plus the
     // tracker-sourced lag ratio. The delta series needs no sort, which is the
     // whole point of asking per series.
     const uint8_t production[5] = {
-        ML_FEAT_TURB_MAD_OVER_MEAN, ML_FEAT_TURB_AUTOCORR, ML_FEAT_TURB_ZCR,
+        ML_FEAT_TURB_IQR_OVER_MEAN_AGGR, ML_FEAT_TURB_AUTOCORR,
+        ML_FEAT_TURB_ZCR,
         ML_FEAT_L1_DELTA_AUTOCORR, ML_FEAT_L1_DELTA_LAG_RATIO,
     };
 
-    const MLStatNeeds turb = ml_series_needs(production, 5, /*l1=*/false);
-    TEST_ASSERT_TRUE(turb.sorted);       // mad + zcr
+    const MLStatNeeds turb = ml_series_needs(
+        production, 5, MLFeatureSource::TURBULENCE_SERIES);
+    TEST_ASSERT_TRUE(turb.sorted);       // zcr
+    TEST_ASSERT_TRUE(turb.zcr);
+    TEST_ASSERT_FALSE(turb.iqr);
     TEST_ASSERT_TRUE(turb.autocorr);
 
-    const MLStatNeeds delta = ml_series_needs(production, 5, /*l1=*/true);
+    const MLStatNeeds aggregated = ml_series_needs(
+        production, 5, MLFeatureSource::AGGREGATED_TURBULENCE_SERIES);
+    TEST_ASSERT_TRUE(aggregated.sorted);
+    TEST_ASSERT_TRUE(aggregated.iqr);
+    TEST_ASSERT_FALSE(aggregated.zcr);
+
+    const MLStatNeeds delta = ml_series_needs(
+        production, 5, MLFeatureSource::L1_DELTA_SERIES);
     TEST_ASSERT_FALSE(delta.sorted);     // no mad/zcr on the delta series
     TEST_ASSERT_TRUE(delta.autocorr);
 
     // Turbulence ids alone ask nothing of the delta series.
-    const uint8_t turb_only[2] = {ML_FEAT_TURB_MAD_OVER_MEAN, ML_FEAT_TURB_ZCR};
-    const MLStatNeeds none = ml_series_needs(turb_only, 2, /*l1=*/true);
+    const uint8_t turb_only[2] = {
+        ML_FEAT_TURB_IQR_OVER_MEAN_AGGR, ML_FEAT_TURB_ZCR};
+    const MLStatNeeds none = ml_series_needs(
+        turb_only, 2, MLFeatureSource::L1_DELTA_SERIES);
     TEST_ASSERT_FALSE(none.sorted);
     TEST_ASSERT_FALSE(none.autocorr);
 }
@@ -348,14 +385,53 @@ void test_ml_feature_source_separates_tracker_from_series(void) {
 
     TEST_ASSERT_FALSE(ml_feature_needs_l1_tracker(ML_FEAT_TURB_ZCR));
     TEST_ASSERT_FALSE(ml_feature_needs_l1_series(ML_FEAT_TURB_ZCR));
+    TEST_ASSERT_TRUE(
+        ml_feature_needs_aggregated_turbulence(
+            ML_FEAT_TURB_IQR_OVER_MEAN_AGGR));
+    TEST_ASSERT_FALSE(
+        ml_feature_needs_l1_tracker(ML_FEAT_TURB_IQR_OVER_MEAN_AGGR));
 
     // A tracker-sourced id contributes no series statistics on either side.
     const uint8_t ratio_only[1] = {ML_FEAT_L1_DELTA_LAG_RATIO};
-    for (bool l1 : {false, true}) {
-        const MLStatNeeds needs = ml_series_needs(ratio_only, 1, l1);
+    for (MLFeatureSource source : {
+            MLFeatureSource::TURBULENCE_SERIES,
+            MLFeatureSource::AGGREGATED_TURBULENCE_SERIES,
+            MLFeatureSource::L1_DELTA_SERIES}) {
+        const MLStatNeeds needs = ml_series_needs(ratio_only, 1, source);
         TEST_ASSERT_FALSE(needs.sorted);
         TEST_ASSERT_FALSE(needs.autocorr);
     }
+}
+
+void test_aggregated_iqr_feature_matches_python_percentiles(void) {
+    const float turb[4] = {5.0f, 5.0f, 5.0f, 5.0f};
+    const float aggregated[4] = {1.0f, 2.0f, 4.0f, 8.0f};
+    const uint8_t ids[1] = {ML_FEAT_TURB_IQR_OVER_MEAN_AGGR};
+    float features[1];
+    float sorted_scratch[4];
+    float abs_devs[4];
+    const MLSeriesScratch scratch{sorted_scratch, abs_devs, 4U};
+    extract_ml_features_by_id(
+        turb, 4, aggregated, 4, nullptr, 0, ids, 1, features,
+        scratch, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.8666667f, features[0]);
+}
+
+void test_w5_aggregation_averages_live_bin_magnitudes(void) {
+    int8_t csi[HT20_CSI_LEN] = {0};
+    for (uint8_t bin = 0U; bin < HT20_NUM_SUBCARRIERS; ++bin) {
+        csi[bin * 2U + 1U] = static_cast<int8_t>(bin);
+    }
+    const uint8_t selected[4] = {4U, 28U, 36U, 60U};
+    float amplitudes[4] = {0.0f};
+    const uint8_t count = extract_adjacent_aggregated_subcarrier_amplitudes(
+        csi, sizeof(csi), selected, 4U, TURB_IQR_AGGREGATION_WIDTH,
+        amplitudes, 4U);
+    TEST_ASSERT_EQUAL_UINT8(4U, count);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 6.0f, amplitudes[0]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 28.0f, amplitudes[1]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 36.0f, amplitudes[2]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 58.0f, amplitudes[3]);
 }
 
 // ============================================================================
@@ -430,6 +506,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ml_detector_default_constructor);
     RUN_TEST(test_ml_detector_custom_constructor);
     RUN_TEST(test_ml_detector_get_name);
+    RUN_TEST(test_ml_production_feature_schema);
     RUN_TEST(test_ml_detector_honours_shared_state_contract);
     RUN_TEST(test_ml_detector_hampel_master_switch_controls_both_streams);
     
@@ -452,6 +529,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_zero_crossing_rate_alternating_signal);
     RUN_TEST(test_ml_series_needs_tracks_only_referenced_stats);
     RUN_TEST(test_ml_feature_source_separates_tracker_from_series);
+    RUN_TEST(test_aggregated_iqr_feature_matches_python_percentiles);
+    RUN_TEST(test_w5_aggregation_averages_live_bin_magnitudes);
     
     // Subcarriers tests
     RUN_TEST(test_ml_subcarriers_count);

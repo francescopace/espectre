@@ -317,6 +317,20 @@ class TestCalculateSpatialTurbulence:
         assert ctx._amplitude_count == len(default_subcarriers)
         assert turb >= 0.0
 
+    def test_w5_adjacent_aggregation_averages_live_bin_magnitudes(self):
+        csi_data = np.zeros(128, dtype=np.int8)
+        for subcarrier in range(64):
+            csi_data[subcarrier * 2 + 1] = subcarrier
+        ctx = SegmentationContext(adjacent_aggregation_width=5)
+
+        _, amplitudes = ctx.calculate_spatial_turbulence(
+            csi_data,
+            (4, 28, 36, 60),
+            return_amplitudes=True,
+        )
+
+        assert amplitudes == pytest.approx([6.0, 28.0, 36.0, 58.0])
+
 
 class TestEndToEnd:
     """End-to-end turbulence-buffer integration tests"""

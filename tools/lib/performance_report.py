@@ -443,7 +443,13 @@ def load_real_data_cached(static_presence_path: str | Path, motion_path: str | P
 def _resolve_ml_replay_feature_names(feature_names: Sequence[str] = ()) -> tuple[str, ...]:
     """Validate and normalize one requested ML replay feature subset."""
     requested = tuple(str(name) for name in (feature_names or tuple(RUNTIME_FEATURE_NAMES)))
-    missing = [name for name in requested if name not in RUNTIME_FEATURE_NAMES]
+    supported = set(RUNTIME_FEATURE_NAMES)
+    try:
+        from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
+        supported.update(str(name) for name in EXPORTED_FEATURE_NAMES)
+    except (ImportError, AttributeError):
+        pass
+    missing = [name for name in requested if name not in supported]
     if missing:
         raise ValueError(
             "Time-aware replay rows only support runtime ML features: "
@@ -520,8 +526,16 @@ def build_ml_replay_rows(
     """Build reset-aware ML rows and project them onto one sampling contract."""
     from ml_detector import MLDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES
 
-    assert tuple(EXPORTED_FEATURE_NAMES) == tuple(RUNTIME_FEATURE_NAMES)
     requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
+    missing = [
+        name for name in requested_feature_names
+        if name not in EXPORTED_FEATURE_NAMES
+    ]
+    if missing:
+        raise ValueError(
+            "The currently exported ML detector cannot produce replay rows for: "
+            + ", ".join(missing)
+        )
     normalized_contract = _normalize_ml_sample_contract(sample_contract)
     if not packets:
         return _empty_ml_replay_rows(requested_feature_names)
@@ -602,7 +616,8 @@ def load_or_compute_ml_replay_rows(
         raise ValueError("pass packets or packets_factory, not both")
     requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
     normalized_contract = _normalize_ml_sample_contract(sample_contract)
-    cached_feature_names = tuple(RUNTIME_FEATURE_NAMES)
+    from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
+    cached_feature_names = tuple(EXPORTED_FEATURE_NAMES)
     parameters = npz_cache.ml_replay_row_parameters(
         selected_subcarriers=selected_subcarriers,
         window_size=window_size,

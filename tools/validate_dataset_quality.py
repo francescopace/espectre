@@ -209,7 +209,7 @@ VALIDATION_DOMAIN_LABELS = {
 }
 VALIDATION_FEATURE_NAMES = tuple(DEFAULT_FEATURES)
 FEATURE_EVIDENCE_DIRECTIONS = {
-    "turb_mad_over_mean": 1.0,
+    "turb_iqr_over_mean_aggr": 1.0,
     "turb_autocorr": 1.0,
     "turb_zcr": -1.0,
     "l1_delta_autocorr": 1.0,

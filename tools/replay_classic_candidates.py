@@ -2,16 +2,16 @@
 """
 ESPectre - Classic Candidate Replay
 
-Research-only fitter and replay harness for pair and triplet Classic detector
+Research-only fitter and replay harness for one- and two-feature Classic detector
 candidates. It mirrors the grouped logistic fit and startup-threshold workflow
 of `fit_classic_detector.py`, but never writes runtime artifacts.
 
 Usage:
-    python tools/replay_classic_candidates.py \
-        --features turb_autocorr,chan_freq_coh_curve_std \
-        --features turb_autocorr,chan_freq_coh_curve_std,chan_coh_gap
-    python tools/replay_classic_candidates.py --json \
-        --features turb_mad_over_mean,turb_autocorr,l1_delta_lag_ratio
+    python tools/replay_classic_candidates.py --features turb_autocorr
+    python tools/replay_classic_candidates.py --stress-augment \\
+        --features turb_iqr_over_mean_aggr,l1_delta_lag_ratio
+    python tools/replay_classic_candidates.py --calibration robust_logit \\
+        --features turb_autocorr,chan_freq_coh_curve_std
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -70,6 +70,16 @@ PRIMARY_ROLES = DISCOVERY_ROLES + (HOLDOUT_ROLE,)
 EXCLUDE_ROLE = "exclude"
 REPLAY_ROLES = PRIMARY_ROLES + (EXCLUDE_ROLE,)
 CURRENT_CLASSIC_COMBINATION = ("turb_autocorr", "chan_freq_coh_curve_std")
+CALIBRATION_Q95_SHIFT = "q95_shift"
+CALIBRATION_ROBUST_LOGIT = "robust_logit"
+CALIBRATION_FEATURE_SHIFT = "feature_shift"
+CALIBRATION_GUARDED_UPWARD = "guarded_upward"
+CALIBRATION_MODES = (
+    CALIBRATION_Q95_SHIFT,
+    CALIBRATION_ROBUST_LOGIT,
+    CALIBRATION_FEATURE_SHIFT,
+    CALIBRATION_GUARDED_UPWARD,
+)
 RUNTIME_READY_FEATURES = tuple(FEATURE_NAMES)
 HOST_ONLY_FEATURES = tuple(CANDIDATE_FEATURES)
 
@@ -87,7 +97,7 @@ def parse_args() -> argparse.Namespace:
         "--features",
         action="append",
         default=[],
-        help="candidate feature set as feature_a,feature_b[,feature_c]",
+        help="candidate feature set as feature_a[,feature_b]",
     )
     parser.add_argument(
         "--json",
@@ -113,6 +123,16 @@ def parse_args() -> argparse.Namespace:
         help="reject operating points whose worst train session falls below this recall",
     )
     parser.add_argument(
+        "--calibration",
+        action="append",
+        choices=CALIBRATION_MODES,
+        default=[],
+        help=(
+            "calibration family to replay; repeat for a comparison "
+            f"(default: {CALIBRATION_Q95_SHIFT})"
+        ),
+    )
+    parser.add_argument(
         "--startup-strength",
         action="append",
         type=float,
@@ -120,6 +140,56 @@ def parse_args() -> argparse.Namespace:
         help=(
             "startup calibration strength to replay; repeat for a grid "
             f"(default: {ClassicDetector.STARTUP_STRENGTH})"
+        ),
+    )
+    parser.add_argument(
+        "--robust-scale-floor-ratio",
+        action="append",
+        type=float,
+        default=[],
+        help=(
+            "minimum session IQR as a fraction of the training idle IQR for "
+            "robust_logit; repeat for a grid (default: 0.25)"
+        ),
+    )
+    parser.add_argument(
+        "--feature-startup-quantile",
+        action="append",
+        type=float,
+        default=[],
+        help=(
+            "per-feature startup location quantile for feature_shift; repeat "
+            "for a grid (default: 0.5)"
+        ),
+    )
+    parser.add_argument(
+        "--upward-blocks",
+        action="append",
+        type=int,
+        default=[],
+        help=(
+            "guarded quiet blocks required before upward recovery; repeat for "
+            "a grid (default: 3)"
+        ),
+    )
+    parser.add_argument(
+        "--upward-quantile",
+        action="append",
+        type=float,
+        default=[],
+        help=(
+            "within-block quantile used by guarded upward recovery; repeat "
+            "for a grid (default: 0.95)"
+        ),
+    )
+    parser.add_argument(
+        "--upward-max-positive-fraction",
+        action="append",
+        type=float,
+        default=[],
+        help=(
+            "maximum positive fraction for a block to count as quiet; repeat "
+            "for a grid (default: 0.5)"
         ),
     )
     parser.add_argument(
@@ -138,6 +208,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "include train-role empty recordings as idle hard negatives in "
             "the coefficient and operating-point fit"
+        ),
+    )
+    parser.add_argument(
+        "--stress-augment",
+        action="store_true",
+        help=(
+            "rank clean-fitted candidates by their worst discovery result over "
+            "clean, base, drift, burst-loss, and the combined packet recipe"
         ),
     )
     parser.add_argument(
@@ -160,9 +238,9 @@ def parse_feature_sets(raw_specs: Sequence[str]) -> List[Tuple[str, ...]]:
     parsed: List[Tuple[str, ...]] = []
     for raw in raw_specs:
         names = [part.strip() for part in raw.split(",") if part.strip()]
-        if len(names) < 2 or len(names) > 3:
+        if len(names) < 1 or len(names) > 2:
             raise ReplayError(
-                f"Invalid --features {raw!r}; expected 2 or 3 distinct features"
+                f"Invalid --features {raw!r}; expected 1 or 2 distinct features"
             )
         if len(set(names)) != len(names):
             raise ReplayError(f"Invalid --features {raw!r}; features must differ")
@@ -271,6 +349,8 @@ def build_replay_cache(
     feature_names: Sequence[str],
     *,
     quiet: bool,
+    packet_augmentation: Optional[Mapping[str, Any]] = None,
+    augmentation_seed: Optional[int] = None,
 ) -> Dict[str, Dict[str, np.ndarray]]:
     unique_paths = sorted({str(path) for path in paths})
     cache: Dict[str, Dict[str, np.ndarray]] = {}
@@ -279,13 +359,33 @@ def build_replay_cache(
         path = Path(path_text)
         if not quiet:
             print(f"  [{index}/{len(unique_paths)}] {path.name}", flush=True)
+        packets_factory = None
+        stream_provenance = None
+        if packet_augmentation:
+            def packets_factory(source_path: Path = path):
+                record = {
+                    "path": source_path,
+                    "packets": load_npz_as_packets(source_path),
+                }
+                return train_ml_model._prepare_feature_packets_for_record(
+                    record,
+                    packet_augmentation=packet_augmentation,
+                    augmentation_seed=augmentation_seed,
+                )
+
+            stream_provenance = train_ml_model._packet_augmentation_stream_provenance(
+                packet_augmentation,
+                augmentation_seed,
+            )
         if runtime_ready:
             replay_rows = load_or_compute_ml_replay_rows(
                 path,
+                packets_factory=packets_factory,
                 selected_subcarriers=config.DEFAULT_SUBCARRIERS,
                 window_size=config.SEG_WINDOW_SIZE,
                 feature_names=feature_names,
                 sample_contract="replay_tick",
+                stream_provenance=stream_provenance,
             )
             rows = np.asarray(replay_rows["X"], dtype=np.float64)
             packet_index = np.asarray(replay_rows["packet_index"], dtype=np.int64)
@@ -301,8 +401,13 @@ def build_replay_cache(
                     deoverlapped[row_index] = True
                     last_boundary_by_reset[int(reset)] = int(packet)
         else:
+            packets = (
+                packets_factory()
+                if packets_factory is not None
+                else load_npz_as_packets(path)
+            )
             rows, deoverlapped = extract_window_features(
-                load_npz_as_packets(path),
+                packets,
                 feature_names,
             )
         cache[path_text] = {
@@ -397,6 +502,131 @@ def probability(logit: float) -> float:
     return 1.0 / (1.0 + math.exp(-logit))
 
 
+def probability_logit(value: float) -> float:
+    clipped = min(1.0 - 1e-12, max(1e-12, float(value)))
+    return math.log(clipped / (1.0 - clipped))
+
+
+def robust_location_scale(
+    values: np.ndarray,
+    *,
+    minimum_scale: float = 1e-6,
+) -> Tuple[float, float]:
+    """Return a median/IQR summary with a finite positive scale."""
+    values = np.asarray(values, dtype=np.float64)
+    if values.size == 0:
+        raise ReplayError("Robust calibration requires at least one value")
+    location = float(np.median(values))
+    scale = float(np.quantile(values, 0.75) - np.quantile(values, 0.25))
+    return location, max(float(minimum_scale), scale)
+
+
+def calibration_policy(
+    mode: str,
+    *,
+    startup_strength: float,
+    robust_scale_floor_ratio: float = 0.25,
+    feature_startup_quantile: float = 0.5,
+    upward_blocks: int = 3,
+    upward_quantile: float = 0.95,
+    upward_max_positive_fraction: float = 0.5,
+) -> Dict[str, Any]:
+    """Build a serializable research calibration policy."""
+    if mode not in CALIBRATION_MODES:
+        raise ReplayError(f"Unknown calibration mode: {mode}")
+    return {
+        "mode": mode,
+        "startup_strength": float(startup_strength),
+        "robust_scale_floor_ratio": float(robust_scale_floor_ratio),
+        "feature_startup_quantile": float(feature_startup_quantile),
+        "upward_blocks": int(upward_blocks),
+        "upward_quantile": float(upward_quantile),
+        "upward_max_positive_fraction": float(upward_max_positive_fraction),
+    }
+
+
+def calibration_references(
+    fit_x: np.ndarray,
+    fit_y: np.ndarray,
+    coefficients: Mapping[str, Any],
+    oof_scores: np.ndarray,
+    dense_y: np.ndarray,
+    policy: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Fit training-only reference statistics for one calibration family."""
+    idle_x = np.asarray(fit_x[fit_y == IDLE_LABEL], dtype=np.float64)
+    idle_logits = logits(idle_x, coefficients)
+    references: Dict[str, Any] = {
+        "idle_q95_logit": float(
+            np.quantile(idle_logits, ClassicDetector.STARTUP_QUANTILE)
+        )
+    }
+    mode = str(policy["mode"])
+    if mode == CALIBRATION_ROBUST_LOGIT:
+        final_location, final_scale = robust_location_scale(idle_logits)
+        oof_location, oof_scale = robust_location_scale(
+            np.asarray(oof_scores[dense_y == IDLE_LABEL], dtype=np.float64)
+        )
+        references.update(
+            {
+                "final_location": final_location,
+                "final_scale": final_scale,
+                "oof_location": oof_location,
+                "oof_scale": oof_scale,
+            }
+        )
+    elif mode == CALIBRATION_FEATURE_SHIFT:
+        quantile = float(policy["feature_startup_quantile"])
+        references["feature_location"] = [
+            float(value) for value in np.quantile(idle_x, quantile, axis=0)
+        ]
+    return references
+
+
+def feature_location_contribution(
+    rows: np.ndarray,
+    coefficients: Mapping[str, Any],
+    quantile: float,
+    sample_limit: int,
+) -> Optional[float]:
+    prefix_count = min(len(rows), int(sample_limit))
+    if prefix_count <= 0:
+        return None
+    location = np.quantile(
+        np.asarray(rows[:prefix_count], dtype=np.float64),
+        float(quantile),
+        axis=0,
+    )
+    weight = np.asarray(coefficients["weight"], dtype=np.float64)
+    scale = np.asarray(coefficients["scale"], dtype=np.float64)
+    return float(np.dot(location, weight / scale))
+
+
+def effective_robust_stats(
+    series_logits: np.ndarray,
+    references: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    startup_sample_limit: int,
+) -> Tuple[float, float]:
+    prefix_count = min(len(series_logits), int(startup_sample_limit))
+    reference_location = float(references["final_location"])
+    reference_scale = float(references["final_scale"])
+    if prefix_count <= 0:
+        return reference_location, reference_scale
+    floor = reference_scale * float(policy["robust_scale_floor_ratio"])
+    session_location, session_scale = robust_location_scale(
+        series_logits[:prefix_count],
+        minimum_scale=floor,
+    )
+    strength = float(policy["startup_strength"])
+    effective_location = reference_location + strength * (
+        session_location - reference_location
+    )
+    scale_ratio = max(session_scale, floor) / reference_scale
+    effective_scale = reference_scale * math.pow(scale_ratio, strength)
+    return effective_location, effective_scale
+
+
 def startup_evaluation_limit(
     calibration_packets: int,
     window_packets: int,
@@ -447,6 +677,78 @@ def session_centered_replay_scores(
         )
         centered[session_mask] -= float(startup_strength) * session_q95
     return centered
+
+
+def calibrated_replay_scores(
+    scores: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    sessions: np.ndarray,
+    coefficients: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    references: Mapping[str, Any],
+    startup_sample_limit: int,
+) -> np.ndarray:
+    """Map dense OOF scores into the selected causal calibration frame."""
+    mode = str(policy["mode"])
+    strength = float(policy["startup_strength"])
+    if mode in (CALIBRATION_Q95_SHIFT, CALIBRATION_GUARDED_UPWARD):
+        return session_centered_replay_scores(
+            scores,
+            y,
+            sessions,
+            strength,
+            startup_sample_limit,
+        )
+
+    if mode == CALIBRATION_ROBUST_LOGIT:
+        calibrated = (
+            np.asarray(scores, dtype=np.float64)
+            - float(references["oof_location"])
+        ) / float(references["oof_scale"])
+    else:
+        calibrated = np.asarray(scores, dtype=np.float64).copy()
+    sessions = np.asarray(sessions, dtype=object)
+    for session_name in np.unique(sessions):
+        session_mask = sessions == session_name
+        idle_mask = session_mask & (y == IDLE_LABEL)
+        idle_indices = np.flatnonzero(idle_mask)[:startup_sample_limit]
+        if idle_indices.size == 0:
+            continue
+        if mode == CALIBRATION_FEATURE_SHIFT:
+            contribution = feature_location_contribution(
+                np.asarray(x[idle_indices], dtype=np.float64),
+                coefficients,
+                float(policy["feature_startup_quantile"]),
+                startup_sample_limit,
+            )
+            if contribution is not None:
+                calibrated[session_mask] -= strength * contribution
+            continue
+
+        if mode == CALIBRATION_ROBUST_LOGIT:
+            reference_location = float(references["oof_location"])
+            reference_scale = float(references["oof_scale"])
+            floor = reference_scale * float(policy["robust_scale_floor_ratio"])
+            session_location, session_scale = robust_location_scale(
+                scores[idle_indices],
+                minimum_scale=floor,
+            )
+            effective_location = reference_location + strength * (
+                session_location - reference_location
+            )
+            effective_scale = reference_scale * math.pow(
+                max(session_scale, floor) / reference_scale,
+                strength,
+            )
+            calibrated[session_mask] = (
+                np.asarray(scores[session_mask], dtype=np.float64)
+                - effective_location
+            ) / effective_scale
+            continue
+
+        raise ReplayError(f"Unsupported calibration mode: {mode}")
+    return calibrated
 
 
 def dense_out_of_fold_logits(
@@ -505,6 +807,63 @@ def startup_threshold(
     return probability(adapted_logit)
 
 
+def calibrated_startup_threshold(
+    rows: np.ndarray,
+    series_logits: np.ndarray,
+    coefficients: Mapping[str, Any],
+    base_threshold: float,
+    policy: Mapping[str, Any],
+    references: Mapping[str, Any],
+    startup_sample_limit: int,
+) -> float:
+    """Apply one startup family using only the stream's causal prefix."""
+    mode = str(policy["mode"])
+    strength = float(policy["startup_strength"])
+    if mode in (CALIBRATION_Q95_SHIFT, CALIBRATION_GUARDED_UPWARD):
+        return startup_threshold(
+            series_logits,
+            base_threshold,
+            float(references["idle_q95_logit"]),
+            strength,
+            startup_sample_limit,
+        )
+    if mode == CALIBRATION_FEATURE_SHIFT:
+        session_contribution = feature_location_contribution(
+            rows,
+            coefficients,
+            float(policy["feature_startup_quantile"]),
+            startup_sample_limit,
+        )
+        if session_contribution is None:
+            return float(base_threshold)
+        reference_location = np.asarray(
+            references["feature_location"], dtype=np.float64
+        )
+        weight = np.asarray(coefficients["weight"], dtype=np.float64)
+        scale = np.asarray(coefficients["scale"], dtype=np.float64)
+        reference_contribution = float(np.dot(reference_location, weight / scale))
+        return probability(
+            probability_logit(base_threshold)
+            + strength * (session_contribution - reference_contribution)
+        )
+    if mode == CALIBRATION_ROBUST_LOGIT:
+        effective_location, effective_scale = effective_robust_stats(
+            series_logits,
+            references,
+            policy,
+            startup_sample_limit,
+        )
+        reference_location = float(references["final_location"])
+        reference_scale = float(references["final_scale"])
+        standardized_threshold = (
+            probability_logit(base_threshold) - reference_location
+        ) / reference_scale
+        return probability(
+            effective_location + effective_scale * standardized_threshold
+        )
+    raise ReplayError(f"Unsupported calibration mode: {mode}")
+
+
 def replay_one_stream(
     rows: np.ndarray,
     coefficients: Dict[str, Any],
@@ -515,30 +874,57 @@ def replay_one_stream(
     startup_sample_limit: int,
     settle_margin_logits: float,
     initial_threshold: Optional[float] = None,
+    calibration: Optional[Mapping[str, Any]] = None,
+    references: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     if rows.size == 0:
         return {"eval_count": 0, "positive_count": 0, "positive_rate": 0.0}
     series_logits = logits(rows, coefficients)
+    policy = (
+        dict(calibration)
+        if calibration is not None
+        else calibration_policy(
+            CALIBRATION_Q95_SHIFT,
+            startup_strength=startup_strength,
+        )
+    )
+    calibration_refs = (
+        dict(references)
+        if references is not None
+        else {"idle_q95_logit": float(idle_q95)}
+    )
     threshold = (
-        startup_threshold(
+        calibrated_startup_threshold(
+            rows,
             series_logits,
+            coefficients,
             base_threshold,
-            idle_q95,
-            startup_strength,
+            policy,
+            calibration_refs,
             startup_sample_limit,
         )
         if initial_threshold is None
         else float(initial_threshold)
     )
+    initial_threshold_value = float(threshold)
+    initial_threshold_logit = probability_logit(initial_threshold_value)
     settle_blocks: List[float] = []
     block_max = -1e9
+    block_values: List[float] = []
+    block_positive_count = 0
+    upward_blocks: List[float] = []
     block_count = 0
     positive_count = 0
     for logit_value in series_logits:
+        was_positive = probability(float(logit_value)) > threshold
         if logit_value > block_max:
             block_max = float(logit_value)
+        block_values.append(float(logit_value))
+        if was_positive:
+            block_positive_count += 1
         block_count += 1
         if block_count >= ClassicDetector.SETTLE_BLOCK_EVALUATIONS:
+            completed_block_count = block_count
             settle_blocks.append(block_max)
             if len(settle_blocks) > ClassicDetector.SETTLE_BLOCKS:
                 settle_blocks.pop(0)
@@ -551,6 +937,33 @@ def replay_one_stream(
                 )
                 if settled_threshold < threshold:
                     threshold = settled_threshold
+            if str(policy["mode"]) == CALIBRATION_GUARDED_UPWARD:
+                positive_fraction = block_positive_count / completed_block_count
+                if positive_fraction <= float(
+                    policy["upward_max_positive_fraction"]
+                ):
+                    upward_blocks.append(
+                        float(
+                            np.quantile(
+                                block_values,
+                                float(policy["upward_quantile"]),
+                            )
+                        )
+                    )
+                    if len(upward_blocks) > int(policy["upward_blocks"]):
+                        upward_blocks.pop(0)
+                else:
+                    upward_blocks = []
+                if len(upward_blocks) >= int(policy["upward_blocks"]):
+                    recovered_level = float(np.median(upward_blocks))
+                    candidate_logit = min(
+                        initial_threshold_logit,
+                        recovered_level + float(settle_margin_logits),
+                    )
+                    if candidate_logit > probability_logit(threshold):
+                        threshold = probability(candidate_logit)
+            block_values = []
+            block_positive_count = 0
         if probability(float(logit_value)) > threshold:
             positive_count += 1
     eval_count = int(len(series_logits))
@@ -559,6 +972,7 @@ def replay_one_stream(
         "positive_count": positive_count,
         "positive_rate": 100.0 * positive_count / eval_count if eval_count else 0.0,
         "threshold": float(threshold),
+        "initial_threshold": initial_threshold_value,
     }
 
 
@@ -572,12 +986,30 @@ def replay_one_pair(
     startup_strength: float,
     startup_sample_limit: int,
     settle_margin_logits: float,
+    calibration: Optional[Mapping[str, Any]] = None,
+    references: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    initial_threshold = startup_threshold(
-        logits(static_rows, coefficients),
+    policy = (
+        dict(calibration)
+        if calibration is not None
+        else calibration_policy(
+            CALIBRATION_Q95_SHIFT,
+            startup_strength=startup_strength,
+        )
+    )
+    calibration_refs = (
+        dict(references)
+        if references is not None
+        else {"idle_q95_logit": float(idle_q95)}
+    )
+    static_logits = logits(static_rows, coefficients)
+    initial_threshold = calibrated_startup_threshold(
+        static_rows,
+        static_logits,
+        coefficients,
         base_threshold,
-        idle_q95,
-        startup_strength,
+        policy,
+        calibration_refs,
         startup_sample_limit,
     )
     static_metrics = replay_one_stream(
@@ -589,6 +1021,8 @@ def replay_one_pair(
         startup_sample_limit=startup_sample_limit,
         settle_margin_logits=settle_margin_logits,
         initial_threshold=initial_threshold,
+        calibration=policy,
+        references=calibration_refs,
     )
     motion_metrics = replay_one_stream(
         motion_rows,
@@ -599,6 +1033,8 @@ def replay_one_pair(
         startup_sample_limit=startup_sample_limit,
         settle_margin_logits=settle_margin_logits,
         initial_threshold=initial_threshold,
+        calibration=policy,
+        references=calibration_refs,
     )
     return {
         "static": static_metrics,
@@ -695,6 +1131,7 @@ def evaluate_candidate(
     *,
     startup_strength: float,
     settle_margin_logits: float,
+    calibration: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     combination = tuple(combination)
     runtime_ready = all(name in RUNTIME_READY_FEATURES for name in combination)
@@ -735,19 +1172,37 @@ def evaluate_candidate(
     if oof is None:
         score_source = "in-sample"
         oof = logits(x, coefficients)
-    idle_logits = logits(fit_x[fit_y == IDLE_LABEL], coefficients)
-    idle_q95 = float(np.quantile(idle_logits, ClassicDetector.STARTUP_QUANTILE))
+    policy = (
+        dict(calibration)
+        if calibration is not None
+        else calibration_policy(
+            CALIBRATION_Q95_SHIFT,
+            startup_strength=startup_strength,
+        )
+    )
+    references = calibration_references(
+        fit_x,
+        fit_y,
+        coefficients,
+        oof,
+        y,
+        policy,
+    )
+    idle_q95 = float(references["idle_q95_logit"])
     startup_sample_limit = startup_evaluation_limit(
         config.CALIBRATION_BUFFER_SIZE,
         config.SEG_WINDOW_SIZE,
         config.EVALUATION_INTERVAL,
         ClassicDetector.STARTUP_SAMPLE_LIMIT,
     )
-    centered = session_centered_replay_scores(
+    centered = calibrated_replay_scores(
         oof,
+        x,
         y,
         corpus["session"],
-        startup_strength,
+        coefficients,
+        policy,
+        references,
         startup_sample_limit,
     )
     centered_threshold, train_metrics = choose_base_threshold(
@@ -759,9 +1214,28 @@ def evaluate_candidate(
         min_session_recall=args.min_session_recall,
     )
     centered_logit = float(np.log(centered_threshold / (1.0 - centered_threshold)))
-    base_threshold = probability(
-        centered_logit + float(startup_strength) * idle_q95
-    )
+    mode = str(policy["mode"])
+    if mode in (CALIBRATION_Q95_SHIFT, CALIBRATION_GUARDED_UPWARD):
+        base_logit = centered_logit + float(policy["startup_strength"]) * idle_q95
+    elif mode == CALIBRATION_FEATURE_SHIFT:
+        feature_location = np.asarray(
+            references["feature_location"], dtype=np.float64
+        )
+        contribution = float(
+            np.dot(
+                feature_location,
+                np.asarray(coefficients["weight"], dtype=np.float64)
+                / np.asarray(coefficients["scale"], dtype=np.float64),
+            )
+        )
+        base_logit = centered_logit + float(policy["startup_strength"]) * contribution
+    elif mode == CALIBRATION_ROBUST_LOGIT:
+        base_logit = float(references["final_location"]) + float(
+            references["final_scale"]
+        ) * centered_logit
+    else:
+        raise ReplayError(f"Unsupported calibration mode: {mode}")
+    base_threshold = probability(base_logit)
 
     cols = [feature_index[name] for name in combination]
     paired_rows: List[Dict[str, Any]] = []
@@ -783,6 +1257,8 @@ def evaluate_candidate(
             startup_strength=startup_strength,
             startup_sample_limit=startup_sample_limit,
             settle_margin_logits=settle_margin_logits,
+            calibration=policy,
+            references=references,
         )
         static_metrics = replay_metrics["static"]
         motion_metrics = replay_metrics["motion"]
@@ -812,6 +1288,8 @@ def evaluate_candidate(
             startup_strength=startup_strength,
             startup_sample_limit=startup_sample_limit,
             settle_margin_logits=settle_margin_logits,
+            calibration=policy,
+            references=references,
         )
         idle_rows.append(
             {
@@ -853,6 +1331,8 @@ def evaluate_candidate(
             discovery_idle_summary,
         ),
         "startup_strength": float(startup_strength),
+        "calibration": dict(policy),
+        "calibration_references": dict(references),
         "startup_sample_limit": int(startup_sample_limit),
         "settle_margin_logits": float(settle_margin_logits),
         "train_empty_hard_negatives": include_train_empty,
@@ -886,6 +1366,124 @@ def evaluate_candidate(
     }
 
 
+def evaluate_fixed_candidate(
+    fitted: Mapping[str, Any],
+    pairs: Sequence[Mapping[str, Any]],
+    empties: Sequence[Mapping[str, Any]],
+    cache: Mapping[str, Mapping[str, np.ndarray]],
+    feature_index: Mapping[str, int],
+) -> Dict[str, Any]:
+    """Replay clean-fitted constants on another packet stream without refitting."""
+    combination = tuple(str(name) for name in fitted["combination"])
+    cols = [feature_index[name] for name in combination]
+    raw_coefficients = fitted["coefficients"]
+    coefficients = {
+        "center": np.asarray(raw_coefficients["center"], dtype=np.float64),
+        "scale": np.asarray(raw_coefficients["scale"], dtype=np.float64),
+        "weight": np.asarray(raw_coefficients["weight"], dtype=np.float64),
+        "intercept": float(raw_coefficients["intercept"]),
+    }
+    base_threshold = float(fitted["base_threshold"])
+    idle_q95 = float(fitted["train_idle_q95_logit"])
+    startup_strength = float(fitted["startup_strength"])
+    startup_sample_limit = int(fitted["startup_sample_limit"])
+    settle_margin_logits = float(fitted["settle_margin_logits"])
+    policy = dict(
+        fitted.get(
+            "calibration",
+            calibration_policy(
+                CALIBRATION_Q95_SHIFT,
+                startup_strength=startup_strength,
+            ),
+        )
+    )
+    references = dict(
+        fitted.get(
+            "calibration_references",
+            {"idle_q95_logit": idle_q95},
+        )
+    )
+
+    paired_rows: List[Dict[str, Any]] = []
+    for pair in pairs:
+        static_rows = np.asarray(
+            cache[str(pair["static_path"])]["rows"][:, cols], dtype=np.float64
+        )
+        motion_rows = np.asarray(
+            cache[str(pair["motion_path"])]["rows"][:, cols], dtype=np.float64
+        )
+        replay_metrics = replay_one_pair(
+            static_rows,
+            motion_rows,
+            coefficients,
+            base_threshold,
+            idle_q95,
+            startup_strength=startup_strength,
+            startup_sample_limit=startup_sample_limit,
+            settle_margin_logits=settle_margin_logits,
+            calibration=policy,
+            references=references,
+        )
+        paired_rows.append(
+            {
+                "session": pair["session"],
+                "role": pair["role"],
+                "chip": pair["chip"],
+                "low_rssi": bool(pair["low_rssi"]),
+                "static_eval_count": int(replay_metrics["static"]["eval_count"]),
+                "motion_eval_count": int(replay_metrics["motion"]["eval_count"]),
+                "fp_rate": float(replay_metrics["static"]["positive_rate"]),
+                "recall": float(replay_metrics["motion"]["positive_rate"]),
+            }
+        )
+
+    idle_rows: List[Dict[str, Any]] = []
+    for empty in empties:
+        rows = np.asarray(
+            cache[str(empty["path"])]["rows"][:, cols], dtype=np.float64
+        )
+        metrics = replay_one_stream(
+            rows,
+            coefficients,
+            base_threshold,
+            idle_q95,
+            startup_strength=startup_strength,
+            startup_sample_limit=startup_sample_limit,
+            settle_margin_logits=settle_margin_logits,
+            calibration=policy,
+            references=references,
+        )
+        idle_rows.append(
+            {
+                "session": empty["session"],
+                "role": empty["role"],
+                "chip": empty["chip"],
+                "fp_rate": float(metrics["positive_rate"]),
+                "eval_count": int(metrics["eval_count"]),
+            }
+        )
+
+    def summarize(role_names: Sequence[str]) -> Dict[str, Any]:
+        role_set = set(role_names)
+        paired = aggregate_paired(
+            [row for row in paired_rows if row["role"] in role_set]
+        )
+        idle = aggregate_idle(
+            [row for row in idle_rows if row["role"] in role_set]
+        )
+        return {"paired": paired, "idle": idle}
+
+    discovery = summarize(DISCOVERY_ROLES)
+    holdout = summarize((HOLDOUT_ROLE,))
+    exclude = summarize((EXCLUDE_ROLE,))
+    return {
+        "score": replay_score(discovery["paired"], discovery["idle"]),
+        "discovery": discovery,
+        "holdout": holdout,
+        "exclude": exclude,
+    }
+
+
 def print_summary(result: Mapping[str, Any]) -> None:
     discovery_pairs = result["discovery"]["paired"]
     discovery_idle = result["discovery"]["idle"]
@@ -894,9 +1492,27 @@ def print_summary(result: Mapping[str, Any]) -> None:
     exclude_pairs = result["exclude"]["paired"]
     exclude_idle = result["exclude"]["idle"]
     bucket = "runtime-ready" if result["runtime_ready"] else "host-only"
+    calibration = result.get("calibration", {})
+    mode = calibration.get("mode", CALIBRATION_Q95_SHIFT)
+    calibration_detail = ""
+    if mode == CALIBRATION_ROBUST_LOGIT:
+        calibration_detail = (
+            f" floor={calibration['robust_scale_floor_ratio']:.3f}"
+        )
+    elif mode == CALIBRATION_FEATURE_SHIFT:
+        calibration_detail = (
+            f" feature_q={calibration['feature_startup_quantile']:.3f}"
+        )
+    elif mode == CALIBRATION_GUARDED_UPWARD:
+        calibration_detail = (
+            f" up_blocks={calibration['upward_blocks']}"
+            f" up_q={calibration['upward_quantile']:.3f}"
+            f" up_guard={calibration['upward_max_positive_fraction']:.3f}"
+        )
     print(
         f"#{result['rank']}  {' + '.join(result['combination'])}  "
         f"[{bucket}]  score={result['score']:.3f}  "
+        f"calibration={mode}{calibration_detail}  "
         f"startup={result['startup_strength']:.3f}  "
         f"settle_margin={result['settle_margin_logits']:.3f}"
     )
@@ -934,6 +1550,86 @@ def print_summary(result: Mapping[str, Any]) -> None:
             f"fp weighted={exclude_pairs['weighted_fp_rate']:.2f}%  "
             f"idle max={exclude_idle['max_fp_rate']:.2f}%"
         )
+    for scenario, stress in result.get("stress", {}).items():
+        stress_pairs = stress["discovery"]["paired"]
+        stress_idle = stress["discovery"]["idle"]
+        stress_holdout_pairs = stress["holdout"]["paired"]
+        stress_holdout_idle = stress["holdout"]["idle"]
+        stress_exclude_pairs = stress["exclude"]["paired"]
+        stress_exclude_idle = stress["exclude"]["idle"]
+        print(
+            "  "
+            f"stress {scenario}: score={stress['score']:.2f}  "
+            f"recall={stress_pairs['weighted_recall']:.2f}%  "
+            f"worst={stress_pairs['worst_recall']:.2f}%  "
+            f"fp={stress_pairs['weighted_fp_rate']:.2f}%  "
+            f"idle max={stress_idle['max_fp_rate']:.2f}%  "
+            f"holdout worst/idle={stress_holdout_pairs['worst_recall']:.2f}%/"
+            f"{stress_holdout_idle['max_fp_rate']:.2f}%  "
+            f"exclude recall/fp/idle={stress_exclude_pairs['weighted_recall']:.2f}%/"
+            f"{stress_exclude_pairs['weighted_fp_rate']:.2f}%/"
+            f"{stress_exclude_idle['max_fp_rate']:.2f}%"
+        )
+
+
+def iter_calibration_policies(
+    args: argparse.Namespace,
+    startup_strengths: Sequence[float],
+) -> List[Dict[str, Any]]:
+    """Expand only parameters that belong to each requested family."""
+    modes = list(args.calibration) if args.calibration else [CALIBRATION_Q95_SHIFT]
+    if CALIBRATION_Q95_SHIFT not in modes:
+        modes.insert(0, CALIBRATION_Q95_SHIFT)
+    robust_floors = args.robust_scale_floor_ratio or [0.25]
+    feature_quantiles = args.feature_startup_quantile or [0.5]
+    upward_blocks = args.upward_blocks or [3]
+    upward_quantiles = args.upward_quantile or [0.95]
+    upward_guards = args.upward_max_positive_fraction or [0.5]
+    policies: List[Dict[str, Any]] = []
+    for mode in dict.fromkeys(modes):
+        if mode == CALIBRATION_ROBUST_LOGIT:
+            for strength, floor in product(startup_strengths, robust_floors):
+                policies.append(
+                    calibration_policy(
+                        mode,
+                        startup_strength=strength,
+                        robust_scale_floor_ratio=floor,
+                    )
+                )
+        elif mode == CALIBRATION_FEATURE_SHIFT:
+            for strength, quantile in product(
+                startup_strengths,
+                feature_quantiles,
+            ):
+                policies.append(
+                    calibration_policy(
+                        mode,
+                        startup_strength=strength,
+                        feature_startup_quantile=quantile,
+                    )
+                )
+        elif mode == CALIBRATION_GUARDED_UPWARD:
+            for strength, blocks, quantile, guard in product(
+                startup_strengths,
+                upward_blocks,
+                upward_quantiles,
+                upward_guards,
+            ):
+                policies.append(
+                    calibration_policy(
+                        mode,
+                        startup_strength=strength,
+                        upward_blocks=blocks,
+                        upward_quantile=quantile,
+                        upward_max_positive_fraction=guard,
+                    )
+                )
+        else:
+            for strength in startup_strengths:
+                policies.append(
+                    calibration_policy(mode, startup_strength=strength)
+                )
+    return policies
 
 
 def main() -> int:
@@ -954,6 +1650,24 @@ def main() -> int:
         raise ReplayError("--startup-strength must be between 0 and 1")
     if any(value < 0.0 for value in settle_margins):
         raise ReplayError("--settle-margin-logits must be non-negative")
+    robust_floors = args.robust_scale_floor_ratio or [0.25]
+    feature_quantiles = args.feature_startup_quantile or [0.5]
+    upward_blocks = args.upward_blocks or [3]
+    upward_quantiles = args.upward_quantile or [0.95]
+    upward_guards = args.upward_max_positive_fraction or [0.5]
+    if any(value <= 0.0 for value in robust_floors):
+        raise ReplayError("--robust-scale-floor-ratio must be positive")
+    if any(value < 0.0 or value > 1.0 for value in feature_quantiles):
+        raise ReplayError("--feature-startup-quantile must be between 0 and 1")
+    if any(value < 1 for value in upward_blocks):
+        raise ReplayError("--upward-blocks must be at least 1")
+    if any(value < 0.0 or value > 1.0 for value in upward_quantiles):
+        raise ReplayError("--upward-quantile must be between 0 and 1")
+    if any(value < 0.0 or value > 1.0 for value in upward_guards):
+        raise ReplayError(
+            "--upward-max-positive-fraction must be between 0 and 1"
+        )
+    policies = iter_calibration_policies(args, startup_strengths)
     candidates = parse_feature_sets(args.features)
     candidate_set = {tuple(candidate) for candidate in candidates}
     candidate_set.add(CURRENT_CLASSIC_COMBINATION)
@@ -1023,8 +1737,8 @@ def main() -> int:
             candidate_index = runtime_index
         else:
             candidate_cache, candidate_index = host_bundles[candidate]
-        for startup_strength, settle_margin_logits in product(
-            startup_strengths,
+        for policy, settle_margin_logits in product(
+            policies,
             settle_margins,
         ):
             results.append(
@@ -1035,11 +1749,92 @@ def main() -> int:
                     candidate_cache,
                     candidate_index,
                     args,
-                    startup_strength=startup_strength,
+                    startup_strength=float(policy["startup_strength"]),
                     settle_margin_logits=settle_margin_logits,
+                    calibration=policy,
                 )
             )
-    ranked = sorted(results, key=lambda row: row["score"])
+    stress_scenarios: Dict[str, Mapping[str, Any]] = {}
+    if args.stress_augment:
+        for components in (
+            ("base",),
+            ("drift",),
+            ("burst-loss",),
+            ("base", "drift", "burst-loss"),
+        ):
+            scenario = "+".join(components)
+            _active, _feature_config, packet_config = (
+                train_ml_model.resolve_training_augmentation(components)
+            )
+            stress_scenarios[scenario] = packet_config
+
+        for scenario, packet_config in stress_scenarios.items():
+            print(
+                f"Extracting {scenario} packet-stress rows for "
+                f"{len(paths)} files",
+                flush=True,
+            )
+            stress_runtime_cache = build_replay_cache(
+                paths,
+                runtime_surface,
+                quiet=args.quiet,
+                packet_augmentation=packet_config,
+                augmentation_seed=train_ml_model.training_packet_augmentation_seed(
+                    packet_config
+                ),
+            )
+            stress_host_bundles: Dict[
+                Tuple[str, ...],
+                Tuple[Dict[str, Dict[str, np.ndarray]], Dict[str, int]],
+            ] = {}
+            for candidate in candidate_set:
+                if candidate in runtime_candidates:
+                    continue
+                candidate_surface = list(candidate)
+                stress_host_bundles[candidate] = (
+                    build_replay_cache(
+                        paths,
+                        candidate_surface,
+                        quiet=args.quiet,
+                        packet_augmentation=packet_config,
+                        augmentation_seed=(
+                            train_ml_model.training_packet_augmentation_seed(
+                                packet_config
+                            )
+                        ),
+                    ),
+                    {
+                        name: index
+                        for index, name in enumerate(candidate_surface)
+                    },
+                )
+            for row in results:
+                candidate = tuple(row["combination"])
+                if candidate in runtime_candidates:
+                    candidate_cache = stress_runtime_cache
+                    candidate_index = runtime_index
+                else:
+                    candidate_cache, candidate_index = stress_host_bundles[candidate]
+                row.setdefault("stress", {})[scenario] = evaluate_fixed_candidate(
+                    row,
+                    pairs,
+                    empties,
+                    candidate_cache,
+                    candidate_index,
+                )
+        for row in results:
+            row["robust_score"] = max(
+                [float(row["score"])]
+                + [float(stress["score"]) for stress in row["stress"].values()]
+            )
+
+    ranked = sorted(
+        results,
+        key=lambda row: (
+            float(row.get("robust_score", row["score"])),
+            float(row["score"]),
+        ),
+    )
     baseline_rows = []
     for rank, row in enumerate(ranked, start=1):
         row["rank"] = rank
@@ -1054,6 +1849,9 @@ def main() -> int:
         "discovery_roles": list(DISCOVERY_ROLES),
         "holdout_role": HOLDOUT_ROLE,
         "train_empty_hard_negatives": bool(args.include_train_empty),
+        "stress_packet_augmentations": {
+            name: dict(config) for name, config in stress_scenarios.items()
+        },
         "candidates": ranked,
     }
     if args.json:
@@ -1065,7 +1863,12 @@ def main() -> int:
         for row in baseline_rows:
             print_summary(row)
         print()
-    print("Candidate replay ranking:")
+    ranking_basis = (
+        "worst clean/packet-stress discovery score"
+        if args.stress_augment
+        else "clean discovery score"
+    )
+    print(f"Candidate replay ranking ({ranking_basis}):")
     for row in ranked[: args.top_k]:
         print_summary(row)
         print()

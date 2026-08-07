@@ -74,7 +74,14 @@ PROMOTED_CHANNEL_COHERENCE_FEATURES = (
 SUBBAND_COHERENCE_FEATURES = (
     'chan_coh_subband_gap_median',
 )
-SPECTRAL_FEATURES = ()
+SPECTRAL_FEATURES = (
+    'turb_iqr_over_mean',
+    'turb_p95_over_mean',
+)
+AGGREGATED_SPECTRAL_FEATURES = (
+    'turb_mad_over_mean_aggr',
+    'turb_p95_over_mean_aggr',
+)
 PHASE_FEATURES = (
     'phase_resid_lag_ratio',
     'phase_closure_var_std',
@@ -89,6 +96,7 @@ COMPOSITE_FEATURES = ()
 CANDIDATE_FEATURES: Tuple[str, ...] = (
     CHANNEL_COHERENCE_FEATURES
     + SPECTRAL_FEATURES
+    + AGGREGATED_SPECTRAL_FEATURES
     + PHASE_FEATURES
     + CHANNEL_SHAPE_FEATURES
     + COMPOSITE_FEATURES
@@ -1182,4 +1190,3 @@ class ChannelCoherenceTracker:
         self._subband_lag_median_count = 0
         self._subband_adjacent_median_slot = 0
         self._subband_adjacent_median_count = 0
-

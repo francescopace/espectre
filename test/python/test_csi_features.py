@@ -138,6 +138,7 @@ class TestExtractAllFeatures:
         buffer = [float(i) for i in range(50)]
         features = extract_features_by_name(
             buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer,
+            aggregated_turbulence_buffer=list(buffer),
             l1_delta_lag_ratio=1.0,
             **_promoted_tracker_kwargs(),
         )
@@ -147,6 +148,7 @@ class TestExtractAllFeatures:
         """Test that empty buffer returns zeros"""
         features = extract_features_by_name(
             [], 0, feature_names=DEFAULT_FEATURES, l1_delta_lag_ratio=0.0,
+            aggregated_turbulence_buffer=[],
             **_promoted_tracker_kwargs(),
         )
         assert features == [0.0] * len(DEFAULT_FEATURES)
@@ -155,6 +157,7 @@ class TestExtractAllFeatures:
         """Test that single-value buffer returns zeros"""
         features = extract_features_by_name(
             [5.0], 1, feature_names=DEFAULT_FEATURES, l1_delta_lag_ratio=0.0,
+            aggregated_turbulence_buffer=[5.0],
             **_promoted_tracker_kwargs(),
         )
         assert features == [0.0] * len(DEFAULT_FEATURES)
@@ -165,9 +168,21 @@ class TestExtractAllFeatures:
         assert FEATURE_NAMES == DEFAULT_FEATURES
 
     def test_production_set_is_the_only_feature_surface(self):
-        """The production feature registry contains only exported features."""
-        assert ALL_FEATURES == tuple(DEFAULT_FEATURES)
-        assert len(DEFAULT_FEATURES) == 10
+        """The default is compact even when one migration extractor remains."""
+        assert tuple(DEFAULT_FEATURES) == ALL_FEATURES[:len(DEFAULT_FEATURES)]
+        assert 'turb_mad_over_mean' in ALL_FEATURES
+        assert 'chan_freq_coh_cv' in ALL_FEATURES
+        assert 'chan_coh_gap' in ALL_FEATURES
+        assert 'chan_coh_subband_gap_median' in ALL_FEATURES
+        assert DEFAULT_FEATURES == [
+            'turb_iqr_over_mean_aggr',
+            'turb_autocorr',
+            'turb_zcr',
+            'l1_delta_autocorr',
+            'l1_delta_lag_ratio',
+            'chan_shape_spread',
+            'chan_freq_coh_curve_std',
+        ]
 
     def test_unknown_feature_raises(self):
         """Unknown feature names are rejected."""
@@ -181,6 +196,7 @@ class TestExtractAllFeatures:
         buffer = list(np.random.normal(5, 2, 50))
         features = extract_features_by_name(
             buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer,
+            aggregated_turbulence_buffer=list(buffer),
             l1_delta_lag_ratio=1.0,
             **_promoted_tracker_kwargs(),
         )
@@ -197,19 +213,21 @@ class TestExtractAllFeatures:
         
         idle_features = extract_features_by_name(
             idle_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=idle_buffer,
+            aggregated_turbulence_buffer=list(idle_buffer),
             l1_delta_lag_ratio=1.0,
             **_promoted_tracker_kwargs(),
         )
         motion_features = extract_features_by_name(
             motion_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=motion_buffer,
+            aggregated_turbulence_buffer=list(motion_buffer),
             l1_delta_lag_ratio=2.0,
             **_promoted_tracker_kwargs(),
         )
 
-        # turb_mad_over_mean is part of the production Core-6 set and rises with
-        # turbulence, so motion must exceed idle. The vectors must also differ.
-        mad_idx = FEATURE_NAMES.index('turb_mad_over_mean')
-        assert motion_features[mad_idx] > idle_features[mad_idx]
+        # Aggregated IQR is the production robust-dispersion feature and rises
+        # with turbulence, so motion must exceed idle.
+        iqr_idx = FEATURE_NAMES.index('turb_iqr_over_mean_aggr')
+        assert motion_features[iqr_idx] > idle_features[iqr_idx]
         assert motion_features != idle_features
 
 class TestCalcZeroCrossingRate:
@@ -249,19 +267,17 @@ class TestFeatureSemantics:
         excursion_zcr = extract_features_by_name(excursion, 50, feature_names=['turb_zcr'])[0]
         assert noise_zcr > excursion_zcr
 
-    def test_turb_zcr_survives_reused_buffer_sort(self):
-        """The mad feature sorts the reused buffer; zcr must see time order."""
-        values = [1.0, -1.0] * 25
-        combined = extract_features_by_name(
-            list(values), 50,
-            feature_names=['turb_zcr', 'turb_mad_over_mean'],
-            reuse_turbulence_buffer=True,
-        )
-        alone = extract_features_by_name(
-            list(values), 50, feature_names=['turb_zcr']
-        )
-        assert combined[0] == pytest.approx(alone[0])
-        assert combined[0] == pytest.approx(1.0)
+    def test_aggregated_iqr_matches_linear_percentiles(self):
+        turbulence = [5.0] * 4
+        aggregated = [1.0, 2.0, 4.0, 8.0]
+        value = extract_features_by_name(
+            turbulence,
+            len(turbulence),
+            feature_names=['turb_iqr_over_mean_aggr'],
+            aggregated_turbulence_buffer=aggregated,
+        )[0]
+        q25, q75 = np.percentile(aggregated, [25, 75])
+        assert value == pytest.approx((q75 - q25) / np.mean(aggregated))
 
     def test_every_production_feature_is_scale_invariant(self):
         """The reason the production set is what it is.
@@ -278,10 +294,12 @@ class TestFeatureSemantics:
 
         base = extract_features_by_name(
             turb, 50, feature_names=DEFAULT_FEATURES,
+            aggregated_turbulence_buffer=list(turb),
             l1_series=series, l1_delta_lag_ratio=1.4,
             **_promoted_tracker_kwargs())
         boosted = extract_features_by_name(
             [v * 10.0 for v in turb], 50, feature_names=DEFAULT_FEATURES,
+            aggregated_turbulence_buffer=[v * 10.0 for v in turb],
             l1_series=[v * 10.0 for v in series], l1_delta_lag_ratio=1.4,
             **_promoted_tracker_kwargs())
 

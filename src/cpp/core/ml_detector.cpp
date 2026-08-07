@@ -30,8 +30,13 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     , uses_l1_series_(false)
     , uses_shape_tracker_(false)
     , uses_coherence_tracker_(false)
+    , uses_aggregated_turbulence_(false)
     , lag_(std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX))
-    , feature_scratch_(nullptr) {
+    , feature_scratch_(nullptr)
+    , aggregated_turbulence_buffer_(nullptr)
+    , aggregated_turbulence_ordered_(nullptr)
+    , aggregated_turbulence_index_(0U)
+    , aggregated_turbulence_count_(0U) {
     threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
 
     // Maintain the L1-delta rings only when the exported model needs them, and
@@ -44,6 +49,9 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
             uses_shape_tracker_ || ml_feature_needs_channel_shape_tracker(id);
         uses_coherence_tracker_ =
             uses_coherence_tracker_ || ml_feature_needs_channel_coherence_tracker(id);
+        uses_aggregated_turbulence_ =
+            uses_aggregated_turbulence_ ||
+            ml_feature_needs_aggregated_turbulence(id);
     }
 
     // One block holds every working array the feature path needs; the
@@ -54,19 +62,36 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
         ESP_LOGE(TAG, "Failed to allocate feature scratch (%u floats)",
                  static_cast<unsigned>(feature_scratch_size_()));
     }
+    if (uses_aggregated_turbulence_) {
+        aggregated_turbulence_buffer_ = alloc_zeroed_floats(window_size_);
+        aggregated_turbulence_ordered_ = alloc_zeroed_floats(window_size_);
+        if (aggregated_turbulence_buffer_ == nullptr ||
+            aggregated_turbulence_ordered_ == nullptr) {
+            ESP_LOGE(TAG, "Failed to allocate aggregated turbulence buffers");
+        }
+    }
+    hampel_turbulence_init(
+        &aggregated_hampel_state_, HAMPEL_TURBULENCE_WINDOW_DEFAULT,
+        HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
+    lowpass_filter_init(
+        &aggregated_lowpass_state_, LOWPASS_CUTOFF_DEFAULT,
+        LOWPASS_SAMPLE_RATE, false);
     l1_tracker_.configure(uses_l1_tracker_ ? l1_delta_capacity_() : 0U, lag_);
     shape_tracker_.configure(uses_shape_tracker_ ? l1_delta_capacity_() : 0U, lag_);
     coherence_tracker_.configure(uses_coherence_tracker_ ? l1_delta_capacity_() : 0U, lag_);
 
     ESP_LOGI(TAG,
-             "Initialized (window=%d, threshold=%.2f, l1=%d, l1_series=%d, shape=%d, coh=%d)",
+             "Initialized (window=%d, threshold=%.2f, l1=%d, l1_series=%d, shape=%d, coh=%d, aggr=%d)",
              window_size_, threshold_, uses_l1_tracker_ ? 1 : 0,
              uses_l1_series_ ? 1 : 0, uses_shape_tracker_ ? 1 : 0,
-             uses_coherence_tracker_ ? 1 : 0);
+             uses_coherence_tracker_ ? 1 : 0,
+             uses_aggregated_turbulence_ ? 1 : 0);
 }
 
 MLDetector::~MLDetector() {
     delete[] feature_scratch_;
+    delete[] aggregated_turbulence_buffer_;
+    delete[] aggregated_turbulence_ordered_;
 }
 
 MLDetector::MLDetector(MLDetector&& other) noexcept
@@ -76,12 +101,21 @@ MLDetector::MLDetector(MLDetector&& other) noexcept
     , uses_l1_series_(other.uses_l1_series_)
     , uses_shape_tracker_(other.uses_shape_tracker_)
     , uses_coherence_tracker_(other.uses_coherence_tracker_)
+    , uses_aggregated_turbulence_(other.uses_aggregated_turbulence_)
     , lag_(other.lag_)
     , l1_tracker_(std::move(other.l1_tracker_))
     , shape_tracker_(std::move(other.shape_tracker_))
     , coherence_tracker_(std::move(other.coherence_tracker_))
-    , feature_scratch_(other.feature_scratch_) {
+    , feature_scratch_(other.feature_scratch_)
+    , aggregated_turbulence_buffer_(other.aggregated_turbulence_buffer_)
+    , aggregated_turbulence_ordered_(other.aggregated_turbulence_ordered_)
+    , aggregated_turbulence_index_(other.aggregated_turbulence_index_)
+    , aggregated_turbulence_count_(other.aggregated_turbulence_count_)
+    , aggregated_hampel_state_(other.aggregated_hampel_state_)
+    , aggregated_lowpass_state_(other.aggregated_lowpass_state_) {
     other.feature_scratch_ = nullptr;
+    other.aggregated_turbulence_buffer_ = nullptr;
+    other.aggregated_turbulence_ordered_ = nullptr;
 }
 
 MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
@@ -92,6 +126,7 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
         uses_l1_series_ = other.uses_l1_series_;
         uses_shape_tracker_ = other.uses_shape_tracker_;
         uses_coherence_tracker_ = other.uses_coherence_tracker_;
+        uses_aggregated_turbulence_ = other.uses_aggregated_turbulence_;
         lag_ = other.lag_;
         l1_tracker_ = std::move(other.l1_tracker_);
         shape_tracker_ = std::move(other.shape_tracker_);
@@ -99,6 +134,16 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
         delete[] feature_scratch_;
         feature_scratch_ = other.feature_scratch_;
         other.feature_scratch_ = nullptr;
+        delete[] aggregated_turbulence_buffer_;
+        delete[] aggregated_turbulence_ordered_;
+        aggregated_turbulence_buffer_ = other.aggregated_turbulence_buffer_;
+        aggregated_turbulence_ordered_ = other.aggregated_turbulence_ordered_;
+        aggregated_turbulence_index_ = other.aggregated_turbulence_index_;
+        aggregated_turbulence_count_ = other.aggregated_turbulence_count_;
+        aggregated_hampel_state_ = other.aggregated_hampel_state_;
+        aggregated_lowpass_state_ = other.aggregated_lowpass_state_;
+        other.aggregated_turbulence_buffer_ = nullptr;
+        other.aggregated_turbulence_ordered_ = nullptr;
     }
     return *this;
 }
@@ -127,7 +172,15 @@ MLSeriesScratch MLDetector::series_scratch_() const {
 void MLDetector::configure_hampel(bool enabled, uint8_t window_size,
                                   float threshold) {
     BaseDetector::configure_hampel(enabled, window_size, threshold);
+    hampel_turbulence_init(
+        &aggregated_hampel_state_, window_size, threshold, enabled);
     l1_tracker_.configure_hampel(enabled, window_size, threshold);
+}
+
+void MLDetector::configure_lowpass(bool enabled, float cutoff_hz) {
+    BaseDetector::configure_lowpass(enabled, cutoff_hz);
+    lowpass_filter_init(
+        &aggregated_lowpass_state_, cutoff_hz, LOWPASS_SAMPLE_RATE, enabled);
 }
 
 // ============================================================================
@@ -182,7 +235,12 @@ void MLDetector::extract_features(float* features_out) {
         return;
     }
 
+    uint16_t aggregated_turb_count = 0U;
+    const float* aggregated_turb_series =
+        ordered_aggregated_turbulence_(aggregated_turb_count);
+
     extract_ml_features_by_id(turb_series, turb_count,
+                              aggregated_turb_series, aggregated_turb_count,
                               delta_series, delta_len,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features_out,
                               series_scratch_(),
@@ -217,7 +275,9 @@ bool MLDetector::is_ready() const {
     // no-motion sentinel rather than signalling "not ready".
     return (!uses_l1_tracker_ || l1_tracker_.count() >= l1_delta_capacity_()) &&
            (!uses_shape_tracker_ || shape_tracker_.count() >= l1_delta_capacity_()) &&
-           (!uses_coherence_tracker_ || coherence_tracker_.count() >= l1_delta_capacity_());
+           (!uses_coherence_tracker_ || coherence_tracker_.count() >= l1_delta_capacity_()) &&
+           (!uses_aggregated_turbulence_ ||
+            aggregated_turbulence_count_ >= window_size_);
 }
 
 void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
@@ -230,11 +290,30 @@ void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
     }
     (void) rssi_dbm;
 
-    float amplitudes[HT20_SELECTED_BAND_SIZE];
+    const uint8_t* resolved_subcarriers = selected_subcarriers;
+    uint8_t resolved_count = num_subcarriers;
+    if (resolved_subcarriers == nullptr || resolved_count == 0U) {
+        resolved_subcarriers = DEFAULT_SUBCARRIERS;
+        resolved_count = HT20_SELECTED_BAND_SIZE;
+    }
+
+    float amplitudes[HT20_SELECTED_BAND_SIZE]{};
     const uint8_t amplitude_count = extract_subcarrier_amplitudes(
-        csi_data, csi_len, selected_subcarriers, num_subcarriers,
+        csi_data, csi_len, resolved_subcarriers, resolved_count,
         amplitudes, HT20_SELECTED_BAND_SIZE);
     process_amplitudes(amplitudes, amplitude_count);
+
+    if (uses_aggregated_turbulence_) {
+        float aggregated_amplitudes[HT20_SELECTED_BAND_SIZE]{};
+        const uint8_t aggregated_count =
+            extract_adjacent_aggregated_subcarrier_amplitudes(
+                csi_data, csi_len, resolved_subcarriers, resolved_count,
+                TURB_IQR_AGGREGATION_WIDTH, aggregated_amplitudes,
+                HT20_SELECTED_BAND_SIZE);
+        add_aggregated_turbulence_(
+            calculate_spatial_turbulence_from_amplitudes(
+                aggregated_amplitudes, aggregated_count));
+    }
 
     if (!uses_l1_tracker_) {
         if (uses_shape_tracker_) {
@@ -259,6 +338,56 @@ void MLDetector::clear_buffer() {
     l1_tracker_.clear();
     shape_tracker_.clear();
     coherence_tracker_.clear();
+    if (aggregated_turbulence_buffer_ != nullptr) {
+        std::fill(
+            aggregated_turbulence_buffer_,
+            aggregated_turbulence_buffer_ + window_size_, 0.0f);
+    }
+    aggregated_turbulence_index_ = 0U;
+    aggregated_turbulence_count_ = 0U;
+    hampel_turbulence_init(
+        &aggregated_hampel_state_, aggregated_hampel_state_.window_size,
+        aggregated_hampel_state_.threshold, aggregated_hampel_state_.enabled);
+    lowpass_filter_reset(&aggregated_lowpass_state_);
+}
+
+void MLDetector::add_aggregated_turbulence_(float turbulence) {
+    if (aggregated_turbulence_buffer_ == nullptr) return;
+    const float hampel_filtered = hampel_filter_turbulence(
+        &aggregated_hampel_state_, turbulence);
+    const float filtered = lowpass_filter_apply(
+        &aggregated_lowpass_state_, hampel_filtered);
+    aggregated_turbulence_buffer_[aggregated_turbulence_index_] = filtered;
+    aggregated_turbulence_index_ = static_cast<uint16_t>(
+        (aggregated_turbulence_index_ + 1U) % window_size_);
+    if (aggregated_turbulence_count_ < window_size_) {
+        ++aggregated_turbulence_count_;
+    }
+}
+
+const float* MLDetector::ordered_aggregated_turbulence_(uint16_t& count) const {
+    count = 0U;
+    if (aggregated_turbulence_buffer_ == nullptr ||
+        aggregated_turbulence_count_ == 0U) {
+        return nullptr;
+    }
+    if (aggregated_turbulence_count_ < window_size_) {
+        count = aggregated_turbulence_count_;
+        return aggregated_turbulence_buffer_;
+    }
+    if (aggregated_turbulence_ordered_ == nullptr) return nullptr;
+    const uint16_t tail = static_cast<uint16_t>(
+        window_size_ - aggregated_turbulence_index_);
+    std::copy(
+        aggregated_turbulence_buffer_ + aggregated_turbulence_index_,
+        aggregated_turbulence_buffer_ + window_size_,
+        aggregated_turbulence_ordered_);
+    std::copy(
+        aggregated_turbulence_buffer_,
+        aggregated_turbulence_buffer_ + aggregated_turbulence_index_,
+        aggregated_turbulence_ordered_ + tail);
+    count = aggregated_turbulence_count_;
+    return aggregated_turbulence_ordered_;
 }
 
 // ============================================================================

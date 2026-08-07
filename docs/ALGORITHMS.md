@@ -2,20 +2,10 @@
 
 Current detector and signal-processing reference for ESPectre.
 
-This file documents the algorithms that are active in the current project
-surface. Historical promotion rationale, superseded baselines, and longer
-decision context now live in ADRs, especially:
-
-- [`2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](adr/2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
-- [`2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md`](adr/2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md)
-- [`2026-07-07-use-core-6-as-the-production-ml-feature-set.md`](adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md)
-- [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
-- [`2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md`](adr/2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md)
-- [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md)
-- [`2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md`](adr/2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md)
-- [`2026-07-26-recover-the-startup-threshold-once-a-session-settles.md`](adr/2026-07-26-recover-the-startup-threshold-once-a-session-settles.md)
-- [`2026-07-25-gate-classic-false-positives-on-empty-rooms.md`](adr/2026-07-25-gate-classic-false-positives-on-empty-rooms.md)
-- [`2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md`](adr/2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md)
+This file documents only algorithms active in the current project surface.
+Feature experiments and promotion evidence live in [FEATURES.md](FEATURES.md),
+decision rationale lives in [adr/](adr/), and mutable detector metrics live in
+the generated [performance report](performance/README.md).
 
 ## Overview
 
@@ -39,7 +29,7 @@ The current production detector definition is:
   56-bin live band
 - the classic path uses weighted `turb_autocorr + chan_freq_coh_curve_std` fusion
 - the classic runtime has no voting branch or legacy low-RSSI blend term
-- the ML path uses the compact ten-feature scale-invariant production set
+- the ML path uses the compact seven-feature scale-invariant production set
 
 ## Processing Pipeline
 
@@ -76,30 +66,20 @@ geometry:
 | channel-shape tracker lag | 10 packets | `100 ms` |
 | turbulence autocorrelation lag | 1 packet | `10 ms` |
 
-The fixed time offsets are deliberate. The shared shape trackers and the fitted
-Classic surface were validated at these spans; changing them defines a new
-detector surface and requires a Classic refit plus the normal ML validation
-workflow. v3 therefore keeps `lag = 10` packets for the shape trackers and
-`autocorr_lag = 1`, and declares `80-133 pps` as the supported detector
-envelope. The recorded production corpus is inside that range.
-
-`derive_detector_timing()` remains a host replay-analysis helper, mirrored in
-[runtime_policy.py](../src/python/micro_espectre/runtime_policy.py) and
-[detector_timing.h](../src/cpp/core/detector_timing.h). It is not called by the
-deployed runtimes. See
-[2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](adr/2026-07-28-keep-production-feature-lags-at-nominal-offsets.md)
-for the measured rejection of runtime lag derivation.
+These offsets define the detector surface. v3 keeps `lag = 10` packets for the
+shape trackers and `autocorr_lag = 1`, supports `80-133 pps`, and does not
+derive feature lags from the measured packet rate. Changing the offsets requires
+a Classic refit plus the normal ML validation workflow. See the
+[timing ADR](adr/2026-07-28-keep-production-feature-lags-at-nominal-offsets.md)
+for the decision evidence.
 
 Calibration and steady-state detection share one cadence, so the interceptor
 that consumes packets during calibration evaluates on the same schedule the
 detection path does.
 
-The window also follows sample count. Its features are estimator averages, so
-what matters is how many samples they average. Holding a one-second span at
-`25 pps` leaves 25 samples, the estimates get noisier, startup calibration raises
-the threshold to hold false positives, and recall collapses instead. See the
-Window Size section in [TUNING.md](TUNING.md) for the sweep behind the
-100-sample floor.
+The window follows sample count because its features are estimator averages.
+See the Window Size section in [TUNING.md](TUNING.md) for the evidence behind
+the 100-sample floor.
 
 Cadence advances on the packet arrival timestamp, never on the loop clock. The
 loop clock measures how fast packets are processed, which matches arrival on
@@ -108,11 +88,8 @@ decision. Wall-clock time is reserved for staleness detection, which arrival
 time cannot do because a dead stream delivers no timestamps. Sources with no
 arrival timestamp fall back to counting packets.
 
-The sole `stream_dense` training contract uses this same streaming feature and
-contamination-reset path, but emits every ready row rather than only deployment
-evaluation ticks. Non-time-aware dense extraction has been removed. See
-[`ML_TRAINING.md`](ML_TRAINING.md) and the
-[`timing-aware training review`](review/timing-aware-training-review-2026-07-30.md).
+The `stream_dense` training contract mirrors this cadence and reset behavior;
+see [ML_TRAINING.md](ML_TRAINING.md).
 
 ## AGC-Active Normalization
 
@@ -184,30 +161,11 @@ Both runtimes define the live band identically, as `HT20_LIVE_BINS` in
 [`ml_feature_trackers.h`](../src/cpp/core/ml_feature_trackers.h) and
 [`ml_feature_trackers.py`](../src/python/micro_espectre/ml_feature_trackers.py).
 
-Why HT20 stays the preferred active contract:
-
-- it gives the project one centered, already validated 64-subcarrier sensing
-  view shared by runtime detection, offline validation, and ML training
-- `802.11n` support is effectively ubiquitous on both bands, so standardizing on
-  `HT20` is usually a practical constraint rather than a deployment blocker
-- the layout is a property of the PHY, not of the band, so the same contract
-  holds on either band. The integrator selects `2g`, `5g`, or `auto`, with `2g`
-  as the validated default and the latter two available only on dual-band
-  targets; the runtime then pins an `802.11n` ceiling and `HT20` on the selected
-  band or bands; see
-  [`2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md`](adr/2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md)
-- the fixed 12-tone band sits inside the HT-LTF data-bearing region with
-  explicit guard-band and DC-null margins
-- VHT20 is a distinct, currently unvalidated capture path despite sharing the
-  64-point, 56-active-tone grid; HE20 instead has a 256-point, 242-active-tone
-  layout. Neither is accepted by the production Classic or ML path yet
-
-![Legacy, HT, VHT, and HE LTF placement compared on the same 20 MHz slice](web/assets/images/guides/ht20-ltf-layout-preferred.png)
-*HT20 is the stable, validated sensing view ESPectre standardizes on today: it
-matches the current detector contract directly, is broadly available on modern
-networks in either band, and keeps the active sensing surface simple. VHT20 is
-the nearest candidate extension, while HE20 and wider layouts need more
-substantial mapping work; all require separate evidence before production.*
+HT20 is the enforced detector input contract on both supported bands, while the
+current detection corpus validates only 2.4 GHz operation. VHT20, HE20, and
+wider layouts are not accepted by the production detectors. Band-selection
+behavior lives in [SETUP.md](SETUP.md), and the PHY rationale lives in the
+[HT20 ADR](adr/2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md).
 
 Non-HT20 payloads are normalized onto the same internal 64-subcarrier HT20
 index grid before fixed-subcarrier extraction. Short layouts are centered so
@@ -344,16 +302,10 @@ startup `q95` shift, not from later recovery.
 
 ### Known Limits
 
-On the current normal-link corpus, Classic still clears the project recall
-target on every chip. The published paired-replay aggregates are `96.0%` recall
-on C3, `99.8%` on C5, `100.0%` on C6, `100.0%` on ESP32, and `99.3%` on S3.
-
-The remaining deployment tails are false positives, not ordinary recall:
-
-- paired normal-link maximum FP is highest on C5 (`13.6%`) and C6 (`9.0%`);
-- long quiet effective alarms remain `1` on C5 and `6` on C6; and
-- weak-link replay is still report-only, with current minimum recall `85.6%` on
-  S3 and the largest weak-link FP tails again on C5/C6.
+Classic clears the aggregate normal-link recall target on every chip, but C5
+and C6 retain the largest false-positive tails, including on long quiet
+recordings. Weak-link captures remain report-only stress diagnostics. See the
+generated [performance report](performance/README.md) for current metrics.
 
 Use `ml` where quiet-room robustness or held-out generalization matters more
 than zero-training deployment cost. The active Classic feature-selection record
@@ -378,23 +330,12 @@ Three properties make this safe rather than a drift toward the noise floor:
   moves only after a long quiet stretch, which is exactly the evidence that the
   threshold is too high.
 - **A median of block maxima, not a mean or a global maximum.** One spike cannot
-  pull the level down, and one quiet block cannot either. Using the maximum
-  instead costs `1.8` points of the recovery, because a single spike then
-  governs the whole dwell.
+  pull the level down, and one quiet block cannot either.
 
-The dwell is `60 s` at the nominal cadence. Measured on the corpus, the rule
-takes the ESP32 capture from `94.2%` to `98.0%` recall, raises the worst
-per-chip recall from `94.2%` to `97.7%`, and leaves every other chip, the
-weak-link slice, and the empty-room gate unchanged.
-
-The margin is the safety knob, and the wall is below the shipped value rather
-than next to it. Swept on the corpus, `4.0` moves only one pair by `0.9` points
-and leaves ESP32 untouched; `2.0` and `1.5` recover more (`98.8%` and `99.1%`)
-for `0.05` and `0.15` points of mean false-positive rate; `1.0` is where the
-worst pair breaches the weak-link ceiling at `12.3%`; and the empty-room
-recordings stay silent all the way down to `1.0`, first alarming at `0.5`.
-`3.0` ships as the conservative end of a usable range that extends to about
-`1.5`, not as the last value that works.
+The current `20`-evaluation blocks, `12`-block ring, and `2.8`-logit margin
+produce a `60 s` dwell at the nominal cadence. The promotion evidence and
+margin sweep live in the
+[settled-level recovery ADR](adr/2026-07-26-recover-the-startup-threshold-once-a-session-settles.md).
 
 Its limit is the mirror of its safety. A room that grows genuinely noisier after
 the threshold has come down cannot push it back up; only a recalibration does
@@ -406,12 +347,6 @@ Current aligned implementations:
 
 - `src/python/micro_espectre/classic_detector.py`
 - `src/cpp/core/classic_detector.*`
-
-## Retired Historical Baseline
-
-The old standalone moving-variance detector is retained only as historical
-context in ADRs and the changelog. It is no longer part of the runtime or
-host tooling surface.
 
 ## ML Detector
 
@@ -432,46 +367,45 @@ Unlike `classic`, the ML path does not need startup threshold calibration.
 The production export is a compact MLP:
 
 ```text
-Input (10 features)
+Input (7 features)
   -> Dense(24, ReLU)
   -> Dense(12, ReLU)
   -> Dense(1, Sigmoid)
 ```
 
-Total parameter count: 577
+Total parameter count: 505
 
 The runtime accepts exported hidden-layer layouts generated by the training
 script, but the committed production artifact currently uses the topology above.
 
 ### Production Feature Set
 
-The production model consumes these ten scale-invariant inputs, in export
+The production model consumes these seven scale-invariant inputs, in export
 order:
 
-1. `turb_mad_over_mean`
+1. `turb_iqr_over_mean_aggr`
 2. `turb_autocorr`
 3. `turb_zcr`
 4. `l1_delta_autocorr`
 5. `l1_delta_lag_ratio`
 6. `chan_shape_spread`
-7. `chan_freq_coh_cv`
-8. `chan_freq_coh_curve_std`
-9. `chan_coh_gap`
-10. `chan_coh_subband_gap_median`
+7. `chan_freq_coh_curve_std`
 
 Every member is a ratio, a correlation, or a crossing rate. The exact
 definitions, physical interpretations, implementation locations, retained
 metrics, and candidate-admission rules live in [FEATURES.md](FEATURES.md).
 
-The first five come from the turbulence and L1-delta path. `l1_delta_lag_ratio`
-comes directly from the L1 tracker rather than from a rebuilt series. The next
-three come from the normalized channel-shape tracker, and the final two come
-from the delay-compensated channel-coherence tracker. Every caller passing the
-production set must therefore supply those tracker-derived values explicitly.
-
-[absolute-L1 removal ADR](adr/2026-07-28-drop-the-absolute-l1-features.md)
-captures the prior five-feature transition, while [FEATURES.md](FEATURES.md)
-records the current ten-feature promotion.
+The first input uses a dedicated turbulence series computed after averaging
+adjacent live-bin magnitudes with `W=5`; its statistic is
+`(Q75 - Q25) / abs(mean)`. This extra buffer exists only when the exported ML
+feature ids request it. `turb_autocorr` and `turb_zcr` continue to read the
+normal twelve-subcarrier turbulence series, so the amplitude path is not
+silently changed for those features or for Classic. `l1_delta_lag_ratio` comes
+directly from the L1 tracker rather than from a rebuilt series. The final two
+inputs come from the normalized channel-shape tracker. The production export no
+longer requests the delay-compensated channel-coherence tracker, so Python and
+C++ skip that tracker for ML inference. Every caller passing the production set
+must still supply the selected tracker-derived values explicitly.
 
 ### Inference Flow
 

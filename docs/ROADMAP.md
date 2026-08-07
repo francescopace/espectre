@@ -47,14 +47,14 @@ conditional and exploratory milestones are not delivery promises.
 | **Architecture** | Ready | Shared `core`, `runtime`, ESP-IDF services, and frontend adapters are separated and documented |
 | **Frontends** | Ready with known limits | ESPHome has the broadest Home Assistant surface; Native MQTT Discovery, optional Micro-ESPectre discovery, Matter occupancy, and Streamer are available; Matter controller coverage remains limited |
 | **Protocol** | Ready | BLE and MQTT provisioning, telemetry, status, info, commands, and reusable services share the documented protocol contract |
-| **Detection** | Release candidate | C++ and Python gates cover real data, long recordings, low RSSI, packet-rate behavior, and implementation parity |
+| **Detection** | Ready | The promoted seven-feature ML model and Classic detector pass the maintained real-data, long-recording, low-RSSI, packet-rate, and C++/Python parity gates |
 | **Documentation** | Release candidate | Setup, architecture, protocol, tuning, performance, and frontend workflows describe the v3 surface; final review remains open |
 
 Completed implementation, detector experiments, and dated reviews live in [CHANGELOG.md](CHANGELOG.md), [FEATURES.md](FEATURES.md), and [review/](review/).
 
 **Exit criteria**:
 
-- [ ] Complete ClassicDetector and MLDetector tuning, and pass the maintained
+- [x] Complete ClassicDetector and MLDetector tuning, and pass the maintained
   detector-performance and C++/Python parity gates
 - [ ] Close the remaining documentation, security, and first-party code reviews
 - [ ] Audit the release notes and publish the complete binary artifact set

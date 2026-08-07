@@ -14,7 +14,7 @@ measurement context and keep historical campaigns separate.
 
 Status values mean:
 
-- **Production**: exported in the current five-input model and implemented in
+- **Production**: exported in the current seven-input model and implemented in
   both Python and C++.
 - **Research**: implemented host-side and still worth a more targeted
   experiment, but not eligible for export.
@@ -38,30 +38,31 @@ Every new candidate must:
 4. avoid material per-recording, weak-link, and quiet-replay regressions; and
 5. remain host-side until a promotion decision justifies Python/C++ parity.
 
-Host-side candidates live in `tools/lib/candidate_features.py` and must be
-tested with `--no-export`.
+Host-side candidates live in `tools/lib/candidate_features.py` and remain
+research-only until promotion. Evaluate them with `--no-export` or
+`--evaluate-gates`; host-side seed searches also run their deployment gates in
+memory and leave the runtime artifacts unchanged.
 
 ## Current Production Set
 
-The current production baseline is the compact phaseless ten-feature set chosen
-after the refreshed current-catalog sweep. It keeps the five turbulence/L1
-invariants and adds the five coherence and channel-shape signals that survived
-the promotion gates without needing the phase tracker. The exported topology is
-`10 -> 24 -> 12 -> 1`, trained with `--augment`, `--fp-weight 1.75`, and seed
-`1876849819`.
+The current production baseline is the compact phaseless seven-feature set
+selected by the adjacent-subcarrier follow-up, joint coherence ablation, and
+ten-trial seed search. It keeps five turbulence/L1 invariants and the two
+channel-shape signals that survived the promotion gates. Only
+`turb_iqr_over_mean_aggr` reads a `W=5` adjacent-magnitude average; the other
+six inputs and the Classic detector keep their existing amplitude paths. The
+exported topology is `7 -> 24 -> 12 -> 1`, trained with
+`--augment base,drift,burst-loss`, `--fp-weight 1.75`, and seed `2125739007`.
 
 | Feature | Physical quantity | Definition | Scale invariant | Known evidence |
 | --- | --- | --- | --- | --- |
-| `turb_mad_over_mean` | Robust relative turbulence spread | `MAD(x) / abs(mean(x))` | Yes, ratio | Historical Core-6 label correlation `0.5752`; mean absolute SHAP `0.123743` (`21.4%`) on 460,958 windows, seed `1386543369` |
+| `turb_iqr_over_mean_aggr` | Robust relative spread of aggregated turbulence | `(Q75(x) - Q25(x)) / abs(mean(x))`, where `x` is computed after averaging adjacent magnitudes with `W=5` | Yes, ratio | Retained in the seven-feature export at seed `2125739007`: blocked OOF F1 `98.7%`; paired `14/14`, `98.57%` worst recall, `0.43%` max FP; quiet max FP `0.30%`; no effective alarms. Pre-ablation grouped OOF SHAP: `0.213933` (`38.6%`) |
 | `turb_autocorr` | Temporal persistence of turbulence | lag-1 autocorrelation `C(1) / C(0)` | Yes, correlation | Historical Core-6 label correlation `0.7834`; SHAP `0.101985` (`17.6%`). Weak-pair medians retained the correct ordering: idle `0.0115`, motion `0.5817` |
 | `turb_zcr` | Temporal coherence versus noise-like crossings | crossing rate around the window median | Yes, crossing rate | In the Coherence-6 swap, helped reduce reserved max-FP median from `19.42%` to `2.66%` together with `l1_delta_autocorr` |
 | `l1_delta_autocorr` | Persistence of normalized channel-profile displacement | lag-1 autocorrelation of the L1-delta series | Yes, correlation | Same Coherence-6 joint result; no isolated ablation metric retained |
 | `l1_delta_lag_ratio` | Growth of channel-profile displacement with lag | mean lag-10 displacement / mean adjacent displacement | Yes, ratio | Adding it to Coherence-6 reduced reserved max FP `6.43% -> 4.43%`, raised worst recall `97.99% -> 99.14%`, and reduced effective alarms `8 -> 3` across ten reserved replays |
 | `chan_shape_spread` | Frequency participation of lagged channel-shape motion energy | participation ratio of accumulated lagged normalized-shape energy | Yes, ratio | Promoted in the refreshed compact sweep: paired `14/14`, cross-chip worst FP `1.9%`, and better leave-one-environment bedroom FP than the wider no-phase layout |
-| `chan_freq_coh_cv` | Temporal variability of within-packet frequency coherence at four-bin offset | std / mean of fixed-offset within-packet coherence over time | Yes, ratio | Retained in the promoted no-phase family; part of the best `24 -> 12` compact trade-off on the refreshed corpus |
 | `chan_freq_coh_curve_std` | Temporal variability of short-versus-long frequency coherence contrast | std of `(coh_offset2 - coh_offset12) / (coh_offset2 + coh_offset12)` | Yes, bounded contrast | Retained in the promoted no-phase family; improved the compact model's cross-environment bedroom tail over the wider no-phase layout |
-| `chan_coh_gap` | Adjacent-minus-lagged delay-compensated channel coherence | mean lag-1 coherence minus mean lag-10 coherence | Yes, difference of normalized coherences | Retained in the promoted no-phase family; the best coherence formulation from the current sweep |
-| `chan_coh_subband_gap_median` | Median subband coherence-gap across four contiguous HT20 bands | median over subbands of their adjacent-minus-lag mean coherence gaps | Yes, median of normalized coherence gaps | Retained in the promoted no-phase family; helped keep the promoted model robust on weak bedroom and C3 tails |
 
 The previous five-feature replacement was evaluated over four seeds on the corpus that
 exposed the absolute-L1 failure:
@@ -92,18 +93,18 @@ features. No candidate in this campaign is approved for production.
 | --- | --- | ---: | --- | --- |
 | `chan_coh_lag_ratio` | Delay-compensated complex coherence dynamics | Orthogonal signal; nearly the inverse of `chan_coh_gap` (`r=-0.9988`) | Below baseline on the full corpus and fragile on noisy `static_presence` and `empty` replays; can beat baseline after post-hoc exclusion of suspicious replays | Research |
 | `chan_coh_mean` | Mean lagged complex coherence | Low redundancy | Weak and unstable despite its orthogonality | Rejected |
-| `chan_coh_gap` | Adjacent-minus-lagged complex coherence | Nearly equivalent to `chan_coh_lag_ratio` | Best tested coherence formulation, but still below the full-corpus baseline | Research |
+| `chan_coh_gap` | Adjacent-minus-lagged complex coherence | Nearly equivalent to `chan_coh_lag_ratio` | Previously shipped, then removed jointly with the two overlapping summaries after the seven-feature ablation and seed search | Historical |
 | `chan_coh_gap_low_frac` | Fraction of small coherence gaps | Not retained | Did not beat `chan_coh_gap` | Rejected |
 | `chan_coh_gap_q20` | Lower-tail coherence gap | Not retained | Did not beat `chan_coh_gap` | Rejected |
 | `chan_coh_subband_median_gap` | Median robust coherence over four frequency bands | Not retained | OOF F1 `97.3%`; worst-lineage recall `80.9%`; worst-lineage FP `10.1%`; mean-of-five-worst FP `5.9%` | Rejected |
-| `chan_coh_subband_gap_median` | Median of per-band coherence gaps | Not retained | OOF F1 `97.8%`; worst-lineage FP `8.4%`; mean-of-five-worst FP `5.6%`; replay gate max FP `6.04%`, worst recall `94.92%`, and 7 alarms | Research |
+| `chan_coh_subband_gap_median` | Median of per-band coherence gaps | Not retained | Previously shipped; its independent removal improved blocked OOF F1 and the weakest session FP, and it was removed in the promoted joint ablation | Historical |
 | `turb_band_power_ratio` | Low-frequency share of non-DC turbulence power | `r=0.923` with `turb_autocorr`; `R2=0.863` | OOF F1 `98.1%`, but two S3 static-presence replays regressed; swapping out autocorrelation scored `97.2%` | Rejected |
 | `phase_resid_lag_ratio` | CFO/STO-sanitized phase-shape dynamics | max `r=0.434`; `R2=0.207` | OOF F1 `97.4%`; worst C5 FP `18.5%` | Research |
 | `phase_closure_var_std` | Temporal variability of local phase curvature across adjacent subcarrier triplets | max `r=0.1367` with `turb_mad_over_mean`; `R2=0.0906`; `r=0.0521` with `phase_resid_lag_ratio`; label correlation `0.0455` | OOF F1 `97.3%`; worst-lineage recall `92.1%`; worst-lineage FP `11.8%`; mean-of-five-worst recall `95.3%`, FP `6.4%` | Research |
 | Trusted profile-scale correction | Recover magnitude-domain information after undoing packet gain | Unavailable: the ESP-IDF packet callback exposes no per-packet scale value | All 95 current NPZ recordings include RSSI metadata, but none records scale; current firmware only selects static automatic/manual scaling configuration | Deferred |
 | `chan_shape_lag_ratio` | Temporal displacement of the L2-normalized amplitude profile | max `r=0.9831` with `l1_delta_lag_ratio`; `R2=0.9686`; label correlation `0.754` | Stopped before CV because the production set already reconstructs it | Rejected |
 | `chan_shape_spread` | Frequency participation of lagged channel-shape motion energy | max `r=0.1094`; `R2=0.0257`; label correlation `0.0314` | OOF F1 `98.4%`; fold recall `98.0%`; precision `98.7%`; worst-lineage recall `86.5%`; worst-lineage FP `3.4%`; mean-of-five-worst recall `93.9%`, FP `2.4%` | Research |
-| `chan_freq_coh_cv` | Temporal variability of within-packet frequency coherence at a four-bin offset | max `r=0.2468`; `R2=0.0838`; label correlation `0.2181` | OOF F1 `97.9%`; worst-lineage recall `93.3%`; worst-lineage FP `8.4%`; mean-of-five-worst recall `96.2%`, FP `4.4%` | Research |
+| `chan_freq_coh_cv` | Temporal variability of within-packet frequency coherence at a four-bin offset | max `r=0.2468`; `R2=0.0838`; label correlation `0.2181` | Previously shipped; its independent removal led the first ablation screen, and it was removed in the promoted joint ablation | Historical |
 | `chan_freq_coh_curve_std` | Temporal variability of short-versus-long frequency coherence | max `r=0.3881` with `turb_mad_over_mean`; `R2=0.1598`; `r=0.7831` with `chan_freq_coh_cv`; label correlation `0.4080` | Isolated OOF F1 `97.8%`; worst-lineage recall `94.4%`; worst-lineage FP `8.4%`; mean-of-five-worst recall `95.7%`, FP `5.1%` | Research |
 | `chan_rank_gap` | Lagged reordering of the amplitude profile relative to adjacent-packet reordering | max `r=0.7927` with `l1_delta_lag_ratio`; `R2=0.6750`; `r=-0.0668` with `chan_shape_spread`; label correlation `0.5981` | OOF F1 `97.3%`; worst-lineage recall `91.0%`; worst-lineage FP `7.4%`; mean-of-five-worst recall `93.7%`, FP `5.1%` | Rejected |
 | `chan_ratio_gap` | Lagged change in guarded cross-subcarrier amplitude ratios relative to adjacent-packet change | max `r=0.7866` with `l1_delta_lag_ratio`; `R2=0.6303`; `r=0.6914` with `chan_rank_gap`; `r=-0.0282` with `chan_shape_spread`; label correlation `0.5863` | OOF F1 `97.6%`; worst-lineage recall `85.4%`; worst-lineage FP `8.4%`; mean-of-five-worst recall `94.3%`, FP `5.6%` | Rejected |
@@ -128,8 +129,11 @@ Combination results:
 
 The August 5, 2026 screen asked whether averaging adjacent bins into each of the
 twelve selected subcarriers improves the features that read the amplitude
-buffer. It is an input-path transform rather than a candidate feature, so it
-changes existing features instead of adding one.
+buffer. The first screen used it as an input-path transform, but the later ML
+follow-up kept only explicit host-side feature variants so the rest of the
+model could stay on the production path. In that formulation, an `_aggr`
+candidate is the named statistic computed on a `W=5` adjacent-bin average,
+while the other nine inputs of that ten-feature baseline are unchanged.
 
 Corpus: the 19 `train` pairs, replayed through the production detectors with the
 aggregation injected at the amplitude-buffer fill. Metric: per-pair separation
@@ -164,27 +168,269 @@ The rows below reconstruct those statistics on the unmodified production
 turbulence series; the harness reproduces the production `turb_mad_over_mean`
 worst pair exactly, so the reconstructions share its basis.
 
-| Candidate | Worst pair, baseline | Worst pair, W=3 | Same limiting pair |
-| --- | ---: | ---: | --- |
-| `turb_iqr_over_mean` | 0.6317 | 0.8308 | yes |
-| `turb_mad_over_mean` (production) | 0.6190 | 0.8155 | yes |
-| `turb_p95_over_mean` | 0.6219 | 0.7865 | yes |
-| `turb_min_over_mean` | 0.5237 | 0.6864 | yes |
-| `turb_p05_over_mean` | 0.5732 | 0.6673 | yes |
-| `turb_cv` | 0.5103 | 0.6451 | yes |
-| `turb_range_over_mean` | 0.5855 | 0.5432 | yes |
-| `turb_max_over_mean` | 0.5819 | 0.5210 | yes |
+| Candidate | Worst pair, baseline | Worst pair, W=3 | Worst pair, W=5 | Same limiting pair |
+| --- | ---: | ---: | ---: | --- |
+| `turb_iqr_over_mean` | 0.6317 | 0.8308 | 0.8838 | yes |
+| `turb_mad_over_mean` (production) | 0.6190 | 0.8155 | 0.8683 | yes |
+| `turb_p95_over_mean` | 0.6219 | 0.7865 | 0.8474 | yes |
+| `turb_min_over_mean` | 0.5237 | 0.6864 | 0.7696 | yes |
+| `turb_p05_over_mean` | 0.5732 | 0.6673 | 0.6819 | yes |
+| `turb_cv` | 0.5103 | 0.6451 | 0.7071 | yes |
+| `turb_range_over_mean` | 0.5855 | 0.5432 | 0.5933 | yes |
+| `turb_max_over_mean` | 0.5819 | 0.5210 | 0.5614 | yes |
 
-Robust dispersion statistics gain on the limiting pair, while the two max-based
-extremes lose it, so "extreme-order statistics are the most noise-sensitive and
+Robust dispersion statistics gain on the limiting pair, and the same ordering
+persists at `W=5`, while the two max-based extremes still fail to justify a
+promotion path. "Extreme-order statistics are the most noise-sensitive and
 therefore gain most" is not what the corpus shows. `turb_iqr_over_mean`, a
 Relative-8 member dropped at the Core-6 transition, edges past the current
-production feature. `corr_amp_d1` was the strongest prior candidate, having been
-rejected because at lag 1 it mostly measured receiver noise, and it did not
-benefit: median separation falls `0.8920` to `0.8793`.
+production feature at both widths. `corr_amp_d1` was the strongest prior
+candidate, having been rejected because at lag 1 it mostly measured receiver
+noise, and it did not benefit: median separation falls `0.8920` to `0.8793`.
 
-All of this is ML-side and screening-grade. The ADR records what a retrain would
-have to settle before any of it could be promoted.
+The comparable ML follow-up used the production augmentation composition
+`base,drift,burst-loss` throughout. It first retrained every variant with the
+exported baseline seed `636455708`, then ran a five-trial seed search only for
+the strongest fixed-seed variant. The earlier `turb_mad_over_mean_aggr` search
+used a different training reference, so its numbers are retained only as
+historical screening evidence and are not used for promotion.
+
+| Variant, seed `636455708` | Blocked OOF F1 | Worst session recall / FP | Selection + holdout paired gate | Cross-chip macro recall / FP / F1 | Cross-environment macro recall / FP / F1 | Verdict |
+| --- | ---: | --- | --- | --- | --- | --- |
+| Production baseline | `97.3%` | `77.5%` / `9.5%` | `14/14`, `98.00%` worst recall, `0.00%` max FP; no alarms | `98.2%` / `0.9%` / `98.1%` | `98.4%` / `2.6%` / `96.5%` | Reference |
+| `turb_iqr_over_mean_aggr` | `98.1%` | `84.3%` / `4.6%` | `14/14`, `98.29%` worst recall, `0.71%` max FP; no alarms | `98.4%` / `0.5%` / `98.6%` | `98.3%` / `2.3%` / `96.7%` | Seed-search lead |
+
+The IQR replacement improves blocked OOF F1, the weakest session, cross-chip
+generalization, cross-environment FP, and both macro F1 scores. Its only broad
+regression is `0.1` percentage point of cross-environment macro recall. This is
+the strongest evidence among the aggregated robust-dispersion family, so the
+campaign did not spend another full seed search on the weaker MAD control.
+
+The five-trial IQR seed search selected seed `1049082371`. On the selection
+split it scored `97.7%` blocked OOF F1, `83.1%` / `9.5%` worst-session
+recall / FP, `99.71%` worst paired recall, `0.29%` max paired FP, `0.00%` max
+quiet FP, and no effective alarms. On the reserved holdout it passed all seven
+paired replays with `96.57%` worst recall, `0.57%` max FP, and no alarms; the
+three quiet replays reached `0.30%` max FP and no alarms. The production
+baseline on that holdout reached `98.29%` worst recall and `0.00%` max FP, but
+the candidate's per-recording changes remain inside the measured non-regression
+margins. The invariant-feature gain-stress gate was unchanged from `0.5x` to
+`2.0x` amplitude.
+
+`turb_iqr_over_mean_aggr` therefore cleared the research selection and reserved
+holdout protocol and replaced `turb_mad_over_mean` in production. The final
+export uses seed `1049082371` and the full `base,drift,burst-loss` augmentation
+recipe. Its exported-artifact replay passed all 14 paired recordings with
+`96.57%` worst recall, `0.57%` max FP, and no alarms; the five quiet replays
+reached `0.30%` max FP with no alarms. Leave-one-chip-out scored `98.5%` macro
+recall, `0.8%` macro FP, and `98.3%` macro F1. Leave-one-environment-out scored
+`98.1%` macro recall, `2.1%` macro FP, and `96.8%` macro F1; bedroom remains the
+limiting held-out environment at `6.2%` FP. Python and `C++` use published
+feature id `45` and matched on the production replay and inference gates.
+Aggregation stays local to this ML feature, so the normal turbulence path and
+Classic detector remain unchanged. The retired MAD input remains readable only
+for migration-time comparison against the immediately preceding artifact.
+
+The first post-promotion screen kept seed `1049082371`, the full
+`base,drift,burst-loss` recipe, and the new aggregated-IQR baseline, then asked
+whether another robust statistic should replace `turb_zcr`. Both variants were
+export-free, and neither justified replay gates:
+
+| Feature replacing `turb_zcr` | Blocked OOF F1 | Worst session recall / FP | Worst chip recall / FP | Redundancy against production | Verdict |
+| --- | ---: | --- | --- | --- | --- |
+| None, production reference | `97.7%` | `83.1%` / `9.5%` | C3 `96.2%` / `1.9%` | N/A | Reference |
+| `turb_mad_over_mean_aggr` | `97.2%` | `77.5%` / `10.1%` | C3 `95.0%` / `2.1%` | closest to aggregated IQR: `|r|=0.9917`, `R2=0.9837` | Rejected |
+| `turb_p95_over_mean_aggr` | `97.1%` | `74.2%` / `12.3%` | C3 `94.1%` / `3.1%` | closest to aggregated IQR: `|r|=0.9257`, `R2=0.8710` | Rejected |
+
+MAD carries virtually no information beyond the promoted IQR, while P95 is
+still highly redundant and loses more of the C3 tail. Their strong individual
+label correlations (`0.8151` and `0.7925`) do not compensate for replacing the
+more complementary `turb_zcr` signal (`|r(label)|=0.8417`). Keep both robust
+variants retired, keep `turb_autocorr` out of this aggregation campaign, and do
+not spend seed-search or cross-generalization runs on either swap.
+
+The next fixed-seed ablation screen used the same seed and full augmentation
+recipe. It trained the ten-feature baseline once, removed each low-SHAP channel
+feature independently, and evaluated grouped CV plus the seven selection
+replays. No runtime artifact was exported.
+
+| Independent removal | Blocked OOF F1 | Worst session recall / FP | Selection paired gate | Verdict |
+| --- | ---: | --- | --- | --- |
+| None, retrained reference | `97.40%` | `78.65%` / `12.85%` | `7/7`, `99.71%` worst recall, `0.29%` max FP | Reference |
+| `chan_coh_subband_gap_median` | `98.07%` | `83.15%` / `5.03%` | unchanged | Finalist |
+| `chan_freq_coh_cv` | `98.13%` | `85.39%` / `4.57%` | unchanged | Lead |
+| `chan_coh_gap` | `97.31%` | `80.90%` / `14.53%` | `7/7`, `99.71%` worst recall, `0.14%` max FP | Rejected: CV and tail FP regress |
+
+The two successful removals simplify the model and improve the weakest grouped
+tail without spending any selection-gate margin. Their joint removal was
+stronger than either isolated ablation at the same seed:
+
+| Joint removal | Blocked OOF F1 | Fold recall / FP | Worst session recall / FP | Full paired / quiet gates |
+| --- | ---: | --- | --- | --- |
+| `chan_freq_coh_cv` + `chan_coh_subband_gap_median` | `98.31%` | `97.62%` / `0.39%` | `82.02%` / `3.35%` | paired `14/14`, `98.29%` worst recall, `0.29%` max FP; quiet `0.47%` max FP; no alarms |
+
+Against the retrained ten-feature reference, the eight-feature candidate gains
+`0.91` points of blocked OOF F1, reduces fold FP by `0.85` points, and reduces
+the worst-session FP tail by `9.50` points, while fold recall gives back `0.13`
+points. Its paired gate also improves over the preceding exported artifact
+(`96.57%` worst recall and `0.57%` max FP), while quiet max FP rises from
+`0.30%` to `0.47%` without producing an effective alarm.
+
+Leave-one-environment-out favors the candidate: macro recall / FP / F1 become
+`98.6%` / `1.0%` / `98.2%`, versus `98.1%` / `2.1%` / `96.8%` for the
+production baseline, and worst held-out recall improves from `96.8%` to
+`97.3%`. Leave-one-chip-out is the remaining trade-off: macro FP improves from
+`0.8%` to `0.3%`, macro recall is effectively flat at `98.4%` versus `98.5%`,
+but worst-chip C3 recall falls from `98.3%` to `96.4%`.
+
+A second-level screen removed one more feature from that eight-feature
+candidate. Removing `l1_delta_autocorr` or `chan_shape_spread` retained part of
+the gain but regressed against the eight-feature result. Removing
+`chan_coh_gap`, despite its poor isolated ablation, produced the strongest
+fixed-seed model:
+
+| Seven-feature removal set | Blocked OOF F1 | Fold recall / FP | Worst session recall / FP | Selection paired gate | Verdict |
+| --- | ---: | --- | --- | --- | --- |
+| Prior two + `chan_coh_gap` | `98.75%` | `98.29%` / `0.32%` | `91.01%` / `2.23%` | `7/7`, `99.71%` worst recall, `0.00%` max FP | Lead |
+| Prior two + `l1_delta_autocorr` | `98.19%` | `97.81%` / `0.58%` | `83.15%` / `5.14%` | `7/7`, `99.71%` worst recall, `0.14%` max FP | Below eight-feature candidate |
+| Prior two + `chan_shape_spread` | `97.95%` | `97.87%` / `0.81%` | `88.37%` / `6.15%` | `7/7`, `99.71%` worst recall, `0.00%` max FP | Below eight-feature candidate |
+
+The lead keeps `chan_shape_spread` and `chan_freq_coh_curve_std`, but removes
+the three other channel-coherence summaries: `chan_freq_coh_cv`,
+`chan_coh_gap`, and `chan_coh_subband_gap_median`. On the full deployment gate
+it passes `14/14` paired replays with `97.43%` worst recall, `0.14%` max FP,
+and no alarms; quiet max FP is `0.30%`, also with no alarms. Leave-one-chip-out
+scores `98.5%` macro recall, `0.2%` macro FP, and `99.0%` macro F1, with C3
+still the worst held-out chip at `97.1%` recall. Leave-one-environment-out
+scores `98.6%` macro recall, `0.5%` macro FP, and `98.8%` macro F1, with
+`97.3%` worst held-out recall.
+
+This interaction means marginal SHAP rank alone was insufficient: the three
+coherence summaries overlap in a way that is only beneficial to remove jointly.
+
+A ten-trial in-memory seed search then compared the seven-feature schema with
+the exported ten-feature baseline under the full `base,drift,burst-loss`
+recipe. All ten candidates were robustly eligible. Across seeds, blocked OOF F1
+stayed within `98.50%` to `98.69%`, worst-session recall within `88.76%` to
+`92.13%`, and worst-session FP within `2.23%` to `4.47%`; the retrained baseline
+scored `97.40%`, `78.65%`, and `12.85%`, respectively.
+
+Seed `2125739007` won the robust ranking with `98.66%` blocked OOF F1,
+`91.01%` worst-session recall, and `2.86%` worst-session FP. Selection passed
+`7/7` paired replays with `99.71%` worst recall and `0.14%` max FP, while quiet
+max FP remained `0.00%`; the reserved holdout passed `7/7` at `98.57%` worst
+recall and `0.43%` max FP, and quiet max FP was `0.30%`. No replay produced an
+effective alarm, and no per-recording non-regression check failed.
+
+At the selected seed, leave-one-chip-out scores `98.5%` macro recall, `0.3%`
+macro FP, and `98.9%` macro F1. C3 remains the explicit trade-off at `97.3%`
+recall versus the production baseline's `98.3%`, but with `0.0%` FP.
+Leave-one-environment-out scores `98.6%` macro recall, `0.4%` macro FP, and
+`98.9%` macro F1; bedroom FP is `1.1%`. The multi-seed evidence therefore
+confirmed the seven-feature schema for promotion. The final export uses seed
+`2125739007`, preserves the full `base,drift,burst-loss` recipe, and has a
+`7 -> 24 -> 12 -> 1` topology with 505 parameters. Its training run scored
+`98.7%` blocked OOF F1, passed all 14 paired replays at `98.57%` worst recall
+and `0.43%` max FP, and kept quiet max FP at `0.30%`, with no effective alarms.
+The regenerated out-of-sample performance report records `100%` minimum recall
+on the reserved C3, C5, C6, and S3 replays, at most `0.4%` FP, and no effective
+alarms. The C3 leave-one-chip-out recall trade-off remains explicit even though
+the deployment replays clear the promotion gates.
+
+A later Classic-oriented follow-up asked a narrower question: if aggregation is
+accepted as a research-only input transform, can the gaining robust-dispersion
+family support a different two-feature non-ML detector? The replay used the
+current grouped, de-overlapped fit, `train`-role empty hard negatives, and the
+production startup and settled-threshold policy over the 98 real paired and
+empty replays. Three verdicts were stable:
+
+| Hypothesis | Best retained row | Key replay result | Verdict |
+| --- | --- | --- | --- |
+| Replace `turb_autocorr` and keep the coherence term | `turb_p95_over_mean + chan_freq_coh_curve_std` at `W=3` | discovery worst recall `43.27%` | Rejected |
+| Use only robust-dispersion features | `turb_p95_over_mean + turb_p05_over_mean` at `W=3` | discovery worst recall `34.10%` | Rejected |
+| Keep `turb_autocorr` and replace the coherence term | `turb_autocorr + turb_mad_over_mean` at `W=5`; runner-up `turb_autocorr + turb_iqr_over_mean` at `W=5` | discovery worst recall `99.71%`, weighted FP `3.07%`, and idle max `5.38%`, but `exclude` idle max still `37.04%` | Research |
+
+The same replay established that the detector-level width preference is not the
+same as the first feature screen width: `W=3` was enough to expose the family,
+but the strongest default-policy replay landed at `W=5` for the
+`turb_autocorr + turb_mad_over_mean` and `turb_autocorr + turb_iqr_over_mean`
+pairs. A calibration sweep could make the `W=3` `mad` and `iqr` pairs look very
+clean on discovery only by driving `startup_strength` to `0.0`, which then
+raised holdout idle maxima to `27.94%` and `27.73%`. Treat the whole
+Classic-with-aggregation line as research-only. It is the only live
+non-ML follow-up from this work, but it is not a drop-in replacement for the
+committed detector, and it does not weaken the ADR verdict for the shared path.
+
+The August 8 follow-up re-ran the admissible one- and two-feature surface with
+the then-current ten runtime features, then applied the ML packet augmentation
+components as inference-only stress. Coefficients and the operating point were
+fit once on clean `train` data, including train-role empty hard negatives; the
+same fitted detector was then replayed on `base`, `drift`, `burst-loss`, and
+`base+drift+burst-loss`. Feature-space jitter was excluded because it is a
+training transform rather than a packet stream the runtime can observe. All
+candidates saw the same deterministic augmented packets. The corpus contained
+40 real paired sessions plus 18 empty recordings, or 98 source files. Ranking
+used the worst discovery score across clean and augmented streams; `holdout`
+and `exclude` remained diagnostics.
+
+The table reports the refitted current pair as a surrogate, not the exported
+runtime baseline. Each metric triplet is worst paired recall / weighted paired
+FP / maximum empty FP on discovery.
+
+| Candidate | Clean metrics | Limiting augmented metrics | Worst clean/augmented score | Verdict |
+| --- | --- | --- | ---: | --- |
+| `turb_autocorr + chan_freq_coh_curve_std` | `94.83% / 3.30% / 4.08%` | `base`: `92.22% / 3.56% / 5.75%` | `9.47` | Robust reference |
+| `turb_autocorr` | `91.95% / 3.13% / 7.34%` | `base`: `89.05% / 3.12% / 7.40%` | `23.68` | Rejected; historical-holdout worst recall was `79.42%` |
+| `turb_autocorr + l1_delta_lag_ratio` | `92.82% / 2.96% / 9.51%` | `base`: `93.66% / 3.47% / 11.23%` | `25.89` | Rejected; quiet tail and holdout recall regress |
+| `turb_autocorr + turb_zcr` | `90.23% / 2.06% / 13.04%` | `burst-loss`: `90.80% / 2.11% / 13.22%` | `42.48` | Rejected; shared-buffer resource saving does not recover the quiet and recall tails |
+| `turb_iqr_over_mean_aggr + l1_delta_lag_ratio` | `96.54% / 2.29% / 12.47%` | combined: `97.08% / 4.75% / 15.66%` | `42.13` | Rejected; strongest recall-oriented aggregate pair, but not quiet-room safe |
+| `turb_iqr_over_mean_aggr + turb_autocorr` | `97.99% / 3.37% / 12.47%` | combined: `98.77% / 4.89% / 18.34%` | `53.16` | Rejected; high recall hides worse empty tails |
+| `turb_iqr_over_mean_aggr + turb_zcr` | `94.83% / 2.25% / 11.96%` | `base`: `96.83% / 3.66% / 21.29%` | `62.48` | Rejected; packet noise exposes the largest discovery empty regression |
+
+The aggregated-IQR plus lag-ratio lead and the current pair fail on different
+quiet recordings. The candidate's discovery maximum comes from
+`empty_s3_64sc_dev000010b41de8ec00_20260712_203314_805494_0001.npz`; the
+current-pair surrogate is limited by C6 recordings on discovery, historical
+holdout, and `exclude`. The candidate reduces historical-holdout maximum empty
+FP from `20.78%` to `2.01%`, but creates the new `12.47%` admitted-discovery S3
+tail. This is a chip/session trade-off, not a global robustness gain. Augmented
+`exclude` tails remain severe for multiple formulations and are diagnostic,
+not a basis for post-hoc selection on already observed recordings.
+
+No one-feature detector is competitive, and the only two-feature formulation
+that shares the existing turbulence buffer fails both clean and augmented
+tails. Keep `turb_autocorr + chan_freq_coh_curve_std` as the exported Classic
+pair. The aggregated IQR evidence remains useful for ML, but it does not
+transfer to a calibrated linear boundary without a material quiet-room cost.
+No Python or C++ detector change is justified by this campaign.
+A follow-up calibration sweep showed that the initial operating point overstated the aggregate pair's disadvantage. Threshold selection was repeated separately for each pair at weighted training FP targets of `3%`, `2%`, and `1%`, with startup strengths from `0.5` to `1.0` and settled margins from `2.8` to `6.0` logits. The best recall/quiet compromise for `turb_iqr_over_mean_aggr + l1_delta_lag_ratio` used a `2%` FP target, `startup_strength=0.75`, and a `4.0`-logit settled margin:
+
+| Calibration | Clean discovery worst recall / weighted FP / maximum empty FP | Packet-stress range | Worst clean/augmented score |
+| --- | --- | --- | ---: |
+| Current pair, default `3% / 0.5 / 2.8` | `94.83% / 3.30% / 4.08%` | worst recall `92.22%`; empty max up to `5.75%` | `9.47` |
+| Aggregate pair, original `3% / 0.5 / 2.8` | `96.54% / 2.29% / 12.47%` | worst recall `96.15%`; empty max up to `15.66%` | `42.13` |
+| Aggregate pair, retuned `2% / 0.75 / 4.0` | `96.26% / 1.43% / 9.24%` | worst recall `94.24%` to `96.55%`; empty max `8.17%` to `9.86%` | `17.74` |
+| Aggregate pair, quiet-tail attempt `1% / 0.5 / 4.0` | `71.92% / 0.34% / 5.43%` | not replayed under packet stress after the clean recall failure | `121.56` clean |
+
+Changing the settled margin alone had negligible effect on the limiting S3 empty tail. Reaching the existing sub-`6%` discovery empty region required a threshold that reduced worst-session recall to `71.92%`. The retuned candidate is therefore a genuine recall-oriented Pareto point, not the uniformly weak candidate implied by the first operating point, but it still does not dominate the current pair under the quiet-room gate.
+
+A more structural startup experiment replaced the production `q95` prefix statistic with `q99` and the prefix maximum. At `q99`, `startup_strength=0.75` improved clean worst recall to `97.99%` and maximum empty FP to `8.82%`, but the combined packet-stress empty maximum rose to `10.96%` and the robust score to `23.01`. Raising startup strength to `1.0` reduced the clean empty maximum to `6.88%`, while increasing maximum paired FP to `35.69%` and `exclude` empty FP to `25.39%`. The prefix maximum did not improve the limiting `8.82%` empty tail. This indicates that the S3 disturbance develops after the startup prefix; a higher startup quantile cannot isolate it without moving false positives to paired or later recordings.
+
+Adding `chan_freq_coh_curve_std` to the aggregate pair was also evaluated as a diagnostic three-feature formulation. Threshold-free worst-pair AUC improved from `0.9767` for the current pair to `0.9945`, but calibrated replay did not remove the S3 tail. At the aggregate pair's best `2% / 0.75 / 4.0` operating point, the triplet kept `96.26%` discovery worst recall and `9.24%` maximum empty FP, while reducing weighted paired FP from `1.43%` to `1.33%` and maximum paired FP from `8.74%` to `6.02%`. Packet stress improved the aggregate pair's robust score from `17.74` to `13.30`, but the current pair remained better at `9.47`; the triplet's stressed empty maximum ranged from `7.10%` to `9.32%`. It also raised diagnostic `exclude` empty FP from `13.61%` to `19.84%`. Replacing the lag-ratio term instead of adding coherence preserved two inputs, but `turb_iqr_over_mean_aggr + chan_freq_coh_curve_std` collapsed to `34.10%` discovery worst recall. Coherence therefore improves the aggregate pair's paired-FP balance, but it neither repairs the limiting quiet session nor yields a stronger two-feature replacement.
+
+The current-model correlation and SHAP rerun prompted one additional two-input check. Across all 21 pairs from the seven-feature export, threshold-free screening ranked `turb_iqr_over_mean_aggr + turb_zcr` first, followed by `turb_autocorr + l1_delta_lag_ratio`, `turb_iqr_over_mean_aggr + turb_autocorr`, and `turb_iqr_over_mean_aggr + l1_delta_lag_ratio`. Runtime replay rejected the SHAP-orthogonal `l1_delta_lag_ratio + chan_shape_spread` idea at `48.56%` discovery worst recall, confirming that shape spread is not a stable linear detector term.
+
+The only new clean-replay Pareto point was `turb_iqr_over_mean_aggr + turb_autocorr` at a `2%` FP target, `startup_strength=1.0`, and a `4.0`-logit settled margin. It reached `97.99%` discovery worst recall, `2.54%` weighted paired FP, `6.02%` maximum empty FP, `0.61%` holdout empty FP, and `6.18%` diagnostic `exclude` empty FP. Packet stress invalidated that apparent balance: the `base` recipe reduced worst recall to `67.26%` and produced a robust score of `154.20`. Reducing startup strength to `0.75` recovered clean worst recall to `97.99%`, but `base` still fell to `84.66%` and the combined recipe raised maximum empty FP to `11.86%`, for a robust score of `41.06`. The production `0.5` startup strength avoided a material stress-recall collapse (`92.33%` worst under `base`), but raised `base` and combined empty maxima to `10.32%` and `13.42%`, respectively, for a robust score of `30.50`. The pair would remove the full-band coherence tracker from Classic, but its packet-stress failure rules out that resource saving on the current evidence.
+
+A dedicated current-pair calibration sweep then covered FP targets from `2%` to `4%`, startup strengths from `0.25` to `0.7`, settled margins from `2.0` to `6.0` logits, startup quantiles from `q90` through the prefix maximum, calibration budgets from 500 to 2,000 packets, per-session recall constraints, and settled dwells from 30 to 120 seconds. The strongest clean alternative kept the `3%` FP target, raised startup strength to `0.6`, and used a `4.0`-logit margin. It improved discovery worst recall from `94.83%` to `95.14%`, holdout empty FP from `20.78%` to `17.19%`, and `exclude` empty FP from `33.92%` to `22.78%`, at a small discovery-empty cost from `4.08%` to `4.35%`. Packet stress rejected the retune: its worst score was `10.13`, versus `9.47` for the production-policy surrogate, with slightly lower worst recall under `base` and the combined recipe. Keeping startup strength at `0.5` and raising only the settled margin to `4.0` or `6.0` changed the robust score only to `9.42` or `9.41`, without moving recall or empty tails; the difference is not material enough to override the runtime's existing C3-validated `2.8` margin. `q97.5` worsened the robust score to `10.94`, q90 damaged `exclude`, q99 and the prefix maximum raised discovery empty FP to `6.25%`, and both shorter and longer startup budgets regressed at least one recall or quiet tail. Per-session recall floors up to `95%` selected the same threshold, while `97%` made the `3%` FP gate infeasible. Recovery dwell changes were numerically negligible. No scalar parameter retune is justified; further work should test a different calibration family rather than continue the same grid.
+
+Three causal calibration families were then added to the research replay and evaluated on the same current pair, 98 real paired and empty streams, five-fold grouped OOF operating point, 37 ready startup evaluations, `3%` FP target, train-role empty hard negatives, and `2.8`-logit settled margin. Robust logit calibration interpolated both startup median and IQR toward the training-idle reference; the grid covered strengths `0.1`, `0.25`, `0.5`, `0.75`, and `1.0`, with session-IQR floors at `0.1x`, `0.25x`, and `0.5x` the reference IQR. Its best clean point used `0.5 / 0.5x`: it preserved `94.83%` worst recall and reduced weighted paired FP from `3.30%` to `3.14%`, while increasing maximum paired FP from `15.86%` to `18.45%` and maximum discovery-empty FP from `4.08%` to `4.62%`. Holdout empty FP improved from `20.78%` to `6.74%`, but diagnostic `exclude` empty FP worsened from `33.92%` to `67.41%`. Packet stress rejected the apparent Pareto point: the `base` recipe reduced worst recall to `85.25%`, and its robust score rose to `30.71`, versus `9.47` for the production-policy surrogate.
+
+Per-feature location calibration shifted the two raw-feature baselines separately before applying the fixed linear fusion. Strengths `0.25`, `0.5`, `0.75`, and `1.0` were crossed with feature quantiles `q50`, `q75`, and `q95`. The best clean point used `q75 / 0.75`; compared with the production-policy surrogate, worst recall fell from `94.83%` to `92.82%`, weighted paired FP improved from `3.30%` to `3.04%`, maximum paired FP worsened from `15.86%` to `19.89%`, and maximum discovery-empty FP improved from `4.08%` to `2.72%`. Holdout empty FP improved to `16.77%`, while `exclude` empty FP worsened to `49.06%`. Because this point was already dominated on clean recall and paired tails, it did not advance to packet-stress confirmation.
+
+Guarded upward recovery retained the production `q95 / 0.5` startup rule and allowed later quiet blocks to undo settled-level lowering, but never to exceed the initial calibrated threshold. Predominantly positive blocks clear the evidence, preventing the rule from learning sustained motion. The grid covered one, three, and six `20`-evaluation blocks, block quantiles `q75`, `q90`, and `q95`, and positive-fraction guards `0.25` and `0.5`. The best result used one `q95` block; both guards tied. It left all recall and maximum-empty metrics unchanged, reduced clean weighted paired FP only from `3.30%` to `3.29%`, and reduced the worst packet-stress score only from `9.47` to `9.41`. Under `base`, weighted FP moved from `3.56%` to `3.53%`; under burst loss, it moved from `3.28%` to `3.27%`; the combined result was unchanged at the reported precision. This is not a material winner, especially because a single five-second block is the most aggressive recovery setting and adds runtime state and adaptation risk. Keep the exported calibration unchanged; the guarded rule is useful only as a future hypothesis for purpose-built recordings whose noise rises after settling.
+
+No one-feature detector is competitive, and the only two-feature formulation that shares the existing turbulence buffer fails both clean and augmented tails. Keep `turb_autocorr + chan_freq_coh_curve_std` as the exported Classic pair. The aggregated IQR evidence remains useful for ML, but it does not transfer to a calibrated linear boundary without a material quiet-room cost. No Python or C++ detector change is justified by this campaign.
 
 ### Classic Linear Candidate Replay
 

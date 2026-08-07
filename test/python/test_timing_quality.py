@@ -484,6 +484,65 @@ def test_classic_candidate_replay_reuses_time_aware_runtime_rows(monkeypatch):
     ]
 
 
+def test_classic_candidate_packet_stress_has_distinct_cache_provenance(monkeypatch):
+    seen = {}
+    packets = [{"csi_data": np.asarray([1, 2], dtype=np.int8)}]
+
+    monkeypatch.setattr(
+        replay_classic_candidates,
+        "load_npz_as_packets",
+        lambda _path: packets,
+    )
+
+    def fake_prepare_packets(record, **kwargs):
+        seen["prepared"] = (record, kwargs)
+        return packets
+
+    monkeypatch.setattr(
+        replay_classic_candidates.train_ml_model,
+        "_prepare_feature_packets_for_record",
+        fake_prepare_packets,
+    )
+    monkeypatch.setattr(
+        replay_classic_candidates.train_ml_model,
+        "_packet_augmentation_stream_provenance",
+        lambda config, seed: {"config": dict(config), "seed": seed},
+    )
+
+    def fake_load_rows(_path, **kwargs):
+        seen["kwargs"] = kwargs
+        kwargs["packets_factory"]()
+        return {
+            "X": np.asarray([[1.0]], dtype=np.float32),
+            "packet_index": np.asarray([99], dtype=np.int32),
+            "reset_index": np.asarray([0], dtype=np.int32),
+        }
+
+    monkeypatch.setattr(
+        replay_classic_candidates,
+        "load_or_compute_ml_replay_rows",
+        fake_load_rows,
+    )
+
+    replay_classic_candidates.build_replay_cache(
+        [trainer.Path("runtime.npz")],
+        [trainer.EXPORTED_FEATURE_NAMES[0]],
+        quiet=True,
+        packet_augmentation={"packet_loss": 0.05},
+        augmentation_seed=123,
+    )
+
+    assert callable(seen["kwargs"]["packets_factory"])
+    assert seen["kwargs"]["stream_provenance"] == {
+        "config": {"packet_loss": 0.05},
+        "seed": 123,
+    }
+    assert seen["prepared"][1] == {
+        "packet_augmentation": {"packet_loss": 0.05},
+        "augmentation_seed": 123,
+    }
+
+
 def test_timing_audit_rows_aggregate_by_slice_and_bucket():
     rows = performance_report._summarize_timing_audit_rows(
         [

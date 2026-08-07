@@ -64,15 +64,13 @@ python tools/train_ml_model.py --gain-stress-gate
 python tools/train_ml_model.py --gain-stress-gate --environment bedroom
 python tools/train_ml_model.py --seed-search-until-improvement 20
 python tools/train_ml_model.py --features turb_autocorr,turb_zcr,l1_delta_autocorr --no-export
-python tools/train_ml_model.py --features turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio --experiment
+python tools/train_ml_model.py --features turb_iqr_over_mean_aggr,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio --experiment
 ```
 
-`--features` selects a subset of the canonical runtime feature surface and is
-propagated to architecture and FP-weight campaigns. Host-only candidates are
-evaluated through the time-aware `replay_classic_candidates.py` and
-`benchmark_classic_candidate_pairs.py` research tools; they no longer enter a
-separate trainer matrix. Every removed production feature and the measurement that
-rejected it is listed in
+`--features` selects from the canonical runtime feature surface and explicit
+host-only candidates and is propagated to architecture and FP-weight campaigns.
+Host-only candidates require an export-free flow until promotion. Every removed
+production feature and the measurement that rejected it is listed in
 [2026-07-27-reduce-the-feature-surface-to-the-production-set.md](adr/2026-07-27-reduce-the-feature-surface-to-the-production-set.md).
 
 For exploratory architecture campaigns:
@@ -97,19 +95,23 @@ For feature diagnostics:
 
 ```bash
 python tools/train_ml_model.py --correlation
-python tools/train_ml_model.py --shap 500 --seed 1386543369 --no-export
-python tools/train_ml_model.py --ablation-feature l1_delta_autocorr --seed 1386543369
+python tools/train_ml_model.py --shap 500 --seed 2125739007 --augment --no-export
+python tools/train_ml_model.py --ablation-feature l1_delta_autocorr,chan_shape_spread,l1_delta_autocorr+chan_shape_spread --seed 2125739007 --augment
 ```
 
 Correlation is a fast marginal screen over the full training matrix. SHAP runs
 inside grouped cross-validation: each fold uses a class-, chip-, and
 session-balanced background from its training partition and explains only
-balanced, blocked windows from the held-out partition. Supplying `--seed` makes
-training, sampling, and permutation SHAP reproducible. Use `--no-export` for
-diagnostic runs so the current runtime artifacts remain unchanged.
-`--ablation-feature` compares the production set against one feature removal
-using the same seed, grouped CV, and paired validation. It also leaves the exported runtime
-artifacts unchanged.
+balanced, blocked windows from the held-out partition. With `--augment`, fold
+training uses the production augmentation recipe while the SHAP background and
+explained held-out windows remain clean. Supplying `--seed` makes training,
+sampling, and permutation SHAP reproducible. Use `--no-export` for diagnostic
+runs so the current runtime artifacts remain unchanged.
+`--ablation-feature` compares the production set against one or more
+comma-separated feature removals. The baseline is trained once, and each named
+feature is then removed independently using the same seed, augmentation,
+grouped CV, and paired validation. Join names with `+` to measure one joint
+removal. It also leaves the exported runtime artifacts unchanged.
 
 The latest diagnostic snapshot and interpretation live in
 [ALGORITHMS.md](ALGORITHMS.md). Recompute the values after changing the dataset,
@@ -149,15 +151,18 @@ override that, or use `--seed-search-until-improvement` to sample fresh seeds.
 If no exported seed is available, the trainer falls back to a random seed.
 
 Use `--augment` to enable one or more train-time augmentation components.
-`--augment` with no value is shorthand for `--augment base`, which keeps the
-validated production recipe. Augmentation is train-only; paired validation and
-runtime inference stay on clean features. See
+`--augment` with no value is shorthand for
+`--augment base,drift,burst-loss`, the current promoted production recipe.
+For ablations, use bare `--augment` for the promoted recipe or spell out
+`--augment base,drift,burst-loss`. Augmentation is train-only;
+paired validation and runtime inference stay on clean features. See
 [Training Augmentation](#training-augmentation) before reaching for it.
 
 ```bash
 python tools/train_ml_model.py --seed-search-until-improvement 10
 python tools/train_ml_model.py --augment --seed-search-until-improvement 10
 python tools/train_ml_model.py --augment base,drift --seed-search-until-improvement 10
+python tools/train_ml_model.py --augment --seed-search-until-improvement 10 --no-export
 ```
 
 Seed search writes `data/auto_generated/mlp_seed_search.json` after every
@@ -165,6 +170,10 @@ trial, so a run that crashes or is interrupted still leaves its evidence
 behind. Override the location with `--seed-search-output`. The report holds
 the per-replay rows for the baseline and for each candidate, and, for any
 candidate the gate rejected, the exact comparisons that blocked it:
+
+Use `--no-export` while screening a runtime-supported feature subset. Candidate
+models and deployment gates then stay in memory, the selected seed is reported,
+and the current generated runtime artifacts remain unchanged.
 
 ```json
 {"replay": "C6:selection:normal.npz", "metric": "fp_rate",
@@ -202,9 +211,14 @@ project the marked runtime ticks. Numeric weight changes do not invalidate this
 feature-only artifact. Dataset-quality idle summaries are recomputed from these
 rows rather than persisted in a separate summary cache. Deterministic
 packet-augmentation rows are variants of the same artifact, keyed by the
-complete packet recipe, augmentation seed, and implementation digest. Repeating
-a research run with identical provenance therefore reuses them, while a seed,
-recipe, or implementation change cannot silently alias another run. Delete
+complete packet recipe, augmentation seed, and the source digest of the packet
+transform itself. Host-candidate rows similarly fingerprint only their tracker,
+row-builder, and candidate implementations. Model architecture, optimizer,
+reporting, and other trainer-only edits therefore keep feature caches valid;
+changing how packets or features are computed invalidates only the affected
+rows. Repeating a research run with identical provenance therefore reuses them,
+while a seed, recipe, or relevant implementation change cannot silently alias
+another run. Delete
 `.npz_cache/` to force a cold rebuild of persisted artifacts, or use
 `--no-cache` to bypass them for one run. The legacy per-feature
 `feature_column`, idle-baseline summary, and non-time-aware `dense` caches have
@@ -237,9 +251,10 @@ The first timing-aware controls are provenance-only, not new model inputs:
 that groups replay results by `clean`, `degraded`, and `poor` timing buckets,
 so provenance can be inspected before changing the sample contract.
 
-Training supports the runtime ML feature surface only. Host-only exploratory
-features use time-aware replay ticks in the dedicated Classic candidate tools
-until they are either promoted into the runtime contract or retired.
+Training supports the runtime ML feature surface plus explicit host-only
+candidate features. Candidate retrains and gates remain in memory and cannot
+export artifacts until the selected features are promoted into the Python and
+`C++` runtime contracts.
 
 ## What The Trainer Does
 
@@ -250,9 +265,11 @@ The training pipeline:
    backward compatibility.
 2. Uses the shared CV-normalized turbulence path (`std/mean`) across all files.
 3. Extracts the selected ML feature set per sliding window. The production
-   default is the Invariant-5 set. When Hampel is enabled, the trainer filters both
-   base streams before feature extraction: turbulence for all `turb_*`
-   features and per-packet L1 deltas for all `l1_delta*` features.
+   default is the compact phaseless seven-feature set. The aggregated IQR input
+   uses its own `W=5` adjacent-magnitude turbulence stream; the other turbulence
+   inputs keep the normal twelve-subcarrier stream. When Hampel is enabled, the
+   trainer filters the selected turbulence streams and per-packet L1 deltas
+   before feature extraction.
    Feature extraction uses the same fixed HT20 subcarrier band as the runtime,
    rather than re-optimizing the band independently for ML.
 4. Runs grouped cross-validation by provenance lineage, with blocked scoring
@@ -308,6 +325,16 @@ The train/evaluation separation, dataset roles, and link-class policy are a
 durable decision; see
 [2026-07-23-separate-ml-training-data-from-promotion-replays.md](adr/2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 for the rationale and the alternatives that were rejected.
+
+When the selected set contains host-side candidates, seed search trains and
+evaluates every model in memory, including the paired and quiet selection
+gates, then runs the reserved holdout only for the selected winner. It records
+the winning research seed but leaves all runtime artifacts unchanged. Export
+becomes available only after every selected feature has a Python and `C++`
+runtime implementation and a published feature id.
+The grouped-CV reference is always the current production feature set retrained
+with the exported baseline seed; candidate features are used only for the trial
+models.
 
 Seed search evaluates every requested seed. Safety comes first: on normal-link
 replays paired recall must remain above `95%`, raw FP must remain below `5%`,
@@ -365,7 +392,7 @@ Screen redundancy before anything else, because a candidate earns its place by
 what it adds rather than by how well it separates alone:
 
 ```bash
-python tools/train_ml_model.py --features "turb_mad_over_mean,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio,chan_coh_lag_ratio" --correlation
+python tools/train_ml_model.py --features "turb_iqr_over_mean_aggr,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio,chan_coh_lag_ratio" --correlation
 ```
 
 The report prints each candidate's strongest pairwise correlation against the
@@ -374,11 +401,13 @@ production members and the `R2` of a least-squares fit on all of them. A high
 downstream gate will recover value it does not carry.
 
 Candidates run through the same streaming path as production features, so
-`--cross-chip`, `--gain-stress-gate`, and the replay gates measure them the way
-a runtime would. `--evaluate-gates --no-export` also reports the exact
-per-recording regressions against the exported baseline. Only a candidate that
-survives the promotion protocol above earns a calc function in both languages,
-an `MLFeatureId`, and a `CPP_FEATURE_IDS` entry.
+`--cross-chip`, `--cross-environment`, and the in-memory replay gates measure
+them the way a runtime would. `--evaluate-gates --no-export` reports the exact
+per-recording regressions against the exported baseline and includes the
+in-memory gain-stress result. The standalone `--gain-stress-gate` remains an
+exported-artifact check and therefore rejects host-only features. Only a
+candidate that survives the promotion protocol above earns a calc function in
+both languages, an `MLFeatureId`, and a `CPP_FEATURE_IDS` entry.
 
 The authoritative inventory, definitions, retained metrics, verdicts, and
 future physical axes are in [FEATURES.md](FEATURES.md). All currently
@@ -391,10 +420,10 @@ physical axes and for the hardware assumptions that limit transfer.
 
 The production ML path deliberately keeps Python/C++ runtime inference aligned
 by deriving all neural-detector inputs from the same raw CSI stream and shared
-tracker families. The exported ten-feature phaseless set combines gain- and
-offset-invariant turbulence, L1-delta, channel-shape, and
-delay-compensated-coherence statistics, so the model is structurally less
-sensitive to absolute amplitude gain changes than the older energy-like
+tracker families. The exported seven-feature phaseless set combines gain- and
+offset-invariant turbulence, L1-delta, and channel-shape statistics, so the
+model is structurally less sensitive to absolute amplitude gain changes than
+the older energy-like
 baselines were. Host-side gates, reports, and replay tests call the same
 float32 array-inference helper, including the runtime sigmoid saturation rules;
 the generated regression artifact and C++ parity tests guard the exported
@@ -491,12 +520,19 @@ contracts, using the same seed and feature set:
 - with `base,drift,burst-loss`, `stream_dense` is clearly stronger (`98.0%`
   versus `97.5%`)
 
-That makes `stream_dense + base,drift,burst-loss` the current promoted
-runtime-aware baseline when the goal is robustness under structured
-packet-domain perturbations. The fixed-seed export run that promoted it was:
+That comparison established `stream_dense + base,drift,burst-loss` as the
+runtime-aware recipe for robustness under structured packet-domain
+perturbations. Its original fixed-seed export was:
 
 ```bash
 python tools/train_ml_model.py --augment base,drift,burst-loss --seed 1876849819
+```
+
+The current aggregated-IQR production artifact preserves that recipe and uses
+seed `2125739007`:
+
+```bash
+python tools/train_ml_model.py --augment --seed 2125739007
 ```
 
 Use these components on normal training runs, seed search, and the
