@@ -6,23 +6,13 @@
 
 ## Context
 
-The repo tested detector-guided sample weighting twice as a way to improve the
-ML baseline without changing the deployed runtime contract.
+The repo tested detector-guided sample weighting twice as a way to improve the ML baseline without changing the deployed runtime contract.
 
-First, the 2026-07-03 MVS-guided weighting work showed that MVS could help as a
-hard-negative mining signal, but it also showed the central risk: using a weak
-detector as a broad training guide can import that detector's quiet-spike bias
-into the ML decision boundary.
+First, the 2026-07-03 MVS-guided weighting work showed that MVS could help as a hard-negative mining signal, but it also showed the central risk: using a weak detector as a broad training guide can import that detector's quiet-spike bias into the ML decision boundary.
 
-Later, the 2026-07-07 L1-delta-guided weighting re-ran the idea with a better
-support detector. It produced the same strategic result: grouped-CV or
-hard-chip recall could improve a little, but the long-quiet false-positive gate
-did not improve safely enough to justify promotion.
+Later, the 2026-07-07 L1-delta-guided weighting re-ran the idea with a better support detector. It produced the same strategic result: grouped-CV or hard-chip recall could improve a little, but the long-quiet false-positive gate did not improve safely enough to justify promotion.
 
-Together these experiments established a durable rule. Detector-guided
-weighting is useful analysis tooling, but it is not the default production
-training policy when the promotion rule is long-quiet false-positive
-non-regression.
+Together these experiments established a durable rule. Detector-guided weighting is useful analysis tooling, but it is not the default production training policy when the promotion rule is long-quiet false-positive non-regression.
 
 ## Decision
 
@@ -31,25 +21,19 @@ Keep unweighted training as the production ML baseline policy.
 Concretely:
 
 - do not use detector-guided sample weighting as the default training mode
-- require any future guided-weighting candidate to beat the same paired
-  promotion gates as an unweighted baseline
+- require any future guided-weighting candidate to beat the same paired promotion gates as an unweighted baseline
 
-Follow-up (2026-07-17): `--sample-weight-mode` and the L1-guided / hard-negative
-weighting paths were removed from `tools/train_ml_model.py`. The trainer now
-always starts from uniform sample weights.
+Follow-up (2026-07-17): `--sample-weight-mode` and the L1-guided / hard-negative weighting paths were removed from `tools/train_ml_model.py`. The trainer now always starts from uniform sample weights.
 
 ## Alternatives Considered
 
 ### Use MVS-guided weighting as the default policy
 
-Rejected. It could reduce some long-run counts in selected runs, but it also
-carried the risk of importing MVS bias and was later superseded by the clean
-AGC-active reset.
+Rejected. It could reduce some long-run counts in selected runs, but it also carried the risk of importing MVS bias and was later superseded by the clean AGC-active reset.
 
 ### Use L1-delta-guided weighting as the default policy
 
-Rejected. It improved some offline metrics, but it still failed the repo's
-false-positive-first promotion standard.
+Rejected. It improved some offline metrics, but it still failed the repo's false-positive-first promotion standard.
 
 ## Consequences
 
@@ -62,8 +46,7 @@ Benefits:
 Trade-offs:
 
 - some small recall or grouped-CV gains are intentionally left on the table
-- future weighting experiments must re-justify themselves from a strong
-  unweighted control, not from historical momentum
+- future weighting experiments must re-justify themselves from a strong unweighted control, not from historical momentum
 
 ## Related
 

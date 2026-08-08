@@ -8,31 +8,21 @@ Static single-page app published at `espectre.dev` through GitHub Pages.
 python -m http.server 8090 --directory docs/web
 ```
 
-Then open `http://localhost:8090`. The Flash tool and the Matter QR reader
-need a Chromium-based browser; the BLE connection additionally needs
-`localhost` or HTTPS.
+Then open `http://localhost:8090`. The Flash tool and the Matter QR reader need a Chromium-based browser; the BLE connection additionally needs `localhost` or HTTPS.
 
 ## Static content pages
 
-Guides, docs, media, the roadmap, and the privacy notice use shared HTML fragments for both SPA
-hash routes and canonical, indexable paths. Generate the standalone pages
-before previewing their direct URLs:
+Guides, docs, media, the roadmap, and the privacy notice use shared HTML fragments for both SPA hash routes and canonical, indexable paths. Generate the standalone pages before previewing their direct URLs:
 
 ```bash
 python3 .github/scripts/build_static_pages.py
 ```
 
-Edit shared fragments under `content/`, including `content/guides.html`,
-`content/guides/*.html`, `content/docs.html`, `content/docs/*.html`,
-`content/media.html`, `content/roadmap.html`, and `content/privacy.html`. Keep
-stylesheets under `assets/css/`, public images under `assets/images/`, and
-first-party scripts under `assets/js/`. Do not edit generated route
-`index.html` pages.
+Edit shared fragments under `content/`, including `content/guides.html`, `content/guides/*.html`, `content/docs.html`, `content/docs/*.html`, `content/media.html`, `content/roadmap.html`, and `content/privacy.html`. Keep stylesheets under `assets/css/`, public images under `assets/images/`, and first-party scripts under `assets/js/`. Do not edit generated route `index.html` pages.
 
 ## Browser dependencies
 
-Security-sensitive browser tools use pinned, same-origin copies under
-the generated `vendor/` directory in production:
+Security-sensitive browser tools use pinned, same-origin copies under the generated `vendor/` directory in production:
 
 - ESP Web Tools 10.4.0 for serial firmware installation;
 - MQTT.js 5.3.0 for the MQTT-over-WebSocket monitor; and
@@ -45,23 +35,13 @@ npm --prefix docs/web ci --ignore-scripts
 npm --prefix docs/web run stage:vendor
 ```
 
-`package-lock.json` is the source of truth for dependency versions. CI stages
-the same files before deployment, while `vendor/` and `node_modules/` remain
-ignored. When a dependency is absent during development on `localhost`, the
-site may fall back to the matching version on unpkg. Production never uses
-that fallback and treats missing same-origin dependencies as an error.
+`package-lock.json` is the source of truth for dependency versions. CI stages the same files before deployment, while `vendor/` and `node_modules/` remain ignored. When a dependency is absent during development on `localhost`, the site may fall back to the matching version on unpkg. Production never uses that fallback and treats missing same-origin dependencies as an error.
 
 ## Analytics and consent
 
-`assets/js/analytics.js` enables GA4 only on `espectre.dev` and only after explicit
-consent. Local previews never load the Google tag. The site stores the choice
-under `espectre.analytics.consent.v1`, disables advertising storage and Google
-Signals, and exposes Cookie settings in every generated footer. The public
-policy is owned by `content/privacy.html`.
+`assets/js/analytics.js` enables GA4 only on `espectre.dev` and only after explicit consent. Local previews never load the Google tag. The site stores the choice under `espectre.analytics.consent.v1`, disables advertising storage and Google Signals, and exposes Cookie settings in every generated footer. The public policy is owned by `content/privacy.html`.
 
-The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs
-and passwords, broker addresses and credentials, device identifiers, Bluetooth
-identifiers, Matter pairing codes, raw CSI, and MQTT payloads.
+The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs and passwords, broker addresses and credentials, device identifiers, Bluetooth identifiers, Matter pairing codes, raw CSI, and MQTT payloads.
 
 | Journey | Events and required parameters | Intended use |
 |---|---|---|
@@ -72,33 +52,17 @@ identifiers, Matter pairing codes, raw CSI, and MQTT payloads.
 | Configuration | `configure_change`, `matter_qr_read` | Outcome and normalized error category only |
 | Experiences | `theremin_configuration`, `game_start`, `game_over` | Optional tool engagement |
 
-Outcome events use `result` values such as `success`, `failure`, `cancelled`,
-`unsupported`, or `validation_failure`. Failures use a normalized `error_type`;
-never add raw exception messages. `frontend`, `chip`, `channel`, `transport`,
-`entry_point`, and `tool_name` are candidate event-scoped custom dimensions.
-Property-side configuration, retention, internal-traffic filters, key events,
-and funnel explorations must be verified in GA4 after deployment.
+Outcome events use `result` values such as `success`, `failure`, `cancelled`, `unsupported`, or `validation_failure`. Failures use a normalized `error_type`; never add raw exception messages. `frontend`, `chip`, `channel`, `transport`, `entry_point`, and `tool_name` are candidate event-scoped custom dimensions. Property-side configuration, retention, internal-traffic filters, key events, and funnel explorations must be verified in GA4 after deployment.
 
 ## Generated artifacts
 
-The website stages all downloadable output under the generated `artifacts/`
-tree. SDK downloads live under `artifacts/sdk/stable/` and
-`artifacts/sdk/main/`, the Doxygen reference lives under
-`artifacts/sdk/api/`, and firmware lives under
-`artifacts/firmware/<channel>/`. CI recreates the entire tree before deployment;
-none of its contents are tracked.
+The website stages all downloadable output under the generated `artifacts/` tree. SDK downloads live under `artifacts/sdk/stable/` and `artifacts/sdk/main/`, the Doxygen reference lives under `artifacts/sdk/api/`, and firmware lives under `artifacts/firmware/<channel>/`. CI recreates the entire tree before deployment; none of its contents are tracked.
 
 ## BLE client API
 
-`assets/js/espectre-ble.js` is a dependency-free client for the ESPectre BLE surface
-defined in `docs/ESPECTRE_PROTOCOL.md`. It exposes two globals:
-`ESPectreBleClient` and `ESPectreValidationError`. Web Bluetooth needs a
-Chromium-based browser and a secure context (HTTPS or `localhost`); check
-`ESPectreBleClient.supported` before connecting.
+`assets/js/espectre-ble.js` is a dependency-free client for the ESPectre BLE surface defined in `docs/ESPECTRE_PROTOCOL.md`. It exposes two globals: `ESPectreBleClient` and `ESPectreValidationError`. Web Bluetooth needs a Chromium-based browser and a secure context (HTTPS or `localhost`); check `ESPectreBleClient.supported` before connecting.
 
-Unlike the rest of the site, the client is **Apache-2.0** licensed (see
-`LICENSING.md`), so any web application, including proprietary ones, can
-embed it.
+Unlike the rest of the site, the client is **Apache-2.0** licensed (see `LICENSING.md`), so any web application, including proprietary ones, can embed it.
 
 ```js
 const client = new ESPectreBleClient();
@@ -114,9 +78,7 @@ await client.disconnect();
 
 ### Events
 
-Subscribe with `on(event, handler)`, which returns an unsubscribe function;
-`off(event, handler)` also works. A throwing handler is logged and never
-breaks the client or other handlers.
+Subscribe with `on(event, handler)`, which returns an unsubscribe function; `off(event, handler)` also works. A throwing handler is logged and never breaks the client or other handlers.
 
 | Event | Payload | When |
 |---|---|---|
@@ -137,10 +99,7 @@ breaks the client or other handlers.
 
 ### Commands
 
-Every `set*` method validates locally, throws `ESPectreValidationError` on a
-bad argument, and writes the command over the control characteristic. The
-matching static `build*Command` functions are pure and return the wire
-string, so arguments can be validated without a connected device.
+Every `set*` method validates locally, throws `ESPectreValidationError` on a bad argument, and writes the command over the control characteristic. The matching static `build*Command` functions are pure and return the wire string, so arguments can be validated without a connected device.
 
 | Method | Command | Validation |
 |---|---|---|
@@ -155,22 +114,15 @@ string, so arguments can be validated without a connected device.
 | `requestSysinfo()` | `REQ_SYSINFO` | — |
 | `writeControl(command)` | any | Escape hatch for commands the library does not model |
 
-The library validates protocol correctness only. The device remains
-authoritative for hardware capabilities: clients should offer `5g` and `auto`
-only when sysinfo reports `supports_wifi_5ghz=true`. A changed band policy is
-persisted immediately and takes effect after the device restarts.
+The library validates protocol correctness only. The device remains authoritative for hardware capabilities: clients should offer `5g` and `auto` only when sysinfo reports `supports_wifi_5ghz=true`. A changed band policy is persisted immediately and takes effect after the device restarts.
 
 ### Errors
 
-Command builders throw `ESPectreValidationError` (`error.name ===
-'ESPectreValidationError'`); everything else that rejects is a transport or
-browser error. `ESPectreBleClient.VERSION` identifies the library version,
-independent of the device `proto_version` reported in sysinfo.
+Command builders throw `ESPectreValidationError` (`error.name === 'ESPectreValidationError'`); everything else that rejects is a transport or browser error. `ESPectreBleClient.VERSION` identifies the library version, independent of the device `proto_version` reported in sysinfo.
 
 ### Tests
 
-The hardware-independent BLE surface and website analytics and structural
-contracts are covered by unit tests:
+The hardware-independent BLE surface and website analytics and structural contracts are covered by unit tests:
 
 ```bash
 node --test 'test/web/*.mjs'

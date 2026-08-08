@@ -1,11 +1,8 @@
 # Architecture Guide
 
-This document describes the current firmware-side architecture of ESPectre:
-code layout, layer boundaries, and runtime surfaces that exist in the
-repository today.
+This document describes the current firmware-side architecture of ESPectre: code layout, layer boundaries, and runtime surfaces that exist in the repository today.
 
-For the decision history behind this structure, use the ADR index in
-[`README.md` (ADR)](adr/README.md), especially:
+For the decision history behind this structure, use the ADR index in [`README.md` (ADR)](adr/README.md), especially:
 
 - [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](adr/2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
 - [`2025-12-06-adopt-a-dual-platform-development-model.md`](adr/2025-12-06-adopt-a-dual-platform-development-model.md)
@@ -53,9 +50,7 @@ ESPHome / Native / Matter / Streamer frontends
 - filters and helper utilities
 - exported ML artifacts and related constants
 
-Rule of thumb: code in `core` should stay free of frontend-specific concerns
-such as ESPHome entities, Matter clusters, BLE transport details, or MQTT topic
-handling.
+Rule of thumb: code in `core` should stay free of frontend-specific concerns such as ESPHome entities, Matter clusters, BLE transport details, or MQTT topic handling.
 
 ### `src/cpp/runtime/`
 
@@ -68,10 +63,7 @@ handling.
 - runtime snapshots, capabilities, and events
 - common runtime-facing configuration validation
 
-The frontend-oriented contract lives in the shared runtime layer. The current
-ESP-IDF implementations under `src/cpp/runtime/esp_idf/` include both the
-motion-oriented `EspIdfRuntime` and the transport-oriented
-`StreamEspIdfRuntime`.
+The frontend-oriented contract lives in the shared runtime layer. The current ESP-IDF implementations under `src/cpp/runtime/esp_idf/` include both the motion-oriented `EspIdfRuntime` and the transport-oriented `StreamEspIdfRuntime`.
 
 Shared runtime services also live here, including:
 
@@ -83,26 +75,11 @@ Shared runtime services also live here, including:
 
 ### Shared Wi-Fi and CSI Lifecycle
 
-`WiFiLifecycleManager` owns the CSI-specific ESP-IDF radio policy for every
-frontend. It applies the protocol and HT20 bandwidth policy synchronously on
-`WIFI_EVENT_STA_START`, before the first association, then completes the CSI
-prerequisites when `IP_EVENT_STA_GOT_IP` is drained from the runtime loop.
-ESPHome, Native, Matter, and Streamer must not apply these radio settings in
-their frontend code.
+`WiFiLifecycleManager` owns the CSI-specific ESP-IDF radio policy for every frontend. It applies the protocol and HT20 bandwidth policy synchronously on `WIFI_EVENT_STA_START`, before the first association, then completes the CSI prerequisites when `IP_EVENT_STA_GOT_IP` is drained from the runtime loop. ESPHome, Native, Matter, and Streamer must not apply these radio settings in their frontend code.
 
-The frontend or SDK integrator explicitly selects `2g`, `5g`, or `auto`; `2g`
-is the validated default, while `5g` and `auto` are available only on dual-band
-targets. The lifecycle applies that band mode first, then pins an 802.11n
-protocol ceiling and HT20 bandwidth on the selected band or bands. Fixed-band
-policies use the single-band ESP-IDF APIs, while AUTO uses the per-band APIs.
-See
-[`2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md`](adr/2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md).
+The frontend or SDK integrator explicitly selects `2g`, `5g`, or `auto`; `2g` is the validated default, while `5g` and `auto` are available only on dual-band targets. The lifecycle applies that band mode first, then pins an 802.11n protocol ceiling and HT20 bandwidth on the selected band or bands. Fixed-band policies use the single-band ESP-IDF APIs, while AUTO uses the per-band APIs. See [`2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md`](adr/2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md).
 
-The `GOT_IP` payload is also the source of truth for the local address,
-netmask, and gateway used during service startup. The runtime passes that
-gateway directly to the internal traffic generator instead of querying the
-network interface again. Disconnect processing clears the shared ready state,
-so the same sequence is repeated after a genuine reconnect.
+The `GOT_IP` payload is also the source of truth for the local address, netmask, and gateway used during service startup. The runtime passes that gateway directly to the internal traffic generator instead of querying the network interface again. Disconnect processing clears the shared ready state, so the same sequence is repeated after a genuine reconnect.
 
 ### `src/cpp/frontend/`
 
@@ -115,30 +92,19 @@ Current frontends:
 - `matter`: Matter-facing adapter and firmware path
 - `streamer`: raw CSI UDP streamer for collection workflows
 
-Rule of thumb: frontend-specific schemas, transport bindings, and ecosystem
-integration belong here, not in `core`.
+Rule of thumb: frontend-specific schemas, transport bindings, and ecosystem integration belong here, not in `core`.
 
 ## Frontend Notes
 
 ### ESPHome
 
-`src/cpp/frontend/esphome/` maps the shared runtime into ESPHome entities,
-YAML/config-codegen, and external-component packaging.
+`src/cpp/frontend/esphome/` maps the shared runtime into ESPHome entities, YAML/config-codegen, and external-component packaging.
 
-For the ESPHome workflow, see
-[`README.md` (esphome)](../src/cpp/frontend/esphome/README.md).
+For the ESPHome workflow, see [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md).
 
 ### Native
 
-`src/cpp/frontend/native/` exposes the runtime through the standalone BLE/MQTT
-surface and reuses the shared ESP-IDF frontend-support services for
-provisioning, device configuration, and OTA-related control flows.
-Native refreshes the shared diagnostics sample from the existing sensing update
-that feeds its status log, but publishes the cached CSI and Wi-Fi values only
-after an explicit MQTT `stats` command. ESPHome uses the same sampler and
-publishes its diagnostic entity states only after `Refresh Diagnostics` is
-pressed. Neither frontend adds a diagnostic timer, and both on-demand surfaces
-remain available in production builds independently of runtime debug logging.
+`src/cpp/frontend/native/` exposes the runtime through the standalone BLE/MQTT surface and reuses the shared ESP-IDF frontend-support services for provisioning, device configuration, and OTA-related control flows. Native refreshes the shared diagnostics sample from the existing sensing update that feeds its status log, but publishes the cached CSI and Wi-Fi values only after an explicit MQTT `stats` command. ESPHome uses the same sampler and publishes its diagnostic entity states only after `Refresh Diagnostics` is pressed. Neither frontend adds a diagnostic timer, and both on-demand surfaces remain available in production builds independently of runtime debug logging.
 
 For the native workflow and protocol surface, see:
 
@@ -147,22 +113,15 @@ For the native workflow and protocol surface, see:
 
 ### Matter
 
-`src/cpp/frontend/matter/` maps runtime state and controls into the Matter
-surface without pulling Matter-specific concerns into the shared detector or
-runtime layers.
+`src/cpp/frontend/matter/` maps runtime state and controls into the Matter surface without pulling Matter-specific concerns into the shared detector or runtime layers.
 
-For the Matter workflow, see
-[`README.md` (matter)](../src/cpp/frontend/matter/README.md).
+For the Matter workflow, see [`README.md` (matter)](../src/cpp/frontend/matter/README.md).
 
 ### Streamer
 
-`src/cpp/frontend/streamer/` is a dedicated CSI transport frontend. It now uses
-the same controller/runtime contract as the other standalone frontends, but it
-selects `StreamEspIdfRuntime` so the raw CSI transport path can stay focused and
-detector-free.
+`src/cpp/frontend/streamer/` is a dedicated CSI transport frontend. It now uses the same controller/runtime contract as the other standalone frontends, but it selects `StreamEspIdfRuntime` so the raw CSI transport path can stay focused and detector-free.
 
-For the streamer workflow, see
-[`README.md` (streamer)](../src/cpp/frontend/streamer/README.md).
+For the streamer workflow, see [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md).
 
 ## Runtime Contract
 
@@ -195,36 +154,21 @@ Normalized runtime events include:
 - periodic status updates
 - runtime faults
 
-Frontends should use this surface instead of reaching directly into low-level
-Wi-Fi or CSI pipeline services.
+Frontends should use this surface instead of reaching directly into low-level Wi-Fi or CSI pipeline services.
 
-Runtime detector selection is capability-gated. ESPHome and Native enable the
-shared ESP-IDF detector store, which persists `classic` or `ml` in NVS and
-restores it at boot. Matter keeps a frontend-owned `classic` default without a
-writable detector surface, while Streamer remains detector-free.
+Runtime detector selection is capability-gated. ESPHome and Native enable the shared ESP-IDF detector store, which persists `classic` or `ml` in NVS and restores it at boot. Matter keeps a frontend-owned `classic` default without a writable detector surface, while Streamer remains detector-free.
 
 ### Shared Runtime Debug Telemetry
 
-ESP-IDF runtime implementations reuse `RuntimeDebugTelemetry` for one
-`[telemetry]` log line approximately every 10 seconds at `DEBUG` level. It
-reports current, minimum, and largest-block heap values; configured CPU
-frequency; runtime-loop load and timing; and sampled detector evaluation
-timing.
+ESP-IDF runtime implementations reuse `RuntimeDebugTelemetry` for one `[telemetry]` log line approximately every 10 seconds at `DEBUG` level. It reports current, minimum, and largest-block heap values; configured CPU frequency; runtime-loop load and timing; and sampled detector evaluation timing.
 
-`runtime_load` measures wall time spent inside the ESPectre runtime loop, not
-whole-system CPU utilization. Wi-Fi callbacks and frontend services may run in
-other tasks. Detector timing is sampled on an evaluation tick after
-approximately 1,000 detector packets. For ML, it covers feature extraction,
-inference, and state update.
+`runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks and frontend services may run in other tasks. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For ML, it covers feature extraction, inference, and state update.
 
-This debug log is an implementation diagnostic, not part of ESPectre Protocol.
-Streamer also retains its separate live transport telemetry for pacing, CSI,
-and uplink health during collection.
+This debug log is an implementation diagnostic, not part of ESPectre Protocol. Streamer also retains its separate live transport telemetry for pacing, CSI, and uplink health during collection.
 
 ## ESPectre Protocol In The Architecture
 
-ESPectre Protocol is the shared device-facing message model used by the
-standalone ESP-IDF frontends and related tools.
+ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools.
 
 See [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) for:
 
@@ -233,15 +177,11 @@ See [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) for:
 - payload semantics
 - OTA-related command surfaces
 
-Architecturally, the protocol sits at the frontend/runtime integration
-boundary for the non-ESPHome standalone firmware paths.
+Architecturally, the protocol sits at the frontend/runtime integration boundary for the non-ESPHome standalone firmware paths.
 
 ## Packaging Note For ESPHome
 
-ESPHome still expects a component-shaped entry point under the external
-components root. For that reason, `src/cpp/frontend/esphome/components/espectre/` acts as
-the ESPHome packaging root even though the shared sources live under
-`src/cpp/core/` and `src/cpp/runtime/`.
+ESPHome still expects a component-shaped entry point under the external components root. For that reason, `src/cpp/frontend/esphome/components/espectre/` acts as the ESPHome packaging root even though the shared sources live under `src/cpp/core/` and `src/cpp/runtime/`.
 
 ## Current Status
 

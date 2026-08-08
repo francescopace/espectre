@@ -1,13 +1,10 @@
 # ML Data Collection Guide
 
-This guide covers the current data-collection workflow for ESPectre datasets:
-collection, labels, and the dataset format.
+This guide covers the current data-collection workflow for ESPectre datasets: collection, labels, and the dataset format.
 
 Use:
 
-- [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md)
-  for streamer firmware setup, UDP protocol, Wi-Fi provisioning, and transport
-  tuning
+- [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md) for streamer firmware setup, UDP protocol, Wi-Fi provisioning, and transport tuning
 - [`ML_TRAINING.md`](ML_TRAINING.md) for training, export, and validation
 - [`ALGORITHMS.md`](ALGORITHMS.md) for detector and feature definitions
 
@@ -25,24 +22,13 @@ python tools/validate_dataset_quality.py --chip C6
 python tools/validate_dataset_quality.py --no-report
 ```
 
-Every run refreshes explicit `static_presence` / `motion` pair metadata in
-`data/dataset_info.json` (writes and bumps `updated_at` only on real changes)
-and writes `data/auto_generated/DATASET_QUALITY_CHECK.md` unless `--no-report`
-is set. Admission checks (integrity, empty/static sanity, ML readiness) can
-fail the run. Shared feature-space review adds indicative 0-100 scores for
-review only, so the dataset is not filtered to "what one detector already
-solves".
+Every run refreshes explicit `static_presence` / `motion` pair metadata in `data/dataset_info.json` (writes and bumps `updated_at` only on real changes) and writes `data/auto_generated/DATASET_QUALITY_CHECK.md` unless `--no-report` is set. Admission checks (integrity, empty/static sanity, ML readiness) can fail the run. Shared feature-space review adds indicative 0-100 scores for review only, so the dataset is not filtered to "what one detector already solves".
 
 Read the feature-space review tables with three rules in mind:
 
-- `dataset_role` stays a manual curation decision; the validator never assigns
-  `train`, `selection`, or `holdout`.
-- Idle-table `Burst` marks are same-chip review signals when enough clean idle
-  references exist for that chip; otherwise they fall back to fixed review
-  thresholds instead of cross-chip empirical marks.
-- `PPS` reports the observed packet rate from metadata, while `Cover`, `Sep`,
-  `Tail`, and `Drift` explain whether a capture separates cleanly and how much
-  it leaves its own baseline in feature space.
+- `dataset_role` stays a manual curation decision; the validator never assigns `train`, `selection`, or `holdout`.
+- Idle-table `Burst` marks are same-chip review signals when enough clean idle references exist for that chip; otherwise they fall back to fixed review thresholds instead of cross-chip empirical marks.
+- `PPS` reports the observed packet rate from metadata, while `Cover`, `Sep`, `Tail`, and `Drift` explain whether a capture separates cleanly and how much it leaves its own baseline in feature space.
 
 Tooling details live in [`tools/README.md`](../tools/README.md).
 
@@ -59,8 +45,7 @@ Those three labels feed the current production binary ML workflow:
 - `empty` and `static_presence` map to `IDLE`
 - `motion` maps to `MOTION`
 
-Gesture, HAR, and people-counting datasets are possible, but they are not the
-mainline v3 collection target.
+Gesture, HAR, and people-counting datasets are possible, but they are not the mainline v3 collection target.
 
 ## Supported Collection Path
 
@@ -92,8 +77,7 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-On Windows PowerShell, activate `.venv\\Scripts\\Activate.ps1` and replace
-`./espectre` with `.\espectre.cmd`.
+On Windows PowerShell, activate `.venv\\Scripts\\Activate.ps1` and replace `./espectre` with `.\espectre.cmd`.
 
 Inspect the live stream first:
 
@@ -111,14 +95,11 @@ Then record labeled data:
 
 ## `espectre collect`
 
-`./espectre collect` is the host-side entry point for live inspection and
-dataset capture in the workflow described above.
+`./espectre collect` is the host-side entry point for live inspection and dataset capture in the workflow described above.
 
-For the full command reference, supported modes, options, pacing behavior, and
-examples, see [`CLI.md#collect`](CLI.md#collect).
+For the full command reference, supported modes, options, pacing behavior, and examples, see [`CLI.md#collect`](CLI.md#collect).
 
-Each saved capture emits one `.npz` per `device_id`. Mixed-device files are not
-part of the supported workflow.
+Each saved capture emits one `.npz` per `device_id`. Mixed-device files are not part of the supported workflow.
 
 ### Save Semantics
 
@@ -127,11 +108,8 @@ When saving captures:
 - collection starts only after the ready gate is satisfied
 - for `classic`, that happens after startup calibration
 - `ml` uses its production feature window and does not run startup calibration
-- `--detector` chooses the production detector for the ready gate in both live
-  and timed collection; timed collection accepts one detector, while live
-  inspection can compare `classic,ml`
-- `Ctrl+C` before a requested `--duration` finishes aborts the partial live
-  capture
+- `--detector` chooses the production detector for the ready gate in both live and timed collection; timed collection accepts one detector, while live inspection can compare `classic,ml`
+- `Ctrl+C` before a requested `--duration` finishes aborts the partial live capture
 - without `--duration`, `Ctrl+C` saves the packets already accepted
 
 ## Labels
@@ -144,10 +122,7 @@ Current canonical room-state labels:
 
 Use these labels only when the whole capture is homogeneous.
 
-Quiet long-run replays also live under `empty`. Mark them in
-`dataset_info.json` with `long_recording: true` so validation and
-long-recording suites can find them while ML training keeps them out of the
-binary IDLE class.
+Quiet long-run replays also live under `empty`. Mark them in `dataset_info.json` with `long_recording: true` so validation and long-recording suites can find them while ML training keeps them out of the binary IDLE class.
 
 Mixed sessions are not part of the current v3 mainline dataset contract.
 
@@ -167,8 +142,7 @@ Recommended starting point:
 
 ## Stream Metadata
 
-The clean-break streamer protocol keeps only metadata that is still useful for
-analysis and validation:
+The clean-break streamer protocol keeps only metadata that is still useful for analysis and validation:
 
 - `device_ticks_us`
 - `wifi_rx_ts_us`, when available
@@ -193,10 +167,7 @@ Typical filename:
 {label}_{chip}_{num_sc}sc_{device_token}_{timestamp}_{save_index}.npz
 ```
 
-All current ESPectre datasets use HT20 CSI with 64 logical subcarriers.
-Training and validation loaders therefore label captures without per-record PHY
-metadata as `ht20`; new streamer captures preserve their explicit PHY and LTF
-metadata instead.
+All current ESPectre datasets use HT20 CSI with 64 logical subcarriers. Training and validation loaders therefore label captures without per-record PHY metadata as `ht20`; new streamer captures preserve their explicit PHY and LTF metadata instead.
 
 ## Metadata
 
@@ -212,35 +183,17 @@ metadata instead.
 - `num_packets`
 - `description`
 - `environment`
-- `optimal_pair_motion_file` / `optimal_pair_static_presence_file` for
-  reciprocal `static_presence` / `motion` pairing
-- `low_rssi: true` for real and synthetic weak-link datasets stored under their
-  semantic labels
+- `optimal_pair_motion_file` / `optimal_pair_static_presence_file` for reciprocal `static_presence` / `motion` pairing
+- `low_rssi: true` for real and synthetic weak-link datasets stored under their semantic labels
 - `synthetic: true` for generated captures that are not real measurements
-- `long_recording: true` for quiet long-run `empty` captures reserved for the
-  long-recording replay suites; these stay evaluation-only and do not enter ML
-  training or the standard empty-room admission table
-- `dataset_role: train | selection | holdout | exclude` to reserve recordings
-  for the deployment safety replays. Entries without a role default to
-  `exclude` and must be admitted explicitly. `selection` recordings gate
-  candidate selection, `holdout` recordings stay sealed until the trainer
-  evaluates the final winner once, and `exclude` keeps a dataset in the
-  catalog while removing it from the current train/selection/holdout workflow
+- `long_recording: true` for quiet long-run `empty` captures reserved for the long-recording replay suites; these stay evaluation-only and do not enter ML training or the standard empty-room admission table
+- `dataset_role: train | selection | holdout | exclude` to reserve recordings for the deployment safety replays. Entries without a role default to `exclude` and must be admitted explicitly. `selection` recordings gate candidate selection, `holdout` recordings stay sealed until the trainer evaluates the final winner once, and `exclude` keeps a dataset in the catalog while removing it from the current train/selection/holdout workflow
 
-`validate_dataset_quality.py` regenerates those pair fields automatically
-before admission and Classic review. It never pairs a real capture with a
-synthetic capture; generated pair identity is read from the NPZ metadata.
+`validate_dataset_quality.py` regenerates those pair fields automatically before admission and Classic review. It never pairs a real capture with a synthetic capture; generated pair identity is read from the NPZ metadata.
 
-Legacy synthetic low-RSSI derivatives use the standard `data/<label>/`
-directories. Their `low_rssi: true` and `synthetic: true` catalog markers
-describe the link condition and generated origin without changing the `empty`,
-`static_presence`, or `motion` meaning. The repository no longer ships the
-synthetic generator, and current model promotion relies on real captures.
+Legacy synthetic low-RSSI derivatives use the standard `data/<label>/` directories. Their `low_rssi: true` and `synthetic: true` catalog markers describe the link condition and generated origin without changing the `empty`, `static_presence`, or `motion` meaning. The repository no longer ships the synthetic generator, and current model promotion relies on real captures.
 
-Existing generated NPZs can retain detailed generation provenance, fitted
-parameters, and historical Core-6 diagnostics. These fields are a
-backward-compatible legacy contract for self-describing analysis inputs, not a
-description of the current production feature set.
+Existing generated NPZs can retain detailed generation provenance, fitted parameters, and historical Core-6 diagnostics. These fields are a backward-compatible legacy contract for self-describing analysis inputs, not a description of the current production feature set.
 
 ## NPZ Contract
 
@@ -266,13 +219,7 @@ Common fields:
 | `rssi_dbm` | `int16[N]` | Optional RSSI metadata |
 | `noise_floor_dbm` | `int16[N]` | Optional noise-floor metadata |
 
-Legacy generated NPZ files may additionally store `synthetic`,
-`source_dataset`, `low_rssi_profile`, `generation_mode`, `generation_seed`,
-`generation_group`, `generated_at`, and `generator_version`. They may also
-embed historical Core-6 feature names, source, target, and achieved medians,
-normalized fit errors, and fitted impairment parameters. These fields keep old
-generated files self-describing for ML analysis; the runtime packet loader
-ignores them.
+Legacy generated NPZ files may additionally store `synthetic`, `source_dataset`, `low_rssi_profile`, `generation_mode`, `generation_seed`, `generation_group`, `generated_at`, and `generator_version`. They may also embed historical Core-6 feature names, source, target, and achieved medians, normalized fit errors, and fitted impairment parameters. These fields keep old generated files self-describing for ML analysis; the runtime packet loader ignores them.
 
 CSI uses the Espressif ordering `[Q0, I0, Q1, I1, ...]`.
 
@@ -306,25 +253,13 @@ from tools.lib.csi_io import load_npz_as_packets
 packets = load_npz_as_packets(Path("data/static_presence/sample.npz"))
 ```
 
-`load_npz_as_packets` and `load_npz_csi_data` expose the production sensing
-view by default: `phy_mode=ht`, `ltf_type=ht-ltf`, `channel_width=20`, and the
-stored 64-subcarrier HT20 layout. Historical captures that omit all per-record
-PHY metadata are only accepted when the on-disk payload already matches that
-same 64-subcarrier contract. Partially missing PHY metadata (some arrays
-present, others absent) is rejected rather than defaulted: a capture recorded
-after PHY provenance was introduced should carry every field, so a missing one
-marks the file as suspect. There is no fallback to `legacy` rows. Pass
-`keep_all_phy=True` to inspect mixed-PHY or unsupported captures explicitly.
-Dataset quality validation and the C++ test NPZ loader use the same filtered
-view, so excessive non-sensing drops show up as stream continuity gaps.
+`load_npz_as_packets` and `load_npz_csi_data` expose the production sensing view by default: `phy_mode=ht`, `ltf_type=ht-ltf`, `channel_width=20`, and the stored 64-subcarrier HT20 layout. Historical captures that omit all per-record PHY metadata are only accepted when the on-disk payload already matches that same 64-subcarrier contract. Partially missing PHY metadata (some arrays present, others absent) is rejected rather than defaulted: a capture recorded after PHY provenance was introduced should carry every field, so a missing one marks the file as suspect. There is no fallback to `legacy` rows. Pass `keep_all_phy=True` to inspect mixed-PHY or unsupported captures explicitly. Dataset quality validation and the C++ test NPZ loader use the same filtered view, so excessive non-sensing drops show up as stream continuity gaps.
 
 ## Collection Notes
 
 - AGC stays active during collection
-- the fixed production sensing contract is HT20 + HT-LTF + 64 subcarriers;
-  unsupported PHY/layout combinations are excluded from the sensing view
-- the current ML runtime and training flow use the five scale-invariant
-  production features defined in [FEATURES.md](FEATURES.md)
+- the fixed production sensing contract is HT20 + HT-LTF + 64 subcarriers; unsupported PHY/layout combinations are excluded from the sensing view
+- the current ML runtime and training flow use the seven scale-invariant production features defined in [FEATURES.md](FEATURES.md)
 
 ## Dataset Inspection
 
@@ -336,10 +271,7 @@ python tools/validate_dataset_quality.py
 python tools/train_ml_model.py --info
 ```
 
-`collect --info` summarizes collected files.
-`validate_dataset_quality.py` refreshes pair metadata, runs admission plus
-feature-space review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`.
-`train_ml_model.py --info` shows the dataset view used by the trainer.
+`collect --info` summarizes collected files. `validate_dataset_quality.py` refreshes pair metadata, runs admission plus feature-space review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. `train_ml_model.py --info` shows the dataset view used by the trainer.
 
 ## Contributing Data
 
@@ -359,8 +291,6 @@ Before opening a PR:
 
 ## Next Steps
 
-- [`ML_TRAINING.md`](ML_TRAINING.md) for model training, export, and regression
-  checks
-- [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md)
-  for firmware-side streaming details
+- [`ML_TRAINING.md`](ML_TRAINING.md) for model training, export, and regression checks
+- [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md) for firmware-side streaming details
 - [`README.md` (tools)](../tools/README.md) for analysis helpers

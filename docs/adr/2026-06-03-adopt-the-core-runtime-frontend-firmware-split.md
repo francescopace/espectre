@@ -3,44 +3,33 @@
 - Status: Accepted
 - Date: 2026-06-03
 - Recorded: 2026-07-09 (retrospective)
+- Supersedes: 2025-12-06-adopt-a-dual-platform-development-model.md
 
 ## Context
 
-Before the split, firmware concerns were clustered too closely around the
-ESPHome component layout. Detection logic, runtime orchestration, and
-ecosystem-specific integration surfaces were harder to evolve independently,
-which made new firmware targets expensive and risked leaking integration
-details into reusable sensing code.
+Before the split, firmware concerns were clustered too closely around the ESPHome component layout. Detection logic, runtime orchestration, and ecosystem-specific integration surfaces were harder to evolve independently, which made new firmware targets expensive and risked leaking integration details into reusable sensing code.
 
-The repository history and later architecture documentation show a clear shift
-toward a platform that can support ESPHome, native firmware, Matter, and the
-streamer frontend without duplicating the sensing pipeline.
+The repository history and later architecture documentation show a clear shift toward a platform that can support ESPHome, native firmware, Matter, and the streamer frontend without duplicating the sensing pipeline.
 
 ## Decision
 
 Split the firmware-side C++ code into three explicit layers:
 
 - `src/cpp/core/` for reusable detectors, signal processing, and domain logic
-- `src/cpp/runtime/` for CSI acquisition, calibration, Wi-Fi, and platform
-  orchestration
-- `src/cpp/frontend/` for integration-specific surfaces such as ESPHome,
-  native, Matter, and streamer
+- `src/cpp/runtime/` for CSI acquisition, calibration, Wi-Fi, and platform orchestration
+- `src/cpp/frontend/` for integration-specific surfaces such as ESPHome, native, Matter, and streamer
 
-Keep `core` frontend-agnostic, keep platform orchestration in `runtime`, and
-keep ecosystem-specific behavior in the relevant `frontend`.
+Keep `core` frontend-agnostic, keep platform orchestration in `runtime`, and keep ecosystem-specific behavior in the relevant `frontend`.
 
 ## Alternatives Considered
 
 ### Keep the ESPHome-centered layout
 
-Rejected. It would keep shipping velocity acceptable for one integration, but
-would make native, Matter, and streamer support harder to maintain without
-copying logic.
+Rejected. It would keep shipping velocity acceptable for one integration, but would make native, Matter, and streamer support harder to maintain without copying logic.
 
 ### Split only by platform or chip family
 
-Rejected. That would organize build targets, but would not separate reusable
-motion-detection logic from runtime and integration concerns.
+Rejected. That would organize build targets, but would not separate reusable motion-detection logic from runtime and integration concerns.
 
 ## Consequences
 

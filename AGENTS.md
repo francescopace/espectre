@@ -199,6 +199,7 @@ separate states.
 
 - Use clear, concise, technical English, and prefer bullets or tables when they
 improve readability. Use a neutral tone except in product-facing entry points.
+- Do not hard-wrap prose in Markdown files; keep each paragraph and list item on a single source line unless Markdown syntax requires a line break.
 - Keep frontend-specific workflows, protocols, and firmware surfaces in the local frontend README files.
 - Verify current-state docs against implementation, runtime schema, and
 generated artifacts; distinguish deployed, partial, and target behavior.

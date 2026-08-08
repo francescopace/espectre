@@ -2,8 +2,7 @@
 
 Shared operational tuning guide for ESPectre.
 
-This document is the main operational reference for startup behavior,
-thresholds, filters, placement, and troubleshooting. 
+This document is the main operational reference for startup behavior, thresholds, filters, placement, and troubleshooting.
 
 Inline snippets use `ESPHome` YAML only as a concrete example.
 
@@ -17,22 +16,18 @@ Current startup behavior:
 
 1. CSI capture starts with AGC active
 2. the runtime builds a quiet anchor
-3. if a clean `quiet -> motion -> quiet` pattern appears, startup may finish
-   early
+3. if a clean `quiet -> motion -> quiet` pattern appears, startup may finish early
 4. otherwise the detector falls back internally to the quiet-only path
 
-With default `window_size=100`, the startup budget is `10 x window_size = 1000`
-packets. This is a maximum, not a fixed wait.
+With default `window_size=100`, the startup budget is `10 x window_size = 1000` packets. This is a maximum, not a fixed wait.
 
 Practical rule:
 
 - stay quiet immediately after boot
-- after the first quiet phase, one short motion can help `classic` converge
-  faster, but it is optional
+- after the first quiet phase, one short motion can help `classic` converge faster, but it is optional
 - repeated movement during startup still hurts calibration quality
 
-`ml` does not use startup threshold calibration and becomes active as soon as
-CSI capture is ready.
+`ml` does not use startup threshold calibration and becomes active as soon as CSI capture is ready.
 
 ### 2. Watch The Runtime Surface
 
@@ -59,10 +54,7 @@ Start with threshold. If needed, then adjust window size or filters.
 
 ### Threshold
 
-The threshold is selected automatically at startup. Classic adapts its trained
-probability threshold from quiet session logits, while ML starts from the
-threshold validated with the exported model. Both remain adjustable from the
-frontend for the current session; recalibration restores the automatic value.
+The threshold is selected automatically at startup. Classic adapts its trained probability threshold from quiet session logits, while ML starts from the threshold validated with the exported model. Both remain adjustable from the frontend for the current session; recalibration restores the automatic value.
 
 Both detectors expose a `0.0-1.0` probability threshold.
 
@@ -71,9 +63,7 @@ Rules of thumb:
 - too many false positives: raise the threshold
 - missed movement: lower the threshold
 
-Runtime threshold changes are session-only and are recalculated at boot.
-ESPHome and Native persist runtime detector selections; Matter uses its fixed
-frontend default of `classic`, and Streamer does not run a detector.
+Runtime threshold changes are session-only and are recalculated at boot. ESPHome and Native persist runtime detector selections; Matter uses its fixed frontend default of `classic`, and Streamer does not run a detector.
 
 ### Detection Algorithm
 
@@ -87,12 +77,7 @@ espectre:
 | `classic` | default adaptive non-ML path | startup threshold calibration |
 | `ml` | calibration-free startup, highest recall | fixed probability threshold |
 
-`classic` keeps false positives low on every supported chip, but its recall
-varies by chip and drops on weak links. If you miss real motion and the false
-positives are already rare, switch to `ml` before tuning anything else: on the
-project corpus it recovers most of that gap without giving the false positives
-back. See the Known Limits section in [ALGORITHMS.md](ALGORITHMS.md) and the
-per-chip tables in [README.md](performance/README.md).
+`classic` keeps false positives low on the maintained normal-link paired corpus, but its recall varies by chip and drops on weak links. Its long quiet C6 replay also exceeds the published `<5%` false-positive target; that suite is currently a diagnostic rather than a binding Classic gate. If you miss real motion and the false positives are already rare, switch to `ml` before tuning anything else: on the project corpus it recovers most of that gap without giving the false positives back. See the Known Limits section in [ALGORITHMS.md](ALGORITHMS.md) and the per-chip tables in [README.md](performance/README.md).
 
 ### Window Size
 
@@ -101,14 +86,9 @@ espectre:
   segmentation_window_size: 100
 ```
 
-The setting is a packet count, and it stays one. The feature lags also remain at
-the nominal `10:1` packet offsets used for fitting; only the evaluation schedule
-follows elapsed arrival time. A slower link therefore widens both the window and
-the feature offsets in time rather than changing the fitted feature definition.
-The supported detector envelope is `80-133 pps`.
+The setting is a packet count, and it stays one. The feature lags also remain at the nominal `10:1` packet offsets used for fitting; only the evaluation schedule follows elapsed arrival time. A slower link therefore widens both the window and the feature offsets in time rather than changing the fitted feature definition. The supported detector envelope is `80-133 pps`.
 
-That floor is measured, not assumed. Sweeping only the window over the 22
-normal-link paired recordings at their native rate:
+That floor is measured, not assumed. Sweeping only the window over the 22 normal-link paired recordings at their native rate:
 
 | window | worst-session recall | median recall |
 | --- | --- | --- |
@@ -117,12 +97,9 @@ normal-link paired recordings at their native rate:
 | 100 | `96.8%` | `100.0%` |
 | 120 | `97.1%` | `100.0%` |
 
-The production target is `95%` recall, so 80 and 90 fail on the worst session
-while the median barely moves. That is why the minimum is 100, and why the floor
-has to be gated per session rather than on the average.
+The production target is `95%` recall, so 80 and 90 fail on the worst session while the median barely moves. That is why the minimum is 100, and why the floor has to be gated per session rather than on the average.
 
-See the Detector Timing section in [ALGORITHMS.md](ALGORITHMS.md) for the full
-contract and the measured reason runtime lag derivation was rejected.
+See the Detector Timing section in [ALGORITHMS.md](ALGORITHMS.md) for the full contract and the measured reason runtime lag derivation was rejected.
 
 Rules of thumb:
 
@@ -141,17 +118,7 @@ espectre:
   traffic_generator_adaptive: true
 ```
 
-The rate is the target for valid local CSI callbacks, not a fixed network send
-rate. By default, the shared C++ runtime and Micro-ESPectre use the same adaptive
-policy: send pacing can rise toward about `125%` of the target when CSI is short,
-backs off by `15%` on sustained socket send errors or sustained CSI oversupply,
-never drops below `70%` of the target, and waits three control windows between
-reductions. A severe CSI deficit below `50%` holds the current send rate rather
-than cutting it; on the original ESP32 the runtime now reports sustained
-low-supply windows as passive telemetry instead of trying to rearm CSI capture.
-Set
-`traffic_generator_adaptive: false` (or `TRAFFIC_GENERATOR_ADAPTIVE = False` in
-Micro-ESPectre) only when you need a fixed network send rate for an experiment.
+The rate is the target for valid local CSI callbacks, not a fixed network send rate. By default, the shared C++ runtime and Micro-ESPectre use the same adaptive policy: send pacing can rise toward about `125%` of the target when CSI is short, backs off by `15%` on sustained socket send errors or sustained CSI oversupply, never drops below `70%` of the target, and waits three control windows between reductions. A severe CSI deficit below `50%` holds the current send rate rather than cutting it; on the original ESP32 the runtime now reports sustained low-supply windows as passive telemetry instead of trying to rearm CSI capture. Set `traffic_generator_adaptive: false` (or `TRAFFIC_GENERATOR_ADAPTIVE = False` in Micro-ESPectre) only when you need a fixed network send rate for an experiment.
 
 Rules of thumb:
 
@@ -166,8 +133,7 @@ espectre:
   publish_interval: 100
 ```
 
-This controls periodic movement-score reporting. Motion state edges are handled
-separately and are not tied to this cadence anymore.
+This controls periodic movement-score reporting. Motion state edges are handled separately and are not tied to this cadence anymore.
 
 ### Evaluation Interval And Hit Filtering
 
@@ -178,19 +144,13 @@ espectre:
   motion_off_hits: 3
 ```
 
-The detector still processes every CSI packet into its sliding window, but the
-published motion state updates only on a coarser cadence:
+The detector still processes every CSI packet into its sliding window, but the published motion state updates only on a coarser cadence:
 
-1. every `250 ms` of packet arrival time, the runtime evaluates the detector
-   and gets a raw `IDLE` or `MOTION` reading; `evaluation_interval` is the
-   equivalent in packets and is what the runtime falls back to during startup,
-   or on sources that report no arrival timestamp
-2. that raw reading must repeat for `motion_on_hits` consecutive evaluations
-   before the published state becomes `MOTION`
+1. every `250 ms` of packet arrival time, the runtime evaluates the detector and gets a raw `IDLE` or `MOTION` reading; `evaluation_interval` is the equivalent in packets and is what the runtime falls back to during startup, or on sources that report no arrival timestamp
+2. that raw reading must repeat for `motion_on_hits` consecutive evaluations before the published state becomes `MOTION`
 3. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
 
-These hits are consecutive evaluation ticks, not detector windows
-(`segmentation_window_size`). One opposing reading resets the pending count.
+These hits are consecutive evaluation ticks, not detector windows (`segmentation_window_size`). One opposing reading resets the pending count.
 
 With the defaults (`100` pps CSI target, `evaluation_interval = 25`):
 
@@ -199,18 +159,13 @@ With the defaults (`100` pps CSI target, `evaluation_interval = 25`):
 | `IDLE -> MOTION` | `4` | `0.25 s` | about `1.0 s` of sustained raw motion |
 | `MOTION -> IDLE` | `3` | `0.25 s` | about `0.75 s` of sustained raw idle |
 
-So a brief burst that crosses the detector threshold for one or two evaluations
-does not become a published motion alarm. That is the intended debounce: fewer
-false edges, at the cost of a short confirmation delay.
+So a brief burst that crosses the detector threshold for one or two evaluations does not become a published motion alarm. That is the intended debounce: fewer false edges, at the cost of a short confirmation delay.
 
 Rules of thumb:
 
 - more hit filtering: steadier state changes, slower transitions
-- expected publish latency is roughly `0.25 s * motion_on_hits`, and it no longer
-  depends on the packet rate: a link running at `80 pps` confirms motion in the
-  same wall-clock time as one at `100`
-- `evaluation_interval` now only shapes the startup fallback, so tuning it has
-  little effect once the cadence estimate settles
+- expected publish latency is roughly `0.25 s * motion_on_hits`, and it no longer depends on the packet rate: a link running at `80 pps` confirms motion in the same wall-clock time as one at `100`
+- `evaluation_interval` now only shapes the startup fallback, so tuning it has little effect once the cadence estimate settles
 
 ## Filters
 
@@ -242,8 +197,7 @@ espectre:
   lowpass_cutoff: 11.0
 ```
 
-Use it when the environment is noisy and false positives persist after threshold
-tuning.
+Use it when the environment is noisy and false positives persist after threshold tuning.
 
 Rules of thumb:
 
@@ -279,8 +233,7 @@ Try in this order:
 2. enable or tune the low-pass filter
 3. keep Hampel enabled
 4. increase the window size slightly
-5. inspect interference sources such as fans, curtains, pets, Bluetooth, or
-   microwave activity
+5. inspect interference sources such as fans, curtains, pets, Bluetooth, or microwave activity
 6. rerun calibration in a quiet room
 
 ### Missing Movements
@@ -326,8 +279,7 @@ Check:
 3. CSI-enabled build/configuration
 4. router compatibility and packet flow
 
-If logs say protocol or bandwidth is `unavailable`, do not assume CSI is broken.
-Judge health from actual packet flow and calibration progress.
+If logs say protocol or bandwidth is `unavailable`, do not assume CSI is broken. Judge health from actual packet flow and calibration progress.
 
 ### False Positives After Wi-Fi Channel Change
 
@@ -365,33 +317,19 @@ Whatever frontend you use, keep an eye on:
 
 ### Firmware Performance Check
 
-Use a `DEBUG` build when comparing firmware variants. Record the binary size
-and free application-partition space from the build summary, then monitor the
-device for several minutes after startup has settled.
+Use a `DEBUG` build when comparing firmware variants. Record the binary size and free application-partition space from the build summary, then monitor the device for several minutes after startup has settled.
 
-For the repository hardware benchmark, connect one supported board and run
-`python tools/benchmark_firmware.py --chip <chip>`. It tests the ESPHome Dev and
-Native Debug frontends with both `classic` and `ml`, then writes the generated
-chip report under `docs/performance/`. The Classic build starts clean for each
-frontend, and the following ML build reuses its build directory. The ML build
-runs concurrently with Classic monitoring; firmware flashes and monitoring
-windows remain ordered and do not overlap.
+For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It tests the ESPHome Dev and Native Debug frontends with both `classic` and `ml`, then writes the generated chip report under `docs/performance/`. The Classic build starts clean for each frontend, and the following ML build reuses its build directory. The ML build runs concurrently with Classic monitoring; firmware flashes and monitoring windows remain ordered and do not overlap.
 
-The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10
-seconds at `DEBUG` level. Check that:
+The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10 seconds at `DEBUG` level. Check that:
 
 - packet flow stays close to the configured rate, normally around `100 pps`
 - motion state remains stable when the environment is still
-- `heap_free`, `heap_min`, and `heap_largest` settle instead of declining
-  continuously
+- `heap_free`, `heap_min`, and `heap_largest` settle instead of declining continuously
 - `runtime_load`, `loop_avg_us`, and `loop_max_us` remain reasonably stable
-- `detection_avg_us`, `detection_min_us`, and `detection_max_us` remain stable
-  when comparing detector variants
+- `detection_avg_us`, `detection_min_us`, and `detection_max_us` remain stable when comparing detector variants
 
-For `ml`, detector timing includes feature extraction, inference, and state
-update. `runtime_load` measures the ESPectre runtime loop only; it is not
-whole-system CPU utilization. Compare results on the same target, Wi-Fi setup,
-traffic rate, and log level.
+For `ml`, detector timing includes feature extraction, inference, and state update. `runtime_load` measures the ESPectre runtime loop only; it is not whole-system CPU utilization. Compare results on the same target, Wi-Fi setup, traffic rate, and log level.
 
 ## Short Version
 

@@ -186,7 +186,7 @@ Use ESPectre only in spaces where you have the right to deploy it, inform affect
 | [EMBEDDING.md](docs/EMBEDDING.md)                   | Embedding the sensing engine into third-party ESP32 firmware                |
 | [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md)   | Shared BLE/MQTT protocol, payloads, commands, and privacy boundary          |
 | [ALGORITHMS.md](docs/ALGORITHMS.md)                 | CSI theory, detectors, filters, and feature extraction                      |
-| [FEATURES.md](docs/FEATURES.md)                     | ML feature inventory, evidence, verdicts, and research backlog              |
+| [FEATURES.md](docs/FEATURES.md)                     | Detector feature ledger, evidence, verdicts, and research backlog           |
 | [LITERATURE.md](docs/LITERATURE.md)                 | Paper digest, reported methods, results, limits, and ESPectre research value |
 | [README.md](docs/performance/README.md)             | Benchmarks, validation targets, resource usage, and caveats                 |
 | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md) | Dataset collection workflow for contributors                                |

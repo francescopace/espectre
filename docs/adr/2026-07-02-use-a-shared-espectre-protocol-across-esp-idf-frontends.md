@@ -6,45 +6,35 @@
 
 ## Context
 
-Once native firmware, Matter, and streamer started to coexist with ESPHome, the
-project needed a reusable device-facing protocol surface for BLE, MQTT,
-provisioning, telemetry, OTA status, and command handling. Keeping those pieces
-inside one frontend would duplicate transport logic and make behavior drift
-between firmware targets more likely.
+Once native firmware, Matter, and streamer started to coexist with ESPHome, the project needed a reusable device-facing protocol surface for BLE, MQTT, provisioning, telemetry, OTA status, and command handling. Keeping those pieces inside one frontend would duplicate transport logic and make behavior drift between firmware targets more likely.
 
-The changelog and git history show an explicit extraction of BLE/MQTT protocol
-behavior from the native frontend into shared runtime services.
+The changelog and git history show an explicit extraction of BLE/MQTT protocol behavior from the native frontend into shared runtime services.
 
 ## Decision
 
-Treat ESPectre Protocol as a shared runtime service for ESP-IDF frontends,
-rather than a native-only implementation detail.
+Treat ESPectre Protocol as a shared runtime service for ESP-IDF frontends, rather than a native-only implementation detail.
 
 Concretely:
 
 - keep the protocol model and transport boundaries in shared runtime code
 - share BLE, MQTT, provisioning, and protocol helpers across native and Matter
-- let frontends map the shared protocol to their own ecosystem surfaces without
-  re-implementing the transport core
+- let frontends map the shared protocol to their own ecosystem surfaces without re-implementing the transport core
 
 ## Alternatives Considered
 
 ### Keep BLE and MQTT handling frontend-local
 
-Rejected. That would duplicate transport behavior and increase the risk of
-inconsistent provisioning, telemetry, and command semantics.
+Rejected. That would duplicate transport behavior and increase the risk of inconsistent provisioning, telemetry, and command semantics.
 
 ### Build one protocol per frontend
 
-Rejected. Frontends differ in presentation, not in the underlying device
-identity, command, and telemetry concepts.
+Rejected. Frontends differ in presentation, not in the underlying device identity, command, and telemetry concepts.
 
 ## Consequences
 
 Benefits:
 
-- BLE, MQTT, provisioning, and OTA-related flows stay aligned across firmware
-  targets
+- BLE, MQTT, provisioning, and OTA-related flows stay aligned across firmware targets
 - new ESP-IDF frontends can reuse the same protocol baseline
 - frontend code can focus on presentation and integration specifics
 

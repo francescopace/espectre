@@ -2,15 +2,11 @@
 
 This document is the shared setup hub for choosing a frontend and finding the right installation path.
 
-ESPectre now exposes multiple frontends, and each frontend owns its own configuration surface, integration workflow, and troubleshooting. 
-This guide covers the shared entry points and links you to the frontend-specific README for everything else.
+ESPectre now exposes multiple frontends, and each frontend owns its own configuration surface, integration workflow, and troubleshooting. This guide covers the shared entry points and links you to the frontend-specific README for everything else.
 
 Use `Latest Release` for the newest official firmware, or `Release Preview` for the newest development build from `main`. A separate `Developer Preview` GitHub Release is also published from `develop` for pre-main validation, but GitHub Pages continues to expose only `Latest Release` and `Release Preview`.
 
-The SDK now mirrors the same channel model: `stable` is published at
-`https://espectre.dev/artifacts/sdk/stable/`, `snapshot` at
-`https://espectre.dev/artifacts/sdk/main/`, and `snapshot-dev` remains GitHub-only as the
-`snapshot-dev` prerelease.
+The SDK now mirrors the same channel model: `stable` is published at `https://espectre.dev/artifacts/sdk/stable/`, `snapshot` at `https://espectre.dev/artifacts/sdk/main/`, and `snapshot-dev` remains GitHub-only as the `snapshot-dev` prerelease.
 
 ## Choose Your Frontend
 
@@ -27,11 +23,7 @@ The SDK now mirrors the same channel model: `stable` is published at
 
 - ESP32 board with CSI support
 - USB cable for flashing
-- Wi-Fi network on a band the board supports: 2.4 GHz on every supported chip,
-  or 5 GHz on the dual-band ESP32-C5. Firmware defaults to 2.4 GHz; an ESP32-C5
-  integrator can explicitly select 5 GHz or automatic band selection. The
-  runtime pins the selected band or bands to HT20. Detection quality on 5 GHz
-  is not characterized yet
+- Wi-Fi network on a band the board supports: 2.4 GHz on every supported chip, or 5 GHz on the dual-band ESP32-C5. Firmware defaults to 2.4 GHz; an ESP32-C5 integrator can explicitly select 5 GHz or automatic band selection. The runtime pins the selected band or bands to HT20. Detection quality on 5 GHz is not characterized yet
 
 Current chip support by frontend:
 
@@ -51,21 +43,11 @@ Use the frontend README for the workflow and surface details after you choose th
 
 ### ESP-IDF Local Build Prerequisite
 
-Local `Native`, `Matter`, and `Streamer` firmware builds require ESP-IDF to be
-available to the repository CLI.
+Local `Native`, `Matter`, and `Streamer` firmware builds require ESP-IDF to be available to the repository CLI.
 
-The repository Python dependencies include ESPHome. ESPHome uses PlatformIO and
-can provide a reusable ESP-IDF framework package at
-`~/.platformio/packages/framework-espidf` after an ESPHome build has downloaded
-it. If that package exists, reuse it instead of installing a second ESP-IDF
-copy.
+The repository Python dependencies include ESPHome. ESPHome uses PlatformIO and can provide a reusable ESP-IDF framework package at `~/.platformio/packages/framework-espidf` after an ESPHome build has downloaded it. If that package exists, reuse it instead of installing a second ESP-IDF copy.
 
-For the current repository baseline, `requirements.txt` pins
-`esphome==2026.6.2`, and the matching ESPHome/PlatformIO ESP-IDF framework
-package is ESP-IDF `5.5.4` (`framework-espidf` package `3.50504.0`). Use that
-same ESP-IDF version for local `Native`, `Matter`, and `Streamer` builds. If
-the ESPHome/PlatformIO package does not exist yet, install ESP-IDF `5.5.4` with
-the official Espressif setup flow for your host:
+For the current repository baseline, `requirements.txt` pins `esphome==2026.6.2`, and the matching ESPHome/PlatformIO ESP-IDF framework package is ESP-IDF `5.5.4` (`framework-espidf` package `3.50504.0`). Use that same ESP-IDF version for local `Native`, `Matter`, and `Streamer` builds. If the ESPHome/PlatformIO package does not exist yet, install ESP-IDF `5.5.4` with the official Espressif setup flow for your host:
 
 - [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html)
 
@@ -111,23 +93,17 @@ Windows PowerShell:
 Build cleanup options:
 
 - `--clean` removes only the selected frontend build before rebuilding.
-- `--clean-all` removes all builds for that frontend plus shared generated
-  artifacts before rebuilding.
-- For ESPHome, these flags delegate to the native `esphome clean` and
-  `esphome clean-all` commands for the selected config.
+- `--clean-all` removes all builds for that frontend plus shared generated artifacts before rebuilding.
+- For ESPHome, these flags delegate to the native `esphome clean` and `esphome clean-all` commands for the selected config.
 
 Flash note:
 
-- For ESP-IDF frontends, `flash` prefers the build directory that matches the
-  connected chip detected on the selected serial port.
-- The wrapper still delegates to `idf.py flash`, so ESP-IDF may configure or
-  complete the selected build directory before flashing if that build is not
-  already ready.
+- For ESP-IDF frontends, `flash` prefers the build directory that matches the connected chip detected on the selected serial port.
+- The wrapper still delegates to `idf.py flash`, so ESP-IDF may configure or complete the selected build directory before flashing if that build is not already ready.
 
 Optional environment check:
 
-- use `./espectre doctor` or `.\espectre.cmd doctor` when a build fails to find
-  or validate ESP-IDF
+- use `./espectre doctor` or `.\espectre.cmd doctor` when a build fails to find or validate ESP-IDF
 - use it when you want to see which local ESP-IDF install the wrapper will use
 
 What `doctor` auto-detects today:
@@ -143,8 +119,7 @@ If a build fails and `doctor` reports that no usable ESP-IDF install was found:
 - first choice: reuse the ESP-IDF package downloaded by ESPHome/PlatformIO
 - second choice: install official ESP-IDF `5.5.4`, then rerun `doctor`
 
-If the ESPHome/PlatformIO package does not exist yet, any local ESPHome build
-will download it:
+If the ESPHome/PlatformIO package does not exist yet, any local ESPHome build will download it:
 
 macOS/Linux:
 
@@ -162,8 +137,7 @@ Windows PowerShell:
 
 ### ESP-IDF Troubleshooting
 
-Use these manual exports only when `doctor` cannot auto-detect or validate your
-ESP-IDF install.
+Use these manual exports only when `doctor` cannot auto-detect or validate your ESP-IDF install.
 
 macOS/Linux:
 
@@ -191,22 +165,17 @@ Windows PowerShell:
 
 ## Local CLI Workflows
 
-Use the repository CLI from the repository root for local build, flash, monitor,
-and host-tool tasks.
+Use the repository CLI from the repository root for local build, flash, monitor, and host-tool tasks.
 
-Matter generates a unique onboarding identity on first boot and stores it in a
-dedicated factory partition. Retrieve the same QR payload after either a web or
-CLI flash with:
+Matter generates a unique onboarding identity on first boot and stores it in a dedicated factory partition. Retrieve the same QR payload after either a web or CLI flash with:
 
 ```bash
 ./espectre matter qr --port /dev/cu.usbmodemXXXX
 ```
 
-Normal flashes preserve the QR. Erasing the complete flash generates a new
-identity on the next boot.
+Normal flashes preserve the QR. Erasing the complete flash generates a new identity on the next boot.
 
-The same browser applications published on `espectre.dev` can be served from
-localhost when a local MQTT broker exposes an insecure `ws://` listener:
+The same browser applications published on `espectre.dev` can be served from localhost when a local MQTT broker exposes an insecure `ws://` listener:
 
 ```bash
 ./espectre ui mqtt
@@ -214,11 +183,7 @@ localhost when a local MQTT broker exposes an insecure `ws://` listener:
 ./espectre ui theremin
 ```
 
-The local server preserves the unified site while allowing a browser to connect
-to endpoints such as `ws://homeassistant.local:9001/mqtt`. The public HTTPS
-pages also allow selecting `ws://` for compatibility testing, but browsers may
-block that connection as mixed content. Use `wss://` for a supported hosted
-deployment.
+The local server preserves the unified site while allowing a browser to connect to endpoints such as `ws://homeassistant.local:9001/mqtt`. The public HTTPS pages also allow selecting `ws://` for compatibility testing, but browsers may block that connection as mixed content. Use `wss://` for a supported hosted deployment.
 
 See the repository [CLI.md](CLI.md) for:
 
@@ -227,8 +192,7 @@ See the repository [CLI.md](CLI.md) for:
 - shared host-tool behavior, including the interactive MQTT shell
 - common wrapper patterns such as `doctor`, serial monitoring, and CLI examples
 
-Use the frontend READMEs for frontend-specific prerequisites, examples, and
-chip-specific notes:
+Use the frontend READMEs for frontend-specific prerequisites, examples, and chip-specific notes:
 
 - [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md)
 - [`README.md` (native)](../src/cpp/frontend/native/README.md)
@@ -238,8 +202,7 @@ chip-specific notes:
 
 ## SDK Bundles
 
-If you want to embed the sensing layers into your own firmware instead of
-flashing a published frontend, use the SDK bundle channels:
+If you want to embed the sensing layers into your own firmware instead of flashing a published frontend, use the SDK bundle channels:
 
 | Channel | Surface | Best for |
 |---------|---------|----------|
@@ -249,17 +212,12 @@ flashing a published frontend, use the SDK bundle channels:
 
 The bundle is source-first. It includes:
 
-- `src/cpp/espectre_sdk.h`, the single include that reaches the supported
-  integration surface
+- `src/cpp/espectre_sdk.h`, the single include that reaches the supported integration surface
 - `src/cpp/espectre_sources.cmake` for CMake / ESP-IDF integration
 - `src/cpp/library.json` for PlatformIO metadata
-- a component-shaped `src/cpp/` root with `CMakeLists.txt`,
-  `idf_component.yml`, and `Kconfig.projbuild`, where the optional MQTT, BLE,
-  provisioning, OTA, and stream-runtime groups are selected under the
-  "ESPectre SDK" menuconfig menu
+- a component-shaped `src/cpp/` root with `CMakeLists.txt`, `idf_component.yml`, and `Kconfig.projbuild`, where the optional MQTT, BLE, provisioning, OTA, and stream-runtime groups are selected under the "ESPectre SDK" menuconfig menu
 
-Use [EMBEDDING.md](EMBEDDING.md) for the actual integration model and runtime
-contracts.
+Use [EMBEDDING.md](EMBEDDING.md) for the actual integration model and runtime contracts.
 
 ## Web Flash (no coding required)
 
@@ -269,29 +227,16 @@ Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 - the firmware channel
 - your target chip
 
-Release and snapshot publishing provide one full-flash image for each supported
-chip on the `ESPHome`, `Native`, and `Matter` frontends. GitHub Releases also
-provide application-only OTA payloads for Native. GitHub Pages stages only the
-full-flash images used by the browser flasher. The published `ESPHome` image
-uses the default `Classic` detector, and CI pins its `git_ref` substitution to
-the exact source commit used to build the published binary. Subsequent ESPHome
-updates are compiled and installed through ESPHome Device Builder; see
-[`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) for which
-revision an adopted configuration compiles from.
+Release and snapshot publishing provide one full-flash image for each supported chip on the `ESPHome`, `Native`, and `Matter` frontends. GitHub Releases also provide application-only OTA payloads for Native. GitHub Pages stages only the full-flash images used by the browser flasher. The published `ESPHome` image uses the default `Classic` detector, and CI pins its `git_ref` substitution to the exact source commit used to build the published binary. Subsequent ESPHome updates are compiled and installed through ESPHome Device Builder; see [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) for which revision an adopted configuration compiles from.
 
-The published `Matter` image also uses the default `Classic` detector. The
-`ML` detector remains available through local firmware builds; it is not
-published as a separate precompiled image. `Streamer` is also source-built
-because its Wi-Fi credentials are supplied at build time.
+The published `Matter` image also uses the default `Classic` detector. The `ML` detector remains available through local firmware builds; it is not published as a separate precompiled image. `Streamer` is also source-built because its Wi-Fi credentials are supplied at build time.
 
 | Publication surface | Full-flash images | OTA payloads | Manifests |
 |---------------------|------------------:|-------------:|-----------|
 | GitHub Release or snapshot | 15 | 5 | unified manifest plus 5 Native per-chip OTA manifests |
 | GitHub Pages | 15 | 0 | factory-only web-flash manifest |
 
-The OTA payloads are five Native application binaries. ESPHome Device Builder
-produces its OTA image from the adopted device configuration. Matter does not
-use this OTA flow, and Streamer firmware is not published.
+The OTA payloads are five Native application binaries. ESPHome Device Builder produces its OTA image from the adopted device configuration. Matter does not use this OTA flow, and Streamer firmware is not published.
 
 To flash:
 
@@ -342,9 +287,7 @@ These concepts are shared across the C++ platform, even though each frontend exp
 
 ### Shared Sensing Options
 
-These options belong to the shared sensing runtime and apply to all sensing
-frontends. This table is the canonical reference for names, defaults, and
-ranges; the exact user-facing syntax differs by frontend:
+These options belong to the shared sensing runtime and apply to all sensing frontends. This table is the canonical reference for names, defaults, and ranges; the exact user-facing syntax differs by frontend:
 
 - `ESPHome`: YAML under `espectre:`, except the ESP32-C5 band policy, which uses ESPHome's native `wifi.band_mode`
 - `Native`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
@@ -378,8 +321,7 @@ Support in this phase:
 | `hampel_window` | int | `7` | `3-11` samples |
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
 
-See [TUNING.md](TUNING.md) for how evaluation cadence and hit filtering set the
-expected publish delay (about `1 s` for `IDLE -> MOTION` with the defaults).
+See [TUNING.md](TUNING.md) for how evaluation cadence and hit filtering set the expected publish delay (about `1 s` for `IDLE -> MOTION` with the defaults).
 
 Use the frontend README for the exact syntax and local workflow:
 
@@ -389,31 +331,21 @@ Use the frontend README for the exact syntax and local workflow:
 
 ### Detection Algorithms And Startup
 
-ESPectre supports two runtime detector families, `classic` and `ml`. At boot,
-the sensing path starts with AGC active: `classic` performs startup threshold
-calibration, while `ml` starts as soon as CSI capture is ready.
+ESPectre supports two runtime detector families, `classic` and `ml`. At boot, the sensing path starts with AGC active: `classic` performs startup threshold calibration, while `ml` starts as soon as CSI capture is ready.
 
-ESPHome and Native can switch detectors at runtime and persist the selection.
-The switch resets the threshold to the selected detector's default;
-`ml -> classic` starts calibration automatically. Matter remains read-only,
-does not consume that persisted selection, and uses its firmware default of
-`classic` to keep the published path conservative while the frontend remains
-preview. Streamer has no detector.
+ESPHome and Native can switch detectors at runtime and persist the selection. The switch resets the threshold to the selected detector's default; `ml -> classic` starts calibration automatically. Matter remains read-only, does not consume that persisted selection, and uses its firmware default of `classic` to keep the published path conservative while the frontend remains preview. Streamer has no detector.
 
 See:
 
 - [ALGORITHMS.md](ALGORITHMS.md) for detector behavior and formulas
-- [TUNING.md](TUNING.md) for the practical startup and threshold workflow,
-  including the `quiet -> motion -> quiet` behavior and the quiet-only fallback
+- [TUNING.md](TUNING.md) for the practical startup and threshold workflow, including the `quiet -> motion -> quiet` behavior and the quiet-only fallback
 - the frontend README for configuration syntax
 
 ### Traffic Generation
 
-Motion detection frontends depend on CSI packets. 
-For the shared detection runtime, traffic is generated internally by default, but the way that traffic is configured or exposed belongs to each frontend surface.
+Motion detection frontends depend on CSI packets. For the shared detection runtime, traffic is generated internally by default, but the way that traffic is configured or exposed belongs to each frontend surface.
 
-The standalone `streamer` frontend does not use the internal generator; it is
-collector-paced. See the streamer frontend README for that workflow.
+The standalone `streamer` frontend does not use the internal generator; it is collector-paced. See the streamer frontend README for that workflow.
 
 If you are tuning `traffic_generator_rate`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 
@@ -426,5 +358,4 @@ For build commands, commissioning steps, protocol details, integration behavior,
 - [README.md](../README.md) for the project overview and documentation map
 - [TUNING.md](TUNING.md) for parameter tradeoffs and environment tuning
 - [ALGORITHMS.md](ALGORITHMS.md) for signal-processing and detector theory
-- [ARCHITECTURE.md](ARCHITECTURE.md) for `core` / `runtime` / `frontend`
-  boundaries
+- [ARCHITECTURE.md](ARCHITECTURE.md) for `core` / `runtime` / `frontend` boundaries

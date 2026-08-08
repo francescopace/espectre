@@ -7,19 +7,13 @@
 
 ## Context
 
-The earliest tagged release, `1.0.0`, presents ESPectre as a standalone
-ESP32-S3 firmware built on ESP-IDF and exposed primarily through MQTT over
-Wi-Fi. The initial product shape combined on-device CSI motion detection,
-runtime configuration via MQTT, and supporting CLI and serial tools.
+The earliest tagged release, `1.0.0`, presents ESPectre as a standalone ESP32-S3 firmware built on ESP-IDF and exposed primarily through MQTT over Wi-Fi. The initial product shape combined on-device CSI motion detection, runtime configuration via MQTT, and supporting CLI and serial tools.
 
-That architecture made sense for the first stage of the project: it gave the
-project a working end-to-end sensing product before the later move toward
-ESPHome and broader frontend separation.
+That architecture made sense for the first stage of the project: it gave the project a working end-to-end sensing product before the later move toward ESPHome and broader frontend separation.
 
 ## Decision
 
-Use standalone ESP-IDF firmware with MQTT-over-Wi-Fi as the initial production
-shape of the project.
+Use standalone ESP-IDF firmware with MQTT-over-Wi-Fi as the initial production shape of the project.
 
 Concretely:
 
@@ -32,13 +26,11 @@ Concretely:
 
 ### Start directly as an ESPHome component
 
-Rejected. At the time, the project first needed a working standalone firmware
-path before committing to a smart-home-native integration surface.
+Rejected. At the time, the project first needed a working standalone firmware path before committing to a smart-home-native integration surface.
 
 ### Keep the project as an analysis-only or host-side tool
 
-Rejected. The initial goal was to ship a device-side sensing system, not only a
-research or analysis workflow.
+Rejected. The initial goal was to ship a device-side sensing system, not only a research or analysis workflow.
 
 ## Consequences
 
@@ -46,15 +38,12 @@ Benefits:
 
 - the project gained a complete standalone sensing product quickly
 - MQTT gave an immediate integration and observability surface
-- the initial firmware architecture created the base from which later frontends
-  could evolve
+- the initial firmware architecture created the base from which later frontends could evolve
 
 Trade-offs:
 
-- ecosystem-specific integration concerns remained coupled to the standalone
-  firmware shape
-- this model was later superseded when ESPHome became the primary production
-  surface
+- ecosystem-specific integration concerns remained coupled to the standalone firmware shape
+- this model was later superseded when ESPHome became the primary production surface
 
 ## Related
 

@@ -6,15 +6,9 @@
 
 ## Context
 
-When the ML detector became a real project direction, the repo needed a runtime
-model form that could run on-device in both the ESPHome/C++ path and the
-Micro-ESPectre/Python path without depending on a heavyweight inference
-runtime.
+When the ML detector became a real project direction, the repo needed a runtime model form that could run on-device in both the ESPHome/C++ path and the Micro-ESPectre/Python path without depending on a heavyweight inference runtime.
 
-The `2.5.0` release changelog makes that choice explicit: the ML detector ships
-with manual MLP inference, no TFLite dependency, and a host-side workflow that
-exports runtime weights. That is a durable model choice, not just an
-implementation detail.
+The `2.5.0` release changelog makes that choice explicit: the ML detector ships with manual MLP inference, no TFLite dependency, and a host-side workflow that exports runtime weights. That is a durable model choice, not just an implementation detail.
 
 ## Decision
 
@@ -31,13 +25,11 @@ Concretely:
 
 ### Depend on TFLite in the deployed runtime
 
-Rejected. The project chose a lighter runtime path with fewer integration and
-deployment constraints.
+Rejected. The project chose a lighter runtime path with fewer integration and deployment constraints.
 
 ### Use a more complex runtime model family immediately
 
-Rejected. The first production ML path favored a model that could be exported,
-reviewed, and reproduced consistently across both runtimes.
+Rejected. The first production ML path favored a model that could be exported, reviewed, and reproduced consistently across both runtimes.
 
 ## Consequences
 
@@ -50,8 +42,7 @@ Benefits:
 Trade-offs:
 
 - model architecture choices must stay compatible with the manual runtime path
-- some model families are less attractive if they complicate export or runtime
-  inference
+- some model families are less attractive if they complicate export or runtime inference
 
 ## Related
 

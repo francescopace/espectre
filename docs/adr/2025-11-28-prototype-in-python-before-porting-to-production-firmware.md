@@ -6,15 +6,9 @@
 
 ## Context
 
-The `1.4.0` versioned changelog explicitly states that the refactoring of the C
-firmware was driven by lessons learned from the MicroPython implementation. It
-also states that Micro-ESPectre enabled faster parameter tuning and testing of
-optimal configurations, with successful patterns then ported back into the C
-firmware.
+The `1.4.0` versioned changelog explicitly states that the refactoring of the C firmware was driven by lessons learned from the MicroPython implementation. It also states that Micro-ESPectre enabled faster parameter tuning and testing of optimal configurations, with successful patterns then ported back into the C firmware.
 
-That workflow remains visible today in the project rules and structure:
-host-side and Python-side experimentation are used to validate ideas before they
-are promoted into shared C++ production paths.
+That workflow remains visible today in the project rules and structure: host-side and Python-side experimentation are used to validate ideas before they are promoted into shared C++ production paths.
 
 ## Decision
 
@@ -24,20 +18,17 @@ Use Python-first experimentation as the preferred innovation workflow:
 - validate promising results with tooling, datasets, and tests
 - port the validated behavior into the shared C++ runtime or core layers
 
-Treat the Python path as the fast exploration environment, and treat the shared
-C++ codebase as the place where validated production behavior is consolidated.
+Treat the Python path as the fast exploration environment, and treat the shared C++ codebase as the place where validated production behavior is consolidated.
 
 ## Alternatives Considered
 
 ### Evolve the production firmware first and prototype directly there
 
-Rejected. Firmware-only iteration is slower and makes experimental work harder
-to compare, tune, and revisit.
+Rejected. Firmware-only iteration is slower and makes experimental work harder to compare, tune, and revisit.
 
 ### Maintain completely separate algorithm evolution in Python and C++
 
-Rejected. The project benefits when the Python path informs the production path
-instead of drifting into a parallel but disconnected implementation.
+Rejected. The project benefits when the Python path informs the production path instead of drifting into a parallel but disconnected implementation.
 
 ## Consequences
 
@@ -50,8 +41,7 @@ Benefits:
 Trade-offs:
 
 - parity between Python and C++ must be maintained intentionally
-- experimental Python code cannot be treated as production behavior until it is
-  ported and revalidated
+- experimental Python code cannot be treated as production behavior until it is ported and revalidated
 
 ## Related
 

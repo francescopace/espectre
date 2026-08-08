@@ -1,15 +1,12 @@
 # ADR Guide
 
-This directory contains Architecture Decision Records (ADRs) for durable
-project-level and architectural decisions.
+This directory contains Architecture Decision Records (ADRs) for durable project-level and architectural decisions.
 
-The goal is to preserve decision history in a form that stays understandable
-over time, even when the rest of the documentation evolves.
+The goal is to preserve decision history in a form that stays understandable over time, even when the rest of the documentation evolves.
 
 ## What Belongs Here
 
-An ADR belongs here when it captures a durable choice that shaped the project,
-for example:
+An ADR belongs here when it captures a durable choice that shaped the project, for example:
 
 - a production architecture change
 - a runtime or protocol direction
@@ -30,25 +27,15 @@ Use each document for its intended role:
 
 - `docs/adr/`: stable decisions and decision history
 - versioned changelog snapshots: historical release framing
-- `FEATURES.md`: cross-baseline ML feature inventory, retained measurements,
-  current verdicts, and research backlog
-- `LITERATURE.md`: mutable paper digest, reported methods and results, and
-  ESPectre transferability notes
-- current docs such as `ALGORITHMS.md`, `ARCHITECTURE.md`, or `ML_TRAINING.md`:
-  current-state explanations, not stable historical references
+- `FEATURES.md`: cross-baseline detector feature inventory, retained measurements, current verdicts, and research backlog
+- `LITERATURE.md`: mutable paper digest, reported methods and results, and ESPectre transferability notes
+- current docs such as `ALGORITHMS.md`, `ARCHITECTURE.md`, or `ML_TRAINING.md`: current-state explanations, not stable historical references
 
-Important rule: in ADR `Related` sections, prefer links to sibling ADRs,
-versioned changelog snapshots, and commit hashes. Avoid generic links to
-mutable docs that may describe something different in future releases.
-`FEATURES.md` and `LITERATURE.md` are deliberate exceptions for ML feature
-evidence and reviewed research: the ADR retains the decision-time rationale,
-while the catalogs compare that snapshot with earlier and later feature work
-and source evidence.
+Important rule: in ADR `Related` sections, prefer links to sibling ADRs, versioned changelog snapshots, and commit hashes. Avoid generic links to mutable docs that may describe something different in future releases. `FEATURES.md` and `LITERATURE.md` are deliberate exceptions for ML feature evidence and reviewed research: the ADR retains the decision-time rationale, while the catalogs compare that snapshot with earlier and later feature work and source evidence.
 
 ## Topic Index
 
-Use this index when a current document should point to a durable decision
-instead of repeating its historical rationale.
+Use this index when a current document should point to a durable decision instead of repeating its historical rationale.
 
 ### Architecture
 
@@ -66,8 +53,16 @@ instead of repeating its historical rationale.
 - [`2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md`](2026-06-09-replace-runtime-nbvi-with-fixed-shared-subcarriers.md)
 - [`2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md`](2026-07-07-adopt-gated-startup-threshold-calibration-for-classic-detector.md)
 - [`2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
+- [`2026-07-20-keep-the-12-tone-ht20-classic-band.md`](2026-07-20-keep-the-12-tone-ht20-classic-band.md)
 - [`2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md`](2026-07-22-adopt-session-centered-l1-excursion-for-low-rssi.md)
 - [`2026-07-23-adopt-classifier-first-ht20-sensing-contract.md`](2026-07-23-adopt-classifier-first-ht20-sensing-contract.md)
+- [`2026-07-24-defer-the-l1-delta-std-classic-swap.md`](2026-07-24-defer-the-l1-delta-std-classic-swap.md)
+- [`2026-07-25-gate-classic-false-positives-on-empty-rooms.md`](2026-07-25-gate-classic-false-positives-on-empty-rooms.md)
+- [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](2026-07-25-select-the-classic-band-from-channel-coherence.md)
+- [`2026-07-26-recover-the-startup-threshold-once-a-session-settles.md`](2026-07-26-recover-the-startup-threshold-once-a-session-settles.md)
+- [`2026-07-26-replace-the-classic-l1-mean-with-a-lag-ratio.md`](2026-07-26-replace-the-classic-l1-mean-with-a-lag-ratio.md)
+- [`2026-07-28-drop-the-unused-startup-variance-floor.md`](2026-07-28-drop-the-unused-startup-variance-floor.md)
+- [`2026-07-30-adopt-frequency-coherence-for-classic.md`](2026-07-30-adopt-frequency-coherence-for-classic.md)
 - [`2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md`](2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md)
 
 ### ML
@@ -85,7 +80,10 @@ instead of repeating its historical rationale.
 - [`2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md`](2026-07-23-adopt-coherence-6-as-the-production-ml-feature-set.md)
 - [`2026-07-27-add-the-lag-ratio-to-the-production-ml-feature-set.md`](2026-07-27-add-the-lag-ratio-to-the-production-ml-feature-set.md)
 - [`2026-07-27-reduce-the-feature-surface-to-the-production-set.md`](2026-07-27-reduce-the-feature-surface-to-the-production-set.md)
+- [`2026-07-27-set-the-non-regression-margin-from-seed-noise.md`](2026-07-27-set-the-non-regression-margin-from-seed-noise.md)
 - [`2026-07-28-drop-the-absolute-l1-features.md`](2026-07-28-drop-the-absolute-l1-features.md)
+- [`2026-07-28-keep-production-feature-lags-at-nominal-offsets.md`](2026-07-28-keep-production-feature-lags-at-nominal-offsets.md)
+- [`2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md`](2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md)
 
 ### Protocol And Frontends
 
@@ -93,6 +91,7 @@ instead of repeating its historical rationale.
 - [`2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md`](2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md)
 - [`2026-07-15-persist-per-device-matter-onboarding-data.md`](2026-07-15-persist-per-device-matter-onboarding-data.md)
 - [`2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md`](2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md)
+- [`2026-07-28-use-classic-as-the-matter-detector-default.md`](2026-07-28-use-classic-as-the-matter-detector-default.md)
 
 ### Data Collection And Dataset Contract
 
@@ -104,22 +103,23 @@ instead of repeating its historical rationale.
 - [`2026-07-23-adopt-classifier-first-ht20-sensing-contract.md`](2026-07-23-adopt-classifier-first-ht20-sensing-contract.md)
 - [`2026-07-23-separate-ml-training-data-from-promotion-replays.md`](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 
+### Validation And Delivery
+
+- [`2026-07-18-remove-qemu-smoke-tests-from-firmware-ci.md`](2026-07-18-remove-qemu-smoke-tests-from-firmware-ci.md)
+- [`2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md`](2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md)
+- [`2026-07-26-run-ml-inference-without-float-contraction.md`](2026-07-26-run-ml-inference-without-float-contraction.md)
+
 ## How To Name ADR Files
 
-ADR filenames should be ordered by the decision date, not by the date the ADR
-file was written.
+ADR filenames should be ordered by the decision date, not by the date the ADR file was written.
 
 Rules:
 
 - use the filename format `YYYY-MM-DD-slug.md`
 - keep one decision per file
 - use a short descriptive slug in the filename
-- if multiple ADRs share the same date, order them by the best available
-  historical sequence from release notes and git history, expressed through the
-  slug rather than an ordinal
-- if chronology is later reconstructed more accurately, prefer keeping the same
-  decision date in the filename; only rename when the date itself was wrong or
-  the slug no longer reflects the decision
+- if multiple ADRs share the same date, order them by the best available historical sequence from release notes and git history, expressed through the slug rather than an ordinal
+- if chronology is later reconstructed more accurately, prefer keeping the same decision date in the filename; only rename when the date itself was wrong or the slug no longer reflects the decision
 
 Example:
 
@@ -131,8 +131,7 @@ Many ADRs in this project are retrospective, reconstructed after the fact from:
 
 1. versioned changelog snapshots
 2. git history and commit messages
-3. surviving current docs, comments, and test expectations, when useful as
-   secondary context
+3. surviving current docs, comments, and test expectations, when useful as secondary context
 4. earlier ADRs that already preserve superseded decision history
 
 For retrospective ADRs:
@@ -197,8 +196,7 @@ Keep ADRs:
 Prefer:
 
 - release-specific historical evidence
-- specific sibling ADR links when one decision supersedes, amends, or rejects
-  another
+- specific sibling ADR links when one decision supersedes, amends, or rejects another
 - explicit supersession chains
 
 Avoid:
@@ -210,8 +208,7 @@ Avoid:
 
 ## Quality Bar
 
-Create an ADR only when at least one of these is clearly true, and ideally more
-than one:
+Create an ADR only when at least one of these is clearly true, and ideally more than one:
 
 - the decision changed the project direction for multiple releases
 - later code or docs are hard to understand without it
