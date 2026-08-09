@@ -31,7 +31,6 @@ from .dataset_metadata import (
 )
 from . import npz_cache
 from .repo_paths import data_dir, repo_root
-from .timing_quality import merge_timing_summaries, summarize_capture_timing
 
 setup_paths()
 
@@ -2008,51 +2007,6 @@ def _average_detector_metrics(entries: Sequence[Dict[str, float]]) -> Optional[D
     }
 
 
-def _summarize_timing_audit_rows(rows: Sequence[Dict[str, Any]]) -> list[Dict[str, Any]]:
-    """Aggregate replay metrics by timing-quality bucket inside each slice."""
-    grouped: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in rows:
-        key = (str(row["slice"]), str(row["quality_bucket"]))
-        group = grouped.setdefault(
-            key,
-            {
-                "slice": str(row["slice"]),
-                "quality_bucket": str(row["quality_bucket"]),
-                "count": 0,
-                "packet_rate_pps": [],
-                "contaminated_ratio": [],
-                "max_gap_ms": [],
-                "ml_metrics": [],
-                "classic_metrics": [],
-            },
-        )
-        group["count"] += 1
-        group["packet_rate_pps"].append(float(row["packet_rate_pps"]))
-        group["contaminated_ratio"].append(float(row["contaminated_ratio"]))
-        group["max_gap_ms"].append(float(row["max_gap_ms"]))
-        if row.get("ml_metrics") is not None:
-            group["ml_metrics"].append(dict(row["ml_metrics"]))
-        if row.get("classic_metrics") is not None:
-            group["classic_metrics"].append(dict(row["classic_metrics"]))
-
-    summary_rows = []
-    for key in sorted(grouped):
-        group = grouped[key]
-        summary_rows.append(
-            {
-                "slice": group["slice"],
-                "quality_bucket": group["quality_bucket"],
-                "count": int(group["count"]),
-                "packet_rate_pps": sum(group["packet_rate_pps"]) / float(group["count"]),
-                "contaminated_ratio": sum(group["contaminated_ratio"]) / float(group["count"]),
-                "max_gap_ms": max(group["max_gap_ms"]),
-                "ml_metrics": _average_detector_metrics(group["ml_metrics"]),
-                "classic_metrics": _average_detector_metrics(group["classic_metrics"]),
-            }
-        )
-    return summary_rows
-
-
 def compute_performance_report_data(
     progress: Optional[ProgressCallback] = None,
 ) -> Dict[str, Dict[str, Dict[str, Dict[str, float]]]]:
@@ -2060,9 +2014,8 @@ def compute_performance_report_data(
     paired_results: dict[
         str, dict[str, dict[str, list[Dict[str, float]]]]
     ] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    # Real normal-link pairs split by ML provenance: reserved (selection/holdout,
-    # never in ML training) vs train (in-sample for the exported model). Real
-    # weak-link pairs are stress diagnostics for both detectors.
+    # Real pairs are split by whether the exported ML model used them for
+    # training. Weak-link pairs remain stress diagnostics for both detectors.
     ml_role_results: dict[str, dict[str, list[Dict[str, float]]]] = {
         "reserved": defaultdict(list),
         "train": defaultdict(list),
@@ -2071,9 +2024,12 @@ def compute_performance_report_data(
         "classic": defaultdict(list),
         "ml": defaultdict(list),
     }
+    stress_ml_role_results: dict[str, dict[str, list[Dict[str, float]]]] = {
+        "reserved": defaultdict(list),
+        "train": defaultdict(list),
+    }
     classic_normal_results: dict[str, list[Dict[str, float]]] = defaultdict(list)
     long_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
-    timing_audit_rows: list[dict[str, Any]] = []
 
     paired_datasets = _get_available_paired_dataset_specs_cached(dataset_info_revision())
     real_count = sum(not item[5] for item in paired_datasets)
@@ -2090,10 +2046,6 @@ def compute_performance_report_data(
         static_presence_packets, motion_packets = load_real_data_cached(
             static_path,
             motion_path,
-        )
-        pair_timing = merge_timing_summaries(
-            summarize_capture_timing(static_presence_packets),
-            summarize_capture_timing(motion_packets),
         )
         classic_result = compute_classic_dataset_result(
             static_path,
@@ -2115,37 +2067,16 @@ def compute_performance_report_data(
         )
         paired_results[section]["ml"][chip].append(ml_metrics)
         if not synthetic:
+            role_bucket = "train" if dataset_role == "train" else "reserved"
             if low_rssi:
                 if classic_metrics is not None:
                     stress_results["classic"][chip].append(classic_metrics)
                 stress_results["ml"][chip].append(ml_metrics)
-                timing_audit_rows.append(
-                    {
-                        "slice": "paired_stress_real",
-                        "quality_bucket": pair_timing["quality_bucket"],
-                        "packet_rate_pps": pair_timing["packet_rate_pps"],
-                        "contaminated_ratio": pair_timing["contaminated_ratio"],
-                        "max_gap_ms": pair_timing["max_gap_ms"],
-                        "ml_metrics": ml_metrics,
-                        "classic_metrics": classic_metrics,
-                    }
-                )
+                stress_ml_role_results[role_bucket][chip].append(ml_metrics)
             else:
                 if classic_metrics is not None:
                     classic_normal_results[chip].append(classic_metrics)
-                role_bucket = "train" if dataset_role == "train" else "reserved"
                 ml_role_results[role_bucket][chip].append(ml_metrics)
-                timing_audit_rows.append(
-                    {
-                        "slice": f"paired_ml_{role_bucket}",
-                        "quality_bucket": pair_timing["quality_bucket"],
-                        "packet_rate_pps": pair_timing["packet_rate_pps"],
-                        "contaminated_ratio": pair_timing["contaminated_ratio"],
-                        "max_gap_ms": pair_timing["max_gap_ms"],
-                        "ml_metrics": ml_metrics,
-                        "classic_metrics": classic_metrics,
-                    }
-                )
         _emit_progress(
             progress,
             (
@@ -2171,10 +2102,6 @@ def compute_performance_report_data(
         start=1,
     ):
         dataset_started = time.perf_counter()
-        long_timing = merge_timing_summaries(
-            summarize_capture_timing(baseline_packets),
-            summarize_capture_timing(movement_packets),
-        )
         classic_metrics = evaluate_classic_long_recording(baseline_packets, movement_packets)
         if classic_metrics is not None:
             long_results["classic"][chip].append(classic_metrics)
@@ -2186,17 +2113,6 @@ def compute_performance_report_data(
             motion_start_packet=_motion_start,
         )
         long_results["ml"][chip].append(ml_metrics)
-        timing_audit_rows.append(
-            {
-                "slice": "long_quiet",
-                "quality_bucket": long_timing["quality_bucket"],
-                "packet_rate_pps": long_timing["packet_rate_pps"],
-                "contaminated_ratio": long_timing["contaminated_ratio"],
-                "max_gap_ms": long_timing["max_gap_ms"],
-                "ml_metrics": ml_metrics,
-                "classic_metrics": classic_metrics,
-            }
-        )
         _emit_progress(
             progress,
             (
@@ -2244,6 +2160,16 @@ def compute_performance_report_data(
             if averaged is not None:
                 stress_summary[algorithm][chip] = averaged
 
+    stress_ml_role_summary: Dict[str, Dict[str, Dict[str, float]]] = {
+        "reserved": {},
+        "train": {},
+    }
+    for role_bucket, by_chip in stress_ml_role_results.items():
+        for chip, entries in by_chip.items():
+            averaged = _average_detector_metrics(entries)
+            if averaged is not None:
+                stress_ml_role_summary[role_bucket][chip] = averaged
+
     classic_normal_summary: Dict[str, Dict[str, float]] = {}
     for chip, entries in classic_normal_results.items():
         averaged = _average_detector_metrics(entries)
@@ -2275,9 +2201,9 @@ def compute_performance_report_data(
         "paired_classic_normal": classic_normal_summary,
         "paired_ml_roles": ml_role_summary,
         "paired_stress_real": stress_summary,
+        "paired_stress_ml_roles": stress_ml_role_summary,
         "paired_synthetic": paired_summaries["paired_synthetic"],
         "long_quiet": long_summary,
-        "timing_audit": _summarize_timing_audit_rows(timing_audit_rows),
     }
 
 
@@ -2289,7 +2215,7 @@ def render_performance_report_markdown(
     lines = [
         "<!-- Generated file. Do not edit manually. -->",
         "",
-        "# Performance Metrics",
+        "# Motion Detection Performance",
         "",
     ]
 
@@ -2311,7 +2237,7 @@ def render_performance_report_markdown(
         ])
 
     lines.extend([
-        "This document provides detailed performance metrics for ESPectre's motion detection algorithms.",
+        "This report shows how ESPectre's motion detectors perform on recorded data.",
         "",
         (
             "Per-chip live firmware reports in this directory are generated by "
@@ -2319,32 +2245,37 @@ def render_performance_report_markdown(
         ),
         (
             "`tools/generate_performance_report.py` also verifies that the host-side "
-            "C++ integration suites stay aligned with the published Python replay metrics."
+            "C++ and Python implementations produce matching results when they replay "
+            "the same recordings."
         ),
         "",
         (
-            "- **Classic Detector**: Uses weighted fusion of turbulence "
-            "autocorrelation and channel frequency-coherence curve spread."
+            "- **Classic Detector**: Analyzes changes in the Wi-Fi signal and calibrates "
+            "itself for each recording. It is not trained on recorded data."
         ),
         (
-            "- **ML Detector**: Uses a pretrained neural network model based on "
-            "scale-invariant turbulence and normalized channel-profile dynamics."
+            "- **ML Detector**: Uses a neural network trained on recordings marked as "
+            "motion or no motion. Its results are separated below by whether the recordings "
+            "were used for training."
         ),
         "",
         "See [ALGORITHMS.md](../ALGORITHMS.md) for the full detector design.",
         "",
         "---",
         "",
-        "## Performance Targets",
+        "## Required Performance",
         "",
         "| Metric | Target | ",
         "|-------|--------|",
         "| Recall | >95% |",
         "| FP Rate | <5% |",
         "",
+        "Recall is the percentage of motion correctly detected. FP Rate is the percentage "
+        "of no-motion readings incorrectly reported as motion.",
+        "",
         "---",
         "",
-        "## Test Scripts",
+        "## Tests Included",
         "",
         "- C++ `test_motion_detection`",
         "- C++ `test_long_recordings`",
@@ -2353,22 +2284,19 @@ def render_performance_report_markdown(
         "",
         "---",
         "",
-        "## Paired Real-Data Validation (static_presence / motion, normal link)",
+        "## Normal Wi-Fi Signal",
         "",
-        "Effective Alarms count each false MOTION transition on quiet or static-presence "
-        "segments, after the same consecutive-hit filtering used at deploy time.",
+        "Effective Alarms counts how many times the detector incorrectly switches to "
+        "MOTION when no motion is present. It uses the same filtering as the firmware.",
         "",
         (
-            "This section covers normal-link recordings only; real weak-link "
-            "(`low_rssi`) captures are stress diagnostics reported further below. "
-            "The Classic detector calibrates itself on each recording and has no "
-            "training set, so its table aggregates every normal-link real pair. "
-            "The ML tables are split by provenance instead: the exported model "
-            "trains on the `train`-role recordings, so only the reserved replays "
-            "measure generalization."
+            "These recordings contain periods without motion followed by periods with "
+            "motion, captured with a normal Wi-Fi signal. The Classic detector does not "
+            "use training data. The ML results are split into recordings that were and "
+            "were not used for training."
         ),
         "",
-        "### Classic Detector",
+        "### Classic Detector — No Training Data",
         "",
     ])
 
@@ -2381,6 +2309,10 @@ def render_performance_report_markdown(
     )
     paired_stress_real = report_data.get(
         "paired_stress_real", {"classic": {}, "ml": {}}
+    )
+    paired_stress_ml_roles = report_data.get(
+        "paired_stress_ml_roles",
+        {"reserved": paired_stress_real.get("ml", {}), "train": {}},
     )
     paired_header = "| Metric | " + " | ".join(PAIRED_CHIP_LABELS[chip] for chip in CHIP_ORDER) + " |"
     paired_divider = "|--------|" + "|".join("----------" for _ in CHIP_ORDER) + "|"
@@ -2409,11 +2341,11 @@ def render_performance_report_markdown(
 
     lines.extend([
         "",
-        "### ML Detector — Reserved Replays (out-of-sample)",
+        "### ML Detector — Recordings Not Used for Training",
         "",
         (
-            "`selection` and `holdout` recordings excluded from ML training. "
-            "This is the honest generalization signal. Chips without reserved "
+            "These recordings were not used to train the model. Use these results to "
+            "understand how the model performs on new data. Chips without matching "
             "recordings show N/A."
         ),
         "",
@@ -2422,12 +2354,11 @@ def render_performance_report_markdown(
 
     lines.extend([
         "",
-        "### ML Detector — Training Recordings (in-sample diagnostic)",
+        "### ML Detector — Recordings Used for Training",
         "",
         (
-            "Recordings the exported model trained on. Expect optimistic values; "
-            "use them only to spot training-side breakage, never as a "
-            "generalization signal."
+            "These recordings were used to train the model. Results may be higher and "
+            "do not show how the model performs on new data."
         ),
         "",
     ])
@@ -2437,42 +2368,61 @@ def render_performance_report_markdown(
         "",
         "---",
         "",
-        "## Low-RSSI Stress Validation",
+        "## Weak Wi-Fi Signal",
         "",
         (
-            "Weak-link recordings are stress diagnostics, not standard promotion "
-            "material: at very low RSSI the motion/static turbulence separation "
-            "collapses, so these replays measure graceful degradation. The ML "
-            "stress targets are recall "
+            "These recordings show detector behavior when the Wi-Fi signal is weak. "
+            "The ML requirements for this test are recall "
             f">{STRESS_TARGET_RECALL:.0f}% and FP <{STRESS_TARGET_FP_RATE:.0f}%; "
-            "Classic results here are report-only."
+            "Classic results are included for information only."
         ),
         "",
-        "### Real Weak-Link Pairs — Classic Detector (report-only)",
+        "### Classic Detector — No Training Data",
         "",
     ])
     _append_paired_table({"classic": paired_stress_real.get("classic", {})}, "classic")
 
     lines.extend([
         "",
-        "### Real Weak-Link Pairs — ML Detector",
+        "### ML Detector — Recordings Not Used for Training",
+        "",
+        (
+            "These recordings were not used to train the model. Use these results to "
+            "understand how the model handles new data with a weak Wi-Fi signal."
+        ),
         "",
     ])
-    _append_paired_table({"ml": paired_stress_real.get("ml", {})}, "ml")
+    _append_paired_table({"ml": paired_stress_ml_roles.get("reserved", {})}, "ml")
+
+    lines.extend([
+        "",
+        "### ML Detector — Recordings Used for Training",
+        "",
+        (
+            "These recordings were used to train the model. Results may be higher and "
+            "do not show how the model handles new data with a weak Wi-Fi signal."
+        ),
+        "",
+    ])
+    _append_paired_table({"ml": paired_stress_ml_roles.get("train", {})}, "ml")
 
     lines.extend([
         "",
         "---",
         "",
-        "## Long Quiet Real-Data Validation",
+        "## Long Quiet Recordings Not Used for Training",
         "",
-        "### Classic Detector",
+        (
+            "These long recordings contain no motion and were not used to train the ML "
+            "model. They show how often each detector reports motion during quiet periods."
+        ),
+        "",
+        "### Classic Detector — No Training Data",
         "",
     ])
 
     long_quiet = report_data["long_quiet"]
     long_row_specs = (
-        ("min_recall", "Min Recall", lambda value: f"{value:.1f}%"),
         ("avg_fp_rate", "Avg FP Rate", lambda value: f"{value:.2f}%"),
         ("max_fp_rate", "Max FP Rate", lambda value: f"{value:.2f}%"),
         ("effective_alarms", "Effective Alarms", lambda value: f"{int(value)}"),
@@ -2495,54 +2445,10 @@ def render_performance_report_markdown(
 
     lines.extend([
         "",
-        "### ML Detector",
+        "### ML Detector — Recordings Not Used for Training",
         "",
     ])
     _append_long_quiet_table("ml")
-
-    timing_audit = report_data.get("timing_audit", [])
-    if timing_audit:
-        slice_labels = {
-            "paired_ml_reserved": "Paired ML reserved",
-            "paired_ml_train": "Paired ML train",
-            "paired_stress_real": "Paired weak-link",
-            "long_quiet": "Long quiet",
-        }
-        lines.extend([
-            "",
-            "---",
-            "",
-            "## Timing Quality Audit",
-            "",
-            (
-                "Timing stays provenance-first here: the table stratifies replay behavior "
-                "by the capture timing bucket, rather than feeding timing into the model."
-            ),
-            "",
-            "| Slice | Timing | Count | ML Recall | ML FP | Classic Recall | Classic FP | Mean Rate | Mean Contam | Worst Gap |",
-            "|-------|--------|------:|----------:|------:|---------------:|-----------:|----------:|------------:|----------:|",
-        ])
-        for row in timing_audit:
-            ml_metrics = row.get("ml_metrics") or {}
-            classic_metrics = row.get("classic_metrics") or {}
-            lines.append(
-                "| "
-                + " | ".join(
-                    [
-                        slice_labels.get(str(row["slice"]), str(row["slice"])),
-                        str(row["quality_bucket"]),
-                        str(int(row["count"])),
-                        f"{ml_metrics['recall']:.1f}%" if ml_metrics else "N/A",
-                        f"{ml_metrics['fp_rate']:.1f}%" if ml_metrics else "N/A",
-                        f"{classic_metrics['recall']:.1f}%" if classic_metrics else "N/A",
-                        f"{classic_metrics['fp_rate']:.1f}%" if classic_metrics else "N/A",
-                        f"{float(row['packet_rate_pps']):.1f} pkt/s",
-                        f"{float(row['contaminated_ratio']) * 100.0:.1f}%",
-                        f"{float(row['max_gap_ms']):.1f} ms",
-                    ]
-                )
-                + " |"
-            )
 
     return "\n".join(lines) + "\n"
 

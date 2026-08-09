@@ -286,12 +286,11 @@ python validate_dataset_quality.py                  # Full validation (auto repo
 python validate_dataset_quality.py --chip C6        # Validate C6 only
 python validate_dataset_quality.py --no-report      # Skip markdown report
 python validate_dataset_quality.py --check-current  # Fail if the report does not match dataset_info.json
-python validate_dataset_quality.py --include-excluded-pairs --chip C3
 ```
 
-`--include-excluded-pairs` keeps `dataset_role: exclude` out of the admission
-summary, but appends an informational replay table for those paired captures so
-detector-only evidence can still be re-measured without changing dataset roles.
+Pairs with `dataset_role: exclude` stay out of the admission summary, but the
+report always includes them in a separate informational replay table so their
+detector-only evidence can be re-measured without changing dataset roles.
 
 ---
 

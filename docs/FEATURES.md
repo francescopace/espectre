@@ -31,9 +31,9 @@ Host-side candidates live in `tools/lib/candidate_features.py`. Evaluate them wi
 
 ## Current Production ML Set
 
-The current production baseline is the compact phaseless seven-feature set. Only `turb_iqr_over_mean_aggr` reads a dedicated `W=5` adjacent-magnitude average; the other six inputs and Classic keep their normal amplitude paths. The exported topology is `7 -> 24 -> 12 -> 1`, with 505 parameters, the `base,drift,burst-loss` augmentation recipe, false-positive weight `1.75`, and seed `2125739007`.
+The current production baseline is the compact phaseless seven-feature set. Only `turb_iqr_over_mean_aggr` reads a dedicated `W=5` adjacent-magnitude average; the other six inputs and Classic keep their normal amplitude paths. The exported topology is `7 -> 24 -> 12 -> 1`, with 505 parameters, the `base,drift,burst-loss` augmentation recipe, and false-positive weight `1.75`.
 
-The promotion scored `98.7%` blocked OOF F1, passed all 14 paired replays at `98.57%` worst recall and `0.43%` maximum FP, kept quiet maximum FP at `0.30%`, and produced no effective alarms. Leave-one-chip-out macro recall / FP / F1 were `98.5%` / `0.3%` / `98.9%`; C3 recall was the explicit trade-off at `97.3%`. Leave-one-environment-out macro recall / FP / F1 were `98.6%` / `0.4%` / `98.9%`, with `1.1%` bedroom FP. See [2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md](adr/2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md) for the campaign evidence and alternatives.
+Current detector results are generated in [performance/README.md](performance/README.md). See [2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md](adr/2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md) for the feature-selection campaign, its reproducibility evidence, and the rejected alternatives. The exported weight files own the metadata of the currently deployed training run.
 
 | Feature | Physical quantity and definition | Invariance | Retained feature evidence | Status |
 | --- | --- | --- | --- | --- |

@@ -126,9 +126,9 @@ BASELINE_LONGEST_BURST_ZERO_SECONDS = 120.0
 # can be miscalibrated or recomputed from new data, and a dataset verdict that
 # moves with it is a verdict about the detector.
 #
-# The tail is absolute where an excursion *rate* would not be: a capture that is
-# uniformly noisy widens its own MAD, lifts any self-normalized bound with it,
-# and then reports few excursions while being exactly the recording to reject.
+# The tail measures within-capture spread without using a detector threshold.
+# Because it is centered on the capture itself, it cannot expose a uniform
+# cross-session shift; external-reference cleanliness handles that case.
 BASELINE_TAIL_WARN_LOGITS = 4.0
 BASELINE_TAIL_FAIL_LOGITS = 6.0
 # The excursion rate stays as a burstiness diagnostic, counted against
@@ -144,6 +144,21 @@ FEATURE_SCORE_SEPARATION_FULL = 0.999
 FEATURE_SCORE_SEPARATION_ZERO = 0.900
 FEATURE_SCORE_TAIL_FULL = 2.0
 FEATURE_SCORE_TAIL_ZERO = 6.0
+# Cross-capture idle cleanliness. Five-second feature blocks preserve temporal
+# structure while same-chip references from the same link and packet-rate class
+# prevent one recording from declaring its own sustained shift "normal". The
+# same environment is preferred. Reference captures contribute at most the same
+# number of blocks, so long empty recordings cannot dominate.
+REFERENCE_BLOCK_SECONDS = 5.0
+REFERENCE_MAX_BLOCKS_PER_CAPTURE = 24
+REFERENCE_MIN_CAPTURES = 3
+REFERENCE_HIGH_RATE_PPS = 200.0
+REFERENCE_EXCURSION_EXPECTED_RATIO = 0.05
+REFERENCE_EXCURSION_WARN_RATIO = 0.25
+REFERENCE_EXCURSION_FAIL_RATIO = 0.50
+REFERENCE_EXCURSION_ZERO_RATIO = 0.75
+REFERENCE_LONGEST_BURST_WARN_SECONDS = 30.0
+REFERENCE_LONGEST_BURST_FAIL_SECONDS = 120.0
 QUIET_TEST_CLASSIC_FP_WARN_RATIO = FEATURE_EXCURSION_WARN_RATIO
 QUIET_TEST_CLASSIC_FP_FAIL_RATIO = FEATURE_EXCURSION_FAIL_RATIO
 MAX_STATIC_ACTIVE_RATIO = 0.05
@@ -222,21 +237,14 @@ def _clamp_score(value):
     return float(max(0.0, min(100.0, value)))
 
 
-def agnostic_pair_score(idle_tail, motion_coverage, pair_separation):
-    """Return an indicative 0-100 feature-space score for one pair.
+def agnostic_pair_score(motion_coverage, pair_separation):
+    """Return an indicative 0-100 separation score for one pair.
 
-    All three terms are threshold-free. Separation is the idle/motion AUC, idle
-    cleanliness is the idle half's own q95 above its own median in logits, and
-    motion coverage is the share of the motion half rising above the idle half's
-    p95. The calibrated threshold enters none of them, so recalibrating the
-    detector cannot restate what the data is. This is review guidance, not an
-    admission veto.
+    Separation is the static/motion AUC, and motion coverage is the share of the
+    motion half rising above the static half's p95. Static cleanliness is not
+    inferred from a self-normalized tail; it is scored independently against
+    external idle references and caps the final pair quality score.
     """
-    idle_clean = _clamp_score(
-        100.0
-        * (CLASSIC_SCORE_TAIL_ZERO - float(idle_tail))
-        / (CLASSIC_SCORE_TAIL_ZERO - CLASSIC_SCORE_TAIL_FULL)
-    )
     motion_cover = _clamp_score(
         100.0 * float(motion_coverage) / CLASSIC_SCORE_MOTION_FULL
     )
@@ -248,16 +256,37 @@ def agnostic_pair_score(idle_tail, motion_coverage, pair_separation):
         * (separation_value - CLASSIC_SCORE_SEPARATION_ZERO)
         / (CLASSIC_SCORE_SEPARATION_FULL - CLASSIC_SCORE_SEPARATION_ZERO)
     )
-    return round(0.5 * separation_score + 0.3 * idle_clean + 0.2 * motion_cover, 1)
+    return round(0.7 * separation_score + 0.3 * motion_cover, 1)
+
+
+def reference_cleanliness_score(excursion_ratio, longest_burst_seconds):
+    """Return a 0-100 idle-cleanliness score against external references."""
+    excursion_clean = _clamp_score(
+        100.0
+        * (REFERENCE_EXCURSION_ZERO_RATIO - float(excursion_ratio))
+        / (
+            REFERENCE_EXCURSION_ZERO_RATIO
+            - REFERENCE_EXCURSION_EXPECTED_RATIO
+        )
+    )
+    burst_clean = _clamp_score(
+        100.0
+        * (
+            1.0
+            - float(longest_burst_seconds)
+            / REFERENCE_LONGEST_BURST_FAIL_SECONDS
+        )
+    )
+    return round(0.7 * excursion_clean + 0.3 * burst_clean, 1)
 
 
 def agnostic_baseline_score(margin_q95, longest_burst_seconds):
-    """Return a 0-100 idle-baseline score from threshold-free evidence.
+    """Return a 0-100 within-capture stability score.
 
     Tail height carries most of the score. It is the capture's own q95 above its
-    own median, in logits, so it neither depends on where the threshold sits nor
-    normalizes away a uniformly noisy recording. This remains a review-only
-    diagnostic, not a dataset-admission gate.
+    own median, so it does not depend on a detector threshold. External-reference
+    cleanliness is required to detect a uniform session shift. This remains a
+    review-only diagnostic, not a dataset-admission gate.
     """
     cleanliness = _clamp_score(
         100.0
@@ -734,8 +763,221 @@ def _consensus_pair_evidence(idle_matrix, motion_matrix, feature_names):
     return idle_evidence, motion_evidence, centers, scales
 
 
+def _feature_block_medians(feature_matrix, packet_rate_pps):
+    """Return contiguous five-second feature-block medians."""
+    matrix = np.asarray(feature_matrix, dtype=np.float64)
+    if matrix.ndim != 2 or matrix.shape[0] == 0:
+        return np.asarray([], dtype=np.float64)
+    block_size = max(
+        1,
+        int(round(float(packet_rate_pps) * REFERENCE_BLOCK_SECONDS)),
+    )
+    block_count = matrix.shape[0] // block_size
+    if block_count == 0:
+        return np.median(matrix, axis=0, keepdims=True)
+    return np.asarray([
+        np.median(matrix[index * block_size:(index + 1) * block_size], axis=0)
+        for index in range(block_count)
+    ], dtype=np.float64)
+
+
+def _sample_reference_blocks(blocks):
+    """Sample a bounded, deterministic number of blocks from one capture."""
+    blocks = np.asarray(blocks, dtype=np.float64)
+    if len(blocks) <= REFERENCE_MAX_BLOCKS_PER_CAPTURE:
+        return blocks
+    indices = np.linspace(
+        0,
+        len(blocks) - 1,
+        REFERENCE_MAX_BLOCKS_PER_CAPTURE,
+    ).round().astype(np.int64)
+    return blocks[indices]
+
+
+def _idle_reference_stratum(entry):
+    """Return link- and packet-rate classes that must not be mixed."""
+    link_class = "low-rssi" if bool(entry.get("low_rssi")) else "normal-rssi"
+    rate_class = (
+        "high-rate"
+        if _packet_rate_from_entry(entry) >= REFERENCE_HIGH_RATE_PPS
+        else "nominal-rate"
+    )
+    return link_class, rate_class
+
+
+def _build_idle_reference_records(dataset_info, *, chip_filter=None, use_cache=True):
+    """Build admitted, non-long idle references for cross-capture review."""
+    records = []
+    for label in ("empty", "static_presence"):
+        for entry in dataset_info.get("files", {}).get(label, []):
+            if _is_excluded_entry(entry) or not _entry_matches_chip(entry, chip_filter):
+                continue
+            if label == "empty" and _is_long_recording_entry(entry):
+                continue
+            filepath = dataset_metadata.resolve_entry_path(label, entry)
+            if not filepath.exists():
+                continue
+            try:
+                matrix, feature_names = _load_or_compute_validation_feature_matrix(
+                    filepath,
+                    use_cache=use_cache,
+                )
+            except Exception:
+                continue
+            blocks = _feature_block_medians(
+                matrix,
+                _packet_rate_from_entry(entry),
+            )
+            if blocks.size == 0:
+                continue
+            records.append({
+                "filename": filepath.name,
+                "chip": str(entry.get("chip", "unknown")).upper(),
+                "environment": _entry_environment(entry),
+                "stratum": _idle_reference_stratum(entry),
+                "feature_names": tuple(feature_names),
+                "blocks": _sample_reference_blocks(blocks),
+            })
+    return records
+
+
+def _select_idle_reference_records(records, entry, feature_names, *, exclude_filename=None):
+    """Choose same-environment references when sufficient, then same-chip."""
+    chip = str(entry.get("chip", "unknown")).upper()
+    environment = _entry_environment(entry)
+    stratum = _idle_reference_stratum(entry)
+    feature_names = tuple(feature_names)
+    candidates = [
+        record
+        for record in records
+        if record["chip"] == chip
+        and record["feature_names"] == feature_names
+        and record.get("stratum", ("normal-rssi", "nominal-rate")) == stratum
+        and record["filename"] != exclude_filename
+    ]
+    environment_records = [
+        record
+        for record in candidates
+        if record["environment"] == environment
+    ]
+    if len(environment_records) >= REFERENCE_MIN_CAPTURES:
+        return environment_records, "chip+env+stratum"
+    if len(candidates) >= REFERENCE_MIN_CAPTURES:
+        return candidates, "chip+stratum"
+    return [], "unavailable"
+
+
+def _reference_cleanliness_severity(reference_stats):
+    """Return soft review severity for external-reference cleanliness."""
+    if reference_stats is None:
+        return None
+    severities = (
+        _threshold_severity(
+            reference_stats["excursion_ratio"],
+            warn_above=REFERENCE_EXCURSION_WARN_RATIO,
+            fail_above=REFERENCE_EXCURSION_FAIL_RATIO,
+        ),
+        _threshold_severity(
+            reference_stats["longest_burst_seconds"],
+            warn_above=REFERENCE_LONGEST_BURST_WARN_SECONDS,
+            fail_above=REFERENCE_LONGEST_BURST_FAIL_SECONDS,
+        ),
+    )
+    if "fail" in severities:
+        return "fail"
+    if "warn" in severities:
+        return "warn"
+    return None
+
+
+def _reference_idle_stats(
+    feature_matrix,
+    entry,
+    feature_names,
+    reference_records,
+    *,
+    exclude_filename=None,
+):
+    """Compare one idle capture with independent same-chip feature blocks."""
+    references, basis = _select_idle_reference_records(
+        reference_records,
+        entry,
+        feature_names,
+        exclude_filename=exclude_filename,
+    )
+    if not references:
+        return None
+
+    reference_blocks = np.concatenate(
+        [record["blocks"] for record in references],
+        axis=0,
+    )
+    centers = np.median(reference_blocks, axis=0)
+    scales = np.zeros(reference_blocks.shape[1], dtype=np.float64)
+    for index in range(reference_blocks.shape[1]):
+        _center, scales[index] = _robust_axis_location_and_scale(
+            reference_blocks[:, index]
+        )
+    directions = _feature_direction_vector(feature_names)
+    reference_evidence = _feature_evidence_series(
+        reference_blocks,
+        centers=centers,
+        scales=scales,
+        directions=directions,
+    )
+    target_blocks = _feature_block_medians(
+        feature_matrix,
+        _packet_rate_from_entry(entry),
+    )
+    target_evidence = _feature_evidence_series(
+        target_blocks,
+        centers=centers,
+        scales=scales,
+        directions=directions,
+    )
+    if target_evidence.size == 0:
+        return None
+
+    excursion_bound = float(np.quantile(reference_evidence, 0.95))
+    extreme_bound = float(np.quantile(reference_evidence, 0.99))
+    excursion_ratio = float((target_evidence > excursion_bound).mean())
+    extreme_states = (target_evidence > extreme_bound).astype(np.int8)
+    padded = np.concatenate([[0], extreme_states, [0]])
+    edges = np.diff(padded)
+    burst_starts = np.flatnonzero(edges == 1)
+    burst_lengths = np.flatnonzero(edges == -1) - burst_starts
+    longest_burst_seconds = (
+        float(int(burst_lengths.max())) * REFERENCE_BLOCK_SECONDS
+        if burst_starts.size
+        else 0.0
+    )
+    score = reference_cleanliness_score(
+        excursion_ratio,
+        longest_burst_seconds,
+    )
+    return {
+        "basis": basis,
+        "reference_count": len(references),
+        "block_count": int(len(target_evidence)),
+        "excursion_bound": excursion_bound,
+        "extreme_bound": extreme_bound,
+        "excursion_ratio": excursion_ratio,
+        "extreme_ratio": float(extreme_states.mean()),
+        "longest_burst_seconds": longest_burst_seconds,
+        "evidence_median": float(np.median(target_evidence)),
+        "evidence_q95": float(np.quantile(target_evidence, 0.95)),
+        "score": score,
+    }
+
+
 def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps=100.0):
-    """Summarize one idle feature-evidence series with detector-agnostic metrics."""
+    """Summarize one dense idle feature-evidence series.
+
+    The canonical ``stream_dense`` matrix contributes one ready feature row per
+    packet, not one row per production evaluation tick.  Temporal aggregation
+    must therefore use the capture packet rate directly.  Applying
+    ``EVALUATION_INTERVAL`` here stretches every block and burst by that factor.
+    """
     evidence = np.asarray(evidence_series, dtype=np.float64)
     if evidence.size == 0:
         return None
@@ -746,8 +988,8 @@ def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps=100.0)
     excursion_bound = margin_median + BASELINE_EXCURSION_MADS * max(margin_mad, 1e-9)
     states = (margins > excursion_bound).astype(np.int8)
 
-    eval_rate_hz = max(float(packet_rate_pps), 1e-6) / float(EVALUATION_INTERVAL)
-    block_size = max(1, int(round(eval_rate_hz * BASELINE_BLOCK_SECONDS)))
+    sample_rate_hz = max(float(packet_rate_pps), 1e-6)
+    block_size = max(1, int(round(sample_rate_hz * BASELINE_BLOCK_SECONDS)))
     full_block_count = len(margins) // block_size
     if full_block_count:
         block_margins = np.asarray([
@@ -775,9 +1017,7 @@ def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps=100.0)
     longest_burst_seconds = (
         float(int(burst_lengths.max())) * BASELINE_BLOCK_SECONDS if burst_count else 0.0
     )
-    eval_seconds = len(margins) / (1_000_000.0 / float(
-        nominal_packet_interval_us(SEG_WINDOW_SIZE) * EVALUATION_INTERVAL
-    ))
+    eval_seconds = len(margins) / sample_rate_hz
     bursts_per_minute = (
         burst_count * 60.0 / eval_seconds if eval_seconds > 0.0 else 0.0
     )
@@ -887,6 +1127,46 @@ def _format_pair_packet_rate_cell(static_packet_rate_pps, motion_packet_rate_pps
     return (
         f"{_format_packet_rate_cell(static_packet_rate_pps)} / "
         f"{_format_packet_rate_cell(motion_packet_rate_pps)}"
+    )
+
+
+def _format_reference_basis_cell(reference_stats):
+    """Format reference scope and capture count."""
+    if reference_stats is None:
+        return "n/a"
+    basis = "env" if "env" in reference_stats["basis"] else "chip"
+    return f"{basis}/{reference_stats['reference_count']}"
+
+
+def _format_reference_excursion_cell(reference_stats, *, markdown=False):
+    """Format the share of blocks above the reference p95."""
+    if reference_stats is None:
+        return "n/a"
+    severity = _threshold_severity(
+        reference_stats["excursion_ratio"],
+        warn_above=REFERENCE_EXCURSION_WARN_RATIO,
+        fail_above=REFERENCE_EXCURSION_FAIL_RATIO,
+    )
+    return _mark_cell(
+        f"{reference_stats['excursion_ratio']:.1%}",
+        severity,
+        markdown=markdown,
+    )
+
+
+def _format_reference_burst_cell(reference_stats, *, markdown=False):
+    """Format the longest run above the reference p99."""
+    if reference_stats is None:
+        return "n/a"
+    severity = _threshold_severity(
+        reference_stats["longest_burst_seconds"],
+        warn_above=REFERENCE_LONGEST_BURST_WARN_SECONDS,
+        fail_above=REFERENCE_LONGEST_BURST_FAIL_SECONDS,
+    )
+    return _mark_cell(
+        f"{reference_stats['longest_burst_seconds']:.1f}s",
+        severity,
+        markdown=markdown,
     )
 
 
@@ -1015,8 +1295,11 @@ _LONG_TEST_SCORE_TABLE = _idle_evidence_table_spec(
 def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
     """Format one static_presence/motion pair score row."""
     score_value = row.get("feature_score", 0.0)
+    pair_score = row.get("pair_score", score_value)
+    reference_stats = row.get("reference_cleanliness")
+    reference_severity = _reference_cleanliness_severity(reference_stats)
     severity_profile = _row_severity_profile(review_profiles, "pair", row["chip"])
-    severity = _score_value_severity(score_value, severity_profile)
+    severity = reference_severity or _score_value_severity(score_value, severity_profile)
     files_cell = _pair_files_cell(
         row["static_presence"],
         row["motion"],
@@ -1029,9 +1312,13 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
             f"| {row['chip']} | {row.get('environment', '?')} | {files_cell} | "
             f"{_format_pair_rssi_cell(row.get('static_rssi_dbm'), row.get('motion_rssi_dbm'))} | "
             f"{_format_pair_packet_rate_cell(row.get('static_packet_rate_pps'), row.get('motion_packet_rate_pps'))} | "
+            f"{_format_reference_basis_cell(reference_stats)} | "
             f"{_format_motion_above_cell(row['motion_coverage'], markdown=True)} | "
             f"{_format_pair_separation_cell(row['pair_separation'], markdown=True, severity_profile=severity_profile)} | "
-            f"{_format_margin_q95_cell(row['idle_tail'], markdown=True, severity_profile=severity_profile)} | "
+            f"{_format_score_cell(pair_score, markdown=True)} | "
+            f"{_format_reference_excursion_cell(reference_stats, markdown=True)} | "
+            f"{_format_reference_burst_cell(reference_stats, markdown=True)} | "
+            f"{_format_score_cell(reference_stats['score'], reference_severity, markdown=True) if reference_stats else 'n/a'} | "
             f"{_format_score_cell(score_value, severity, markdown=True)} |"
         )
     return (
@@ -1039,9 +1326,13 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
         f"{files_cell:<23} | "
         f"{_format_pair_rssi_cell(row.get('static_rssi_dbm'), row.get('motion_rssi_dbm')):>17} | "
         f"{_format_pair_packet_rate_cell(row.get('static_packet_rate_pps'), row.get('motion_packet_rate_pps')):>13} | "
+        f"{_format_reference_basis_cell(reference_stats):>7} | "
         f"{_format_motion_above_cell(row['motion_coverage']):>5} | "
         f"{_format_pair_separation_cell(row['pair_separation'], severity_profile=severity_profile):>6} | "
-        f"{_format_margin_q95_cell(row['idle_tail'], severity_profile=severity_profile):>5} | "
+        f"{_format_score_cell(pair_score):>5} | "
+        f"{_format_reference_excursion_cell(reference_stats):>7} | "
+        f"{_format_reference_burst_cell(reference_stats):>8} | "
+        f"{(_format_score_cell(reference_stats['score'], reference_severity) if reference_stats else 'n/a'):>8} | "
         f"{_format_score_cell(score_value, severity):>8} |"
     )
 
@@ -1050,14 +1341,14 @@ _PAIR_SCORE_TABLE = {
     "title": "Pair Scores",
     "table_key": "pair",
     "header": (
-        "| Chip | Env | static_presence / motion | RSSI | PPS | Cover | Sep | Tail | Score |"
+        "| Chip | Env | static_presence / motion | RSSI | PPS | Ref | Cover | Sep | Pair | RefExc | RefBurst | Clean | Score |"
     ),
-    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|",
+    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     "console_header": (
-        "| Chip | Env | static_presence / motion | RSSI | PPS | Cover | Sep | Tail | Score |"
+        "| Chip | Env | static_presence / motion | RSSI | PPS | Ref | Cover | Sep | Pair | RefExc | RefBurst | Clean | Score |"
     ),
     "console_separator": (
-        "  |------|-----|-------------------------|-----------------:|-------------:|------:|------:|-----:|------:|"
+        "  |------|-----|-------------------------|-----------------:|-------------:|--------:|------:|------:|-----:|-------:|---------:|------:|------:|"
     ),
     "console_heading": False,
     "sort_key": lambda item: -item.get("feature_score", 0.0),
@@ -1069,10 +1360,67 @@ _EXCLUDED_PAIR_SCORE_TABLE = {
     "title": "Excluded Pair Diagnostics",
     "intro": (
         "These pairs keep `dataset_role: exclude` and stay outside the validation "
-        "summary. The rows below are informational feature-space diagnostics "
-        "useful when a capture is evidence about slice difficulty rather than "
-        "admission material."
+        "summary. `Pair` measures static/motion separation, while `Clean` "
+        "measures the static capture against independent idle references. The "
+        "final `Score` is the lower of the two, so a contaminated static capture "
+        "cannot receive 100 merely because motion separates from it."
     ),
+}
+
+
+def _format_excluded_idle_row(row, *, markdown=False, review_profiles=None):
+    """Format one excluded idle capture against independent references."""
+    del review_profiles
+    reference_stats = row.get("reference_cleanliness")
+    severity = _reference_cleanliness_severity(reference_stats)
+    file_cell = _idle_evidence_file_cell(row, row["label"], markdown=markdown)
+    score_cell = (
+        _format_score_cell(reference_stats["score"], severity, markdown=markdown)
+        if reference_stats
+        else "n/a"
+    )
+    if markdown:
+        return (
+            f"| {row['chip']} | {row.get('environment', '?')} | {file_cell} | "
+            f"{_format_rssi_cell(row.get('rssi_dbm'))} | "
+            f"{_format_packet_rate_cell(row.get('packet_rate_pps'))} | "
+            f"{_format_reference_basis_cell(reference_stats)} | "
+            f"{_format_reference_excursion_cell(reference_stats, markdown=True)} | "
+            f"{_format_reference_burst_cell(reference_stats, markdown=True)} | "
+            f"{score_cell} |"
+        )
+    return (
+        f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
+        f"{file_cell:<16} | {_format_rssi_cell(row.get('rssi_dbm')):>4} | "
+        f"{_format_packet_rate_cell(row.get('packet_rate_pps')):>5} | "
+        f"{_format_reference_basis_cell(reference_stats):>7} | "
+        f"{_format_reference_excursion_cell(reference_stats):>7} | "
+        f"{_format_reference_burst_cell(reference_stats):>8} | "
+        f"{score_cell:>8} |"
+    )
+
+
+_EXCLUDED_IDLE_SCORE_TABLE = {
+    "title": "Excluded Idle Diagnostics",
+    "table_key": "excluded_idle",
+    "intro": (
+        "These excluded idle recordings are compared with admitted, non-long "
+        "idle captures from the same chip, link class, and packet-rate class; "
+        "the same environment is preferred when enough references exist. "
+        "`RefExc` is the share of five-second blocks above the "
+        "reference p95, and `RefBurst` is the longest contiguous run above its "
+        "p99. These are contamination signals for review, not automatic labels."
+    ),
+    "header": "| Chip | Env | File | RSSI | PPS | Ref | RefExc | RefBurst | Score |",
+    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|",
+    "console_separator": (
+        "  |------|-----|------------------|-----:|------:|--------:|-------:|---------:|------:|"
+    ),
+    "console_heading": False,
+    "sort_key": lambda item: (
+        item.get("reference_cleanliness") or {"score": float("inf")}
+    )["score"],
+    "format_row": _format_excluded_idle_row,
 }
 
 
@@ -2225,6 +2573,7 @@ def _evaluate_pair_capture(
     static_entry,
     motion_entry,
     *,
+    idle_reference_records=None,
     use_cache=True,
 ):
     """Score one static_presence/motion pair from feature-space evidence."""
@@ -2281,10 +2630,20 @@ def _evaluate_pair_capture(
         idle_evidence,
         _packet_rate_from_entry(static_entry),
     )
-    score = agnostic_pair_score(
-        idle_baseline["margin_q95"],
+    pair_score = agnostic_pair_score(
         motion_coverage,
         pair_separation,
+    )
+    reference_cleanliness = _reference_idle_stats(
+        static_matrix,
+        static_entry,
+        feature_names,
+        idle_reference_records or [],
+        exclude_filename=bl_file.name,
+    )
+    score = min(
+        pair_score,
+        reference_cleanliness["score"] if reference_cleanliness else pair_score,
     )
     severity = _pair_separation_severity(pair_separation)
     coverage_severity = _threshold_severity(
@@ -2292,15 +2651,24 @@ def _evaluate_pair_capture(
         warn_below=MIN_MOTION_COVERAGE_RATIO,
         fail_below=FAIL_MOTION_COVERAGE_RATIO,
     )
-    status = "WARN" if severity or coverage_severity else "PASS"
+    reference_severity = _reference_cleanliness_severity(reference_cleanliness)
+    status = "WARN" if severity or coverage_severity or reference_severity else "PASS"
+    reference_message = (
+        f", reference_excursions={reference_cleanliness['excursion_ratio']:.1%}, "
+        f"reference_burst={reference_cleanliness['longest_burst_seconds']:.1f}s, "
+        f"cleanliness={reference_cleanliness['score']:.1f}/100"
+        if reference_cleanliness
+        else ", reference_cleanliness=unavailable"
+    )
     pair_res = [ValidationResult(
         "pair_feature_quality",
         status,
         (
-            f"Feature-space pair score={score:.1f}/100; "
+            f"Feature-space quality score={score:.1f}/100; "
+            f"pair_score={pair_score:.1f}/100, "
             f"motion_cover={motion_coverage:.1%}, "
-            f"separation={pair_separation:.4f}, "
-            f"idle_tail={idle_baseline['margin_q95']:.2f}"
+            f"separation={pair_separation:.4f}"
+            f"{reference_message}"
         ),
         score,
     )]
@@ -2319,6 +2687,8 @@ def _evaluate_pair_capture(
         "idle_tail": idle_baseline["margin_q95"],
         "motion_coverage": motion_coverage,
         "pair_separation": pair_separation,
+        "pair_score": pair_score,
+        "reference_cleanliness": reference_cleanliness,
         "feature_score": score,
         "feature_names": feature_names,
         "status": status,
@@ -2330,6 +2700,8 @@ def _collect_excluded_pair_rows(
     dataset_info,
     *,
     chip_filter=None,
+    idle_reference_records=None,
+    use_cache=True,
 ):
     """Return informational score rows for pairs whose role is `exclude`."""
     excluded_rows = []
@@ -2354,12 +2726,66 @@ def _collect_excluded_pair_rows(
         mv_file = dataset_metadata.resolve_entry_path("motion", motion_entry)
         if not bl_file.exists() or not mv_file.exists():
             continue
-        _pair_res, pair_row, _bl_file, _mv_file = _evaluate_pair_capture(entry, motion_entry)
+        _pair_res, pair_row, _bl_file, _mv_file = _evaluate_pair_capture(
+            entry,
+            motion_entry,
+            idle_reference_records=idle_reference_records,
+            use_cache=use_cache,
+        )
         if pair_row is None:
             continue
         excluded_rows.append(pair_row)
 
     return excluded_rows
+
+
+def _collect_excluded_idle_rows(
+    dataset_info,
+    *,
+    chip_filter=None,
+    idle_reference_records=None,
+    use_cache=True,
+):
+    """Return cross-capture cleanliness diagnostics for excluded idle files."""
+    rows = []
+    for label in ("empty",):
+        for entry in dataset_info.get("files", {}).get(label, []):
+            if not _is_excluded_entry(entry) or not _entry_matches_chip(entry, chip_filter):
+                continue
+            filepath = dataset_metadata.resolve_entry_path(label, entry)
+            if not filepath.exists():
+                continue
+            try:
+                matrix, feature_names = _load_or_compute_validation_feature_matrix(
+                    filepath,
+                    use_cache=use_cache,
+                )
+                packets = load_npz_packet_view(filepath)
+            except Exception:
+                continue
+            reference_cleanliness = _reference_idle_stats(
+                matrix,
+                entry,
+                feature_names,
+                idle_reference_records or [],
+                exclude_filename=filepath.name,
+            )
+            rssi_values = [
+                packet.get("rssi_dbm")
+                for packet in packets
+                if packet.get("rssi_dbm") is not None
+            ]
+            rows.append({
+                "label": label,
+                "filename": filepath.name,
+                "display_date": _entry_display_date(entry, filepath.name),
+                "chip": str(entry.get("chip", "unknown")).upper(),
+                "environment": _entry_environment(entry),
+                "rssi_dbm": float(np.median(rssi_values)) if rssi_values else None,
+                "packet_rate_pps": _packet_rate_from_entry(entry),
+                "reference_cleanliness": reference_cleanliness,
+            })
+    return rows
 
 
 def _training_session_group(label, entry):
@@ -3188,7 +3614,6 @@ def validate_quiet_test_recordings(dataset_info, chip_filter=None, use_cache=Tru
 def run_validation(
     chip_filter=None,
     generate_report=True,
-    include_excluded_pairs=False,
     use_cache=True,
 ):
     """Run full dataset validation."""
@@ -3237,6 +3662,12 @@ def run_validation(
         print(heading)
         for result in issues:
             print(f"   {result}")
+
+    idle_reference_records = _build_idle_reference_records(
+        dataset_info,
+        chip_filter=chip_filter,
+        use_cache=use_cache,
+    )
 
     # ------------------------------------------------------------------
     # Phase 1: Validate required dataset_info metadata
@@ -3357,6 +3788,7 @@ def run_validation(
             pair_res, pair_row, bl_file, mv_file = _evaluate_pair_capture(
                 entry,
                 motion_entry,
+                idle_reference_records=idle_reference_records,
                 use_cache=use_cache,
             )
             if pair_row is None:
@@ -3462,20 +3894,35 @@ def run_validation(
             ):
                 print(line)
 
-    excluded_pair_rows = []
-    if include_excluded_pairs:
-        excluded_pair_rows = _collect_excluded_pair_rows(
-            dataset_info,
-            chip_filter=chip_filter,
-        )
-        if excluded_pair_rows:
-            print("\nExcluded pair diagnostics (informational only)")
-            for line in _render_score_table(
-                excluded_pair_rows,
-                _EXCLUDED_PAIR_SCORE_TABLE,
-                review_profiles=review_profiles,
-            ):
-                print(line)
+    excluded_pair_rows = _collect_excluded_pair_rows(
+        dataset_info,
+        chip_filter=chip_filter,
+        idle_reference_records=idle_reference_records,
+        use_cache=use_cache,
+    )
+    if excluded_pair_rows:
+        print("\nExcluded pair diagnostics (informational only)")
+        for line in _render_score_table(
+            excluded_pair_rows,
+            _EXCLUDED_PAIR_SCORE_TABLE,
+            review_profiles=review_profiles,
+        ):
+            print(line)
+
+    excluded_idle_rows = _collect_excluded_idle_rows(
+        dataset_info,
+        chip_filter=chip_filter,
+        idle_reference_records=idle_reference_records,
+        use_cache=use_cache,
+    )
+    if excluded_idle_rows:
+        print("\nExcluded idle diagnostics (informational only)")
+        for line in _render_score_table(
+            excluded_idle_rows,
+            _EXCLUDED_IDLE_SCORE_TABLE,
+            review_profiles=review_profiles,
+        ):
+            print(line)
 
     if should_recommend_dataset_metadata_refresh(
         all_results,
@@ -3493,6 +3940,7 @@ def run_validation(
             empty_score_rows,
             presence_score_rows,
             excluded_pair_rows,
+            excluded_idle_rows,
             review_profiles,
         )
         print(f"\nReport: {REPORT_OUTPUT}")
@@ -3511,6 +3959,7 @@ def _generate_report(
     empty_score_rows,
     presence_score_rows,
     excluded_pair_rows,
+    excluded_idle_rows,
     review_profiles,
 ):
     """Generate markdown report."""
@@ -3548,6 +3997,7 @@ def _generate_report(
         (empty_score_rows, _EMPTY_SCORE_TABLE),
         (quiet_score_rows, _LONG_TEST_SCORE_TABLE),
         (excluded_pair_rows, _EXCLUDED_PAIR_SCORE_TABLE),
+        (excluded_idle_rows, _EXCLUDED_IDLE_SCORE_TABLE),
     ):
         lines.extend(
             _render_score_table(
@@ -3564,12 +4014,20 @@ def _generate_report(
         "feature set, not from a detector threshold or probability surface."
     )
     lines.append(
-        "- Pair rows summarize how strongly `motion` windows outrank "
-        "`static_presence` windows in feature space."
+        "- Pair rows keep separation (`Pair`) distinct from external static "
+        "cleanliness (`Clean`). Their final `Score` is the lower value, so "
+        "strong separation cannot hide a shifted or persistently active static capture."
     )
     lines.append(
-        "- Idle rows summarize how often one capture leaves its own typical "
-        "feature-space baseline through excursions, long bursts, and drift."
+        "- Presence, Empty, and Long-recording rows summarize within-capture "
+        "stability. Because they use each capture's own center, they can expose "
+        "bursts and drift but not a uniform cross-session shift."
+    )
+    lines.append(
+        "- Excluded Idle Diagnostics provide that missing cross-session view "
+        "against admitted references from the same chip, link class, and "
+        "packet-rate class, preferring the same environment when at least three "
+        "independent captures are available."
     )
     lines.append(
         "- `Score` is a compact ranking signal only. Admission still turns on "
@@ -3582,13 +4040,23 @@ def _generate_report(
         f"❌ `<{FAIL_MOTION_COVERAGE_RATIO:.0%}`"
     )
     lines.append(
+        f"- `RefExc` (Pair/Excluded Idle, five-second blocks above the external "
+        f"reference p95): ⚠️ `>{REFERENCE_EXCURSION_WARN_RATIO:.0%}`, "
+        f"❌ `>{REFERENCE_EXCURSION_FAIL_RATIO:.0%}`"
+    )
+    lines.append(
+        f"- `RefBurst` (Pair/Excluded Idle, longest contiguous run above the "
+        f"external reference p99): ⚠️ `>{REFERENCE_LONGEST_BURST_WARN_SECONDS:.1f}s`, "
+        f"❌ `>{REFERENCE_LONGEST_BURST_FAIL_SECONDS:.1f}s`"
+    )
+    lines.append(
         f"- `Exc` (Presence/Empty/Long-recording, past median + "
         f"{BASELINE_EXCURSION_MADS:.0f} MAD): "
         f"⚠️ `>{FEATURE_EXCURSION_WARN_RATIO:.0%}`, "
         f"❌ `>{FEATURE_EXCURSION_FAIL_RATIO:.0%}`"
     )
     lines.append(
-        f"- `Tail` (Pair/Presence/Empty/Long-recording, q95 above own median on the feature-evidence axis): "
+        f"- `Tail` (Presence/Empty/Long-recording, q95 above own median on the feature-evidence axis): "
         f"⚠️ `>{BASELINE_TAIL_WARN_LOGITS:.1f}`, "
         f"❌ `>{BASELINE_TAIL_FAIL_LOGITS:.1f}`"
     )
@@ -3651,8 +4119,8 @@ def _generate_report(
             "shown without soft marks until enough clean references exist"
         )
     lines.append(
-        "- `Score`: absolute 0-100 ranking only; it does not carry peer-relative "
-        "soft marks\n"
+        "- `Score`: 0-100 review ranking only. On pair rows it is "
+        "`min(Pair, Clean)`; it remains outside dataset admission.\n"
     )
     lines.append("Computed metrics:\n")
     lines.append("- `Env`: capture environment from `dataset_info.json`")
@@ -3669,6 +4137,21 @@ def _generate_report(
     lines.append(
         "- `Cover` (Pair Scores): share of motion windows whose consensus "
         "feature evidence rises above the idle half's own p95"
+    )
+    lines.append(
+        "- `Ref`: external-reference scope (`env` or `chip`) and independent capture count"
+    )
+    lines.append(
+        "- `Pair`: separation score built only from `Cover` and `Sep`"
+    )
+    lines.append(
+        "- `RefExc`: share of five-second idle blocks above the external reference p95"
+    )
+    lines.append(
+        "- `RefBurst`: longest contiguous five-second idle-block run above the external reference p99"
+    )
+    lines.append(
+        "- `Clean`: cross-capture static-cleanliness score built from `RefExc` and `RefBurst`"
     )
     lines.append(
         "- `Exc` (Presence/Empty/Long-recording): share of windows whose "
@@ -3712,7 +4195,6 @@ Examples:
   python validate_dataset_quality.py --chip C6    # Validate C6 only
   python validate_dataset_quality.py --no-cache   # Bypass persisted validation artifacts
   python validate_dataset_quality.py --no-report  # Skip markdown report
-  python validate_dataset_quality.py --include-excluded-pairs --chip C3
         """
     )
     parser.add_argument('--chip', type=str, default=None,
@@ -3723,11 +4205,6 @@ Examples:
         '--no-cache',
         action='store_true',
         help='Bypass persisted time-aware ML rows for one run',
-    )
-    parser.add_argument(
-        '--include-excluded-pairs',
-        action='store_true',
-        help='Replay exclude-role static_presence/motion pairs as informational diagnostics',
     )
     parser.add_argument(
         '--check-current',
@@ -3750,7 +4227,6 @@ Examples:
     exit_code = run_validation(
         chip_filter=args.chip,
         generate_report=not args.no_report,
-        include_excluded_pairs=args.include_excluded_pairs,
         use_cache=not args.no_cache,
     )
     sys.exit(exit_code)

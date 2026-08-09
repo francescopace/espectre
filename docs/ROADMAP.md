@@ -35,7 +35,7 @@ Completed implementation, detector experiments, and dated reviews live in [CHANG
 
 - [x] Complete ClassicDetector and MLDetector tuning, pass their maintained detector-performance and C++/Python parity gates, and document the report-only Classic weak-link and long-recording limits
 - [ ] Close the remaining documentation, security, and first-party code reviews
-- [ ] Audit the release notes and publish the complete binary artifact set
+- [x] Audit the release notes
 - [ ] Re-enable the `CLA Signature Check` as required on `develop`, and test the GitHub issue and pull request templates end to end
 - [ ] Verify the GA4 property-side settings and live events, and capture a current Home Assistant visualization for the project overview
 

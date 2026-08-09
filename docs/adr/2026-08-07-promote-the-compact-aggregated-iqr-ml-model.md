@@ -13,7 +13,7 @@ The shared-band aggregation ADR had already rejected averaging for Classic: supp
 
 ## Decision
 
-Promote a seven-input phaseless ML model with topology `7 -> 24 -> 12 -> 1` and 505 parameters. Train it with `--augment base,drift,burst-loss`, false-positive weight `1.75`, and seed `2125739007`.
+Promote a seven-input phaseless ML model with topology `7 -> 24 -> 12 -> 1` and 505 parameters. Train it with `--augment base,drift,burst-loss` and false-positive weight `1.75`.
 
 The ordered input set is:
 
@@ -30,6 +30,8 @@ Only `turb_iqr_over_mean_aggr` reads a dedicated `W=5` adjacent-magnitude turbul
 Remove `chan_freq_coh_cv`, `chan_coh_gap`, and `chan_coh_subband_gap_median` from the production model. Their joint removal improved the tail metrics even when individual marginal importance did not predict the interaction.
 
 ## Validation
+
+The seeds below identify immutable campaign runs for reproducibility; they are evidence for this decision, not part of the production model contract. The exported weight files own the metadata of the currently deployed training run.
 
 ### Localized aggregated IQR
 
@@ -72,7 +74,7 @@ At fixed seed, removing `chan_freq_coh_cv` and `chan_coh_subband_gap_median` joi
 
 All ten seeds in the final in-memory search were eligible. Blocked OOF F1 stayed within `98.50-98.69%`, worst-session recall within `88.76-92.13%`, and worst-session FP within `2.23-4.47%`. Seed `2125739007` won the robust ranking.
 
-The final exported artifact scored:
+The artifact promoted by this campaign scored:
 
 | Gate | Result |
 | --- | --- |

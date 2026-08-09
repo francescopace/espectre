@@ -125,6 +125,23 @@ def test_classic_baseline_score_weights_tail_height_and_bursts() -> None:
     assert module.classic_baseline_score(7.5, 0.0) < 40.0
 
 
+def test_agnostic_dense_baseline_uses_packet_rate_for_elapsed_time() -> None:
+    module = _load_validator_module()
+    # The detector-agnostic stream is dense: at 100 pps, each 500-row block is
+    # five seconds. One elevated block in a 20-second capture must not be
+    # stretched by the production evaluation interval.
+    evidence = np.zeros(2000, dtype=np.float64)
+    evidence[500:1000] = 10.0
+
+    baseline = module._agnostic_baseline_stats_from_series(
+        evidence,
+        packet_rate_pps=100.0,
+    )
+
+    assert baseline["eval_seconds"] == pytest.approx(20.0)
+    assert baseline["longest_burst_seconds"] == pytest.approx(5.0)
+
+
 def test_validate_file_integrity_rejects_object_arrays(tmp_path) -> None:
     module = _load_validator_module()
     filepath = tmp_path / "malicious_dataset.npz"
@@ -1258,17 +1275,97 @@ def test_validate_pair_warns_when_motion_stays_below_threshold(monkeypatch) -> N
 
 def test_classic_pair_score_uses_only_threshold_free_terms() -> None:
     module = _load_validator_module()
-    # (idle tail in logits, motion coverage above the idle p95, idle/motion AUC)
-    assert module.classic_pair_score(2.0, 1.0, 1.0) == 100.0
-    assert module.classic_pair_score(6.0, 0.0, 0.90) == 0.0
-    mid = module.classic_pair_score(4.0, 0.95, 0.995)
-    assert 49.0 <= mid <= 90.0
+    # (motion coverage above the idle p95, idle/motion AUC)
+    assert module.classic_pair_score(1.0, 1.0) == 100.0
+    assert module.classic_pair_score(0.0, 0.90) == 0.0
+    mid = module.classic_pair_score(0.95, 0.995)
+    assert 90.0 <= mid < 100.0
 
     # Separation leads, so a pair that separates cleanly outscores one that does
     # not, even when the second covers more of its motion half.
-    assert module.classic_pair_score(2.0, 0.70, 0.9990) > module.classic_pair_score(
-        2.0, 1.0, 0.9200
+    assert module.classic_pair_score(0.70, 0.9990) > module.classic_pair_score(
+        1.0, 0.9200
     )
+
+
+def test_reference_cleanliness_score_penalizes_persistent_external_shift() -> None:
+    module = _load_validator_module()
+
+    assert module.reference_cleanliness_score(0.05, 0.0) == 100.0
+    assert module.reference_cleanliness_score(0.75, 120.0) == 0.0
+    assert module.reference_cleanliness_score(0.60, 60.0) < 40.0
+
+
+def test_reference_idle_stats_uses_independent_capture_blocks() -> None:
+    module = _load_validator_module()
+    feature_names = tuple(module.VALIDATION_FEATURE_NAMES)
+    width = len(feature_names)
+    records = [
+        {
+            "filename": f"reference_{index}.npz",
+            "chip": "C6",
+            "environment": "bedroom",
+            "feature_names": feature_names,
+            "blocks": np.full((12, width), float(index) * 0.01),
+        }
+        for index in range(4)
+    ]
+    entry = {
+        "filename": "target.npz",
+        "chip": "C6",
+        "environment": "bedroom",
+        "average_packet_rate": 1.0,
+    }
+    target = np.full((60, width), 2.0)
+
+    stats = module._reference_idle_stats(
+        target,
+        entry,
+        feature_names,
+        records,
+        exclude_filename="target.npz",
+    )
+
+    assert stats["basis"] == "chip+env+stratum"
+    assert stats["reference_count"] == 4
+    assert stats["excursion_ratio"] == 1.0
+    assert stats["longest_burst_seconds"] == 60.0
+    assert stats["score"] < 20.0
+
+
+def test_idle_references_do_not_mix_link_or_packet_rate_classes() -> None:
+    module = _load_validator_module()
+    feature_names = tuple(module.VALIDATION_FEATURE_NAMES)
+    records = [
+        {
+            "filename": f"reference_{index}.npz",
+            "chip": "C3",
+            "environment": "bedroom",
+            "feature_names": feature_names,
+            "stratum": ("normal-rssi", "nominal-rate"),
+            "blocks": np.zeros((4, len(feature_names))),
+        }
+        for index in range(3)
+    ]
+
+    high_rate_entry = {
+        "chip": "C3",
+        "environment": "bedroom",
+        "average_packet_rate": 500.0,
+    }
+    low_rssi_entry = {
+        "chip": "C3",
+        "environment": "bedroom",
+        "average_packet_rate": 100.0,
+        "low_rssi": True,
+    }
+
+    assert module._select_idle_reference_records(
+        records, high_rate_entry, feature_names
+    ) == ([], "unavailable")
+    assert module._select_idle_reference_records(
+        records, low_rssi_entry, feature_names
+    ) == ([], "unavailable")
 
 
 def test_ratio_cells_mark_soft_warn_and_fail_thresholds() -> None:
@@ -1580,8 +1677,16 @@ def test_generate_report_uses_agnostic_wording(tmp_path, monkeypatch) -> None:
         "motion_packet_rate_pps": 100.2,
         "motion_coverage": 0.995,
         "pair_separation": 0.9990,
+        "pair_score": 100.0,
+        "reference_cleanliness": {
+            "basis": "chip+env+stratum",
+            "reference_count": 5,
+            "excursion_ratio": 0.10,
+            "longest_burst_seconds": 0.0,
+            "score": 95.0,
+        },
         "idle_tail": 1.32,
-        "feature_score": 100.0,
+        "feature_score": 95.0,
         "status": "PASS",
     }
     idle_row = {
@@ -1615,14 +1720,34 @@ def test_generate_report_uses_agnostic_wording(tmp_path, monkeypatch) -> None:
         [idle_row],
         [idle_row],
         [pair_row],
+        [
+            {
+                "label": "empty",
+                "chip": "C6",
+                "environment": "bedroom",
+                "filename": "excluded.npz",
+                "display_date": "2026-07-29 13:07",
+                "rssi_dbm": -70.0,
+                "packet_rate_pps": 95.0,
+                "reference_cleanliness": {
+                    "basis": "chip+env+stratum",
+                    "reference_count": 5,
+                    "excursion_ratio": 0.80,
+                    "longest_burst_seconds": 120.0,
+                    "score": 0.0,
+                },
+            }
+        ],
         review_profiles={},
     )
 
     report = report_path.read_text(encoding="utf-8")
     assert "## Pair Scores" in report
     assert "## Excluded Pair Diagnostics" in report
+    assert "## Excluded Idle Diagnostics" in report
     assert "`Cover`" in report
     assert "`Sep`" in report
+    assert "`RefExc`" in report
     assert "ClassicDetector" not in report
     assert "| Threshold |" not in report
     assert "`TP`" not in report
