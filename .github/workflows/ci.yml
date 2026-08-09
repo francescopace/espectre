@@ -172,7 +172,7 @@ jobs:
           test -f docs/web/vendor/mqtt-5.3.0/mqtt.min.js
           test -f docs/web/privacy/index.html
           for route in flash configure monitor theremin game guides \
-              guide-hardware guide-setup guide-detection guide-firmware \
+              guide-hardware guide-setup guide-placement guide-detection guide-firmware \
               docs docs-api docs-examples docs-architecture media roadmap; do
             grep -q "data-page=\"$route\"" docs/web/index.html \
               || { echo "Missing SPA route: $route"; exit 1; }
@@ -181,7 +181,7 @@ jobs:
           test -f docs/web/404.html \
             || { echo "Missing 404.html catch-all"; exit 1; }
           # Canonical content pages are generated; the sitemap is committed.
-          for guide in hardware setup detection custom-firmware; do
+          for guide in hardware setup placement detection custom-firmware; do
             test -f "docs/web/guides/$guide/index.html" \
               || { echo "Missing generated guide page: $guide"; exit 1; }
           done

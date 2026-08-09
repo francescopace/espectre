@@ -15,7 +15,7 @@
 
     const NAV_GROUPS = {
         tools: ['flash', 'configure', 'monitor', 'theremin', 'game'],
-        guides: ['guide-hardware', 'guide-setup', 'guide-detection', 'guide-firmware'],
+        guides: ['guide-hardware', 'guide-setup', 'guide-placement', 'guide-detection', 'guide-firmware'],
         docs: ['docs-api', 'docs-examples', 'docs-architecture']
     };
     const ROUTES = ['home', 'tools', 'guides', 'docs', 'media', 'roadmap']
@@ -595,6 +595,7 @@
         '/guides/': 'guides',
         '/guides/hardware/': 'guide-hardware',
         '/guides/setup/': 'guide-setup',
+        '/guides/placement/': 'guide-placement',
         '/guides/detection/': 'guide-detection',
         '/guides/custom-firmware/': 'guide-firmware',
         '/docs/': 'docs',

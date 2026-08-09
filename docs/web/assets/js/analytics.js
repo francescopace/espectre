@@ -27,6 +27,7 @@ const ROUTE_TITLES = {
     guides: 'Guides | ESPectre',
     'guide-hardware': 'Choosing an ESP32 board | ESPectre',
     'guide-setup': 'Flash & Wi-Fi setup | ESPectre',
+    'guide-placement': 'Sensor placement guide | ESPectre',
     'guide-detection': 'How detection works | ESPectre',
     'guide-firmware': 'Build custom firmware | ESPectre',
     docs: 'ESPectre SDK quick guide | ESPectre',
@@ -47,6 +48,7 @@ const CAPABILITY_BY_ROUTE = {
 const GUIDE_NAME_BY_PATH = {
     '/guides/hardware/': 'hardware',
     '/guides/setup/': 'setup',
+    '/guides/placement/': 'placement',
     '/guides/detection/': 'detection',
     '/guides/custom-firmware/': 'firmware'
 };

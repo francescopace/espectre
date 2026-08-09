@@ -68,6 +68,18 @@ PAGES = (
         "active_nav": "guides",
     },
     {
+        "source": "content/guides/placement.html",
+        "output": "guides/placement",
+        "title": "Sensor placement guide | ESPectre",
+        "description": (
+            "Place an ESPectre Wi-Fi motion sensor using practical distance, "
+            "RSSI, antenna orientation, obstacle, and room-testing guidance."
+        ),
+        "parent_href": "/guides/",
+        "parent_label": "Guides",
+        "active_nav": "guides",
+    },
+    {
         "source": "content/guides/detection.html",
         "output": "guides/detection",
         "title": "How detection works | ESPectre",

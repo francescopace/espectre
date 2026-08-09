@@ -14,6 +14,7 @@
   <url><loc>https://espectre.dev/privacy/</loc><changefreq>yearly</changefreq></url>
   <url><loc>https://espectre.dev/guides/hardware/</loc><changefreq>weekly</changefreq></url>
   <url><loc>https://espectre.dev/guides/setup/</loc><changefreq>weekly</changefreq></url>
+  <url><loc>https://espectre.dev/guides/placement/</loc><changefreq>weekly</changefreq></url>
   <url><loc>https://espectre.dev/guides/detection/</loc><changefreq>weekly</changefreq></url>
   <url><loc>https://espectre.dev/guides/custom-firmware/</loc><changefreq>weekly</changefreq></url>
 </urlset>
