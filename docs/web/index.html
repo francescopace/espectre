@@ -22,10 +22,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/styles.css?v=3.18.3">
-<script src="/assets/js/espectre-ble.js?v=3.18.3"></script>
-<script src="/assets/js/navigation.js?v=3.18.3" defer></script>
-<script src="/assets/js/analytics.js?v=3.18.3" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=3.19.8">
+<script src="/assets/js/espectre-ble.js?v=3.19.8"></script>
+<script src="/assets/js/navigation.js?v=3.19.8" defer></script>
+<script src="/assets/js/analytics.js?v=3.19.8" defer></script>
 </head>
 <body>
 
@@ -70,12 +70,8 @@
           <span class="dot dot-ok pulse"></span>
           <div>
             <div class="conn-dropdown-name js-device-name">ESPectre</div>
-            <div class="mono-sub js-device-sub">—</div>
+            <div class="mono-sub js-device-menu-sub">—</div>
           </div>
-        </div>
-        <div class="stat-grid">
-          <div class="stat"><div class="stat-label">Detector</div><div class="stat-value js-detector">—</div></div>
-          <div class="stat"><div class="stat-label">Session</div><div class="stat-value js-uptime">0s</div></div>
         </div>
         <div class="energy-block">
           <div class="energy-head"><span class="energy-title">Motion energy</span><span class="mono js-motion-label">quiet</span></div>
@@ -490,32 +486,33 @@
   <div class="js-has-conn" hidden>
     <div class="device-banner">
       <div class="device-banner-id">
-        <span class="dot dot-ok pulse"></span>
         <div>
           <h1 class="js-device-name">ESPectre</h1>
-          <div class="mono-sub js-device-sub">—</div>
+          <div class="mono-sub js-device-banner-sub">—</div>
         </div>
       </div>
       <div class="device-banner-meter">
-        <div class="energy-head"><span class="energy-title">Live motion energy</span><span class="mono"><span class="js-motion-label">quiet</span> · <span class="js-energy-val">0.00</span></span></div>
+        <div class="energy-head"><span class="energy-title">Live motion energy</span><span class="mono"><span class="js-motion-label">quiet</span> · <span class="js-energy-val">0.00</span> · threshold <output class="js-threshold-val">0.50</output></span></div>
         <div class="meter meter-threshold">
           <span class="js-energy-fill"></span>
-          <i class="threshold-mark" title="Motion threshold"></i>
+          <input class="threshold-slider js-threshold-slider" type="range" min="0" max="1" step="0.001" value="0.5" aria-label="Motion threshold" title="Drag to set the motion threshold" disabled>
         </div>
       </div>
     </div>
 
     <div class="config-grid">
       <section class="panel" data-capability="supports_wifi_provisioning">
-        <h2>Wi-Fi</h2>
+        <h2 class="panel-title-status">Wi-Fi <span class="dot dot-idle js-wifi-status-dot" aria-hidden="true"></span></h2>
         <div class="fields">
-          <div class="field"><label for="cfg-ssid">SSID</label><input type="text" id="cfg-ssid" placeholder="HomeNet-5G" autocomplete="off"></div>
-          <div class="field"><label for="cfg-wifi-pass">Password</label><input type="password" id="cfg-wifi-pass" placeholder="••••••••" autocomplete="off" spellcheck="false"></div>
-          <div class="field"><label for="cfg-wifi-band">Band</label><select id="cfg-wifi-band"><option value="2g">2.4 GHz</option></select><span class="field-help js-wifi-band-help">5 GHz is available only on supported devices.</span></div>
+          <div class="field-row wifi-credentials-row">
+            <div class="field"><label for="cfg-ssid">SSID</label><input type="text" id="cfg-ssid" placeholder="HomeNet-5G" autocomplete="off"></div>
+            <div class="field"><label for="cfg-wifi-pass">Password</label><input type="password" id="cfg-wifi-pass" placeholder="••••••••" autocomplete="off" spellcheck="false"></div>
+          </div>
           <div class="field-row field-row-2-1">
-            <div class="field"><label for="cfg-bssid">BSSID <span class="opt">(optional)</span></label><input type="text" id="cfg-bssid" class="mono-input" placeholder="aa:bb:cc:dd:ee:ff" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="cfg-wifi-band">Band</label><select id="cfg-wifi-band" disabled><option value="2g">2.4 GHz</option></select></div>
             <div class="field"><label for="cfg-channel">Channel</label><input type="number" id="cfg-channel" placeholder="auto"></div>
           </div>
+          <div class="field"><label for="cfg-bssid">BSSID <span class="opt">(optional)</span></label><input type="text" id="cfg-bssid" class="mono-input" placeholder="aa:bb:cc:dd:ee:ff" autocomplete="off" spellcheck="false"></div>
         </div>
         <div class="panel-actions">
           <button class="btn-primary btn-sm js-wifi-save">Save Wi-Fi</button>
@@ -525,7 +522,7 @@
       </section>
 
       <section class="panel" data-capability="supports_mqtt_config">
-        <h2>MQTT</h2>
+        <h2 class="panel-title-status">MQTT <span class="dot dot-idle js-mqtt-status-dot" aria-hidden="true"></span></h2>
         <div class="fields">
           <div class="field-row field-row-2-1">
             <div class="field"><label for="cfg-mqtt-host">Broker host</label><input type="text" id="cfg-mqtt-host" class="mono-input" placeholder="192.168.1.20" autocomplete="off" spellcheck="false"></div>
@@ -543,48 +540,33 @@
         </div>
       </section>
 
-      <section class="panel" data-capability="supports_device_config">
+      <section class="panel" data-capability-any="supports_device_config supports_ota">
         <h2>Device</h2>
-        <div class="fields">
+        <div class="fields" data-capability="supports_device_config">
           <div class="field"><span class="field-label">Device ID</span><div class="readonly-value" id="cfg-device-id">—</div></div>
           <div class="field"><span class="field-label">Device name</span><div class="readonly-value" id="cfg-device-name">—</div></div>
           <div class="field"><label for="cfg-label">Label</label><input type="text" id="cfg-label" placeholder="Living Room" autocomplete="off"></div>
         </div>
         <div class="panel-actions">
-          <button class="btn-primary btn-sm js-dev-save">Save device</button>
-          <button class="btn-ghost btn-sm js-dev-clear">Clear device</button>
+          <button class="btn-primary btn-sm js-dev-save" data-capability="supports_device_config">Save device</button>
+          <button class="btn-ghost btn-sm js-ota-check" data-capability="supports_ota">Check update</button>
         </div>
       </section>
 
       <section class="panel">
         <h2>Runtime</h2>
         <div class="fields">
-          <div class="field-row" data-capability="supports_runtime_threshold">
-            <div class="field"><label for="cfg-threshold">Threshold</label><input type="number" id="cfg-threshold" min="0" max="1" step="0.001" placeholder="0.5"></div>
-          </div>
           <div class="field" data-capability="supports_runtime_detector"><label for="cfg-detector">Detector</label><select id="cfg-detector"><option value="classic">Classic</option><option value="ml">ML</option></select></div>
           <div class="field-row" data-capability="supports_runtime_motion_hits">
             <div class="field"><label for="cfg-motion-on">Motion on hits</label><input type="number" id="cfg-motion-on" min="1" max="20" placeholder="4"></div>
             <div class="field"><label for="cfg-motion-off">Motion off hits</label><input type="number" id="cfg-motion-off" min="1" max="20" placeholder="3"></div>
           </div>
-          <div class="field" data-capability="supports_ota"><span class="field-label">OTA state</span><div class="readonly-value" id="cfg-ota-state">—</div></div>
-          <div class="field" data-capability="supports_ota"><span class="field-label">Current version</span><div class="readonly-value" id="cfg-ota-current">—</div></div>
-          <div class="field" data-capability="supports_ota"><span class="field-label">Update available</span><div class="readonly-value" id="cfg-ota-available">—</div></div>
-          <div class="field" data-capability="supports_ota"><span class="field-label">Target version</span><div class="readonly-value" id="cfg-ota-target">—</div></div>
-          <div class="field" data-capability="supports_ota"><span class="field-label">OTA message</span><div class="readonly-value" id="cfg-ota-message">—</div></div>
+          <p class="tool-note runtime-hits-caption" data-capability="supports_runtime_motion_hits">Consecutive evaluations above or below the threshold required to enter or leave the motion state.</p>
         </div>
-        <div class="panel-actions">
-          <button class="btn-primary btn-sm js-threshold-save" data-capability="supports_runtime_threshold">Save threshold</button>
-          <button class="btn-primary btn-sm js-detector-save" data-capability="supports_runtime_detector">Save detector</button>
-          <button class="btn-primary btn-sm js-motion-save" data-capability="supports_runtime_motion_hits">Save motion hits</button>
-          <button class="btn-ghost btn-sm js-ota-status" data-capability="supports_ota">Refresh OTA</button>
-          <button class="btn-ghost btn-sm js-ota-check" data-capability="supports_ota">Check update</button>
-          <button class="btn-ghost btn-sm js-ota-start" data-capability="supports_ota">Start OTA</button>
-        </div>
-        <p class="tool-note js-runtime-unavailable" hidden>This firmware does not expose runtime or OTA controls over Bluetooth.</p>
+        <p class="tool-note js-runtime-unavailable" hidden>This firmware does not expose runtime controls over Bluetooth.</p>
       </section>
 
-      <section class="panel">
+      <section class="panel panel-diagnostics">
         <h2>Diagnostics</h2>
         <div class="diag-grid">
           <div class="stat"><div class="stat-label">Protocol</div><div class="stat-value" id="diag-protocol">—</div></div>
@@ -592,19 +574,16 @@
           <div class="stat"><div class="stat-label">Chip</div><div class="stat-value" id="diag-chip">—</div></div>
           <div class="stat"><div class="stat-label">Detector</div><div class="stat-value" id="diag-detector">—</div></div>
           <div class="stat"><div class="stat-label">Threshold</div><div class="stat-value" id="diag-threshold">—</div></div>
-          <div class="stat"><div class="stat-label">Startup threshold</div><div class="stat-value" id="diag-startup-threshold">—</div></div>
           <div class="stat"><div class="stat-label">Window</div><div class="stat-value" id="diag-window">—</div></div>
-          <div class="stat"><div class="stat-label">Subcarriers</div><div class="stat-value" id="diag-subcarriers">—</div></div>
           <div class="stat"><div class="stat-label">Low-pass</div><div class="stat-value" id="diag-lowpass">—</div></div>
           <div class="stat"><div class="stat-label">Hampel</div><div class="stat-value" id="diag-hampel">—</div></div>
-          <div class="stat"><div class="stat-label">Traffic</div><div class="stat-value" id="diag-traffic">—</div></div>
+          <div class="stat"><div class="stat-label">Traffic mode</div><div class="stat-value" id="diag-traffic-mode">—</div></div>
+          <div class="stat"><div class="stat-label">Traffic rate</div><div class="stat-value" id="diag-traffic-rate">—</div></div>
           <div class="stat"><div class="stat-label">Publish</div><div class="stat-value" id="diag-publish">—</div></div>
           <div class="stat"><div class="stat-label">Evaluation</div><div class="stat-value" id="diag-evaluation">—</div></div>
           <div class="stat"><div class="stat-label">Wi-Fi</div><div class="stat-value" id="diag-wifi">—</div></div>
           <div class="stat"><div class="stat-label">Wi-Fi band</div><div class="stat-value" id="diag-wifi-band">—</div></div>
-          <div class="stat"><div class="stat-label">Wi-Fi password</div><div class="stat-value" id="diag-wifi-password">—</div></div>
           <div class="stat"><div class="stat-label">MQTT</div><div class="stat-value" id="diag-mqtt">—</div></div>
-          <div class="stat"><div class="stat-label">OTA</div><div class="stat-value" id="diag-ota">—</div></div>
         </div>
       </section>
     </div>
@@ -762,9 +741,16 @@
 </main>
 
 <!-- ============================== Roadmap ============================== -->
-<main class="js-page page-narrow page-article" data-page="roadmap" hidden>
+<main class="js-page page-narrow" data-page="roadmap" hidden>
   <div class="js-static-content" data-content-url="content/roadmap.html" data-static-url="/roadmap/">
     <p class="guide-loading">Loading roadmap…</p>
+  </div>
+</main>
+
+<!-- ============================== Privacy ============================== -->
+<main class="js-page page-narrow" data-page="privacy" hidden>
+  <div class="js-static-content" data-content-url="content/privacy.html" data-static-url="/privacy/">
+    <p class="guide-loading">Loading privacy notice…</p>
   </div>
 </main>
 
@@ -839,17 +825,39 @@
       ESPectre © 2026 · Open source Wi-Fi sensing platform
     </div>
     <div class="footer-links">
-      <a href="/guides/">Guides</a>
-      <a href="/docs/">Docs</a>
-      <a href="/media/">Media</a>
-      <a href="/roadmap/">Roadmap</a>
-      <a href="/privacy/">Privacy</a>
+      <a href="#privacy">Privacy</a>
       <button type="button" class="footer-link-button js-cookie-settings">Cookie settings</button>
-      <a href="mailto:contact@espectre.dev">Commercial Licensing</a>
-      <a href="mailto:security@espectre.dev">Security</a>
+      <a href="mailto:contact@espectre.dev">Contact/Commercial Licensing</a>
     </div>
   </div>
 </footer>
+
+<div class="modal-backdrop js-ota-modal" hidden>
+  <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ota-modal-title" aria-describedby="ota-modal-description" tabindex="-1">
+    <div class="modal-head">
+      <div>
+        <span class="modal-kicker">Device update</span>
+        <h2 id="ota-modal-title">OTA update</h2>
+      </div>
+      <button type="button" class="modal-close js-ota-close" aria-label="Close update dialog">×</button>
+    </div>
+    <p class="modal-description" id="ota-modal-description">Update information reported by the connected device.</p>
+    <div class="ota-details-grid">
+      <div class="stat"><div class="stat-label">State</div><div class="stat-value" id="cfg-ota-state">—</div></div>
+      <div class="stat"><div class="stat-label">Current version</div><div class="stat-value" id="cfg-ota-current">—</div></div>
+      <div class="stat"><div class="stat-label">Update available</div><div class="stat-value" id="cfg-ota-available">—</div></div>
+      <div class="stat"><div class="stat-label">Target version</div><div class="stat-value" id="cfg-ota-target">—</div></div>
+    </div>
+    <div class="ota-message">
+      <span class="stat-label">Message</span>
+      <div id="cfg-ota-message">—</div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost js-ota-close">Close</button>
+      <button type="button" class="btn-primary js-ota-start" disabled>Update device</button>
+    </div>
+  </section>
+</div>
 
 <div class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" hidden>
   <div>
@@ -865,6 +873,6 @@
 
 <div class="toast js-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
-<script src="/assets/js/app.js?v=3.18.3"></script>
+<script src="/assets/js/app.js?v=3.19.8"></script>
 </body>
 </html>

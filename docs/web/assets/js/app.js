@@ -18,7 +18,7 @@
         guides: ['guide-hardware', 'guide-setup', 'guide-placement', 'guide-detection', 'guide-firmware'],
         docs: ['docs-api', 'docs-examples', 'docs-architecture']
     };
-    const ROUTES = ['home', 'tools', 'guides', 'docs', 'media', 'roadmap']
+    const ROUTES = ['home', 'tools', 'guides', 'docs', 'media', 'roadmap', 'privacy']
         .concat(NAV_GROUPS.tools, NAV_GROUPS.guides, NAV_GROUPS.docs);
 
     const $ = (sel) => document.querySelector(sel);
@@ -82,8 +82,8 @@
         threshold: 0.5,
         motion: false,
         deviceName: '',
-        deviceSub: '—',
-        detector: '—',
+        deviceBannerSub: '—',
+        deviceMenuSub: '—',
         connectedAt: 0
     };
 
@@ -91,11 +91,18 @@
     let demoTimer = null;
     let demoInputEnergy = 0;
     const demoPointer = { x: null, y: null, t: 0 };
-    let uptimeTimer = null;
     let route = 'home';
     let lastTrackedProfile = null;
     let wifiBandPolicyAvailable = false;
     let currentWifiBandPolicy = '2g';
+    let runtimeThresholdAvailable = false;
+    let thresholdEditing = false;
+    let thresholdWritePending = false;
+    let confirmedThreshold = conn.threshold;
+    let otaUpdateAvailable = false;
+    let otaBusy = false;
+    let otaActionPending = false;
+    let otaModalReturnFocus = null;
 
     const sysinfoBoolean = (value) => value === true || value === 'true' || value === '1';
 
@@ -103,15 +110,32 @@
         $$('[data-capability]').forEach((element) => {
             element.hidden = !sysinfoBoolean(snapshot[element.dataset.capability]);
         });
+        $$('[data-capability-any]').forEach((element) => {
+            const capabilities = element.dataset.capabilityAny.split(/\s+/).filter(Boolean);
+            element.hidden = !capabilities.some((key) => sysinfoBoolean(snapshot[key]));
+        });
+        runtimeThresholdAvailable = sysinfoBoolean(snapshot.supports_runtime_threshold);
+        syncThresholdControl();
         const runtimeCapabilities = [
             'supports_runtime_threshold',
             'supports_runtime_motion_hits',
-            'supports_runtime_detector',
-            'supports_ota'
+            'supports_runtime_detector'
         ];
         const hasRuntimeControl = runtimeCapabilities.some((key) => sysinfoBoolean(snapshot[key]));
         const unavailable = $('.js-runtime-unavailable');
         if (unavailable) unavailable.hidden = hasRuntimeControl;
+    }
+
+    function syncThresholdControl() {
+        const slider = $('.js-threshold-slider');
+        if (!slider) return;
+        slider.disabled = !runtimeThresholdAvailable || thresholdWritePending;
+        slider.classList.toggle('is-saving', thresholdWritePending);
+        slider.title = thresholdWritePending
+            ? 'Saving the motion threshold'
+            : runtimeThresholdAvailable
+                ? 'Drag to set the motion threshold'
+                : 'This firmware does not expose runtime threshold control';
     }
 
     function applyWifiBandOptions(snapshot) {
@@ -124,17 +148,12 @@
             select.add(new Option('5 GHz', '5g'));
             select.add(new Option('Automatic (2.4/5 GHz)', 'auto'));
         }
+        select.disabled = select.options.length === 1;
         currentWifiBandPolicy = [...select.options].some((option) => option.value === selected)
             ? selected
             : '2g';
         select.value = currentWifiBandPolicy;
         wifiBandPolicyAvailable = snapshot.wifi_band_policy !== undefined;
-        const help = $('.js-wifi-band-help');
-        if (help) {
-            help.textContent = supports5ghz
-                ? 'Band changes take effect after restarting the device.'
-                : 'This device supports 2.4 GHz only.';
-        }
     }
 
     /*
@@ -157,10 +176,16 @@
         const client = new window.ESPectreBleClient();
         client.on('telemetry', (t) => {
             conn.movement = t.movement;
-            if (t.threshold > 0) conn.threshold = t.threshold;
-            conn.motion = t.motionState !== null
-                ? t.motionState === 1
-                : t.movement >= conn.threshold;
+            const threshold = Number(t.threshold);
+            if (!thresholdEditing && Number.isFinite(threshold) && threshold >= 0 && threshold <= 1) {
+                conn.threshold = threshold;
+                confirmedThreshold = threshold;
+            }
+            conn.motion = thresholdEditing
+                ? t.movement >= conn.threshold
+                : t.motionState !== null
+                    ? t.motionState === 1
+                    : t.movement >= conn.threshold;
             renderTelemetry();
             gameOnTelemetry();
         });
@@ -193,10 +218,10 @@
             await bleClient.connect();
             conn.mode = 'ble';
             conn.deviceName = bleClient.name || 'ESPectre';
-            conn.deviceSub = 'reading device info…';
+            conn.deviceBannerSub = 'reading device info…';
+            conn.deviceMenuSub = 'reading device info…';
             conn.connectedAt = Date.now();
             setStatus('connected');
-            startUptime();
             track('tool_connection', {
                 tool_name: activeToolName(), entry_point: route,
                 transport: 'bluetooth', result: 'success'
@@ -229,12 +254,17 @@
         const chip = (snapshot.chip || '').toUpperCase();
         const frontend = snapshot.frontend || '';
         const proto = snapshot.proto_version || snapshot.espectre_protocol_version || '';
-        conn.deviceSub = [chip, frontend, proto && ('proto ' + proto)]
+        const firmware = snapshot.firmware_version || snapshot.version || '';
+        conn.deviceBannerSub = [chip, frontend]
             .filter(Boolean).join(' · ') || '—';
-        conn.detector = snapshot.detector || '—';
-        if (snapshot.threshold) {
+        conn.deviceMenuSub = [chip, frontend, firmware]
+            .filter(Boolean).join(' · ') || '—';
+        if (snapshot.threshold !== undefined && !thresholdEditing) {
             const parsed = parseFloat(snapshot.threshold);
-            if (Number.isFinite(parsed) && parsed > 0) conn.threshold = parsed;
+            if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1) {
+                conn.threshold = parsed;
+                confirmedThreshold = parsed;
+            }
         }
 
         const set = (id, value) => {
@@ -243,6 +273,16 @@
                 if (el.tagName === 'INPUT' || el.tagName === 'SELECT') el.value = value;
                 else el.textContent = value;
             }
+        };
+        const setConnectionDiagnostic = (id, dotSelector, value) => {
+            if (value === undefined) return;
+            const connected = sysinfoBoolean(value);
+            set(id, connected ? 'connected' : 'disconnected');
+            const dot = $(dotSelector);
+            dot.classList.toggle('dot-idle', false);
+            dot.classList.toggle('dot-ok', connected);
+            dot.classList.toggle('dot-error', !connected);
+            dot.title = connected ? 'Connected' : 'Disconnected';
         };
         if (snapshot.motion_hits) {
             const parts = String(snapshot.motion_hits).split('/');
@@ -254,7 +294,6 @@
         set('cfg-ssid', snapshot.wifi_ssid);
         set('cfg-bssid', snapshot.wifi_bssid);
         set('cfg-channel', snapshot.wifi_channel);
-        set('cfg-threshold', snapshot.threshold);
         set('cfg-detector', snapshot.detector);
         set('cfg-mqtt-host', snapshot.mqtt_host);
         set('cfg-mqtt-port', snapshot.mqtt_port);
@@ -266,18 +305,19 @@
         set('cfg-ota-state', snapshot.ota_state || '—');
         set('cfg-ota-current', snapshot.ota_current_version || '—');
         if (snapshot.ota_update_available !== undefined) {
-            set('cfg-ota-available', sysinfoBoolean(snapshot.ota_update_available) ? 'yes' : 'no');
+            otaUpdateAvailable = sysinfoBoolean(snapshot.ota_update_available);
+            set('cfg-ota-available', otaUpdateAvailable ? 'yes' : 'no');
         }
+        if (snapshot.ota_busy !== undefined) otaBusy = sysinfoBoolean(snapshot.ota_busy);
         set('cfg-ota-target', snapshot.ota_target_version || '—');
         set('cfg-ota-message', snapshot.ota_message || '—');
+        syncOtaUpdateButton();
         set('diag-protocol', proto || '—');
         set('diag-firmware', snapshot.firmware_version || snapshot.version || '—');
         set('diag-chip', chip || '—');
         set('diag-detector', snapshot.detector);
         set('diag-threshold', snapshot.threshold);
-        set('diag-startup-threshold', snapshot.startup_threshold);
         set('diag-window', snapshot.window);
-        set('diag-subcarriers', snapshot.subcarriers);
         set('diag-lowpass', snapshot.lowpass
             ? snapshot.lowpass + (snapshot.lowpass_cutoff ? ' · ' + snapshot.lowpass_cutoff + ' Hz' : '')
             : undefined);
@@ -285,26 +325,16 @@
             ? snapshot.hampel + (snapshot.hampel_window ? ' · window ' + snapshot.hampel_window : '')
                 + (snapshot.hampel_threshold ? ' · ' + snapshot.hampel_threshold + ' MAD' : '')
             : undefined);
-        set('diag-traffic', snapshot.traffic_rate
-            ? [snapshot.traffic_mode, snapshot.traffic_rate + ' pkt/s',
-                snapshot.traffic_adaptive === 'on' ? 'adaptive' : 'fixed'].filter(Boolean).join(' · ')
-            : snapshot.traffic_mode);
+        set('diag-traffic-mode', snapshot.traffic_mode);
+        set('diag-traffic-rate', [
+            snapshot.traffic_rate && snapshot.traffic_rate + ' pkt/s',
+            snapshot.traffic_adaptive === 'on' ? 'adaptive' : snapshot.traffic_adaptive === 'off' ? 'fixed' : ''
+        ].filter(Boolean).join(' · '));
         set('diag-publish', snapshot.publish_interval && 'every ' + snapshot.publish_interval + ' pkts');
-        set('diag-evaluation', snapshot.evaluation_interval && 'every ' + snapshot.evaluation_interval + ' pkts');
-        set('diag-ota', [
-            snapshot.ota_state,
-            sysinfoBoolean(snapshot.ota_busy) ? 'busy' : '',
-            sysinfoBoolean(snapshot.ota_update_available) ? 'update available' : '',
-            snapshot.ota_current_version && 'current ' + snapshot.ota_current_version,
-            snapshot.ota_target_version && 'target ' + snapshot.ota_target_version
-        ].filter(Boolean).join(' · ') || '—');
-        const boolLabel = (v) => (v === 'true' || v === '1' ? 'connected' : 'disconnected');
-        if (snapshot.wifi_connected !== undefined) set('diag-wifi', boolLabel(snapshot.wifi_connected));
+        set('diag-evaluation', snapshot.evaluation_interval_ms && 'every ' + snapshot.evaluation_interval_ms + ' ms');
+        setConnectionDiagnostic('diag-wifi', '.js-wifi-status-dot', snapshot.wifi_connected);
         set('diag-wifi-band', snapshot.wifi_band_policy);
-        if (snapshot.wifi_password_set !== undefined) {
-            set('diag-wifi-password', sysinfoBoolean(snapshot.wifi_password_set) ? 'set' : 'not set / open');
-        }
-        if (snapshot.mqtt_connected !== undefined) set('diag-mqtt', boolLabel(snapshot.mqtt_connected));
+        setConnectionDiagnostic('diag-mqtt', '.js-mqtt-status-dot', snapshot.mqtt_connected);
 
         // Real hardware only: demo values would pollute the adoption report.
         if (conn.mode === 'ble' && snapshot.frontend && snapshot.chip) {
@@ -334,13 +364,12 @@
         setTimeout(() => {
             conn.mode = 'demo';
             conn.deviceName = 'ESPectre-DEMO';
-            conn.deviceSub = 'simulated telemetry';
-            conn.detector = 'classic';
+            conn.deviceBannerSub = 'simulated telemetry';
+            conn.deviceMenuSub = 'simulated telemetry';
             conn.threshold = 0.5;
             conn.movement = 0.04;
             conn.connectedAt = Date.now();
             setStatus('connected');
-            startUptime();
             applySysinfo({
                 chip: 'esp32-c5',
                 frontend: 'native',
@@ -358,9 +387,7 @@
                 supports_wifi_5ghz: 'true',
                 detector: 'classic',
                 threshold: '0.500000',
-                startup_threshold: '0.482000',
                 window: '100',
-                subcarriers: 'fixed',
                 lowpass: 'off',
                 hampel: 'on',
                 hampel_window: '5',
@@ -369,10 +396,9 @@
                 traffic_rate: '98',
                 traffic_adaptive: 'on',
                 publish_interval: '100',
-                evaluation_interval: '25',
+                evaluation_interval_ms: '250',
                 wifi_connected: 'true',
                 wifi_band_policy: '2g',
-                wifi_password_set: 'true',
                 mqtt_connected: 'true',
                 wifi_ssid: 'HomeNet-5G',
                 mqtt_host: '192.168.1.20',
@@ -458,7 +484,6 @@
             });
         }
         clearInterval(demoTimer);
-        clearInterval(uptimeTimer);
         demoTimer = null;
         bleClient = null;
         demoInputEnergy = 0;
@@ -468,21 +493,13 @@
         conn.mode = null;
         conn.movement = 0;
         conn.motion = false;
-        conn.deviceSub = '—';
-        conn.detector = '—';
+        conn.deviceBannerSub = '—';
+        conn.deviceMenuSub = '—';
         conn.connectedAt = 0;
         gameReset();
         thereminStop();
+        otaClose(false);
         setStatus('disconnected');
-    }
-
-    function startUptime() {
-        clearInterval(uptimeTimer);
-        uptimeTimer = setInterval(() => {
-            const up = Math.floor((Date.now() - conn.connectedAt) / 1000);
-            const label = up >= 60 ? Math.floor(up / 60) + 'm ' + (up % 60) + 's' : up + 's';
-            $$('.js-uptime').forEach((el) => { el.textContent = label; });
-        }, 1000);
     }
 
     /* ----------------------------------------------------------- rendering */
@@ -505,9 +522,8 @@
         $$('.js-has-conn').forEach((el) => { el.hidden = !connected; });
 
         $$('.js-device-name').forEach((el) => { el.textContent = conn.deviceName || 'ESPectre'; });
-        $$('.js-device-sub').forEach((el) => { el.textContent = conn.deviceSub; });
-        $$('.js-detector').forEach((el) => { el.textContent = conn.detector; });
-
+        $$('.js-device-banner-sub').forEach((el) => { el.textContent = conn.deviceBannerSub; });
+        $$('.js-device-menu-sub').forEach((el) => { el.textContent = conn.deviceMenuSub; });
         $$('.js-ble-chip').forEach((chip) => {
             chip.classList.toggle('ready', connected);
             chip.textContent = connected ? 'BLE · READY' : 'BLE';
@@ -524,12 +540,11 @@
             el.textContent = conn.motion ? 'MOTION' : 'quiet';
             el.classList.toggle('motion', conn.motion);
         });
-        // Same absolute scale as the bar, so the marker sits where it belongs.
-        const thresholdPct = Math.min(100, Math.max(0, conn.threshold * 100));
-        $$('.threshold-mark').forEach((el) => {
-            el.style.left = thresholdPct + '%';
-            el.title = 'Motion threshold: ' + conn.threshold.toFixed(2);
+        $$('.js-threshold-val').forEach((el) => {
+            el.textContent = conn.threshold.toFixed(3);
         });
+        const slider = $('.js-threshold-slider');
+        if (slider && !thresholdEditing) slider.value = String(conn.threshold);
     }
 
     /* ============================================================= routing */
@@ -603,7 +618,8 @@
         '/docs/examples/': 'docs-examples',
         '/docs/architecture/': 'docs-architecture',
         '/media/': 'media',
-        '/roadmap/': 'roadmap'
+        '/roadmap/': 'roadmap',
+        '/privacy/': 'privacy'
     };
     const staticContentCache = new Map();
 
@@ -1536,14 +1552,6 @@
         if (ok) cfgRefreshSysinfo();
     }
 
-    async function cfgClearDevice() {
-        const ok = await cfgApply('clear_device', 'Device config reset.', () => 'CLEAR_DEVICE_CONFIG');
-        if (ok) {
-            document.getElementById('cfg-label').value = '';
-            cfgRefreshSysinfo();
-        }
-    }
-
     async function cfgSaveMotionHits() {
         const ok = await cfgApply('set_motion_hits', 'Motion hit thresholds saved.',
             () => window.ESPectreBleClient.buildMotionHitsCommand({
@@ -1553,9 +1561,22 @@
         if (ok) cfgRefreshSysinfo();
     }
 
-    async function cfgSaveThreshold() {
+    async function cfgSaveThreshold(threshold) {
+        thresholdEditing = true;
+        thresholdWritePending = true;
+        syncThresholdControl();
         const ok = await cfgApply('set_threshold', 'Runtime threshold updated.',
-            () => window.ESPectreBleClient.buildThresholdCommand(Number(cfgValue('cfg-threshold'))));
+            () => window.ESPectreBleClient.buildThresholdCommand(threshold));
+        if (ok) {
+            conn.threshold = threshold;
+            confirmedThreshold = threshold;
+        } else {
+            conn.threshold = confirmedThreshold;
+        }
+        thresholdEditing = false;
+        thresholdWritePending = false;
+        syncThresholdControl();
+        renderTelemetry();
         if (ok) cfgRefreshSysinfo();
     }
 
@@ -1565,37 +1586,98 @@
         if (ok) cfgRefreshSysinfo();
     }
 
-    async function cfgOtaStatus() {
-        const ok = await cfgApply('ota_status', 'OTA status requested.',
-            () => window.ESPectreBleClient.buildOtaStatusCommand());
-        if (ok) cfgRefreshSysinfo();
+    function syncOtaUpdateButton() {
+        const button = $('.js-ota-start');
+        if (!button) return;
+        button.disabled = otaActionPending || otaBusy || !otaUpdateAvailable;
+        button.textContent = otaBusy ? 'Update in progress…' : 'Update device';
     }
 
-    async function cfgOtaCheck() {
+    function otaOpen(returnFocus) {
+        const modal = $('.js-ota-modal');
+        otaModalReturnFocus = returnFocus || document.activeElement;
+        modal.hidden = false;
+        document.body.classList.add('modal-open');
+        modal.querySelector('.modal-card').focus();
+    }
+
+    function otaClose(restoreFocus = true) {
+        const modal = $('.js-ota-modal');
+        if (!modal || modal.hidden) return;
+        modal.hidden = true;
+        document.body.classList.remove('modal-open');
+        if (restoreFocus && otaModalReturnFocus && otaModalReturnFocus.isConnected) {
+            otaModalReturnFocus.focus();
+        }
+        otaModalReturnFocus = null;
+    }
+
+    async function cfgOtaCheck(event) {
+        const trigger = event && event.currentTarget ? event.currentTarget : $('.js-ota-check');
+        otaOpen(trigger);
+        const description = $('.js-ota-modal').querySelector('.modal-description');
+        const originalLabel = trigger.textContent;
+        trigger.disabled = true;
+        trigger.textContent = 'Checking…';
+        description.textContent = 'Checking the connected device for updates…';
+        otaActionPending = true;
+        syncOtaUpdateButton();
         const ok = await cfgApply('ota_check', 'OTA check started.',
             () => window.ESPectreBleClient.buildOtaCheckCommand());
-        if (ok) cfgRefreshSysinfo();
+        if (ok) await cfgRefreshSysinfo();
+        otaActionPending = false;
+        syncOtaUpdateButton();
+        trigger.disabled = false;
+        trigger.textContent = originalLabel;
+        description.textContent = 'Update information reported by the connected device.';
     }
 
     async function cfgOtaStart() {
+        otaActionPending = true;
+        syncOtaUpdateButton();
         const ok = await cfgApply('ota_start', 'OTA update started.',
             () => window.ESPectreBleClient.buildOtaStartCommand());
-        if (ok) cfgRefreshSysinfo();
+        otaActionPending = false;
+        if (ok) {
+            otaBusy = true;
+            await cfgRefreshSysinfo();
+        }
+        syncOtaUpdateButton();
     }
 
     function configureInit() {
+        const thresholdSlider = $('.js-threshold-slider');
+        thresholdSlider.addEventListener('input', (event) => {
+            const threshold = Number(event.currentTarget.value);
+            if (!Number.isFinite(threshold)) return;
+            thresholdEditing = true;
+            conn.threshold = threshold;
+            conn.motion = conn.movement >= conn.threshold;
+            renderTelemetry();
+        });
+        thresholdSlider.addEventListener('change', (event) => {
+            cfgSaveThreshold(Number(event.currentTarget.value));
+        });
+        document.getElementById('cfg-detector').addEventListener('change', cfgSaveDetector);
+        ['cfg-motion-on', 'cfg-motion-off'].forEach((id) => {
+            document.getElementById(id).addEventListener('change', cfgSaveMotionHits);
+        });
         $('.js-wifi-save').addEventListener('click', cfgSaveWifi);
         $('.js-wifi-clear').addEventListener('click', cfgClearWifi);
         $('.js-mqtt-save').addEventListener('click', cfgSaveMqtt);
         $('.js-mqtt-clear').addEventListener('click', cfgClearMqtt);
         $('.js-dev-save').addEventListener('click', cfgSaveDevice);
-        $('.js-dev-clear').addEventListener('click', cfgClearDevice);
-        $('.js-threshold-save').addEventListener('click', cfgSaveThreshold);
-        $('.js-detector-save').addEventListener('click', cfgSaveDetector);
-        $('.js-motion-save').addEventListener('click', cfgSaveMotionHits);
-        $('.js-ota-status').addEventListener('click', cfgOtaStatus);
         $('.js-ota-check').addEventListener('click', cfgOtaCheck);
         $('.js-ota-start').addEventListener('click', cfgOtaStart);
+        $$('.js-ota-close').forEach((button) => {
+            button.addEventListener('click', () => otaClose());
+        });
+        $('.js-ota-modal').addEventListener('click', (event) => {
+            if (event.target === event.currentTarget) otaClose();
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && !$('.js-ota-modal').hidden) otaClose();
+        });
     }
 
     /* ================================================================ game */

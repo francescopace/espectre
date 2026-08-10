@@ -151,14 +151,9 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
       ESPectre © 2026 · Open source Wi-Fi sensing platform · GPLv3 + commercial licensing
     </div>
     <div class="footer-links">
-      <a href="/guides/">Guides</a>
-      <a href="/docs/">Docs</a>
-      <a href="/media/">Media</a>
-      <a href="/roadmap/">Roadmap</a>
-      <a href="/privacy/">Privacy</a>
+      <a href="/#privacy">Privacy</a>
       <button class="footer-link-button js-cookie-settings" type="button">Cookie settings</button>
-      <a href="mailto:contact@espectre.dev">Contact</a>
-      <a href="mailto:security@espectre.dev">Security</a>
+      <a href="mailto:contact@espectre.dev">Contact/Commercial Licensing</a>
     </div>
   </div>
 </footer>

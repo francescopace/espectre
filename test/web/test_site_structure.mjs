@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 const index = read('docs/web/index.html');
 const app = read('docs/web/assets/js/app.js');
+const styles = read('docs/web/assets/css/styles.css');
 
 describe('website security and asset policy', () => {
     it('does not execute third-party scripts before an explicit analytics choice', () => {
@@ -60,12 +61,70 @@ describe('website UX and content contracts', () => {
     });
 
     it('keeps privacy discoverable and serves a real 404 page', () => {
-        assert.match(index, /href="\/privacy\/"/);
+        assert.match(index, /data-page="privacy"/);
+        assert.match(index, /data-content-url="content\/privacy\.html"/);
+        assert.match(index, /<div class="footer-links">\s*<a href="#privacy">Privacy<\/a>/);
+        assert.match(app, /'roadmap', 'privacy'/);
+        assert.match(app, /'\/privacy\/': 'privacy'/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/#privacy">Privacy<\/a>/);
+        assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/#privacy">Privacy<\/a>/);
         assert.match(read('docs/web/sitemap.xml'), /https:\/\/espectre\.dev\/privacy\//);
         assert.match(read('docs/web/content/privacy.html'), /Never included:/);
         const notFound = read('docs/web/404.html');
         assert.doesNotMatch(notFound, /http-equiv="refresh"|location\.replace/);
         assert.match(notFound, /404 · PAGE NOT FOUND/);
+    });
+
+    it('treats top-level docs, roadmap, and privacy as pages, not articles', () => {
+        const docsContent = read('docs/web/content/docs.html');
+        const roadmapContent = read('docs/web/content/roadmap.html');
+        const privacyContent = read('docs/web/content/privacy.html');
+        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
+        assert.match(docsContent, /^<div class="docs-quickstart">/);
+        assert.match(roadmapContent, /^<div class="roadmap-page">/);
+        assert.match(privacyContent, /^<div class="privacy-page">/);
+        assert.doesNotMatch(docsContent, /^<article\b/);
+        assert.doesNotMatch(roadmapContent, /^<article\b/);
+        assert.doesNotMatch(privacyContent, /^<article\b/);
+        assert.match(index, /<main class="js-page page-narrow" data-page="roadmap"/);
+        assert.match(index, /<main class="js-page page-narrow" data-page="privacy"/);
+        assert.doesNotMatch(index, /<main class="js-page page-narrow page-article" data-page="(?:docs|roadmap|privacy)"/);
+        assert.match(staticPageBuilder, /"source": "content\/docs\.html",[\s\S]*?"og_type": "website"/);
+        assert.match(staticPageBuilder, /"source": "content\/roadmap\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
+        assert.match(staticPageBuilder, /"source": "content\/privacy\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
+        assert.match(staticPageBuilder, /<meta property="og:type" content="\{og_type\}">/);
+    });
+
+    it('uses the shared page heading styles on every top-level inner page', () => {
+        for (const path of ['guides', 'docs', 'roadmap', 'privacy']) {
+            const content = read(`docs/web/content/${path}.html`);
+            assert.match(content, /<h1 class="page-title">/);
+            assert.match(content, /<p class="page-sub">/);
+        }
+        assert.match(styles, /\.page-title \{ font-size: 40px;/);
+        const pageSubRule = styles.match(/\.page-sub \{([^}]*)\}/)?.[1] || '';
+        assert.match(pageSubRule, /font-size: 18px;/);
+        assert.match(pageSubRule, /line-height: 1\.55;/);
+        assert.match(styles, /@media \(max-width: 720px\) \{\s*\.page-title \{ font-size: 36px; \}\s*\.page-sub \{ font-size: 17px; \}/);
+        assert.doesNotMatch(styles, /\.docs-hero \.page-title|\.docs-intro|\.roadmap-hero h1|\.roadmap-hero p/);
+    });
+
+    it('gives the docs landing page a clear start-to-reference hierarchy', () => {
+        const docsContent = read('docs/web/content/docs.html');
+        assert.match(docsContent, /<h1 class="page-title">Docs<\/h1>/);
+        assert.match(docsContent, /<section class="docs-start" aria-labelledby="docs-start-title">/);
+        assert.match(docsContent, /<section class="docs-section" aria-labelledby="docs-paths-title">/);
+        assert.match(docsContent, /<section class="docs-section" aria-labelledby="docs-quick-start-title">/);
+        assert.match(docsContent, /<section class="docs-next" aria-labelledby="docs-next-title">/);
+        assert.ok(docsContent.indexOf('class="docs-start"') < docsContent.indexOf('class="docs-paths"'));
+        assert.ok(docsContent.indexOf('class="docs-paths"') < docsContent.indexOf('class="docs-steps"'));
+        assert.ok(docsContent.indexOf('class="docs-steps"') < docsContent.indexOf('class="docs-next"'));
+        const pathCards = docsContent.match(/<div class="docs-path(?: docs-path-recommended)?">[\s\S]*?<\/div>/g) || [];
+        assert.equal(pathCards.length, 3);
+        for (const card of pathCards) {
+            assert.match(card, /<h3>/);
+            assert.doesNotMatch(card, /<h2>/);
+        }
     });
 
     it('loads generated firmware and SDK output from the shared artifacts tree', () => {
@@ -80,12 +139,63 @@ describe('website UX and content contracts', () => {
 
     it('maps BLE capabilities, runtime controls, and dual-band Wi-Fi safely', () => {
         assert.match(index, /data-capability="supports_wifi_provisioning"/);
-        assert.match(index, /data-capability="supports_runtime_threshold"/);
+        assert.match(index, /class="threshold-slider js-threshold-slider"[^>]+type="range"/);
+        assert.doesNotMatch(index, /id="cfg-threshold"|js-threshold-save/);
         assert.match(index, /data-capability="supports_runtime_detector"/);
-        assert.match(index, /id="cfg-wifi-band"/);
+        assert.doesNotMatch(index, /js-detector-save|js-motion-save/);
+        assert.match(index, /class="field-row wifi-credentials-row">\s*<div class="field"><label for="cfg-ssid"[\s\S]*?<label for="cfg-wifi-pass"/);
+        assert.match(index, /class="field-row field-row-2-1">\s*<div class="field"><label for="cfg-wifi-band"[\s\S]*?<label for="cfg-channel"/);
+        assert.match(index, /class="mono-sub js-device-menu-sub"/);
+        assert.match(index, /class="mono-sub js-device-banner-sub"/);
+        const deviceBanner = index.match(/<div class="device-banner">[\s\S]*?<div class="device-banner-meter">/)?.[0] || '';
+        assert.doesNotMatch(deviceBanner, /class="dot /);
+        assert.doesNotMatch(index, /class="stat-grid"|js-uptime|class="stat-value js-detector"/);
+        assert.match(app, /deviceBannerSub = \[chip, frontend\]/);
+        assert.match(app, /deviceMenuSub = \[chip, frontend, firmware\]/);
+        assert.match(index, /id="cfg-wifi-band" disabled/);
+        assert.doesNotMatch(index, /Band changes take effect after restarting the device|js-wifi-band-help/);
         assert.match(app, /snapshot\.supports_wifi_5ghz/);
+        assert.match(app, /select\.disabled = select\.options\.length === 1/);
         assert.match(app, /buildThresholdCommand/);
+        assert.match(app, /thresholdSlider\.addEventListener\('input'/);
+        assert.match(app, /thresholdSlider\.addEventListener\('change'/);
+        assert.match(app, /getElementById\('cfg-detector'\)\.addEventListener\('change', cfgSaveDetector\)/);
+        assert.match(app, /getElementById\(id\)\.addEventListener\('change', cfgSaveMotionHits\)/);
         assert.match(app, /buildDetectorCommand/);
+        const runtimePanel = index.match(/<section class="panel">\s*<h2>Runtime<\/h2>[\s\S]*?<\/section>/)?.[0] || '';
+        const devicePanel = index.match(/<section class="panel" data-capability-any="supports_device_config supports_ota">[\s\S]*?<\/section>/)?.[0] || '';
+        assert.doesNotMatch(runtimePanel, /supports_ota|cfg-ota|js-ota/);
+        assert.match(devicePanel, /class="btn-ghost btn-sm js-ota-check"[^>]*>Check update<\/button>/);
+        assert.doesNotMatch(devicePanel, /js-dev-clear|Clear device/);
+        assert.doesNotMatch(app, /cfgClearDevice|CLEAR_DEVICE_CONFIG/);
+        assert.match(index, /class="modal-card" role="dialog" aria-modal="true"/);
+        assert.match(index, /class="btn-primary js-ota-start" disabled>Update device<\/button>/);
+        assert.match(index, /id="cfg-ota-message"/);
+        assert.match(app, /set\('cfg-ota-message', snapshot\.ota_message/);
+        assert.doesNotMatch(index, /id="diag-ota"/);
+        assert.doesNotMatch(app, /set\('diag-ota'/);
+        assert.doesNotMatch(index, /js-ota-status|Refresh OTA|Start OTA/);
+        assert.match(app, /function otaOpen\(returnFocus\)/);
+        assert.match(app, /button\.disabled = otaActionPending \|\| otaBusy \|\| !otaUpdateAvailable/);
+        assert.match(styles, /\.panel-diagnostics \{ grid-column: span 2; \}/);
+        assert.doesNotMatch(index, /diag-startup-threshold|diag-subcarriers/);
+        assert.doesNotMatch(app, /snapshot\.startup_threshold|snapshot\.subcarriers/);
+        assert.doesNotMatch(index, /diag-wifi-password|Wi-Fi password/);
+        assert.doesNotMatch(app, /wifi_password_set/);
+        assert.match(index, /id="diag-traffic-mode"/);
+        assert.match(index, /id="diag-traffic-rate"/);
+        assert.doesNotMatch(index, /id="diag-traffic"/);
+        assert.match(app, /set\('diag-traffic-mode', snapshot\.traffic_mode\)/);
+        assert.match(app, /set\('diag-traffic-rate'/);
+        assert.match(app, /snapshot\.evaluation_interval_ms && 'every ' \+ snapshot\.evaluation_interval_ms \+ ' ms'/);
+        assert.doesNotMatch(app, /snapshot\.evaluation_interval\b|every 25 pkts/);
+        assert.match(index, /class="tool-note runtime-hits-caption"[^>]*>Consecutive evaluations above or below the threshold required to enter or leave the motion state\.<\/p>/);
+        assert.match(index, /<h2 class="panel-title-status">Wi-Fi <span class="dot dot-idle js-wifi-status-dot"/);
+        assert.match(index, /<h2 class="panel-title-status">MQTT <span class="dot dot-idle js-mqtt-status-dot"/);
+        assert.doesNotMatch(index, /js-diag-(?:wifi|mqtt)-dot/);
+        assert.match(app, /setConnectionDiagnostic\('diag-wifi', '\.js-wifi-status-dot', snapshot\.wifi_connected\)/);
+        assert.match(app, /setConnectionDiagnostic\('diag-mqtt', '\.js-mqtt-status-dot', snapshot\.mqtt_connected\)/);
+        assert.match(styles, /\.dot-error \{ background: var\(--danger\); \}/);
         assert.match(app, /wifiBandPolicyAvailable \? \{ bandPolicy \}/);
         assert.doesNotMatch(app, /Wi-Fi needs both SSID and password/);
         assert.doesNotMatch(app, /MQTT needs host, port, username, and password/);

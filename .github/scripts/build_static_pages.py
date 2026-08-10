@@ -42,6 +42,7 @@ PAGES = (
         ),
         "active_nav": "guides",
         "main_class": "page-narrow",
+        "og_type": "website",
     },
     {
         "source": "content/guides/hardware.html",
@@ -113,6 +114,7 @@ PAGES = (
         ),
         "active_nav": "docs",
         "main_class": "page-narrow",
+        "og_type": "website",
     },
     {
         "source": "content/docs/api.html",
@@ -172,6 +174,8 @@ PAGES = (
             "standards-backed Wi-Fi Sensing hardware."
         ),
         "active_nav": "roadmap",
+        "main_class": "page-narrow",
+        "og_type": "website",
     },
     {
         "source": "content/privacy.html",
@@ -183,6 +187,8 @@ PAGES = (
         ),
         "active_nav": "privacy",
         "content_group": "privacy",
+        "main_class": "page-narrow",
+        "og_type": "website",
     },
 )
 
@@ -194,7 +200,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 <title>{title}</title>
 <meta name="description" content="{description}">
 <link rel="canonical" href="{canonical}">
-<meta property="og:type" content="article">
+<meta property="og:type" content="{og_type}">
 <meta property="og:url" content="{canonical}">
 <meta property="og:title" content="{title}">
 <meta property="og:description" content="{description}">
@@ -236,7 +242,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 
 <main class="{main_class}">
 {breadcrumb}
-{article}
+{content}
 </main>
 
 <footer class="site-footer">
@@ -246,14 +252,9 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
       ESPectre © 2026 · Open source Wi-Fi sensing platform · GPLv3 + commercial licensing
     </div>
     <div class="footer-links">
-      <a href="/guides/">Guides</a>
-      <a href="/docs/">Docs</a>
-      <a href="/media/">Media</a>
-      <a href="/roadmap/">Roadmap</a>
-      <a href="/privacy/">Privacy</a>
+      <a href="/#privacy">Privacy</a>
       <button class="footer-link-button js-cookie-settings" type="button">Cookie settings</button>
-      <a href="mailto:contact@espectre.dev">Contact</a>
-      <a href="mailto:security@espectre.dev">Security</a>
+      <a href="mailto:contact@espectre.dev">Contact/Commercial Licensing</a>
     </div>
   </div>
 </footer>
@@ -303,7 +304,7 @@ def build() -> None:
 
     for spec in PAGES:
         fragment_path = WEB_ROOT / spec["source"]
-        article = fragment_path.read_text().rstrip("\n")
+        content = fragment_path.read_text().rstrip("\n")
 
         canonical = f"{SITE_ORIGIN}/{spec['output']}/"
         page = PAGE_TEMPLATE.format(
@@ -312,6 +313,7 @@ def build() -> None:
             canonical=canonical,
             origin=SITE_ORIGIN,
             styles_version=version,
+            og_type=spec.get("og_type", "article"),
             breadcrumb=breadcrumb(spec),
             guides_active=" active" if spec["active_nav"] == "guides" else "",
             docs_active=" active" if spec["active_nav"] == "docs" else "",
@@ -319,7 +321,7 @@ def build() -> None:
             roadmap_active=" active" if spec["active_nav"] == "roadmap" else "",
             content_group=spec.get("content_group", "documentation"),
             main_class=spec.get("main_class", "page-narrow page-article"),
-            article=article,
+            content=content,
         )
         out_dir = WEB_ROOT / spec["output"]
         out_dir.mkdir(parents=True, exist_ok=True)

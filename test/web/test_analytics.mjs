@@ -105,8 +105,10 @@ describe('analytics route metadata', () => {
     it('uses stable route titles and content groups', () => {
         const { api } = analyticsContext({ hash: '#monitor' });
         assert.equal(api.getRouteTitle('monitor'), 'MQTT monitor | ESPectre');
+        assert.equal(api.getRouteTitle('privacy'), 'Website privacy and analytics | ESPectre');
         assert.equal(api.getSiteSection('monitor'), 'monitor');
         assert.equal(api.getSiteSection('guide-setup'), 'documentation');
+        assert.equal(api.getSiteSection('privacy'), 'privacy');
         assert.equal(api.routePath('home'), '/');
         assert.equal(api.routePath('flash'), '/#flash');
     });

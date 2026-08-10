@@ -35,7 +35,8 @@ const ROUTE_TITLES = {
     'docs-examples': 'Examples | ESPectre',
     'docs-architecture': 'Architecture | ESPectre',
     media: 'Media | ESPectre',
-    roadmap: 'Roadmap | ESPectre'
+    roadmap: 'Roadmap | ESPectre',
+    privacy: 'Website privacy and analytics | ESPectre'
 };
 
 const CAPABILITY_BY_ROUTE = {
@@ -80,6 +81,7 @@ function getSiteSection(route = currentRoute()) {
     if (route === 'docs' || route.startsWith('docs-')) return 'documentation';
     if (route === 'media') return 'media';
     if (route === 'roadmap') return 'documentation';
+    if (route === 'privacy') return 'privacy';
     return 'other';
 }
 
