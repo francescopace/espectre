@@ -630,7 +630,8 @@ def effective_robust_stats(
 def startup_evaluation_limit(
     calibration_packets: int,
     window_packets: int,
-    evaluation_interval: int,
+    packet_interval_us: int,
+    evaluation_interval_ms: int,
     sample_limit: int,
 ) -> int:
     """Return how many ready evaluations production startup can observe.
@@ -640,18 +641,18 @@ def startup_evaluation_limit(
     rows, not ``CALIBRATION_BUFFER_SIZE / SEG_WINDOW_SIZE`` (10) and not the
     detector's storage cap (64).
     """
-    calibration_packets = max(0, int(calibration_packets))
-    window_packets = max(1, int(window_packets))
-    evaluation_interval = max(1, int(evaluation_interval))
+    calibration_duration_us = max(0, int(calibration_packets)) * max(1, int(packet_interval_us))
+    window_duration_us = max(1, int(window_packets)) * max(1, int(packet_interval_us))
+    evaluation_interval_us = max(1, int(evaluation_interval_ms)) * 1000
     sample_limit = max(0, int(sample_limit))
-    first_ready_tick = (
-        (window_packets + evaluation_interval - 1) // evaluation_interval
-    ) * evaluation_interval
-    if first_ready_tick > calibration_packets:
+    first_ready_tick_us = (
+        (window_duration_us + evaluation_interval_us - 1) // evaluation_interval_us
+    ) * evaluation_interval_us
+    if first_ready_tick_us > calibration_duration_us:
         return 0
     available = 1 + (
-        calibration_packets - first_ready_tick
-    ) // evaluation_interval
+        calibration_duration_us - first_ready_tick_us
+    ) // evaluation_interval_us
     return min(sample_limit, available)
 
 
@@ -1192,7 +1193,8 @@ def evaluate_candidate(
     startup_sample_limit = startup_evaluation_limit(
         config.CALIBRATION_BUFFER_SIZE,
         config.SEG_WINDOW_SIZE,
-        config.EVALUATION_INTERVAL,
+        max(1, round(1_000_000 / config.TRAFFIC_GENERATOR_RATE)),
+        config.EVALUATION_INTERVAL_MS,
         ClassicDetector.STARTUP_SAMPLE_LIMIT,
     )
     centered = calibrated_replay_scores(

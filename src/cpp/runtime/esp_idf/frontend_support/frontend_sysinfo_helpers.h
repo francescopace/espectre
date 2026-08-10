@@ -34,7 +34,6 @@ struct SysinfoWifiState {
   std::string ssid;
   std::string bssid;
   uint8_t channel{0U};
-  bool password_set{false};
   bool connected{false};
   WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
 };

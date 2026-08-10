@@ -324,7 +324,7 @@ To disable the internal generator and rely on external traffic:
 espectre:
   traffic_generator_rate: 0
   publish_interval: 100
-  evaluation_interval: 25
+  evaluation_interval_ms: 250
 ```
 
 In that mode the runtime opens a UDP listener on port `5555`. Use

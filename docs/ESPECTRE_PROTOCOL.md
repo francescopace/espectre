@@ -374,7 +374,6 @@ Current BLE `sysinfo` identity/config keys include:
 | `wifi_bssid` | Current persisted Wi-Fi BSSID lock |
 | `wifi_channel` | Current persisted Wi-Fi channel hint (`0` = automatic scan) |
 | `wifi_band_policy` | Persisted association policy: `2g`, `5g`, or `auto` |
-| `wifi_password_set` | Whether a non-empty Wi-Fi password is persisted; `false` is valid for an open network |
 
 Capability-oriented `sysinfo` keys may include:
 
@@ -409,16 +408,14 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `traffic_rate` | Internal traffic generator target rate in packets per second |
 | `traffic_adaptive` | Whether adaptive traffic-rate control is enabled |
 | `publish_interval` | Periodic publish cadence in packets |
-| `evaluation_interval` | Detector evaluation cadence in packets |
+| `evaluation_interval_ms` | Detector evaluation cadence in milliseconds |
 | `motion_hits` | Motion-on/off consecutive hit thresholds |
-| `subcarriers` | Active CSI subcarrier source, such as `fixed` |
 | `ota_state` | Current OTA state reported by the shared HTTPS OTA service |
 | `ota_busy` | Whether an OTA worker is active |
 | `ota_update_available` | Whether the last OTA check found an update |
 | `ota_current_version` | Firmware version compared against the manifest |
 | `ota_target_version` | Version reported by the pending OTA target, when known |
 | `ota_message` | OTA progress or error message |
-| `startup_threshold` | Startup calibration threshold after the detector-specific bootstrap path |
 
 These diagnostic keys are intentionally more implementation-oriented than the identity/config keys above. Nearby tools may display them, but clients should not treat the full diagnostic set or its formatting as a stable contract.
 

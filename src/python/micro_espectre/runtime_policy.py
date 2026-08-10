@@ -16,10 +16,9 @@ except ImportError:
     from detector_interface import MotionState
 
 from config import (
-    EVALUATION_INTERVAL_US,
+    EVALUATION_INTERVAL_MS,
     L1_DELTA_LAG_US,
     L1_DELTA_LAG_MAX,
-    MIN_PLAUSIBLE_PACKET_INTERVAL_US,
     RATE_ADAPTATION_DEAD_BAND,
     SEG_WINDOW_MAX,
     SEG_WINDOW_MIN,
@@ -27,7 +26,6 @@ from config import (
     SEG_WINDOW_US,
     TURB_AUTOCORR_LAG_US,
 )
-
 
 DEFAULT_GAP_RESET_RATIO = 4.0
 # Medians are refreshed on this stride instead of on every packet.
@@ -213,7 +211,6 @@ def derive_detector_timing(interval_us, window_override=None):
         "window_packets": window_packets,
         "lag": min(packets_for(L1_DELTA_LAG_US), lag_ceiling),
         "autocorr_lag": min(packets_for(TURB_AUTOCORR_LAG_US), lag_ceiling),
-        "evaluation_interval": packets_for(EVALUATION_INTERVAL_US),
     }
 
 
@@ -341,7 +338,7 @@ class PacketTimingTracker:
                 missing_seq = max(0, int(seq_step) - self.rate.sequence_step)
 
         delta_us = None
-        source = "nominal"
+        source = "missing"
         if (
             device_ticks_us is not None
             and self._last_device_ticks_us is not None
@@ -362,19 +359,13 @@ class PacketTimingTracker:
                 delta_us = int(candidate)
                 source = "wifi_rx_ts_us"
 
-        if delta_us is None:
-            # Without timestamps, elapsed time is inferred from how many packets
-            # the counter says are missing, measured at the observed cadence.
-            delta_us = self.rate.interval_us * max(1, missing_seq + 1)
-            source = "nominal"
-
         # As with the sequence step, the interval is recorded before the packet
         # is judged. The median is what makes this safe: an occasional hole
         # contributes one large sample and is rejected, while gating the
         # estimate on contamination would deadlock, because a slower stream
         # reads as contaminated until its own cadence is established and can
         # never establish it while being discarded.
-        if source != "nominal":
+        if delta_us is not None:
             self.rate.observe_interval(delta_us)
 
         contaminated = (
@@ -385,7 +376,8 @@ class PacketTimingTracker:
                 and missing_seq >= self.sequence_gap_reset
             )
             or (
-                delta_us >= self._gap_threshold_us()
+                delta_us is not None
+                and delta_us >= self._gap_threshold_us()
                 and (
                     self._last_device_ticks_us is not None
                     or self._last_wifi_rx_ts_us is not None
@@ -402,8 +394,8 @@ class PacketTimingTracker:
             self._last_wifi_rx_ts_us = int(wifi_rx_ts_us)
 
         return {
-            "delta_us": int(delta_us),
-            "coverage_us": 0 if contaminated else int(delta_us),
+            "delta_us": 0 if delta_us is None else int(delta_us),
+            "coverage_us": 0 if contaminated or delta_us is None else int(delta_us),
             "missing_seq": int(missing_seq),
             "source": source,
             "contaminated": bool(contaminated),
@@ -415,19 +407,14 @@ class RuntimeMotionPolicy:
 
     def __init__(
         self,
-        evaluation_interval=25,
+        evaluation_interval_ms=EVALUATION_INTERVAL_MS,
         motion_on_hits=4,
         motion_off_hits=3,
-        evaluation_interval_us=None,
     ):
-        self.evaluation_interval = max(1, int(evaluation_interval))
+        self.evaluation_interval_ms = max(1, int(evaluation_interval_ms))
+        self.evaluation_interval_us = self.evaluation_interval_ms * 1000
         self.motion_on_hits = max(1, int(motion_on_hits))
         self.motion_off_hits = max(1, int(motion_off_hits))
-        self.evaluation_interval_us = (
-            None
-            if evaluation_interval_us is None
-            else max(1, int(evaluation_interval_us))
-        )
         self._rate = PacketRateEstimator(
             nominal_packet_interval_us(SEG_WINDOW_SIZE)
         )
@@ -450,22 +437,20 @@ class RuntimeMotionPolicy:
         replay, and it would make the cadence depend on host scheduling. The
         timestamp is an input, so the cadence is reproducible.
 
-        Falls back to counting packets while the cadence is unknown or
-        implausible, which covers warmup and sources that report no timestamp.
+        A missing or non-advancing timestamp contributes no elapsed coverage.
         """
         elapsed_us = None
-        if timestamp_us:
+        if timestamp_us is not None:
             if self._last_arrival_us is not None:
                 delta = (int(timestamp_us) - self._last_arrival_us) % _UINT32_MODULUS
                 # Past half the range the counter went backwards rather than a
                 # very long gap having elapsed.
                 if 0 < delta < (_UINT32_MODULUS // 2):
-                    self._rate.observe_interval(delta)
-                    if (
-                        self._rate.ready
-                        and self._rate.interval_us >= MIN_PLAUSIBLE_PACKET_INTERVAL_US
-                    ):
+                    if delta < SEG_WINDOW_US:
+                        self._rate.observe_interval(delta)
                         elapsed_us = delta
+                    else:
+                        self.elapsed_us_since_evaluation = 0
             self._last_arrival_us = int(timestamp_us)
         self.note_packet(elapsed_us=elapsed_us)
 
@@ -484,12 +469,7 @@ class RuntimeMotionPolicy:
         """Check whether the detector should be evaluated now."""
         if should_publish:
             return True
-        if (
-            self.evaluation_interval_us is not None
-            and self.elapsed_us_since_evaluation > 0
-        ):
-            return self.elapsed_us_since_evaluation >= self.evaluation_interval_us
-        return self.packets_since_evaluation >= self.evaluation_interval
+        return self.elapsed_us_since_evaluation >= self.evaluation_interval_us
 
     def after_evaluation(self):
         """Reset the cadence counter after an evaluation."""
@@ -544,9 +524,8 @@ class RuntimeMotionPolicy:
         return self.effective_state, self.effective_state != previous_state
 
 
-def make_evaluation_cadence(evaluation_interval=25, evaluation_interval_us=None):
+def make_evaluation_cadence(evaluation_interval_ms=EVALUATION_INTERVAL_MS):
     """Return a runtime policy used only for evaluation-interval cadence."""
     return RuntimeMotionPolicy(
-        evaluation_interval=evaluation_interval,
-        evaluation_interval_us=evaluation_interval_us,
+        evaluation_interval_ms=evaluation_interval_ms,
     )

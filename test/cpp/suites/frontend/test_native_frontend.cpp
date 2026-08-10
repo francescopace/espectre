@@ -143,6 +143,11 @@ void test_native_frontend_connection_and_sysinfo_paths(void) {
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
                              "wifi_connected=false") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::none_of(ble_bindings_mock::state.sysinfo_lines.begin(),
+                                ble_bindings_mock::state.sysinfo_lines.end(),
+                                [](const std::string &line) {
+                                  return line.rfind("wifi_password_set=", 0U) == 0U;
+                                }));
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
                              "mqtt_connected=false") != ble_bindings_mock::state.sysinfo_lines.end());

@@ -21,10 +21,13 @@ using namespace espectre;
 
 
 static constexpr uint32_t TEST_PUBLISH_RATE = 100;
-static constexpr uint32_t TEST_EVALUATION_INTERVAL = 25;
+static constexpr uint32_t TEST_EVALUATION_INTERVAL_MS = 250;
+static constexpr uint32_t TEST_PACKETS_PER_EVALUATION_AT_100_PPS = 25;
+static constexpr uint32_t TEST_FIRST_EVALUATION_PACKET =
+    TEST_PACKETS_PER_EVALUATION_AT_100_PPS + 1U;
 static constexpr uint8_t TEST_DEFAULT_MOTION_ON_HITS = 4;
 static constexpr uint32_t TEST_MOTION_CALLBACK_TRIGGER_PACKET =
-    TEST_EVALUATION_INTERVAL * TEST_DEFAULT_MOTION_ON_HITS;
+    1U + TEST_PACKETS_PER_EVALUATION_AT_100_PPS * TEST_DEFAULT_MOTION_ON_HITS;
 
 class TransitionDetectorMock : public BaseDetector {
  public:
@@ -85,6 +88,16 @@ static void fill_valid_csi_info_(wifi_csi_info_t* csi_info, int8_t* csi_buf, uin
   // HT20 sensing contract: Classic/ML drop non-HT20 frames in the pipeline.
   csi_info->rx_ctrl.sig_mode = 1;
   csi_info->rx_ctrl.cwb = 0;
+}
+
+static void process_timed_packets_(CsiPipeline& manager, wifi_csi_info_t& csi_info,
+                                   uint32_t& arrival_us, uint32_t count,
+                                   uint32_t interval_us = 10000U) {
+  for (uint32_t packet = 0; packet < count; packet++) {
+    csi_info.rx_ctrl.timestamp = arrival_us;
+    manager.process_packet(&csi_info);
+    arrival_us += interval_us;
+  }
 }
 
 /**
@@ -195,7 +208,7 @@ void test_csi_pipeline_disable_preserves_stable_callbacks_for_reenable(void) {
     TransitionDetectorMock detector;
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
-    manager.set_evaluation_interval(1);
+    manager.set_evaluation_interval_ms(10);
     manager.set_motion_on_hits(1);
     manager.set_motion_off_hits(1);
 
@@ -211,14 +224,15 @@ void test_csi_pipeline_disable_preserves_stable_callbacks_for_reenable(void) {
     int8_t csi_buf[128];
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
+    uint32_t arrival_us = 1000000U;
 
     TEST_ASSERT_EQUAL(ESP_OK, manager.enable());
-    manager.process_packet(&csi_info);
+    process_timed_packets_(manager, csi_info, arrival_us, 2U, 10000U);
     TEST_ASSERT_EQUAL(1, live_telemetry_callback_count);
 
     TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
     TEST_ASSERT_EQUAL(ESP_OK, manager.enable());
-    manager.process_packet(&csi_info);
+    process_timed_packets_(manager, csi_info, arrival_us, 2U, 10000U);
 
     TEST_ASSERT_EQUAL(2, live_telemetry_callback_count);
     TEST_ASSERT_TRUE(motion_callback_count >= 1);
@@ -403,15 +417,15 @@ void test_csi_pipeline_motion_state_callback_fires_before_periodic_publish(void)
     int8_t csi_buf[128];
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
+    uint32_t arrival_us = 1000000U;
 
-    for (int i = 0; i < 24; i++) {
-        manager.process_packet(&csi_info);
-    }
+    process_timed_packets_(manager, csi_info, arrival_us,
+                           TEST_FIRST_EVALUATION_PACKET - 1U);
 
     TEST_ASSERT_EQUAL(0, motion_callback_count);
     TEST_ASSERT_EQUAL(0, periodic_callback_count);
 
-    manager.process_packet(&csi_info);
+    process_timed_packets_(manager, csi_info, arrival_us, 1U);
 
     TEST_ASSERT_EQUAL(1, motion_callback_count);
     TEST_ASSERT_EQUAL(MotionState::MOTION, last_motion_state);
@@ -432,10 +446,10 @@ void test_csi_pipeline_motion_state_callback_does_not_repeat_without_new_edge(vo
     int8_t csi_buf[128];
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
+    uint32_t arrival_us = 1000000U;
 
-    for (int i = 0; i < TEST_MOTION_CALLBACK_TRIGGER_PACKET; i++) {
-        manager.process_packet(&csi_info);
-    }
+    process_timed_packets_(manager, csi_info, arrival_us,
+                           TEST_MOTION_CALLBACK_TRIGGER_PACKET);
 
     TEST_ASSERT_EQUAL(1, motion_callback_count);
 }
@@ -458,10 +472,10 @@ void test_csi_pipeline_clear_detector_buffer_publishes_idle_edge(void) {
     int8_t csi_buf[128];
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
+    uint32_t arrival_us = 1000000U;
 
-    for (int i = 0; i < 25; i++) {
-        manager.process_packet(&csi_info);
-    }
+    process_timed_packets_(manager, csi_info, arrival_us,
+                           TEST_FIRST_EVALUATION_PACKET);
     manager.clear_detector_buffer();
 
     TEST_ASSERT_EQUAL(2, motion_callback_count);
@@ -485,14 +499,16 @@ void test_csi_pipeline_motion_state_callback_honors_motion_on_hits(void) {
     int8_t csi_buf[128];
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
+    uint32_t arrival_us = 1000000U;
+    const uint32_t trigger_packet =
+        1U + TEST_PACKETS_PER_EVALUATION_AT_100_PPS * 3U;
 
-    for (int i = 0; i < 74; i++) {
-        manager.process_packet(&csi_info);
-    }
+    process_timed_packets_(manager, csi_info, arrival_us,
+                           trigger_packet - 1U);
 
     TEST_ASSERT_EQUAL(0, motion_callback_count);
 
-    manager.process_packet(&csi_info);
+    process_timed_packets_(manager, csi_info, arrival_us, 1U);
 
     TEST_ASSERT_EQUAL(1, motion_callback_count);
     TEST_ASSERT_EQUAL(MotionState::MOTION, last_motion_state);
@@ -504,7 +520,7 @@ void test_csi_pipeline_motion_state_callback_honors_motion_off_hits(void) {
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
     manager.set_motion_on_hits(2);
     manager.set_motion_off_hits(3);
-    manager.set_evaluation_interval(TEST_EVALUATION_INTERVAL);
+    manager.set_evaluation_interval_ms(TEST_EVALUATION_INTERVAL_MS);
 
     int motion_callback_count = 0;
     MotionState last_motion_state = MotionState::IDLE;
@@ -518,17 +534,10 @@ void test_csi_pipeline_motion_state_callback_honors_motion_off_hits(void) {
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
 
-    // Evaluation ticks happen every 25 packets:
-    //  25 -> MOTION hit 1
-    //  50 -> MOTION hit 2 => callback #1 (MOTION)
-    //  75 -> MOTION steady
-    // 100 -> MOTION steady
-    // 125 -> IDLE hit 1
-    // 150 -> IDLE hit 2
-    // 175 -> IDLE hit 3 => callback #2 (IDLE)
-    for (int i = 0; i < 175; i++) {
-        manager.process_packet(&csi_info);
-    }
+    // The first tick needs two timestamps to establish elapsed time, so it is
+    // packet 26 at 100 pps; subsequent ticks remain 25 packets apart.
+    uint32_t arrival_us = 1000000U;
+    process_timed_packets_(manager, csi_info, arrival_us, 176U);
 
     TEST_ASSERT_EQUAL(2, motion_callback_count);
     TEST_ASSERT_EQUAL(MotionState::IDLE, last_motion_state);
@@ -705,15 +714,15 @@ void test_csi_pipeline_live_telemetry_callback_does_not_force_every_packet_evalu
     int8_t csi_buf[128];
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
+    uint32_t arrival_us = 1000000U;
 
-    for (int i = 0; i < 24; i++) {
-        manager.process_packet(&csi_info);
-    }
+    process_timed_packets_(manager, csi_info, arrival_us,
+                           TEST_FIRST_EVALUATION_PACKET - 1U);
 
     TEST_ASSERT_EQUAL(0, motion_callback_count);
     TEST_ASSERT_EQUAL(0, live_telemetry_callback_count);
 
-    manager.process_packet(&csi_info);
+    process_timed_packets_(manager, csi_info, arrival_us, 1U);
 
     TEST_ASSERT_EQUAL(1, motion_callback_count);
     TEST_ASSERT_EQUAL(1, live_telemetry_callback_count);
@@ -933,23 +942,22 @@ void test_csi_pipeline_aggregates_detection_timing_on_evaluation_ticks(void) {
     ClassicDetector detector(10, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_RATE, &g_wifi_mock);
-    manager.set_evaluation_interval(TEST_EVALUATION_INTERVAL);
+    manager.set_evaluation_interval_ms(TEST_EVALUATION_INTERVAL_MS);
 
     int8_t csi_buf[128];
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
+    uint32_t arrival_us = 1000000U;
 
-    for (uint32_t packet = 0; packet < TEST_EVALUATION_INTERVAL - 1U; packet++) {
-        manager.process_packet(&csi_info);
-    }
+    process_timed_packets_(manager, csi_info, arrival_us,
+                           TEST_FIRST_EVALUATION_PACKET - 1U);
 
     DetectionTimingStats timing;
     TEST_ASSERT_FALSE(manager.take_detection_timing(&timing));
 
-    manager.process_packet(&csi_info);
-    for (uint32_t packet = 0; packet < TEST_EVALUATION_INTERVAL; packet++) {
-        manager.process_packet(&csi_info);
-    }
+    process_timed_packets_(manager, csi_info, arrival_us, 1U);
+    process_timed_packets_(manager, csi_info, arrival_us,
+                           TEST_PACKETS_PER_EVALUATION_AT_100_PPS);
 
     TEST_ASSERT_TRUE(manager.take_detection_timing(&timing));
     TEST_ASSERT_EQUAL_INT(2, timing.samples);

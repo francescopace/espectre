@@ -1070,18 +1070,7 @@ class CollectionDetectorGate:
         self.nominal_interval_us = nominal_packet_interval_us(self.window_size)
         self.timing_tracker = PacketTimingTracker(self.nominal_interval_us)
         self.cadence = make_evaluation_cadence(
-            max(1, int(getattr(config, "EVALUATION_INTERVAL", 25))),
-            evaluation_interval_us=max(
-                1,
-                int(
-                    getattr(
-                        config,
-                        "EVALUATION_INTERVAL_US",
-                        self.nominal_interval_us
-                        * max(1, int(getattr(config, "EVALUATION_INTERVAL", 25))),
-                    )
-                ),
-            ),
+            max(1, int(getattr(config, "EVALUATION_INTERVAL_MS", 250))),
         )
         self.needs_calibration = detector_needs_startup_calibration(self.algorithm)
         initial_threshold = self.initial_threshold(self.algorithm)

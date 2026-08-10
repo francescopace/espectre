@@ -49,10 +49,10 @@ With the default `window_size=100`, the `classic` startup budget is `10 x window
 
 The deployed detector uses a time-relative evaluation cadence and fixed feature geometry:
 
-| quantity | production setting | span at 100 pps |
+| quantity | production setting | nominal interpretation at 100 pps |
 | --- | --- | --- |
 | detector window | 100 packets | `1 s` |
-| evaluation interval | `250 ms` | 25 packets |
+| evaluation interval | `250 ms` | time-based, not packet-count driven |
 | channel-shape tracker lag | 10 packets | `100 ms` |
 | turbulence autocorrelation lag | 1 packet | `10 ms` |
 
@@ -62,7 +62,7 @@ Calibration and steady-state detection share one cadence, so the interceptor tha
 
 The window follows sample count because its features are estimator averages. See the Window Size section in [TUNING.md](TUNING.md) for the evidence behind the 100-sample floor.
 
-Cadence advances on the packet arrival timestamp, never on the loop clock. The loop clock measures how fast packets are processed, which matches arrival on hardware but not on replay, and would let host scheduling reach a detector decision. Wall-clock time is reserved for staleness detection, which arrival time cannot do because a dead stream delivers no timestamps. Sources with no arrival timestamp fall back to counting packets.
+Cadence advances on the packet arrival timestamp, never on the loop clock or a packet-count fallback. The loop clock measures how fast packets are processed, which matches arrival on hardware but not on replay, and would let host scheduling reach a detector decision. Wall-clock time is reserved for staleness detection, which arrival time cannot do because a dead stream delivers no timestamps. Live input and supported replay datasets must provide timestamps; a missing or non-advancing timestamp contributes no elapsed coverage.
 
 The `stream_dense` training contract mirrors this cadence and reset behavior; see [ML_TRAINING.md](ML_TRAINING.md).
 

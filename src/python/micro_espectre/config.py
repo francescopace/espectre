@@ -30,7 +30,7 @@ TRAFFIC_GENERATOR_RATE = 100  # Target valid CSI rate (packets per second)
 TRAFFIC_GENERATOR_ADAPTIVE = True  # Adjust send pacing from CSI feedback and socket errors
 TRAFFIC_GENERATOR_MODE = "ping"  # Default mode: "ping" or "dns"
 PUBLISH_INTERVAL = 100        # Packets between periodic MQTT/log updates
-EVALUATION_INTERVAL = 25      # Packets between internal detector evaluations
+EVALUATION_INTERVAL_MS = 250  # Time between internal detector evaluations
 MOTION_ON_HITS = 4            # Consecutive evaluated hits required for IDLE -> MOTION
 MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -> IDLE
 
@@ -64,7 +64,6 @@ SEG_WINDOW_SIZE = 100         # Shared detector window (packets) - used by Class
 # Feature values depend on the interval they are measured over, not on how many
 # packets happen to land in it, so the durations are the contract.
 SEG_WINDOW_US = 1_000_000          # Detector window span
-EVALUATION_INTERVAL_US = 250_000   # Time between detector evaluations
 L1_DELTA_LAG_US = 100_000          # Profile-displacement lag
 TURB_AUTOCORR_LAG_US = 10_000      # Turbulence autocorrelation lag (1 packet at 100 pps)
 L1_DELTA_LAG_MAX = 32              # Firmware sizes the profile ring statically
@@ -78,9 +77,10 @@ SEG_WINDOW_MIN = 100
 SEG_WINDOW_MAX = 200
 RATE_ADAPTATION_DEAD_BAND = 0.25   # Treat 80-133 pps as nominal and do not adapt
 # A cadence faster than this is not a CSI stream, it is a batch delivered
-# faster than real time. Elapsed time is only trusted above it; below, the
-# packet-count fallback covers. There is no upper bound because a stream
-# slower than one window is already handled as a hole by SEG_WINDOW_US.
+# faster than real time. The packet-rate estimator ignores it when deriving
+# feature geometry; evaluation cadence still follows the packet timestamps.
+# There is no upper bound because a stream slower than one window is already
+# handled as a hole by SEG_WINDOW_US.
 MIN_PLAUSIBLE_PACKET_INTERVAL_US = 200      # 5000 pps
 
 # Calibration buffer size = number of windows * window size

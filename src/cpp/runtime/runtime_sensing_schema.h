@@ -88,15 +88,12 @@ constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MAX = 100000;
 constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT = 100;
 constexpr bool RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT = true;
 
-// Evaluation cadence in packets. This is now the fallback path: the runtime
-// evaluates on elapsed packet arrival time (EVALUATION_INTERVAL_US) and only
-// falls back to counting packets during estimator warmup, or on sources that
-// report no arrival timestamp. Kept configurable because that fallback still
-// governs the first second of every session.
 constexpr uint32_t RUNTIME_INTERVAL_MIN = 1;
 constexpr uint32_t RUNTIME_INTERVAL_MAX = 1000;
 constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_DEFAULT = 100;
-constexpr uint32_t RUNTIME_EVALUATION_INTERVAL_DEFAULT = 25;
+constexpr uint32_t RUNTIME_EVALUATION_INTERVAL_MS_MIN = 10;
+constexpr uint32_t RUNTIME_EVALUATION_INTERVAL_MS_MAX = 10000;
+constexpr uint32_t RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT = 250;
 
 constexpr uint8_t RUNTIME_MOTION_HITS_MIN = 1;
 constexpr uint8_t RUNTIME_MOTION_HITS_MAX = 20;

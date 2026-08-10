@@ -74,7 +74,6 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.segmentation_window_size));
   visitor("window", value);
   visitor("detector", snapshot.detector_name);
-  visitor("subcarriers", subcarrier_source_name(snapshot.subcarrier_source));
   visitor("lowpass", config.lowpass_enabled ? "on" : "off");
   std::snprintf(value, sizeof(value), "%.1f", config.lowpass_cutoff);
   visitor("lowpass_cutoff", value);
@@ -91,16 +90,14 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
   visitor("traffic_adaptive", config.traffic_generator_adaptive ? "on" : "off");
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.publish_interval));
   visitor("publish_interval", value);
-  std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.evaluation_interval));
-  visitor("evaluation_interval", value);
+  std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.evaluation_interval_ms));
+  visitor("evaluation_interval_ms", value);
   std::snprintf(value,
                 sizeof(value),
                 "%u/%u",
                 static_cast<unsigned>(config.motion_on_hits),
                 static_cast<unsigned>(config.motion_off_hits));
   visitor("motion_hits", value);
-  std::snprintf(value, sizeof(value), "%.6f", snapshot.startup_threshold);
-  visitor("startup_threshold", value);
 }
 
 }  // namespace espectre

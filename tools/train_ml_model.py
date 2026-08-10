@@ -359,7 +359,7 @@ from config import (
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
     ENABLE_LOWPASS_FILTER,
-    EVALUATION_INTERVAL,
+    EVALUATION_INTERVAL_MS,
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
     LOWPASS_CUTOFF,
@@ -374,7 +374,6 @@ from tools.lib.performance_report import (
     STRESS_TARGET_FP_RATE,
     STRESS_TARGET_RECALL,
     build_ml_replay_rows,
-    evaluate_idle_runtime_policy as evaluate_idle_runtime_policy_states,
     load_or_compute_ml_replay_rows,
     note_evaluation_tick,
     timing_cadence_for_window,
@@ -4871,14 +4870,13 @@ def summarize_gate(by_chip):
     }
 
 
-def evaluate_idle_runtime_policy(probabilities, threshold=0.5):
-    """Evaluate deploy-time cadence and hit filtering on an IDLE score stream."""
-    return evaluate_idle_runtime_policy_states(np.asarray(probabilities) > threshold)
-
-
 def evaluate_runtime_policy_evaluations(raw_motion_states):
     """Apply production hit filtering to states already sampled at eval ticks."""
-    policy = RuntimeMotionPolicy(EVALUATION_INTERVAL, MOTION_ON_HITS, MOTION_OFF_HITS)
+    policy = RuntimeMotionPolicy(
+        evaluation_interval_ms=EVALUATION_INTERVAL_MS,
+        motion_on_hits=MOTION_ON_HITS,
+        motion_off_hits=MOTION_OFF_HITS,
+    )
     effective_alarms = 0
     false_motion_evaluations = 0
     for raw_motion in raw_motion_states:

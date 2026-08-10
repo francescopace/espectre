@@ -178,7 +178,7 @@ inline bool calibrate_classic_detector(
           .interval_us;
   csi_replay_timing::PacketTimingTracker timing_tracker(nominal_interval_us);
   csi_replay_timing::TimeAwareCadence cadence(
-      detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_DEFAULT);
+      detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT);
   detector.on_startup_calibration_begin();
   calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
 
@@ -249,7 +249,7 @@ ReplayMetrics evaluate_detector(
       csi_replay_timing::nominal_packet_interval_us(detector.get_window_size()));
   csi_replay_timing::PacketTimingTracker timing_tracker(nominal_interval_us);
   csi_replay_timing::TimeAwareCadence cadence(
-      detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_DEFAULT);
+      detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT);
   int packets_since_reset = 0;
   int debug_contam_base = 0;
   int debug_contam_motion = 0;

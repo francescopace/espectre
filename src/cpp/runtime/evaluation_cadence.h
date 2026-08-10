@@ -27,9 +27,9 @@ namespace espectre {
 
 class EvaluationCadence {
  public:
-  /** Set the packet-count fallback used before the rate estimate is trusted. */
-  void set_packet_interval(uint32_t interval) {
-    packet_interval_ = interval > 0U ? interval : 1U;
+  /** Set the elapsed-time evaluation cadence. */
+  void set_interval_ms(uint32_t interval_ms) {
+    evaluation_interval_us_ = (interval_ms > 0U ? interval_ms : 1U) * 1000U;
   }
 
   /**
@@ -41,11 +41,11 @@ class EvaluationCadence {
    * cadence depend on host scheduling. The arrival timestamp is an input, so a
    * caller that supplies it gets the same cadence every run.
    *
-   * @param arrival_us MAC receive timestamp, or 0 when the source has none
+   * @param arrival_us MAC receive timestamp; zero is valid after counter wrap
    */
   bool observe(uint32_t arrival_us) {
     packets_since_evaluation_++;
-    if (arrival_us != 0U && last_packet_us_ != 0U) {
+    if (has_last_packet_) {
       const uint32_t delta_us = elapsed_since_timestamp_us(arrival_us, last_packet_us_);
       if (delta_us > 0U && delta_us < SEG_WINDOW_US) {
         packet_rate_.observe_interval(delta_us);
@@ -56,16 +56,10 @@ class EvaluationCadence {
         elapsed_since_evaluation_us_ = 0U;
       }
     }
-    if (arrival_us != 0U) {
-      last_packet_us_ = arrival_us;
-    }
+    last_packet_us_ = arrival_us;
+    has_last_packet_ = true;
 
-    // Elapsed time is authoritative once the stream has shown a plausible
-    // cadence. Until then, and on sources that carry no arrival timestamp, the
-    // packet counter is the fallback.
-    return packet_rate_.ready()
-               ? elapsed_since_evaluation_us_ >= EVALUATION_INTERVAL_US
-               : packets_since_evaluation_ >= packet_interval_;
+    return elapsed_since_evaluation_us_ >= evaluation_interval_us_;
   }
 
   /** Packets represented by the evaluation that is about to run. */
@@ -93,18 +87,15 @@ class EvaluationCadence {
   void reset() {
     packet_rate_.reset();
     last_packet_us_ = 0U;
+    has_last_packet_ = false;
     reset_window();
   }
 
  private:
-  // Nominal-rate fallback, resolved from the same duration contract the
-  // time-based path uses, so the two agree at 100 pps by construction.
-  static constexpr uint32_t kNominalPacketInterval = packets_for_duration(
-      EVALUATION_INTERVAL_US, nominal_packet_interval_us(DETECTOR_DEFAULT_WINDOW_SIZE), 1U);
-
   PacketRateEstimator packet_rate_{};
-  uint32_t packet_interval_{kNominalPacketInterval};
+  uint32_t evaluation_interval_us_{EVALUATION_INTERVAL_US};
   uint32_t last_packet_us_{0U};
+  bool has_last_packet_{false};
   uint32_t elapsed_since_evaluation_us_{0U};
   uint32_t packets_since_evaluation_{0U};
 };

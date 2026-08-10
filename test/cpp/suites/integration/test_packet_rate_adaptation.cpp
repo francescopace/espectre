@@ -396,15 +396,14 @@ void print_summary_table(const PacketRateSourceSelection& selection,
   printf("Replay prefix: %d seconds per phase\n", kReplayDurationSeconds);
   printf("                         PACKET-RATE ADAPTATION SUMMARY (C++)\n");
   printf("---------------------------------------------------------------------------------------------------------\n");
-  printf("pps | timing           | Classic R/FP  | ML R/FP       | eval idle/motion\n");
-  printf("----+------------------+---------------+---------------+-----------------\n");
+  printf("pps | timing      | Classic R/FP  | ML R/FP       | eval idle/motion\n");
+  printf("----+-------------+---------------+---------------+-----------------\n");
   for (const RateResult& result : results) {
-    printf("%-3d | w%-3u l%-2u a%-1u e%-3u | %5.1f%% / %4.1f%% | %5.1f%% / %4.1f%% | %3d / %-3d\n",
+    printf("%-3d | w%-3u l%-2u a%-1u | %5.1f%% / %4.1f%% | %5.1f%% / %4.1f%% | %3d / %-3d\n",
            result.target_pps,
            static_cast<unsigned>(result.classic.timing.window_packets),
            static_cast<unsigned>(result.classic.timing.lag),
            static_cast<unsigned>(result.classic.timing.autocorr_lag),
-           static_cast<unsigned>(result.classic.timing.evaluation_interval),
            result.classic.recall,
            result.classic.fp_rate,
            result.ml.recall,
@@ -412,7 +411,7 @@ void print_summary_table(const PacketRateSourceSelection& selection,
            result.classic.baseline_eval,
            result.classic.motion_eval);
   }
-  printf("---------------------------------------------------------------------------------------------------------\n");
+  printf("----------------------------------------------------------------------------------------------------\n");
 }
 
 void test_packet_rate_adaptation_regression(void) {
@@ -449,7 +448,6 @@ void test_packet_rate_adaptation_regression(void) {
       TEST_ASSERT_EQUAL(expected_timing.window_packets, actual_timing.window_packets);
       TEST_ASSERT_EQUAL(expected_timing.lag, actual_timing.lag);
       TEST_ASSERT_EQUAL(expected_timing.autocorr_lag, actual_timing.autocorr_lag);
-      TEST_ASSERT_EQUAL(expected_timing.evaluation_interval, actual_timing.evaluation_interval);
     }
 
     TEST_ASSERT_TRUE(min_baseline_eval >= 220);

@@ -95,7 +95,7 @@ def summarize_capture_timing(
         if timing["contaminated"]:
             contaminated_packets += 1
             continue
-        if timing["source"] != "nominal":
+        if timing["source"] != "missing":
             clean_timed_deltas_us.append(int(timing["delta_us"]))
 
     total_packets = len(packet_list)

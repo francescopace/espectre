@@ -320,7 +320,7 @@ def _format_compact_summary_table(summaries: list[dict[str, object]]) -> str:
                 f"{summary['pair_id']}",
                 f"{summary['source_pps']}",
                 f"{summary['target_pps']}",
-                f"w{timing['window_packets']} l{timing['lag']} a{timing['autocorr_lag']} e{timing['evaluation_interval']}",
+                f"w{timing['window_packets']} l{timing['lag']} a{timing['autocorr_lag']}",
                 f"{classic['recall']:.1f}% / {classic['fp_rate']:.1f}%",
                 f"{ml['recall']:.1f}% / {ml['fp_rate']:.1f}%",
                 f"{classic['num_baseline']} / {classic['num_movement']}",
@@ -374,7 +374,7 @@ def test_packet_rate_adaptation_regression_matrix(pair_spec: PacketRateSourcePai
             f"instead of {expected_interval_us}"
         )
 
-        for field in ("window_packets", "lag", "autocorr_lag", "evaluation_interval"):
+        for field in ("window_packets", "lag", "autocorr_lag"):
             expected_value = expected[field]
             assert timing[field] == expected_value, (
                 f"{target_pps} pps resolved {field}={timing[field]} "

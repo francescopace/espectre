@@ -139,20 +139,20 @@ This controls periodic movement-score reporting. Motion state edges are handled 
 
 ```yaml
 espectre:
-  evaluation_interval: 25
+  evaluation_interval_ms: 250
   motion_on_hits: 4
   motion_off_hits: 3
 ```
 
 The detector still processes every CSI packet into its sliding window, but the published motion state updates only on a coarser cadence:
 
-1. every `250 ms` of packet arrival time, the runtime evaluates the detector and gets a raw `IDLE` or `MOTION` reading; `evaluation_interval` is the equivalent in packets and is what the runtime falls back to during startup, or on sources that report no arrival timestamp
+1. every `evaluation_interval_ms` of packet arrival time, the runtime evaluates the detector and gets a raw `IDLE` or `MOTION` reading; there is no packet-count fallback, so live input and supported replay datasets must provide advancing timestamps
 2. that raw reading must repeat for `motion_on_hits` consecutive evaluations before the published state becomes `MOTION`
 3. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
 
 These hits are consecutive evaluation ticks, not detector windows (`segmentation_window_size`). One opposing reading resets the pending count.
 
-With the defaults (`100` pps CSI target, `evaluation_interval = 25`):
+With the default `evaluation_interval_ms = 250`:
 
 | Transition | Hits | Evaluation period | Minimum hold before publish |
 |------------|------|-------------------|-----------------------------|
@@ -165,7 +165,7 @@ Rules of thumb:
 
 - more hit filtering: steadier state changes, slower transitions
 - expected publish latency is roughly `0.25 s * motion_on_hits`, and it no longer depends on the packet rate: a link running at `80 pps` confirms motion in the same wall-clock time as one at `100`
-- `evaluation_interval` now only shapes the startup fallback, so tuning it has little effect once the cadence estimate settles
+- increasing `evaluation_interval_ms` reduces evaluation frequency and lengthens the confirmation delay proportionally
 
 ## Filters
 

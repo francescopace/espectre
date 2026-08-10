@@ -13,38 +13,34 @@ from runtime_policy import PacketTimingTracker, RuntimeMotionPolicy
 
 
 class TestRuntimeMotionPolicy:
-    def test_evaluation_interval_gate(self):
-        policy = RuntimeMotionPolicy(evaluation_interval=25, motion_on_hits=3, motion_off_hits=3)
+    def test_packets_without_elapsed_time_do_not_trigger_evaluation(self):
+        policy = RuntimeMotionPolicy(evaluation_interval_ms=250, motion_on_hits=3, motion_off_hits=3)
 
-        for _ in range(24):
+        for _ in range(100):
             policy.note_packet()
             assert not policy.should_evaluate()
 
-        policy.note_packet()
-        assert policy.should_evaluate()
-
     def test_note_evaluation_tick_resets_cadence(self):
-        policy = RuntimeMotionPolicy(evaluation_interval=3, motion_on_hits=1, motion_off_hits=1)
+        policy = RuntimeMotionPolicy(evaluation_interval_ms=30, motion_on_hits=1, motion_off_hits=1)
 
-        assert not policy.note_evaluation_tick()
-        assert not policy.note_evaluation_tick()
-        assert policy.note_evaluation_tick()
+        assert not policy.note_evaluation_tick(elapsed_us=10_000)
+        assert not policy.note_evaluation_tick(elapsed_us=10_000)
+        assert policy.note_evaluation_tick(elapsed_us=10_000)
         assert policy.packets_since_evaluation == 0
-        assert not policy.note_evaluation_tick()
-        assert not policy.note_evaluation_tick()
-        assert policy.note_evaluation_tick()
+        assert not policy.note_evaluation_tick(elapsed_us=10_000)
+        assert not policy.note_evaluation_tick(elapsed_us=10_000)
+        assert policy.note_evaluation_tick(elapsed_us=10_000)
 
     def test_publish_forces_evaluation(self):
-        policy = RuntimeMotionPolicy(evaluation_interval=25, motion_on_hits=3, motion_off_hits=3)
+        policy = RuntimeMotionPolicy(evaluation_interval_ms=250, motion_on_hits=3, motion_off_hits=3)
         policy.note_packet()
         assert policy.should_evaluate(should_publish=True)
 
     def test_elapsed_time_gate_triggers_evaluation(self):
         policy = RuntimeMotionPolicy(
-            evaluation_interval=25,
+            evaluation_interval_ms=250,
             motion_on_hits=1,
             motion_off_hits=1,
-            evaluation_interval_us=250_000,
         )
 
         for _ in range(24):
@@ -156,8 +152,7 @@ class TestRuntimeMotionPolicy:
     def _count_evaluations(interval_us, packets):
         """Replay one cadence through the arrival-time path and count ticks."""
         policy = RuntimeMotionPolicy(
-            evaluation_interval=25,
-            evaluation_interval_us=config.EVALUATION_INTERVAL_US,
+            evaluation_interval_ms=config.EVALUATION_INTERVAL_MS,
         )
         timestamp = 1_000_000
         evaluations = 0
@@ -172,20 +167,29 @@ class TestRuntimeMotionPolicy:
     def test_note_arrival_evaluates_on_elapsed_packet_time(self):
         """Arrival time is an input, so the cadence is the same at any rate.
 
-        30 s of packets is 120 ticks at the 250 ms contract however fast they
-        are delivered. One tick is lost to the estimator warmup, during which
-        the packet counter still applies.
+        The first packet establishes the timestamp origin, so a nominal 30 s
+        packet sequence contains 29.99 s of elapsed coverage and 119 ticks.
         """
         assert self._count_evaluations(10_000, 3000) == 119
         # The packet-count contract would have produced 600 ticks here.
         assert self._count_evaluations(2_000, 15000) == 119
 
-    def test_note_arrival_falls_back_to_packet_count_without_timestamps(self):
-        """Sources that report no arrival time keep the packet-count cadence."""
-        assert self._count_evaluations(0, 3000) == 120
+    def test_note_arrival_requires_advancing_timestamps(self):
+        assert self._count_evaluations(0, 3000) == 0
+
+    def test_packet_timing_tracker_does_not_infer_missing_timestamps(self):
+        tracker = PacketTimingTracker(10_000)
+
+        first = tracker.observe_packet({"seq_num": 1})
+        second = tracker.observe_packet({"seq_num": 2})
+
+        assert first["source"] == "missing"
+        assert second["source"] == "missing"
+        assert first["coverage_us"] == 0
+        assert second["coverage_us"] == 0
 
     def test_motion_on_hits_filter(self):
-        policy = RuntimeMotionPolicy(evaluation_interval=25, motion_on_hits=3, motion_off_hits=3)
+        policy = RuntimeMotionPolicy(evaluation_interval_ms=250, motion_on_hits=3, motion_off_hits=3)
 
         state, changed = policy.apply_state(MotionState.MOTION)
         assert state == MotionState.IDLE
@@ -200,7 +204,7 @@ class TestRuntimeMotionPolicy:
         assert changed
 
     def test_motion_off_hits_filter(self):
-        policy = RuntimeMotionPolicy(evaluation_interval=25, motion_on_hits=1, motion_off_hits=3)
+        policy = RuntimeMotionPolicy(evaluation_interval_ms=250, motion_on_hits=1, motion_off_hits=3)
 
         state, changed = policy.apply_state(MotionState.MOTION)
         assert state == MotionState.MOTION
@@ -219,7 +223,7 @@ class TestRuntimeMotionPolicy:
         assert changed
 
     def test_reset_clears_pending_state(self):
-        policy = RuntimeMotionPolicy(evaluation_interval=25, motion_on_hits=3, motion_off_hits=3)
+        policy = RuntimeMotionPolicy(evaluation_interval_ms=250, motion_on_hits=3, motion_off_hits=3)
 
         policy.note_packet()
         policy.apply_state(MotionState.MOTION)

@@ -93,7 +93,7 @@ from detector_interface import MotionState  # noqa: E402
 from config import (  # noqa: E402
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
-    EVALUATION_INTERVAL,
+    EVALUATION_INTERVAL_MS,
     SEG_WINDOW_SIZE,
 )
 from csi_features import DEFAULT_FEATURES  # noqa: E402
@@ -976,7 +976,8 @@ def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps=100.0)
     The canonical ``stream_dense`` matrix contributes one ready feature row per
     packet, not one row per production evaluation tick.  Temporal aggregation
     must therefore use the capture packet rate directly.  Applying
-    ``EVALUATION_INTERVAL`` here stretches every block and burst by that factor.
+    Sampling it at the nominal evaluation packet equivalent here would stretch
+    every block and burst by that factor.
     """
     evidence = np.asarray(evidence_series, dtype=np.float64)
     if evidence.size == 0:
@@ -3029,10 +3030,7 @@ def _replay_classic_metrics(
     score_series = []
     state_series = []
     nominal_interval_us = nominal_packet_interval_us(SEG_WINDOW_SIZE)
-    cadence = make_evaluation_cadence(
-        EVALUATION_INTERVAL,
-        evaluation_interval_us=nominal_interval_us * EVALUATION_INTERVAL,
-    )
+    cadence = make_evaluation_cadence(EVALUATION_INTERVAL_MS)
     timing_tracker = PacketTimingTracker(nominal_interval_us)
     normalized_rssi = _coerce_rssi_series(rssi_dbm, len(csi_data))
     normalized_seq = None if stream_seq_num is None else np.asarray(stream_seq_num)
@@ -3171,9 +3169,7 @@ def _active_burst_metrics(states, packet_rate_pps):
     longest = int(burst_lengths.max()) if burst_count else 0
 
     del packet_rate_pps
-    eval_rate_hz = 1_000_000.0 / float(
-        nominal_packet_interval_us(SEG_WINDOW_SIZE) * EVALUATION_INTERVAL
-    )
+    eval_rate_hz = 1000.0 / float(EVALUATION_INTERVAL_MS)
     eval_seconds = len(states) / eval_rate_hz
     bursts_per_minute = (
         burst_count * 60.0 / eval_seconds if eval_seconds > 0.0 else 0.0
@@ -3257,7 +3253,7 @@ def _classic_self_baseline_stats(
     excursion_bound = margin_median + BASELINE_EXCURSION_MADS * max(margin_mad, 1e-9)
     states = (margins > excursion_bound).astype(np.int8)
 
-    eval_rate_hz = max(float(packet_rate_pps), 1e-6) / float(EVALUATION_INTERVAL)
+    eval_rate_hz = 1000.0 / float(EVALUATION_INTERVAL_MS)
     block_size = max(1, int(round(eval_rate_hz * BASELINE_BLOCK_SECONDS)))
     full_block_count = len(margins) // block_size
     if full_block_count:

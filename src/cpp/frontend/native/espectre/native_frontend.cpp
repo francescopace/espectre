@@ -725,7 +725,6 @@ void NativeFrontend::send_system_info_() {
           wifi_info_.ssid,
           wifi_info_.bssid,
           wifi_info_.channel,
-          wifi_info_.password_set,
           device_info_.network.channel > 0U,
           wifi_info_.band_policy,
       },

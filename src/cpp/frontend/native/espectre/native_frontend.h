@@ -32,7 +32,6 @@ class NativeFrontend : public IRuntimeListener {
     std::string bssid;
     uint8_t channel{0U};
     bool has_saved_config{false};
-    bool password_set{false};
     WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
   };
 

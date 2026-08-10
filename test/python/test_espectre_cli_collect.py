@@ -102,7 +102,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
     fake_config.PUBLISH_INTERVAL = 1
-    fake_config.EVALUATION_INTERVAL = 1
+    fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
     if config_overrides:
@@ -1129,7 +1129,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
     fake_config.PUBLISH_INTERVAL = 1
-    fake_config.EVALUATION_INTERVAL = 1
+    fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
 
@@ -1501,7 +1501,7 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
     fake_config.PUBLISH_INTERVAL = 1
-    fake_config.EVALUATION_INTERVAL = 1
+    fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
 
@@ -1641,7 +1641,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
     fake_config.PUBLISH_INTERVAL = 1
-    fake_config.EVALUATION_INTERVAL = 1
+    fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
 
@@ -1840,7 +1840,7 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
     fake_config.PUBLISH_INTERVAL = 1
-    fake_config.EVALUATION_INTERVAL = 1
+    fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
 
@@ -2019,7 +2019,7 @@ def test_collect_live_keeps_fixed_pacing_with_fixed_flag(monkeypatch, capsys) ->
         monkeypatch,
         FakeReceiver,
         FakePacingSender,
-        config_overrides={"PUBLISH_INTERVAL": 1, "EVALUATION_INTERVAL": 1},
+        config_overrides={"PUBLISH_INTERVAL": 1, "EVALUATION_INTERVAL_MS": 10},
     )
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
@@ -2095,7 +2095,7 @@ def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, caps
         monkeypatch,
         FakeReceiver,
         FakePacingSender,
-        config_overrides={"PUBLISH_INTERVAL": 1, "EVALUATION_INTERVAL": 1},
+        config_overrides={"PUBLISH_INTERVAL": 1, "EVALUATION_INTERVAL_MS": 10},
     )
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
@@ -2169,7 +2169,7 @@ def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None
         evaluation_intervals = []
 
         def __init__(self, **kwargs):
-            self.__class__.evaluation_intervals.append(int(kwargs["evaluation_interval"]))
+            self.__class__.evaluation_intervals.append(int(kwargs["evaluation_interval_ms"]))
             super().__init__(**kwargs)
 
     classic_module.ClassicDetector = CapturingClassicDetector
@@ -2198,7 +2198,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
     fake_config.PUBLISH_INTERVAL = 2
-    fake_config.EVALUATION_INTERVAL = 99
+    fake_config.EVALUATION_INTERVAL_MS = 990
     fake_config.MOTION_ON_HITS = 1
     fake_config.MOTION_OFF_HITS = 1
 
@@ -2340,7 +2340,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
     fake_config.PUBLISH_INTERVAL = 1
-    fake_config.EVALUATION_INTERVAL = 1
+    fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 1
     fake_config.MOTION_OFF_HITS = 1
 
@@ -2655,7 +2655,7 @@ def test_collect_live_shows_drop_rate_during_calibration(monkeypatch, capsys) ->
         monkeypatch,
         FakeReceiver,
         FakePacingSender,
-        config_overrides={"CALIBRATION_BUFFER_SIZE": 4, "EVALUATION_INTERVAL": 1},
+        config_overrides={"CALIBRATION_BUFFER_SIZE": 4, "EVALUATION_INTERVAL_MS": 10},
     )
 
     host.collect_csi_data(

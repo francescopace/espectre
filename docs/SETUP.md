@@ -312,8 +312,8 @@ Support in this phase:
 | `traffic_generator_adaptive` | bool | `true` | Adjusts DNS or ICMP send pacing from CSI feedback and local socket backpressure; floor at `70%` of target, overshoot up to about `125%` |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
 | `publish_interval` | int | `100` | `1-1000` packets between periodic updates |
-| `evaluation_interval` | int | `25` | `1-1000` packets between detector evaluations |
-| `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` (about `1.0 s` at the default `100` pps / `25` interval) |
+| `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
+| `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` (about `1.0 s` at the default `250 ms` interval) |
 | `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.75 s` at the same defaults) |
 | `lowpass_enabled` | bool | `false` | Enables low-pass filtering |
 | `lowpass_cutoff` | float | `11.0` | `5.0-20.0` Hz |

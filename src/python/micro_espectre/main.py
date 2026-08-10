@@ -260,7 +260,7 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     begin_calibration = getattr(detector, "on_startup_calibration_begin", None)
     if callable(begin_calibration):
         begin_calibration()
-    evaluation_interval = max(1, int(getattr(config, 'EVALUATION_INTERVAL', 25)))
+    evaluation_interval_ms = max(1, int(getattr(config, 'EVALUATION_INTERVAL_MS', 250)))
     # Calibration evaluates on the same cadence steady-state detection does.
     # Counting packets here while the main loop counts elapsed time fitted the
     # threshold at a feature resolution the detector never ran at, and starved
@@ -268,13 +268,12 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     # EvaluationCadence shared by CsiPipeline and the calibration interceptor.
     from src.runtime_policy import RuntimeMotionPolicy
     calibration_cadence = RuntimeMotionPolicy(
-        evaluation_interval=evaluation_interval,
-        evaluation_interval_us=getattr(config, 'EVALUATION_INTERVAL_US', None),
+        evaluation_interval_ms=evaluation_interval_ms,
     )
 
     print('')
     print('-'*60)
-    print(f'{detector_name} Threshold Bootstrap ({config.CALIBRATION_BUFFER_SIZE} packets, evaluate every {evaluation_interval}) [HT20: {NUM_SUBCARRIERS} SC]')
+    print(f'{detector_name} Threshold Bootstrap ({config.CALIBRATION_BUFFER_SIZE} packets, evaluate every {evaluation_interval_ms} ms) [HT20: {NUM_SUBCARRIERS} SC]')
     print('-'*60)
 
     max_timeout_ms = 15000
@@ -351,7 +350,7 @@ def run_startup_calibration(wlan, detector, traffic_gen):
 
             # frame[4] is the Wi-Fi RX timestamp, the same source the steady
             # loop and the C++ pipeline read.
-            calibration_cadence.note_arrival(frame_result[4] if len(frame_result) > 4 else 0)
+            calibration_cadence.note_arrival(frame_result[4])
 
             if not calibration_cadence.should_evaluate():
                 continue
@@ -599,7 +598,14 @@ def main():
     processed_packet_count = 0
     callback_packet_count = 0
     mqtt_poll_counter = 0
-    mqtt_poll_interval = max(1, int(getattr(config, 'EVALUATION_INTERVAL', 25)))
+    mqtt_poll_interval = max(
+        1,
+        int(round(
+            getattr(config, 'EVALUATION_INTERVAL_MS', 250)
+            * max(1, traffic_gen.get_target_rate())
+            / 1000.0
+        )),
+    )
     filtered_count = 0  # Packets with wrong SC count
     last_publish_time = time.ticks_ms()
     collapse_logged = False
@@ -620,10 +626,9 @@ def main():
         publish_rate = traffic_gen.get_target_rate() if traffic_gen.is_running() else 100
     from src.runtime_policy import RuntimeMotionPolicy
     runtime_policy = RuntimeMotionPolicy(
-        evaluation_interval=getattr(config, 'EVALUATION_INTERVAL', 25),
+        evaluation_interval_ms=getattr(config, 'EVALUATION_INTERVAL_MS', 250),
         motion_on_hits=getattr(config, 'MOTION_ON_HITS', 4),
         motion_off_hits=getattr(config, 'MOTION_OFF_HITS', 3),
-        evaluation_interval_us=getattr(config, 'EVALUATION_INTERVAL_US', None),
     )
        
     try:
@@ -747,7 +752,7 @@ def main():
                 # deploy-time meaning when the link runs off the nominal rate.
                 # frame[4] is the Wi-Fi RX timestamp, the same source the C++
                 # pipeline reads from rx_ctrl.
-                runtime_policy.note_arrival(frame_result[4] if len(frame_result) > 4 else 0)
+                runtime_policy.note_arrival(frame_result[4])
                 should_publish = publish_counter >= publish_rate
                 
                 if runtime_policy.should_evaluate(should_publish):

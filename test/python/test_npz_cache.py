@@ -460,7 +460,6 @@ def test_classic_replay_row_artifact_roundtrip_preserves_secondary_source_identi
             "window_packets": 4,
             "lag": 1,
             "autocorr_lag": 1,
-            "evaluation_interval": 2,
         },
         replay_interval_us=10_000,
         warmup_packets=4,
@@ -607,7 +606,6 @@ def test_classic_replay_row_parameters_change_when_detector_changes(
         "window_packets": 4,
         "lag": 1,
         "autocorr_lag": 1,
-        "evaluation_interval": 2,
     }
     first = npz_cache.classic_replay_row_parameters(
         replay_kind="classic_dataset",

@@ -38,7 +38,6 @@ struct DetectorTiming {
   uint16_t window_packets;
   uint16_t lag;
   uint16_t autocorr_lag;
-  uint16_t evaluation_interval;
 };
 
 constexpr uint32_t nominal_packet_interval_us(uint16_t window_packets) {
@@ -138,8 +137,6 @@ inline DetectorTiming derive_detector_timing(uint32_t interval_us,
   timing.lag = static_cast<uint16_t>(lag < lag_ceiling ? lag : lag_ceiling);
   timing.autocorr_lag =
       static_cast<uint16_t>(autocorr_lag < lag_ceiling ? autocorr_lag : lag_ceiling);
-  timing.evaluation_interval = static_cast<uint16_t>(
-      packets_for_duration(EVALUATION_INTERVAL_US, interval, 1U));
   return timing;
 }
 

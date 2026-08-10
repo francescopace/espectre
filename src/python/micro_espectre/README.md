@@ -141,7 +141,7 @@ Key config values live in `config.py`:
 ```python
 DETECTION_ALGORITHM = "classic"  # "classic" or "ml"
 SEG_WINDOW_SIZE = 100
-EVALUATION_INTERVAL = 25
+EVALUATION_INTERVAL_MS = 250
 MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```

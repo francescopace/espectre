@@ -98,8 +98,9 @@ void test_documented_defaults_sit_inside_documented_ranges(void) {
                                            RUNTIME_TRAFFIC_GENERATOR_RATE_MAX));
   TEST_ASSERT_TRUE(validate_runtime_uint32(config.publish_interval, RUNTIME_INTERVAL_MIN,
                                            RUNTIME_INTERVAL_MAX));
-  TEST_ASSERT_TRUE(validate_runtime_uint32(config.evaluation_interval, RUNTIME_INTERVAL_MIN,
-                                           RUNTIME_INTERVAL_MAX));
+  TEST_ASSERT_TRUE(validate_runtime_uint32(config.evaluation_interval_ms,
+                                           RUNTIME_EVALUATION_INTERVAL_MS_MIN,
+                                           RUNTIME_EVALUATION_INTERVAL_MS_MAX));
   TEST_ASSERT_TRUE(validate_runtime_uint8(config.motion_on_hits, RUNTIME_MOTION_HITS_MIN,
                                           RUNTIME_MOTION_HITS_MAX));
   TEST_ASSERT_TRUE(validate_runtime_uint8(config.motion_off_hits, RUNTIME_MOTION_HITS_MIN,

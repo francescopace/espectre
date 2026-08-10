@@ -76,10 +76,10 @@ config ESPECTRE_PUBLISH_INTERVAL
     range 1 1000
     default 100
 
-config ESPECTRE_EVALUATION_INTERVAL
-    int "Evaluation interval (packets)"
-    range 1 1000
-    default 25
+config ESPECTRE_EVALUATION_INTERVAL_MS
+    int "Evaluation interval (milliseconds)"
+    range 10 10000
+    default 250
 
 config ESPECTRE_MOTION_ON_HITS
     int "Motion-on hits"

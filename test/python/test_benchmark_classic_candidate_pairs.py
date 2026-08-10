@@ -91,7 +91,8 @@ def test_startup_evaluation_limit_matches_nominal_runtime_calibration() -> None:
     assert replay.startup_evaluation_limit(
         calibration_packets=1000,
         window_packets=100,
-        evaluation_interval=25,
+        packet_interval_us=10_000,
+        evaluation_interval_ms=250,
         sample_limit=64,
     ) == 37
 
@@ -100,7 +101,8 @@ def test_startup_evaluation_limit_honors_detector_storage_cap() -> None:
     assert replay.startup_evaluation_limit(
         calibration_packets=10_000,
         window_packets=100,
-        evaluation_interval=25,
+        packet_interval_us=10_000,
+        evaluation_interval_ms=250,
         sample_limit=64,
     ) == 64
 

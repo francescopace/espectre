@@ -100,7 +100,6 @@ void append_sysinfo_wifi_lines(std::vector<std::string> *lines, const SysinfoWif
   append_kv_line(lines, "wifi_bssid", wifi.bssid.c_str());
   append_u32_line(lines, "wifi_channel", static_cast<unsigned>(wifi.channel));
   append_kv_line(lines, "wifi_band_policy", wifi_band_policy_name(wifi.band_policy));
-  append_bool_line(lines, "wifi_password_set", wifi.password_set);
 }
 
 void append_sysinfo_network_lines(std::vector<std::string> *lines,

@@ -132,14 +132,8 @@ struct RuntimeConfig {
    * per second.
    */
   uint32_t publish_interval{RUNTIME_PUBLISH_INTERVAL_DEFAULT};
-  /**
-   * Packet-count fallback cadence for detector evaluation.
-   *
-   * The runtime normally evaluates on elapsed arrival time and only counts
-   * packets during estimator warmup or on sources with no timestamp, so this
-   * mainly governs the first second of a session.
-   */
-  uint32_t evaluation_interval{RUNTIME_EVALUATION_INTERVAL_DEFAULT};
+  /** Detector evaluation cadence in milliseconds. */
+  uint32_t evaluation_interval_ms{RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT};
   /** Consecutive above-threshold evaluations before reporting motion (1..20). */
   uint8_t motion_on_hits{RUNTIME_MOTION_ON_HITS_DEFAULT};
   /** Consecutive below-threshold evaluations before clearing motion (1..20). */

@@ -38,11 +38,12 @@ import config
 from config import (
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
-    EVALUATION_INTERVAL,
+    EVALUATION_INTERVAL_MS,
     MOTION_OFF_HITS,
     MOTION_ON_HITS,
     SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
 )
+
 from detector_interface import MotionState
 from csi_features import FEATURE_NAMES as RUNTIME_FEATURE_NAMES
 from runtime_policy import (
@@ -52,7 +53,6 @@ from runtime_policy import (
     nominal_packet_interval_us,
 )
 from tools.lib.csi_io import load_npz_packet_view, load_npz_sensing_arrays
-
 
 DATA_DIR = data_dir()
 PERFORMANCE_DOC_PATH = repo_root() / "docs" / "performance" / "README.md"
@@ -79,12 +79,8 @@ def timing_cadence_for_window(
         if interval_us is None
         else max(1, int(interval_us))
     )
-    evaluation_interval = max(
-        1, int(round(config.EVALUATION_INTERVAL_US / float(nominal_interval_us)))
-    )
     cadence = _make_evaluation_cadence(
-        evaluation_interval=evaluation_interval,
-        evaluation_interval_us=config.EVALUATION_INTERVAL_US,
+        evaluation_interval_ms=config.EVALUATION_INTERVAL_MS,
     )
     return PacketTimingTracker(nominal_interval_us), cadence
 
@@ -108,16 +104,13 @@ def note_evaluation_tick(
     return should_evaluate, bool(timing["contaminated"])
 
 
-def evaluate_idle_runtime_policy(raw_motion_states: Sequence[bool]) -> Dict[str, int]:
-    """Evaluate runtime cadence and consecutive-hit filtering on IDLE data."""
-    return _evaluate_idle_runtime_policy_evaluations(
-        raw_motion_states[EVALUATION_INTERVAL - 1::EVALUATION_INTERVAL]
-    )
-
-
 def _evaluate_idle_runtime_policy_evaluations(raw_motion_states: Sequence[bool]) -> Dict[str, int]:
     """Apply production hit filtering to states sampled at evaluation ticks."""
-    policy = RuntimeMotionPolicy(EVALUATION_INTERVAL, MOTION_ON_HITS, MOTION_OFF_HITS)
+    policy = RuntimeMotionPolicy(
+        evaluation_interval_ms=EVALUATION_INTERVAL_MS,
+        motion_on_hits=MOTION_ON_HITS,
+        motion_off_hits=MOTION_OFF_HITS,
+    )
     effective_alarms = 0
     false_motion_evaluations = 0
 

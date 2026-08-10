@@ -35,8 +35,6 @@ struct TimingObservation {
   uint32_t coverage_us{0U};
   uint32_t missing_seq{0U};
   bool contaminated{false};
-  /// True when delta_us was inferred from the cadence rather than measured.
-  bool from_nominal{false};
 };
 
 class PacketTimingTracker {
@@ -88,18 +86,7 @@ class PacketTimingTracker {
       }
     }
 
-    if (observation.delta_us == 0U) {
-      // No usable predecessor, which happens on the first packet and on the
-      // one re-observed right after a reset. The question here is how far
-      // this packet sits from the one before it, so the estimate is the
-      // typical spacing (median), not the mean throughput. Python's
-      // PacketRateEstimator.interval_us is that same median; using the mean
-      // here made the two runtimes disagree by roughly a millisecond per
-      // contamination, which then moved every later evaluation boundary.
-      observation.delta_us =
-          rate_.typical_interval_us() * std::max<uint32_t>(1U, observation.missing_seq + 1U);
-      observation.from_nominal = true;
-    } else {
+    if (observation.delta_us > 0U) {
       rate_.observe_interval(observation.delta_us);
     }
 
@@ -177,7 +164,7 @@ uint32_t measure_packet_interval_us(int packet_count,
     if (i == 0 || (i % stride) != 0) {
       continue;
     }
-    if (timing.from_nominal || timing.contaminated) {
+    if (timing.delta_us == 0U || timing.contaminated) {
       continue;
     }
     total_us += timing.delta_us;
@@ -192,10 +179,9 @@ uint32_t measure_packet_interval_us(int packet_count,
 
 class TimeAwareCadence {
  public:
-  TimeAwareCadence(uint16_t window_packets, uint32_t evaluation_interval_packets)
+  TimeAwareCadence(uint16_t window_packets, uint32_t evaluation_interval_ms)
       : nominal_interval_us_(nominal_packet_interval_us(window_packets)),
-        evaluation_interval_packets_(std::max<uint32_t>(1U, evaluation_interval_packets)),
-        evaluation_interval_us_(EVALUATION_INTERVAL_US) {}
+        evaluation_interval_us_(std::max<uint32_t>(1U, evaluation_interval_ms) * 1000U) {}
 
   void reset() {
     packets_since_evaluation_ = 0U;
@@ -207,23 +193,12 @@ class TimeAwareCadence {
     elapsed_us_since_evaluation_ += elapsed_us;
   }
 
-  /**
-   * Mirrors RuntimeMotionPolicy.should_evaluate in runtime_policy.py.
-   *
-   * Contaminated packets contribute no coverage, so a stream that has just
-   * been reset accumulates no elapsed time. Without the packet-count fallback
-   * the replay would stall until clean time rebuilt, evaluating fewer windows
-   * than the Python replay and than the production pipeline, which keeps the
-   * same fallback for its own warmup.
-   */
+  /** Mirrors RuntimeMotionPolicy.should_evaluate in runtime_policy.py. */
   bool should_evaluate(bool should_publish = false) const {
     if (should_publish) {
       return true;
     }
-    if (elapsed_us_since_evaluation_ > 0U) {
-      return elapsed_us_since_evaluation_ >= evaluation_interval_us_;
-    }
-    return packets_since_evaluation_ >= evaluation_interval_packets_;
+    return elapsed_us_since_evaluation_ >= evaluation_interval_us_;
   }
 
   uint16_t packet_weight() const {
@@ -237,7 +212,6 @@ class TimeAwareCadence {
 
  private:
   uint32_t nominal_interval_us_{0U};
-  uint32_t evaluation_interval_packets_{0U};
   uint32_t evaluation_interval_us_{0U};
   uint32_t packets_since_evaluation_{0U};
   uint64_t elapsed_us_since_evaluation_{0U};

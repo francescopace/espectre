@@ -335,7 +335,7 @@ def measure_packet_interval_us(
         timing = tracker.observe_packet(packet)
         if not index or index % stride:
             continue
-        if timing["source"] == "nominal" or timing["contaminated"]:
+        if timing["source"] == "missing" or timing["contaminated"]:
             continue
         total_us += int(timing["delta_us"])
         counted += 1
@@ -385,10 +385,9 @@ def _calibration_runtime(
     """Return the shared timing helpers used by time-aware classic startup."""
     interval_us = int(timing["interval_us"])
     cadence = RuntimeMotionPolicy(
-        evaluation_interval=int(timing["evaluation_interval"]),
+        evaluation_interval_ms=config.EVALUATION_INTERVAL_MS,
         motion_on_hits=1,
         motion_off_hits=1,
-        evaluation_interval_us=config.EVALUATION_INTERVAL_US,
     )
     return (
         PacketTimingTracker(interval_us),

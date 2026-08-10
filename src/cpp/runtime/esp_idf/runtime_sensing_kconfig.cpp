@@ -48,8 +48,8 @@
 #ifndef CONFIG_ESPECTRE_PUBLISH_INTERVAL
 #define CONFIG_ESPECTRE_PUBLISH_INTERVAL 100
 #endif
-#ifndef CONFIG_ESPECTRE_EVALUATION_INTERVAL
-#define CONFIG_ESPECTRE_EVALUATION_INTERVAL 25
+#ifndef CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS
+#define CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS 250
 #endif
 #ifndef CONFIG_ESPECTRE_MOTION_ON_HITS
 #define CONFIG_ESPECTRE_MOTION_ON_HITS 4
@@ -167,10 +167,12 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
       clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_PUBLISH_INTERVAL),
                                RUNTIME_PUBLISH_INTERVAL_DEFAULT, RUNTIME_INTERVAL_MIN,
                                RUNTIME_INTERVAL_MAX, "CONFIG_ESPECTRE_PUBLISH_INTERVAL");
-  config.evaluation_interval =
-      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_EVALUATION_INTERVAL),
-                               RUNTIME_EVALUATION_INTERVAL_DEFAULT, RUNTIME_INTERVAL_MIN,
-                               RUNTIME_INTERVAL_MAX, "CONFIG_ESPECTRE_EVALUATION_INTERVAL");
+  config.evaluation_interval_ms =
+      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS),
+                               RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT,
+                               RUNTIME_EVALUATION_INTERVAL_MS_MIN,
+                               RUNTIME_EVALUATION_INTERVAL_MS_MAX,
+                               "CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS");
   config.motion_on_hits =
       clamp_uint8_or_default_(static_cast<uint8_t>(CONFIG_ESPECTRE_MOTION_ON_HITS),
                               RUNTIME_MOTION_ON_HITS_DEFAULT, RUNTIME_MOTION_HITS_MIN,

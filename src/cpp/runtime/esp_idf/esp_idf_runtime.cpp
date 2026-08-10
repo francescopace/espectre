@@ -91,7 +91,7 @@ bool EspIdfRuntime::setup() {
   csi_traffic_service_.init(to_csi_traffic_config(config_, CsiTrafficMode::EXTERNAL));
 
   csi_pipeline_.init(detector_.get(), config_.publish_interval);
-  csi_pipeline_.set_evaluation_interval(config_.evaluation_interval);
+  csi_pipeline_.set_evaluation_interval_ms(config_.evaluation_interval_ms);
   csi_pipeline_.set_motion_hit_thresholds(config_.motion_on_hits, config_.motion_off_hits);
   csi_pipeline_.set_channel_change_callback([this](uint8_t previous_channel, uint8_t current_channel) {
     on_csi_channel_changed_(previous_channel, current_channel);

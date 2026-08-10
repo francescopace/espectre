@@ -58,7 +58,6 @@ void sync_frontend_wifi_info() {
   info.bssid = wifi_config.bssid;
   info.channel = wifi_config.channel;
   info.has_saved_config = wifi_config.has_saved_config;
-  info.password_set = g_wifi_provisioning.password_set();
   info.band_policy = wifi_config.band_policy;
   g_frontend->set_wifi_provisioning_info(info);
 

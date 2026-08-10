@@ -57,9 +57,10 @@ constexpr uint16_t L1_DELTA_LAG_MAX = 32;
 // homogeneity and buys nothing.
 constexpr float RATE_ADAPTATION_DEAD_BAND = 0.25f;
 // A cadence faster than this is not a CSI stream, it is a batch delivered
-// faster than real time. Elapsed time is only trusted above it; below, the
-// packet-count fallback covers. There is no upper bound because a stream
-// slower than one window is already handled as a hole by SEG_WINDOW_US.
+// faster than real time. The packet-rate estimator ignores it when deriving
+// feature geometry; evaluation cadence still follows the packet timestamps.
+// There is no upper bound because a stream slower than one window is already
+// handled as a hole by SEG_WINDOW_US.
 constexpr uint32_t MIN_PLAUSIBLE_PACKET_INTERVAL_US = 200U;    // 5000 pps
 
 }  // namespace espectre

@@ -125,9 +125,13 @@ class _CompatPacketTimingTracker:
 
     def reset(self):
         self._last_seq_num = None
+        self._last_device_ticks_us = None
+        self._last_wifi_rx_ts_us = None
 
     def observe_packet(self, packet):
         seq_num = getattr(packet, "seq_num", None)
+        device_ticks_us = getattr(packet, "device_ticks_us", None)
+        wifi_rx_ts_us = getattr(packet, "wifi_rx_ts_us", None)
         missing_seq = 0
         if seq_num is not None and self._last_seq_num is not None:
             expected = (int(self._last_seq_num) + 1) & 0xFFFFFFFF
@@ -136,13 +140,36 @@ class _CompatPacketTimingTracker:
                 missing_seq = int(delta)
         if seq_num is not None:
             self._last_seq_num = int(seq_num)
-        delta_us = self.nominal_packet_interval_us * max(1, missing_seq + 1)
-        contaminated = missing_seq >= self.sequence_gap_reset
+        delta_us = None
+        source = "missing"
+        if (
+            device_ticks_us is not None
+            and self._last_device_ticks_us is not None
+            and int(device_ticks_us) >= self._last_device_ticks_us
+        ):
+            delta_us = int(device_ticks_us) - self._last_device_ticks_us
+            source = "device_ticks_us"
+        elif wifi_rx_ts_us is not None and self._last_wifi_rx_ts_us is not None:
+            candidate = (int(wifi_rx_ts_us) - self._last_wifi_rx_ts_us) & 0xFFFFFFFF
+            if 0 < candidate < 0x80000000:
+                delta_us = candidate
+                source = "wifi_rx_ts_us"
+        contaminated = missing_seq >= self.sequence_gap_reset or (
+            delta_us is not None
+            and delta_us >= max(
+                self.gap_reset_min_us,
+                int(round(self.nominal_packet_interval_us * self.gap_reset_ratio)),
+            )
+        )
+        if device_ticks_us is not None:
+            self._last_device_ticks_us = int(device_ticks_us)
+        if wifi_rx_ts_us is not None:
+            self._last_wifi_rx_ts_us = int(wifi_rx_ts_us)
         return {
-            "delta_us": delta_us,
-            "coverage_us": 0 if contaminated else delta_us,
+            "delta_us": 0 if delta_us is None else delta_us,
+            "coverage_us": 0 if contaminated or delta_us is None else delta_us,
             "missing_seq": missing_seq,
-            "source": "nominal",
+            "source": source,
             "contaminated": contaminated,
         }
 
@@ -527,11 +554,10 @@ def _run_live_collect(args) -> None:
     adaptive_enabled = bool(getattr(args, "adaptive", True))
     base_window_packets = max(1, int(getattr(config, "SEG_WINDOW_SIZE", 100)))
     effective_window_packets = max(1, int(round(initial_pacing_pps)))
-    effective_evaluation_interval = max(1, effective_window_packets // 4)
     effective_nominal_interval_us = nominal_packet_interval_us(effective_window_packets)
-    effective_evaluation_interval_us = max(
-        effective_nominal_interval_us,
-        effective_nominal_interval_us * effective_evaluation_interval,
+    effective_evaluation_interval_ms = max(
+        1,
+        int(getattr(config, "EVALUATION_INTERVAL_MS", 250)),
     )
     base_calibration_target_packets = max(
         1,
@@ -703,10 +729,9 @@ def _run_live_collect(args) -> None:
         start_startup_session(calibration_detector)
         slot["calibration_tracker"] = build_calibration_tracker(calibration_detector)
         slot["calibration_policy"] = RuntimeMotionPolicy(
-            evaluation_interval=effective_evaluation_interval,
+            evaluation_interval_ms=effective_evaluation_interval_ms,
             motion_on_hits=1,
             motion_off_hits=1,
-            evaluation_interval_us=effective_evaluation_interval_us,
         )
         slot["calibration_packets_since_evaluation"] = 0
         slot["motion_metric"] = 0.0
@@ -747,10 +772,9 @@ def _run_live_collect(args) -> None:
         detector = create_detector(kind, slot_initial_threshold)
         start_startup_session(detector)
         runtime_policy = RuntimeMotionPolicy(
-            evaluation_interval=effective_evaluation_interval,
+            evaluation_interval_ms=effective_evaluation_interval_ms,
             motion_on_hits=config.MOTION_ON_HITS,
             motion_off_hits=config.MOTION_OFF_HITS,
-            evaluation_interval_us=effective_evaluation_interval_us,
         )
         calibration_detector = create_detector(kind, 1.0) if needs_calibration else None
         if calibration_detector is not None:
@@ -771,10 +795,9 @@ def _run_live_collect(args) -> None:
             ),
             "calibration_policy": (
                 RuntimeMotionPolicy(
-                    evaluation_interval=effective_evaluation_interval,
+                    evaluation_interval_ms=effective_evaluation_interval_ms,
                     motion_on_hits=1,
                     motion_off_hits=1,
-                    evaluation_interval_us=effective_evaluation_interval_us,
                 )
                 if calibration_detector is not None
                 else None
@@ -1372,8 +1395,7 @@ def _run_live_collect(args) -> None:
     print(f"  {Fore.CYAN}Window:{Style.RESET_ALL}    {effective_window_packets} pkts")
     print(
         f"  {Fore.CYAN}Evaluation:{Style.RESET_ALL} "
-        f"{effective_evaluation_interval_us / 1000.0:.0f} ms"
-        f" (~{effective_evaluation_interval} pkts)"
+        f"{effective_evaluation_interval_ms} ms"
     )
     print(f"  {Fore.CYAN}Low-pass:{Style.RESET_ALL}  {'ON' if config.ENABLE_LOWPASS_FILTER else 'OFF'}")
     print(f"  {Fore.CYAN}Hampel:{Style.RESET_ALL}    {'ON' if config.ENABLE_HAMPEL_FILTER else 'OFF'}")

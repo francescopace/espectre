@@ -169,7 +169,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_detection_algorithm("classic");
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::CLASSIC);
   component.set_publish_interval(200);
-  component.set_evaluation_interval(50);
+  component.set_evaluation_interval_ms(500);
   component.set_motion_on_hits(4);
   component.set_motion_off_hits(5);
   component.set_lowpass_enabled(true);
@@ -192,7 +192,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::ML);
   TEST_ASSERT_EQUAL(200, component.runtime_.config().publish_interval);
-  TEST_ASSERT_EQUAL(50, component.runtime_.config().evaluation_interval);
+  TEST_ASSERT_EQUAL(500, component.runtime_.config().evaluation_interval_ms);
   TEST_ASSERT_EQUAL(4, component.runtime_.config().motion_on_hits);
   TEST_ASSERT_EQUAL(5, component.runtime_.config().motion_off_hits);
   TEST_ASSERT_TRUE(component.runtime_.config().lowpass_enabled);

@@ -364,7 +364,9 @@ void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {
     TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "threshold=2.500000") != lines.end());
     TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "detector=classic") != lines.end());
     TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "lowpass=on") != lines.end());
-    TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "startup_threshold=0.125000") != lines.end());
+    TEST_ASSERT_TRUE(std::none_of(lines.begin(), lines.end(), [](const std::string &line) {
+        return line.rfind("subcarriers=", 0U) == 0U || line.rfind("startup_threshold=", 0U) == 0U;
+    }));
 }
 
 void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {

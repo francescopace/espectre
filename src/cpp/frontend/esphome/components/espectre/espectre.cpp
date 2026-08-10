@@ -209,7 +209,7 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " └─ Packets ............ %u", config.publish_interval);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " EVALUATION");
-  ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u pkts", config.evaluation_interval);
+  ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u ms", config.evaluation_interval_ms);
   ESP_LOGCONFIG(TAG, " └─ Hits on/off ........ %u / %u", config.motion_on_hits, config.motion_off_hits);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " LOW-PASS FILTER");

@@ -47,7 +47,7 @@ Inside `80-133 pps` the timing snaps to nominal and nothing adapts.
 
 Both runtimes read the Wi-Fi RX timestamp: `rx_ctrl.timestamp` in C++, `frame[4]` in MicroPython, the same field the streamer already records as `wifi_rx_ts_us`. The loop clock measures how fast packets are *processed*, which matches arrival on hardware but not on replay, and it would make the cadence depend on host scheduling. Wall-clock time is reserved for staleness watchdog duty, which arrival time cannot do because a dead stream delivers no timestamps.
 
-Sources that report no arrival timestamp, and the estimator's own warmup, fall back to the packet counter.
+There is no packet-counter fallback. Live input and supported replay datasets provide arrival timestamps; a packet without a usable timestamp contributes no elapsed coverage and cannot advance the evaluation cadence. Timestamp zero remains valid because the 32-bit Wi-Fi counter wraps through zero.
 
 **6. Bounds have stated reasons.**
 
