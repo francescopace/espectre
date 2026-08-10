@@ -75,6 +75,91 @@ def test_cache_provenance_fingerprints_only_stream_implementations():
     assert "train_ml_model" not in host_provenance["implementation"]
 
 
+def test_promoted_packet_augmentation_uses_two_fixed_views():
+    assert trainer.training_packet_augmentation_seeds({"packet_loss": 0.05}) == (
+        20260807,
+        20260808,
+    )
+    assert trainer.training_packet_augmentation_seeds(None) == tuple()
+    assert (
+        trainer.training_packet_augmentation_seed({"packet_loss": 0.05})
+        == 20260807
+    )
+
+
+def test_packet_augmentation_view_mix_is_constant_size_and_deterministic():
+    def rows(offset, count):
+        return {
+            "X": np.arange(offset, offset + count, dtype=np.float32).reshape(-1, 1),
+            "feature_names": ["feature"],
+            "packet_index": np.arange(count, dtype=np.int32) + offset,
+            "evaluation_index": np.arange(count, dtype=np.int32),
+            "reset_index": np.zeros(count, dtype=np.int32),
+            "evaluation_due": np.ones(count, dtype=bool),
+        }
+
+    first = trainer._mix_packet_augmentation_replay_rows((rows(0, 5), rows(10, 5)))
+    second = trainer._mix_packet_augmentation_replay_rows((rows(0, 5), rows(10, 5)))
+
+    assert first["X"].ravel().tolist() == [0.0, 2.0, 4.0, 11.0, 13.0]
+    assert len(first["X"]) == 5
+    for key in (
+        "X",
+        "packet_index",
+        "evaluation_index",
+        "reset_index",
+        "evaluation_due",
+    ):
+        np.testing.assert_array_equal(first[key], second[key])
+
+
+def test_mixed_packet_augmentation_cache_skips_both_views_when_warm(
+    monkeypatch,
+    tmp_path,
+):
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv(trainer.npz_cache.NPZ_CACHE_DIR_ENV, str(cache_root))
+    source_path = tmp_path / "capture.npz"
+    np.savez(source_path, csi_data=np.zeros((4, 2), dtype=np.int8))
+    record = {"path": source_path}
+    calls = []
+
+    def fake_load_rows(_path, **kwargs):
+        seed = int(kwargs["stream_provenance"]["seed"])
+        calls.append(seed)
+        offset = 0 if seed == 20260807 else 10
+        return {
+            "X": np.arange(offset, offset + 4, dtype=np.float32).reshape(-1, 1),
+            "feature_names": [trainer.EXPORTED_FEATURE_NAMES[0]],
+            "packet_index": np.arange(4, dtype=np.int32),
+            "evaluation_index": np.arange(4, dtype=np.int32),
+            "reset_index": np.zeros(4, dtype=np.int32),
+            "evaluation_due": np.ones(4, dtype=bool),
+            "cache_hit": False,
+        }
+
+    monkeypatch.setattr(trainer, "load_or_compute_ml_replay_rows", fake_load_rows)
+    kwargs = {
+        "packet_augmentation": {"packet_loss": 0.05},
+        "augmentation_seeds": trainer.FIXED_PACKET_AUGMENTATION_SEEDS,
+        "feature_names": [trainer.EXPORTED_FEATURE_NAMES[0]],
+        "use_cache": True,
+        "use_runtime_cache": True,
+    }
+
+    first = trainer._load_or_compute_packet_augmentation_mix_rows(record, **kwargs)
+    second = trainer._load_or_compute_packet_augmentation_mix_rows(record, **kwargs)
+
+    assert first["cache_hit"] is False
+    assert second["cache_hit"] is True
+    assert calls == [20260807, 20260808]
+    np.testing.assert_array_equal(first["X"], second["X"])
+    assert (
+        len(list((cache_root / "ml_training_augmentation_rows").glob("*.npz")))
+        == 1
+    )
+
+
 def test_normalized_feature_bounds_clamp_nonnegative_candidates():
     feature_names = [
         "turb_mad_over_mean",

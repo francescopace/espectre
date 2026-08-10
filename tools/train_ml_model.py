@@ -462,7 +462,10 @@ def _production_tracker_feature_kwargs(feature_names, coherence_tracker, shape_t
 
 TRAINING_FEATURES = DEFAULT_FEATURES
 DEFAULT_AGGREGATED_CANDIDATE_WIDTH = TURB_IQR_AGGREGATION_WIDTH
-FIXED_PACKET_AUGMENTATION_SEED = 20260807
+FIXED_PACKET_AUGMENTATION_SEEDS = (20260807, 20260808)
+# Single-view diagnostics retain the first promoted seed. Production training
+# uses both fixed views through training_packet_augmentation_seeds().
+FIXED_PACKET_AUGMENTATION_SEED = FIXED_PACKET_AUGMENTATION_SEEDS[0]
 
 
 def selectable_features():
@@ -1414,10 +1417,170 @@ def _host_feature_stream_provenance(feature_names, *,
 
 
 def training_packet_augmentation_seed(packet_augmentation):
-    """Return the fixed packet-augmentation seed used across training runs."""
+    """Return the primary fixed seed used by single-view stress diagnostics."""
     if not packet_augmentation:
         return None
     return FIXED_PACKET_AUGMENTATION_SEED
+
+
+def training_packet_augmentation_seeds(packet_augmentation):
+    """Return the promoted fixed augmentation views used for model training."""
+    if not packet_augmentation:
+        return tuple()
+    return FIXED_PACKET_AUGMENTATION_SEEDS
+
+
+def _mix_packet_augmentation_replay_rows(view_rows):
+    """Return one constant-size deterministic mix of augmented replay views.
+
+    View ``i`` contributes row positions congruent to ``i`` modulo the number
+    of views. The rule is local to each source capture, so adding or removing a
+    different capture cannot change an existing file's assignments.
+    """
+    rows_by_view = list(view_rows)
+    if not rows_by_view:
+        raise ValueError("at least one packet-augmentation view is required")
+    feature_names = list(rows_by_view[0]['feature_names'])
+    row_keys = ('X', 'packet_index', 'evaluation_index', 'reset_index', 'evaluation_due')
+    selected = {key: [] for key in row_keys}
+    view_count = len(rows_by_view)
+    for view_index, rows in enumerate(rows_by_view):
+        if list(rows['feature_names']) != feature_names:
+            raise ValueError("packet-augmentation views have different feature schemas")
+        row_count = int(len(rows['X']))
+        mask = np.arange(row_count, dtype=np.int64) % view_count == view_index
+        for key in row_keys:
+            default_dtype = bool if key == 'evaluation_due' else np.int32
+            if key == 'X':
+                values = np.asarray(rows[key], dtype=np.float32)
+            else:
+                values = np.asarray(rows.get(key, np.empty(0)), dtype=default_dtype)
+            if len(values) != row_count:
+                raise ValueError(f"packet-augmentation row field {key} has inconsistent length")
+            selected[key].append(values[mask])
+    return {
+        'X': np.concatenate(selected['X'], axis=0).astype(np.float32, copy=False),
+        'feature_names': feature_names,
+        'packet_index': np.concatenate(selected['packet_index']).astype(np.int32, copy=False),
+        'evaluation_index': np.concatenate(selected['evaluation_index']).astype(np.int32, copy=False),
+        'reset_index': np.concatenate(selected['reset_index']).astype(np.int32, copy=False),
+        'evaluation_due': np.concatenate(selected['evaluation_due']).astype(bool, copy=False),
+    }
+
+
+def _packet_augmentation_mix_stream_provenance(packet_augmentation,
+                                                augmentation_seeds,
+                                                feature_names,
+                                                use_runtime_cache):
+    """Return the complete identity for the promoted mixed-view row cache."""
+    seeds = tuple(int(seed) for seed in augmentation_seeds)
+    if not packet_augmentation or not seeds:
+        return None
+    if use_runtime_cache:
+        views = [
+            _packet_augmentation_stream_provenance(packet_augmentation, seed)
+            for seed in seeds
+        ]
+    else:
+        views = [
+            _host_feature_stream_provenance(
+                feature_names,
+                packet_augmentation=packet_augmentation,
+                augmentation_seed=seed,
+            )
+            for seed in seeds
+        ]
+    return {
+        'transform': 'training_packet_augmentation_mix_v1',
+        'views': views,
+        'selection': {
+            'scope': 'source_file',
+            'rule': 'row_position_modulo_view_count',
+            'offsets': list(range(len(seeds))),
+        },
+        'implementation_sha256': _implementation_source_digest(
+            _mix_packet_augmentation_replay_rows,
+        ),
+    }
+
+
+def _load_or_compute_packet_augmentation_mix_rows(record, *,
+                                                   packet_augmentation,
+                                                   augmentation_seeds,
+                                                   feature_names,
+                                                   use_cache,
+                                                   use_runtime_cache):
+    """Load or build one cached deterministic mix for a source capture."""
+    seeds = tuple(int(seed) for seed in augmentation_seeds)
+    if len(seeds) < 2:
+        raise ValueError("mixed packet augmentation requires at least two seeds")
+    mix_provenance = _packet_augmentation_mix_stream_provenance(
+        packet_augmentation,
+        seeds,
+        feature_names,
+        use_runtime_cache,
+    )
+    parameters = npz_cache.ml_training_augmentation_row_parameters(
+        selected_subcarriers=DEFAULT_SUBCARRIERS,
+        feature_names=feature_names,
+        stream_provenance=mix_provenance,
+    )
+    if use_cache:
+        cached = npz_cache.load_ml_training_augmentation_row_artifact(
+            record['path'],
+            parameters=parameters,
+        )
+        if cached is not None:
+            cached['cache_hit'] = True
+            return cached
+
+    views = []
+    for seed in seeds:
+        packets_factory = lambda current_record=record, current_seed=seed: (
+            _prepare_feature_packets_for_record(
+                current_record,
+                packet_augmentation=packet_augmentation,
+                augmentation_seed=current_seed,
+            )
+        )
+        if use_runtime_cache:
+            rows = load_or_compute_ml_replay_rows(
+                record['path'],
+                packets_factory=packets_factory,
+                selected_subcarriers=DEFAULT_SUBCARRIERS,
+                window_size=None,
+                feature_names=feature_names,
+                sample_contract=TRAINING_SAMPLE_CONTRACT,
+                use_cache=use_cache,
+                stream_provenance=_packet_augmentation_stream_provenance(
+                    packet_augmentation,
+                    seed,
+                ),
+            )
+        else:
+            rows = load_or_compute_host_feature_rows(
+                record['path'],
+                packets_factory=packets_factory,
+                feature_names=feature_names,
+                sample_contract=TRAINING_SAMPLE_CONTRACT,
+                use_cache=use_cache,
+                stream_provenance=_host_feature_stream_provenance(
+                    feature_names,
+                    packet_augmentation=packet_augmentation,
+                    augmentation_seed=seed,
+                ),
+            )
+        views.append(rows)
+
+    mixed = _mix_packet_augmentation_replay_rows(views)
+    if use_cache:
+        npz_cache.save_ml_training_augmentation_row_artifact(
+            record['path'],
+            parameters=parameters,
+            rows=mixed,
+        )
+    mixed['cache_hit'] = False
+    return mixed
 
 
 def _normalize_augmentation_range(value, *, name, integer=False, minimum=0.0):
@@ -1687,10 +1850,26 @@ def augment_csi_packets(packets, config, seed):
 def load_training_matrix(environment_filter=None, excluded_chips=None,
                          feature_names=None, use_cache=True,
                          packet_augmentation=None, augmentation_seed=None,
+                         augmentation_seeds=None,
                          dataset_roles=DEFAULT_TRAINING_ROLES,
                          timing_quality_policy=DEFAULT_TIMING_QUALITY_POLICY,
                          timing_warn_weight=DEFAULT_TIMING_WARN_WEIGHT):
     """Load the canonical reset-aware streaming feature matrix used by training."""
+    if augmentation_seed is not None and augmentation_seeds is not None:
+        raise ValueError("pass augmentation_seed or augmentation_seeds, not both")
+    resolved_augmentation_seeds = (
+        tuple(int(seed) for seed in augmentation_seeds)
+        if augmentation_seeds is not None
+        else tuple()
+    )
+    if len(set(resolved_augmentation_seeds)) != len(resolved_augmentation_seeds):
+        raise ValueError("augmentation_seeds must not contain duplicates")
+    if (
+        packet_augmentation
+        and augmentation_seed is None
+        and not resolved_augmentation_seeds
+    ):
+        raise ValueError("packet augmentation requires a deterministic seed")
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
     feature_names = list(feature_names)
@@ -1753,10 +1932,25 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
     actual_feature_names = feature_names
 
     for record in records:
-        if use_runtime_cache and packet_augmentation:
+        if packet_augmentation and len(resolved_augmentation_seeds) > 1:
+            replay_rows = _load_or_compute_packet_augmentation_mix_rows(
+                record,
+                packet_augmentation=packet_augmentation,
+                augmentation_seeds=resolved_augmentation_seeds,
+                feature_names=feature_names,
+                use_cache=use_cache,
+                use_runtime_cache=use_runtime_cache,
+            )
+            cache_hit = bool(replay_rows.get('cache_hit', False))
+        elif use_runtime_cache and packet_augmentation:
+            resolved_seed = (
+                resolved_augmentation_seeds[0]
+                if resolved_augmentation_seeds
+                else augmentation_seed
+            )
             stream_provenance = _packet_augmentation_stream_provenance(
                 packet_augmentation,
-                augmentation_seed,
+                resolved_seed,
             )
             replay_rows = load_or_compute_ml_replay_rows(
                 record['path'],
@@ -1764,7 +1958,7 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
                     _prepare_feature_packets_for_record(
                         current_record,
                         packet_augmentation=packet_augmentation,
-                        augmentation_seed=augmentation_seed,
+                        augmentation_seed=resolved_seed,
                     )
                 ),
                 selected_subcarriers=DEFAULT_SUBCARRIERS,
@@ -1786,10 +1980,15 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
             )
             cache_hit = bool(replay_rows.get('cache_hit', False))
         else:
+            resolved_seed = (
+                resolved_augmentation_seeds[0]
+                if resolved_augmentation_seeds
+                else augmentation_seed
+            )
             stream_provenance = _host_feature_stream_provenance(
                 feature_names,
                 packet_augmentation=packet_augmentation,
-                augmentation_seed=augmentation_seed,
+                augmentation_seed=resolved_seed,
             )
             replay_rows = load_or_compute_host_feature_rows(
                 record['path'],
@@ -1797,7 +1996,7 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
                     _prepare_feature_packets_for_record(
                         current_record,
                         packet_augmentation=packet_augmentation,
-                        augmentation_seed=augmentation_seed,
+                        augmentation_seed=resolved_seed,
                     )
                 ),
                 feature_names=feature_names,
@@ -3236,7 +3435,10 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
         f"{format_augmentation_config(feature_augmentation, packet_augmentation, components=augment_components)}"
     )
     if packet_augmentation:
-        print(f"Packet augmentation seed: {FIXED_PACKET_AUGMENTATION_SEED}")
+        print(
+            "Packet augmentation seeds: "
+            + ", ".join(str(seed) for seed in FIXED_PACKET_AUGMENTATION_SEEDS)
+        )
     print(f"Torch device: {torch_device_label}")
     if excluded_chips is not None:
         print(f"Excluded chips: {', '.join(sorted(excluded_chips))}")
@@ -3260,7 +3462,9 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
             feature_names=feature_names,
             use_cache=use_cache,
             packet_augmentation=packet_augmentation,
-            augmentation_seed=training_packet_augmentation_seed(packet_augmentation),
+            augmentation_seeds=training_packet_augmentation_seeds(
+                packet_augmentation
+            ),
         )
         X_aug = aug_matrix['X']
         y_aug = aug_matrix['y']
@@ -4518,7 +4722,9 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             feature_names=feature_names,
             use_cache=use_cache,
             packet_augmentation=packet_augmentation,
-            augmentation_seed=training_packet_augmentation_seed(packet_augmentation),
+            augmentation_seeds=training_packet_augmentation_seeds(
+                packet_augmentation
+            ),
             timing_quality_policy=timing_quality_policy,
             timing_warn_weight=timing_warn_weight,
         )
@@ -4578,7 +4784,10 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         f"{format_augmentation_config(feature_augmentation, packet_augmentation, components=augment_components)}"
     )
     if packet_augmentation:
-        print(f"Packet augmentation seed: {FIXED_PACKET_AUGMENTATION_SEED}")
+        print(
+            "Packet augmentation seeds: "
+            + ", ".join(str(seed) for seed in FIXED_PACKET_AUGMENTATION_SEEDS)
+        )
     print(f"Torch device: {torch_device_label}\n")
     
     print(f"  Samples: {len(X)}")
@@ -6284,7 +6493,10 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         f"{format_augmentation_config(feature_augmentation, packet_augmentation, components=augment_components)}"
     )
     if packet_augmentation:
-        print(f"Packet augmentation seed: {FIXED_PACKET_AUGMENTATION_SEED}")
+        print(
+            "Packet augmentation seeds: "
+            + ", ".join(str(seed) for seed in FIXED_PACKET_AUGMENTATION_SEEDS)
+        )
     print(f"Torch device: {torch_device_label}")
     if environment_filter is not None:
         print(f"Environment filter: {', '.join(sorted(parse_environment_filter(environment_filter)))}")
@@ -7234,7 +7446,7 @@ def experiment_feature_ablation(feature_name, seed=None,
             feature_names=TRAINING_FEATURES,
             use_cache=use_cache,
             packet_augmentation=packet_augmentation,
-            augmentation_seed=training_packet_augmentation_seed(
+            augmentation_seeds=training_packet_augmentation_seeds(
                 packet_augmentation
             ),
             timing_quality_policy=timing_quality_policy,

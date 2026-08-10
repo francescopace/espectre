@@ -31,9 +31,9 @@ Host-side candidates live in `tools/lib/candidate_features.py`. Evaluate them wi
 
 ## Current Production ML Set
 
-The current production baseline is the compact phaseless seven-feature set. Only `turb_iqr_over_mean_aggr` reads a dedicated `W=5` adjacent-magnitude average; the other six inputs and Classic keep their normal amplitude paths. The exported topology is `7 -> 24 -> 12 -> 1`, with 505 parameters, the `base,drift,burst-loss` augmentation recipe, and false-positive weight `1.75`.
+The current production baseline is the compact phaseless seven-feature set. Only `turb_iqr_over_mean_aggr` reads a dedicated `W=5` adjacent-magnitude average; the other six inputs and Classic keep their normal amplitude paths. The exported topology is `7 -> 24 -> 12 -> 1`, with 505 parameters, the `base,drift,burst-loss` augmentation recipe, a deterministic constant-size row mix from packet seeds `20260807` and `20260808`, and false-positive weight `1.75`.
 
-Current detector results are generated in [performance/README.md](performance/README.md). See [2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md](adr/2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md) for the feature-selection campaign, its reproducibility evidence, and the rejected alternatives. The exported weight files own the metadata of the currently deployed training run.
+Current detector results are generated in [performance/README.md](performance/README.md). See [2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md](adr/2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md) for the feature-selection campaign and [2026-08-11-mix-complementary-training-augmentation-seeds.md](adr/2026-08-11-mix-complementary-training-augmentation-seeds.md) for the augmentation-view decision. The exported weight files own the metadata of the currently deployed training run.
 
 | Feature | Physical quantity and definition | Invariance | Retained feature evidence | Status |
 | --- | --- | --- | --- | --- |

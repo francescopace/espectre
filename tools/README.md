@@ -160,7 +160,10 @@ The main repository workflow and this training stack target Python `3.14`.
   `--augment` alone means `base,drift,burst-loss`, while explicit component
   lists support ablations (inference stays clean). The base component also
   scales stable packet cadence from `0.8` to `1.0`, so the temporal detector
-  window trains with fewer samples without treating that rate change as loss
+  window trains with fewer samples without treating that rate change as loss;
+  production training deterministically alternates per-file rows from packet
+  seeds `20260807` and `20260808`, retaining approximately one augmented matrix
+  instead of doubling its size
 - Reports blocked out-of-fold metrics plus worst and worst-five-tail session,
   lineage, chip, and source-file groups, splitting session metrics by real and
   synthetic provenance when synthetic derivatives are present
@@ -211,6 +214,7 @@ left unreachable entries:
 python prune_npz_cache.py
 python prune_npz_cache.py --artifact classic_replay_rows
 python prune_npz_cache.py --artifact ml_replay_rows
+python prune_npz_cache.py --artifact ml_training_augmentation_rows
 ```
 
 For the complete ML training workflow, promotion guidance, gain-stress

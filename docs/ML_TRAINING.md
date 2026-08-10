@@ -115,6 +115,8 @@ Bare `--augment` enables the promoted `base,drift,burst-loss` recipe:
 - `drift` injects a slow correlated packet-domain drift episode; and
 - `burst-loss` injects short packet-drop bursts.
 
+Production training builds two deterministic packet views with seeds `20260807` and `20260808`, then keeps alternating row positions from the two views within each source recording. This produces approximately one augmented row set rather than doubling the synthetic sample count, while exposing the model to the complementary false-positive and weak-recall stress tails of both seeds. The seed order and per-file modulo assignment are fixed; model seeds do not alter packet augmentation.
+
 Augmentation is train-only. Cross-validation scoring, selection, holdout, performance reporting, and runtime inference use clean replay features.
 
 Stable rate scaling is not packet loss. It selects samples across the source interval, rewrites timestamps and sequence numbers to the lower clean cadence, and lets the shared `1000 ms` detector window resolve to fewer samples. Loss and burst-loss augmentations retain gaps and contamination semantics.
@@ -197,7 +199,7 @@ Do not edit generated weight files manually. Export them through the trainer so 
 
 ## Cache Maintenance
 
-Training and replay tools persist runtime-aligned feature artifacts under `.npz_cache/`. Cache keys include the relevant source data, feature implementation, timing behavior, and augmentation provenance.
+Training and replay tools persist runtime-aligned feature artifacts under `.npz_cache/`. Cache keys include the relevant source data, feature implementation, timing behavior, and augmentation provenance. Mixed production augmentation is cached per source after deterministic row selection under `ml_training_augmentation_rows`; a warm load reads this combined artifact directly instead of rebuilding either seed view.
 
 Use `--no-cache` for a cold diagnostic run. Use `python tools/prune_npz_cache.py` to remove artifacts that are no longer reachable. Detailed cache behavior and pruning options belong in [tools/README.md](../tools/README.md).
 

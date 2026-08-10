@@ -27,10 +27,12 @@ from .repo_paths import cpp_core_dir, python_src_dir, repo_root
 CACHE_LAYOUT_VERSION = 2
 CLASSIC_REPLAY_ROW_ARTIFACT_VERSION = 1
 ML_REPLAY_ROW_ARTIFACT_VERSION = 3
+ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION = 1
 
 CURRENT_ARTIFACT_VERSIONS = {
     "classic_replay_rows": CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
     "ml_replay_rows": ML_REPLAY_ROW_ARTIFACT_VERSION,
+    "ml_training_augmentation_rows": ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION,
 }
 OBSOLETE_ARTIFACT_NAMES = {
     "feature_matrix",
@@ -514,6 +516,96 @@ def ml_replay_row_parameters(
     if stream_provenance is not None:
         parameters["stream_provenance"] = _json_safe(dict(stream_provenance))
     return parameters
+
+
+def ml_training_augmentation_row_parameters(
+    *,
+    selected_subcarriers: Any,
+    feature_names: Any,
+    stream_provenance: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return the identity for one deterministic mixed augmentation row set.
+
+    Unlike a single replay stream, a cached mix can contain views with distinct
+    effective window sizes. Its identity therefore follows the source capture,
+    requested feature schema, feature implementation, and complete mixing
+    provenance instead of pretending that the result has one window size.
+    """
+    return {
+        "artifact_version": ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION,
+        "sample_contract": "training_augmentation_row_mix_v1",
+        "selected_subcarriers": [int(sc) for sc in selected_subcarriers],
+        "feature_names": [str(name) for name in feature_names],
+        "feature_sources": _ml_feature_source_manifests(),
+        "stream_provenance": _json_safe(dict(stream_provenance)),
+    }
+
+
+def load_ml_training_augmentation_row_artifact(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Load one persisted deterministic mixed augmentation row set."""
+    payload = load_npz_artifact(
+        source_path,
+        artifact_name="ml_training_augmentation_rows",
+        artifact_version=ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION,
+        parameters=parameters,
+    )
+    if payload is None:
+        return None
+    return {
+        "X": np.asarray(payload.get("X", np.empty((0, 0))), dtype=np.float32),
+        "feature_names": np.asarray(
+            payload.get("feature_names", np.empty(0))
+        ).astype(str).tolist(),
+        "packet_index": np.asarray(
+            payload.get("packet_index", np.empty(0)), dtype=np.int32
+        ),
+        "evaluation_index": np.asarray(
+            payload.get("evaluation_index", np.empty(0)), dtype=np.int32
+        ),
+        "reset_index": np.asarray(
+            payload.get("reset_index", np.empty(0)), dtype=np.int32
+        ),
+        "evaluation_due": np.asarray(
+            payload.get("evaluation_due", np.empty(0)), dtype=bool
+        ),
+    }
+
+
+def save_ml_training_augmentation_row_artifact(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+    rows: Mapping[str, Any],
+) -> Path:
+    """Persist one deterministic mixed augmentation row set."""
+    return save_npz_artifact(
+        source_path,
+        artifact_name="ml_training_augmentation_rows",
+        artifact_version=ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION,
+        parameters=parameters,
+        payload={
+            "X": np.asarray(rows.get("X", np.empty((0, 0))), dtype=np.float32),
+            "feature_names": np.asarray(
+                [str(name) for name in rows.get("feature_names", ())]
+            ),
+            "packet_index": np.asarray(
+                rows.get("packet_index", np.empty(0)), dtype=np.int32
+            ),
+            "evaluation_index": np.asarray(
+                rows.get("evaluation_index", np.empty(0)), dtype=np.int32
+            ),
+            "reset_index": np.asarray(
+                rows.get("reset_index", np.empty(0)), dtype=np.int32
+            ),
+            "evaluation_due": np.asarray(
+                rows.get("evaluation_due", np.empty(0)), dtype=bool
+            ),
+        },
+    )
 
 
 def load_ml_replay_row_artifact(
