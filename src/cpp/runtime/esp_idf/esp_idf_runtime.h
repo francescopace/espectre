@@ -46,7 +46,9 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
  private:
   void update_live_telemetry_callback_();
   bool configure_detector_();
-  std::unique_ptr<BaseDetector> make_detector_(DetectionAlgorithm algorithm, float threshold);
+  std::unique_ptr<BaseDetector> make_detector_(DetectionAlgorithm algorithm, float threshold,
+                                               uint16_t window_packets);
+  void on_detector_window_changed_(uint16_t window_packets);
   void cancel_calibration_(bool notify_listener);
   void log_calibration_progress_(uint8_t percent, uint32_t packets, uint16_t target_packets);
   void on_wifi_connected_(const esp_netif_ip_info_t &ip_info);
@@ -66,6 +68,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void refresh_csi_local_identity_(uint32_t local_ip_addr);
 
   std::unique_ptr<BaseDetector> detector_;
+  uint16_t resolved_window_packets_{DETECTOR_DEFAULT_WINDOW_SIZE};
 
   CsiPipeline csi_pipeline_;
   WiFiLifecycleManager wifi_lifecycle_;

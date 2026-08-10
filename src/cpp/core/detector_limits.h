@@ -12,20 +12,23 @@
 
 namespace espectre {
 
+// The public contract is temporal. These packet counts are only the resolved
+// storage bounds used after the runtime has measured the CSI cadence.
+constexpr uint32_t DETECTOR_WINDOW_SIZE_MS_MIN = 1000U;
+constexpr uint32_t DETECTOR_WINDOW_SIZE_MS_MAX = 2000U;
+constexpr uint32_t DETECTOR_WINDOW_SIZE_MS_DEFAULT = 1000U;
 constexpr uint16_t DETECTOR_DEFAULT_WINDOW_SIZE = 100;
-// Measured floor: the window features are estimator averages, and under
-// roughly 100 samples they get noisy enough that startup calibration lifts
-// the threshold to hold false positives and recall collapses instead. A
-// 25-sample window scores 60.2% recall where 100 scores 98.7%.
-constexpr uint16_t DETECTOR_MIN_WINDOW_SIZE = 100;
-// Bounded by measurement, not stack: the detector working buffers are heap
-// allocated to the real window, so the ceiling now only caps how far the
-// window may drift from the rate the coefficients were fitted at. A window
-// wide enough to span several seconds smears short movements into the
-// background; the 1000 pps capture scores 83.5% recall at a 2 s window
-// against 75.1% at 200 samples, but at the cost of a slower response.
-// Kept in lockstep with RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX by static_assert.
-constexpr uint16_t DETECTOR_MAX_WINDOW_SIZE = 200;
+// At the supported 80 pps floor, the default one-second window resolves to 80
+// samples. The current augmented ML model scores 98.84% aggregate recall and
+// 0.02% false positives across the normal-link decimation sweep at this size.
+constexpr uint16_t DETECTOR_MIN_WINDOW_SIZE = 80;
+// Bounded by measurement, not stack: detector working buffers are allocated
+// to the resolved window, and the ceiling limits drift away from the feature
+// geometry used during fitting.
+constexpr uint16_t DETECTOR_MAX_WINDOW_SIZE = 1000;
+constexpr uint16_t DETECTOR_MIN_PACKET_RATE_PPS = 80U;
+constexpr uint32_t DETECTOR_MAX_SUPPORTED_PACKET_INTERVAL_US =
+    1000000U / DETECTOR_MIN_PACKET_RATE_PPS;
 
 constexpr uint16_t CALIBRATION_NUM_WINDOWS = 10;
 constexpr uint16_t CALIBRATION_DEFAULT_BUFFER_SIZE =
@@ -35,10 +38,11 @@ constexpr uint16_t CALIBRATION_DEFAULT_BUFFER_SIZE =
 // csi_features.h are what these durations resolve to at the nominal 100 pps; on
 // a stream that runs faster or slower they are re-derived from the measured
 // cadence. Keep aligned with src/python/micro_espectre/config.py.
-constexpr uint32_t SEG_WINDOW_US = 1000000U;         // Detector window span
 constexpr uint32_t EVALUATION_INTERVAL_US = 250000U; // Time between evaluations
 constexpr uint32_t L1_DELTA_LAG_US = 100000U;        // Profile-displacement lag
 constexpr uint32_t TURB_AUTOCORR_LAG_US = 10000U;    // Autocorrelation lag
+constexpr uint16_t DETECTOR_L1_DELTA_LAG_DEFAULT = 10U;
+constexpr uint16_t DETECTOR_AUTOCORR_LAG_DEFAULT = 1U;
 // The L1 profile ring is statically sized in firmware, so the displacement
 // lag is capped. 32 packets covers the 100 ms contract up to ~320 pps, well
 // past what any supported chip sustains; above that the lag saturates and
@@ -50,17 +54,11 @@ constexpr uint32_t TURB_AUTOCORR_LAG_US = 10000U;    // Autocorrelation lag
 // 32 x 12 x 4 = 1536 bytes. An earlier revision of this comment said 4.5 KB,
 // which never matched the declaration.
 constexpr uint16_t L1_DELTA_LAG_MAX = 32;
-// Rate-derived windows use the same bounds as configured ones: the floor is
-// the measured one and the ceiling is the stack one, and neither changes
-// because the cadence rather than the operator chose the value.
-// Treat 80-133 pps as nominal: adapting inside this band costs feature
-// homogeneity and buys nothing.
-constexpr float RATE_ADAPTATION_DEAD_BAND = 0.25f;
 // A cadence faster than this is not a CSI stream, it is a batch delivered
 // faster than real time. The packet-rate estimator ignores it when deriving
 // feature geometry; evaluation cadence still follows the packet timestamps.
 // There is no upper bound because a stream slower than one window is already
-// handled as a hole by SEG_WINDOW_US.
+// handled as a hole by the configured detector window duration.
 constexpr uint32_t MIN_PLAUSIBLE_PACKET_INTERVAL_US = 200U;    // 5000 pps
 
 }  // namespace espectre

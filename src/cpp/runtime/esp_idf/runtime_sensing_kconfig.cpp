@@ -30,8 +30,8 @@
 #ifndef CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML
 #define CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML 0
 #endif
-#ifndef CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE
-#define CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE 100
+#ifndef CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS
+#define CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS 1000
 #endif
 #ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE
 #define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE 100
@@ -45,8 +45,8 @@
 #ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
 #define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING 1
 #endif
-#ifndef CONFIG_ESPECTRE_PUBLISH_INTERVAL
-#define CONFIG_ESPECTRE_PUBLISH_INTERVAL 100
+#ifndef CONFIG_ESPECTRE_PUBLISH_INTERVAL_MS
+#define CONFIG_ESPECTRE_PUBLISH_INTERVAL_MS 1000
 #endif
 #ifndef CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS
 #define CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS 250
@@ -145,12 +145,12 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
 
   config.segmentation_threshold = runtime_default_threshold(config.detection_algorithm);
 
-  config.segmentation_window_size = static_cast<uint16_t>(
-      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE),
-                               RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT,
-                               RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN,
-                               RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX,
-                               "CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE"));
+  config.segmentation_window_size_ms =
+      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS),
+                               RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT,
+                               RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN,
+                               RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX,
+                               "CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS");
   config.traffic_generator_rate =
       clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE),
                                RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT,
@@ -163,10 +163,12 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
 #else
   config.traffic_generator_mode = RuntimeTrafficMode::PING;
 #endif
-  config.publish_interval =
-      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_PUBLISH_INTERVAL),
-                               RUNTIME_PUBLISH_INTERVAL_DEFAULT, RUNTIME_INTERVAL_MIN,
-                               RUNTIME_INTERVAL_MAX, "CONFIG_ESPECTRE_PUBLISH_INTERVAL");
+  config.publish_interval_ms =
+      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_PUBLISH_INTERVAL_MS),
+                               RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT,
+                               RUNTIME_PUBLISH_INTERVAL_MS_MIN,
+                               RUNTIME_PUBLISH_INTERVAL_MS_MAX,
+                               "CONFIG_ESPECTRE_PUBLISH_INTERVAL_MS");
   config.evaluation_interval_ms =
       clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS),
                                RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT,

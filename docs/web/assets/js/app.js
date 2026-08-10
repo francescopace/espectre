@@ -317,7 +317,7 @@
         set('diag-chip', chip || '—');
         set('diag-detector', snapshot.detector);
         set('diag-threshold', snapshot.threshold);
-        set('diag-window', snapshot.window);
+        set('diag-window', snapshot.window_ms ? snapshot.window_ms + ' ms' : undefined);
         set('diag-lowpass', snapshot.lowpass
             ? snapshot.lowpass + (snapshot.lowpass_cutoff ? ' · ' + snapshot.lowpass_cutoff + ' Hz' : '')
             : undefined);
@@ -330,7 +330,7 @@
             snapshot.traffic_rate && snapshot.traffic_rate + ' pkt/s',
             snapshot.traffic_adaptive === 'on' ? 'adaptive' : snapshot.traffic_adaptive === 'off' ? 'fixed' : ''
         ].filter(Boolean).join(' · '));
-        set('diag-publish', snapshot.publish_interval && 'every ' + snapshot.publish_interval + ' pkts');
+        set('diag-publish', snapshot.publish_interval_ms && 'every ' + snapshot.publish_interval_ms + ' ms');
         set('diag-evaluation', snapshot.evaluation_interval_ms && 'every ' + snapshot.evaluation_interval_ms + ' ms');
         setConnectionDiagnostic('diag-wifi', '.js-wifi-status-dot', snapshot.wifi_connected);
         set('diag-wifi-band', snapshot.wifi_band_policy);
@@ -395,7 +395,7 @@
                 traffic_mode: 'ping',
                 traffic_rate: '98',
                 traffic_adaptive: 'on',
-                publish_interval: '100',
+                publish_interval_ms: '1000',
                 evaluation_interval_ms: '250',
                 wifi_connected: 'true',
                 wifi_band_policy: '2g',

@@ -320,7 +320,8 @@ RateResult run_rate_case(const PacketRateSourceSelection& selection, int target_
   TEST_ASSERT_TRUE_MESSAGE(
       replay::calibrate_classic_detector(
           classic,
-          CALIBRATION_DEFAULT_BUFFER_SIZE,
+          replay::calibration_packet_count(
+              baseline_metadata, static_capture.num_packets),
           static_ptrs.data(),
           static_capture.num_packets,
           static_capture.rssi_dbm.empty() ? nullptr : static_capture.rssi_dbm.data(),
@@ -467,12 +468,23 @@ void test_packet_rate_adaptation_regression(void) {
   }
 }
 
+void test_detector_window_covers_the_configured_duration(void) {
+  constexpr uint32_t kIntervalUs = 10723U;
+  constexpr uint32_t kDurationUs = 1000000U;
+  const DetectorTiming timing = derive_detector_timing(kIntervalUs, 1000U);
+
+  TEST_ASSERT_EQUAL(94U, timing.window_packets);
+  TEST_ASSERT_TRUE(static_cast<uint32_t>(timing.window_packets) * kIntervalUs >= kDurationUs);
+  TEST_ASSERT_TRUE(static_cast<uint32_t>(timing.window_packets - 1U) * kIntervalUs < kDurationUs);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   (void) argc;
   (void) argv;
   UNITY_BEGIN();
+  RUN_TEST(test_detector_window_covers_the_configured_duration);
   RUN_TEST(test_packet_rate_adaptation_regression);
   return UNITY_END();
 }

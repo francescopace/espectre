@@ -187,6 +187,8 @@ describe('website UX and content contracts', () => {
         assert.doesNotMatch(index, /id="diag-traffic"/);
         assert.match(app, /set\('diag-traffic-mode', snapshot\.traffic_mode\)/);
         assert.match(app, /set\('diag-traffic-rate'/);
+        assert.match(app, /snapshot\.publish_interval_ms && 'every ' \+ snapshot\.publish_interval_ms \+ ' ms'/);
+        assert.doesNotMatch(app, /snapshot\.publish_interval\b|every 100 pkts/);
         assert.match(app, /snapshot\.evaluation_interval_ms && 'every ' \+ snapshot\.evaluation_interval_ms \+ ' ms'/);
         assert.doesNotMatch(app, /snapshot\.evaluation_interval\b|every 25 pkts/);
         assert.match(index, /class="tool-note runtime-hits-caption"[^>]*>Consecutive evaluations above or below the threshold required to enter or leave the motion state\.<\/p>/);

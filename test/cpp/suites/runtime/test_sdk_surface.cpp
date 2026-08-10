@@ -74,8 +74,8 @@ void test_default_runtime_config_is_a_working_sensing_config(void) {
 
   TEST_ASSERT_EQUAL_UINT8(RUNTIME_MOTION_ON_HITS_DEFAULT, config.motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(RUNTIME_MOTION_OFF_HITS_DEFAULT, config.motion_off_hits);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT),
-                        static_cast<int>(config.segmentation_window_size));
+  TEST_ASSERT_EQUAL(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT,
+                    config.segmentation_window_size_ms);
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT),
                         static_cast<int>(config.traffic_generator_rate));
 
@@ -90,14 +90,15 @@ void test_documented_defaults_sit_inside_documented_ranges(void) {
   // integrators at.
   const RuntimeConfig config;
 
-  TEST_ASSERT_TRUE(validate_runtime_uint32(config.segmentation_window_size,
-                                           RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN,
-                                           RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX));
+  TEST_ASSERT_TRUE(validate_runtime_uint32(config.segmentation_window_size_ms,
+                                           RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN,
+                                           RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX));
   TEST_ASSERT_TRUE(validate_runtime_uint32(config.traffic_generator_rate,
                                            RUNTIME_TRAFFIC_GENERATOR_RATE_MIN,
                                            RUNTIME_TRAFFIC_GENERATOR_RATE_MAX));
-  TEST_ASSERT_TRUE(validate_runtime_uint32(config.publish_interval, RUNTIME_INTERVAL_MIN,
-                                           RUNTIME_INTERVAL_MAX));
+  TEST_ASSERT_TRUE(validate_runtime_uint32(config.publish_interval_ms,
+                                           RUNTIME_PUBLISH_INTERVAL_MS_MIN,
+                                           RUNTIME_PUBLISH_INTERVAL_MS_MAX));
   TEST_ASSERT_TRUE(validate_runtime_uint32(config.evaluation_interval_ms,
                                            RUNTIME_EVALUATION_INTERVAL_MS_MIN,
                                            RUNTIME_EVALUATION_INTERVAL_MS_MAX));

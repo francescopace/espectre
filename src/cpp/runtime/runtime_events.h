@@ -64,7 +64,7 @@ class IRuntimeListener {
    */
   virtual void on_motion_state_changed(const RuntimeSnapshot &snapshot) {}
   /**
-   * Heartbeat, emitted every `RuntimeConfig::publish_interval` packets.
+   * Heartbeat, emitted every `RuntimeConfig::publish_interval_ms` milliseconds.
    *
    * Use it for periodic telemetry and status logging rather than polling.
    *

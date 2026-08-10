@@ -9,8 +9,13 @@ License: GPLv3
 
 from unittest.mock import MagicMock
 
-from config import SEG_WINDOW_SIZE
+from config import SEGMENTATION_WINDOW_SIZE_MS
+from runtime_policy import derive_detector_timing, nominal_packet_interval_us
 from segmentation import SegmentationContext
+
+DEFAULT_WINDOW_PACKETS = derive_detector_timing(
+    nominal_packet_interval_us(100), SEGMENTATION_WINDOW_SIZE_MS
+)["window_packets"]
 
 
 class TestSegmentationFilterErrors:
@@ -21,7 +26,7 @@ class TestSegmentationFilterErrors:
         ctx = SegmentationContext(enable_lowpass=True)
         # Should have lowpass filter initialized
         assert ctx.lowpass_filter is not None
-        assert ctx.window_size == SEG_WINDOW_SIZE  # Matches C++ DETECTOR_DEFAULT_WINDOW_SIZE
+        assert ctx.window_size == DEFAULT_WINDOW_PACKETS
 
     def test_hampel_init_success(self):
         """Test that hampel filter initializes correctly"""

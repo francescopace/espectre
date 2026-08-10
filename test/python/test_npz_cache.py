@@ -292,14 +292,16 @@ def test_trainer_and_validator_address_the_same_time_aware_artifact(
     )
 
     assert len(calls) == 1
+    assert calls[0]["window_size"] is None
+    resolved_window_size = 100
     validator_parameters = npz_cache.ml_replay_row_parameters(
         selected_subcarriers=calls[0]["selected_subcarriers"],
-        window_size=calls[0]["window_size"],
+        window_size=resolved_window_size,
         feature_names=calls[0]["feature_names"],
     )
     expected_parameters = npz_cache.ml_replay_row_parameters(
         selected_subcarriers=validator.DEFAULT_SUBCARRIERS,
-        window_size=validator.SEG_WINDOW_SIZE,
+        window_size=resolved_window_size,
         feature_names=feature_names,
     )
     assert validator_parameters == expected_parameters

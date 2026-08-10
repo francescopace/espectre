@@ -76,9 +76,9 @@ constexpr float RUNTIME_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_ML_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT = 1.0f;
 
-constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN = 100;
-constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX = 200;
-constexpr uint16_t RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT = 100;
+constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN = 1000U;
+constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX = 2000U;
+constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT = 1000U;
 
 constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MIN = 0;
 // Arithmetic-safety bound, not a capability claim: the real ceiling is the
@@ -88,9 +88,9 @@ constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MAX = 100000;
 constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT = 100;
 constexpr bool RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT = true;
 
-constexpr uint32_t RUNTIME_INTERVAL_MIN = 1;
-constexpr uint32_t RUNTIME_INTERVAL_MAX = 1000;
-constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_DEFAULT = 100;
+constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_MS_MIN = 100;
+constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_MS_MAX = 60000;
+constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT = 1000;
 constexpr uint32_t RUNTIME_EVALUATION_INTERVAL_MS_MIN = 10;
 constexpr uint32_t RUNTIME_EVALUATION_INTERVAL_MS_MAX = 10000;
 constexpr uint32_t RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT = 250;
@@ -119,10 +119,6 @@ constexpr uint8_t RUNTIME_STREAM_TX_BATCH_RECORDS_DEFAULT = 4;
 
 constexpr uint16_t RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT = 5555;
 
-constexpr uint32_t runtime_publish_interval_default(uint32_t traffic_generator_rate) {
-  return traffic_generator_rate > 0U ? traffic_generator_rate : RUNTIME_PUBLISH_INTERVAL_DEFAULT;
-}
-
 constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
   return algorithm == DetectionAlgorithm::CLASSIC ? CLASSIC_MAX_THRESHOLD
                                                    : RUNTIME_ML_THRESHOLD_MAX;
@@ -142,12 +138,12 @@ static_assert(RUNTIME_ML_THRESHOLD_MAX == CLASSIC_MAX_THRESHOLD,
               "Classic and ML probability scales must stay aligned");
 static_assert(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT == SEGMENTATION_DEFAULT_THRESHOLD,
               "Runtime segmentation threshold default drifted from threshold.h");
-static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MIN == DETECTOR_MIN_WINDOW_SIZE,
-              "Runtime segmentation window min drifted from base_detector.h");
-static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MAX == DETECTOR_MAX_WINDOW_SIZE,
-              "Runtime segmentation window max drifted from base_detector.h");
-static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT == DETECTOR_DEFAULT_WINDOW_SIZE,
-              "Runtime segmentation window default drifted from base_detector.h");
+static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN == DETECTOR_WINDOW_SIZE_MS_MIN,
+              "Runtime segmentation window duration min drifted from detector_limits.h");
+static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX == DETECTOR_WINDOW_SIZE_MS_MAX,
+              "Runtime segmentation window duration max drifted from detector_limits.h");
+static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT == DETECTOR_WINDOW_SIZE_MS_DEFAULT,
+              "Runtime segmentation window duration default drifted from detector_limits.h");
 static_assert(RUNTIME_LOWPASS_CUTOFF_MIN == LOWPASS_CUTOFF_MIN, "Runtime lowpass cutoff min drifted from filters.h");
 static_assert(RUNTIME_LOWPASS_CUTOFF_MAX == LOWPASS_CUTOFF_MAX, "Runtime lowpass cutoff max drifted from filters.h");
 static_assert(RUNTIME_LOWPASS_CUTOFF_DEFAULT == LOWPASS_CUTOFF_DEFAULT,

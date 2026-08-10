@@ -86,6 +86,35 @@ inline uint32_t measure_stream_interval_us(const ReplayPacketMetadata& metadata,
       nominal_interval_us);
 }
 
+/** Resolve the production time window for one replay stream. */
+inline uint16_t detector_window_packets(const ReplayPacketMetadata& metadata,
+                                        int packet_count) {
+  const uint32_t nominal_interval_us =
+      csi_replay_timing::nominal_packet_interval_us(DETECTOR_DEFAULT_WINDOW_SIZE);
+  const uint32_t measured_interval_us = measure_stream_interval_us(
+      metadata, packet_count, nominal_interval_us);
+  return derive_detector_timing(
+             measured_interval_us,
+             RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT)
+      .window_packets;
+}
+
+/** Resolve the production startup duration for one replay stream. */
+inline uint16_t calibration_packet_count(const ReplayPacketMetadata& metadata,
+                                         int packet_count) {
+  const uint32_t nominal_interval_us =
+      csi_replay_timing::nominal_packet_interval_us(DETECTOR_DEFAULT_WINDOW_SIZE);
+  const uint32_t measured_interval_us = measure_stream_interval_us(
+      metadata, packet_count, nominal_interval_us);
+  const uint64_t duration_us =
+      static_cast<uint64_t>(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT) *
+      1000U * CALIBRATION_NUM_WINDOWS;
+  const uint64_t rounded_packets =
+      (duration_us + measured_interval_us / 2U) / measured_interval_us;
+  return static_cast<uint16_t>(std::max<uint64_t>(
+      1U, std::min<uint64_t>(rounded_packets, UINT16_MAX)));
+}
+
 inline void reset_detector(BaseDetector& detector,
                            csi_replay_timing::TimeAwareCadence& cadence,
                            csi_replay_timing::PacketTimingTracker& tracker) {
@@ -178,7 +207,8 @@ inline bool calibrate_classic_detector(
           .interval_us;
   csi_replay_timing::PacketTimingTracker timing_tracker(nominal_interval_us);
   csi_replay_timing::TimeAwareCadence cadence(
-      detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT);
+      detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT,
+      nominal_interval_us);
   detector.on_startup_calibration_begin();
   calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
 
@@ -249,7 +279,8 @@ ReplayMetrics evaluate_detector(
       csi_replay_timing::nominal_packet_interval_us(detector.get_window_size()));
   csi_replay_timing::PacketTimingTracker timing_tracker(nominal_interval_us);
   csi_replay_timing::TimeAwareCadence cadence(
-      detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT);
+      detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT,
+      nominal_interval_us);
   int packets_since_reset = 0;
   int debug_contam_base = 0;
   int debug_contam_motion = 0;

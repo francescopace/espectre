@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE
+from config import DEFAULT_SUBCARRIERS
 from conftest import DATA_DIR, DATASET_INFO_PATH
 from runtime_policy import derive_detector_timing
 from tools.lib.dataset_metadata import measure_packet_interval_us
@@ -223,6 +223,7 @@ def _rate_summary(pair_spec: PacketRateSourcePair, target_pps: int) -> dict[str,
     static_packets, motion_packets = _decimated_pair(pair_spec, target_pps)
     interval_us = measure_packet_interval_us(static_packets)
     timing = derive_detector_timing(interval_us)
+    window_packets = timing["window_packets"]
     static_path = _dataset_path("static_presence", pair_spec.static_filename)
     motion_path = _dataset_path("motion", pair_spec.motion_filename)
     replay_provenance = {
@@ -238,7 +239,7 @@ def _rate_summary(pair_spec: PacketRateSourcePair, target_pps: int) -> dict[str,
         static_packets,
         motion_packets,
         tuple(DEFAULT_SUBCARRIERS),
-        SEG_WINDOW_SIZE,
+        window_packets,
     )
     assert classic_packet_result is not None, (
         f"Classic packet replay calibration failed at {target_pps} pps"
@@ -253,7 +254,7 @@ def _rate_summary(pair_spec: PacketRateSourcePair, target_pps: int) -> dict[str,
             motion_packets=motion_packets,
             selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
             replay_kind="classic_packet_rate_adaptation",
-            warmup_packets=SEG_WINDOW_SIZE,
+            warmup_packets=window_packets,
             replay_provenance=replay_provenance,
         )
     )
@@ -266,14 +267,14 @@ def _rate_summary(pair_spec: PacketRateSourcePair, target_pps: int) -> dict[str,
         static_path,
         packets=static_packets,
         selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
-        window_size=SEG_WINDOW_SIZE,
+        window_size=window_packets,
         stream_provenance={**replay_provenance, "phase": "static_presence"},
     )
     motion_ml_rows = load_or_compute_ml_replay_rows(
         motion_path,
         packets=motion_packets,
         selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
-        window_size=SEG_WINDOW_SIZE,
+        window_size=window_packets,
         stream_provenance={**replay_provenance, "phase": "motion"},
     )
     ml_metrics, _feature_payload = _compute_ml_row_result(

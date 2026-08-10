@@ -32,6 +32,7 @@ from tools.lib.csi_io import load_npz_as_packets, load_static_presence_and_motio
 from tools.lib.dataset_metadata import (
     DATA_DIR,
     estimate_runtime_threshold,
+    detector_window_packets,
     load_dataset_info,
     measure_packet_interval_us,
     resolve_explicit_pair,
@@ -45,7 +46,7 @@ from tools.lib.performance_report import (
 )
 from tools.lib.ui import show_plot_window
 from config import (
-    SEG_WINDOW_SIZE,
+    SEGMENTATION_WINDOW_SIZE_MS,
     ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
     ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF,
     DEFAULT_SUBCARRIERS,
@@ -65,7 +66,7 @@ except ImportError:
     ML_DEFAULT_THRESHOLD = None
 
 # Configuration
-WINDOW_SIZE = SEG_WINDOW_SIZE
+WINDOW_SIZE_MS = SEGMENTATION_WINDOW_SIZE_MS
 THRESHOLD = 1.0
 
 
@@ -223,7 +224,14 @@ def compute_method_results(methods, method_thresholds):
 class ClassicDetectorAdapter:
     """Compatibility wrapper around the production ClassicDetector."""
 
-    def __init__(self, packets, window_size=SEG_WINDOW_SIZE, threshold=1.0, track_data=False):
+    def __init__(
+        self,
+        packets,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        threshold=1.0,
+        track_data=False,
+    ):
+        window_size = detector_window_packets(packets, window_size_ms)
         self._detector = ClassicDetector(
             window_size=window_size,
             threshold=threshold,
@@ -276,7 +284,13 @@ class ClassicDetectorAdapter:
 class MLDetectorAdapter:
     """Compatibility wrapper around production MLDetector."""
 
-    def __init__(self, packets, window_size=SEG_WINDOW_SIZE, track_data=False):
+    def __init__(
+        self,
+        packets,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        track_data=False,
+    ):
+        window_size = detector_window_packets(packets, window_size_ms)
         self._detector = ProdMLDetector(
             window_size=window_size,
             threshold=ML_DEFAULT_THRESHOLD,
@@ -575,7 +589,7 @@ def print_comparison_summary(methods, classic_baseline, classic_movement,
     
     print("Configuration:")
     print(f"  Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
-    print(f"  Window Size: {WINDOW_SIZE}")
+    print(f"  Window: {WINDOW_SIZE_MS} ms")
     print(f"  Classic runtime threshold: {threshold}")
     if method_thresholds:
         print("  Method thresholds:")
@@ -681,7 +695,7 @@ def run_all_chips():
         result = compare_detection_methods(
             static_presence_packets,
             motion_packets,
-            WINDOW_SIZE,
+            WINDOW_SIZE_MS,
             chip_threshold,
         )
         methods, classic_baseline, classic_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
@@ -841,7 +855,7 @@ def main():
     result = compare_detection_methods(
         static_presence_packets,
         motion_packets,
-        WINDOW_SIZE,
+        WINDOW_SIZE_MS,
         threshold,
     )
     methods, classic_baseline, classic_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result

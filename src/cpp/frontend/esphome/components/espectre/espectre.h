@@ -55,7 +55,9 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   float get_setup_priority() const override { return 275.0f; }
 
   // Setters for YAML configuration
-  void set_segmentation_window_size(uint16_t size) { this->runtime_.config().segmentation_window_size = size; }
+  void set_segmentation_window_size_ms(uint32_t size_ms) {
+    this->runtime_.config().segmentation_window_size_ms = size_ms;
+  }
   void set_wifi_band_policy(const std::string &policy) {
     this->runtime_.config().wifi_band_policy = parse_wifi_band_policy(policy.c_str());
   }
@@ -73,7 +75,9 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_detection_algorithm(const std::string &algo) {
     this->runtime_.config().detection_algorithm = parse_detection_algorithm(algo.c_str());
   }
-  void set_publish_interval(uint32_t interval) { this->runtime_.config().publish_interval = interval; }
+  void set_publish_interval_ms(uint32_t interval_ms) {
+    this->runtime_.config().publish_interval_ms = interval_ms;
+  }
   void set_evaluation_interval_ms(uint32_t interval_ms) {
     this->runtime_.config().evaluation_interval_ms = interval_ms;
   }

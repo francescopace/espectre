@@ -242,7 +242,9 @@ static LongRunMetrics evaluate_ml_long_recording() {
   LongRunMetrics metrics;
   const int pkt_size = csi_test_data::packet_size();
 
-  MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
+  const uint16_t window_size = replay::detector_window_packets(
+      static_presence_metadata(), csi_test_data::num_static_presence());
+  MLDetector detector(window_size, ML_DEFAULT_THRESHOLD);
   detector.configure_hampel(true);
   const replay::ReplayMetrics replay_metrics = replay::evaluate_detector(
       detector,
@@ -276,12 +278,16 @@ static LongRunMetrics evaluate_classic_long_recording() {
   LongRunMetrics metrics;
   const int pkt_size = csi_test_data::packet_size();
 
-  ClassicDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, CLASSIC_DEFAULT_THRESHOLD);
+  const uint16_t window_size = replay::detector_window_packets(
+      static_presence_metadata(), csi_test_data::num_static_presence());
+  ClassicDetector detector(window_size, CLASSIC_DEFAULT_THRESHOLD);
   detector.configure_lowpass(false);
   detector.configure_hampel(true);
 
   const int calibration_packets = std::min(csi_test_data::num_static_presence(),
-                                           static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
+                                           static_cast<int>(replay::calibration_packet_count(
+                                               static_presence_metadata(),
+                                               csi_test_data::num_static_presence())));
   float calibrated_threshold = CLASSIC_DEFAULT_THRESHOLD;
   replay::calibrate_classic_detector(
       detector,

@@ -32,6 +32,12 @@ class EvaluationCadence {
     evaluation_interval_us_ = (interval_ms > 0U ? interval_ms : 1U) * 1000U;
   }
 
+  /** Set the detector window duration used for gap handling and sizing. */
+  void set_window_size_ms(uint32_t window_size_ms) {
+    window_size_ms_ = window_size_ms > 0U ? window_size_ms : 1U;
+    window_duration_us_ = window_size_ms_ * 1000U;
+  }
+
   /**
    * Record one accepted packet and report whether an evaluation is due.
    *
@@ -47,10 +53,10 @@ class EvaluationCadence {
     packets_since_evaluation_++;
     if (has_last_packet_) {
       const uint32_t delta_us = elapsed_since_timestamp_us(arrival_us, last_packet_us_);
-      if (delta_us > 0U && delta_us < SEG_WINDOW_US) {
+      if (delta_us > 0U && delta_us < window_duration_us_) {
         packet_rate_.observe_interval(delta_us);
         elapsed_since_evaluation_us_ += delta_us;
-      } else if (delta_us >= SEG_WINDOW_US) {
+      } else if (delta_us >= window_duration_us_) {
         // A hole longer than one window leaves the detector holding stale
         // history, so drop the accumulated coverage rather than counting it.
         elapsed_since_evaluation_us_ = 0U;
@@ -77,6 +83,16 @@ class EvaluationCadence {
   /** Measured inter-packet interval, or the nominal one until ready. */
   uint32_t interval_us() const { return packet_rate_.interval_us(); }
 
+  /** Whether the measured stream supplies the supported minimum sample rate. */
+  bool detector_rate_supported() const {
+    return !rate_ready() || interval_us() <= DETECTOR_MAX_SUPPORTED_PACKET_INTERVAL_US;
+  }
+
+  /** Resolve the configured time window at the measured cadence. */
+  uint16_t detector_window_packets() const {
+    return derive_detector_timing(interval_us(), window_size_ms_).window_packets;
+  }
+
   /** Forget the accumulated coverage; keeps the rate estimate. */
   void reset_window() {
     packets_since_evaluation_ = 0U;
@@ -93,6 +109,8 @@ class EvaluationCadence {
 
  private:
   PacketRateEstimator packet_rate_{};
+  uint32_t window_size_ms_{DETECTOR_WINDOW_SIZE_MS_DEFAULT};
+  uint32_t window_duration_us_{DETECTOR_WINDOW_SIZE_MS_DEFAULT * 1000U};
   uint32_t evaluation_interval_us_{EVALUATION_INTERVAL_US};
   uint32_t last_packet_us_{0U};
   bool has_last_packet_{false};

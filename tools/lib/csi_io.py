@@ -66,6 +66,8 @@ try:
     from ml_detector import ML_DEFAULT_THRESHOLD
     from runtime_policy import (
         PacketTimingTracker,
+        derive_detector_timing,
+        duration_packet_count,
         make_evaluation_cadence,
         nominal_packet_interval_us,
     )
@@ -83,6 +85,8 @@ except ImportError:
     from src.ml_detector import ML_DEFAULT_THRESHOLD
     from src.runtime_policy import (
         PacketTimingTracker,
+        derive_detector_timing,
+        duration_packet_count,
         make_evaluation_cadence,
         nominal_packet_interval_us,
     )
@@ -1058,7 +1062,12 @@ class CollectionDetectorGate:
 
     @staticmethod
     def default_window_size() -> int:
-        return max(10, min(200, int(getattr(config, "SEG_WINDOW_SIZE", 100))))
+        return int(
+            derive_detector_timing(
+                nominal_packet_interval_us(100),
+                int(getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)),
+            )["window_packets"]
+        )
 
     @staticmethod
     def initial_threshold(algorithm: str) -> float:
@@ -1074,28 +1083,60 @@ class CollectionDetectorGate:
         )
         self.needs_calibration = detector_needs_startup_calibration(self.algorithm)
         initial_threshold = self.initial_threshold(self.algorithm)
+        self.detector = self._make_detector(initial_threshold)
+        self.calibrator = self._make_calibrator()
+        self.calibrated = not self.needs_calibration
+        self.current_metric = 0.0
+        self.current_threshold = float(self.detector.get_threshold())
+
+    def _make_detector(self, threshold):
         detector_class = load_detector_class(self.algorithm)
-        self.detector = detector_class(
+        return detector_class(
             window_size=self.window_size,
-            threshold=initial_threshold,
+            threshold=threshold,
             enable_lowpass=config.ENABLE_LOWPASS_FILTER,
             lowpass_cutoff=config.LOWPASS_CUTOFF,
             enable_hampel=config.ENABLE_HAMPEL_FILTER,
             hampel_window=config.HAMPEL_WINDOW,
             hampel_threshold=config.HAMPEL_THRESHOLD,
         )
-        self.calibrator = (
+
+    def _make_calibrator(self):
+        calibration_duration_ms = int(
+            getattr(config, "CALIBRATION_DURATION_MS", 10_000)
+        )
+        calibration_packets = duration_packet_count(
+            calibration_duration_ms,
+            self.nominal_interval_us,
+        )
+        return (
             StartupThresholdCalibrator(
-                config.CALIBRATION_BUFFER_SIZE,
+                calibration_packets,
                 auto_factor=get_detector_auto_factor(self.detector),
                 gate_enabled=get_detector_startup_gate(self.detector),
             )
             if self.needs_calibration
             else None
         )
+
+    def _resize_for_measured_cadence(self):
+        timing_update = self.timing_tracker.resolve_detector_timing_update(
+            self.window_size,
+            int(getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)),
+        )
+        if timing_update is None:
+            return
+        measured_interval_us = timing_update["interval_us"]
+        resolved = timing_update["window_packets"]
+        threshold = self.initial_threshold(self.algorithm)
+        self.window_size = int(resolved)
+        self.nominal_interval_us = int(measured_interval_us)
+        self.detector = self._make_detector(threshold)
+        self.calibrator = self._make_calibrator()
         self.calibrated = not self.needs_calibration
         self.current_metric = 0.0
         self.current_threshold = float(self.detector.get_threshold())
+        self.cadence.reset()
 
     def process_packet(self, packet) -> None:
         csi_data = getattr(packet, "iq_raw", packet)
@@ -1105,6 +1146,7 @@ class CollectionDetectorGate:
             "wifi_rx_ts_us": getattr(packet, "wifi_rx_ts_us", None),
         }
         timing = self.timing_tracker.observe_packet(timing_packet)
+        self._resize_for_measured_cadence()
         if timing["contaminated"]:
             self.detector.reset()
             self.cadence.reset()

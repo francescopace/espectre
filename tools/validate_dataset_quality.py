@@ -25,7 +25,7 @@ Checks performed:
 
 SOURCE CODE ALIGNMENT:
   This script reuses production and shared tooling code instead of local copies:
-  - src/python/micro_espectre/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
+  - src/python/micro_espectre/config.py: SEGMENTATION_WINDOW_SIZE_MS, DEFAULT_SUBCARRIERS
   - src/python/micro_espectre/csi_features.py: shared invariant feature semantics
   - tools/lib/dataset_metadata.py: dataset_info I/O and entry paths
   - tools/lib/csi_analysis.py: vectorized amplitude extraction (int8 → int16 to
@@ -91,14 +91,15 @@ from tools.lib.performance_report import (  # noqa: E402
 
 from detector_interface import MotionState  # noqa: E402
 from config import (  # noqa: E402
-    CALIBRATION_BUFFER_SIZE,
+    CALIBRATION_DURATION_MS,
     DEFAULT_SUBCARRIERS,
     EVALUATION_INTERVAL_MS,
-    SEG_WINDOW_SIZE,
+    SEGMENTATION_WINDOW_SIZE_MS,
 )
 from csi_features import DEFAULT_FEATURES  # noqa: E402
 from runtime_policy import (  # noqa: E402
     PacketTimingTracker,
+    derive_detector_timing,
     make_evaluation_cadence,
     nominal_packet_interval_us,
 )
@@ -685,7 +686,7 @@ def _feature_matrix_packets(packets, *, feature_names=None):
     rows = build_ml_replay_rows(
         tuple(packets),
         DEFAULT_SUBCARRIERS,
-        SEG_WINDOW_SIZE,
+        None,
         feature_names=list(feature_names or VALIDATION_FEATURE_NAMES),
         sample_contract="stream_dense",
     )
@@ -701,7 +702,7 @@ def _load_or_compute_validation_feature_matrix(filepath, *, feature_names=None, 
     rows = load_or_compute_ml_replay_rows(
         filepath,
         selected_subcarriers=DEFAULT_SUBCARRIERS,
-        window_size=SEG_WINDOW_SIZE,
+        window_size=None,
         feature_names=requested_feature_names,
         sample_contract="stream_dense",
         use_cache=use_cache,
@@ -766,7 +767,7 @@ def _consensus_pair_evidence(idle_matrix, motion_matrix, feature_names):
 def _feature_block_medians(feature_matrix, packet_rate_pps):
     """Return contiguous five-second feature-block medians."""
     matrix = np.asarray(feature_matrix, dtype=np.float64)
-    if matrix.ndim != 2 or matrix.shape[0] == 0:
+    if packet_rate_pps is None or matrix.ndim != 2 or matrix.shape[0] == 0:
         return np.asarray([], dtype=np.float64)
     block_size = max(
         1,
@@ -797,11 +798,13 @@ def _sample_reference_blocks(blocks):
 def _idle_reference_stratum(entry):
     """Return link- and packet-rate classes that must not be mixed."""
     link_class = "low-rssi" if bool(entry.get("low_rssi")) else "normal-rssi"
-    rate_class = (
-        "high-rate"
-        if _packet_rate_from_entry(entry) >= REFERENCE_HIGH_RATE_PPS
-        else "nominal-rate"
-    )
+    packet_rate_pps = _packet_rate_from_entry(entry)
+    if packet_rate_pps is None:
+        rate_class = "unknown-rate"
+    elif packet_rate_pps >= REFERENCE_HIGH_RATE_PPS:
+        rate_class = "high-rate"
+    else:
+        rate_class = "nominal-rate"
     return link_class, rate_class
 
 
@@ -970,7 +973,7 @@ def _reference_idle_stats(
     }
 
 
-def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps=100.0):
+def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps):
     """Summarize one dense idle feature-evidence series.
 
     The canonical ``stream_dense`` matrix contributes one ready feature row per
@@ -980,7 +983,7 @@ def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps=100.0)
     every block and burst by that factor.
     """
     evidence = np.asarray(evidence_series, dtype=np.float64)
-    if evidence.size == 0:
+    if packet_rate_pps is None or evidence.size == 0:
         return None
     margin_center = float(np.median(evidence))
     margins = evidence - margin_center
@@ -2592,6 +2595,26 @@ def _evaluate_pair_capture(
             mv_file,
         )
 
+    static_packet_rate_pps = _packet_rate_from_entry(static_entry)
+    motion_packet_rate_pps = _packet_rate_from_entry(motion_entry)
+    if static_packet_rate_pps is None or motion_packet_rate_pps is None:
+        missing = []
+        if static_packet_rate_pps is None:
+            missing.append(bl_file.name)
+        if motion_packet_rate_pps is None:
+            missing.append(mv_file.name)
+        return (
+            [ValidationResult(
+                "pair_timing_metadata",
+                "FAIL",
+                "Insufficient timing metadata for temporal pair scoring: "
+                + ", ".join(missing),
+            )],
+            None,
+            bl_file,
+            mv_file,
+        )
+
     static_matrix, feature_names = _load_or_compute_validation_feature_matrix(
         bl_file,
         use_cache=use_cache,
@@ -2629,7 +2652,7 @@ def _evaluate_pair_capture(
     motion_coverage = float((np.asarray(motion_evidence, dtype=np.float64) > idle_p95).mean())
     idle_baseline = _agnostic_baseline_stats_from_series(
         idle_evidence,
-        _packet_rate_from_entry(static_entry),
+        static_packet_rate_pps,
     )
     pair_score = agnostic_pair_score(
         motion_coverage,
@@ -2681,8 +2704,8 @@ def _evaluate_pair_capture(
         "motion_date": _entry_display_date(motion_entry, mv_file.name),
         "static_rssi_dbm": float(np.median([pkt.get("rssi_dbm") for pkt in static_packets if pkt.get("rssi_dbm") is not None])) if any(pkt.get("rssi_dbm") is not None for pkt in static_packets) else None,
         "motion_rssi_dbm": float(np.median([pkt.get("rssi_dbm") for pkt in motion_packets if pkt.get("rssi_dbm") is not None])) if any(pkt.get("rssi_dbm") is not None for pkt in motion_packets) else None,
-        "static_packet_rate_pps": _packet_rate_from_entry(static_entry),
-        "motion_packet_rate_pps": _packet_rate_from_entry(motion_entry),
+        "static_packet_rate_pps": static_packet_rate_pps,
+        "motion_packet_rate_pps": motion_packet_rate_pps,
         "chip": str(static_entry.get("chip", "unknown")).upper(),
         "environment": _entry_environment(static_entry),
         "idle_tail": idle_baseline["margin_q95"],
@@ -2811,7 +2834,14 @@ def _usable_window_count(entry):
         packets = int(entry.get('num_packets', 0) or 0)
     except (TypeError, ValueError):
         packets = 0
-    return max(0, packets - SEG_WINDOW_SIZE)
+    packet_rate_pps = _packet_rate_from_entry(entry)
+    if packet_rate_pps is None:
+        return 0
+    window_packets = derive_detector_timing(
+        max(1, int(round(1_000_000.0 / packet_rate_pps))),
+        SEGMENTATION_WINDOW_SIZE_MS,
+    )["window_packets"]
+    return max(0, packets - window_packets)
 
 
 def validate_ml_readiness(dataset_info, chip_filter=None):
@@ -2834,6 +2864,23 @@ def validate_ml_readiness(dataset_info, chip_filter=None):
         label: sum(_usable_window_count(entry) for entry in entries)
         for label, entries in training_files.items()
     }
+    missing_timing = sorted(
+        str(entry.get("filename", "unknown"))
+        for entries in training_files.values()
+        for entry in entries
+        if _packet_rate_from_entry(entry) is None
+    )
+    results.append(ValidationResult(
+        "timing_metadata",
+        "FAIL" if missing_timing else "PASS",
+        (
+            "Missing usable average_packet_rate or num_packets/duration_ms timing metadata: "
+            + ", ".join(missing_timing)
+            if missing_timing
+            else "All ML training captures provide usable timing metadata"
+        ),
+        len(missing_timing),
+    ))
     idle_windows = windows_by_label['empty'] + windows_by_label['static_presence']
     motion_windows = windows_by_label['motion']
     total = idle_windows + motion_windows
@@ -3029,7 +3076,7 @@ def _replay_classic_metrics(
     detector.reset()
     score_series = []
     state_series = []
-    nominal_interval_us = nominal_packet_interval_us(SEG_WINDOW_SIZE)
+    nominal_interval_us = nominal_packet_interval_us(100)
     cadence = make_evaluation_cadence(EVALUATION_INTERVAL_MS)
     timing_tracker = PacketTimingTracker(nominal_interval_us)
     normalized_rssi = _coerce_rssi_series(rssi_dbm, len(csi_data))
@@ -3094,7 +3141,7 @@ def _calibrated_classic_for(
     Keep this path aligned with ``tools.lib.dataset_metadata``: let the
     production-like calibrator walk the full stream so gap-aware restarts can
     recover from a contaminated prefix instead of failing on the first
-    ``CALIBRATION_BUFFER_SIZE`` packets only.
+    configured calibration duration only.
     """
     if calibration_cache is not None and cache_key in calibration_cache:
         calibrated = calibration_cache[cache_key]
@@ -3136,7 +3183,7 @@ def _probability_logit(values):
 
 
 def _packet_rate_from_entry(entry):
-    """Estimate capture packet rate from metadata, falling back to 100 pps."""
+    """Estimate capture packet rate from metadata, or return None if unknown."""
     average_packet_rate = entry.get("average_packet_rate")
     if average_packet_rate is not None:
         try:
@@ -3151,7 +3198,7 @@ def _packet_rate_from_entry(entry):
     )
     if estimated is not None:
         return estimated
-    return 100.0
+    return None
 
 
 def _active_burst_metrics(states, packet_rate_pps):
@@ -3184,7 +3231,7 @@ def _active_burst_metrics(states, packet_rate_pps):
 
 def _classic_self_baseline_stats(
     csi_data,
-    packet_rate_pps=100.0,
+    packet_rate_pps,
     *,
     rssi_dbm=None,
     stream_seq_num=None,
@@ -3194,7 +3241,11 @@ def _classic_self_baseline_stats(
     cache_key=None,
 ):
     """Self-calibrate one idle capture and evaluate its post-bootstrap tail."""
-    if len(csi_data) <= CALIBRATION_BUFFER_SIZE:
+    calibration_packets = max(
+        1,
+        int(round(packet_rate_pps * CALIBRATION_DURATION_MS / 1000.0)),
+    )
+    if len(csi_data) <= calibration_packets:
         return None
 
     calibrated = _calibrated_classic_for(
@@ -3210,27 +3261,27 @@ def _classic_self_baseline_stats(
         return None
     detector, threshold = calibrated
     replay = _replay_classic_metrics(
-        csi_data[CALIBRATION_BUFFER_SIZE:],
+        csi_data[calibration_packets:],
         detector,
         rssi_dbm=(
             None
             if rssi_dbm is None
-            else rssi_dbm[CALIBRATION_BUFFER_SIZE:]
+            else rssi_dbm[calibration_packets:]
         ),
         stream_seq_num=(
             None
             if stream_seq_num is None
-            else stream_seq_num[CALIBRATION_BUFFER_SIZE:]
+            else stream_seq_num[calibration_packets:]
         ),
         device_ticks_us=(
             None
             if device_ticks_us is None
-            else device_ticks_us[CALIBRATION_BUFFER_SIZE:]
+            else device_ticks_us[calibration_packets:]
         ),
         wifi_rx_ts_us=(
             None
             if wifi_rx_ts_us is None
-            else wifi_rx_ts_us[CALIBRATION_BUFFER_SIZE:]
+            else wifi_rx_ts_us[calibration_packets:]
         ),
     )
     scores = replay["score_series"]
@@ -3345,6 +3396,8 @@ def _compute_idle_evidence_for_entry(entry, label, *, use_cache=True):
     try:
         filepath = _resolve_dataset_entry_path(entry, label)
         packet_rate_pps = _packet_rate_from_entry(entry)
+        if packet_rate_pps is None:
+            return None, None, "insufficient timing metadata"
         feature_names = tuple(VALIDATION_FEATURE_NAMES)
         packets = load_npz_packet_view(filepath)
         feature_matrix, feature_names = _load_or_compute_validation_feature_matrix(
@@ -3535,16 +3588,26 @@ def validate_quiet_test_recordings(dataset_info, chip_filter=None, use_cache=Tru
             num_packets = int(entry.get("num_packets", 0) or 0)
         except (TypeError, ValueError):
             num_packets = 0
-        valid = (
-            motion_start > SEG_WINDOW_SIZE
-            and num_packets - motion_start > SEG_WINDOW_SIZE
-        )
+        packet_rate_pps = _packet_rate_from_entry(entry)
+        if packet_rate_pps is None:
+            results.append(ValidationResult(
+                f"long_test_annotation/{filename}",
+                "FAIL",
+                "Insufficient timing metadata to resolve the temporal detector window",
+            ))
+            continue
+        window_packets = derive_detector_timing(
+            max(1, int(round(1_000_000.0 / packet_rate_pps))),
+            SEGMENTATION_WINDOW_SIZE_MS,
+        )["window_packets"]
+        valid = motion_start > window_packets and num_packets - motion_start > window_packets
         results.append(ValidationResult(
             f"long_test_annotation/{filename}",
             "PASS" if valid else "FAIL",
             (
                 f"motion_start={motion_start}, packets={num_packets}; both IDLE and MOTION "
-                f"segments must exceed the {SEG_WINDOW_SIZE}-packet warm-up"
+                f"segments must exceed the {SEGMENTATION_WINDOW_SIZE_MS} ms warm-up "
+                f"({window_packets} packets at the recorded cadence)"
             ),
             motion_start,
         ))

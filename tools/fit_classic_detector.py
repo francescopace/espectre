@@ -105,7 +105,6 @@ def iter_training_pairs() -> List[Dict[str, Any]]:
 def extract_window_features(
     packets: Sequence[Dict[str, Any]],
     selected_band: Sequence[int],
-    window_size: int,
 ) -> np.ndarray:
     """Replay one recording at the runtime evaluation cadence.
 
@@ -178,7 +177,6 @@ def extract_window_features(
 def build_corpus(
     pairs: Sequence[Dict[str, Any]],
     selected_band: Sequence[int],
-    window_size: int,
     progress: bool = True,
 ) -> Dict[str, np.ndarray]:
     """Replay every training pair into one labelled, grouped feature matrix."""
@@ -193,7 +191,7 @@ def build_corpus(
             print(f"  [{index}/{len(pairs)}] {pair['session'][:64]}", flush=True)
         for path, label in ((pair["static_path"], IDLE_LABEL), (pair["motion_path"], MOTION_LABEL)):
             rows, row_deoverlapped = extract_window_features(
-                load_npz_as_packets(path), selected_band, window_size
+                load_npz_as_packets(path), selected_band
             )
             if rows.size == 0:
                 continue
@@ -288,7 +286,6 @@ def session_centered_scores(
     scores: np.ndarray,
     y: np.ndarray,
     sessions: Sequence[str],
-    window_size: int,
 ) -> np.ndarray:
     """Re-express logits the way the runtime compares them.
 
@@ -306,7 +303,10 @@ def session_centered_scores(
     prefix the calibration buffer covers, not over the whole quiet segment,
     because the runtime only ever sees that prefix and its noise.
     """
-    prefix_windows = max(1, config.CALIBRATION_BUFFER_SIZE // max(1, window_size))
+    prefix_windows = max(
+        1,
+        int(np.ceil(config.CALIBRATION_DURATION_MS / config.EVALUATION_INTERVAL_MS)),
+    )
     sessions = np.asarray(sessions)
     centered = np.array(scores, dtype=np.float64)
     for session in np.unique(sessions):
@@ -480,11 +480,12 @@ def main() -> int:
     args = parser.parse_args()
 
     selected_band = tuple(config.DEFAULT_SUBCARRIERS)
-    window_size = config.SEG_WINDOW_SIZE
-
     pairs = iter_training_pairs()
-    print(f"Fitting Classic on {len(pairs)} train pairs (band={selected_band}, window={window_size})")
-    corpus = build_corpus(pairs, selected_band, window_size, progress=not args.quiet)
+    print(
+        f"Fitting Classic on {len(pairs)} train pairs "
+        f"(band={selected_band}, window={config.SEGMENTATION_WINDOW_SIZE_MS} ms)"
+    )
+    corpus = build_corpus(pairs, selected_band, progress=not args.quiet)
 
     x, y = corpus["x"], corpus["y"]
     deoverlapped = corpus["deoverlapped"]
@@ -516,7 +517,7 @@ def main() -> int:
 
     # Sweep the quantity the runtime compares, then convert the chosen point
     # back into the constant the runtime stores.
-    centered = session_centered_scores(oof, y, corpus["session"], window_size)
+    centered = session_centered_scores(oof, y, corpus["session"])
     centered_threshold, metrics = choose_base_threshold(
         centered,
         y,

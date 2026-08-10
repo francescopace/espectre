@@ -36,12 +36,12 @@ setup_paths()
 
 import config
 from config import (
-    CALIBRATION_BUFFER_SIZE,
+    CALIBRATION_DURATION_MS,
     DEFAULT_SUBCARRIERS,
     EVALUATION_INTERVAL_MS,
     MOTION_OFF_HITS,
     MOTION_ON_HITS,
-    SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
+    SEGMENTATION_WINDOW_SIZE_MS,
 )
 
 from detector_interface import MotionState
@@ -66,7 +66,7 @@ STRESS_TARGET_FP_RATE = 10.0
 
 
 def timing_cadence_for_window(
-    window_packets: int = DETECTOR_DEFAULT_WINDOW_SIZE,
+    window_packets: Optional[int] = None,
     interval_us: Optional[int] = None,
 ) -> tuple[PacketTimingTracker, RuntimeMotionPolicy]:
     """Return the shared packet-timing helpers used by replay workflows.
@@ -75,12 +75,18 @@ def timing_cadence_for_window(
     it the nominal interval is assumed, which is only correct at 100 pps.
     """
     nominal_interval_us = (
-        nominal_packet_interval_us(window_packets)
+        nominal_packet_interval_us(100)
         if interval_us is None
         else max(1, int(interval_us))
     )
+    if window_packets is None:
+        window_packets = derive_detector_timing(
+            nominal_interval_us,
+            SEGMENTATION_WINDOW_SIZE_MS,
+        )["window_packets"]
     cadence = _make_evaluation_cadence(
         evaluation_interval_ms=config.EVALUATION_INTERVAL_MS,
+        segmentation_window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
     )
     return PacketTimingTracker(nominal_interval_us), cadence
 
@@ -510,7 +516,7 @@ def _project_ml_replay_rows(
 def build_ml_replay_rows(
     packets: Sequence[dict[str, Any]],
     selected_subcarriers: Sequence[int],
-    window_size: int,
+    window_size: Optional[int] = None,
     feature_names: Sequence[str] = (),
     *,
     sample_contract: str = "replay_tick",
@@ -532,9 +538,14 @@ def build_ml_replay_rows(
     if not packets:
         return _empty_ml_replay_rows(requested_feature_names)
 
+    interval_us = measure_packet_interval_us(packets)
+    if window_size is None:
+        window_size = derive_detector_timing(
+            interval_us,
+            SEGMENTATION_WINDOW_SIZE_MS,
+        )["window_packets"]
     detector = MLDetector(window_size=window_size, threshold=0.5)
     feature_indices = [EXPORTED_FEATURE_NAMES.index(name) for name in requested_feature_names]
-    interval_us = measure_packet_interval_us(packets)
     timing_tracker, cadence = timing_cadence_for_window(window_size, interval_us)
     packets_since_reset = 0
     reset_index = 0
@@ -597,7 +608,7 @@ def load_or_compute_ml_replay_rows(
     packets: Optional[Sequence[dict[str, Any]]] = None,
     packets_factory: Optional[Callable[[], Sequence[dict[str, Any]]]] = None,
     selected_subcarriers: Sequence[int],
-    window_size: int,
+    window_size: Optional[int],
     feature_names: Sequence[str] = (),
     sample_contract: str = "replay_tick",
     use_cache: bool = True,
@@ -610,9 +621,22 @@ def load_or_compute_ml_replay_rows(
     normalized_contract = _normalize_ml_sample_contract(sample_contract)
     from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
     cached_feature_names = tuple(EXPORTED_FEATURE_NAMES)
+    packet_stream: Optional[Sequence[dict[str, Any]]] = None
+    resolved_window_size = window_size
+    if resolved_window_size is None:
+        if packets is not None:
+            packet_stream = packets
+        elif packets_factory is not None:
+            packet_stream = packets_factory()
+        else:
+            packet_stream = load_npz_packet_view(Path(source_path))
+        resolved_window_size = derive_detector_timing(
+            measure_packet_interval_us(packet_stream),
+            SEGMENTATION_WINDOW_SIZE_MS,
+        )["window_packets"]
     parameters = npz_cache.ml_replay_row_parameters(
         selected_subcarriers=selected_subcarriers,
-        window_size=window_size,
+        window_size=resolved_window_size,
         feature_names=cached_feature_names,
         stream_provenance=stream_provenance,
     )
@@ -628,16 +652,17 @@ def load_or_compute_ml_replay_rows(
                 requested_feature_names,
                 normalized_contract,
             )
-    if packets is not None:
-        packet_stream = packets
-    elif packets_factory is not None:
-        packet_stream = packets_factory()
-    else:
-        packet_stream = load_npz_packet_view(Path(source_path))
+    if packet_stream is None:
+        if packets is not None:
+            packet_stream = packets
+        elif packets_factory is not None:
+            packet_stream = packets_factory()
+        else:
+            packet_stream = load_npz_packet_view(Path(source_path))
     rows = build_ml_replay_rows(
         packet_stream,
         selected_subcarriers,
-        window_size,
+        resolved_window_size,
         cached_feature_names,
         sample_contract="stream_dense",
     )
@@ -746,7 +771,7 @@ def build_classic_replay_rows(
     *,
     timing: Optional[Mapping[str, int]] = None,
     replay_interval_us: Optional[int] = None,
-    warmup_packets: int = DETECTOR_DEFAULT_WINDOW_SIZE,
+    warmup_packets: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build time-aware Classic feature rows for one paired replay."""
     measured_interval_us = (
@@ -757,6 +782,11 @@ def build_classic_replay_rows(
     resolved_timing = dict(
         timing or derive_detector_timing(measured_interval_us)
     )
+    resolved_warmup_packets = (
+        int(resolved_timing["window_packets"])
+        if warmup_packets is None
+        else max(0, int(warmup_packets))
+    )
     calibration_detector = build_classic_detector(
         threshold=1.0,
         timing=resolved_timing,
@@ -765,7 +795,7 @@ def build_classic_replay_rows(
         static_presence_packets,
         selected_subcarriers,
         resolved_timing,
-        warmup_packets,
+        resolved_warmup_packets,
         calibration_detector,
     )
     calibrated = build_calibrated_classic_detector(
@@ -783,7 +813,7 @@ def build_classic_replay_rows(
         static_presence_packets,
         selected_subcarriers,
         replay_timing,
-        warmup_packets,
+        resolved_warmup_packets,
         detector,
     )
     # Production paired replay keeps the detector feature history across the
@@ -792,7 +822,7 @@ def build_classic_replay_rows(
         motion_packets,
         selected_subcarriers,
         replay_timing,
-        warmup_packets,
+        resolved_warmup_packets,
         detector,
     )
     return {
@@ -899,8 +929,12 @@ def _calibrate_classic_replay_rows(
     )
 
     detector = build_classic_detector(threshold=1.0, timing=dict(timing))
+    calibration_target_packets = max(
+        1,
+        int(round(CALIBRATION_DURATION_MS * 1000.0 / timing["interval_us"])),
+    )
     calibrator = StartupThresholdCalibrator(
-        CALIBRATION_BUFFER_SIZE,
+        calibration_target_packets,
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
@@ -918,7 +952,7 @@ def _calibrate_classic_replay_rows(
         current_reset = int(reset_index)
         if last_reset is not None and current_reset != last_reset:
             calibrator = StartupThresholdCalibrator(
-                CALIBRATION_BUFFER_SIZE,
+                calibration_target_packets,
                 auto_factor=get_detector_auto_factor(detector),
                 gate_enabled=get_detector_startup_gate(detector),
             )
@@ -1042,10 +1076,10 @@ def evaluate_detector_packets(
     static_presence_packets: Sequence[dict[str, Any]],
     motion_packets: Sequence[dict[str, Any]],
     selected_band: Sequence[int],
-    warmup: int = DETECTOR_DEFAULT_WINDOW_SIZE,
+    warmup: Optional[int] = None,
 ) -> Dict[str, float]:
     """Replay one baseline/motion pair at the production evaluation cadence."""
-    warmup = max(0, int(warmup))
+    warmup = 0 if warmup is None else max(0, int(warmup))
     baseline_eval_count = 0
     movement_eval_count = 0
     static_presence_motion_packets = 0
@@ -1163,7 +1197,7 @@ def compute_classic_packet_result(
     static_presence_packets: Sequence[dict[str, Any]],
     motion_packets: Sequence[dict[str, Any]],
     selected_band: Sequence[int],
-    window_size: int,
+    window_size: Optional[int],
 ) -> Optional[tuple[float, Dict[str, float]]]:
     """Replay the Classic detector on explicit packet streams."""
     calibrated = build_calibrated_classic_detector(
@@ -1174,6 +1208,8 @@ def compute_classic_packet_result(
         return None
 
     detector, adaptive_threshold = calibrated
+    if window_size is None:
+        window_size = detector.get_window_size()
     metrics = evaluate_detector_packets(
         detector,
         static_presence_packets,
@@ -1189,7 +1225,7 @@ def compute_classic_dataset_result(
     static_presence_path: str | Path,
     motion_path: str | Path,
     selected_band: tuple[int, ...],
-    window_size: int,
+    window_size: Optional[int],
 ) -> Optional[tuple[float, Dict[str, float]]]:
     """Run Classic inference over canonical time-aware replay rows."""
     rows = load_or_compute_classic_replay_rows(
@@ -1206,7 +1242,7 @@ def compute_ml_packet_result(
     static_presence_packets: Sequence[dict[str, Any]],
     motion_packets: Sequence[dict[str, Any]],
     selected_subcarriers: Sequence[int],
-    window_size: int,
+    window_size: Optional[int],
     threshold: float,
     feature_names: Sequence[str] = (),
 ) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
@@ -1239,27 +1275,29 @@ def _compute_ml_row_result(
     feature_names: Sequence[str] = (),
 ) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
     """Evaluate canonical runtime-tick rows with the exported inference path."""
-    from tools.train_ml_model import (
-        load_exported_ml_weights,
-        predict_exported_probabilities_from_weights,
-    )
+    from ml_detector import predict as predict_runtime_probability
 
     runtime_feature_names = tuple(RUNTIME_FEATURE_NAMES)
     requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
-    exported_weights = load_exported_ml_weights()
-    static_probabilities = np.asarray(
-        predict_exported_probabilities_from_weights(
-            exported_weights,
-            np.asarray(static_rows["X"], dtype=np.float32),
+    # Report the deployed scalar inference contract. NumPy matrix
+    # multiplication can accumulate the same float32 weights in a different
+    # order and move probabilities that sit close to 0.5 across the decision
+    # boundary, even though the feature rows themselves are identical.
+    static_probabilities = np.fromiter(
+        (
+            predict_runtime_probability(features)
+            for features in np.asarray(static_rows["X"], dtype=np.float32)
         ),
         dtype=np.float64,
+        count=len(static_rows["X"]),
     )
-    motion_probabilities = np.asarray(
-        predict_exported_probabilities_from_weights(
-            exported_weights,
-            np.asarray(motion_rows["X"], dtype=np.float32),
+    motion_probabilities = np.fromiter(
+        (
+            predict_runtime_probability(features)
+            for features in np.asarray(motion_rows["X"], dtype=np.float32)
         ),
         dtype=np.float64,
+        count=len(motion_rows["X"]),
     )
     static_presence_motion_states = static_probabilities > float(threshold)
     motion_states = motion_probabilities > float(threshold)
@@ -1316,23 +1354,30 @@ def compute_ml_dataset_result(
     static_presence_path: str | Path,
     motion_path: str | Path,
     selected_subcarriers: tuple[int, ...],
-    window_size: int,
+    window_size: Optional[int],
     threshold: float,
     feature_names: tuple[str, ...] = (),
 ) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
     """Run ML inference over the shared canonical time-aware row cache."""
     runtime_feature_names = tuple(RUNTIME_FEATURE_NAMES)
+    resolved_window_size = window_size
+    if resolved_window_size is None:
+        static_packets = load_npz_packet_view(Path(static_presence_path))
+        resolved_window_size = derive_detector_timing(
+            measure_packet_interval_us(static_packets),
+            SEGMENTATION_WINDOW_SIZE_MS,
+        )["window_packets"]
     static_rows = load_or_compute_ml_replay_rows(
         static_presence_path,
         selected_subcarriers=selected_subcarriers,
-        window_size=window_size,
+        window_size=resolved_window_size,
         feature_names=runtime_feature_names,
         sample_contract="replay_tick",
     )
     motion_rows = load_or_compute_ml_replay_rows(
         motion_path,
         selected_subcarriers=selected_subcarriers,
-        window_size=window_size,
+        window_size=resolved_window_size,
         feature_names=runtime_feature_names,
         sample_contract="replay_tick",
     )
@@ -1431,7 +1476,7 @@ def compute_classic_empty_fp_result(
 def compute_ml_empty_fp_result(
     empty_dataset_path: str | Path,
     selected_subcarriers: tuple[int, ...],
-    window_size: int,
+    window_size: Optional[int],
     threshold: float,
 ) -> Dict[str, float]:
     """Run empty-room ML inference over canonical runtime-tick rows."""
@@ -1646,7 +1691,7 @@ def _evaluate_ml_long_cached_rows(
     rows = load_or_compute_ml_replay_rows(
         source_path,
         selected_subcarriers=DEFAULT_SUBCARRIERS,
-        window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+        window_size=None,
         feature_names=tuple(RUNTIME_FEATURE_NAMES),
         sample_contract="replay_tick",
     )
@@ -1707,7 +1752,7 @@ def compute_classic_long_recording_result(
         static_presence_packets=baseline_packets,
         motion_packets=movement_packets,
         selected_subcarriers=selected_subcarriers,
-        warmup_packets=DETECTOR_DEFAULT_WINDOW_SIZE,
+        warmup_packets=None,
         replay_provenance={"motion_start_packet": int(motion_start_packet)},
     )
     result = compute_classic_row_result(rows)
@@ -1744,11 +1789,12 @@ def evaluate_ml_long_recording(
 
     from ml_detector import MLDetector
 
-    detector = MLDetector(
-        threshold=0.5,
-        window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
-    )
-    warmup = DETECTOR_DEFAULT_WINDOW_SIZE
+    interval_us = measure_packet_interval_us(baseline_packets)
+    warmup = derive_detector_timing(
+        interval_us,
+        SEGMENTATION_WINDOW_SIZE_MS,
+    )["window_packets"]
+    detector = MLDetector(threshold=0.5, window_size=warmup)
 
     baseline_eval_count = 0
     movement_eval_count = 0
@@ -1757,7 +1803,6 @@ def evaluate_ml_long_recording(
     movement_with_motion = 0
     movement_without_motion = 0
 
-    interval_us = measure_packet_interval_us(baseline_packets)
     timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
     for pkt in baseline_packets:
@@ -1877,7 +1922,7 @@ def evaluate_classic_long_recording(
     if calibrated is None:
         return None
     detector, adaptive_threshold = calibrated
-    warmup = DETECTOR_DEFAULT_WINDOW_SIZE
+    warmup = detector.get_window_size()
     baseline_eval_count = 0
     movement_eval_count = 0
     baseline_motion_packets = 0
@@ -2044,7 +2089,7 @@ def compute_performance_report_data(
             static_path,
             motion_path,
             tuple(DEFAULT_SUBCARRIERS),
-            DETECTOR_DEFAULT_WINDOW_SIZE,
+            None,
         )
         classic_metrics = None
         if classic_result is not None:
@@ -2055,7 +2100,7 @@ def compute_performance_report_data(
             static_path,
             motion_path,
             tuple(DEFAULT_SUBCARRIERS),
-            DETECTOR_DEFAULT_WINDOW_SIZE,
+            None,
             0.5,
         )
         paired_results[section]["ml"][chip].append(ml_metrics)

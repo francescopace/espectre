@@ -14,6 +14,18 @@ def test_parse_combination_specs_accepts_pairs_and_triplets() -> None:
     ]
 
 
+def test_resolve_candidate_combinations_accepts_single_features() -> None:
+    args = argparse.Namespace(
+        feature=["candidate"],
+        pair=[],
+        triple=[],
+        all_runtime_triplets=False,
+        all_host_triplets=False,
+    )
+
+    assert bench.resolve_candidate_combinations(args) == [("candidate",)]
+
+
 def test_parse_combination_specs_rejects_duplicates() -> None:
     with pytest.raises(bench.BenchmarkError, match="features must differ"):
         bench.parse_combination_specs(["a,a"], 2, "pair")
@@ -28,6 +40,7 @@ def test_classic_replay_accepts_only_one_or_two_features() -> None:
 
 def test_resolve_candidate_combinations_prefers_explicit_triplets() -> None:
     args = argparse.Namespace(
+        feature=[],
         pair=[],
         triple=["x,y,z"],
         all_runtime_triplets=False,
@@ -89,9 +102,8 @@ def test_correlation_summary_reports_pairwise_triplet_redundancy() -> None:
 
 def test_startup_evaluation_limit_matches_nominal_runtime_calibration() -> None:
     assert replay.startup_evaluation_limit(
-        calibration_packets=1000,
-        window_packets=100,
-        packet_interval_us=10_000,
+        calibration_duration_ms=10_000,
+        window_size_ms=1_000,
         evaluation_interval_ms=250,
         sample_limit=64,
     ) == 37
@@ -99,9 +111,8 @@ def test_startup_evaluation_limit_matches_nominal_runtime_calibration() -> None:
 
 def test_startup_evaluation_limit_honors_detector_storage_cap() -> None:
     assert replay.startup_evaluation_limit(
-        calibration_packets=10_000,
-        window_packets=100,
-        packet_interval_us=10_000,
+        calibration_duration_ms=100_000,
+        window_size_ms=1_000,
         evaluation_interval_ms=250,
         sample_limit=64,
     ) == 64

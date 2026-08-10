@@ -9,8 +9,13 @@ License: GPLv3
 
 import pytest
 import numpy as np
-from config import SEG_WINDOW_SIZE
+from config import SEGMENTATION_WINDOW_SIZE_MS
+from runtime_policy import derive_detector_timing, nominal_packet_interval_us
 from segmentation import SegmentationContext
+
+DEFAULT_WINDOW_PACKETS = derive_detector_timing(
+    nominal_packet_interval_us(100), SEGMENTATION_WINDOW_SIZE_MS
+)["window_packets"]
 
 
 class TestSegmentationContextInit:
@@ -19,7 +24,7 @@ class TestSegmentationContextInit:
     def test_default_parameters(self):
         """Test default parameters (matches C++ DETECTOR_DEFAULT_WINDOW_SIZE)"""
         ctx = SegmentationContext()
-        assert ctx.window_size == SEG_WINDOW_SIZE
+        assert ctx.window_size == DEFAULT_WINDOW_PACKETS
         assert ctx.buffer_count == 0
 
     def test_custom_parameters(self):
@@ -33,8 +38,8 @@ class TestSegmentationContextInit:
 
     def test_buffer_pre_allocation(self):
         """Test that turbulence buffer is pre-allocated"""
-        ctx = SegmentationContext(window_size=SEG_WINDOW_SIZE)
-        assert len(ctx.turbulence_buffer) == SEG_WINDOW_SIZE
+        ctx = SegmentationContext(window_size=DEFAULT_WINDOW_PACKETS)
+        assert len(ctx.turbulence_buffer) == DEFAULT_WINDOW_PACKETS
 
     def test_hampel_enabled_by_default(self):
         """Test that Hampel filter is enabled by default"""

@@ -710,6 +710,7 @@ def test_ml_readiness_uses_empty_as_idle_and_warmup_per_file() -> None:
                     "chip": "C3",
                     "environment": "bedroom",
                     "num_packets": 200,
+                    "average_packet_rate": 100.0,
                     "dataset_role": "train",
                 },
             ],
@@ -719,6 +720,7 @@ def test_ml_readiness_uses_empty_as_idle_and_warmup_per_file() -> None:
                     "chip": "C3",
                     "environment": "bedroom",
                     "num_packets": 300,
+                    "average_packet_rate": 100.0,
                     "dataset_role": "train",
                     "optimal_pair_motion_file": "motion.npz",
                 },
@@ -729,6 +731,7 @@ def test_ml_readiness_uses_empty_as_idle_and_warmup_per_file() -> None:
                     "chip": "C3",
                     "environment": "bedroom",
                     "num_packets": 400,
+                    "average_packet_rate": 100.0,
                     "dataset_role": "train",
                     "optimal_pair_static_presence_file": "static.npz",
                 },
@@ -744,6 +747,31 @@ def test_ml_readiness_uses_empty_as_idle_and_warmup_per_file() -> None:
     assert "static_presence=200" in by_name["label_balance"].message
 
 
+def test_ml_readiness_rejects_capture_without_timing_metadata() -> None:
+    module = _load_validator_module()
+    dataset_info = {
+        "files": {
+            "empty": [
+                {
+                    "filename": "untimed.npz",
+                    "chip": "C3",
+                    "num_packets": 200,
+                    "dataset_role": "train",
+                }
+            ],
+            "static_presence": [],
+            "motion": [],
+        }
+    }
+
+    results = module.validate_ml_readiness(dataset_info)
+    timing = next(result for result in results if result.name == "timing_metadata")
+
+    assert timing.status == "FAIL"
+    assert timing.value == 1
+    assert "untimed.npz" in timing.message
+
+
 def test_ml_readiness_respects_chip_filter() -> None:
     module = _load_validator_module()
     dataset_info = {
@@ -753,12 +781,14 @@ def test_ml_readiness_respects_chip_filter() -> None:
                     "filename": "empty_c3.npz",
                     "chip": "C3",
                     "num_packets": 200,
+                    "average_packet_rate": 100.0,
                     "dataset_role": "train",
                 },
                 {
                     "filename": "empty_c6.npz",
                     "chip": "C6",
                     "num_packets": 900,
+                    "average_packet_rate": 100.0,
                     "dataset_role": "train",
                 },
             ],
@@ -768,12 +798,14 @@ def test_ml_readiness_respects_chip_filter() -> None:
                     "filename": "motion_c3.npz",
                     "chip": "C3",
                     "num_packets": 200,
+                    "average_packet_rate": 100.0,
                     "dataset_role": "train",
                 },
                 {
                     "filename": "motion_c6.npz",
                     "chip": "C6",
                     "num_packets": 900,
+                    "average_packet_rate": 100.0,
                     "dataset_role": "train",
                 },
             ],
@@ -795,6 +827,7 @@ def test_ml_readiness_skips_excluded_entries() -> None:
                     "filename": "empty_train.npz",
                     "chip": "C3",
                     "num_packets": 200,
+                    "average_packet_rate": 100.0,
                     "dataset_role": "train",
                 },
             ],

@@ -302,14 +302,13 @@ def run_classic(args: argparse.Namespace) -> Dict[str, Any]:
     """
     pairs = iter_training_pairs()
     band = list(config.DEFAULT_SUBCARRIERS)
-    window = config.SEG_WINDOW_SIZE
     print(f"train pairs: {len(pairs)}")
 
     results: Dict[str, Any] = {}
     per_config: List[Tuple[str, np.ndarray, np.ndarray]] = []
     for label, width in configurations(args.widths, args.coherent):
         with aggregated_amplitudes(width, args.coherent):
-            corpus = build_corpus(pairs, band, window, progress=False)
+            corpus = build_corpus(pairs, band, progress=False)
 
         features, labels = corpus["x"], corpus["y"]
         session, chip = corpus["session"], corpus["chip"]

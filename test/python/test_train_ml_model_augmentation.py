@@ -53,6 +53,7 @@ def test_resolve_training_augmentation_merges_selected_components():
     assert packet_augmentation["noise_sigma"] == pytest.approx(0.01)
     assert packet_augmentation["packet_loss"] == pytest.approx(0.05)
     assert packet_augmentation["stutter_probability"] == pytest.approx(0.08)
+    assert packet_augmentation["packet_rate_scale"] == pytest.approx((0.8, 1.0))
     assert packet_augmentation["drift_sigma"] > 0.0
     assert packet_augmentation["burst_loss_starts_per_minute"] > 0.0
 
@@ -514,6 +515,24 @@ def test_packet_rate_estimate_uses_effective_throughput_for_bursty_capture():
         packet["device_ticks_us"] = timestamp_us
 
     assert trainer._estimate_packet_rate_pps(packets) == pytest.approx(100.0)
+
+
+def test_stable_rate_augmentation_reduces_the_temporal_window_sample_count():
+    packets = _synthetic_packets(count=400)
+
+    augmented = trainer.augment_csi_packets(
+        packets,
+        {"packet_rate_scale": (0.8, 0.8)},
+        seed=17,
+    )
+
+    interval_us = trainer.measure_packet_interval_us(augmented)
+    timing = trainer.derive_detector_timing(
+        interval_us,
+        trainer.SEGMENTATION_WINDOW_SIZE_MS,
+    )
+    assert interval_us == 12_500
+    assert timing["window_packets"] == 80
 
 
 def test_drift_augmentation_is_deterministic_and_count_preserving():

@@ -71,8 +71,8 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
 
   std::snprintf(value, sizeof(value), "%.6f", snapshot.threshold);
   visitor("threshold", value);
-  std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.segmentation_window_size));
-  visitor("window", value);
+  std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.segmentation_window_size_ms));
+  visitor("window_ms", value);
   visitor("detector", snapshot.detector_name);
   visitor("lowpass", config.lowpass_enabled ? "on" : "off");
   std::snprintf(value, sizeof(value), "%.1f", config.lowpass_cutoff);
@@ -88,8 +88,8 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.traffic_generator_rate));
   visitor("traffic_rate", value);
   visitor("traffic_adaptive", config.traffic_generator_adaptive ? "on" : "off");
-  std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.publish_interval));
-  visitor("publish_interval", value);
+  std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.publish_interval_ms));
+  visitor("publish_interval_ms", value);
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.evaluation_interval_ms));
   visitor("evaluation_interval_ms", value);
   std::snprintf(value,

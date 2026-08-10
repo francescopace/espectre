@@ -523,6 +523,10 @@ class MLDetector(IDetector):
     def get_name(self):
         """Get detector name."""
         return "ML"
+
+    def get_window_size(self):
+        """Return the resolved detector window in samples."""
+        return self._context.window_size
     
     @property
     def total_packets(self):

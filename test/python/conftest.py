@@ -47,7 +47,13 @@ from tools.lib.repo_paths import data_dir, python_src_dir
 SRC_PATH = python_src_dir()
 _prepend_sys_path(SRC_PATH)
 
-from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE, HAMPEL_WINDOW, HAMPEL_THRESHOLD
+from config import (
+    DEFAULT_SUBCARRIERS,
+    HAMPEL_THRESHOLD,
+    HAMPEL_WINDOW,
+    SEGMENTATION_WINDOW_SIZE_MS,
+)
+from runtime_policy import derive_detector_timing, nominal_packet_interval_us
 
 # Data directory (shared between tests and tools)
 DATA_DIR = data_dir()
@@ -220,7 +226,9 @@ def optimal_threshold(request):
 def segmentation_config():
     """Default segmentation configuration - matches C++ DETECTOR_DEFAULT_WINDOW_SIZE"""
     return {
-        'window_size': SEG_WINDOW_SIZE,  # DETECTOR_DEFAULT_WINDOW_SIZE
+        'window_size': derive_detector_timing(
+            nominal_packet_interval_us(100), SEGMENTATION_WINDOW_SIZE_MS
+        )["window_packets"],
         'threshold': 1.0,
         'enable_hampel': True,
         'hampel_window': HAMPEL_WINDOW,

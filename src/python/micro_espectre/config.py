@@ -29,7 +29,7 @@ MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
 TRAFFIC_GENERATOR_RATE = 100  # Target valid CSI rate (packets per second)
 TRAFFIC_GENERATOR_ADAPTIVE = True  # Adjust send pacing from CSI feedback and socket errors
 TRAFFIC_GENERATOR_MODE = "ping"  # Default mode: "ping" or "dns"
-PUBLISH_INTERVAL = 100        # Packets between periodic MQTT/log updates
+PUBLISH_INTERVAL_MS = 1000    # Time between periodic MQTT/log updates
 EVALUATION_INTERVAL_MS = 250  # Time between internal detector evaluations
 MOTION_ON_HITS = 4            # Consecutive evaluated hits required for IDLE -> MOTION
 MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -> IDLE
@@ -51,11 +51,12 @@ DEFAULT_SUBCARRIERS = (4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60)
 DETECTION_ALGORITHM = "classic"
 
 # Threshold bootstrap configuration (fixed subcarriers, no disk I/O)
-CALIBRATION_NUM_WINDOWS = 10   # Number of windows worth of packets to collect
-# CALIBRATION_BUFFER_SIZE calculated after SEG_WINDOW_SIZE is defined
+CALIBRATION_NUM_WINDOWS = 10
 
-# Segmentation Parameters
-SEG_WINDOW_SIZE = 100         # Shared detector window (packets) - used by Classic and Features
+# Segmentation parameters. The runtime resolves this duration to a sample count
+# from the measured CSI cadence.
+SEGMENTATION_WINDOW_SIZE_MS = 1000
+CALIBRATION_DURATION_MS = CALIBRATION_NUM_WINDOWS * SEGMENTATION_WINDOW_SIZE_MS
 
 # Detector timing contract, in microseconds. The packet counts above and in
 # csi_features.py are the values these durations resolve to at the nominal
@@ -63,28 +64,22 @@ SEG_WINDOW_SIZE = 100         # Shared detector window (packets) - used by Class
 # from the measured cadence so a window keeps spanning the same physical time.
 # Feature values depend on the interval they are measured over, not on how many
 # packets happen to land in it, so the durations are the contract.
-SEG_WINDOW_US = 1_000_000          # Detector window span
 L1_DELTA_LAG_US = 100_000          # Profile-displacement lag
 TURB_AUTOCORR_LAG_US = 10_000      # Turbulence autocorrelation lag (1 packet at 100 pps)
 L1_DELTA_LAG_MAX = 32              # Firmware sizes the profile ring statically
-# Window bounds, shared by configured and rate-derived windows alike. The
-# floor is measured: under ~100 samples the window features get noisy enough
-# that startup calibration lifts the threshold and recall collapses (a
-# 25-sample window scores 60.2% against 98.7% at 100). The ceiling is a stack
-# bound in the C++ runtime, where the autocorrelation and MAD scratch arrays
-# live on the CSI callback stack.
-SEG_WINDOW_MIN = 100
-SEG_WINDOW_MAX = 200
-RATE_ADAPTATION_DEAD_BAND = 0.25   # Treat 80-133 pps as nominal and do not adapt
+# Storage bounds for the sample count resolved from the temporal window. The
+# current augmented ML model supports the 80-sample one-second window at the
+# 80 pps operating floor. Below that rate detection stays on hold. The upper
+# bound limits drift away from the feature geometry used during fitting.
+SEG_WINDOW_MIN = 80
+SEG_WINDOW_MAX = 1000
+MIN_DETECTOR_PACKET_RATE_PPS = 80
 # A cadence faster than this is not a CSI stream, it is a batch delivered
 # faster than real time. The packet-rate estimator ignores it when deriving
 # feature geometry; evaluation cadence still follows the packet timestamps.
 # There is no upper bound because a stream slower than one window is already
-# handled as a hole by SEG_WINDOW_US.
+# handled as a hole by SEGMENTATION_WINDOW_SIZE_MS.
 MIN_PLAUSIBLE_PACKET_INTERVAL_US = 200      # 5000 pps
-
-# Calibration buffer size = number of windows * window size
-CALIBRATION_BUFFER_SIZE = CALIBRATION_NUM_WINDOWS * SEG_WINDOW_SIZE
 
 # Low-pass filter (removes high-frequency noise, reduces false positives)
 ENABLE_LOWPASS_FILTER = False   # Recommended: reduces FP in noisy environments

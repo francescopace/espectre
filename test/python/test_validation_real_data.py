@@ -41,6 +41,7 @@ from tools.lib.performance_report import (
 from tools.lib.csi_io import load_npz_packet_view
 from tools.lib.dataset_metadata import (
     build_calibrated_classic_detector,
+    detector_window_packets,
     derive_detector_timing,
 )
 from tools.train_ml_model import (
@@ -53,11 +54,11 @@ from tools.train_ml_model import (
     evaluate_idle_streaming,
 )
 from config import (
-    CALIBRATION_BUFFER_SIZE,
+    CALIBRATION_DURATION_MS,
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
     ENABLE_LOWPASS_FILTER,
-    SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
+    SEGMENTATION_WINDOW_SIZE_MS,
     HAMPEL_WINDOW,
     HAMPEL_THRESHOLD,
     LOWPASS_CUTOFF,
@@ -67,7 +68,10 @@ from conftest import get_classic_fp_rate_target, get_classic_recall_target, reco
 from threshold import StartupThresholdCalibrator, get_detector_auto_factor, get_detector_startup_gate
 
 CLASSIC_PER_RECORDING_FP_GUARD = 15.0
-CLASSIC_TRAIN_REPLAY_RECALL_GUARD = 93.0
+# The corrected temporal replay no longer normalizes 90-100 pps captures to a
+# synthetic 10 ms cadence. Its current worst normal-link training replay is
+# 91.6%, while the chip aggregates remain the binding production gates below.
+CLASSIC_TRAIN_REPLAY_RECALL_GUARD = 90.0
 
 
 # ============================================================================
@@ -241,16 +245,6 @@ def dataset_role(dataset_config):
     return role or "train"
 
 
-@pytest.fixture
-def window_size(chip_type):
-    """Get optimal window size for chip type.
-    
-    All chips use the same window size for consistent behavior.
-    This matches the production default DETECTOR_DEFAULT_WINDOW_SIZE.
-    """
-    return DETECTOR_DEFAULT_WINDOW_SIZE
-
-
 @pytest.fixture(params=["fixed_default"])
 def calibration_algorithm(request, chip_type):
     """
@@ -277,8 +271,8 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
     """
     Run fixed-subcarrier Classic startup calibration exactly as in production.
 
-    Calibration starts from packet 0 and uses the first CALIBRATION_BUFFER_SIZE
-    packets, matching live startup behavior.
+    Calibration starts from packet 0 and covers the configured calibration
+    duration, matching live startup behavior.
 
     Args:
         static_presence_packets: List of baseline CSI packets
@@ -290,7 +284,11 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
         tuple: (selected_band, adaptive_threshold)
     """
     selected_band = hint_band if hint_band is not None else DEFAULT_SUBCARRIERS
-    window_size = window_size_override or DETECTOR_DEFAULT_WINDOW_SIZE
+    window_size = (
+        detector_window_packets(static_presence_packets)
+        if window_size_override is None
+        else int(window_size_override)
+    )
     adaptive_threshold = run_classic_calibration(
         static_presence_packets,
         selected_band=tuple(selected_band),
@@ -352,12 +350,16 @@ def run_classic_calibration(static_presence_packets, selected_band, window_size)
         hampel_window=HAMPEL_WINDOW,
         hampel_threshold=HAMPEL_THRESHOLD,
     )
+    nominal_interval_us = measure_packet_interval_us(static_presence_packets)
+    calibration_packets = max(
+        1,
+        int(round(CALIBRATION_DURATION_MS * 1000.0 / nominal_interval_us)),
+    )
     calibrator = StartupThresholdCalibrator(
-        CALIBRATION_BUFFER_SIZE,
+        calibration_packets,
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
-    nominal_interval_us = measure_packet_interval_us(static_presence_packets)
     timing_tracker, cadence = timing_cadence_for_window(
         window_size,
         nominal_interval_us,
@@ -482,7 +484,7 @@ class TestPerformanceMetrics:
             static_presence_path,
             motion_path,
             tuple(default_subcarriers),
-            DETECTOR_DEFAULT_WINDOW_SIZE,
+            None,
         )
         assert cached_result is not None, "Classic startup calibration failed"
         adaptive_threshold, metrics = cached_result
@@ -579,13 +581,13 @@ class TestPerformanceMetrics:
             static_presence_path,
             motion_path,
             tuple(ml_subcarriers),
-            window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+            window_size=None,
             threshold=0.5,
         )
 
         print("\nML Detector initialized")
         print("  Threshold: 0.5")
-        print(f"  Window size: {DETECTOR_DEFAULT_WINDOW_SIZE} (DETECTOR_DEFAULT_WINDOW_SIZE)")
+        print(f"  Window duration: {SEGMENTATION_WINDOW_SIZE_MS} ms")
         print(f"  Subcarriers: {ml_subcarriers} (fixed for ML)")
         print("  Turbulence: normalized runtime path")
         if link_stress:
@@ -662,7 +664,7 @@ class TestPerformanceMetrics:
         result = _compute_ml_empty_fp_result(
             empty_dataset_path,
             tuple(DEFAULT_SUBCARRIERS),
-            DETECTOR_DEFAULT_WINDOW_SIZE,
+            None,
             0.5,
         )
         fp_rate = result["fp_rate"]
@@ -900,7 +902,7 @@ class TestEndToEndWithCalibration:
         static_presence_packets, motion_packets = end_to_end_real_data
         static_presence_path, _motion_path, num_subcarriers, chip_type, dataset_id = end_to_end_dataset_config
         calibration_algorithm = "fixed_default"
-        window_size = DETECTOR_DEFAULT_WINDOW_SIZE
+        window_size = detector_window_packets(static_presence_packets)
         fp_rate_target = get_classic_fp_rate_target(chip_type)
         recall_target = get_classic_recall_target(chip_type)
         enable_hampel = True
@@ -1019,7 +1021,7 @@ def test_classic_chip_aggregate_targets(chip):
             static_path,
             motion_path,
             tuple(DEFAULT_SUBCARRIERS),
-            DETECTOR_DEFAULT_WINDOW_SIZE,
+            None,
         )
         assert cached_result is not None, f"Classic startup calibration failed for {static_path.name}"
         _adaptive_threshold, metrics = cached_result
@@ -1082,7 +1084,7 @@ def test_ml_chip_aggregate_reserved_targets(chip):
             static_path,
             motion_path,
             tuple(DEFAULT_SUBCARRIERS),
-            window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+            window_size=None,
             threshold=0.5,
         )
         total_tp += cached_metrics["tp"]
@@ -1128,7 +1130,7 @@ def test_ml_chip_aggregate_stress_targets(chip):
             static_path,
             motion_path,
             tuple(DEFAULT_SUBCARRIERS),
-            window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+            window_size=None,
             threshold=0.5,
         )
         total_tp += cached_metrics["tp"]
@@ -1186,13 +1188,13 @@ def test_classic_cached_paired_gate_matches_packet_replay():
         static_packets,
         motion_packets,
         tuple(DEFAULT_SUBCARRIERS),
-        DETECTOR_DEFAULT_WINDOW_SIZE,
+        None,
     )
     actual = _compute_classic_dataset_result(
         static_path,
         motion_path,
         tuple(DEFAULT_SUBCARRIERS),
-        DETECTOR_DEFAULT_WINDOW_SIZE,
+        None,
     )
     assert expected is not None
     assert actual is not None

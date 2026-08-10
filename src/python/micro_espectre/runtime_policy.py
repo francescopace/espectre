@@ -17,14 +17,11 @@ except ImportError:
 
 from config import (
     EVALUATION_INTERVAL_MS,
-    L1_DELTA_LAG_US,
     L1_DELTA_LAG_MAX,
-    RATE_ADAPTATION_DEAD_BAND,
+    MIN_DETECTOR_PACKET_RATE_PPS,
     SEG_WINDOW_MAX,
     SEG_WINDOW_MIN,
-    SEG_WINDOW_SIZE,
-    SEG_WINDOW_US,
-    TURB_AUTOCORR_LAG_US,
+    SEGMENTATION_WINDOW_SIZE_MS,
 )
 
 DEFAULT_GAP_RESET_RATIO = 4.0
@@ -42,12 +39,25 @@ DEFAULT_RATE_ESTIMATOR_SAMPLES = 64
 # the estimator has not seen enough of the stream to tell a slower cadence
 # from packet loss, and guessing either way is worse than not acting.
 DEFAULT_RATE_ESTIMATOR_WARMUP = 16
+NOMINAL_PACKET_RATE_PPS = 100
+PRODUCTION_L1_DELTA_LAG = 10
+PRODUCTION_AUTOCORR_LAG = 1
+DETECTOR_WINDOW_RESIZE_MIN_PACKETS = 4
+DETECTOR_WINDOW_RESIZE_DIVISOR = 20
 
 
 def nominal_packet_interval_us(window_packets):
     """Return the nominal packet interval implied by one window per second."""
     packets = max(1, int(window_packets))
     return max(1, int(round(1_000_000.0 / float(packets))))
+
+
+def duration_packet_count(duration_ms, interval_us):
+    """Resolve an elapsed duration to packets at one measured cadence."""
+    return max(
+        1,
+        int(round(max(1, int(duration_ms)) * 1000.0 / max(1, int(interval_us)))),
+    )
 
 
 def _median(values):
@@ -61,12 +71,7 @@ def _median(values):
 
 
 class PacketRateEstimator:
-    """Track the effective packet cadence from observed inter-packet deltas.
-
-    The estimate is a rolling median rather than a mean: a stream with holes
-    contains a few very large deltas, and a mean would let those dominate the
-    cadence the rest of the pipeline derives its windows from.
-    """
+    """Track effective throughput and typical spacing from packet deltas."""
 
     def __init__(
         self,
@@ -84,6 +89,7 @@ class PacketRateEstimator:
         self._deltas = []
         self._seq_steps = []
         self._interval_cache = None
+        self._typical_cache = None
         self._seq_cache = None
         self._since_refresh = 0
 
@@ -104,6 +110,7 @@ class PacketRateEstimator:
         if self._since_refresh >= RATE_ESTIMATOR_REFRESH_STRIDE:
             self._since_refresh = 0
             self._interval_cache = None
+            self._typical_cache = None
             self._seq_cache = None
 
     def observe_sequence_step(self, seq_step):
@@ -124,12 +131,24 @@ class PacketRateEstimator:
 
     @property
     def interval_us(self):
-        """Return the effective packet interval, or the nominal one until ready."""
+        """Return the mean interval used to resolve temporal window samples."""
         if not self.ready:
             return self.nominal_interval_us
         if self._interval_cache is None:
-            self._interval_cache = max(1, int(round(_median(self._deltas))))
+            self._interval_cache = max(
+                1,
+                int(round(float(sum(self._deltas)) / len(self._deltas))),
+            )
         return self._interval_cache
+
+    @property
+    def typical_interval_us(self):
+        """Return median spacing for gap classification."""
+        if not self.ready:
+            return self.nominal_interval_us
+        if self._typical_cache is None:
+            self._typical_cache = max(1, int(round(_median(self._deltas))))
+        return self._typical_cache
 
     @property
     def sequence_established(self):
@@ -151,67 +170,46 @@ class PacketRateEstimator:
         return self._seq_cache
 
 
-def derive_detector_timing(interval_us, window_override=None):
-    """Resolve a candidate detector timing for replay analysis.
-
-    Deployed runtimes deliberately keep the production lags at their nominal
-    packet offsets. Scaling only the numerator of the L1 lag ratio changes the
-    feature definition and regresses low-rate recall; scaling both offsets would
-    require a Classic refit and an ML retrain. The host replay path keeps this
-    helper, mirrored in ``core/detector_timing.h``, so future timing candidates
-    can be measured against shipped behavior.
-
-    The lags describe how far the channel has moved over an interval, so they
-    have to track that interval. This is decisive at high rates: on the 1000 pps
-    diagnostic pair, restoring the turbulence-autocorrelation lag to its 10 ms
-    scale takes false positives from 17.8-32.7% down to 0.0%, because at under a
-    millisecond of separation consecutive packets are almost perfectly
-    correlated and the feature leaves the range its coefficients were fitted
-    over.
-
-    The window is different. Its features are estimator averages, so their
-    sampling behaviour depends on how many samples they average, not on the time
-    those samples span. Holding a one-second span at 25 pps leaves 25 samples,
-    the estimates get noisier, startup calibration answers the wider quiet
-    distribution by lifting the threshold, and recall collapses to 60% while
-    false positives stay low. Holding the sample count instead keeps recall at
-    99% at the same cadence.
-
-    ``window_override`` supplies the window in packets instead of deriving it,
-    still bounded by the measured floor and ceiling. Replay analyses use it to
-    isolate lag behavior: a sweep over the 22 normal-link paired recordings at
-    their native rate puts the worst-session recall at 91.9% for an 80-sample
-    window and 94.2% at 90, both under the 95% production target, against 96.8%
-    at 100. Leaving it ``None`` evaluates the fully derived candidate timing.
-    """
+def derive_detector_timing(interval_us, window_size_ms=SEGMENTATION_WINDOW_SIZE_MS):
+    """Resolve the configured time window at one measured packet cadence."""
     interval = max(1, int(interval_us))
-
-    # Near the nominal cadence, adapting buys nothing and costs homogeneity.
-    # Rounding a duration into packets flips between neighbouring counts across
-    # streams that all run at essentially the nominal rate, so a single
-    # coefficient set has to cover slightly different feature definitions.
-    # Measured on the training corpus, adapting inside this band costs 3.8
-    # points of fitted recall at the same false-positive ceiling.
-    nominal = nominal_packet_interval_us(SEG_WINDOW_SIZE)
-    if abs(interval - nominal) <= RATE_ADAPTATION_DEAD_BAND * nominal:
-        interval = nominal
-
-    def packets_for(duration_us, minimum=1):
-        return max(minimum, int(round(float(duration_us) / float(interval))))
-
-    derived_window = (
-        packets_for(SEG_WINDOW_US) if window_override is None else int(window_override)
-    )
+    duration_us = max(1, int(window_size_ms)) * 1000
+    derived_window = max(1, (duration_us + interval - 1) // interval)
     window_packets = min(max(derived_window, SEG_WINDOW_MIN), SEG_WINDOW_MAX)
-    # Both lags must leave a usable series inside the window, and the L1 lag
-    # also respects the bound the firmware profile ring is sized for.
-    lag_ceiling = min(max(1, window_packets // 2), L1_DELTA_LAG_MAX)
     return {
         "interval_us": interval,
         "window_packets": window_packets,
-        "lag": min(packets_for(L1_DELTA_LAG_US), lag_ceiling),
-        "autocorr_lag": min(packets_for(TURB_AUTOCORR_LAG_US), lag_ceiling),
+        "lag": min(PRODUCTION_L1_DELTA_LAG, L1_DELTA_LAG_MAX, max(1, window_packets // 2)),
+        "autocorr_lag": min(PRODUCTION_AUTOCORR_LAG, max(1, window_packets // 2)),
     }
+
+
+def resolve_detector_timing_update(
+    rate_estimator,
+    current_window_packets,
+    window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+):
+    """Return new measured timing when the detector window must be rebuilt."""
+    if not rate_estimator.ready:
+        return None
+    resolved = derive_detector_timing(rate_estimator.interval_us, window_size_ms)
+    current = max(1, int(current_window_packets))
+    minimum_change = max(
+        DETECTOR_WINDOW_RESIZE_MIN_PACKETS,
+        current // DETECTOR_WINDOW_RESIZE_DIVISOR,
+    )
+    if abs(int(resolved["window_packets"]) - current) < minimum_change:
+        return None
+    return resolved
+
+
+def detector_rate_supported(rate_estimator):
+    """Return whether a measured stream is dense enough for detection."""
+    return (
+        not rate_estimator.ready
+        or rate_estimator.interval_us
+        <= int(round(1_000_000.0 / MIN_DETECTOR_PACKET_RATE_PPS))
+    )
 
 
 def equivalent_packet_weight(elapsed_us, nominal_interval_us, fallback_packets=1):
@@ -311,7 +309,24 @@ class PacketTimingTracker:
         """
         return max(
             self.gap_reset_min_us,
-            int(round(self.rate.interval_us * self.gap_reset_ratio)),
+            int(round(self.rate.typical_interval_us * self.gap_reset_ratio)),
+        )
+
+    @property
+    def detector_rate_supported(self):
+        """Whether this measured stream is dense enough for detection."""
+        return detector_rate_supported(self.rate)
+
+    def resolve_detector_timing_update(
+        self,
+        current_window_packets,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+    ):
+        """Return measured timing when the current detector must be rebuilt."""
+        return resolve_detector_timing_update(
+            self.rate,
+            current_window_packets,
+            window_size_ms,
         )
 
     def observe_packet(self, packet):
@@ -410,14 +425,15 @@ class RuntimeMotionPolicy:
         evaluation_interval_ms=EVALUATION_INTERVAL_MS,
         motion_on_hits=4,
         motion_off_hits=3,
+        segmentation_window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
     ):
         self.evaluation_interval_ms = max(1, int(evaluation_interval_ms))
         self.evaluation_interval_us = self.evaluation_interval_ms * 1000
         self.motion_on_hits = max(1, int(motion_on_hits))
         self.motion_off_hits = max(1, int(motion_off_hits))
-        self._rate = PacketRateEstimator(
-            nominal_packet_interval_us(SEG_WINDOW_SIZE)
-        )
+        self.segmentation_window_size_ms = max(1, int(segmentation_window_size_ms))
+        self.segmentation_window_us = self.segmentation_window_size_ms * 1000
+        self._rate = PacketRateEstimator(nominal_packet_interval_us(NOMINAL_PACKET_RATE_PPS))
         self._last_arrival_us = None
         self.reset()
 
@@ -446,7 +462,7 @@ class RuntimeMotionPolicy:
                 # Past half the range the counter went backwards rather than a
                 # very long gap having elapsed.
                 if 0 < delta < (_UINT32_MODULUS // 2):
-                    if delta < SEG_WINDOW_US:
+                    if delta < self.segmentation_window_us:
                         self._rate.observe_interval(delta)
                         elapsed_us = delta
                     else:
@@ -459,16 +475,35 @@ class RuntimeMotionPolicy:
         """Effective packet interval seen so far, for rate-derived sizing."""
         return self._rate.interval_us
 
+    @property
+    def detector_window_packets(self):
+        """Resolve the configured detector duration at the measured cadence."""
+        return derive_detector_timing(
+            self.packet_interval_us,
+            self.segmentation_window_size_ms,
+        )["window_packets"]
+
+    @property
+    def detector_rate_supported(self):
+        """Whether the measured stream supplies enough samples for detection."""
+        return detector_rate_supported(self._rate)
+
+    def resolve_detector_timing_update(self, current_window_packets):
+        """Return measured timing when the current detector must be rebuilt."""
+        return resolve_detector_timing_update(
+            self._rate,
+            current_window_packets,
+            self.segmentation_window_size_ms,
+        )
+
     def note_packet(self, elapsed_us=None):
         """Record that one new CSI packet has been processed."""
         self.packets_since_evaluation += 1
         if elapsed_us is not None:
             self.elapsed_us_since_evaluation += max(0, int(elapsed_us))
 
-    def should_evaluate(self, should_publish=False):
+    def should_evaluate(self):
         """Check whether the detector should be evaluated now."""
-        if should_publish:
-            return True
         return self.elapsed_us_since_evaluation >= self.evaluation_interval_us
 
     def after_evaluation(self):
@@ -476,10 +511,10 @@ class RuntimeMotionPolicy:
         self.packets_since_evaluation = 0
         self.elapsed_us_since_evaluation = 0
 
-    def note_evaluation_tick(self, elapsed_us=None, should_publish=False):
+    def note_evaluation_tick(self, elapsed_us=None):
         """Record one packet and return True when an evaluation is due."""
         self.note_packet(elapsed_us=elapsed_us)
-        if not self.should_evaluate(should_publish=should_publish):
+        if not self.should_evaluate():
             return False
         self.after_evaluation()
         return True
@@ -524,8 +559,12 @@ class RuntimeMotionPolicy:
         return self.effective_state, self.effective_state != previous_state
 
 
-def make_evaluation_cadence(evaluation_interval_ms=EVALUATION_INTERVAL_MS):
+def make_evaluation_cadence(
+    evaluation_interval_ms=EVALUATION_INTERVAL_MS,
+    segmentation_window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+):
     """Return a runtime policy used only for evaluation-interval cadence."""
     return RuntimeMotionPolicy(
         evaluation_interval_ms=evaluation_interval_ms,
+        segmentation_window_size_ms=segmentation_window_size_ms,
     )

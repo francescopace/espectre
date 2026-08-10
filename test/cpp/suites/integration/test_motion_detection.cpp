@@ -318,7 +318,10 @@ inline bool is_esp32_chip() {
 }
 
 // Unified parameters for all chips (use production defaults)
-inline uint16_t get_window_size() { return DETECTOR_DEFAULT_WINDOW_SIZE; }
+inline uint16_t get_window_size() {
+    return replay::detector_window_packets(
+        static_presence_metadata(), num_static_presence);
+}
 inline bool get_enable_hampel() { return true; }
 
 // Classic targets
@@ -360,7 +363,10 @@ void test_classic_fixed_subcarriers(void) {
     detector.configure_lowpass(false);
     detector.configure_hampel(enable_hampel);
 
-    int calibration_packets = std::min(num_static_presence, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
+    int calibration_packets = std::min(
+        num_static_presence,
+        static_cast<int>(replay::calibration_packet_count(
+            static_presence_metadata(), num_static_presence)));
     float adaptive_threshold = CLASSIC_DEFAULT_THRESHOLD;
     const bool calibrated = replay::calibrate_classic_detector(
         detector,
@@ -421,7 +427,7 @@ void test_ml_detection(void) {
     printf("  Chip: %s\n", csi_test_data::chip_name(csi_test_data::current_chip()));
     printf("═══════════════════════════════════════════════════════\n\n");
     
-    MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
+    MLDetector detector(get_window_size(), ML_DEFAULT_THRESHOLD);
     detector.configure_hampel(get_enable_hampel());
     
     printf("ML subcarriers: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d] (fixed)\n",

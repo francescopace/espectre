@@ -29,12 +29,12 @@ espectre:
   id: espectre_csi
   debug_telemetry: true
   # Traffic Generator
-  traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
+  traffic_generator_rate: 100   # Target CSI packets/sec (0-100000; practical rates are much lower)
   traffic_generator_mode: ping   # ping (default) or dns
   # Detection Algorithm
   detection_algorithm: classic  # classic (default) or ml (neural network)
   # Segmentation parameters
-  segmentation_window_size: 100  # Analysis window size in packets (10-200)
+  segmentation_window_size_ms: 1000  # Analysis window duration in milliseconds (1000-2000)
   # Filters
   hampel_enabled: true          # Outlier removal (default: true)
   hampel_window: 7              # Filter window size (3-11, odd numbers)

@@ -78,13 +78,13 @@ struct RuntimeConfig {
    */
   float segmentation_threshold{RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT};
   /**
-   * Detector window in packets (100..200).
+   * Detector window duration in milliseconds (1000..2000).
    *
-   * Below 100 the window features become too noisy to separate motion from the
-   * quiet floor; above 200 the window smears short movements into the
-   * background. See `detector_limits.h` for the measurements behind both bounds.
+   * Runtimes resolve the duration to a packet count from the measured CSI
+   * cadence. The default therefore uses 80 samples at 80 pps, 100 at 100 pps,
+   * and 120 at 120 pps while preserving the same one-second observation span.
    */
-  uint16_t segmentation_window_size{RUNTIME_SEGMENTATION_WINDOW_SIZE_DEFAULT};
+  uint32_t segmentation_window_size_ms{RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT};
   /**
    * Advertise runtime detector switching.
    *
@@ -125,13 +125,8 @@ struct RuntimeConfig {
   uint32_t stream_log_interval_ms{RUNTIME_STREAM_LOG_INTERVAL_MS_DEFAULT};
   /** `RuntimeProfile::STREAM` only: CSI records coalesced into one datagram. */
   uint8_t stream_tx_batch_records{RUNTIME_STREAM_TX_BATCH_RECORDS_DEFAULT};
-  /**
-   * Packets between `IRuntimeListener::on_periodic_update()` callbacks.
-   *
-   * At the default 100 pps target, the default 100 is roughly one heartbeat
-   * per second.
-   */
-  uint32_t publish_interval{RUNTIME_PUBLISH_INTERVAL_DEFAULT};
+  /** Milliseconds between `IRuntimeListener::on_periodic_update()` callbacks. */
+  uint32_t publish_interval_ms{RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT};
   /** Detector evaluation cadence in milliseconds. */
   uint32_t evaluation_interval_ms{RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT};
   /** Consecutive above-threshold evaluations before reporting motion (1..20). */

@@ -183,7 +183,8 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " ├─ Wi-Fi band ......... %s", wifi_band_policy_name(config.wifi_band_policy));
   ESP_LOGCONFIG(TAG, " ├─ Detector ........... %s", snapshot.detector_name);
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.6f", snapshot.threshold);
-  ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", config.segmentation_window_size);
+  ESP_LOGCONFIG(TAG, " ├─ Window ............. %u ms",
+                static_cast<unsigned>(config.segmentation_window_size_ms));
   ESP_LOGCONFIG(TAG, " └─ Startup threshold .. %.6f", snapshot.startup_threshold);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
@@ -206,7 +207,7 @@ void ESpectreComponent::dump_config() {
   }
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " PUBLISH INTERVAL");
-  ESP_LOGCONFIG(TAG, " └─ Packets ............ %u", config.publish_interval);
+  ESP_LOGCONFIG(TAG, " └─ Publish interval ... %u ms", config.publish_interval_ms);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " EVALUATION");
   ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u ms", config.evaluation_interval_ms);

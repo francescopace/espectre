@@ -322,7 +322,7 @@ def measure_packet_interval_us(
     the declared 97.9. Excluding contaminated deltas keeps a pathological stall
     from inflating the answer, which is the robustness the median was there for.
     """
-    nominal = nominal_packet_interval_us(config.SEG_WINDOW_SIZE)
+    nominal = nominal_packet_interval_us(100)
     total = len(packets)
     if total < 2:
         return nominal
@@ -344,6 +344,24 @@ def measure_packet_interval_us(
     return max(1, int(round(float(total_us) / float(counted))))
 
 
+def detector_window_packets(
+    packets: Sequence[Dict[str, Any]],
+    window_size_ms: Optional[int] = None,
+) -> int:
+    """Resolve the configured temporal detector window for one capture."""
+    configured_ms = (
+        int(config.SEGMENTATION_WINDOW_SIZE_MS)
+        if window_size_ms is None
+        else int(window_size_ms)
+    )
+    return int(
+        derive_detector_timing(
+            measure_packet_interval_us(packets),
+            configured_ms,
+        )["window_packets"]
+    )
+
+
 def build_classic_detector(
     *,
     threshold: float = 1.0,
@@ -357,7 +375,8 @@ def build_classic_detector(
         else bool(enable_hampel)
     )
     resolved = timing or derive_detector_timing(
-        nominal_packet_interval_us(config.SEG_WINDOW_SIZE)
+        nominal_packet_interval_us(100),
+        config.SEGMENTATION_WINDOW_SIZE_MS,
     )
     return ClassicDetector(
         window_size=resolved["window_packets"],
@@ -388,6 +407,7 @@ def _calibration_runtime(
         evaluation_interval_ms=config.EVALUATION_INTERVAL_MS,
         motion_on_hits=1,
         motion_off_hits=1,
+        segmentation_window_size_ms=config.SEGMENTATION_WINDOW_SIZE_MS,
     )
     return (
         PacketTimingTracker(interval_us),
@@ -426,15 +446,22 @@ def build_calibrated_classic_detector(
     tests can exercise both branches without mutating global configuration.
     """
     packets = list(packets)
-    timing = derive_detector_timing(measure_packet_interval_us(packets))
+    timing = derive_detector_timing(
+        measure_packet_interval_us(packets),
+        config.SEGMENTATION_WINDOW_SIZE_MS,
+    )
     detector = build_classic_detector(
         threshold=threshold, enable_hampel=enable_hampel, timing=timing
     )
     band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)
     detector.on_startup_calibration_begin()
     timing_tracker, cadence, nominal_interval_us = _calibration_runtime(timing)
+    calibration_target_packets = max(
+        1,
+        int(round(config.CALIBRATION_DURATION_MS * 1000.0 / timing["interval_us"])),
+    )
     calibrator = StartupThresholdCalibrator(
-        config.CALIBRATION_BUFFER_SIZE,
+        calibration_target_packets,
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
@@ -451,7 +478,7 @@ def build_calibrated_classic_detector(
             detector.reset()
             detector.on_startup_calibration_begin()
             calibrator = StartupThresholdCalibrator(
-                config.CALIBRATION_BUFFER_SIZE,
+                calibration_target_packets,
                 auto_factor=get_detector_auto_factor(detector),
                 gate_enabled=get_detector_startup_gate(detector),
             )

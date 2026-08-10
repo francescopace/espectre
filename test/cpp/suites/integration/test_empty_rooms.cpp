@@ -52,12 +52,16 @@ void test_classic_raises_no_alarm_on_empty_room(void) {
       empty.rssi_dbm.empty() ? nullptr : empty.rssi_dbm.data();
   const espectre::test::replay::ReplayPacketMetadata metadata = empty_metadata();
 
-  ClassicDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, CLASSIC_DEFAULT_THRESHOLD);
+  const uint16_t window_size = espectre::test::replay::detector_window_packets(
+      metadata, empty.num_packets);
+  ClassicDetector detector(window_size, CLASSIC_DEFAULT_THRESHOLD);
   detector.configure_lowpass(false);
   detector.configure_hampel(true);
 
   const int calibration_packets = std::min(
-      empty.num_packets, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
+      empty.num_packets,
+      static_cast<int>(espectre::test::replay::calibration_packet_count(
+          metadata, empty.num_packets)));
   float adaptive_threshold = 0.0f;
   const bool calibrated = espectre::test::replay::calibrate_classic_detector(
       detector, calibration_packets, packets, empty.num_packets, rssi, metadata,

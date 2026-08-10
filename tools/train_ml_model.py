@@ -365,10 +365,14 @@ from config import (
     LOWPASS_CUTOFF,
     MOTION_OFF_HITS,
     MOTION_ON_HITS,
-    SEG_WINDOW_SIZE,
+    SEGMENTATION_WINDOW_SIZE_MS,
 )
 from detector_interface import MotionState
-from runtime_policy import RuntimeMotionPolicy
+from runtime_policy import (
+    RuntimeMotionPolicy,
+    derive_detector_timing,
+    nominal_packet_interval_us,
+)
 from segmentation import SegmentationContext
 from tools.lib.performance_report import (
     STRESS_TARGET_FP_RATE,
@@ -389,6 +393,11 @@ from csi_features import (
     TURB_IQR_AGGREGATION_WIDTH,
     extract_features_by_name,
 )
+
+DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE = derive_detector_timing(
+    nominal_packet_interval_us(100),
+    SEGMENTATION_WINDOW_SIZE_MS,
+)["window_packets"]
 from tools.lib.candidate_features import (
     CANDIDATE_FEATURES,
     assemble_feature_vector,
@@ -1356,6 +1365,7 @@ def _packet_augmentation_stream_provenance(packet_augmentation, augmentation_see
             _ensure_record_packets,
             _normalize_augmentation_range,
             _estimate_packet_rate_pps,
+            _resample_stable_packet_rate,
             _smoothed_iq_profile,
             _stable_text_seed,
             derive_seed,
@@ -1434,6 +1444,59 @@ def _estimate_packet_rate_pps(packets):
     """Estimate effective source throughput through the shared timing policy."""
     summary = summarize_capture_timing(packets)
     return max(1e-9, float(summary["packet_rate_pps"]))
+
+
+def _resample_stable_packet_rate(packets, rate_scale):
+    """Return a lower-rate stable stream without modelling the drop as loss."""
+    scale = float(rate_scale)
+    if scale >= 1.0 or len(packets) < 2:
+        return [dict(packet) for packet in packets]
+
+    source_rate_pps = _estimate_packet_rate_pps(packets)
+    target_rate_pps = max(80.0, source_rate_pps * scale)
+    if target_rate_pps >= source_rate_pps:
+        return [dict(packet) for packet in packets]
+
+    stride = source_rate_pps / target_rate_pps
+    interval_us = max(1, int(round(1_000_000.0 / target_rate_pps)))
+    selected = []
+    cursor = 0.0
+    next_seq_num = None
+    next_device_ticks_us = None
+    next_wifi_rx_ts_us = None
+    next_wifi_rx_start_ts_ns = None
+    while True:
+        source_index = int(round(cursor))
+        if source_index >= len(packets):
+            break
+        packet = dict(packets[source_index])
+        if next_seq_num is None:
+            next_seq_num = int(packet.get('seq_num', packet.get('stream_seq_num', 0)) or 0)
+        else:
+            next_seq_num += 1
+        packet['seq_num'] = next_seq_num
+        packet['stream_seq_num'] = next_seq_num
+        if packet.get('device_ticks_us') is not None:
+            if next_device_ticks_us is None:
+                next_device_ticks_us = int(packet['device_ticks_us'])
+            else:
+                next_device_ticks_us += interval_us
+            packet['device_ticks_us'] = next_device_ticks_us
+        if packet.get('wifi_rx_ts_us') is not None:
+            if next_wifi_rx_ts_us is None:
+                next_wifi_rx_ts_us = int(packet['wifi_rx_ts_us'])
+            else:
+                next_wifi_rx_ts_us = (next_wifi_rx_ts_us + interval_us) % (1 << 32)
+            packet['wifi_rx_ts_us'] = next_wifi_rx_ts_us
+        if packet.get('wifi_rx_start_ts_ns') is not None:
+            if next_wifi_rx_start_ts_ns is None:
+                next_wifi_rx_start_ts_ns = int(packet['wifi_rx_start_ts_ns'])
+            else:
+                next_wifi_rx_start_ts_ns += interval_us * 1000
+            packet['wifi_rx_start_ts_ns'] = next_wifi_rx_start_ts_ns
+        selected.append(packet)
+        cursor += stride
+    return selected
 
 
 def _smoothed_iq_profile(rng, usable_subcarriers):
@@ -1518,6 +1581,11 @@ def augment_csi_packets(packets, config, seed):
         integer=True,
         minimum=1,
     )
+    packet_rate_scale = _normalize_augmentation_range(
+        config.get('packet_rate_scale', (1.0, 1.0)),
+        name='packet_rate_scale',
+        minimum=0.0,
+    )
     if (
         min(
             noise_sigma,
@@ -1529,6 +1597,8 @@ def augment_csi_packets(packets, config, seed):
         or packet_loss >= 1.0
         or stutter_probability > 1.0
         or drift_episode_count < 0
+        or packet_rate_scale[0] <= 0.0
+        or packet_rate_scale[1] > 1.0
     ):
         raise ValueError("invalid packet augmentation parameters")
 
@@ -1539,6 +1609,8 @@ def augment_csi_packets(packets, config, seed):
     for source in sorted(grouped):
         rng = np.random.default_rng(derive_seed(seed, _stable_text_seed(source)))
         source_packets = grouped[source]
+        rate_scale = float(rng.uniform(*packet_rate_scale))
+        source_packets = _resample_stable_packet_rate(source_packets, rate_scale)
         packet_rate_pps = _estimate_packet_rate_pps(source_packets)
         burst_start_probability = min(
             1.0,
@@ -1696,7 +1768,7 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
                     )
                 ),
                 selected_subcarriers=DEFAULT_SUBCARRIERS,
-                window_size=SEG_WINDOW_SIZE,
+                window_size=None,
                 feature_names=feature_names,
                 sample_contract=TRAINING_SAMPLE_CONTRACT,
                 use_cache=use_cache and stream_provenance is not None,
@@ -1707,7 +1779,7 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
             replay_rows = load_or_compute_ml_replay_rows(
                 record['path'],
                 selected_subcarriers=DEFAULT_SUBCARRIERS,
-                window_size=SEG_WINDOW_SIZE,
+                window_size=None,
                 feature_names=feature_names,
                 use_cache=use_cache,
                 sample_contract=TRAINING_SAMPLE_CONTRACT,
@@ -3105,7 +3177,8 @@ def leave_one_group_out_validation(group_key, unit, detail_group_key,
                                    seed=None, feature_names=None, hidden_layers=None,
                                    scaler_mode=DEFAULT_SCALER_MODE,
                                    batch_size=DEFAULT_BATCH_SIZE,
-                                   excluded_chips=None, block_stride=SEG_WINDOW_SIZE,
+                                   excluded_chips=None,
+                                   block_stride=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
                                    use_cache=True, augment=False):
     """Leave-one-group-out generalization check over a sample-context grouping.
 
@@ -3378,16 +3451,17 @@ def cross_chip_validation(**kwargs):
     )
 
 
-# Production shortcut for --augment: the current non-scale augmentation recipe
-# (feature jitter 0.10 + moderate packet noise/loss/stutter).
+# Production shortcut for --augment: feature jitter plus a stable lower-rate
+# stream and moderate packet noise, loss, and stutter.
 ROBUSTNESS_WINNER_NAME = (
-    'baseline_standard__feature_jitter_010__packet_noise_loss_stutter_moderate'
+    'baseline_standard__feature_jitter_010__packet_rate_noise_loss_stutter_moderate'
 )
 ROBUSTNESS_WINNER_FEATURE_AUGMENTATION = {'jitter_sigma': 0.10}
 ROBUSTNESS_WINNER_PACKET_AUGMENTATION = {
     'noise_sigma': 0.01,
     'packet_loss': 0.05,
     'stutter_probability': 0.08,
+    'packet_rate_scale': (0.8, 1.0),
 }
 CORRELATED_DRIFT_PACKET_AUGMENTATION = {
     'drift_sigma': 0.035,
@@ -4072,7 +4146,7 @@ def run_ablation_study(X, y, feature_names, sample_context=None, sample_weight=N
             sample_context=sample_context,
             scaler_mode=scaler_mode,
             batch_size=batch_size,
-            block_stride=SEG_WINDOW_SIZE,
+            block_stride=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
         )
     static_presence_f1 = static_presence_cv['f1_mean']
     results.append({
@@ -4109,7 +4183,7 @@ def run_ablation_study(X, y, feature_names, sample_context=None, sample_weight=N
                 sample_context=sample_context,
                 scaler_mode=scaler_mode,
                 batch_size=batch_size,
-                block_stride=SEG_WINDOW_SIZE,
+                block_stride=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
             )
 
         f1 = cv['f1_mean']
@@ -4236,7 +4310,11 @@ def print_cv_summary(cv_results, title="Primary grouped CV"):
             )
 
 
-def select_regression_subset_indices(sample_context, max_samples=2048, block_stride=SEG_WINDOW_SIZE):
+def select_regression_subset_indices(
+    sample_context,
+    max_samples=2048,
+    block_stride=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+):
     """Pick a deterministic subset for inference-regression artifacts."""
     if sample_context is None:
         return np.arange(0, max_samples)
@@ -4518,7 +4596,10 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     eval_groups = sample_context[DEFAULT_PRIMARY_GROUP_KEY]
     unique_eval_groups = len(set(eval_groups))
     print(f"  Primary eval groups ({DEFAULT_PRIMARY_GROUP_KEY}): {unique_eval_groups}")
-    print(f"  Evaluation block stride: {SEG_WINDOW_SIZE} windows per source file")
+    print(
+        "  Evaluation block stride: "
+        f"{DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE} windows per source file"
+    )
 
     boosted_weights, boost_summary = apply_positive_chip_boost(
         sample_weights,
@@ -4590,7 +4671,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             sample_context=sample_context,
             scaler_mode=scaler_mode,
             batch_size=batch_size,
-            block_stride=SEG_WINDOW_SIZE,
+            block_stride=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
             block_group_key=DEFAULT_BLOCK_GROUP_KEY,
             report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
             seed=seed,
@@ -4759,7 +4840,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     regression_indices = select_regression_subset_indices(
         sample_context,
         max_samples=2048,
-        block_stride=SEG_WINDOW_SIZE,
+        block_stride=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
     )
     
     # Export models
@@ -4912,10 +4993,15 @@ def _batch_predict_probabilities(features, center, scale, layers):
 class StreamingFeatureExtractor:
     """Compute runtime-equivalent feature vectors from a CSI packet stream."""
 
-    def __init__(self, feature_names):
+    def __init__(
+        self,
+        feature_names,
+        window_packets=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+    ):
         self.feature_names = list(feature_names)
+        self.window_packets = max(1, int(window_packets))
         self.context = SegmentationContext(
-            window_size=SEG_WINDOW_SIZE,
+            window_size=self.window_packets,
             enable_lowpass=ENABLE_LOWPASS_FILTER,
             lowpass_cutoff=LOWPASS_CUTOFF,
             enable_hampel=ENABLE_HAMPEL_FILTER,
@@ -4926,7 +5012,7 @@ class StreamingFeatureExtractor:
         # and both runtimes; skip the tracker when the model has no L1 inputs.
         self.needs_l1_tracker = _needs_l1_tracker(self.feature_names)
         self.needs_l1_series = _needs_l1_series(self.feature_names)
-        l1_capacity = max(2, SEG_WINDOW_SIZE - L1_DELTA_LAG)
+        l1_capacity = max(2, self.window_packets - L1_DELTA_LAG)
         self.l1_tracker = (
             L1DeltaTracker(
                 window_size=l1_capacity,
@@ -4946,7 +5032,7 @@ class StreamingFeatureExtractor:
         )
         self.aggregated_context = (
             SegmentationContext(
-                window_size=SEG_WINDOW_SIZE,
+                window_size=self.window_packets,
                 enable_lowpass=ENABLE_LOWPASS_FILTER,
                 lowpass_cutoff=LOWPASS_CUTOFF,
                 enable_hampel=ENABLE_HAMPEL_FILTER,
@@ -5145,8 +5231,13 @@ def build_host_feature_rows(packets, feature_names, *,
         return _empty_feature_rows(requested_feature_names)
 
     interval_us = measure_packet_interval_us(packets)
-    timing_tracker, cadence = timing_cadence_for_window(SEG_WINDOW_SIZE, interval_us)
-    extractor = StreamingFeatureExtractor(requested_feature_names)
+    timing = derive_detector_timing(interval_us, SEGMENTATION_WINDOW_SIZE_MS)
+    window_packets = timing["window_packets"]
+    timing_tracker, cadence = timing_cadence_for_window(window_packets, interval_us)
+    extractor = StreamingFeatureExtractor(
+        requested_feature_names,
+        window_packets,
+    )
     packets_since_reset = 0
     reset_index = 0
     evaluation_index = 0
@@ -5163,7 +5254,10 @@ def build_host_feature_rows(packets, feature_names, *,
             timing_tracker=timing_tracker,
         )
         if contaminated:
-            extractor = StreamingFeatureExtractor(requested_feature_names)
+            extractor = StreamingFeatureExtractor(
+                requested_feature_names,
+                window_packets,
+            )
             cadence.reset()
             timing_tracker.reset()
             reset_index += 1
@@ -5175,7 +5269,7 @@ def build_host_feature_rows(packets, feature_names, *,
             packets_since_reset = 0
         values = extractor.process_packet(packet_csi_data(packet))
         packets_since_reset += 1
-        if values is None or packets_since_reset < SEG_WINDOW_SIZE:
+        if values is None or packets_since_reset < window_packets:
             continue
         row_features.append(np.asarray(values, dtype=np.float32))
         packet_index_values.append(int(packet_index))
@@ -5228,9 +5322,20 @@ def load_or_compute_host_feature_rows(source_path, *,
         raise ValueError("pass packets or packets_factory, not both")
     requested_feature_names = [str(name) for name in feature_names]
     normalized_contract = _normalize_feature_row_contract(sample_contract)
+    if packets is not None:
+        packet_stream = packets
+    elif packets_factory is not None:
+        packet_stream = packets_factory()
+    else:
+        packet_stream = load_npz_packet_view(Path(source_path))
+    interval_us = measure_packet_interval_us(packet_stream)
+    window_packets = derive_detector_timing(
+        interval_us,
+        SEGMENTATION_WINDOW_SIZE_MS,
+    )["window_packets"]
     parameters = npz_cache.ml_replay_row_parameters(
         selected_subcarriers=DEFAULT_SUBCARRIERS,
-        window_size=SEG_WINDOW_SIZE,
+        window_size=window_packets,
         feature_names=requested_feature_names,
         stream_provenance=stream_provenance,
     )
@@ -5254,12 +5359,6 @@ def load_or_compute_host_feature_rows(source_path, *,
                 'cache_hit': True,
             }
             return projected
-    if packets is not None:
-        packet_stream = packets
-    elif packets_factory is not None:
-        packet_stream = packets_factory()
-    else:
-        packet_stream = load_npz_packet_view(Path(source_path))
     rows = build_host_feature_rows(
         packet_stream,
         requested_feature_names,
@@ -5368,14 +5467,14 @@ def evaluate_split(model, scaler, feature_names, static_presence_packets,
         static_rows = build_ml_replay_rows(
             static_presence_packets,
             DEFAULT_SUBCARRIERS,
-            SEG_WINDOW_SIZE,
+            None,
             feature_names,
             sample_contract="replay_tick",
         )
         motion_rows = build_ml_replay_rows(
             motion_packets,
             DEFAULT_SUBCARRIERS,
-            SEG_WINDOW_SIZE,
+            None,
             feature_names,
             sample_contract="replay_tick",
         )
@@ -5408,14 +5507,14 @@ def evaluate_array_split(center, scale, layers, feature_names,
         static_rows = build_ml_replay_rows(
             static_presence_packets,
             DEFAULT_SUBCARRIERS,
-            SEG_WINDOW_SIZE,
+            None,
             feature_names,
             sample_contract="replay_tick",
         )
         motion_rows = build_ml_replay_rows(
             motion_packets,
             DEFAULT_SUBCARRIERS,
-            SEG_WINDOW_SIZE,
+            None,
             feature_names,
             sample_contract="replay_tick",
         )
@@ -5460,7 +5559,7 @@ def _load_gate_feature_rows(path, label_name, feature_names, *,
         return load_or_compute_ml_replay_rows(
             path,
             selected_subcarriers=DEFAULT_SUBCARRIERS,
-            window_size=SEG_WINDOW_SIZE,
+            window_size=None,
             feature_names=feature_names,
             use_cache=use_cache,
             sample_contract="replay_tick",
@@ -5816,7 +5915,7 @@ def evaluate_idle_streaming(evaluator, packets, threshold=0.5):
         rows = build_ml_replay_rows(
             packets,
             DEFAULT_SUBCARRIERS,
-            SEG_WINDOW_SIZE,
+            None,
             feature_names,
             sample_contract="replay_tick",
         )
@@ -6763,7 +6862,7 @@ def evaluate_architecture_candidate(
             sample_context=dataset['sample_context'],
             scaler_mode=scaler_mode,
             batch_size=batch_size,
-            block_stride=SEG_WINDOW_SIZE,
+            block_stride=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
             block_group_key=DEFAULT_BLOCK_GROUP_KEY,
             report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
             seed=seed,

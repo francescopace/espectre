@@ -26,7 +26,11 @@ if str(REPO_ROOT) not in sys.path:
 from tools.lib.bootstrap import setup_paths  # noqa: F401
 
 from tools.lib.csi_io import load_npz_as_packets
-from tools.lib.dataset_metadata import resolve_explicit_pair, select_dataset_interactively
+from tools.lib.dataset_metadata import (
+    detector_window_packets,
+    resolve_explicit_pair,
+    select_dataset_interactively,
+)
 from classic_detector import ClassicDetector
 from config import (
     DEFAULT_SUBCARRIERS,
@@ -35,11 +39,10 @@ from config import (
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
     LOWPASS_CUTOFF,
-    SEG_WINDOW_SIZE,
+    SEGMENTATION_WINDOW_SIZE_MS,
 )
 from tools.lib.performance_report import evaluate_detector_packets
 
-WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 0.5
 
 RECALL_TARGET_PCT = 95.0
@@ -94,7 +97,12 @@ def _score_configuration(fp, tp, static_presence_count, motion_count):
     )
 
 
-def _evaluate_classic_configuration(static_presence_packets, motion_packets, threshold, window_size):
+def _evaluate_classic_configuration(
+    static_presence_packets,
+    motion_packets,
+    threshold,
+    window_size_ms,
+):
     """
     Evaluate one ClassicDetector configuration without resetting between phases.
 
@@ -102,6 +110,7 @@ def _evaluate_classic_configuration(static_presence_packets, motion_packets, thr
     detector state, then the motion packets are evaluated immediately after.
     Scoring uses the production evaluation cadence.
     """
+    window_size = detector_window_packets(static_presence_packets, window_size_ms)
     detector = ClassicDetector(
         window_size=window_size,
         threshold=threshold,
@@ -156,22 +165,22 @@ def load_dataset(chip="C6", dataset=None, interactive=False):
 def test_parameter_grid(static_presence_packets, motion_packets, quick=False):
     """Test Classic threshold/window-size combinations on fixed production subcarriers."""
     thresholds = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8] if not quick else [0.4, 0.5, 0.6]
-    window_sizes = [30, 50, 75, 100] if not quick else [SEG_WINDOW_SIZE]
+    window_sizes_ms = [1000, 1250, 1500, 2000] if not quick else [SEGMENTATION_WINDOW_SIZE_MS]
 
     results = []
-    total_tests = len(thresholds) * len(window_sizes)
+    total_tests = len(thresholds) * len(window_sizes_ms)
     test_count = 0
 
     print(f"Testing {total_tests} Classic detector configurations...")
     print("Progress: ", end="", flush=True)
 
-    for window_size in window_sizes:
+    for window_size_ms in window_sizes_ms:
         for threshold in thresholds:
             fp, tp, static_presence_count, motion_count = _evaluate_classic_configuration(
                 static_presence_packets,
                 motion_packets,
                 threshold,
-                window_size,
+                window_size_ms,
             )
             score = _score_configuration(
                 fp,
@@ -180,7 +189,7 @@ def test_parameter_grid(static_presence_packets, motion_packets, quick=False):
                 motion_count,
             )
             result = _build_result_entry({
-                "window_size": window_size,
+                "window_size_ms": window_size_ms,
                 "threshold": threshold,
                 "subcarriers": list(DEFAULT_SUBCARRIERS),
                 "subcarrier_count": len(DEFAULT_SUBCARRIERS),
@@ -196,7 +205,13 @@ def test_parameter_grid(static_presence_packets, motion_packets, quick=False):
     return results
 
 
-def print_confusion_matrix(static_presence_packets, motion_packets, threshold, window_size, show_plot=False):
+def print_confusion_matrix(
+    static_presence_packets,
+    motion_packets,
+    threshold,
+    window_size_ms,
+    show_plot=False,
+):
     """
     Print confusion matrix and segmentation metrics for a specific configuration.
 
@@ -210,7 +225,7 @@ def print_confusion_matrix(static_presence_packets, motion_packets, threshold, w
         static_presence_packets,
         motion_packets,
         threshold,
-        window_size,
+        window_size_ms,
     )
     tn = num_baseline - fp
     fn = num_movement - tp
@@ -280,7 +295,7 @@ def print_top_results(results, num_sc, top_n=20):
     print("-" * 60)
     for i, result in enumerate(ranked_results[:top_n], 1):
         print(
-            f"{i:<6} {result['window_size']:<7} {result['threshold']:<8.2f} "
+            f"{i:<6} {result['window_size_ms']:<7} {result['threshold']:<8.2f} "
             f"{result['fp_rate']:<7.2f} {result['recall']:<9.2f} {result['f1_score']:<7.2f}"
         )
     print("-" * 60)
@@ -288,14 +303,14 @@ def print_top_results(results, num_sc, top_n=20):
     best = ranked_results[0]
     print("\nBEST CONFIGURATION (objective-aligned ranking):")
     print(f"   Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
-    print(f"   Window Size: {best['window_size']}")
+    print(f"   Window: {best['window_size_ms']} ms")
     print(f"   Threshold: {best['threshold']}")
     print(f"   Recall: {best['recall']:.2f}%")
     print(f"   FP Rate: {best['fp_rate']:.2f}%")
     print(f"   F1-Score: {best['f1_score']:.2f}%")
     print(f"\nConfiguration for src/config.py ({num_sc} SC):")
     print(f"   DEFAULT_SUBCARRIERS = {list(DEFAULT_SUBCARRIERS)}")
-    print(f"   SEG_WINDOW_SIZE = {best['window_size']}")
+    print(f"   SEGMENTATION_WINDOW_SIZE_MS = {best['window_size_ms']}")
     print(f"   Runtime threshold = {best['threshold']}")
 
     same_threshold = [r for r in ranked_results if r["threshold"] == best["threshold"]]
@@ -303,7 +318,7 @@ def print_top_results(results, num_sc, top_n=20):
         print(f"\nOther top configurations with threshold={best['threshold']}:")
         for r in same_threshold[1:6]:
             print(
-                f"   WinSz={r['window_size']:<3} "
+                f"   WindowMs={r['window_size_ms']:<4} "
                 f"Recall={r['recall']:.2f}% FP={r['fp_rate']:.2f}% F1={r['f1_score']:.2f}%"
             )
 
@@ -360,7 +375,7 @@ def main():
             static_presence_packets,
             motion_packets,
             best["threshold"],
-            best["window_size"],
+            best["window_size_ms"],
         )
 
     print()

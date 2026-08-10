@@ -37,14 +37,13 @@ choice ESPECTRE_DETECTION_ALGORITHM
             Neural-network detector with its trained startup threshold.
 endchoice
 
-config ESPECTRE_SEGMENTATION_WINDOW_SIZE
-    int "Segmentation window size"
-    range 100 200
-    default 100
+config ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS
+    int "Segmentation window duration (milliseconds)"
+    range 1000 2000
+    default 1000
     help
-        Detector window in packets. Below 100 the window features get too
-        noisy to separate motion from the quiet floor, so the runtime rejects
-        smaller values and falls back to the default.
+        Detector window in elapsed time. The runtime resolves this duration to
+        samples from the measured valid CSI cadence.
 
 config ESPECTRE_TRAFFIC_GENERATOR_RATE
     int "Target valid CSI rate (pps)"
@@ -71,10 +70,10 @@ choice ESPECTRE_TRAFFIC_GENERATOR_MODE
         bool "PING"
 endchoice
 
-config ESPECTRE_PUBLISH_INTERVAL
-    int "Publish interval (packets)"
-    range 1 1000
-    default 100
+config ESPECTRE_PUBLISH_INTERVAL_MS
+    int "Publish interval (milliseconds)"
+    range 100 60000
+    default 1000
 
 config ESPECTRE_EVALUATION_INTERVAL_MS
     int "Evaluation interval (milliseconds)"

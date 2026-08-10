@@ -85,6 +85,22 @@ def _make_discovered_streamer(
     )
 
 
+def _attach_runtime_policy_primitives(module: ModuleType) -> None:
+    from runtime_policy import (
+        PacketTimingTracker,
+        derive_detector_timing,
+        duration_packet_count,
+        nominal_packet_interval_us,
+        resolve_detector_timing_update,
+    )
+
+    module.PacketTimingTracker = PacketTimingTracker
+    module.derive_detector_timing = derive_detector_timing
+    module.duration_packet_count = duration_packet_count
+    module.nominal_packet_interval_us = nominal_packet_interval_us
+    module.resolve_detector_timing_update = resolve_detector_timing_update
+
+
 def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collector_cls=object, config_overrides=None) -> None:
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
@@ -94,14 +110,14 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
     fake_threshold = ModuleType("threshold")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
-    fake_config.SEG_WINDOW_SIZE = 2
-    fake_config.CALIBRATION_BUFFER_SIZE = 20
+    fake_config.SEGMENTATION_WINDOW_SIZE_MS = 20
+    fake_config.CALIBRATION_DURATION_MS = 200
     fake_config.ENABLE_LOWPASS_FILTER = False
     fake_config.LOWPASS_CUTOFF = 11.0
     fake_config.ENABLE_HAMPEL_FILTER = True
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
-    fake_config.PUBLISH_INTERVAL = 1
+    fake_config.PUBLISH_INTERVAL_MS = 1
     fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
@@ -173,7 +189,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
         def note_packet(self):
             pass
 
-        def should_evaluate(self, should_publish):
+        def should_evaluate(self):
             return True
 
         def apply_state(self, state):
@@ -222,6 +238,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_classic_detector.ClassicDetector = FakeClassicDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
+    _attach_runtime_policy_primitives(fake_runtime_policy)
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
     fake_threshold.get_detector_auto_factor = lambda detector: getattr(detector, "STARTUP_THRESHOLD_FACTOR", 1.3)
     fake_threshold.get_detector_startup_gate = lambda detector: bool(getattr(detector, "STARTUP_GATE", False))
@@ -1122,13 +1139,13 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     fake_runtime_policy = ModuleType("runtime_policy")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
-    fake_config.SEG_WINDOW_SIZE = 2
+    fake_config.SEGMENTATION_WINDOW_SIZE_MS = 20
     fake_config.ENABLE_LOWPASS_FILTER = False
     fake_config.LOWPASS_CUTOFF = 11.0
     fake_config.ENABLE_HAMPEL_FILTER = True
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
-    fake_config.PUBLISH_INTERVAL = 1
+    fake_config.PUBLISH_INTERVAL_MS = 1
     fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
@@ -1224,7 +1241,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
         def note_packet(self):
             pass
 
-        def should_evaluate(self, should_publish):
+        def should_evaluate(self):
             return True
 
         def apply_state(self, state):
@@ -1254,6 +1271,8 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
         FakeResult("packet_rate", "PASS", "Packet rate: 100.0 pkt/s"),
     ]
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
+
+    _attach_runtime_policy_primitives(fake_runtime_policy)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
@@ -1494,13 +1513,13 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
     fake_runtime_policy = ModuleType("runtime_policy")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
-    fake_config.SEG_WINDOW_SIZE = 2
+    fake_config.SEGMENTATION_WINDOW_SIZE_MS = 20
     fake_config.ENABLE_LOWPASS_FILTER = False
     fake_config.LOWPASS_CUTOFF = 11.0
     fake_config.ENABLE_HAMPEL_FILTER = True
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
-    fake_config.PUBLISH_INTERVAL = 1
+    fake_config.PUBLISH_INTERVAL_MS = 1
     fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
@@ -1585,7 +1604,7 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
         def note_packet(self):
             pass
 
-        def should_evaluate(self, should_publish):
+        def should_evaluate(self):
             return True
 
         def apply_state(self, state):
@@ -1604,6 +1623,8 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
     fake_ml_detector.ML_METRIC_SCALE = 1.0
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
+
+    _attach_runtime_policy_primitives(fake_runtime_policy)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
@@ -1634,13 +1655,13 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
     fake_runtime_policy = ModuleType("runtime_policy")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
-    fake_config.SEG_WINDOW_SIZE = 2
+    fake_config.SEGMENTATION_WINDOW_SIZE_MS = 20
     fake_config.ENABLE_LOWPASS_FILTER = False
     fake_config.LOWPASS_CUTOFF = 11.0
     fake_config.ENABLE_HAMPEL_FILTER = True
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
-    fake_config.PUBLISH_INTERVAL = 1
+    fake_config.PUBLISH_INTERVAL_MS = 1
     fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
@@ -1725,7 +1746,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
         def note_packet(self):
             pass
 
-        def should_evaluate(self, should_publish):
+        def should_evaluate(self):
             return True
 
         def apply_state(self, state):
@@ -1744,6 +1765,8 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
     fake_ml_detector.ML_METRIC_SCALE = 1.0
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
+
+    _attach_runtime_policy_primitives(fake_runtime_policy)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
@@ -1833,13 +1856,13 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
     fake_runtime_policy = ModuleType("runtime_policy")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
-    fake_config.SEG_WINDOW_SIZE = 2
+    fake_config.SEGMENTATION_WINDOW_SIZE_MS = 20
     fake_config.ENABLE_LOWPASS_FILTER = True
     fake_config.LOWPASS_CUTOFF = 11.0
     fake_config.ENABLE_HAMPEL_FILTER = True
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
-    fake_config.PUBLISH_INTERVAL = 1
+    fake_config.PUBLISH_INTERVAL_MS = 1
     fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 3
     fake_config.MOTION_OFF_HITS = 3
@@ -1919,7 +1942,7 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
         def note_packet(self):
             pass
 
-        def should_evaluate(self, should_publish):
+        def should_evaluate(self):
             return True
 
         def apply_state(self, state):
@@ -1938,6 +1961,8 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
     fake_ml_detector.ML_METRIC_SCALE = 1.0
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
+
+    _attach_runtime_policy_primitives(fake_runtime_policy)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
@@ -2019,7 +2044,7 @@ def test_collect_live_keeps_fixed_pacing_with_fixed_flag(monkeypatch, capsys) ->
         monkeypatch,
         FakeReceiver,
         FakePacingSender,
-        config_overrides={"PUBLISH_INTERVAL": 1, "EVALUATION_INTERVAL_MS": 10},
+        config_overrides={"PUBLISH_INTERVAL_MS": 1, "EVALUATION_INTERVAL_MS": 10},
     )
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
@@ -2095,7 +2120,7 @@ def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, caps
         monkeypatch,
         FakeReceiver,
         FakePacingSender,
-        config_overrides={"PUBLISH_INTERVAL": 1, "EVALUATION_INTERVAL_MS": 10},
+        config_overrides={"PUBLISH_INTERVAL_MS": 1, "EVALUATION_INTERVAL_MS": 10},
     )
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
@@ -2151,7 +2176,7 @@ def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None
         monkeypatch,
         FakeReceiver,
         FakePacingSender,
-        config_overrides={"SEG_WINDOW_SIZE": 2},
+        config_overrides={"SEGMENTATION_WINDOW_SIZE_MS": 20},
     )
     classic_module = sys.modules["classic_detector"]
     base_detector = classic_module.ClassicDetector
@@ -2180,8 +2205,94 @@ def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None
     )
 
     capsys.readouterr()
-    assert CapturingClassicDetector.windows == [42, 42]
+    assert CapturingClassicDetector.windows == [80, 80]
     assert CapturingRuntimeMotionPolicy.evaluation_intervals == [10, 10]
+
+
+def test_collect_live_adapts_detector_window_to_measured_device_rate(
+    monkeypatch,
+    capsys,
+) -> None:
+    from runtime_policy import (
+        PacketTimingTracker,
+        derive_detector_timing,
+        nominal_packet_interval_us,
+    )
+
+    class FakePacket:
+        def __init__(self, seq_num: int):
+            self.seq_num = seq_num
+            self.device_id = 0xABC123
+            self.device_ticks_us = seq_num * 12_500
+            self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
+            self.source_ip = "192.168.1.29"
+            self.channel = 8
+            self.rssi_dbm = -47
+            self.chip = "s3"
+
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            self._callbacks = []
+            self.dropped_count = 0
+            self.pps = 80
+
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
+            for seq_num in range(1, 65):
+                for callback in self._callbacks:
+                    callback(FakePacket(seq_num))
+            raise KeyboardInterrupt
+
+        def stop(self):
+            pass
+
+    class FakePacingSender:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    _install_live_collect_modules(
+        monkeypatch,
+        FakeReceiver,
+        FakePacingSender,
+        config_overrides={"SEGMENTATION_WINDOW_SIZE_MS": 1000},
+    )
+    runtime_policy_module = sys.modules["runtime_policy"]
+    runtime_policy_module.PacketTimingTracker = PacketTimingTracker
+    runtime_policy_module.derive_detector_timing = derive_detector_timing
+    runtime_policy_module.nominal_packet_interval_us = nominal_packet_interval_us
+
+    classic_module = sys.modules["classic_detector"]
+    base_detector = classic_module.ClassicDetector
+
+    class CapturingClassicDetector(base_detector):
+        windows = []
+
+        def __init__(self, **kwargs):
+            self.__class__.windows.append(int(kwargs["window_size"]))
+            super().__init__(**kwargs)
+
+    classic_module.ClassicDetector = CapturingClassicDetector
+
+    host.collect_csi_data(
+        _make_live_collect_args(
+            target="192.168.1.29",
+            detector="classic",
+            label=None,
+            pps=100,
+        )
+    )
+
+    capsys.readouterr()
+    assert CapturingClassicDetector.windows[:2] == [100, 100]
+    assert CapturingClassicDetector.windows[-2:] == [80, 80]
 
 
 def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, capsys) -> None:
@@ -2191,13 +2302,13 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     fake_runtime_policy = ModuleType("runtime_policy")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
-    fake_config.SEG_WINDOW_SIZE = 2
+    fake_config.SEGMENTATION_WINDOW_SIZE_MS = 20
     fake_config.ENABLE_LOWPASS_FILTER = False
     fake_config.LOWPASS_CUTOFF = 11.0
     fake_config.ENABLE_HAMPEL_FILTER = True
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
-    fake_config.PUBLISH_INTERVAL = 2
+    fake_config.PUBLISH_INTERVAL_MS = 2
     fake_config.EVALUATION_INTERVAL_MS = 990
     fake_config.MOTION_ON_HITS = 1
     fake_config.MOTION_OFF_HITS = 1
@@ -2283,8 +2394,8 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
         def note_packet(self):
             pass
 
-        def should_evaluate(self, should_publish):
-            return should_publish
+        def should_evaluate(self):
+            return True
 
         def apply_state(self, state):
             return state, None
@@ -2302,6 +2413,8 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     fake_ml_detector.ML_METRIC_SCALE = 1.0
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
+
+    _attach_runtime_policy_primitives(fake_runtime_policy)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
@@ -2332,14 +2445,14 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     fake_threshold = ModuleType("threshold")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
-    fake_config.SEG_WINDOW_SIZE = 2
-    fake_config.CALIBRATION_BUFFER_SIZE = 2
+    fake_config.SEGMENTATION_WINDOW_SIZE_MS = 20
+    fake_config.CALIBRATION_DURATION_MS = 1000
     fake_config.ENABLE_LOWPASS_FILTER = False
     fake_config.LOWPASS_CUTOFF = 11.0
     fake_config.ENABLE_HAMPEL_FILTER = True
     fake_config.HAMPEL_WINDOW = 7
     fake_config.HAMPEL_THRESHOLD = 5.0
-    fake_config.PUBLISH_INTERVAL = 1
+    fake_config.PUBLISH_INTERVAL_MS = 1
     fake_config.EVALUATION_INTERVAL_MS = 10
     fake_config.MOTION_ON_HITS = 1
     fake_config.MOTION_OFF_HITS = 1
@@ -2477,7 +2590,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
         def note_packet(self):
             pass
 
-        def should_evaluate(self, should_publish):
+        def should_evaluate(self):
             return True
 
         def apply_state(self, state):
@@ -2529,6 +2642,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_classic_detector.ClassicDetector = FakeClassicDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
+    _attach_runtime_policy_primitives(fake_runtime_policy)
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
     fake_threshold.get_detector_auto_factor = lambda detector: getattr(detector, "STARTUP_THRESHOLD_FACTOR", 1.3)
     fake_threshold.get_detector_startup_gate = lambda detector: bool(getattr(detector, "STARTUP_GATE", False))
@@ -2596,7 +2710,7 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
         monkeypatch,
         FakeReceiver,
         FakePacingSender,
-        config_overrides={"CALIBRATION_BUFFER_SIZE": 2},
+        config_overrides={"CALIBRATION_DURATION_MS": 500},
     )
 
     host.collect_csi_data(
@@ -2655,7 +2769,7 @@ def test_collect_live_shows_drop_rate_during_calibration(monkeypatch, capsys) ->
         monkeypatch,
         FakeReceiver,
         FakePacingSender,
-        config_overrides={"CALIBRATION_BUFFER_SIZE": 4, "EVALUATION_INTERVAL_MS": 10},
+        config_overrides={"CALIBRATION_DURATION_MS": 40, "EVALUATION_INTERVAL_MS": 10},
     )
 
     host.collect_csi_data(

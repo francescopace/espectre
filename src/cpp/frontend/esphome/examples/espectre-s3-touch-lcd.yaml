@@ -92,7 +92,7 @@ display:
         it.printf(8, 136, id(font_body), Color(255, 255, 255), "Threshold: --");
       }
 
-      it.printf(8, 292, id(font_small), Color(140, 140, 140), "refresh: every 100 packets");
+      it.printf(8, 292, id(font_small), Color(140, 140, 140), "refresh: every 1 second");
 
 font:
   - file: "gfonts://Roboto"

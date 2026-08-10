@@ -64,7 +64,7 @@ void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(voi
   DetectorListener listener;
   runtime.set_listener(&listener);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval);
+  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
 
   TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::ML));
   TEST_ASSERT_EQUAL_STRING("ml", runtime.get_snapshot().detector_name);
@@ -97,7 +97,7 @@ void test_runtime_motion_hits_runtime_updates_pipeline_and_persists(void) {
   config.detection_algorithm = DetectionAlgorithm::CLASSIC;
   EspIdfRuntime runtime(config);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval);
+  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
 
   TEST_ASSERT_TRUE(runtime.set_motion_hits_runtime(8U, 6U));
   TEST_ASSERT_EQUAL_UINT8(8U, runtime.csi_pipeline_.motion_on_hits_);
@@ -131,7 +131,7 @@ void test_runtime_channel_change_rearms_csi_and_restarts_calibration(void) {
   DetectorListener listener;
   runtime.set_listener(&listener);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval);
+  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
   runtime.csi_traffic_service_.init(to_csi_traffic_config(config, CsiTrafficMode::EXTERNAL));
   TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
 
@@ -153,7 +153,7 @@ void test_runtime_channel_change_cold_resets_ml_without_calibration(void) {
   config.csi_traffic_mode = CsiTrafficMode::DISABLED;
   EspIdfRuntime runtime(config);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval);
+  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
   runtime.csi_traffic_service_.init(to_csi_traffic_config(config, CsiTrafficMode::EXTERNAL));
   TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
 

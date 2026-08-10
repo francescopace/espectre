@@ -9,10 +9,17 @@ License: GPLv3
 
 from detector_interface import MotionState
 import config
-from runtime_policy import PacketTimingTracker, RuntimeMotionPolicy
+from runtime_policy import PacketTimingTracker, RuntimeMotionPolicy, derive_detector_timing
 
 
 class TestRuntimeMotionPolicy:
+    def test_detector_window_covers_the_configured_duration(self):
+        timing = derive_detector_timing(10_723, 1_000)
+
+        assert timing["window_packets"] == 94
+        assert timing["window_packets"] * timing["interval_us"] >= 1_000_000
+        assert (timing["window_packets"] - 1) * timing["interval_us"] < 1_000_000
+
     def test_packets_without_elapsed_time_do_not_trigger_evaluation(self):
         policy = RuntimeMotionPolicy(evaluation_interval_ms=250, motion_on_hits=3, motion_off_hits=3)
 
@@ -30,11 +37,6 @@ class TestRuntimeMotionPolicy:
         assert not policy.note_evaluation_tick(elapsed_us=10_000)
         assert not policy.note_evaluation_tick(elapsed_us=10_000)
         assert policy.note_evaluation_tick(elapsed_us=10_000)
-
-    def test_publish_forces_evaluation(self):
-        policy = RuntimeMotionPolicy(evaluation_interval_ms=250, motion_on_hits=3, motion_off_hits=3)
-        policy.note_packet()
-        assert policy.should_evaluate(should_publish=True)
 
     def test_elapsed_time_gate_triggers_evaluation(self):
         policy = RuntimeMotionPolicy(
@@ -176,6 +178,39 @@ class TestRuntimeMotionPolicy:
 
     def test_note_arrival_requires_advancing_timestamps(self):
         assert self._count_evaluations(0, 3000) == 0
+
+    def test_detector_rate_support_holds_below_80_pps(self):
+        policy = RuntimeMotionPolicy(evaluation_interval_ms=250)
+        timestamp = 1_000_000
+        for _ in range(20):
+            policy.note_arrival(timestamp)
+            timestamp += 12_501
+
+        assert not policy.detector_rate_supported
+
+        recovered = RuntimeMotionPolicy(evaluation_interval_ms=250)
+        timestamp = 1_000_000
+        for _ in range(20):
+            recovered.note_arrival(timestamp)
+            timestamp += 12_500
+
+        assert recovered.detector_rate_supported
+
+    def test_detector_timing_update_uses_shared_measured_rate_deadband(self):
+        policy = RuntimeMotionPolicy(
+            evaluation_interval_ms=250,
+            segmentation_window_size_ms=1000,
+        )
+        timestamp = 1_000_000
+        for _ in range(32):
+            policy.note_arrival(timestamp)
+            timestamp += 12_500
+
+        update = policy.resolve_detector_timing_update(100)
+
+        assert update["interval_us"] == 12_500
+        assert update["window_packets"] == 80
+        assert policy.resolve_detector_timing_update(82) is None
 
     def test_packet_timing_tracker_does_not_infer_missing_timestamps(self):
         tracker = PacketTimingTracker(10_000)

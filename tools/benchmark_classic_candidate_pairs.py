@@ -11,6 +11,8 @@ Usage:
     python tools/benchmark_classic_candidate_pairs.py
     python tools/benchmark_classic_candidate_pairs.py --json
     python tools/benchmark_classic_candidate_pairs.py \
+        --feature turb_autocorr
+    python tools/benchmark_classic_candidate_pairs.py \
         --pair l1_delta_lag_ratio,chan_coh_gap \
         --pair l1_delta_lag_ratio,chan_shape_spread
     python tools/benchmark_classic_candidate_pairs.py \
@@ -82,6 +84,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--feature",
+        action="append",
+        default=[],
+        help="single candidate feature; repeat to add more features",
     )
     parser.add_argument(
         "--pair",
@@ -157,6 +165,7 @@ def host_triplets() -> List[Tuple[str, str, str]]:
 
 
 def resolve_candidate_combinations(args: argparse.Namespace) -> List[Tuple[str, ...]]:
+    feature_specs = parse_combination_specs(args.feature, 1, "feature")
     pair_specs = parse_combination_specs(args.pair, 2, "pair")
     triple_specs = parse_combination_specs(args.triple, 3, "triple")
     requested_flags = int(bool(args.all_runtime_triplets)) + int(bool(args.all_host_triplets))
@@ -165,9 +174,10 @@ def resolve_candidate_combinations(args: argparse.Namespace) -> List[Tuple[str, 
             "Choose at most one generated search space: --all-runtime-triplets or "
             "--all-host-triplets"
         )
-    if requested_flags and (pair_specs or triple_specs):
+    if requested_flags and (feature_specs or pair_specs or triple_specs):
         raise BenchmarkError(
-            "Explicit --pair/--triple specs cannot be mixed with generated triplet searches"
+            "Explicit --feature/--pair/--triple specs cannot be mixed with "
+            "generated triplet searches"
         )
     if args.all_runtime_triplets:
         return runtime_triplets()
@@ -177,6 +187,8 @@ def resolve_candidate_combinations(args: argparse.Namespace) -> List[Tuple[str, 
         return triple_specs
     if pair_specs:
         return pair_specs
+    if feature_specs:
+        return feature_specs
     return list(DEFAULT_TRIPLETS)
 
 
@@ -574,16 +586,18 @@ def main() -> int:
     requested = set(
         name for combination in candidate_combinations for name in combination
     )
-    requested.update(CURRENT_CLASSIC_COMBINATION)
+    if not args.no_baseline:
+        requested.update(CURRENT_CLASSIC_COMBINATION)
     unknown = sorted(requested - available)
     if unknown:
         raise BenchmarkError(
             "Unknown feature(s) requested: " + ", ".join(unknown)
         )
 
-    matrix = load_feature_matrix(
-        candidate_combinations + [CURRENT_CLASSIC_COMBINATION]
-    )
+    benchmark_combinations = list(candidate_combinations)
+    if not args.no_baseline:
+        benchmark_combinations.append(CURRENT_CLASSIC_COMBINATION)
+    matrix = load_feature_matrix(benchmark_combinations)
     sample_meta = build_sample_metadata(
         matrix["sample_context"],
         dataset_entry_by_filename(),

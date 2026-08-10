@@ -81,6 +81,10 @@ using live_telemetry_callback_t = std::function<void(float movement, float thres
 // callback is deferred to loop() so runtimes can safely rearm CSI hardware.
 using channel_change_callback_t = std::function<void(uint8_t previous_channel, uint8_t current_channel)>;
 
+// Callback delivered from loop() when the measured cadence resolves the
+// configured time window to a different sample count.
+using detector_window_callback_t = std::function<void(uint16_t window_packets)>;
+
 // Callback type for intercepting normalized CSI packets before detector
 // processing. The interceptor is told whether this packet closes an evaluation
 // window and how many packets that window covers, so it evaluates on the same
@@ -100,11 +104,11 @@ class CsiPipeline {
    * Initialize CSI Pipeline
    * 
    * @param detector Motion detector instance (BaseDetector*)
-   * @param publish_rate Number of packets before triggering callback
+   * @param publish_interval_ms Milliseconds between periodic callbacks
    * @param wifi_csi WiFi CSI interface (nullptr for real implementation)
    */
   void init(BaseDetector* detector,
-            uint32_t publish_rate,
+            uint32_t publish_interval_ms,
             IWiFiCSI* wifi_csi = nullptr);
   
   /**
@@ -115,6 +119,9 @@ class CsiPipeline {
   bool set_threshold(float threshold);
   void set_detector(BaseDetector *detector);
   void set_evaluation_interval_ms(uint32_t interval_ms) { cadence_.set_interval_ms(interval_ms); }
+  void set_segmentation_window_size_ms(uint32_t window_size_ms) {
+    cadence_.set_window_size_ms(window_size_ms);
+  }
   void set_motion_on_hits(uint8_t hits) { motion_on_hits_ = hits > 0 ? hits : 1; }
   void set_motion_off_hits(uint8_t hits) { motion_off_hits_ = hits > 0 ? hits : 1; }
   void set_motion_hit_thresholds(uint8_t motion_on_hits, uint8_t motion_off_hits, bool reset_filter = false);
@@ -122,7 +129,7 @@ class CsiPipeline {
   /**
    * Enable CSI hardware and start processing
    * 
-   * @param packet_callback Callback to invoke periodically (every publish_rate packets)
+   * @param packet_callback Callback to invoke at the configured time interval
    * @return ESP_OK on success
    */
   esp_err_t enable(csi_processed_callback_t packet_callback = nullptr);
@@ -136,6 +143,9 @@ class CsiPipeline {
 
   /** Drain diagnostics and frontend notifications from the runtime loop. */
   void loop();
+
+  /** Emit the periodic heartbeat when its monotonic deadline is due. */
+  void publish_if_due(uint32_t now_ms);
   
   /**
    * Process incoming CSI packet
@@ -161,6 +171,8 @@ class CsiPipeline {
    * Check if CSI is currently enabled
    */
   bool is_enabled() const { return enabled_; }
+  bool packet_rate_ready() const { return cadence_.rate_ready(); }
+  uint32_t measured_packet_interval_us() const { return cadence_.interval_us(); }
   uint64_t accepted_packets_total() const {
     return accepted_packets_total_.load(std::memory_order_relaxed);
   }
@@ -193,6 +205,10 @@ class CsiPipeline {
 
   void set_channel_change_callback(channel_change_callback_t callback) {
     channel_change_callback_ = callback;
+  }
+
+  void set_detector_window_callback(detector_window_callback_t callback) {
+    detector_window_callback_ = callback;
   }
   
   /**
@@ -228,11 +244,14 @@ class CsiPipeline {
   motion_state_callback_t motion_state_callback_;
   live_telemetry_callback_t live_telemetry_callback_;
   channel_change_callback_t channel_change_callback_;
-  uint32_t publish_rate_{100};
+  detector_window_callback_t detector_window_callback_;
+  uint32_t publish_interval_ms_{RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT};
+  uint32_t last_publish_ms_{0U};
   // Evaluation advances on elapsed packet time, not on packet count, so a
   // window keeps its deploy-time meaning when the stream runs off-nominal.
   EvaluationCadence cadence_{};
-  volatile uint32_t packets_processed_{0};
+  std::atomic<uint32_t> packets_processed_{0U};
+  std::atomic<MotionState> heartbeat_motion_state_{MotionState::IDLE};
   std::atomic<uint64_t> accepted_packets_total_{0U};
   int8_t last_rssi_dbm_{INT8_MIN};
   uint8_t last_channel_{0};
@@ -241,13 +260,14 @@ class CsiPipeline {
   uint8_t pending_state_hits_{0};
   MotionState effective_motion_state_{MotionState::IDLE};
   MotionState pending_motion_state_{MotionState::IDLE};
+  bool detector_rate_on_hold_{false};
   uint32_t local_ip_addr_{0U};
   std::array<uint8_t, 6> local_mac_addr_{};
 
   // Deferred notifications: posted from the CSI callback, drained by loop().
   PendingEvent<MotionState> motion_state_event_;
   PendingEvent<float, float> live_telemetry_event_;
-  PendingEvent<MotionState, uint32_t> packet_publish_event_;
+  PendingEvent<uint16_t> detector_window_event_;
   PendingDetectionTiming detection_timing_;
   CsiCaptureService capture_service_;
 

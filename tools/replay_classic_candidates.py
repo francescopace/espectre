@@ -53,6 +53,7 @@ from tools.fit_classic_detector import (  # noqa: E402
 from tools.lib.candidate_features import CANDIDATE_FEATURES  # noqa: E402
 from tools.lib.csi_io import load_npz_as_packets  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
+    detector_window_packets,
     load_dataset_info,
     measure_packet_interval_us,
     paired_dataset_role,
@@ -103,6 +104,11 @@ def parse_args() -> argparse.Namespace:
         "--json",
         action="store_true",
         help="emit the full replay payload as JSON",
+    )
+    parser.add_argument(
+        "--no-baseline",
+        action="store_true",
+        help="skip the current Classic pair baseline and its replay rows",
     )
     parser.add_argument(
         "--splits",
@@ -306,10 +312,15 @@ def extract_window_features(
     packets: Sequence[Mapping[str, Any]],
     feature_names: Sequence[str],
 ) -> Tuple[np.ndarray, np.ndarray]:
-    extractor = train_ml_model.StreamingFeatureExtractor(feature_names)
+    window_packets = detector_window_packets(packets)
+    interval_us = measure_packet_interval_us(packets)
+    extractor = train_ml_model.StreamingFeatureExtractor(
+        feature_names,
+        window_packets=window_packets,
+    )
     timing_tracker, cadence = timing_cadence_for_window(
-        config.SEG_WINDOW_SIZE,
-        measure_packet_interval_us(packets),
+        window_packets,
+        interval_us,
     )
     rows: List[Sequence[float]] = []
     deoverlapped: List[bool] = []
@@ -321,7 +332,10 @@ def extract_window_features(
             timing_tracker=timing_tracker,
         )
         if contaminated:
-            extractor = train_ml_model.StreamingFeatureExtractor(feature_names)
+            extractor = train_ml_model.StreamingFeatureExtractor(
+                feature_names,
+                window_packets=window_packets,
+            )
             cadence.reset()
             timing_tracker.reset()
             should_evaluate, _ = note_evaluation_tick(
@@ -335,8 +349,8 @@ def extract_window_features(
         if not should_evaluate or values is None:
             continue
         rows.append(values)
-        deoverlapped.append(since_window >= config.SEG_WINDOW_SIZE)
-        if since_window >= config.SEG_WINDOW_SIZE:
+        deoverlapped.append(since_window >= window_packets)
+        if since_window >= window_packets:
             since_window = 0
     return (
         np.asarray(rows, dtype=np.float64).reshape(-1, len(feature_names)),
@@ -382,7 +396,7 @@ def build_replay_cache(
                 path,
                 packets_factory=packets_factory,
                 selected_subcarriers=config.DEFAULT_SUBCARRIERS,
-                window_size=config.SEG_WINDOW_SIZE,
+                window_size=None,
                 feature_names=feature_names,
                 sample_contract="replay_tick",
                 stream_provenance=stream_provenance,
@@ -390,13 +404,19 @@ def build_replay_cache(
             rows = np.asarray(replay_rows["X"], dtype=np.float64)
             packet_index = np.asarray(replay_rows["packet_index"], dtype=np.int64)
             reset_index = np.asarray(replay_rows["reset_index"], dtype=np.int64)
+            packets_for_window = (
+                packets_factory()
+                if packets_factory is not None
+                else load_npz_as_packets(path)
+            )
+            window_packets = detector_window_packets(packets_for_window)
             deoverlapped = np.zeros(len(rows), dtype=bool)
             last_boundary_by_reset: Dict[int, int] = {}
             for row_index, (packet, reset) in enumerate(zip(packet_index, reset_index)):
                 last_boundary = last_boundary_by_reset.get(int(reset))
                 if (
                     last_boundary is None
-                    or int(packet) - last_boundary >= config.SEG_WINDOW_SIZE
+                    or int(packet) - last_boundary >= window_packets
                 ):
                     deoverlapped[row_index] = True
                     last_boundary_by_reset[int(reset)] = int(packet)
@@ -628,21 +648,20 @@ def effective_robust_stats(
 
 
 def startup_evaluation_limit(
-    calibration_packets: int,
-    window_packets: int,
-    packet_interval_us: int,
+    calibration_duration_ms: int,
+    window_size_ms: int,
     evaluation_interval_ms: int,
     sample_limit: int,
 ) -> int:
     """Return how many ready evaluations production startup can observe.
 
     The detector is evaluated throughout calibration, but it cannot emit a
-    feature row before one full window is ready. At nominal cadence this is 37
-    rows, not ``CALIBRATION_BUFFER_SIZE / SEG_WINDOW_SIZE`` (10) and not the
-    detector's storage cap (64).
+    feature row before one full window is ready. With the production 10 s
+    calibration and 1 s window this is 37 rows, not 10 and not the detector's
+    storage cap (64).
     """
-    calibration_duration_us = max(0, int(calibration_packets)) * max(1, int(packet_interval_us))
-    window_duration_us = max(1, int(window_packets)) * max(1, int(packet_interval_us))
+    calibration_duration_us = max(0, int(calibration_duration_ms)) * 1000
+    window_duration_us = max(1, int(window_size_ms)) * 1000
     evaluation_interval_us = max(1, int(evaluation_interval_ms)) * 1000
     sample_limit = max(0, int(sample_limit))
     first_ready_tick_us = (
@@ -1191,9 +1210,8 @@ def evaluate_candidate(
     )
     idle_q95 = float(references["idle_q95_logit"])
     startup_sample_limit = startup_evaluation_limit(
-        config.CALIBRATION_BUFFER_SIZE,
-        config.SEG_WINDOW_SIZE,
-        max(1, round(1_000_000 / config.TRAFFIC_GENERATOR_RATE)),
+        config.CALIBRATION_DURATION_MS,
+        config.SEGMENTATION_WINDOW_SIZE_MS,
         config.EVALUATION_INTERVAL_MS,
         ClassicDetector.STARTUP_SAMPLE_LIMIT,
     )
@@ -1672,7 +1690,8 @@ def main() -> int:
     policies = iter_calibration_policies(args, startup_strengths)
     candidates = parse_feature_sets(args.features)
     candidate_set = {tuple(candidate) for candidate in candidates}
-    candidate_set.add(CURRENT_CLASSIC_COMBINATION)
+    if not args.no_baseline:
+        candidate_set.add(CURRENT_CLASSIC_COMBINATION)
     available = set(train_ml_model.selectable_features())
     unknown = sorted(
         {name for candidate in candidate_set for name in candidate}.difference(available)
@@ -1696,16 +1715,18 @@ def main() -> int:
     runtime_surface = sorted(
         {name for candidate in runtime_candidates for name in candidate}
     )
-    print(
-        f"Extracting runtime replay rows for {len(paths)} files and "
-        f"{len(runtime_surface)} features",
-        flush=True,
-    )
-    runtime_cache = build_replay_cache(
-        paths,
-        runtime_surface,
-        quiet=args.quiet,
-    )
+    runtime_cache: Dict[str, Dict[str, np.ndarray]] = {}
+    if runtime_surface:
+        print(
+            f"Extracting runtime replay rows for {len(paths)} files and "
+            f"{len(runtime_surface)} features",
+            flush=True,
+        )
+        runtime_cache = build_replay_cache(
+            paths,
+            runtime_surface,
+            quiet=args.quiet,
+        )
     runtime_index = {
         name: index for index, name in enumerate(runtime_surface)
     }
@@ -1776,15 +1797,17 @@ def main() -> int:
                 f"{len(paths)} files",
                 flush=True,
             )
-            stress_runtime_cache = build_replay_cache(
-                paths,
-                runtime_surface,
-                quiet=args.quiet,
-                packet_augmentation=packet_config,
-                augmentation_seed=train_ml_model.training_packet_augmentation_seed(
-                    packet_config
-                ),
-            )
+            stress_runtime_cache: Dict[str, Dict[str, np.ndarray]] = {}
+            if runtime_surface:
+                stress_runtime_cache = build_replay_cache(
+                    paths,
+                    runtime_surface,
+                    quiet=args.quiet,
+                    packet_augmentation=packet_config,
+                    augmentation_seed=train_ml_model.training_packet_augmentation_seed(
+                        packet_config
+                    ),
+                )
             stress_host_bundles: Dict[
                 Tuple[str, ...],
                 Tuple[Dict[str, Dict[str, np.ndarray]], Dict[str, int]],

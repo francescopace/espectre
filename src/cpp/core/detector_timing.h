@@ -1,7 +1,7 @@
 /*
  * ESPectre - Detector Timing
  *
- * Effective packet-cadence estimation and the shared duration-to-packet-count
+ * Effective packet-cadence estimation and the shared duration-to-sample-count
  * contract used by the detectors. Counterpart of the same helpers in
  * src/python/micro_espectre/runtime_policy.py; keep the two aligned, because a
  * detector fitted under one resolution and run under another is measuring a
@@ -58,64 +58,29 @@ inline uint32_t elapsed_since_timestamp_us(uint32_t now_us, uint32_t previous_us
 }
 
 constexpr uint32_t packets_for_duration(uint32_t duration_us, uint32_t interval_us,
-                                        uint32_t minimum) {
+                                        uint32_t minimum = 1U) {
   const uint32_t interval = interval_us > 0U ? interval_us : 1U;
   const uint32_t packets = (duration_us + interval / 2U) / interval;
   return packets < minimum ? minimum : packets;
 }
 
+constexpr uint32_t packets_covering_duration(uint32_t duration_us, uint32_t interval_us) {
+  const uint32_t interval = interval_us > 0U ? interval_us : 1U;
+  return (duration_us + interval - 1U) / interval;
+}
+
 /**
- * Resolve the detector's duration contract for replay analysis.
+ * Resolve the configured detector window duration at one measured cadence.
  *
- * Deployed runtimes deliberately keep the production lags at their nominal
- * packet offsets. Scaling only the numerator of the L1 lag ratio changes the
- * feature definition and regresses low-rate recall; scaling both offsets would
- * require a Classic refit and an ML retrain. The host replay path keeps this
- * helper so future timing candidates can be measured against shipped behavior.
- *
- * The lags describe how far the channel has moved over an interval, so they
- * track that interval. This is decisive at high rates: on the 1000 pps
- * diagnostic capture, restoring the turbulence-autocorrelation lag to its 10 ms
- * scale takes false positives from 17.8-32.7% to 0.0%, because at under a
- * millisecond of separation consecutive packets are almost perfectly correlated
- * and the feature leaves the range its coefficients were fitted over.
- *
- * The window is different. Its features are estimator averages, so their
- * sampling behaviour depends on how many samples they average, not on the time
- * those samples span. Holding a one-second span at 25 pps leaves 25 samples,
- * the estimates get noisier, startup calibration answers the wider quiet
- * distribution by lifting the threshold, and recall collapses while false
- * positives stay low.
- */
-/**
- * @param window_override Window in packets to use instead of the rate-derived
- *        one, or 0 to derive it. The window is a configured sample count, not
- *        a duration: measurement puts the floor at 100 samples, below which the
- *        worst paired sessions fall under the production recall target (91.9%
- *        at 80 samples, 94.2% at 90, 96.8% at 100). Replay analyses can pass a
- *        configured window here when isolating lag behavior, or leave it 0 to
- *        evaluate the fully derived candidate timing.
+ * The window follows elapsed time. Production feature lags remain fixed at
+ * their fitted packet offsets; changing those definitions still requires a
+ * Classic refit and an ML retrain.
  */
 inline DetectorTiming derive_detector_timing(uint32_t interval_us,
-                                             uint16_t window_override = 0U) {
-  uint32_t interval = interval_us > 0U ? interval_us : 1U;
-
-  // Near the nominal cadence, adapting buys nothing and costs homogeneity:
-  // rounding a duration into packets flips between neighbouring counts across
-  // streams that all run at essentially the nominal rate, so one coefficient
-  // set has to cover slightly different feature definitions.
-  constexpr uint32_t kNominal =
-      nominal_packet_interval_us(DETECTOR_DEFAULT_WINDOW_SIZE);
-  const uint32_t deviation =
-      interval > kNominal ? interval - kNominal : kNominal - interval;
-  if (static_cast<float>(deviation) <= RATE_ADAPTATION_DEAD_BAND * kNominal) {
-    interval = kNominal;
-  }
-
-  uint32_t window = window_override > 0U
-                        ? static_cast<uint32_t>(window_override)
-                        : packets_for_duration(SEG_WINDOW_US, interval,
-                                               DETECTOR_MIN_WINDOW_SIZE);
+                                             uint32_t window_size_ms = DETECTOR_WINDOW_SIZE_MS_DEFAULT) {
+  const uint32_t interval = interval_us > 0U ? interval_us : 1U;
+  const uint32_t duration_ms = window_size_ms > 0U ? window_size_ms : 1U;
+  uint32_t window = packets_covering_duration(duration_ms * 1000U, interval);
   if (window < DETECTOR_MIN_WINDOW_SIZE) {
     window = DETECTOR_MIN_WINDOW_SIZE;
   }
@@ -123,29 +88,18 @@ inline DetectorTiming derive_detector_timing(uint32_t interval_us,
     window = DETECTOR_MAX_WINDOW_SIZE;
   }
 
-  // Both lags must leave a usable series inside the window.
-  uint32_t lag_ceiling = window / 2U > 0U ? window / 2U : 1U;
-  if (lag_ceiling > L1_DELTA_LAG_MAX) {
-    lag_ceiling = L1_DELTA_LAG_MAX;
-  }
-  uint32_t lag = packets_for_duration(L1_DELTA_LAG_US, interval, 1U);
-  uint32_t autocorr_lag = packets_for_duration(TURB_AUTOCORR_LAG_US, interval, 1U);
-
   DetectorTiming timing{};
   timing.interval_us = interval;
   timing.window_packets = static_cast<uint16_t>(window);
-  timing.lag = static_cast<uint16_t>(lag < lag_ceiling ? lag : lag_ceiling);
-  timing.autocorr_lag =
-      static_cast<uint16_t>(autocorr_lag < lag_ceiling ? autocorr_lag : lag_ceiling);
+  timing.lag = DETECTOR_L1_DELTA_LAG_DEFAULT;
+  timing.autocorr_lag = DETECTOR_AUTOCORR_LAG_DEFAULT;
   return timing;
 }
 
 /**
- * Track the effective packet cadence from observed inter-packet deltas.
+ * Track effective throughput and typical spacing from packet deltas.
  *
- * The estimate is a rolling median rather than a mean: a stream with holes
- * contains a few very large deltas, and a mean would let those dominate the
- * cadence the rest of the pipeline derives its windows from.
+ * The mean resolves temporal windows, while the median classifies holes.
  */
 class PacketRateEstimator {
  public:
@@ -209,7 +163,7 @@ class PacketRateEstimator {
   /**
    * Median inter-packet spacing, used to judge whether a gap is a hole.
    *
-   * Mirrors the Python PacketRateEstimator.interval_us, including its warmup
+   * Mirrors Python PacketRateEstimator.typical_interval_us, including its warmup
    * gate: until the estimator has seen enough of the stream it cannot tell a
    * slower cadence from packet loss, so a rate-derived rule stays on the
    * nominal interval rather than acting on a guess.

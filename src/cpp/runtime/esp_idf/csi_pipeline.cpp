@@ -20,14 +20,17 @@ namespace espectre {
 static const char *TAG = "CsiPipeline";
 
 void CsiPipeline::init(BaseDetector* detector,
-                     uint32_t publish_rate,
+                     uint32_t publish_interval_ms,
                      IWiFiCSI* wifi_csi) {
   detector_ = detector;
-  publish_rate_ = publish_rate;
+  publish_interval_ms_ = std::max<uint32_t>(1U, publish_interval_ms);
+  last_publish_ms_ = 0U;
+  packets_processed_.store(0U, std::memory_order_relaxed);
   capture_service_.init(wifi_csi);
   capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
   capture_service_.set_channel_change_callback(&CsiPipeline::capture_channel_change_callback_, this);
   accepted_packets_total_.store(0U, std::memory_order_relaxed);
+  detector_rate_on_hold_ = false;
   reset_motion_state_filter_();
   
   ESP_LOGD(TAG, "CSI Pipeline initialized with %s detector", 
@@ -56,6 +59,7 @@ void CsiPipeline::set_motion_hit_thresholds(uint8_t motion_on_hits, uint8_t moti
 
 void CsiPipeline::set_detector(BaseDetector *detector) {
   detector_ = detector;
+  detector_window_event_.clear();
   clear_detector_buffer_deferred_();
   ESP_LOGD(TAG, "Detector updated to %s", detector_ != nullptr ? detector_->get_name() : "NULL");
 }
@@ -95,11 +99,27 @@ void CsiPipeline::loop() {
   if (live_telemetry_event_.take(movement, threshold) && live_telemetry_callback_) {
     live_telemetry_callback_(movement, threshold);
   }
-  MotionState publish_state = MotionState::IDLE;
-  uint32_t publish_count = 0U;
-  if (packet_publish_event_.take(publish_state, publish_count) && packet_callback_) {
-    packet_callback_(publish_state, publish_count);
+  uint16_t window_packets = 0U;
+  if (detector_window_event_.take(window_packets) && detector_window_callback_) {
+    detector_window_callback_(window_packets);
   }
+}
+
+void CsiPipeline::publish_if_due(uint32_t now_ms) {
+  if (!enabled_ || !packet_callback_) {
+    return;
+  }
+  if (last_publish_ms_ == 0U) {
+    last_publish_ms_ = now_ms;
+    return;
+  }
+  if (now_ms - last_publish_ms_ < publish_interval_ms_) {
+    return;
+  }
+  last_publish_ms_ = now_ms;
+  const uint32_t packets_received =
+      packets_processed_.exchange(0U, std::memory_order_relaxed);
+  packet_callback_(heartbeat_motion_state_.load(std::memory_order_relaxed), packets_received);
 }
 
 void CsiPipeline::set_local_identity(uint32_t local_ip_addr, const uint8_t *local_mac_addr) {
@@ -135,6 +155,7 @@ MotionState CsiPipeline::update_effective_motion_state_(MotionState detector_sta
 
 void CsiPipeline::reset_motion_state_filter_(MotionState state) {
   effective_motion_state_ = state;
+  heartbeat_motion_state_.store(state, std::memory_order_relaxed);
   pending_motion_state_ = state;
   pending_state_hits_ = 0;
 }
@@ -179,6 +200,41 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   // different clocks, and the threshold was fitted at a resolution the detector
   // never used.
   const bool cadence_due = cadence_.observe(data->rx_ctrl.timestamp);
+  if (!cadence_.detector_rate_supported()) {
+    if (!detector_rate_on_hold_) {
+      const MotionState previous_state = effective_motion_state_;
+      detector_->reset();
+      detector_->clear_buffer();
+      reset_motion_state_filter_();
+      request_motion_state_callback_(previous_state, effective_motion_state_);
+      detector_rate_on_hold_ = true;
+      ESP_LOGW(TAG, "Detector on hold: measured CSI rate is below %u pps",
+               static_cast<unsigned>(DETECTOR_MIN_PACKET_RATE_PPS));
+    }
+    if (cadence_due) {
+      cadence_.after_evaluation();
+    }
+    return;
+  }
+  if (detector_rate_on_hold_) {
+    detector_->reset();
+    detector_->clear_buffer();
+    reset_motion_state_filter_();
+    detector_rate_on_hold_ = false;
+    ESP_LOGI(TAG, "Detector resumed: measured CSI rate recovered");
+  }
+  if (cadence_.rate_ready()) {
+    const uint16_t resolved_window = cadence_.detector_window_packets();
+    const uint16_t current_window = detector_->get_window_size();
+    const uint16_t minimum_change =
+        static_cast<uint16_t>(current_window / 20U > 4U ? current_window / 20U : 4U);
+    const uint16_t difference = current_window > resolved_window
+                                    ? current_window - resolved_window
+                                    : resolved_window - current_window;
+    if (difference >= minimum_change) {
+      detector_window_event_.post(resolved_window);
+    }
+  }
 
   if (packet_interceptor_ &&
       packet_interceptor_(packet_interceptor_context_, csi_data, csi_len, rssi_dbm,
@@ -191,14 +247,9 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
 
   detector_->process_packet(csi_data, csi_len, DEFAULT_SUBCARRIERS, NUM_SUBCARRIERS, rssi_dbm);
 
-  // Evaluate state on the internal cadence, but always refresh before a periodic publish.
-  const uint32_t processed_count = packets_processed_ + 1U;
-  packets_processed_ = processed_count;
+  packets_processed_.fetch_add(1U, std::memory_order_relaxed);
 
-  const bool should_publish = processed_count >= publish_rate_;
-  const bool should_evaluate = should_publish || cadence_due;
-  
-  if (should_evaluate) {
+  if (cadence_due) {
     // The two clock reads exist only to feed the ~10 s [telemetry] DEBUG line,
     // so they compile out with it rather than costing two timer reads per
     // evaluation in a release build.
@@ -209,6 +260,7 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     MotionState previous_state = effective_motion_state_;
     detector_->update_state();
     MotionState current_state = update_effective_motion_state_(detector_->get_state());
+    heartbeat_motion_state_.store(current_state, std::memory_order_relaxed);
     request_motion_state_callback_(previous_state, current_state);
     cadence_.after_evaluation();
 
@@ -220,14 +272,6 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     // Emit live telemetry on each detector evaluation tick.
     if (live_telemetry_callback_) {
       live_telemetry_event_.post(detector_->get_motion_metric(), detector_->get_threshold());
-    }
-  
-    // Periodic publish callback
-    if (should_publish) {
-      if (packet_callback_) {
-        packet_publish_event_.post(current_state, packets_processed_);
-      }
-      packets_processed_ = 0;
     }
   }
 }
@@ -265,6 +309,8 @@ esp_err_t CsiPipeline::enable(csi_processed_callback_t packet_callback) {
   esp_err_t err = capture_service_.enable();
   if (err == ESP_OK) {
     enabled_ = true;
+    last_publish_ms_ = 0U;
+    packets_processed_.store(0U, std::memory_order_relaxed);
   }
   return err;
 }
@@ -285,12 +331,13 @@ esp_err_t CsiPipeline::disable() {
   clear_detector_buffer_deferred_();
   motion_state_event_.clear();
   live_telemetry_event_.clear();
-  packet_publish_event_.clear();
   detection_timing_.clear();
-  packets_processed_ = 0U;
+  packets_processed_.store(0U, std::memory_order_relaxed);
+  last_publish_ms_ = 0U;
   last_rssi_dbm_ = INT8_MIN;
   last_channel_ = 0U;
   cadence_.reset();
+  detector_rate_on_hold_ = false;
   reset_motion_state_filter_();
   return ESP_OK;
 }

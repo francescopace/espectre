@@ -47,18 +47,21 @@ void tearDown(void) {}
 void test_classic_handles_loaded_low_rssi_pair(void) {
   const csi_test_data::CsiData baseline = csi_test_data::g_static_presence_data;
   const csi_test_data::CsiData motion = csi_test_data::g_motion_data;
-  ClassicDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, CLASSIC_DEFAULT_THRESHOLD);
-  detector.configure_lowpass(false);
-  detector.configure_hampel(true);
-
   const std::vector<const int8_t*> baseline_rows = packet_rows(baseline);
   const std::vector<const int8_t*> motion_rows = packet_rows(motion);
   const espectre::test::replay::ReplayPacketMetadata baseline_metadata =
       packet_metadata(baseline);
   const espectre::test::replay::ReplayPacketMetadata motion_metadata =
       packet_metadata(motion);
+  const uint16_t window_size = espectre::test::replay::detector_window_packets(
+      baseline_metadata, baseline.num_packets);
+  ClassicDetector detector(window_size, CLASSIC_DEFAULT_THRESHOLD);
+  detector.configure_lowpass(false);
+  detector.configure_hampel(true);
   const int calibration_packets = std::min(
-      baseline.num_packets, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
+      baseline.num_packets,
+      static_cast<int>(espectre::test::replay::calibration_packet_count(
+          baseline_metadata, baseline.num_packets)));
   float adaptive_threshold = CLASSIC_DEFAULT_THRESHOLD;
   TEST_ASSERT_TRUE(espectre::test::replay::calibrate_classic_detector(
       detector, calibration_packets, baseline_rows.data(), baseline.num_packets,

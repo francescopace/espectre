@@ -179,8 +179,12 @@ uint32_t measure_packet_interval_us(int packet_count,
 
 class TimeAwareCadence {
  public:
-  TimeAwareCadence(uint16_t window_packets, uint32_t evaluation_interval_ms)
-      : nominal_interval_us_(nominal_packet_interval_us(window_packets)),
+  TimeAwareCadence(uint16_t window_packets,
+                   uint32_t evaluation_interval_ms,
+                   uint32_t measured_interval_us = 0U)
+      : nominal_interval_us_(measured_interval_us > 0U
+                                 ? measured_interval_us
+                                 : nominal_packet_interval_us(window_packets)),
         evaluation_interval_us_(std::max<uint32_t>(1U, evaluation_interval_ms) * 1000U) {}
 
   void reset() {
@@ -194,10 +198,7 @@ class TimeAwareCadence {
   }
 
   /** Mirrors RuntimeMotionPolicy.should_evaluate in runtime_policy.py. */
-  bool should_evaluate(bool should_publish = false) const {
-    if (should_publish) {
-      return true;
-    }
+  bool should_evaluate() const {
     return elapsed_us_since_evaluation_ >= evaluation_interval_us_;
   }
 

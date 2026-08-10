@@ -90,11 +90,15 @@ bool EspIdfRuntime::setup() {
   // source; the stream runtime falls back to collector pacing instead.
   csi_traffic_service_.init(to_csi_traffic_config(config_, CsiTrafficMode::EXTERNAL));
 
-  csi_pipeline_.init(detector_.get(), config_.publish_interval);
+  csi_pipeline_.init(detector_.get(), config_.publish_interval_ms);
   csi_pipeline_.set_evaluation_interval_ms(config_.evaluation_interval_ms);
+  csi_pipeline_.set_segmentation_window_size_ms(config_.segmentation_window_size_ms);
   csi_pipeline_.set_motion_hit_thresholds(config_.motion_on_hits, config_.motion_off_hits);
   csi_pipeline_.set_channel_change_callback([this](uint8_t previous_channel, uint8_t current_channel) {
     on_csi_channel_changed_(previous_channel, current_channel);
+  });
+  csi_pipeline_.set_detector_window_callback([this](uint16_t window_packets) {
+    on_detector_window_changed_(window_packets);
   });
   update_live_telemetry_callback_();
 
@@ -140,6 +144,7 @@ void EspIdfRuntime::loop() {
     finish_threshold_calibration_(calibration_success);
   }
   csi_pipeline_.loop();
+  csi_pipeline_.publish_if_due(monotonic_now_ms());
   csi_traffic_service_.observe_accepted_csi(csi_pipeline_.accepted_packets_total());
   DetectionTimingStats detection_timing;
   if (csi_pipeline_.take_detection_timing(&detection_timing)) {
@@ -266,7 +271,8 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
   }
 
   const float threshold = runtime_default_threshold(algorithm);
-  std::unique_ptr<BaseDetector> next_detector = make_detector_(algorithm, threshold);
+  std::unique_ptr<BaseDetector> next_detector =
+      make_detector_(algorithm, threshold, resolved_window_packets_);
   if (next_detector == nullptr) {
     notify_fault_("Failed to configure runtime detector");
     return false;
@@ -316,7 +322,13 @@ bool EspIdfRuntime::configure_detector_() {
   const float threshold = runtime_default_threshold(config_.detection_algorithm);
   config_.segmentation_threshold = threshold;
   snapshot_.threshold = threshold;
-  detector_ = make_detector_(config_.detection_algorithm, threshold);
+  const uint32_t nominal_rate = config_.traffic_generator_rate > 0U
+                                    ? config_.traffic_generator_rate
+                                    : RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT;
+  const uint32_t nominal_interval_us = std::max<uint32_t>(1U, 1000000U / nominal_rate);
+  resolved_window_packets_ =
+      derive_detector_timing(nominal_interval_us, config_.segmentation_window_size_ms).window_packets;
+  detector_ = make_detector_(config_.detection_algorithm, threshold, resolved_window_packets_);
 
   if (detector_ == nullptr) {
     notify_fault_("Failed to configure detector");
@@ -328,18 +340,43 @@ bool EspIdfRuntime::configure_detector_() {
 }
 
 std::unique_ptr<BaseDetector> EspIdfRuntime::make_detector_(DetectionAlgorithm algorithm,
-                                                            float threshold) {
+                                                            float threshold,
+                                                            uint16_t window_packets) {
   std::unique_ptr<BaseDetector> detector;
   if (algorithm == DetectionAlgorithm::ML) {
-    detector = std::make_unique<MLDetector>(config_.segmentation_window_size, threshold);
+    detector = std::make_unique<MLDetector>(window_packets, threshold);
   } else if (algorithm == DetectionAlgorithm::CLASSIC) {
-    detector = std::make_unique<ClassicDetector>(config_.segmentation_window_size, threshold);
+    detector = std::make_unique<ClassicDetector>(window_packets, threshold);
   }
   if (detector != nullptr) {
     detector->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
     detector->configure_hampel(config_.hampel_enabled, config_.hampel_window, config_.hampel_threshold);
   }
   return detector;
+}
+
+void EspIdfRuntime::on_detector_window_changed_(uint16_t window_packets) {
+  if (window_packets == resolved_window_packets_) {
+    return;
+  }
+  const float threshold = detector_ != nullptr ? detector_->get_threshold()
+                                                : runtime_default_threshold(config_.detection_algorithm);
+  std::unique_ptr<BaseDetector> replacement =
+      make_detector_(config_.detection_algorithm, threshold, window_packets);
+  if (replacement == nullptr) {
+    notify_fault_("Failed to resize detector window");
+    return;
+  }
+  cancel_calibration_(false);
+  detector_ = std::move(replacement);
+  resolved_window_packets_ = window_packets;
+  csi_pipeline_.set_detector(detector_.get());
+  ESP_LOGI(RUNTIME_TAG, "Detector window resolved to %u samples (%u ms)",
+           static_cast<unsigned>(window_packets),
+           static_cast<unsigned>(config_.segmentation_window_size_ms));
+  if (wifi_ready_ && csi_pipeline_.is_enabled()) {
+    start_calibration_();
+  }
 }
 
 void EspIdfRuntime::cancel_calibration_(bool notify_listener) {
@@ -488,7 +525,17 @@ bool EspIdfRuntime::start_calibration_() {
     notify_fault_("Failed to allocate startup calibrator");
     return false;
   }
-  threshold_calibrator_->begin(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS,
+  const uint32_t calibration_duration_us =
+      config_.segmentation_window_size_ms * 1000U * CALIBRATION_NUM_WINDOWS;
+  uint32_t calibration_target_packets = packets_for_duration(
+      calibration_duration_us,
+      csi_pipeline_.packet_rate_ready()
+          ? csi_pipeline_.measured_packet_interval_us()
+          : nominal_packet_interval_us(resolved_window_packets_));
+  if (calibration_target_packets > UINT16_MAX) {
+    calibration_target_packets = UINT16_MAX;
+  }
+  threshold_calibrator_->begin(static_cast<uint16_t>(calibration_target_packets),
                                detector_ != nullptr && detector_->startup_gate_enabled());
   calibration_finished_event_.clear();
   calibration_progress_event_.clear();

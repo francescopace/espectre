@@ -42,12 +42,12 @@ constexpr uint8_t CLASSIC_STARTUP_SAMPLE_LIMIT = 64U;
 // Settled-level rule: how long the stream has to stay quiet before the startup
 // threshold is allowed to come down, and by how much margin above the level it
 // settled at. 12 blocks of 20 evaluations is 60 s at the nominal cadence. The
-// margin is in logit units; 2.8 is the largest value that still clears the
-// current C3 recall gates, while below 2.6 the C3 empty-room replay starts to
-// tick upward.
+// margin is in logit units; 2.7 is the conservative temporal-window operating
+// point that clears the weak-link recall floor without changing the measured
+// normal-link or quiet-room FP tails.
 constexpr uint8_t CLASSIC_SETTLE_BLOCKS = 12U;
 constexpr uint8_t CLASSIC_SETTLE_BLOCK_EVALUATIONS = 20U;
-constexpr float CLASSIC_SETTLE_MARGIN_LOGITS = 2.8f;
+constexpr float CLASSIC_SETTLE_MARGIN_LOGITS = 2.7f;
 
 /**
  * The default detector: self-calibrating, no training data required.

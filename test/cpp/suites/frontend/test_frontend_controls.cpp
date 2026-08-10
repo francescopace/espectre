@@ -158,7 +158,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   ThresholdNumberProbe threshold_number;
   CalibrateSwitchProbe calibrate_switch;
 
-  component.set_segmentation_window_size(64);
+  component.set_segmentation_window_size_ms(1500);
   component.set_traffic_generator_rate(0);
   component.set_traffic_generator_mode("dns");
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
@@ -168,7 +168,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::ML);
   component.set_detection_algorithm("classic");
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::CLASSIC);
-  component.set_publish_interval(200);
+  component.set_publish_interval_ms(2000);
   component.set_evaluation_interval_ms(500);
   component.set_motion_on_hits(4);
   component.set_motion_off_hits(5);
@@ -187,11 +187,11 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
 
   TEST_ASSERT_EQUAL_FLOAT(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT,
                           component.runtime_.config().segmentation_threshold);
-  TEST_ASSERT_EQUAL(64, component.runtime_.config().segmentation_window_size);
+  TEST_ASSERT_EQUAL(1500U, component.runtime_.config().segmentation_window_size_ms);
   TEST_ASSERT_EQUAL(0, component.runtime_.config().traffic_generator_rate);
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::ML);
-  TEST_ASSERT_EQUAL(200, component.runtime_.config().publish_interval);
+  TEST_ASSERT_EQUAL(2000, component.runtime_.config().publish_interval_ms);
   TEST_ASSERT_EQUAL(500, component.runtime_.config().evaluation_interval_ms);
   TEST_ASSERT_EQUAL(4, component.runtime_.config().motion_on_hits);
   TEST_ASSERT_EQUAL(5, component.runtime_.config().motion_off_hits);
