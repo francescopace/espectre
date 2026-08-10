@@ -111,11 +111,13 @@ Use `--timing-warn-weight` only with a policy that downweights degraded recordin
 
 Bare `--augment` enables the promoted `base,drift,burst-loss` recipe:
 
-- `base` applies moderate feature jitter and packet-domain noise, loss, and stutter;
+- `base` applies moderate feature jitter, packet-domain noise, loss, and stutter, and a stable packet-rate scale from `0.8` to `1.0`;
 - `drift` injects a slow correlated packet-domain drift episode; and
 - `burst-loss` injects short packet-drop bursts.
 
 Augmentation is train-only. Cross-validation scoring, selection, holdout, performance reporting, and runtime inference use clean replay features.
+
+Stable rate scaling is not packet loss. It selects samples across the source interval, rewrites timestamps and sequence numbers to the lower clean cadence, and lets the shared `1000 ms` detector window resolve to fewer samples. Loss and burst-loss augmentations retain gaps and contamination semantics.
 
 Explicit component lists are useful for controlled ablations:
 

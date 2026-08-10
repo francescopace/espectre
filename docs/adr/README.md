@@ -64,6 +64,7 @@ Use this index when a current document should point to a durable decision instea
 - [`2026-07-28-drop-the-unused-startup-variance-floor.md`](2026-07-28-drop-the-unused-startup-variance-floor.md)
 - [`2026-07-30-adopt-frequency-coherence-for-classic.md`](2026-07-30-adopt-frequency-coherence-for-classic.md)
 - [`2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md`](2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md)
+- [`2026-08-10-configure-detector-windows-in-milliseconds.md`](2026-08-10-configure-detector-windows-in-milliseconds.md)
 
 ### ML
 
@@ -108,6 +109,7 @@ Use this index when a current document should point to a durable decision instea
 - [`2026-07-18-remove-qemu-smoke-tests-from-firmware-ci.md`](2026-07-18-remove-qemu-smoke-tests-from-firmware-ci.md)
 - [`2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md`](2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md)
 - [`2026-07-26-run-ml-inference-without-float-contraction.md`](2026-07-26-run-ml-inference-without-float-contraction.md)
+- [`2026-08-10-configure-detector-windows-in-milliseconds.md`](2026-08-10-configure-detector-windows-in-milliseconds.md)
 
 ## How To Name ADR Files
 

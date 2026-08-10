@@ -1,8 +1,13 @@
 # ADR: keep production feature lags at nominal offsets
 
-- Status: Accepted
+- Status: Superseded in part
 - Date: 2026-07-28
 - Supersedes: 2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md
+- Superseded by: 2026-08-10-configure-detector-windows-in-milliseconds.md
+
+## Current Implementation Status
+
+The fixed `10:1` L1 displacement ratio and lag-`1` turbulence autocorrelation decisions remain accepted. The configured sample-count window and the statement that deployed runtimes do not call `derive_detector_timing()` were superseded on 2026-08-10. See [2026-08-10-configure-detector-windows-in-milliseconds.md](2026-08-10-configure-detector-windows-in-milliseconds.md).
 
 ## Context
 

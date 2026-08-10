@@ -307,11 +307,11 @@ Support in this phase:
 | `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5; Native can persist the policy over BLE and applies a changed policy after restart; ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
 | `detection_algorithm` | `classic` or `ml` | `classic`, including Matter | Shared detector family |
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; adjustable from the frontend during the session |
-| `segmentation_window_size` | int | `100` | `100-200` packets |
+| `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; resolved to samples from measured CSI cadence |
 | `traffic_generator_rate` | int | `100` | Arithmetic validation range `0-100000`; `0` disables internal traffic generation. Supported ESP32 targets sustain much lower practical CSI rates, normally around the `100` target |
 | `traffic_generator_adaptive` | bool | `true` | Adjusts DNS or ICMP send pacing from CSI feedback and local socket backpressure; floor at `70%` of target, overshoot up to about `125%` |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
-| `publish_interval` | int | `100` | `1-1000` packets between periodic updates |
+| `publish_interval_ms` | int | `1000` | `100-60000` milliseconds between periodic updates |
 | `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
 | `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` (about `1.0 s` at the default `250 ms` interval) |
 | `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.75 s` at the same defaults) |

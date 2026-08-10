@@ -158,7 +158,9 @@ The main repository workflow and this training stack target Python `3.14`.
   (`--seed-search-until-improvement` still samples fresh seeds)
 - Optional `--augment` applies one or more train-time augmentation components;
   `--augment` alone means `base,drift,burst-loss`, while explicit component
-  lists support ablations (inference stays clean)
+  lists support ablations (inference stays clean). The base component also
+  scales stable packet cadence from `0.8` to `1.0`, so the temporal detector
+  window trains with fewer samples without treating that rate change as loss
 - Reports blocked out-of-fold metrics plus worst and worst-five-tail session,
   lineage, chip, and source-file groups, splitting session metrics by real and
   synthetic provenance when synthetic derivatives are present
@@ -444,7 +446,26 @@ python benchmark_subcarrier_aggregation.py --mode candidates --widths 3 --json o
 
 ---
 
-### 13. Classic Candidate Replay (`replay_classic_candidates.py`)
+### 13. Threshold-Free Classic Candidate Benchmark (`benchmark_classic_candidate_pairs.py`)
+
+**Purpose**: Compare single features, pairs, or triplets on time-aware real paired windows before coupling the ranking to a threshold or startup-calibration sweep
+
+The projection fits on `train`, the primary ranking uses `train` plus `selection`, and `holdout` and `exclude` remain diagnostics. Use `--feature` for the initial one-dimensional screen, then use `--pair` or `--triple` only for candidates whose direction and worst-pair behavior justify a larger replay.
+
+```bash
+python benchmark_classic_candidate_pairs.py \
+  --feature turb_autocorr \
+  --feature turb_zcr
+
+python benchmark_classic_candidate_pairs.py \
+  --pair turb_autocorr,chan_freq_coh_curve_std
+```
+
+The benchmark never writes runtime artifacts.
+
+---
+
+### 14. Classic Candidate Replay (`replay_classic_candidates.py`)
 
 **Purpose**: Fit and replay research-only one- or two-feature Classic detector
 candidates without writing runtime artifacts

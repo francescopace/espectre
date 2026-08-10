@@ -92,7 +92,7 @@ espectre/v1/devices/{device_id}/telemetry
 }
 ```
 
-Native MQTT telemetry uses a hybrid cadence. Filtered motion-state transitions are published immediately once `ready_to_publish` is true, while updates at the configured `publish_interval` remain as a heartbeat and current-metrics snapshot. Edge publishes occur only on state transitions, not on every detector evaluation. Native BLE live telemetry remains opt-in and low-latency for nearby interactive clients.
+Native MQTT telemetry uses a hybrid cadence. Filtered motion-state transitions are published immediately once `ready_to_publish` is true, while updates at the configured `publish_interval_ms` remain as a monotonic-clock heartbeat and current-metrics snapshot. Edge publishes occur only on state transitions, not on every detector evaluation, and heartbeat deadlines never force detector evaluation. Native BLE live telemetry remains opt-in and low-latency for nearby interactive clients.
 
 ### Status
 
@@ -398,7 +398,7 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `chip` | Target chip reported by the firmware, such as `esp32c3` |
 | `firmware_version` | Running firmware version |
 | `detector` | Active detector name: `classic`, or `ml` |
-| `window` | Detection window size in packets |
+| `window_ms` | Configured detection window duration in milliseconds |
 | `lowpass` | Whether the low-pass stage is enabled |
 | `lowpass_cutoff` | Low-pass cutoff in Hz |
 | `hampel` | Whether the Hampel filter is enabled |
@@ -407,7 +407,7 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `traffic_mode` | Internal traffic generator mode such as `ping` or `dns` |
 | `traffic_rate` | Internal traffic generator target rate in packets per second |
 | `traffic_adaptive` | Whether adaptive traffic-rate control is enabled |
-| `publish_interval` | Periodic publish cadence in packets |
+| `publish_interval_ms` | Periodic publish cadence in milliseconds |
 | `evaluation_interval_ms` | Detector evaluation cadence in milliseconds |
 | `motion_hits` | Motion-on/off consecutive hit thresholds |
 | `ota_state` | Current OTA state reported by the shared HTTPS OTA service |

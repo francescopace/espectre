@@ -37,6 +37,8 @@ This is the first release candidate for the v3 platform. It brings the productio
 - **Threshold modes were removed**. Classic calibrates automatically at startup, ML uses its trained threshold, and runtime threshold changes apply only to the current session.
 - **Motion activation now requires four consecutive evaluation hits by default**, corresponding to approximately one second at the default `250 ms` evaluation cadence.
 - **Detector evaluation cadence is configured directly in milliseconds** with a `250 ms` default and advances only from packet timestamps, so confirmation timing no longer depends on the CSI packet rate and sources without usable timestamps no longer fall back to packet counting.
+- **Detector windows are configured directly in milliseconds** through `segmentation_window_size_ms`, with a `1000 ms` default resolved from measured CSI cadence across firmware, ESPHome, Micro-ESPectre, replay, validation, and training. The augmented ML path now trains stable lower-rate windows, and live detection stays on hold below the supported `80 pps` floor.
+- **Periodic telemetry publishing now uses a monotonic `1000 ms` heartbeat** instead of counting 100 packets. Heartbeats report the packets accepted during the interval, publish zero-rate stalls, and never force detector evaluation.
 - **Sensing now enforces one classifier-first HT20, HT-LTF, 64-subcarrier contract** across firmware, Micro-ESPectre, collection, datasets, training, and C++ replay. Format changes reset detector state, and rejected formats are exposed through diagnostics.
 - **The Wi-Fi band is explicit while HT20 remains mandatory**. The validated default remains 2.4 GHz; ESP32-C5 integrations may select 5 GHz or automatic band choice, but detection quality on 5 GHz has not yet been characterized.
 - **CSI traffic generation is adaptive by default** across ESPHome, Native, Matter, Micro-ESPectre, and host collection. It responds to sustained local backpressure and CSI delivery feedback; fixed host pacing remains available through `--fixed`.
@@ -58,6 +60,7 @@ This is the first release candidate for the v3 platform. It brings the productio
 - **Adaptive traffic pacing no longer over-corrects under temporary CSI surplus or isolated callback deficits**, improving sustained sensing and Streamer collection on the original ESP32.
 - **Streamer long-session handling is more resilient**, with PSRAM-backed staging where available, improved retry and duplicate telemetry, BLE suspension during sustained streaming, and chip-specific transport defaults.
 - **C++ and Python detector replays now follow the same timing, cadence, calibration, and state-transition behavior**.
+- **Classic settled-level recovery was recalibrated for temporal windows**, restoring the weak-link S3 recall floor without increasing the measured normal-link or quiet-room false-positive tails.
 
 ### Breaking changes and migration
 
@@ -70,6 +73,7 @@ This is the first release candidate for the v3 platform. It brings the productio
 - **Streamer and checked-in dataset metadata use a clean-break format**: Streamer protocol V7 carries per-record PHY metadata, and repository datasets use dataset format `1.2`. Consumers of the previous wire or dataset metadata must migrate.
 - **C++ integrators should include the supported SDK facade** through `espectre_sdk.h` and follow the v3 `core -> runtime -> frontend` dependency direction. Internal v2 source paths and generic header names are not stable compatibility surfaces.
 - **Evaluation cadence configuration now uses milliseconds**. Migrate `evaluation_interval`, `EVALUATION_INTERVAL`, and `CONFIG_ESPECTRE_EVALUATION_INTERVAL` to `evaluation_interval_ms`, `EVALUATION_INTERVAL_MS`, and `CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS`, respectively. The legacy `25`-packet setting is replaced by a timestamp-driven `250 ms` interval with no packet-count fallback.
+- **Periodic publish configuration now uses milliseconds**. Migrate `publish_interval`, `PUBLISH_INTERVAL`, and `CONFIG_ESPECTRE_PUBLISH_INTERVAL` to `publish_interval_ms`, `PUBLISH_INTERVAL_MS`, and `CONFIG_ESPECTRE_PUBLISH_INTERVAL_MS`, respectively; the default changes from 100 packets to `1000 ms`.
 - **Legacy detector tooling was removed**, including threshold modes, the moving-variance baseline cluster, stale notebooks, the ML `--promote` flag, and detector-guided sample-weight options.
 
 Detailed detector design, feature decisions, integration guidance, and validation results are maintained in [ALGORITHMS.md](ALGORITHMS.md), [FEATURES.md](FEATURES.md), [EMBEDDING.md](EMBEDDING.md), and [performance/README.md](performance/README.md).

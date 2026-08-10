@@ -2,11 +2,11 @@
 
 - Status: Superseded in part
 - Date: 2026-07-25
-- Superseded by: 2026-07-28-keep-production-feature-lags-at-nominal-offsets.md
+- Superseded by: 2026-07-28-keep-production-feature-lags-at-nominal-offsets.md; 2026-08-10-configure-detector-windows-in-milliseconds.md
 
 ## Current Implementation Status
 
-Arrival-time evaluation cadence, gap detection, state reset, and the sample-count window remain accepted. Runtime feature-lag derivation was measured and rejected on 2026-07-28; deployed C++ and MicroPython runtimes keep the nominal packet offsets. See [2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](2026-07-28-keep-production-feature-lags-at-nominal-offsets.md).
+Arrival-time evaluation cadence, gap detection, and state reset remain accepted. Runtime feature-lag derivation was superseded on 2026-07-28; the sample-count window was superseded on 2026-08-10. See [2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](2026-07-28-keep-production-feature-lags-at-nominal-offsets.md) and [2026-08-10-configure-detector-windows-in-milliseconds.md](2026-08-10-configure-detector-windows-in-milliseconds.md).
 
 ## Context
 

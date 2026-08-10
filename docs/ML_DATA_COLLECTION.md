@@ -271,7 +271,7 @@ python tools/validate_dataset_quality.py
 python tools/train_ml_model.py --info
 ```
 
-`collect --info` summarizes collected files. `validate_dataset_quality.py` refreshes pair metadata, runs admission plus feature-space review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. `train_ml_model.py --info` shows the dataset view used by the trainer.
+`collect --info` summarizes collected files. `validate_dataset_quality.py` refreshes pair metadata, runs admission plus feature-space review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. Temporal quality and ML-readiness checks require a usable recorded packet rate, or `num_packets` plus `duration_ms`; insufficient timing metadata is a validation failure and is never interpreted as 100 pps. `train_ml_model.py --info` shows the dataset view used by the trainer.
 
 ## Contributing Data
 

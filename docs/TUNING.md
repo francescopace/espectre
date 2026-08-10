@@ -19,7 +19,7 @@ Current startup behavior:
 3. if a clean `quiet -> motion -> quiet` pattern appears, startup may finish early
 4. otherwise the detector falls back internally to the quiet-only path
 
-With default `window_size=100`, the startup budget is `10 x window_size = 1000` packets. This is a maximum, not a fixed wait.
+With the default `segmentation_window_size_ms: 1000`, the startup budget is ten seconds of clean CSI coverage. That resolves to about 800 packets at `80 pps` or 1000 packets at `100 pps`; it is a maximum, not a fixed wait.
 
 Practical rule:
 
@@ -83,30 +83,31 @@ espectre:
 
 ```yaml
 espectre:
-  segmentation_window_size: 100
+  segmentation_window_size_ms: 1000
 ```
 
-The setting is a packet count, and it stays one. The feature lags also remain at the nominal `10:1` packet offsets used for fitting; only the evaluation schedule follows elapsed arrival time. A slower link therefore widens both the window and the feature offsets in time rather than changing the fitted feature definition. The supported detector envelope is `80-133 pps`.
+The setting is elapsed time. The runtime measures the clean CSI cadence and rounds the sample count up so the window covers at least the requested duration. The default `1000 ms` interval resolves to `80` samples at `80 pps`, `100` at `100 pps`, and `120` at `120 pps`. The feature lags remain at the fitted `10:1` packet offsets; changing those definitions still requires a Classic refit and ML retraining. Below `80 pps`, the detector does not have enough samples for the supported feature contract and should remain on hold until the stream recovers.
 
-That floor is measured, not assumed. Sweeping only the window over the 22 normal-link paired recordings at their native rate:
+The current augmented ML model was rechecked on 60-second prefixes of 22 normal-link pairs, reducing stable streams to `80 pps` by removing packets and preserving a clean `12.5 ms` cadence. This avoids the invalid shortcut of merely replaying a `100 pps` stream through a smaller window:
 
-| window | worst-session recall | median recall |
-| --- | --- | --- |
-| 80 | `91.9%` | `99.4%` |
-| 90 | `94.2%` | `100.0%` |
-| 100 | `96.8%` | `100.0%` |
-| 120 | `97.1%` | `100.0%` |
+| replay contract | aggregate recall | aggregate false positives | worst-session recall |
+| --- | ---: | ---: | ---: |
+| fixed 100 samples | `99.546%` | `0.041%` | not used for the floor decision |
+| temporal 1000 ms at 80 pps (80 samples) | `98.844%` | `0.019%` | `92.797%` |
 
-The production target is `95%` recall, so 80 and 90 fail on the worst session while the median barely moves. That is why the minimum is 100, and why the floor has to be gated per session rather than on the average.
+The aggregate result supports `80 pps`, but the localized worst-session recall remains below the `95%` target. This is why `80 pps` is a supported floor rather than evidence that lower rates are safe. On the explicit high-rate C3 regression pair, stable decimation to `120`, `100`, and `80 pps` with matching one-second windows keeps ML at `100%` recall and `0%` false positives at every rate; Classic reaches `99.1%` recall and `0%` false positives at `80 pps`.
 
-See the Detector Timing section in [ALGORITHMS.md](ALGORITHMS.md) for the full contract and the measured reason runtime lag derivation was rejected.
+Correct native-cadence replay also replaces two optimistic Classic measurements that rounded `~92-93 pps` captures back to a synthetic `100 pps`. The affected normal-link C3 training replay moves from `93.64%` to `91.64%` recall, and the affected weak-link S3 replay moves from `85.06%` to `83.62%`; both remain at `0-4.2%` false positives, and the normal-link chip aggregates remain above their production targets. These are localized Classic limitations, not evidence for restoring packet-count windows.
+
+Training follows the same rule. Packet-rate augmentation creates a lower-rate stable stream with advancing timestamps and contiguous sequence numbers, then feature extraction resolves the one-second window from that augmented cadence. Packet loss and burst loss remain separate contamination augmentations and do not masquerade as a stable rate change.
 
 Rules of thumb:
 
-- `100`: the default, the minimum, and the value the coefficients were fitted at
-- larger window: steadier, slower to react, and further from the fitted point
+- `1000 ms`: the default and the interval used by runtime, replay, validation, and training
+- larger interval: steadier and slower to react
+- fewer than `80` clean samples per second: repair the CSI supply instead of shortening the window
 
-Start with `100` unless you have a clear reason to change it.
+Start with `1000 ms` unless you have a measured reason to change it.
 
 ### Traffic Rate
 
@@ -130,10 +131,10 @@ Rules of thumb:
 
 ```yaml
 espectre:
-  publish_interval: 100
+  publish_interval_ms: 1000
 ```
 
-This controls periodic movement-score reporting. Motion state edges are handled separately and are not tied to this cadence anymore.
+This controls periodic movement-score reporting from the runtime's monotonic clock. Motion state edges are handled separately, and neither heartbeat deadlines nor state-edge publication force detector evaluation.
 
 ### Evaluation Interval And Hit Filtering
 
@@ -150,7 +151,7 @@ The detector still processes every CSI packet into its sliding window, but the p
 2. that raw reading must repeat for `motion_on_hits` consecutive evaluations before the published state becomes `MOTION`
 3. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
 
-These hits are consecutive evaluation ticks, not detector windows (`segmentation_window_size`). One opposing reading resets the pending count.
+These hits are consecutive evaluation ticks, not detector windows (`segmentation_window_size_ms`). One opposing reading resets the pending count.
 
 With the default `evaluation_interval_ms = 250`:
 
@@ -333,7 +334,7 @@ For `ml`, detector timing includes feature extraction, inference, and state upda
 
 ## Short Version
 
-1. start with `classic`, `window_size: 100`, and no low-pass filter
+1. start with `classic`, `segmentation_window_size_ms: 1000`, and no low-pass filter
 2. boot in a quiet room
 3. tune threshold first
 4. touch filters only when threshold alone is not enough

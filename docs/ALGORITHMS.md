@@ -43,7 +43,7 @@ At boot:
 - `classic` performs startup threshold calibration
 - `ml` starts as soon as CSI capture is active from its trained default threshold
 
-With the default `window_size=100`, the `classic` startup budget is `10 x window_size = 1000` packets. This is a maximum, not a mandatory wait.
+With the default `1000 ms` detector window, the `classic` startup budget is ten seconds of clean equivalent coverage. At the nominal `100 pps`, that is 1000 packets; at `80 pps`, it is 800. This is a maximum, not a mandatory wait.
 
 ## Detector Timing
 
@@ -51,20 +51,20 @@ The deployed detector uses a time-relative evaluation cadence and fixed feature 
 
 | quantity | production setting | nominal interpretation at 100 pps |
 | --- | --- | --- |
-| detector window | 100 packets | `1 s` |
+| detector window | `1000 ms` | 100 samples |
 | evaluation interval | `250 ms` | time-based, not packet-count driven |
 | channel-shape tracker lag | 10 packets | `100 ms` |
 | turbulence autocorrelation lag | 1 packet | `10 ms` |
 
-These offsets define the detector surface. v3 keeps `lag = 10` packets for the shape trackers and `autocorr_lag = 1`, supports `80-133 pps`, and does not derive feature lags from the measured packet rate. Changing the offsets requires a Classic refit plus the normal ML validation workflow. See the [timing ADR](adr/2026-07-28-keep-production-feature-lags-at-nominal-offsets.md) for the decision evidence.
+The runtime resolves the window duration from the measured clean CSI cadence, while v3 keeps `lag = 10` packets for the shape trackers and `autocorr_lag = 1`. Changing those feature offsets requires a Classic refit plus the normal ML validation workflow. The supported floor is `80 pps`; below it, detection stays on hold until packet supply recovers. See the [temporal-window ADR](adr/2026-08-10-configure-detector-windows-in-milliseconds.md) for the window evidence and the [feature-lag ADR](adr/2026-07-28-keep-production-feature-lags-at-nominal-offsets.md) for the fixed offsets.
 
 Calibration and steady-state detection share one cadence, so the interceptor that consumes packets during calibration evaluates on the same schedule the detection path does.
 
-The window follows sample count because its features are estimator averages. See the Window Size section in [TUNING.md](TUNING.md) for the evidence behind the 100-sample floor.
+The `stream_dense` training contract resolves the same temporal window for each source stream, including packet-rate augmentation. Stable rate reduction is distinct from packet and burst loss: the former changes the number of clean samples in one second, while the latter remains contamination. See the Window Size section in [TUNING.md](TUNING.md) for the current measurements.
 
 Cadence advances on the packet arrival timestamp, never on the loop clock or a packet-count fallback. The loop clock measures how fast packets are processed, which matches arrival on hardware but not on replay, and would let host scheduling reach a detector decision. Wall-clock time is reserved for staleness detection, which arrival time cannot do because a dead stream delivers no timestamps. Live input and supported replay datasets must provide timestamps; a missing or non-advancing timestamp contributes no elapsed coverage.
 
-The `stream_dense` training contract mirrors this cadence and reset behavior; see [ML_TRAINING.md](ML_TRAINING.md).
+The rest of the replay contract mirrors this cadence and reset behavior; see [ML_TRAINING.md](ML_TRAINING.md).
 
 ## AGC-Active Normalization
 
@@ -230,7 +230,7 @@ Three properties make this safe rather than a drift toward the noise floor:
 - **Motion holds it up.** A stretch of real activity puts the block maxima high, the candidate lands above the current threshold, and nothing happens. The rule moves only after a long quiet stretch, which is exactly the evidence that the threshold is too high.
 - **A median of block maxima, not a mean or a global maximum.** One spike cannot pull the level down, and one quiet block cannot either.
 
-The current `20`-evaluation blocks, `12`-block ring, and `2.8`-logit margin produce a `60 s` dwell at the nominal cadence. The promotion evidence and margin sweep live in the [settled-level recovery ADR](adr/2026-07-26-recover-the-startup-threshold-once-a-session-settles.md).
+The current `20`-evaluation blocks, `12`-block ring, and `2.7`-logit margin produce a `60 s` dwell at the nominal cadence. The recovery design originates in the [settled-level recovery ADR](adr/2026-07-26-recover-the-startup-threshold-once-a-session-settles.md), while the temporal-window revalidation and current operating point live in the [millisecond-window ADR](adr/2026-08-10-configure-detector-windows-in-milliseconds.md).
 
 Its limit is the mirror of its safety. A room that grows genuinely noisier after the threshold has come down cannot push it back up; only a recalibration does that.
 

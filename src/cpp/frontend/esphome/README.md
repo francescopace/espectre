@@ -167,7 +167,7 @@ espectre:
   traffic_generator_rate: 100
   traffic_generator_adaptive: true
   traffic_generator_mode: ping
-  segmentation_window_size: 100
+  segmentation_window_size_ms: 1000
   motion_on_hits: 4
   motion_off_hits: 3
 ```
@@ -323,7 +323,7 @@ To disable the internal generator and rely on external traffic:
 ```yaml
 espectre:
   traffic_generator_rate: 0
-  publish_interval: 100
+  publish_interval_ms: 1000
   evaluation_interval_ms: 250
 ```
 
@@ -435,7 +435,7 @@ The frontend itself does not require a custom partition table.
 
 1. Raise the Threshold number entity
 2. Check for fans, AC, curtains, or other interference
-3. Increase `segmentation_window_size` for more stability
+3. Increase `segmentation_window_size_ms` for a longer, steadier analysis interval
 
 ### Mesh Wi-Fi instability
 
