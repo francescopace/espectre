@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-08-09T21:20:50+02:00",
+  "updated_at": "2026-08-10T20:48:02+02:00",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -231,6 +231,21 @@
         "device_id": "0x00007c2c6742bbac",
         "average_packet_rate": 97.599,
         "long_recording": true,
+        "nominal_packet_rate": 100
+      },
+      {
+        "filename": "empty_c3_64sc_dev0000acebe64ad194_20260810_193111_666031_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-08-10T19:31:11.652556",
+        "duration_ms": 119998,
+        "num_packets": 11970,
+        "description": "HT20 empty sample",
+        "environment": "vacation_home",
+        "device_id": "0x0000acebe64ad194",
+        "dataset_role": "exclude",
+        "average_packet_rate": 99.334,
         "nominal_packet_rate": 100
       }
     ],
@@ -823,6 +838,22 @@
         "average_packet_rate": 100.261,
         "nominal_packet_rate": 100,
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64adb64_20260731_143701_673436_0001.npz"
+      },
+      {
+        "filename": "static_presence_c3_64sc_dev0000acebe64ad194_20260810_192227_366239_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-08-10T19:22:27.355650",
+        "duration_ms": 180000,
+        "num_packets": 17994,
+        "description": "HT20 static presence sample",
+        "environment": "vacation_home",
+        "device_id": "0x0000acebe64ad194",
+        "dataset_role": "exclude",
+        "average_packet_rate": 99.92,
+        "nominal_packet_rate": 100,
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ad194_20260810_192504_011681_0001.npz"
       }
     ],
     "motion": [
@@ -1414,6 +1445,22 @@
         "average_packet_rate": 99.751,
         "nominal_packet_rate": 100,
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64adb64_20260731_143455_183846_0001.npz"
+      },
+      {
+        "filename": "motion_c3_64sc_dev0000acebe64ad194_20260810_192504_011681_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-08-10T19:25:04.005225",
+        "duration_ms": 89989,
+        "num_packets": 9001,
+        "description": "HT20 motion sample",
+        "environment": "vacation_home",
+        "device_id": "0x0000acebe64ad194",
+        "dataset_role": "exclude",
+        "average_packet_rate": 99.88,
+        "nominal_packet_rate": 100,
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ad194_20260810_192227_366239_0001.npz"
       }
     ]
   },
