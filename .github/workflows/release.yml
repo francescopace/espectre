@@ -38,17 +38,8 @@ jobs:
           cache: 'pip'
           cache-dependency-path: requirements.txt
       
-      - name: Cache ESPHome build toolchain
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.platformio
-            ~/.esphome/cache
-          key: pio-${{ runner.os }}-${{ matrix.chip }}-${{ hashFiles('requirements.txt', 'src/cpp/frontend/esphome/examples/*.yaml') }}
-          restore-keys: |
-            pio-${{ runner.os }}-${{ matrix.chip }}-
-            pio-${{ runner.os }}-
-      
+      # setup-python already caches pip. Caching the full PlatformIO home creates
+      # one roughly 2.6 GiB archive per matrix target and exceeds the repository quota.
       - name: Install ESPHome
         run: |
           python -m pip install --upgrade pip
@@ -93,16 +84,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # These paths contain dependencies, not target build outputs, so the matrix
+      # shares one cache entry across all supported chips.
       - name: Cache Matter toolchain and components
         uses: actions/cache@v6
         with:
           path: |
             .github/.cache/matter-home
             src/cpp/frontend/matter/app/managed_components
-          key: matter-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-${{ hashFiles('.github/scripts/build_matter_firmware.sh', 'src/cpp/frontend/matter/app/dependencies.lock', 'src/cpp/frontend/matter/app/main/idf_component.yml', 'src/cpp/frontend/matter/app/sdkconfig*.defaults', 'src/cpp/frontend/matter/app/partitions.csv') }}
+          key: matter-${{ runner.os }}-idf-v5.5-deps-v2-${{ hashFiles('requirements.txt', 'src/cpp/frontend/matter/app/main/idf_component.yml') }}
           restore-keys: |
-            matter-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-
-            matter-${{ runner.os }}-idf-v5.5-
+            matter-${{ runner.os }}-idf-v5.5-deps-v2-
 
       - name: Build Matter firmware
         run: |
@@ -140,14 +132,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The cached home contains target-independent Python and component dependencies.
       - name: Cache native toolchain
         uses: actions/cache@v6
         with:
           path: .github/.cache/native-home
-          key: native-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-${{ hashFiles('.github/scripts/build_native_firmware.sh', 'src/cpp/frontend/native/app/dependencies.lock', 'src/cpp/frontend/native/app/sdkconfig*.defaults', 'src/cpp/frontend/native/app/partitions.csv') }}
+          key: native-${{ runner.os }}-idf-v5.5-deps-v2-${{ hashFiles('requirements.txt') }}
           restore-keys: |
-            native-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-
-            native-${{ runner.os }}-idf-v5.5-
+            native-${{ runner.os }}-idf-v5.5-deps-v2-
 
       - name: Build native firmware
         run: |
