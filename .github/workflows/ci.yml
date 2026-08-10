@@ -424,7 +424,7 @@ jobs:
         include:
           - chip: ESP32
             target: esp32
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.esp32.defaults
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.defaults.esp32
           - chip: ESP32-C3
             target: esp32c3
           - chip: ESP32-C5
@@ -488,7 +488,7 @@ jobs:
         include:
           - chip: ESP32
             target: esp32
-            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.esp32.defaults
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.defaults.esp32
           - chip: ESP32-C3
             target: esp32c3
           - chip: ESP32-C5
