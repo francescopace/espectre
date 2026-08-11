@@ -128,13 +128,16 @@ def test_mixed_packet_augmentation_cache_skips_both_views_when_warm(
         seed = int(kwargs["stream_provenance"]["seed"])
         calls.append(seed)
         offset = 0 if seed == 20260807 else 10
+        row_stride = int(kwargs["row_stride"])
+        row_offset = int(kwargs["row_offset"])
+        mask = np.arange(4) % row_stride == row_offset
         return {
-            "X": np.arange(offset, offset + 4, dtype=np.float32).reshape(-1, 1),
+            "X": np.arange(offset, offset + 4, dtype=np.float32).reshape(-1, 1)[mask],
             "feature_names": [trainer.EXPORTED_FEATURE_NAMES[0]],
-            "packet_index": np.arange(4, dtype=np.int32),
-            "evaluation_index": np.arange(4, dtype=np.int32),
-            "reset_index": np.zeros(4, dtype=np.int32),
-            "evaluation_due": np.ones(4, dtype=bool),
+            "packet_index": np.arange(4, dtype=np.int32)[mask],
+            "evaluation_index": np.arange(4, dtype=np.int32)[mask],
+            "reset_index": np.zeros(4, dtype=np.int32)[mask],
+            "evaluation_due": np.ones(4, dtype=bool)[mask],
             "cache_hit": False,
         }
 
@@ -153,11 +156,73 @@ def test_mixed_packet_augmentation_cache_skips_both_views_when_warm(
     assert first["cache_hit"] is False
     assert second["cache_hit"] is True
     assert calls == [20260807, 20260808]
+    assert first["X"].ravel().tolist() == [0.0, 2.0, 11.0, 13.0]
     np.testing.assert_array_equal(first["X"], second["X"])
     assert (
         len(list((cache_root / "ml_training_augmentation_rows").glob("*.npz")))
         == 1
     )
+    assert not (cache_root / "ml_replay_rows").exists()
+
+
+def test_vectorized_scaled_iq_noise_matches_scalar_reference():
+    raw = np.arange(128, dtype=np.float64) - 64.0
+    expected = raw.copy()
+    expected_rng = np.random.default_rng(1234)
+    for subcarrier in range(64):
+        pair = slice(2 * subcarrier, 2 * subcarrier + 2)
+        magnitude = max(1.0, float(np.linalg.norm(expected[pair])))
+        expected[pair] += expected_rng.normal(
+            0.0,
+            0.01 * magnitude / np.sqrt(2.0),
+            size=2,
+        )
+
+    actual = raw.copy()
+    trainer._add_scaled_iq_noise(
+        actual,
+        64,
+        0.01,
+        np.random.default_rng(1234),
+    )
+
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_training_source_metadata_cache_avoids_reloading_packet_rows(
+    monkeypatch,
+    tmp_path,
+):
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv(trainer.npz_cache.NPZ_CACHE_DIR_ENV, str(cache_root))
+    source_path = tmp_path / "motion.npz"
+    np.savez(
+        source_path,
+        csi_data=np.zeros((8, 128), dtype=np.int8),
+        device_ticks_us=np.arange(8, dtype=np.int64) * 10_000,
+        stream_seq_num=np.arange(8, dtype=np.int64),
+        num_subcarriers=np.asarray(64),
+        label=np.asarray("motion"),
+        chip=np.asarray("c6"),
+    )
+
+    first = trainer._load_or_compute_training_source_metadata(source_path)
+    trainer.npz_cache.clear_runtime_artifacts()
+    monkeypatch.setattr(
+        trainer,
+        "load_npz_packet_view",
+        lambda *_args, **_kwargs: pytest.fail(
+            "metadata cache hit must not reload packet rows"
+        ),
+    )
+    second = trainer._load_or_compute_training_source_metadata(source_path)
+
+    assert first == second
+    assert first["packet_count"] == 8
+    assert first["label"] == "motion"
+    assert len(
+        list((cache_root / "ml_training_source_metadata").glob("*.npz"))
+    ) == 1
 
 
 def test_normalized_feature_bounds_clamp_nonnegative_candidates():

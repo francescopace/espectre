@@ -13,7 +13,7 @@ A five-model-seed comparison evaluated the single `20260807` view and a constant
 
 Production packet augmentation uses fixed seeds `20260807` and `20260808`. For each source recording, view index `i` contributes row positions whose index modulo the number of views equals `i`. With two views, seed `20260807` contributes even row positions and seed `20260808` contributes odd row positions. The assignment is local to the source file, deterministic, independent of the model seed, and approximately preserves the size and weight of one augmented matrix.
 
-The trainer persists the selected per-source result as `ml_training_augmentation_rows`. Its cache identity includes the source capture, requested features, feature implementation, ordered view provenance, augmentation configuration, both seeds, and the mixing implementation. A warm cache hit loads the combined rows before either augmented packet stream is materialized.
+The trainer persists the selected per-source result as `ml_training_augmentation_rows`. Its cache identity includes the source capture, requested features, feature implementation, ordered view provenance, augmentation configuration, both seeds, and the mixing implementation. A warm cache hit loads the combined rows before either augmented packet stream is materialized. On a miss, each seed processes the complete packet stream to preserve window state, but feature rows are materialized only at positions assigned to that seed. Existing complete seed-view caches may be read, while newly computed intermediate views are not persisted.
 
 Single-view packet-stress diagnostics continue to use seed `20260807`; the two-view policy applies to model training, cross-group training diagnostics, and targeted feature ablations.
 
@@ -21,5 +21,5 @@ Single-view packet-stress diagnostics continue to use seed `20260807`; the two-v
 
 - Training covers complementary augmentation tails without doubling synthetic sample weight or memory use.
 - The accepted trade reduces the worst false-positive tail materially at a small weak-link recall cost that remains above the deployment target in the measured campaign.
-- A cold cache must build both augmented views once per source. Subsequent runs load one combined artifact per source.
+- A cold cache must process both augmented packet views once per source, but it extracts and retains only the half assigned to each seed and writes one combined artifact per source.
 - Changing seed order, the selection rule, augmentation code, feature code, or source content invalidates the combined cache entry.

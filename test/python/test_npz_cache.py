@@ -1,4 +1,5 @@
 import os
+import time
 
 import numpy as np
 import pytest
@@ -395,6 +396,66 @@ def test_prune_removes_obsolete_known_artifact_versions(tmp_path):
 
     assert removed["obsolete_version"] == 1
     assert not artifact_path.exists()
+
+
+def test_prune_retention_removes_expired_valid_artifacts(tmp_path):
+    source_path = tmp_path / "retained_source.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    old_path = npz_cache.save_npz_artifact(
+        source_path,
+        artifact_name="unit_retention",
+        artifact_version=1,
+        parameters={"variant": "old"},
+        payload={"value": np.arange(4)},
+    )
+    fresh_path = npz_cache.save_npz_artifact(
+        source_path,
+        artifact_name="unit_retention",
+        artifact_version=1,
+        parameters={"variant": "fresh"},
+        payload={"value": np.arange(4)},
+    )
+    old_timestamp = time.time() - 10 * 24 * 60 * 60
+    os.utime(old_path, (old_timestamp, old_timestamp))
+
+    removed = npz_cache.prune_persisted_artifacts(
+        "unit_retention",
+        max_age_seconds=24 * 60 * 60,
+    )
+
+    assert removed["expired"] == 1
+    assert not old_path.exists()
+    assert fresh_path.exists()
+
+
+def test_prune_capacity_removes_oldest_valid_artifacts(tmp_path):
+    source_path = tmp_path / "bounded_source.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    old_path = npz_cache.save_npz_artifact(
+        source_path,
+        artifact_name="unit_capacity",
+        artifact_version=1,
+        parameters={"variant": "old"},
+        payload={"value": np.arange(128)},
+    )
+    fresh_path = npz_cache.save_npz_artifact(
+        source_path,
+        artifact_name="unit_capacity",
+        artifact_version=1,
+        parameters={"variant": "fresh"},
+        payload={"value": np.arange(128)},
+    )
+    old_timestamp = time.time() - 60
+    os.utime(old_path, (old_timestamp, old_timestamp))
+
+    removed = npz_cache.prune_persisted_artifacts(
+        "unit_capacity",
+        max_bytes=fresh_path.stat().st_size,
+    )
+
+    assert removed["capacity"] == 1
+    assert not old_path.exists()
+    assert fresh_path.exists()
 
 
 @pytest.mark.parametrize("artifact_name", ("feature_column", "idle_baseline"))

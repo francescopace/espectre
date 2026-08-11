@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import threading
+import time
 import uuid
 from collections import OrderedDict
 from pathlib import Path
@@ -28,11 +29,13 @@ CACHE_LAYOUT_VERSION = 2
 CLASSIC_REPLAY_ROW_ARTIFACT_VERSION = 1
 ML_REPLAY_ROW_ARTIFACT_VERSION = 3
 ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION = 1
+ML_TRAINING_SOURCE_METADATA_ARTIFACT_VERSION = 1
 
 CURRENT_ARTIFACT_VERSIONS = {
     "classic_replay_rows": CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
     "ml_replay_rows": ML_REPLAY_ROW_ARTIFACT_VERSION,
     "ml_training_augmentation_rows": ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION,
+    "ml_training_source_metadata": ML_TRAINING_SOURCE_METADATA_ARTIFACT_VERSION,
 }
 OBSOLETE_ARTIFACT_NAMES = {
     "feature_matrix",
@@ -341,12 +344,17 @@ def read_artifact_manifest(artifact_path: str | Path) -> Optional[dict[str, Any]
         return None
 
 
-def prune_persisted_artifacts(*artifact_names: str) -> dict[str, int]:
+def prune_persisted_artifacts(
+    *artifact_names: str,
+    max_age_seconds: Optional[float] = None,
+    max_bytes: Optional[int] = None,
+) -> dict[str, int]:
     """Delete unreachable persisted artifacts and return what was removed.
 
     An artifact is unreachable when it is unreadable, when its source capture is
-    gone, or when the source no longer matches the recorded identity. Nothing
-    else can ever hit these entries again, so they are pure accumulation.
+    gone, or when the source no longer matches the recorded identity. Optional
+    retention limits then remove expired artifacts and the oldest artifacts
+    needed to satisfy the requested byte cap.
     """
     cache_root = npz_cache_dir()
     removed = {
@@ -355,6 +363,8 @@ def prune_persisted_artifacts(*artifact_names: str) -> dict[str, int]:
         "stale_source": 0,
         "obsolete_artifact": 0,
         "obsolete_version": 0,
+        "expired": 0,
+        "capacity": 0,
     }
     if not cache_root.exists():
         return removed
@@ -364,6 +374,17 @@ def prune_persisted_artifacts(*artifact_names: str) -> dict[str, int]:
         if selected
         else [entry for entry in cache_root.iterdir() if entry.is_dir()]
     )
+    retention_candidates: list[Path] = []
+    age_cutoff = (
+        time.time() - float(max_age_seconds)
+        if max_age_seconds is not None
+        else None
+    )
+    if age_cutoff is not None and float(max_age_seconds) < 0.0:
+        raise ValueError("max_age_seconds must be >= 0")
+    if max_bytes is not None and int(max_bytes) < 0:
+        raise ValueError("max_bytes must be >= 0")
+
     for directory in directories:
         if not directory.is_dir():
             continue
@@ -390,10 +411,29 @@ def prune_persisted_artifacts(*artifact_names: str) -> dict[str, int]:
                     reason = "missing_source"
                 elif source_manifest(source) != manifest.get("source"):
                     reason = "stale_source"
+                elif age_cutoff is not None and artifact_path.stat().st_mtime < age_cutoff:
+                    reason = "expired"
                 else:
+                    retention_candidates.append(artifact_path)
                     continue
             artifact_path.unlink(missing_ok=True)
             removed[reason] += 1
+
+    if max_bytes is not None:
+        remaining = [path for path in retention_candidates if path.exists()]
+        total_bytes = sum(path.stat().st_size for path in remaining)
+        for artifact_path in sorted(
+            remaining,
+            key=lambda path: (path.stat().st_mtime_ns, str(path)),
+        ):
+            if total_bytes <= int(max_bytes):
+                break
+            artifact_bytes = artifact_path.stat().st_size
+            artifact_path.unlink(missing_ok=True)
+            total_bytes -= artifact_bytes
+            removed["capacity"] += 1
+
+    for directory in directories:
         try:
             directory.rmdir()
         except OSError:
@@ -459,6 +499,46 @@ def save_npz_artifact(
         tmp_path.unlink(missing_ok=True)
         raise
     return artifact_path
+
+
+def load_ml_training_source_metadata_artifact(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Load cached metadata needed to admit one ML training source."""
+    payload = load_npz_artifact(
+        source_path,
+        artifact_name="ml_training_source_metadata",
+        artifact_version=ML_TRAINING_SOURCE_METADATA_ARTIFACT_VERSION,
+        parameters=parameters,
+    )
+    if payload is None:
+        return None
+    try:
+        return json.loads(str(np.asarray(payload["metadata_json"]).item()))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def save_ml_training_source_metadata_artifact(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> Path:
+    """Persist metadata needed to admit one ML training source."""
+    return save_npz_artifact(
+        source_path,
+        artifact_name="ml_training_source_metadata",
+        artifact_version=ML_TRAINING_SOURCE_METADATA_ARTIFACT_VERSION,
+        parameters=parameters,
+        payload={
+            "metadata_json": np.asarray(
+                json.dumps(_json_safe(dict(metadata)), sort_keys=True)
+            ),
+        },
+    )
 
 
 def classic_replay_row_parameters(

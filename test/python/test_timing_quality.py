@@ -276,8 +276,19 @@ def test_load_or_compute_ml_replay_rows_reuses_full_runtime_cache(monkeypatch, t
         sample_contract="replay_tick",
         use_cache=True,
     )
+    selected_rows = performance_report.load_or_compute_ml_replay_rows(
+        source_path,
+        selected_subcarriers=trainer.DEFAULT_SUBCARRIERS,
+        window_size=trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_names=trainer.EXPORTED_FEATURE_NAMES[:2],
+        sample_contract="stream_dense",
+        use_cache=True,
+        cache_write=False,
+        row_stride=2,
+        row_offset=1,
+    )
 
-    assert len(load_calls) == 2
+    assert len(load_calls) == 3
     assert tuple(load_calls[0]) == tuple(trainer.EXPORTED_FEATURE_NAMES)
     assert load_calls[0] == load_calls[1]
     assert rows["feature_names"] == list(trainer.EXPORTED_FEATURE_NAMES[:2])
@@ -287,6 +298,41 @@ def test_load_or_compute_ml_replay_rows_reuses_full_runtime_cache(monkeypatch, t
         replay_rows["X"],
         cached_rows["X"][evaluation_due, :2],
     )
+    np.testing.assert_allclose(selected_rows["X"], cached_rows["X"][1::2, :2])
+    np.testing.assert_array_equal(
+        selected_rows["evaluation_index"],
+        cached_rows["evaluation_index"][1::2],
+    )
+
+
+def test_build_ml_replay_rows_selects_before_materializing_dense_features():
+    packets = _timed_packets(count=256)
+    full_rows = performance_report.build_ml_replay_rows(
+        packets,
+        trainer.DEFAULT_SUBCARRIERS,
+        trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        trainer.EXPORTED_FEATURE_NAMES,
+        sample_contract="stream_dense",
+    )
+
+    selected_rows = performance_report.build_ml_replay_rows(
+        packets,
+        trainer.DEFAULT_SUBCARRIERS,
+        trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        trainer.EXPORTED_FEATURE_NAMES,
+        sample_contract="stream_dense",
+        row_stride=2,
+        row_offset=1,
+    )
+
+    for key in (
+        "X",
+        "packet_index",
+        "evaluation_index",
+        "reset_index",
+        "evaluation_due",
+    ):
+        np.testing.assert_array_equal(selected_rows[key], full_rows[key][1::2])
 
 
 def test_augmented_replay_rows_persist_only_for_matching_provenance(

@@ -477,6 +477,49 @@ def _empty_ml_replay_rows(feature_names: Sequence[str]) -> Dict[str, Any]:
     }
 
 
+def _normalize_ml_row_selection(
+    row_stride: Optional[int],
+    row_offset: int,
+) -> tuple[Optional[int], int]:
+    """Validate an optional dense-row modulo selection."""
+    if row_stride is None:
+        if int(row_offset) != 0:
+            raise ValueError("row_offset requires row_stride")
+        return None, 0
+    stride = int(row_stride)
+    offset = int(row_offset)
+    if stride < 1 or offset < 0 or offset >= stride:
+        raise ValueError("row selection requires 0 <= row_offset < row_stride")
+    return stride, offset
+
+
+def _select_ml_replay_rows(
+    rows: Mapping[str, Any],
+    *,
+    row_stride: Optional[int],
+    row_offset: int,
+) -> Dict[str, Any]:
+    """Select dense replay rows by position without changing their metadata."""
+    stride, offset = _normalize_ml_row_selection(row_stride, row_offset)
+    if stride is None:
+        return dict(rows)
+    row_count = len(np.asarray(rows.get("packet_index", ())))
+    mask = np.arange(row_count, dtype=np.int64) % stride == offset
+    selected = {
+        "X": np.asarray(rows["X"], dtype=np.float32)[mask],
+        "feature_names": list(rows.get("feature_names", ())),
+        "packet_index": np.asarray(rows["packet_index"], dtype=np.int32)[mask],
+        "evaluation_index": np.asarray(
+            rows["evaluation_index"], dtype=np.int32
+        )[mask],
+        "reset_index": np.asarray(rows["reset_index"], dtype=np.int32)[mask],
+        "evaluation_due": np.asarray(rows["evaluation_due"], dtype=bool)[mask],
+    }
+    if "cache_hit" in rows:
+        selected["cache_hit"] = bool(rows["cache_hit"])
+    return selected
+
+
 def _project_ml_replay_rows(
     rows: Mapping[str, Any],
     feature_names: Sequence[str],
@@ -520,6 +563,8 @@ def build_ml_replay_rows(
     feature_names: Sequence[str] = (),
     *,
     sample_contract: str = "replay_tick",
+    row_stride: Optional[int] = None,
+    row_offset: int = 0,
 ) -> Dict[str, Any]:
     """Build reset-aware ML rows and project them onto one sampling contract."""
     from ml_detector import MLDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES
@@ -535,6 +580,9 @@ def build_ml_replay_rows(
             + ", ".join(missing)
         )
     normalized_contract = _normalize_ml_sample_contract(sample_contract)
+    stride, offset = _normalize_ml_row_selection(row_stride, row_offset)
+    if stride is not None and normalized_contract != "stream_dense":
+        raise ValueError("dense row selection requires sample_contract='stream_dense'")
     if not packets:
         return _empty_ml_replay_rows(requested_feature_names)
 
@@ -581,13 +629,16 @@ def build_ml_replay_rows(
         packets_since_reset += 1
         if packets_since_reset < window_size or not detector.is_ready():
             continue
+        dense_row_index = evaluation_index
+        evaluation_index += 1
+        if stride is not None and dense_row_index % stride != offset:
+            continue
         values = np.asarray(detector._extract_features(), dtype=np.float32)
         row_features.append(values[feature_indices].astype(np.float32, copy=False))
         packet_index_values.append(int(packet_index))
-        evaluation_index_values.append(int(evaluation_index))
+        evaluation_index_values.append(int(dense_row_index))
         reset_index_values.append(int(reset_index))
         evaluation_due_values.append(bool(should_evaluate))
-        evaluation_index += 1
 
     if not row_features:
         return _empty_ml_replay_rows(requested_feature_names)
@@ -616,13 +667,21 @@ def load_or_compute_ml_replay_rows(
     feature_names: Sequence[str] = (),
     sample_contract: str = "replay_tick",
     use_cache: bool = True,
+    cache_write: bool = True,
     stream_provenance: Optional[Mapping[str, Any]] = None,
+    row_stride: Optional[int] = None,
+    row_offset: int = 0,
 ) -> Dict[str, Any]:
     """Load or build one canonical ML replay-row artifact for a source capture."""
     if packets is not None and packets_factory is not None:
         raise ValueError("pass packets or packets_factory, not both")
     requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
     normalized_contract = _normalize_ml_sample_contract(sample_contract)
+    stride, offset = _normalize_ml_row_selection(row_stride, row_offset)
+    if stride is not None and normalized_contract != "stream_dense":
+        raise ValueError("dense row selection requires sample_contract='stream_dense'")
+    if stride is not None and use_cache and cache_write:
+        raise ValueError("selected rows cannot be written under a full-row cache key")
     from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
     cached_feature_names = tuple(EXPORTED_FEATURE_NAMES)
     packet_stream: Optional[Sequence[dict[str, Any]]] = None
@@ -651,10 +710,14 @@ def load_or_compute_ml_replay_rows(
         )
         if cached is not None:
             cached["cache_hit"] = True
-            return _project_ml_replay_rows(
-                cached,
-                requested_feature_names,
-                normalized_contract,
+            return _select_ml_replay_rows(
+                _project_ml_replay_rows(
+                    cached,
+                    requested_feature_names,
+                    normalized_contract,
+                ),
+                row_stride=stride,
+                row_offset=offset,
             )
     if packet_stream is None:
         if packets is not None:
@@ -669,8 +732,10 @@ def load_or_compute_ml_replay_rows(
         resolved_window_size,
         cached_feature_names,
         sample_contract="stream_dense",
+        row_stride=stride,
+        row_offset=offset,
     )
-    if use_cache:
+    if use_cache and cache_write:
         npz_cache.save_ml_replay_row_artifact(
             source_path,
             parameters=parameters,

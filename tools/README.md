@@ -207,14 +207,15 @@ python train_ml_model.py --shap 500     # Grouped OOF SHAP (500 samples)
 python train_ml_model.py --ablation-feature l1_delta_autocorr --seed 1386543369  # Targeted CV and real-data ablation
 ```
 
-Prune persisted artifacts explicitly when dataset or implementation churn has
-left unreachable entries:
+Prune persisted artifacts explicitly when dataset or implementation churn has left unreachable entries. Add a retention limit to retire older, still-valid parameter variants; age and size limits apply only to the selected artifact types when `--artifact` is present:
 
 ```bash
 python prune_npz_cache.py
 python prune_npz_cache.py --artifact classic_replay_rows
 python prune_npz_cache.py --artifact ml_replay_rows
 python prune_npz_cache.py --artifact ml_training_augmentation_rows
+python prune_npz_cache.py --max-age-days 30
+python prune_npz_cache.py --artifact ml_replay_rows --max-size-mib 2048
 ```
 
 For the complete ML training workflow, promotion guidance, gain-stress

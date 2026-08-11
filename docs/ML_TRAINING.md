@@ -199,9 +199,9 @@ Do not edit generated weight files manually. Export them through the trainer so 
 
 ## Cache Maintenance
 
-Training and replay tools persist runtime-aligned feature artifacts under `.npz_cache/`. Cache keys include the relevant source data, feature implementation, timing behavior, and augmentation provenance. Mixed production augmentation is cached per source after deterministic row selection under `ml_training_augmentation_rows`; a warm load reads this combined artifact directly instead of rebuilding either seed view.
+Training and replay tools persist runtime-aligned feature artifacts under `.npz_cache/`. Cache keys include the relevant source data, feature implementation, timing behavior, and augmentation provenance. Lightweight source-admission metadata is cached separately so a warm feature-cache hit does not materialize the CSI packet stream. Mixed production augmentation is cached per source after deterministic row selection under `ml_training_augmentation_rows`; a warm load reads this combined artifact directly instead of rebuilding either seed view. On a mixed-cache miss, existing complete seed views may be reused in read-only mode, but newly computed views retain only their assigned rows and are not persisted separately.
 
-Use `--no-cache` for a cold diagnostic run. Use `python tools/prune_npz_cache.py` to remove artifacts that are no longer reachable. Detailed cache behavior and pruning options belong in [tools/README.md](../tools/README.md).
+Use `--no-cache` for a cold feature-row diagnostic run; source-admission metadata remains cached because it does not change the matrix. Use `python tools/prune_npz_cache.py` to remove artifacts that are no longer reachable, and add an explicit age or size limit when historical parameter variants should also be retired. Detailed cache behavior and pruning options belong in [tools/README.md](../tools/README.md).
 
 ## Required Validation
 

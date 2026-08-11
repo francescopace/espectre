@@ -57,6 +57,7 @@ import re
 import shutil
 import tempfile
 from collections.abc import Mapping
+from functools import lru_cache
 from pathlib import Path
 from dataclasses import dataclass
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -1114,6 +1115,84 @@ def get_file_metadata(dataset_info):
     return file_metadata
 
 
+@lru_cache(maxsize=1)
+def _training_source_metadata_parameters():
+    """Return the cache identity for lightweight training-source admission."""
+    return {
+        'contract': 'ml_training_source_metadata_v1',
+        'implementation_sha256': _implementation_source_digest(
+            _build_training_source_metadata,
+        ),
+        'sources': {
+            'csi_io': npz_cache.source_manifest(SCRIPT_DIR / 'lib' / 'csi_io.py'),
+            'dataset_metadata': npz_cache.source_manifest(
+                SCRIPT_DIR / 'lib' / 'dataset_metadata.py'
+            ),
+            'timing_quality': npz_cache.source_manifest(
+                SCRIPT_DIR / 'lib' / 'timing_quality.py'
+            ),
+            'python_config': npz_cache.source_manifest(
+                python_src_dir() / 'config.py'
+            ),
+            'python_runtime_policy': npz_cache.source_manifest(
+                python_src_dir() / 'runtime_policy.py'
+            ),
+        },
+    }
+
+
+def _build_training_source_metadata(npz_file):
+    """Materialize only the admission metadata reused across training runs."""
+    packets = load_npz_packet_view(npz_file)
+    if not packets:
+        raise RuntimeError(
+            f"{Path(npz_file).name} has no HT20/HT-LTF/64-SC sensing packets "
+            "after format filtering"
+        )
+    first_packet = packets[0]
+    return {
+        'label': str(first_packet.get('label', Path(npz_file).parent.name)),
+        'chip': str(first_packet.get('chip', 'unknown')).upper(),
+        'packet_count': len(packets),
+        'has_sync_metadata': any(
+            packet.get('wifi_rx_start_ts_ns') is not None
+            or packet.get('device_ticks_us') is not None
+            or packet.get('wifi_rx_ts_us') is not None
+            for packet in packets
+        ),
+        'timing_summary': summarize_capture_timing(packets),
+        'fallback_context': {
+            'chip': first_packet.get('chip', 'unknown'),
+            'collected_at': first_packet.get('collected_at', ''),
+            'dataset_role': dataset_role(first_packet),
+            'synthetic': bool(first_packet.get('synthetic', False)),
+            'long_recording': bool(first_packet.get('long_recording', False)),
+        },
+    }
+
+
+def _load_or_compute_training_source_metadata(npz_file):
+    """Load cached source admission metadata without retaining packet rows."""
+    parameters = _training_source_metadata_parameters()
+    cached = npz_cache.load_ml_training_source_metadata_artifact(
+        npz_file,
+        parameters=parameters,
+    )
+    if cached is not None:
+        return cached
+    metadata = _build_training_source_metadata(npz_file)
+    npz_cache.save_ml_training_source_metadata_artifact(
+        npz_file,
+        parameters=parameters,
+        metadata=metadata,
+    )
+    persisted = npz_cache.load_ml_training_source_metadata_artifact(
+        npz_file,
+        parameters=parameters,
+    )
+    return persisted if persisted is not None else metadata
+
+
 def _load_training_file_records(environment_filter=None, excluded_chips=None,
                                 allowed_labels=BINARY_TRAINING_LABELS,
                                 require_sync_metadata=False,
@@ -1166,14 +1245,12 @@ def _load_training_file_records(environment_filter=None, excluded_chips=None,
         # Load all npz files in this directory
         for npz_file in sorted(subdir.glob('*.npz')):
             try:
-                packets = load_npz_packet_view(npz_file)
-                if not packets:
-                    raise RuntimeError(
-                        f"{npz_file.name} has no HT20/HT-LTF/64-SC sensing packets after format filtering"
-                    )
+                source_metadata = _load_or_compute_training_source_metadata(
+                    npz_file
+                )
                 
                 # Get label from the shared packet view metadata.
-                label = packets[0].get('label', subdir.name)
+                label = source_metadata.get('label', subdir.name)
                 
                 label_lc = str(label).lower()
                 if allowed_labels is not None and label_lc not in allowed_labels:
@@ -1181,7 +1258,7 @@ def _load_training_file_records(environment_filter=None, excluded_chips=None,
                     continue
 
                 # Get chip
-                chip = packets[0].get('chip', 'unknown').upper()
+                chip = str(source_metadata.get('chip', 'unknown')).upper()
                 if excluded_chips is not None and chip in excluded_chips:
                     stats['excluded_chips'].add(chip)
                     continue
@@ -1189,7 +1266,11 @@ def _load_training_file_records(environment_filter=None, excluded_chips=None,
                 # Get file-specific metadata
                 meta = file_metadata.get(npz_file.name)
                 if meta is None:
-                    meta = _fallback_file_context(npz_file.name, label_lc, packets[0])
+                    meta = _fallback_file_context(
+                        npz_file.name,
+                        label_lc,
+                        source_metadata.get('fallback_context', {}),
+                    )
 
                 if label_lc == 'empty' and bool(meta.get('long_recording', False)):
                     stats['excluded_long_recordings'].add(npz_file.name)
@@ -1205,11 +1286,8 @@ def _load_training_file_records(environment_filter=None, excluded_chips=None,
                     stats['excluded_environments'].add(environment_group)
                     continue
 
-                has_sync_metadata = any(
-                    p.get('wifi_rx_start_ts_ns') is not None
-                    or p.get('device_ticks_us') is not None
-                    or p.get('wifi_rx_ts_us') is not None
-                    for p in packets
+                has_sync_metadata = bool(
+                    source_metadata.get('has_sync_metadata', False)
                 )
                 if require_sync_metadata and not has_sync_metadata:
                     stats['excluded_missing_sync_metadata'].add(npz_file.name)
@@ -1217,7 +1295,7 @@ def _load_training_file_records(environment_filter=None, excluded_chips=None,
                 if has_sync_metadata:
                     stats['sync_metadata_files'].add(npz_file.name)
 
-                timing_summary = summarize_capture_timing(packets)
+                timing_summary = source_metadata['timing_summary']
                 timing_status = str(timing_summary['quality_status'])
                 timing_bucket = str(timing_summary['quality_bucket'])
                 if timing_policy_excludes_status(timing_status, timing_quality_policy):
@@ -1228,8 +1306,9 @@ def _load_training_file_records(environment_filter=None, excluded_chips=None,
                 # Track stats after all active filters
                 if label not in stats['labels']:
                     stats['labels'][label] = 0
-                stats['labels'][label] += len(packets)
-                stats['total'] += len(packets)
+                packet_count = int(source_metadata['packet_count'])
+                stats['labels'][label] += packet_count
+                stats['total'] += packet_count
                 stats['chips'].add(chip)
 
                 stats['session_groups'].add(meta.get('session_group', f"file:{npz_file.name}"))
@@ -1241,7 +1320,11 @@ def _load_training_file_records(environment_filter=None, excluded_chips=None,
                 stats['files'].append(npz_file.name)
                 records.append({
                     'path': npz_file,
-                    'packets': packets,
+                    'packets_loader': (
+                        lambda current_path=npz_file: load_npz_packet_view(
+                            current_path
+                        )
+                    ),
                     'label_name': label_lc,
                     'is_motion': is_motion,
                     'chip': meta.get('chip', chip),
@@ -1319,7 +1402,7 @@ def load_all_data(environment_filter=None, excluded_chips=None,
     )
     all_packets = []
     for record in records:
-        for idx, packet in enumerate(record['packets']):
+        for idx, packet in enumerate(_ensure_record_packets(record)):
             enriched = dict(packet)
             enriched['is_motion'] = record['is_motion']
             enriched['label_name'] = record['label_name']
@@ -1383,6 +1466,7 @@ def _packet_augmentation_stream_provenance(packet_augmentation, augmentation_see
             _estimate_packet_rate_pps,
             _resample_stable_packet_rate,
             _smoothed_iq_profile,
+            _add_scaled_iq_noise,
             _stable_text_seed,
             derive_seed,
             augment_csi_packets,
@@ -1481,6 +1565,39 @@ def _mix_packet_augmentation_replay_rows(view_rows):
     }
 
 
+def _concatenate_packet_augmentation_replay_rows(view_rows):
+    """Concatenate packet-augmentation views already selected by row position."""
+    rows_by_view = list(view_rows)
+    if not rows_by_view:
+        raise ValueError("at least one packet-augmentation view is required")
+    feature_names = list(rows_by_view[0]['feature_names'])
+    row_keys = ('X', 'packet_index', 'evaluation_index', 'reset_index', 'evaluation_due')
+    combined = {key: [] for key in row_keys}
+    for rows in rows_by_view:
+        if list(rows['feature_names']) != feature_names:
+            raise ValueError("packet-augmentation views have different feature schemas")
+        row_count = int(len(rows['X']))
+        for key in row_keys:
+            default_dtype = bool if key == 'evaluation_due' else np.int32
+            values = np.asarray(
+                rows[key] if key == 'X' else rows.get(key, np.empty(0)),
+                dtype=np.float32 if key == 'X' else default_dtype,
+            )
+            if len(values) != row_count:
+                raise ValueError(
+                    f"packet-augmentation row field {key} has inconsistent length"
+                )
+            combined[key].append(values)
+    return {
+        'X': np.concatenate(combined['X'], axis=0).astype(np.float32, copy=False),
+        'feature_names': feature_names,
+        'packet_index': np.concatenate(combined['packet_index']).astype(np.int32, copy=False),
+        'evaluation_index': np.concatenate(combined['evaluation_index']).astype(np.int32, copy=False),
+        'reset_index': np.concatenate(combined['reset_index']).astype(np.int32, copy=False),
+        'evaluation_due': np.concatenate(combined['evaluation_due']).astype(bool, copy=False),
+    }
+
+
 def _packet_augmentation_mix_stream_provenance(packet_augmentation,
                                                 augmentation_seeds,
                                                 feature_names,
@@ -1513,6 +1630,7 @@ def _packet_augmentation_mix_stream_provenance(packet_augmentation,
         },
         'implementation_sha256': _implementation_source_digest(
             _mix_packet_augmentation_replay_rows,
+            _concatenate_packet_augmentation_replay_rows,
         ),
     }
 
@@ -1548,7 +1666,7 @@ def _load_or_compute_packet_augmentation_mix_rows(record, *,
             return cached
 
     views = []
-    for seed in seeds:
+    for view_index, seed in enumerate(seeds):
         packets_factory = lambda current_record=record, current_seed=seed: (
             _prepare_feature_packets_for_record(
                 current_record,
@@ -1565,10 +1683,13 @@ def _load_or_compute_packet_augmentation_mix_rows(record, *,
                 feature_names=feature_names,
                 sample_contract=TRAINING_SAMPLE_CONTRACT,
                 use_cache=use_cache,
+                cache_write=False,
                 stream_provenance=_packet_augmentation_stream_provenance(
                     packet_augmentation,
                     seed,
                 ),
+                row_stride=len(seeds),
+                row_offset=view_index,
             )
         else:
             rows = load_or_compute_host_feature_rows(
@@ -1577,15 +1698,18 @@ def _load_or_compute_packet_augmentation_mix_rows(record, *,
                 feature_names=feature_names,
                 sample_contract=TRAINING_SAMPLE_CONTRACT,
                 use_cache=use_cache,
+                cache_write=False,
                 stream_provenance=_host_feature_stream_provenance(
                     feature_names,
                     packet_augmentation=packet_augmentation,
                     augmentation_seed=seed,
                 ),
+                row_stride=len(seeds),
+                row_offset=view_index,
             )
         views.append(rows)
 
-    mixed = _mix_packet_augmentation_replay_rows(views)
+    mixed = _concatenate_packet_augmentation_replay_rows(views)
     if use_cache:
         npz_cache.save_ml_training_augmentation_row_artifact(
             record['path'],
@@ -1737,6 +1861,16 @@ def _stable_text_seed(value):
     return int.from_bytes(digest[:4], byteorder='little') & 0x7FFFFFFF
 
 
+def _add_scaled_iq_noise(raw, usable, noise_sigma, rng):
+    """Add per-tone relative Gaussian noise with one vectorized RNG draw."""
+    if usable <= 0 or noise_sigma <= 0.0:
+        return
+    tone_view = raw[:2 * usable].reshape(usable, 2)
+    magnitudes = np.maximum(1.0, np.linalg.norm(tone_view, axis=1))
+    noise_scale = noise_sigma * magnitudes[:, None] / np.sqrt(2.0)
+    tone_view += rng.normal(0.0, noise_scale, size=(usable, 2))
+
+
 def augment_csi_packets(packets, config, seed):
     """Return a deterministic packet-level augmented copy for training only."""
     if not config:
@@ -1847,11 +1981,7 @@ def augment_csi_packets(packets, config, seed):
                             (stop_index - start_index) + 1
                         )
                         tone_view += np.sin(phase) * amplitude * template[:usable]
-            for sc in range(usable):
-                pair = slice(2 * sc, 2 * sc + 2)
-                if noise_sigma > 0.0:
-                    magnitude = max(1.0, float(np.linalg.norm(raw[pair])))
-                    raw[pair] += rng.normal(0.0, noise_sigma * magnitude / np.sqrt(2.0), size=2)
+            _add_scaled_iq_noise(raw, usable, noise_sigma, rng)
             copied = dict(packet)
             emitted = np.clip(np.rint(raw), -128, 127).astype(np.int8)
             copied['csi_data'] = emitted
@@ -5531,11 +5661,48 @@ def _empty_feature_rows(feature_names):
     }
 
 
+def _normalize_host_row_selection(row_stride, row_offset):
+    """Validate an optional dense host-row modulo selection."""
+    if row_stride is None:
+        if int(row_offset) != 0:
+            raise ValueError("row_offset requires row_stride")
+        return None, 0
+    stride = int(row_stride)
+    offset = int(row_offset)
+    if stride < 1 or offset < 0 or offset >= stride:
+        raise ValueError("row selection requires 0 <= row_offset < row_stride")
+    return stride, offset
+
+
+def _select_host_feature_rows(rows, row_stride, row_offset):
+    """Select cached dense host rows by position."""
+    stride, offset = _normalize_host_row_selection(row_stride, row_offset)
+    if stride is None:
+        return rows
+    row_count = len(np.asarray(rows.get('packet_index', ())))
+    mask = np.arange(row_count, dtype=np.int64) % stride == offset
+    selected = {
+        'X': np.asarray(rows['X'], dtype=np.float32)[mask],
+        'feature_names': list(rows['feature_names']),
+        'packet_index': np.asarray(rows['packet_index'], dtype=np.int32)[mask],
+        'evaluation_index': np.asarray(rows['evaluation_index'], dtype=np.int32)[mask],
+        'reset_index': np.asarray(rows['reset_index'], dtype=np.int32)[mask],
+        'evaluation_due': np.asarray(rows['evaluation_due'], dtype=bool)[mask],
+    }
+    if 'cache_hit' in rows:
+        selected['cache_hit'] = bool(rows['cache_hit'])
+    return selected
+
+
 def build_host_feature_rows(packets, feature_names, *,
-                            sample_contract='replay_tick'):
+                            sample_contract='replay_tick',
+                            row_stride=None, row_offset=0):
     """Build reset-aware feature rows through the host streaming path."""
     requested_feature_names = [str(name) for name in feature_names]
     normalized_contract = _normalize_feature_row_contract(sample_contract)
+    stride, offset = _normalize_host_row_selection(row_stride, row_offset)
+    if stride is not None and normalized_contract != 'stream_dense':
+        raise ValueError("dense row selection requires sample_contract='stream_dense'")
     if not packets:
         return _empty_feature_rows(requested_feature_names)
 
@@ -5582,12 +5749,15 @@ def build_host_feature_rows(packets, feature_names, *,
         packets_since_reset += 1
         if values is None or packets_since_reset < window_packets:
             continue
+        dense_row_index = evaluation_index
+        evaluation_index += 1
+        if stride is not None and dense_row_index % stride != offset:
+            continue
         row_features.append(np.asarray(values, dtype=np.float32))
         packet_index_values.append(int(packet_index))
-        evaluation_index_values.append(int(evaluation_index))
+        evaluation_index_values.append(int(dense_row_index))
         reset_index_values.append(int(reset_index))
         evaluation_due_values.append(bool(should_evaluate))
-        evaluation_index += 1
 
     if not row_features:
         return _empty_feature_rows(requested_feature_names)
@@ -5627,12 +5797,20 @@ def load_or_compute_host_feature_rows(source_path, *,
                                       feature_names=(),
                                       sample_contract='replay_tick',
                                       use_cache=True,
-                                      stream_provenance=None):
+                                      cache_write=True,
+                                      stream_provenance=None,
+                                      row_stride=None,
+                                      row_offset=0):
     """Load or build one cached host-side ML replay-row artifact."""
     if packets is not None and packets_factory is not None:
         raise ValueError("pass packets or packets_factory, not both")
     requested_feature_names = [str(name) for name in feature_names]
     normalized_contract = _normalize_feature_row_contract(sample_contract)
+    stride, offset = _normalize_host_row_selection(row_stride, row_offset)
+    if stride is not None and normalized_contract != 'stream_dense':
+        raise ValueError("dense row selection requires sample_contract='stream_dense'")
+    if stride is not None and use_cache and cache_write:
+        raise ValueError("selected rows cannot be written under a full-row cache key")
     if packets is not None:
         packet_stream = packets
     elif packets_factory is not None:
@@ -5658,7 +5836,7 @@ def load_or_compute_host_feature_rows(source_path, *,
         if cached is not None:
             cached['cache_hit'] = True
             if normalized_contract == 'stream_dense':
-                return cached
+                return _select_host_feature_rows(cached, stride, offset)
             row_mask = np.asarray(cached['evaluation_due'], dtype=bool)
             projected = {
                 'X': np.asarray(cached['X'], dtype=np.float32)[row_mask],
@@ -5674,8 +5852,10 @@ def load_or_compute_host_feature_rows(source_path, *,
         packet_stream,
         requested_feature_names,
         sample_contract='stream_dense',
+        row_stride=stride,
+        row_offset=offset,
     )
-    if use_cache:
+    if use_cache and cache_write:
         npz_cache.save_ml_replay_row_artifact(
             source_path,
             parameters=parameters,

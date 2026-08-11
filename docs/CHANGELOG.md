@@ -47,6 +47,7 @@ This is the first release candidate for the v3 platform. It brings the productio
 - **Hardware gain locking was removed**. All maintained device paths keep AGC enabled and use scale-invariant detector inputs.
 - **Published firmware separates installation and update artifacts**: releases provide 15 full-flash images for ESPHome, Native, and Matter, plus five application-only OTA images for Native.
 - **ML training moved from TensorFlow/Keras to PyTorch** and now separates training data, model-selection replays, sealed holdouts, excluded recordings, and low-RSSI stress diagnostics. Training exports by default; use `--no-export` for candidate-only experiments.
+- **ML augmentation caching now keeps only the selected mixed rows**, caches lightweight source-admission metadata separately, avoids persisting complete intermediate seed views, and supports explicit age- and size-based cache pruning.
 - **Dataset validation is detector-independent** and evaluates shared scale-invariant feature evidence. Detector-specific promotion results remain in the performance report.
 - **The documentation and website now follow the modular platform structure**, with task-oriented setup, detection, hardware, embedded integration, and use case guides.
 
