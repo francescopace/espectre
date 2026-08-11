@@ -163,19 +163,21 @@ t_i = std(A_i) / mean(A_i)
 
 After Hampel filtering, Classic calculates lag-1 autocorrelation over the turbulence window. This input is invariant under ideal uniform scaling because the coefficient of variation is itself a ratio. The shared `hampel_enabled` setting still controls the turbulence filter in both runtimes, and the same filtered turbulence stream feeds the ML `turb_*` features.
 
+Classic does not allocate or update an L1-delta tracker. At the default C++ window, this removes two 90-float delta rings, one `10 x 12` profile ring, two 11-float Hampel buffers, their metadata, and the associated per-packet normalization, displacement, and filtering work. The tracker remains conditional on the exported feature ids in ML, where `l1_delta_lag_ratio` still consumes it.
+
 ### Channel Frequency-Coherence Curve Spread
 
-Classic's second input comes from the complex CSI profile over the 56-bin HT20 live band, not over the sampled 12-tone set: at separations `2` and `12` the sampled set contains no bin pair at all. For a fixed subcarrier separation `d`, within-packet frequency coherence is:
+Classic's second input comes from the complex CSI profile over the 56-bin HT20 live band, not over the sampled 12-tone set: at separations `4` and `12` the sampled set contains no bin pair at all. For a fixed subcarrier separation `d`, within-packet frequency coherence is:
 
 ```text
 coh_d = |sum_k conj(H[k]) H[k + d]| /
         (sqrt(sum_k |H[k]|^2) sqrt(sum_k |H[k + d]|^2))
 ```
 
-Pairs that would cross the DC subcarrier are excluded. Classic evaluates this coherence at offsets `2` and `12`, forms a bounded contrast per packet,
+Pairs that would cross the DC subcarrier are excluded. Classic evaluates this coherence at offsets `4` and `12`, forms a bounded contrast per packet,
 
 ```text
-curve_t = (coh_2 - coh_12) / (coh_2 + coh_12)
+curve_t = (coh_4 - coh_12) / (coh_4 + coh_12)
 ```
 
 and reports the temporal standard deviation over the live window:
@@ -184,7 +186,7 @@ and reports the temporal standard deviation over the live window:
 chan_freq_coh_curve_std = std_t(curve_t)
 ```
 
-Normalized coherence cancels common packet gain, and the short-versus-long contrast keeps the result dimensionless and bounded. The runtime reuses the shared `ChannelShapeTracker` for this input, so Python and C++ evaluate the same per-packet contrast and the same window statistic.
+Normalized coherence cancels common packet gain, and the short-versus-long contrast keeps the result dimensionless and bounded. The runtime reuses the frequency-curve-only mode of the shared `ChannelShapeTracker`, so Python and C++ evaluate the same per-packet contrast and the same window statistic without allocating or updating the lagged channel-profile and motion-energy history required by `chan_shape_spread`. At the default 100 packets per second, this removes 5,600 float slots, or 22,400 bytes of dynamic float storage, from Classic while preserving the 90-float coherence-curve ring.
 
 ### Weighted Fusion
 
@@ -196,7 +198,7 @@ probability = 1 / (1 + exp(-logit))
 motion = probability > threshold
 ```
 
-The coefficients come from grouped, de-overlapped out-of-fold training balanced by class, chip, and session. The runtime contains no majority vote or recovery branch in the score itself; all runtime adaptation happens at the threshold.
+The coefficients come from grouped, de-overlapped out-of-fold training balanced by class, chip, and session. The global operating point is then selected on sequential production replay, because a dense-window OOF false-positive rate does not encode the empty-room zero-alarm contract. The runtime contains no majority vote or recovery branch in the score itself; all runtime adaptation happens at the threshold.
 
 Startup adaptation thresholds this fitted two-feature logit directly. The older low-RSSI L1 blend path is retired; it is not part of the current detector surface.
 

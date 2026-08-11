@@ -14,6 +14,7 @@ from tools.lib.host_feature_trackers import AmplitudeProfileTracker
 RESTORED_CANDIDATES = {
     'turb_mad_over_mean',
     'l1_delta_autocorr',
+    'chan_freq_coh_curve_std',
     'chan_freq_coh_cv',
     'chan_coh_gap',
     'chan_coh_subband_gap_median',
@@ -55,6 +56,8 @@ def test_restored_candidates_stay_out_of_the_runtime_surface() -> None:
     ]
     with pytest.raises(ValueError, match=r'no C\+\+ extractor id'):
         train_ml_model.resolve_cpp_feature_ids(['chan_shape_scale_curvature'])
+    with pytest.raises(ValueError, match=r'no C\+\+ extractor id'):
+        train_ml_model.resolve_cpp_feature_ids(['chan_freq_coh_curve_std'])
 
 
 def test_restored_turbulence_statistics_match_their_definitions() -> None:

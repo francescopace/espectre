@@ -37,7 +37,6 @@ def _promoted_tracker_kwargs():
         "chan_shape_spread": 0.4,
         "chan_shape_coherent_innovation_energy": 0.03,
         "chan_shape_excess_path": 0.02,
-        "chan_freq_coh_curve_std": 0.05,
     }
 
 
@@ -119,10 +118,8 @@ class TestExtractAllFeatures:
         assert FEATURE_NAMES == DEFAULT_FEATURES
 
     def test_production_set_is_the_only_feature_surface(self):
-        """Only current ML inputs and the Classic curve remain at runtime."""
-        assert set(ALL_FEATURES) == set(DEFAULT_FEATURES) | {
-            'chan_freq_coh_curve_std'
-        }
+        """Only current ML inputs remain in the ML runtime extractor."""
+        assert set(ALL_FEATURES) == set(DEFAULT_FEATURES)
         assert DEFAULT_FEATURES == [
             'turb_iqr_over_mean_aggr',
             'turb_autocorr',

@@ -43,15 +43,21 @@ void test_classic_detector_logit_matches_exported_linear_fusion(void) {
                                     CLASSIC_FREQ_COH_CURVE_STD_SCALE));
 }
 
-void test_classic_detector_hampel_master_switch_controls_both_streams(void) {
+void test_classic_detector_hampel_master_switch_controls_turbulence(void) {
   ClassicDetector detector;
   detector.configure_hampel(true, 5U, 3.0f);
   TEST_ASSERT_TRUE(detector.hampel_state_.enabled);
-  TEST_ASSERT_TRUE(detector.l1_tracker_.hampel_state_.enabled);
 
   detector.configure_hampel(false, 5U, 3.0f);
   TEST_ASSERT_FALSE(detector.hampel_state_.enabled);
-  TEST_ASSERT_FALSE(detector.l1_tracker_.hampel_state_.enabled);
+}
+
+void test_classic_detector_tracks_only_frequency_curve_shape_state(void) {
+  ClassicDetector detector;
+  TEST_ASSERT_TRUE(detector.shape_tracker_.tracks_frequency());
+  TEST_ASSERT_FALSE(detector.shape_tracker_.tracks_shape());
+  TEST_ASSERT_TRUE(detector.shape_tracker_.ring_.empty());
+  TEST_ASSERT_TRUE(detector.shape_tracker_.motion_energy_ring_.empty());
 }
 
 void test_classic_detector_startup_q95_adapts_threshold(void) {
@@ -119,7 +125,8 @@ int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_classic_detector_uses_probability_scale);
   RUN_TEST(test_classic_detector_logit_matches_exported_linear_fusion);
-  RUN_TEST(test_classic_detector_hampel_master_switch_controls_both_streams);
+  RUN_TEST(test_classic_detector_hampel_master_switch_controls_turbulence);
+  RUN_TEST(test_classic_detector_tracks_only_frequency_curve_shape_state);
   RUN_TEST(test_classic_detector_startup_q95_adapts_threshold);
   RUN_TEST(test_classic_detector_noisy_startup_still_uses_shifted_logit_threshold);
   RUN_TEST(test_classic_detector_clear_buffer_resets_feature_state);

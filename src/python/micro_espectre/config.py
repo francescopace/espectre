@@ -46,7 +46,7 @@ CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until pro
 DEFAULT_SUBCARRIERS = (4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60)
 
 # Detection Algorithm
-# "classic" (default): weighted L1-delta + turbulence-autocorrelation fusion
+# "classic" (default): turbulence-autocorrelation and frequency-coherence fusion
 # "ml": Neural Network - learned patterns, trained default threshold
 DETECTION_ALGORITHM = "classic"
 

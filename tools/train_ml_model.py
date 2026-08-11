@@ -451,10 +451,6 @@ def _production_tracker_feature_kwargs(
     if shape_tracker is not None:
         if 'chan_shape_spread' in feature_names:
             kwargs['chan_shape_spread'] = shape_tracker.shape_spread()
-        if 'chan_freq_coh_curve_std' in feature_names:
-            kwargs['chan_freq_coh_curve_std'] = (
-                shape_tracker.frequency_coherence_curve_std()
-            )
     if shape_trajectory_tracker is not None:
         if 'chan_shape_coherent_innovation_energy' in feature_names:
             kwargs['chan_shape_coherent_innovation_energy'] = (
@@ -4042,7 +4038,6 @@ CPP_FEATURE_IDS = {
     'turb_zcr': 14,
     'l1_delta_lag_ratio': 25,
     'chan_shape_spread': 40,
-    'chan_freq_coh_curve_std': 42,
     'turb_iqr_over_mean_aggr': 45,
     'chan_shape_coherent_innovation_energy': 46,
     'chan_shape_excess_path': 47,
@@ -5443,7 +5438,11 @@ class StreamingFeatureExtractor:
             if needs_phase_residual(self.feature_names) else None
         )
         self.shape_tracker = (
-            ChannelShapeTracker(window_size=l1_capacity, lag=L1_DELTA_LAG)
+            ChannelShapeTracker(
+                window_size=l1_capacity,
+                lag=L1_DELTA_LAG,
+                feature_names=self.feature_names,
+            )
             if needs_channel_shape(self.feature_names) else None
         )
         self.shape_trajectory_tracker = (

@@ -65,6 +65,7 @@ Use this index when a current document should point to a durable decision instea
 - [`2026-07-30-adopt-frequency-coherence-for-classic.md`](2026-07-30-adopt-frequency-coherence-for-classic.md)
 - [`2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md`](2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md)
 - [`2026-08-10-configure-detector-windows-in-milliseconds.md`](2026-08-10-configure-detector-windows-in-milliseconds.md)
+- [`2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md`](2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md)
 
 ### ML
 

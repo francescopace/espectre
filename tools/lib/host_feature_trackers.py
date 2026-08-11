@@ -11,7 +11,7 @@ License: GPLv3
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -109,6 +109,11 @@ CHANNEL_SHAPE_FEATURES = (
     'chan_rank_gap',
     'chan_ratio_gap',
     'chan_freq_coh_cv',
+    'chan_freq_coh_curve_iqr',
+    'chan_freq_coh_curve_2_4_std',
+    'chan_freq_coh_curve_4_12_std',
+    'chan_freq_coh_decay_std',
+    'chan_freq_coh_curvature_std',
 )
 L1_SERIES_FEATURES = (
     'l1_delta_autocorr',
@@ -126,6 +131,9 @@ PROMOTED_CHANNEL_SHAPE_FEATURES = (
     'chan_shape_spread',
     'chan_freq_coh_curve_std',
 )
+CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES = (
+    'chan_freq_coh_curve_std',
+)
 COMPOSITE_FEATURES = (
     'chan_coh_gap_spread',
 )
@@ -135,6 +143,7 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
     + AGGREGATED_SPECTRAL_FEATURES
     + PHASE_FEATURES
     + CHANNEL_SHAPE_FEATURES
+    + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
     + L1_SERIES_FEATURES
     + tuple(
         name for name in CHANNEL_SHAPE_TRAJECTORY_FEATURES
@@ -833,55 +842,130 @@ def frequency_coherence(profile: np.ndarray, offset: int = 4) -> float:
 
 
 class ChannelShapeTracker:
-    """Track gain-free amplitude-shape and frequency-coherence dynamics."""
+    """Track only the requested gain-free channel-shape dynamics."""
 
-    def __init__(self, window_size: int = 90, lag: int = L1_DELTA_LAG):
+    def __init__(self, window_size: int = 90, lag: int = L1_DELTA_LAG,
+                 feature_names: Optional[Iterable[str]] = None):
         self.window_size = max(2, int(window_size))
         self.lag = max(1, int(lag))
+        names = set(feature_names or ())
+        track_all = feature_names is None
+        self._track_lag_ratio = track_all or 'chan_shape_lag_ratio' in names
+        self._track_spread = track_all or bool(
+            {'chan_shape_spread', 'chan_coh_gap_spread'} & names
+        )
+        self._track_rank = track_all or 'chan_rank_gap' in names
+        self._track_ratio = track_all or 'chan_ratio_gap' in names
+        self._track_frequency_cv = track_all or 'chan_freq_coh_cv' in names
+        self._track_frequency_curve = (
+            track_all or bool(
+                {'chan_freq_coh_curve_std', 'chan_freq_coh_curve_iqr'} & names
+            )
+        )
+        self._frequency_candidate_names = {
+            name for name in (
+                'chan_freq_coh_curve_2_4_std',
+                'chan_freq_coh_curve_4_12_std',
+                'chan_freq_coh_decay_std',
+                'chan_freq_coh_curvature_std',
+            ) if track_all or name in names
+        }
+        self._track_profile = any((
+            self._track_lag_ratio,
+            self._track_spread,
+            self._track_rank,
+            self._track_ratio,
+        ))
+        self._track_previous = any((
+            self._track_lag_ratio,
+            self._track_rank,
+            self._track_ratio,
+        ))
         width = len(HT20_LIVE_BINS)
-        self._ring = [np.zeros(width, dtype=np.float64) for _ in range(self.lag)]
-        self._ring_filled = [False] * self.lag
+        self._ring = (
+            [np.zeros(width, dtype=np.float64) for _ in range(self.lag)]
+            if self._track_profile else []
+        )
+        self._ring_filled = [False] * self.lag if self._track_profile else []
         self._index = 0
-        self._previous = np.zeros(width, dtype=np.float64)
+        self._previous = (
+            np.zeros(width, dtype=np.float64)
+            if self._track_previous else np.empty(0, dtype=np.float64)
+        )
         self._has_previous = False
-        self._lag_distance_ring = [0.0] * self.window_size
-        self._adjacent_distance_ring = [0.0] * self.window_size
+        self._lag_distance_ring = (
+            [0.0] * self.window_size if self._track_lag_ratio else []
+        )
+        self._adjacent_distance_ring = (
+            [0.0] * self.window_size if self._track_lag_ratio else []
+        )
         self._lag_distance_slot = 0
         self._lag_distance_count = 0
         self._lag_distance_sum = 0.0
         self._adjacent_distance_slot = 0
         self._adjacent_distance_count = 0
         self._adjacent_distance_sum = 0.0
-        self._motion_energy = np.zeros(width, dtype=np.float64)
+        self._motion_energy = np.zeros(
+            width if self._track_spread else 0,
+            dtype=np.float64,
+        )
         self._motion_energy_ring = np.zeros(
-            (self.window_size, width),
+            (self.window_size, width) if self._track_spread else (0, 0),
             dtype=np.float64,
         )
         self._motion_energy_slot = 0
         self._motion_energy_count = 0
-        self._frequency_coherence_ring = [0.0] * self.window_size
+        self._frequency_coherence_ring = (
+            [0.0] * self.window_size if self._track_frequency_cv else []
+        )
         self._frequency_coherence_slot = 0
         self._frequency_coherence_count = 0
         self._frequency_coherence_sum = 0.0
         self._frequency_coherence_square_sum = 0.0
-        self._frequency_curve_ring = [0.0] * self.window_size
+        self._frequency_curve_ring = (
+            [0.0] * self.window_size if self._track_frequency_curve else []
+        )
         self._frequency_curve_slot = 0
         self._frequency_curve_count = 0
         self._frequency_curve_sum = 0.0
         self._frequency_curve_square_sum = 0.0
-        self._rank_lag_ring = [0.0] * self.window_size
+        self._frequency_candidate_rings = {
+            name: [0.0] * self.window_size
+            for name in self._frequency_candidate_names
+        }
+        self._frequency_candidate_slots = {
+            name: 0 for name in self._frequency_candidate_names
+        }
+        self._frequency_candidate_counts = {
+            name: 0 for name in self._frequency_candidate_names
+        }
+        self._frequency_candidate_sums = {
+            name: 0.0 for name in self._frequency_candidate_names
+        }
+        self._frequency_candidate_square_sums = {
+            name: 0.0 for name in self._frequency_candidate_names
+        }
+        self._rank_lag_ring = (
+            [0.0] * self.window_size if self._track_rank else []
+        )
         self._rank_lag_slot = 0
         self._rank_lag_count = 0
         self._rank_lag_sum = 0.0
-        self._rank_adjacent_ring = [0.0] * self.window_size
+        self._rank_adjacent_ring = (
+            [0.0] * self.window_size if self._track_rank else []
+        )
         self._rank_adjacent_slot = 0
         self._rank_adjacent_count = 0
         self._rank_adjacent_sum = 0.0
-        self._ratio_lag_ring = [0.0] * self.window_size
+        self._ratio_lag_ring = (
+            [0.0] * self.window_size if self._track_ratio else []
+        )
         self._ratio_lag_slot = 0
         self._ratio_lag_count = 0
         self._ratio_lag_sum = 0.0
-        self._ratio_adjacent_ring = [0.0] * self.window_size
+        self._ratio_adjacent_ring = (
+            [0.0] * self.window_size if self._track_ratio else []
+        )
         self._ratio_adjacent_slot = 0
         self._ratio_adjacent_count = 0
         self._ratio_adjacent_sum = 0.0
@@ -939,97 +1023,176 @@ class ChannelShapeTracker:
             self._frequency_curve_slot + 1
         ) % self.window_size
 
+    def _push_frequency_candidate(self, name, value):
+        ring = self._frequency_candidate_rings[name]
+        slot = self._frequency_candidate_slots[name]
+        count = self._frequency_candidate_counts[name]
+        total = self._frequency_candidate_sums[name]
+        square_total = self._frequency_candidate_square_sums[name]
+        if count < self.window_size:
+            count += 1
+        else:
+            old = ring[slot]
+            total -= old
+            square_total -= old * old
+        ring[slot] = value
+        total += value
+        square_total += value * value
+        self._frequency_candidate_slots[name] = (slot + 1) % self.window_size
+        self._frequency_candidate_counts[name] = count
+        self._frequency_candidate_sums[name] = total
+        self._frequency_candidate_square_sums[name] = square_total
+
     def process_packet(self, csi_data) -> None:
         complex_values = complex_profile(csi_data)
-        profile = normalized_amplitude_profile(complex_values)
-        slot = self._index
-        if self._ring_filled[slot]:
-            delta = profile - self._ring[slot]
-            distance = float(np.linalg.norm(delta))
-            (
-                self._lag_distance_slot,
-                self._lag_distance_count,
-                self._lag_distance_sum,
-            ) = self._push_scalar(
-                distance,
-                self._lag_distance_ring,
-                self._lag_distance_slot,
-                self._lag_distance_count,
-                self._lag_distance_sum,
-            )
-            self._push_motion_energy(delta * delta)
-            (
-                self._rank_lag_slot,
-                self._rank_lag_count,
-                self._rank_lag_sum,
-            ) = self._push_scalar(
-                rank_profile_distance(profile, self._ring[slot]),
-                self._rank_lag_ring,
-                self._rank_lag_slot,
-                self._rank_lag_count,
-                self._rank_lag_sum,
-            )
-            (
-                self._ratio_lag_slot,
-                self._ratio_lag_count,
-                self._ratio_lag_sum,
-            ) = self._push_scalar(
-                cross_subcarrier_ratio_distance(profile, self._ring[slot]),
-                self._ratio_lag_ring,
-                self._ratio_lag_slot,
-                self._ratio_lag_count,
-                self._ratio_lag_sum,
-            )
-        if self._has_previous:
-            distance = float(np.linalg.norm(profile - self._previous))
-            (
-                self._adjacent_distance_slot,
-                self._adjacent_distance_count,
-                self._adjacent_distance_sum,
-            ) = self._push_scalar(
-                distance,
-                self._adjacent_distance_ring,
-                self._adjacent_distance_slot,
-                self._adjacent_distance_count,
-                self._adjacent_distance_sum,
-            )
-            (
-                self._rank_adjacent_slot,
-                self._rank_adjacent_count,
-                self._rank_adjacent_sum,
-            ) = self._push_scalar(
-                rank_profile_distance(profile, self._previous),
-                self._rank_adjacent_ring,
-                self._rank_adjacent_slot,
-                self._rank_adjacent_count,
-                self._rank_adjacent_sum,
-            )
-            (
-                self._ratio_adjacent_slot,
-                self._ratio_adjacent_count,
-                self._ratio_adjacent_sum,
-            ) = self._push_scalar(
-                cross_subcarrier_ratio_distance(profile, self._previous),
-                self._ratio_adjacent_ring,
-                self._ratio_adjacent_slot,
-                self._ratio_adjacent_count,
-                self._ratio_adjacent_sum,
-            )
-        self._push_frequency_coherence(frequency_coherence(complex_values))
-        short_coherence = frequency_coherence(complex_values, offset=2)
-        long_coherence = frequency_coherence(complex_values, offset=12)
-        coherence_sum = short_coherence + long_coherence
-        curve_contrast = (
-            (short_coherence - long_coherence) / coherence_sum
-            if coherence_sum > 0.0
-            else 0.0
+        profile = (
+            normalized_amplitude_profile(complex_values)
+            if self._track_profile else None
         )
-        self._push_frequency_curve(curve_contrast)
-        self._previous = profile.copy()
-        self._has_previous = True
-        self._ring[slot] = profile
-        self._ring_filled[slot] = True
-        self._index = (self._index + 1) % self.lag
+        slot = self._index if self._track_profile else 0
+        if self._track_profile and self._ring_filled[slot]:
+            delta = profile - self._ring[slot]
+            if self._track_lag_ratio:
+                (
+                    self._lag_distance_slot,
+                    self._lag_distance_count,
+                    self._lag_distance_sum,
+                ) = self._push_scalar(
+                    float(np.linalg.norm(delta)),
+                    self._lag_distance_ring,
+                    self._lag_distance_slot,
+                    self._lag_distance_count,
+                    self._lag_distance_sum,
+                )
+            if self._track_spread:
+                self._push_motion_energy(delta * delta)
+            if self._track_rank:
+                (
+                    self._rank_lag_slot,
+                    self._rank_lag_count,
+                    self._rank_lag_sum,
+                ) = self._push_scalar(
+                    rank_profile_distance(profile, self._ring[slot]),
+                    self._rank_lag_ring,
+                    self._rank_lag_slot,
+                    self._rank_lag_count,
+                    self._rank_lag_sum,
+                )
+            if self._track_ratio:
+                (
+                    self._ratio_lag_slot,
+                    self._ratio_lag_count,
+                    self._ratio_lag_sum,
+                ) = self._push_scalar(
+                    cross_subcarrier_ratio_distance(profile, self._ring[slot]),
+                    self._ratio_lag_ring,
+                    self._ratio_lag_slot,
+                    self._ratio_lag_count,
+                    self._ratio_lag_sum,
+                )
+        if self._track_previous and self._has_previous:
+            if self._track_lag_ratio:
+                distance = float(np.linalg.norm(profile - self._previous))
+                (
+                    self._adjacent_distance_slot,
+                    self._adjacent_distance_count,
+                    self._adjacent_distance_sum,
+                ) = self._push_scalar(
+                    distance,
+                    self._adjacent_distance_ring,
+                    self._adjacent_distance_slot,
+                    self._adjacent_distance_count,
+                    self._adjacent_distance_sum,
+                )
+            if self._track_rank:
+                (
+                    self._rank_adjacent_slot,
+                    self._rank_adjacent_count,
+                    self._rank_adjacent_sum,
+                ) = self._push_scalar(
+                    rank_profile_distance(profile, self._previous),
+                    self._rank_adjacent_ring,
+                    self._rank_adjacent_slot,
+                    self._rank_adjacent_count,
+                    self._rank_adjacent_sum,
+                )
+            if self._track_ratio:
+                (
+                    self._ratio_adjacent_slot,
+                    self._ratio_adjacent_count,
+                    self._ratio_adjacent_sum,
+                ) = self._push_scalar(
+                    cross_subcarrier_ratio_distance(profile, self._previous),
+                    self._ratio_adjacent_ring,
+                    self._ratio_adjacent_slot,
+                    self._ratio_adjacent_count,
+                    self._ratio_adjacent_sum,
+                )
+        if self._track_frequency_cv:
+            self._push_frequency_coherence(frequency_coherence(complex_values))
+        if self._track_frequency_curve or self._frequency_candidate_names:
+            mid_coherence = frequency_coherence(complex_values, offset=4)
+            long_coherence = frequency_coherence(complex_values, offset=12)
+            if self._track_frequency_curve:
+                coherence_sum = mid_coherence + long_coherence
+                curve_contrast = (
+                    (mid_coherence - long_coherence) / coherence_sum
+                    if coherence_sum > 0.0
+                    else 0.0
+                )
+                self._push_frequency_curve(curve_contrast)
+            if self._frequency_candidate_names:
+                short_coherence = frequency_coherence(complex_values, offset=2)
+                coherence_sum = (
+                    short_coherence + mid_coherence + long_coherence
+                )
+                if coherence_sum > 0.0:
+                    decay = (
+                        2.0 * short_coherence
+                        + mid_coherence
+                        - 3.0 * long_coherence
+                    ) / (3.0 * coherence_sum)
+                    curvature = (
+                        mid_coherence
+                        - 0.8 * short_coherence
+                        - 0.2 * long_coherence
+                    ) / coherence_sum
+                else:
+                    decay = 0.0
+                    curvature = 0.0
+                short_mid_sum = short_coherence + mid_coherence
+                mid_long_sum = mid_coherence + long_coherence
+                short_mid_curve = (
+                    (short_coherence - mid_coherence) / short_mid_sum
+                    if short_mid_sum > 0.0 else 0.0
+                )
+                mid_long_curve = (
+                    (mid_coherence - long_coherence) / mid_long_sum
+                    if mid_long_sum > 0.0 else 0.0
+                )
+                if 'chan_freq_coh_curve_2_4_std' in self._frequency_candidate_names:
+                    self._push_frequency_candidate(
+                        'chan_freq_coh_curve_2_4_std', short_mid_curve
+                    )
+                if 'chan_freq_coh_curve_4_12_std' in self._frequency_candidate_names:
+                    self._push_frequency_candidate(
+                        'chan_freq_coh_curve_4_12_std', mid_long_curve
+                    )
+                if 'chan_freq_coh_decay_std' in self._frequency_candidate_names:
+                    self._push_frequency_candidate(
+                        'chan_freq_coh_decay_std', decay
+                    )
+                if 'chan_freq_coh_curvature_std' in self._frequency_candidate_names:
+                    self._push_frequency_candidate(
+                        'chan_freq_coh_curvature_std', curvature
+                    )
+        if self._track_previous:
+            self._previous = profile.copy()
+            self._has_previous = True
+        if self._track_profile:
+            self._ring[slot] = profile
+            self._ring_filled[slot] = True
+            self._index = (self._index + 1) % self.lag
 
     def shape_lag_ratio(self) -> float:
         """Lagged normalized-shape displacement over adjacent displacement."""
@@ -1077,6 +1240,29 @@ class ChannelShapeTracker:
         )
         return float(np.sqrt(variance))
 
+    def frequency_coherence_curve_iqr(self) -> float:
+        """Temporal IQR of the short-versus-long coherence contrast."""
+        if self._frequency_curve_count == 0:
+            return 0.0
+        values = np.asarray(
+            self._frequency_curve_ring[:self._frequency_curve_count],
+            dtype=np.float64,
+        )
+        q25, q75 = np.quantile(values, [0.25, 0.75])
+        return float(q75 - q25)
+
+    def frequency_coherence_candidate_std(self, name: str) -> float:
+        """Temporal standard deviation of one three-offset curve candidate."""
+        count = self._frequency_candidate_counts.get(name, 0)
+        if count == 0:
+            return 0.0
+        mean = self._frequency_candidate_sums[name] / count
+        variance = max(
+            0.0,
+            self._frequency_candidate_square_sums[name] / count - mean * mean,
+        )
+        return float(np.sqrt(variance))
+
     def rank_gap(self) -> float:
         """Mean lagged rank distance minus adjacent-packet rank distance."""
         if self._rank_lag_count == 0 or self._rank_adjacent_count == 0:
@@ -1098,8 +1284,9 @@ class ChannelShapeTracker:
         )
 
     def reset(self) -> None:
-        for i in range(self.lag):
-            self._ring_filled[i] = False
+        if self._track_profile:
+            for i in range(self.lag):
+                self._ring_filled[i] = False
         self._index = 0
         self._has_previous = False
         self._lag_distance_slot = 0
@@ -1119,6 +1306,11 @@ class ChannelShapeTracker:
         self._frequency_curve_count = 0
         self._frequency_curve_sum = 0.0
         self._frequency_curve_square_sum = 0.0
+        for name in self._frequency_candidate_names:
+            self._frequency_candidate_slots[name] = 0
+            self._frequency_candidate_counts[name] = 0
+            self._frequency_candidate_sums[name] = 0.0
+            self._frequency_candidate_square_sums[name] = 0.0
         self._rank_lag_slot = 0
         self._rank_lag_count = 0
         self._rank_lag_sum = 0.0

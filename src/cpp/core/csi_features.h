@@ -38,7 +38,6 @@ enum MLFeatureId : uint8_t {
     ML_FEAT_TURB_ZCR = 14,
     ML_FEAT_L1_DELTA_LAG_RATIO = 25,
     ML_FEAT_CHAN_SHAPE_SPREAD = 40,
-    ML_FEAT_CHAN_FREQ_COH_CURVE_STD = 42,
     ML_FEAT_TURB_IQR_OVER_MEAN_AGGR = 45,
     ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY = 46,
     ML_FEAT_CHAN_SHAPE_EXCESS_PATH = 47,
@@ -65,7 +64,6 @@ inline MLFeatureSource ml_feature_source(MLFeatureId id) {
         case ML_FEAT_L1_DELTA_LAG_RATIO:
             return MLFeatureSource::L1_TRACKER;
         case ML_FEAT_CHAN_SHAPE_SPREAD:
-        case ML_FEAT_CHAN_FREQ_COH_CURVE_STD:
             return MLFeatureSource::CHANNEL_SHAPE_TRACKER;
         case ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY:
         case ML_FEAT_CHAN_SHAPE_EXCESS_PATH:
@@ -90,8 +88,8 @@ inline bool ml_feature_needs_channel_shape_tracker(uint8_t id) {
            MLFeatureSource::CHANNEL_SHAPE_TRACKER;
 }
 
-inline bool ml_feature_needs_channel_frequency_tracker(uint8_t id) {
-    return id == ML_FEAT_CHAN_FREQ_COH_CURVE_STD;
+inline bool ml_feature_needs_channel_shape_spread_tracker(uint8_t id) {
+    return id == ML_FEAT_CHAN_SHAPE_SPREAD;
 }
 
 inline bool ml_feature_needs_channel_shape_trajectory_tracker(uint8_t id) {
@@ -277,8 +275,7 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
                                          float l1_delta_lag_ratio,
                                          float chan_shape_spread,
                                          float chan_shape_coherent_innovation_energy,
-                                         float chan_shape_excess_path,
-                                         float chan_freq_coh_curve_std) {
+                                         float chan_shape_excess_path) {
     switch (id) {
         case ML_FEAT_TURB_AUTOCORR: return turb.autocorr;
         case ML_FEAT_TURB_IQR_OVER_MEAN_AGGR:
@@ -289,7 +286,6 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
         case ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY:
             return chan_shape_coherent_innovation_energy;
         case ML_FEAT_CHAN_SHAPE_EXCESS_PATH: return chan_shape_excess_path;
-        case ML_FEAT_CHAN_FREQ_COH_CURVE_STD: return chan_freq_coh_curve_std;
         default: return 0.0f;
     }
 }
@@ -303,8 +299,7 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
                                       float l1_delta_lag_ratio,
                                       float chan_shape_spread,
                                       float chan_shape_coherent_innovation_energy,
-                                      float chan_shape_excess_path,
-                                      float chan_freq_coh_curve_std) {
+                                      float chan_shape_excess_path) {
     MLSeriesStats turb;
     compute_ml_series_stats(turb_buffer, turb_count, &turb,
                             ml_series_needs(
@@ -324,8 +319,7 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
         features_out[i] = ml_feature_value_from_stats(
             feature_ids[i], turb, aggregated_turb,
             l1_delta_lag_ratio, chan_shape_spread,
-            chan_shape_coherent_innovation_energy, chan_shape_excess_path,
-            chan_freq_coh_curve_std);
+            chan_shape_coherent_innovation_energy, chan_shape_excess_path);
     }
 }
 

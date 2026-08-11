@@ -13,7 +13,6 @@
 #include "base_detector.h"
 #include "csi_format.h"
 #include "csi_features.h"
-#include "l1_delta_tracker.h"
 #include "ml_feature_trackers.h"
 
 #include <cstddef>
@@ -21,20 +20,20 @@
 
 namespace espectre {
 
-constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.7456011395202353f;
+constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.7274768634167298f;
 constexpr float CLASSIC_MIN_THRESHOLD = 0.0f;
 constexpr float CLASSIC_MAX_THRESHOLD = 1.0f;
 constexpr float CLASSIC_STARTUP_THRESHOLD_FACTOR = 1.0f;
 
-constexpr float CLASSIC_AUTOCORR_CENTER = 0.40183487675618096f;
-constexpr float CLASSIC_AUTOCORR_SCALE = 0.37890037481307803f;
-constexpr float CLASSIC_AUTOCORR_WEIGHT = 5.318553379383947f;
-constexpr float CLASSIC_FREQ_COH_CURVE_STD_CENTER = 0.013573794185191685f;
-constexpr float CLASSIC_FREQ_COH_CURVE_STD_SCALE = 0.023719479149528277f;
-constexpr float CLASSIC_FREQ_COH_CURVE_STD_WEIGHT = 2.937413738610618f;
-constexpr float CLASSIC_INTERCEPT = 0.07498562105607867f;
+constexpr float CLASSIC_AUTOCORR_CENTER = 0.3919344866784947f;
+constexpr float CLASSIC_AUTOCORR_SCALE = 0.3798648330757351f;
+constexpr float CLASSIC_AUTOCORR_WEIGHT = 5.845075208173481f;
+constexpr float CLASSIC_FREQ_COH_CURVE_STD_CENTER = 0.013575200279723799f;
+constexpr float CLASSIC_FREQ_COH_CURVE_STD_SCALE = 0.024553458697880108f;
+constexpr float CLASSIC_FREQ_COH_CURVE_STD_WEIGHT = 4.024431218680639f;
+constexpr float CLASSIC_INTERCEPT = 0.8062511770638983f;
 
-constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -0.5638467984849406f;
+constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -1.4962826394309852f;
 constexpr float CLASSIC_STARTUP_QUANTILE = 0.95f;
 constexpr float CLASSIC_STARTUP_STRENGTH = 0.5f;
 constexpr uint8_t CLASSIC_STARTUP_SAMPLE_LIMIT = 64U;
@@ -121,9 +120,6 @@ class ClassicDetector : public BaseDetector {
   bool startup_gate_enabled() const override { return true; }
   void on_startup_calibration_begin() override;
   void on_startup_calibration_complete() override;
-  void configure_hampel(bool enabled,
-                        uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
-                        float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT) override;
 
   float get_turb_autocorr() const { return current_turb_autocorr_; }
   float get_chan_freq_coh_curve_std() const {
@@ -132,7 +128,7 @@ class ClassicDetector : public BaseDetector {
   float get_logit() const { return current_logit_; }
 
  private:
-  uint16_t l1_delta_capacity_() const;
+  uint16_t shape_tracker_capacity_() const;
   float calculate_turb_autocorr_() const;
   float calculate_logit_(float turb_autocorr,
                          float chan_freq_coh_curve_std) const;
@@ -158,7 +154,6 @@ class ClassicDetector : public BaseDetector {
   uint8_t settle_block_evaluations_;
   uint8_t settle_block_count_;
   uint8_t settle_block_index_;
-  L1DeltaTracker l1_tracker_;
   ChannelShapeTracker shape_tracker_;
 };
 

@@ -31,11 +31,46 @@ def test_parse_combination_specs_rejects_duplicates() -> None:
         bench.parse_combination_specs(["a,a"], 2, "pair")
 
 
-def test_classic_replay_accepts_only_one_or_two_features() -> None:
-    assert replay.parse_feature_sets(["a", "a,b"]) == [("a",), ("a", "b")]
+def test_classic_replay_accepts_up_to_three_features() -> None:
+    assert replay.parse_feature_sets(["a", "a,b", "a,b,c"]) == [
+        ("a",),
+        ("a", "b"),
+        ("a", "b", "c"),
+    ]
 
-    with pytest.raises(replay.ReplayError, match="expected 1 or 2"):
-        replay.parse_feature_sets(["a,b,c"])
+    with pytest.raises(replay.ReplayError, match="expected 1, 2, or 3"):
+        replay.parse_feature_sets(["a,b,c,d"])
+
+
+def test_classic_replay_exposes_individual_stress_scenarios() -> None:
+    assert replay.STRESS_SCENARIOS["combined"] == (
+        "base",
+        "drift",
+        "burst-loss",
+    )
+
+
+def test_classic_replay_nonlinear_fusion_surfaces() -> None:
+    rows = np.asarray([[2.0, 3.0], [-1.0, 4.0]], dtype=np.float64)
+
+    np.testing.assert_allclose(
+        replay.transform_fusion_rows(rows, replay.FUSION_LINEAR),
+        rows,
+    )
+    np.testing.assert_allclose(
+        replay.transform_fusion_rows(rows, replay.FUSION_INTERACTION),
+        [[2.0, 3.0, 6.0], [-1.0, 4.0, -4.0]],
+    )
+    np.testing.assert_allclose(
+        replay.transform_fusion_rows(rows, replay.FUSION_QUADRATIC),
+        [[2.0, 3.0, 6.0, 4.0, 9.0], [-1.0, 4.0, -4.0, 1.0, 16.0]],
+    )
+
+    with pytest.raises(replay.ReplayError, match="exactly two"):
+        replay.transform_fusion_rows(
+            np.asarray([[1.0]], dtype=np.float64),
+            replay.FUSION_INTERACTION,
+        )
 
 
 def test_resolve_candidate_combinations_prefers_explicit_triplets() -> None:
@@ -67,6 +102,42 @@ def test_fit_lda_projection_supports_three_features() -> None:
     assert pooled.shape == (3, 3)
     assert np.all(np.isfinite(weights))
     assert np.all(np.isfinite(pooled))
+
+
+def test_cumulative_threshold_search_matches_direct_masks() -> None:
+    scores = np.asarray([-2.0, -1.0, -0.4, 0.2, -0.8, 0.1, 0.9, 1.8])
+    labels = np.asarray([0, 0, 0, 0, 1, 1, 1, 1], dtype=np.int8)
+    weights = np.asarray([1.0, 1.5, 0.5, 1.0, 0.7, 1.3, 1.1, 0.9])
+    sessions = np.asarray(["i1", "i1", "i2", "i2", "m1", "m1", "m2", "m2"])
+
+    threshold, metrics = replay.choose_base_threshold(
+        scores,
+        labels,
+        weights,
+        session=sessions,
+        fp_target=30.0,
+    )
+
+    probabilities = 1.0 / (1.0 + np.exp(-scores))
+    candidates = np.unique(
+        np.quantile(probabilities, np.linspace(0.001, 0.999, 999))
+    )
+    expected = None
+    expected_recall = -1.0
+    for candidate in candidates:
+        predicted = probabilities > candidate
+        tp = float(weights[(labels == 1) & predicted].sum())
+        fn = float(weights[(labels == 1) & ~predicted].sum())
+        fp = float(weights[(labels == 0) & predicted].sum())
+        tn = float(weights[(labels == 0) & ~predicted].sum())
+        recall = tp / (tp + fn) if tp > 0.0 else 0.0
+        fp_rate = 100.0 * fp / (fp + tn)
+        if fp_rate <= 30.0 and recall > expected_recall:
+            expected = float(candidate)
+            expected_recall = recall
+
+    assert threshold == pytest.approx(expected)
+    assert metrics["recall"] == pytest.approx(100.0 * expected_recall)
 
 
 def test_safe_auc_reports_missing_optional_dependency(monkeypatch) -> None:

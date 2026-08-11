@@ -31,9 +31,9 @@ from tools.lib import host_feature_trackers as host
 # orders tighter than any real change to the pair set or the normalization.
 RELATIVE_TOLERANCE = 1e-12
 
-SUPPORTED_OFFSETS = (2, 12)
+SUPPORTED_OFFSETS = (4, 12)
 REFERENCE_OFFSETS = (2, 4, 12)
-EXPECTED_PAIR_COUNTS = {2: 52, 12: 32}
+EXPECTED_PAIR_COUNTS = {4: 48, 12: 32}
 UNSUPPORTED_OFFSETS = (-4, -1, 0, 1, 3, 5, 11, 13, 28, 56)
 
 
@@ -125,13 +125,13 @@ def test_offsets_match_the_documented_set() -> None:
     assert host.FREQUENCY_COHERENCE_OFFSETS == (2, 4, 12)
 
 
-def test_retired_offset_four_coherence_is_host_only() -> None:
+def test_research_offset_two_coherence_is_host_only() -> None:
     profile = random_profiles(count=1)[0]
-    expected = reference_frequency_coherence(profile, 4)
+    expected = reference_frequency_coherence(profile, 2)
 
-    assert frequency_coherence(profile, 4) == 0.0
+    assert frequency_coherence(profile, 2) == 0.0
     assert host.frequency_coherence(
-        np.asarray(profile, dtype=np.complex128), 4
+        np.asarray(profile, dtype=np.complex128), 2
     ) == pytest.approx(expected, rel=RELATIVE_TOLERANCE)
 
 
@@ -245,7 +245,7 @@ def test_tracker_curve_features_follow_the_reference_coherences() -> None:
     for _ in range(packets):
         csi_data = [rng.randrange(0, 256) for _ in range(128)]
         profile = complex_profile(csi_data)
-        short = reference_frequency_coherence(profile, 2)
+        short = reference_frequency_coherence(profile, 4)
         long = reference_frequency_coherence(profile, 12)
         total = short + long
         expected_curve.append((short - long) / total if total > 0.0 else 0.0)
@@ -258,3 +258,102 @@ def test_tracker_curve_features_follow_the_reference_coherences() -> None:
     assert tracker.frequency_coherence_curve_std() == pytest.approx(
         curve_std, rel=1e-9, abs=1e-12
     )
+
+
+def test_host_three_offset_curve_candidates_follow_their_definitions() -> None:
+    rng = random.Random(9876)
+    packets = 24
+    tracker = host.ChannelShapeTracker(
+        window_size=packets * 2,
+        lag=3,
+        feature_names=(
+            "chan_freq_coh_curve_iqr",
+            "chan_freq_coh_curve_2_4_std",
+            "chan_freq_coh_curve_4_12_std",
+            "chan_freq_coh_decay_std",
+            "chan_freq_coh_curvature_std",
+        ),
+    )
+    contrasts = []
+    decays = []
+    curvatures = []
+    short_mid_curves = []
+    mid_long_curves = []
+
+    for _ in range(packets):
+        csi_data = [rng.randrange(-128, 128) for _ in range(128)]
+        profile = host.complex_profile(csi_data)
+        short = host.frequency_coherence(profile, 2)
+        mid = host.frequency_coherence(profile, 4)
+        long = host.frequency_coherence(profile, 12)
+        endpoint_sum = mid + long
+        total = short + mid + long
+        contrasts.append(
+            (mid - long) / endpoint_sum if endpoint_sum > 0.0 else 0.0
+        )
+        decays.append(
+            (2.0 * short + mid - 3.0 * long) / (3.0 * total)
+            if total > 0.0 else 0.0
+        )
+        curvatures.append(
+            (mid - 0.8 * short - 0.2 * long) / total
+            if total > 0.0 else 0.0
+        )
+        short_mid_sum = short + mid
+        mid_long_sum = mid + long
+        short_mid_curves.append(
+            (short - mid) / short_mid_sum if short_mid_sum > 0.0 else 0.0
+        )
+        mid_long_curves.append(
+            (mid - long) / mid_long_sum if mid_long_sum > 0.0 else 0.0
+        )
+        tracker.process_packet(csi_data)
+
+    q25, q75 = np.quantile(contrasts, [0.25, 0.75])
+    assert tracker.frequency_coherence_curve_iqr() == pytest.approx(q75 - q25)
+    assert tracker.frequency_coherence_candidate_std(
+        "chan_freq_coh_decay_std"
+    ) == pytest.approx(float(np.std(decays)))
+    assert tracker.frequency_coherence_candidate_std(
+        "chan_freq_coh_curvature_std"
+    ) == pytest.approx(float(np.std(curvatures)))
+    assert tracker.frequency_coherence_candidate_std(
+        "chan_freq_coh_curve_2_4_std"
+    ) == pytest.approx(float(np.std(short_mid_curves)))
+    assert tracker.frequency_coherence_candidate_std(
+        "chan_freq_coh_curve_4_12_std"
+    ) == pytest.approx(float(np.std(mid_long_curves)))
+
+
+def test_curve_only_trackers_match_full_trackers_without_shape_history() -> None:
+    rng = random.Random(1977)
+    runtime_full = ChannelShapeTracker(window_size=32, lag=3)
+    runtime_curve = ChannelShapeTracker(
+        window_size=32,
+        lag=3,
+        track_shape=False,
+    )
+    host_full = host.ChannelShapeTracker(window_size=32, lag=3)
+    host_curve = host.ChannelShapeTracker(
+        window_size=32,
+        lag=3,
+        feature_names=("chan_freq_coh_curve_std",),
+    )
+
+    for _ in range(40):
+        csi_data = [rng.randrange(-128, 128) for _ in range(128)]
+        runtime_full.process_packet(csi_data)
+        runtime_curve.process_packet(csi_data)
+        host_full.process_packet(csi_data)
+        host_curve.process_packet(csi_data)
+
+    assert runtime_curve.frequency_coherence_curve_std() == pytest.approx(
+        runtime_full.frequency_coherence_curve_std(), abs=1e-12
+    )
+    assert host_curve.frequency_coherence_curve_std() == pytest.approx(
+        host_full.frequency_coherence_curve_std(), abs=1e-12
+    )
+    assert runtime_curve._ring == []
+    assert runtime_curve._motion_energy_ring == []
+    assert host_curve._ring == []
+    assert host_curve._motion_energy_ring.size == 0

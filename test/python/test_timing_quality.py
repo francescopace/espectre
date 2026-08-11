@@ -548,6 +548,54 @@ def test_classic_candidate_replay_reuses_time_aware_runtime_rows(monkeypatch):
     ]
 
 
+def test_classic_candidate_replay_persists_host_feature_rows(monkeypatch):
+    seen = {}
+
+    def fake_load_rows(path, **kwargs):
+        seen["path"] = path
+        seen["kwargs"] = kwargs
+        return {
+            "X": np.asarray([[1.0], [2.0]], dtype=np.float32),
+            "packet_index": np.asarray([99, 199], dtype=np.int32),
+            "reset_index": np.asarray([0, 0], dtype=np.int32),
+            "cache_hit": True,
+        }
+
+    monkeypatch.setattr(
+        replay_classic_candidates.train_ml_model,
+        "load_or_compute_host_feature_rows",
+        fake_load_rows,
+    )
+    monkeypatch.setattr(
+        replay_classic_candidates.train_ml_model,
+        "_host_feature_stream_provenance",
+        lambda names, **_kwargs: {"features": list(names)},
+    )
+    monkeypatch.setattr(
+        replay_classic_candidates,
+        "load_npz_as_packets",
+        lambda _path: [],
+    )
+    monkeypatch.setattr(
+        replay_classic_candidates,
+        "detector_window_packets",
+        lambda _packets: 100,
+    )
+
+    cache = replay_classic_candidates.build_replay_cache(
+        [trainer.Path("host.npz")],
+        ["chan_freq_coh_curve_std"],
+        quiet=True,
+    )
+
+    assert seen["kwargs"]["sample_contract"] == "replay_tick"
+    assert seen["kwargs"]["stream_provenance"] == {
+        "features": ["chan_freq_coh_curve_std"]
+    }
+    assert cache["host.npz"]["cache_hit"] is True
+    assert cache["host.npz"]["deoverlapped"].tolist() == [True, True]
+
+
 def test_classic_candidate_packet_stress_has_distinct_cache_provenance(monkeypatch):
     seen = {}
     packets = [{"csi_data": np.asarray([1, 2], dtype=np.int8)}]

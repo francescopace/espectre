@@ -1,9 +1,10 @@
 # ADR: adopt frequency coherence for Classic
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-07-30
 - Recorded: 2026-08-08 (retrospective)
 - Supersedes: 2026-07-26-replace-the-classic-l1-mean-with-a-lag-ratio.md
+- Superseded by: 2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md
 
 ## Context
 
@@ -72,7 +73,7 @@ Rejected. The grids moved error among known recordings without producing a mater
 
 ## Consequences
 
-- Classic reads one twelve-tone turbulence stream and the shared full-band channel-shape tracker.
+- Classic reads one twelve-tone turbulence stream and the frequency-curve-only mode of the shared full-band channel-shape tracker; it does not allocate the lagged profiles or motion-energy history used only by `chan_shape_spread`.
 - The production pair stays two-feature, vote-free, scale-invariant, and allocation-free in its evaluation path.
 - `l1_delta_lag_ratio` remains in the ML surface but is no longer a Classic input.
 - New Classic feature work must preserve exact runtime cadence, startup evidence, reset, settling, and threshold semantics in a maintained packet-level comparison.

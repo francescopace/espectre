@@ -127,7 +127,7 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     , aggregated_turbulence_index_(0U)
     , aggregated_turbulence_count_(0U) {
     threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
-    bool uses_shape_frequency_tracker = false;
+    bool uses_shape_spread_tracker = false;
 
     // Maintain the L1-delta rings only when the exported model needs them, and
     // reserve the rebuilt series only for the features that read it.
@@ -136,9 +136,9 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
         uses_l1_tracker_ = uses_l1_tracker_ || ml_feature_needs_l1_tracker(id);
         uses_shape_tracker_ =
             uses_shape_tracker_ || ml_feature_needs_channel_shape_tracker(id);
-        uses_shape_frequency_tracker =
-            uses_shape_frequency_tracker ||
-            ml_feature_needs_channel_frequency_tracker(id);
+        uses_shape_spread_tracker =
+            uses_shape_spread_tracker ||
+            ml_feature_needs_channel_shape_spread_tracker(id);
         uses_shape_trajectory_tracker_ =
             uses_shape_trajectory_tracker_ ||
             ml_feature_needs_channel_shape_trajectory_tracker(id);
@@ -171,8 +171,7 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     l1_tracker_.configure(uses_l1_tracker_ ? l1_delta_capacity_() : 0U, lag_);
     shape_tracker_.configure(
         uses_shape_tracker_ ? l1_delta_capacity_() : 0U,
-        lag_,
-        uses_shape_frequency_tracker);
+        lag_, false, uses_shape_spread_tracker);
     shape_trajectory_tracker_.configure(uses_shape_trajectory_tracker_);
     ESP_LOGI(TAG,
              "Initialized (window=%d, threshold=%.2f, l1=%d, shape=%d, trajectory=%d, aggr=%d)",
@@ -330,8 +329,7 @@ void MLDetector::extract_features(float* features_out) {
                               l1_tracker_.delta_lag_ratio(),
                               shape_tracker_.shape_spread(),
                               trajectory_innovation,
-                              trajectory_excess,
-                              shape_tracker_.frequency_coherence_curve_std());
+                              trajectory_excess);
 }
 
 // ============================================================================

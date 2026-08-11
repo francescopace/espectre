@@ -99,13 +99,7 @@ PHASELESS7_FEATURES = [
 ]
 
 DEFAULT_FEATURES = PHASELESS7_FEATURES
-# Retain extractors needed to compare a newly trained schema against the
-# immediately preceding exported artifact. Generated models still select only
-# DEFAULT_FEATURES; legacy names are not part of the production default.
-LEGACY_FEATURES = (
-    'chan_freq_coh_curve_std',
-)
-ALL_FEATURES = tuple(DEFAULT_FEATURES) + LEGACY_FEATURES
+ALL_FEATURES = tuple(DEFAULT_FEATURES)
 
 AGGREGATED_TURBULENCE_FEATURES = frozenset({
     'turb_iqr_over_mean_aggr',
@@ -113,10 +107,6 @@ AGGREGATED_TURBULENCE_FEATURES = frozenset({
 
 CHANNEL_SHAPE_FEATURES = frozenset({
     'chan_shape_spread',
-    'chan_freq_coh_curve_std',
-})
-CHANNEL_FREQUENCY_FEATURES = frozenset({
-    'chan_freq_coh_curve_std',
 })
 CHANNEL_SHAPE_TRAJECTORY_FEATURES = frozenset({
     'chan_shape_coherent_innovation_energy',
@@ -376,7 +366,6 @@ def extract_features_by_name(
     chan_shape_spread=None,
     chan_shape_coherent_innovation_energy=None,
     chan_shape_excess_path=None,
-    chan_freq_coh_curve_std=None,
 ):
     """Extract configured features from explicitly preprocessed streams."""
     if feature_names is None:
@@ -404,7 +393,6 @@ def extract_features_by_name(
             chan_shape_coherent_innovation_energy
         ),
         'chan_shape_excess_path': chan_shape_excess_path,
-        'chan_freq_coh_curve_std': chan_freq_coh_curve_std,
     }
     for name in feature_names:
         if name in required_scalars and required_scalars[name] is None:
@@ -525,8 +513,6 @@ def extract_features_by_name(
             value = chan_shape_coherent_innovation_energy
         elif name == 'chan_shape_excess_path':
             value = chan_shape_excess_path
-        elif name == 'chan_freq_coh_curve_std':
-            value = chan_freq_coh_curve_std
         else:
             raise ValueError(f"Unknown feature: {name}")
         if out is None:

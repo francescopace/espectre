@@ -20,7 +20,7 @@ except ImportError:
 HT20_CSI_LEN = 128
 HT20_LIVE_BINS = tuple(range(4, 32)) + tuple(range(33, 61))
 HT20_LIVE_WIDTH = len(HT20_LIVE_BINS)
-FREQUENCY_COHERENCE_OFFSETS = (2, 12)
+FREQUENCY_COHERENCE_OFFSETS = (4, 12)
 CHANNEL_SHAPE_SUBBAND_COUNT = 8
 CHANNEL_SHAPE_SUBBAND_WIDTH = HT20_LIVE_WIDTH // CHANNEL_SHAPE_SUBBAND_COUNT
 CHANNEL_SHAPE_BIN_US = 80_000
@@ -147,7 +147,7 @@ def _frequency_coherence_from_squares(profile, squares, offset):
 
 
 def frequency_coherences(profile, out=None, squares=None):
-    """Return the offset 2 and 12 coherences used by Classic.
+    """Return the offset 4 and 12 coherences used by Classic.
 
     Passing the caller's `out` and `squares` buffers keeps the per-packet path
     free of allocations.
@@ -164,7 +164,7 @@ def frequency_coherences(profile, out=None, squares=None):
     return out
 
 
-def frequency_coherence(profile, offset=2):
+def frequency_coherence(profile, offset=4):
     """Normalized within-packet coherence at a fixed subcarrier separation."""
     if int(offset) not in FREQUENCY_COHERENCE_OFFSETS:
         return 0.0
@@ -409,19 +409,26 @@ class ChannelShapeTracker:
     """Track gain-free amplitude-shape and frequency-coherence dynamics."""
 
     def __init__(self, window_size=90, lag=L1_DELTA_LAG,
-                 track_frequency=True):
+                 track_frequency=True, track_shape=True):
         self.window_size = max(2, int(window_size))
         self.lag = max(1, int(lag))
         self.track_frequency = bool(track_frequency)
-        self._ring = [[0.0] * HT20_LIVE_WIDTH for _ in range(self.lag)]
-        self._ring_filled = [False] * self.lag
+        self.track_shape = bool(track_shape)
+        self._ring = (
+            [[0.0] * HT20_LIVE_WIDTH for _ in range(self.lag)]
+            if self.track_shape else []
+        )
+        self._ring_filled = [False] * self.lag if self.track_shape else []
         self._index = 0
         self._lag_distance_count = 0
-        self._delta = [0.0] * HT20_LIVE_WIDTH
-        self._motion_energy = [0.0] * HT20_LIVE_WIDTH
-        self._motion_energy_ring = [
-            [0.0] * HT20_LIVE_WIDTH for _ in range(self.window_size)
-        ]
+        self._delta = [0.0] * HT20_LIVE_WIDTH if self.track_shape else []
+        self._motion_energy = (
+            [0.0] * HT20_LIVE_WIDTH if self.track_shape else []
+        )
+        self._motion_energy_ring = (
+            [[0.0] * HT20_LIVE_WIDTH for _ in range(self.window_size)]
+            if self.track_shape else []
+        )
         self._motion_energy_slot = 0
         self._motion_energy_count = 0
         self._frequency_curve_ring = (
@@ -432,7 +439,9 @@ class ChannelShapeTracker:
         self._frequency_curve_sum = 0.0
         self._frequency_curve_square_sum = 0.0
         self._complex_profile = [0j] * HT20_LIVE_WIDTH
-        self._amplitude_profile = [0.0] * HT20_LIVE_WIDTH
+        self._amplitude_profile = (
+            [0.0] * HT20_LIVE_WIDTH if self.track_shape else None
+        )
         self._coherence_squares = (
             new_frequency_coherence_squares() if self.track_frequency else None
         )
@@ -467,17 +476,18 @@ class ChannelShapeTracker:
         self._frequency_curve_slot = (self._frequency_curve_slot + 1) % self.window_size
 
     def _process_profile(self, profile, complex_values=None):
-        slot = self._index
-        if self._ring_filled[slot]:
-            delta = self._delta
-            for i in range(HT20_LIVE_WIDTH):
-                diff = profile[i] - self._ring[slot][i]
-                delta[i] = diff * diff
-            self._lag_distance_count = min(
-                self.window_size,
-                self._lag_distance_count + 1,
-            )
-            self._push_motion_energy(delta)
+        if self.track_shape:
+            slot = self._index
+            if self._ring_filled[slot]:
+                delta = self._delta
+                for i in range(HT20_LIVE_WIDTH):
+                    diff = profile[i] - self._ring[slot][i]
+                    delta[i] = diff * diff
+                self._lag_distance_count = min(
+                    self.window_size,
+                    self._lag_distance_count + 1,
+                )
+                self._push_motion_energy(delta)
         if self.track_frequency and complex_values is not None:
             short_coherence, long_coherence = frequency_coherences(
                 complex_values, self._coherence_values, self._coherence_squares
@@ -488,21 +498,24 @@ class ChannelShapeTracker:
                 if coherence_sum > 0.0 else 0.0
             )
             self._push_frequency_curve(curve_contrast)
-        for i in range(HT20_LIVE_WIDTH):
-            self._ring[slot][i] = profile[i]
-        self._ring_filled[slot] = True
-        self._index = (self._index + 1) % self.lag
+        if self.track_shape:
+            for i in range(HT20_LIVE_WIDTH):
+                self._ring[slot][i] = profile[i]
+            self._ring_filled[slot] = True
+            self._index = (self._index + 1) % self.lag
 
     def process_packet(self, csi_data):
         complex_values = complex_profile(csi_data, self._complex_profile)
-        profile = normalized_amplitude_profile(
-            complex_values,
-            self._amplitude_profile,
+        profile = (
+            normalized_amplitude_profile(complex_values, self._amplitude_profile)
+            if self.track_shape else None
         )
         self._process_profile(profile, complex_values)
 
     def process_subcarrier_amplitudes(self, amplitudes, amplitude_count):
         """Consume a shared packet-wide magnitude frame without re-reading CSI."""
+        if not self.track_shape:
+            return
         profile = self._amplitude_profile
         total = 0.0
         for live_index, subcarrier in enumerate(HT20_LIVE_BINS):
@@ -519,10 +532,16 @@ class ChannelShapeTracker:
         self._process_profile(profile)
 
     def count(self):
-        return self._lag_distance_count
+        return (
+            self._lag_distance_count
+            if self.track_shape else self._frequency_curve_count
+        )
 
     def shape_spread(self):
-        return motion_participation(self._motion_energy)
+        return (
+            motion_participation(self._motion_energy)
+            if self.track_shape else 0.0
+        )
 
     def frequency_coherence_curve_std(self):
         if self._frequency_curve_count == 0:
@@ -536,12 +555,14 @@ class ChannelShapeTracker:
         return math.sqrt(variance)
 
     def reset(self):
-        for i in range(self.lag):
-            self._ring_filled[i] = False
+        if self.track_shape:
+            for i in range(self.lag):
+                self._ring_filled[i] = False
         self._index = 0
         self._lag_distance_count = 0
-        for i in range(HT20_LIVE_WIDTH):
-            self._motion_energy[i] = 0.0
+        if self.track_shape:
+            for i in range(HT20_LIVE_WIDTH):
+                self._motion_energy[i] = 0.0
         self._motion_energy_slot = 0
         self._motion_energy_count = 0
         self._frequency_curve_slot = 0

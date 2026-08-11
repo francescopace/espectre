@@ -37,14 +37,21 @@ def test_linear_fusion_uses_exported_center_scale_and_weights() -> None:
     )
 
 
-def test_hampel_master_switch_controls_both_feature_streams() -> None:
+def test_hampel_master_switch_controls_turbulence_stream() -> None:
     enabled = ClassicDetector(enable_hampel=True)
     disabled = ClassicDetector(enable_hampel=False)
 
     assert enabled._context.hampel_filter is not None
-    assert enabled._l1._hampel_filter is not None
     assert disabled._context.hampel_filter is None
-    assert disabled._l1._hampel_filter is None
+
+
+def test_classic_allocates_only_frequency_curve_shape_state() -> None:
+    detector = ClassicDetector()
+
+    assert detector._shape_tracker.track_frequency
+    assert not detector._shape_tracker.track_shape
+    assert detector._shape_tracker._ring == []
+    assert detector._shape_tracker._motion_energy_ring == []
 
 
 def test_startup_q95_adapts_probability_threshold() -> None:

@@ -22,6 +22,11 @@ operating-point work, and `exclude` is dropped.
 Usage:
     python tools/fit_classic_detector.py
     python tools/fit_classic_detector.py --apply
+    python tools/fit_classic_detector.py --centered-threshold-logit 1.73 --apply
+
+The optional centered-logit override makes a sequential-replay operating point
+reproducible. The OOF sweep still reports its diagnostic point, but dense-window
+FP does not encode the production empty-room zero-alarm contract.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -359,12 +364,43 @@ def choose_base_threshold(
     best_threshold = 0.5
     best_f1 = -1.0
     best: Dict[str, float] = {}
+    order = np.argsort(probabilities, kind="stable")
+    ordered_probabilities = probabilities[order]
+    ordered_weights = weights[order]
+    ordered_motion = y[order] == MOTION_LABEL
+    motion_weights = np.where(ordered_motion, ordered_weights, 0.0)
+    idle_weights = np.where(~ordered_motion, ordered_weights, 0.0)
+    motion_suffix = np.zeros(len(probabilities) + 1, dtype=np.float64)
+    idle_suffix = np.zeros(len(probabilities) + 1, dtype=np.float64)
+    motion_suffix[:-1] = np.cumsum(motion_weights[::-1], dtype=np.float64)[::-1]
+    idle_suffix[:-1] = np.cumsum(idle_weights[::-1], dtype=np.float64)[::-1]
+    motion_total = float(weights[y == MOTION_LABEL].sum())
+    idle_total = float(weights[y == IDLE_LABEL].sum())
+
+    session_motion = []
+    if session is not None:
+        motion = y == MOTION_LABEL
+        for name in np.unique(session[motion]):
+            rows = motion & (session == name)
+            session_probabilities = probabilities[rows]
+            session_weights = weights[rows]
+            session_order = np.argsort(session_probabilities, kind="stable")
+            session_probabilities = session_probabilities[session_order]
+            session_weights = session_weights[session_order]
+            suffix = np.zeros(len(session_weights) + 1, dtype=np.float64)
+            suffix[:-1] = np.cumsum(
+                session_weights[::-1], dtype=np.float64
+            )[::-1]
+            session_motion.append(
+                (session_probabilities, suffix, float(session_weights.sum()))
+            )
+
     for threshold in candidates:
-        predicted = probabilities > threshold
-        tp = float(weights[(y == MOTION_LABEL) & predicted].sum())
-        fn = float(weights[(y == MOTION_LABEL) & ~predicted].sum())
-        fp = float(weights[(y == IDLE_LABEL) & predicted].sum())
-        tn = float(weights[(y == IDLE_LABEL) & ~predicted].sum())
+        boundary = int(np.searchsorted(ordered_probabilities, threshold, side="right"))
+        tp = float(motion_suffix[boundary])
+        fp = float(idle_suffix[boundary])
+        fn = motion_total - tp
+        tn = idle_total - fp
         if tp <= 0.0:
             continue
         recall = tp / (tp + fn)
@@ -374,13 +410,13 @@ def choose_base_threshold(
         f1 = 2.0 * precision * recall / (precision + recall)
         fp_rate = 100.0 * fp / (fp + tn) if (fp + tn) > 0.0 else 0.0
         worst_session_recall = 100.0 * recall
-        if session is not None:
-            motion = y == MOTION_LABEL
+        if session_motion:
             per_session = []
-            for name in np.unique(session[motion]):
-                rows = motion & (session == name)
-                hit = float(weights[rows & predicted].sum())
-                total = float(weights[rows].sum())
+            for session_probabilities, suffix, total in session_motion:
+                session_boundary = int(
+                    np.searchsorted(session_probabilities, threshold, side="right")
+                )
+                hit = float(suffix[session_boundary])
                 if total > 0.0:
                     per_session.append(100.0 * hit / total)
             if per_session:
@@ -476,6 +512,15 @@ def main() -> int:
     parser.add_argument("--min-session-recall", type=float, default=0.0,
                         help="reject operating points whose worst single session falls below "
                              "this recall (default: 0.0, report only)")
+    parser.add_argument(
+        "--centered-threshold-logit",
+        type=float,
+        default=None,
+        help=(
+            "override the OOF operating point with a session-centered logit "
+            "selected by sequential production replay"
+        ),
+    )
     parser.add_argument("--quiet", action="store_true", help="suppress per-dataset progress")
     args = parser.parse_args()
 
@@ -527,6 +572,8 @@ def main() -> int:
         min_session_recall=args.min_session_recall,
     )
     centered_logit = float(np.log(centered_threshold / (1.0 - centered_threshold)))
+    if args.centered_threshold_logit is not None:
+        centered_logit = float(args.centered_threshold_logit)
     base_threshold = base_threshold_from_centered(centered_logit, idle_q95)
 
     center, scale = coefficients["center"], coefficients["scale"]
@@ -542,6 +589,11 @@ def main() -> int:
                 f"{worst_session:.1f}%; check the per-pair replay before trusting this point",
                 file=sys.stderr,
             )
+    if args.centered_threshold_logit is not None:
+        print(
+            "  sequential-replay centered-logit override="
+            f"{centered_logit!r}"
+        )
     print("\nFitted constants:")
     print(f"  FEATURE_CENTER       = ({center[0]!r}, {center[1]!r})")
     print(f"  FEATURE_SCALE        = ({scale[0]!r}, {scale[1]!r})")

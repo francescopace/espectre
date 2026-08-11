@@ -3,9 +3,8 @@ Micro-ESPectre - Classic Detector
 
 Vote-free, two-feature motion detector using a weighted fusion of turbulence
 autocorrelation and channel frequency-coherence curve spread. Hampel filtering
-still applies independently to the turbulence and legacy L1 tracking paths under
-one shared enable flag because the segmentation context continues to own both
-buffers.
+applies to the turbulence stream; the channel-shape tracker reads the full-band
+CSI profile directly.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -14,12 +13,12 @@ import math
 
 try:
     from src.detector_interface import IDetector, MotionState
-    from src.csi_features import L1_DELTA_LAG, L1DeltaTracker, calc_autocorrelation
+    from src.csi_features import L1_DELTA_LAG, calc_autocorrelation
     from src.ml_feature_trackers import ChannelShapeTracker
     from src.segmentation import SegmentationContext
 except ImportError:
     from detector_interface import IDetector, MotionState
-    from csi_features import L1_DELTA_LAG, L1DeltaTracker, calc_autocorrelation
+    from csi_features import L1_DELTA_LAG, calc_autocorrelation
     from ml_feature_trackers import ChannelShapeTracker
     from segmentation import SegmentationContext
 
@@ -35,13 +34,13 @@ class ClassicDetector(IDetector):
     STARTUP_GATE = True
 
     # Grouped, de-overlapped OOF fit, balanced by class/chip/session.
-    FEATURE_CENTER = (0.40183487675618096, 0.013573794185191685)
-    FEATURE_SCALE = (0.37890037481307803, 0.023719479149528277)
-    FEATURE_WEIGHT = (5.318553379383947, 2.937413738610618)
-    INTERCEPT = 0.07498562105607867
+    FEATURE_CENTER = (0.3919344866784947, 0.013575200279723799)
+    FEATURE_SCALE = (0.3798648330757351, 0.024553458697880108)
+    FEATURE_WEIGHT = (5.845075208173481, 4.024431218680639)
+    INTERCEPT = 0.8062511770638983
 
-    BASE_THRESHOLD = 0.7456011395202353
-    TRAIN_IDLE_Q95_LOGIT = -0.5638467984849406
+    BASE_THRESHOLD = 0.7274768634167298
+    TRAIN_IDLE_Q95_LOGIT = -1.4962826394309852
     STARTUP_QUANTILE = 0.95
     STARTUP_STRENGTH = 0.5
     STARTUP_SAMPLE_LIMIT = 64
@@ -82,17 +81,10 @@ class ClassicDetector(IDetector):
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
         )
-        self._l1 = L1DeltaTracker(
-            window_size=max(2, window_size - lag),
-            lag=lag,
-            allocate_amplitude_buffer=False,
-            enable_hampel=enable_hampel,
-            hampel_window=hampel_window,
-            hampel_threshold=hampel_threshold,
-        )
         self._shape_tracker = ChannelShapeTracker(
             window_size=max(2, window_size - lag),
             lag=lag,
+            track_shape=False,
         )
         self._ordered_turbulence = [0.0] * window_size
         self._threshold = self._clamp_probability(threshold)
@@ -142,10 +134,6 @@ class ClassicDetector(IDetector):
         del timestamp_us
         turbulence = self._context.calculate_spatial_turbulence(
             csi_data, selected_subcarriers
-        )
-        self._l1.process_amplitudes(
-            self._context._amplitude_buffer,
-            self._context._amplitude_count,
         )
         self._shape_tracker.process_packet(csi_data)
         self._context.add_turbulence(turbulence)
@@ -298,13 +286,11 @@ class ClassicDetector(IDetector):
     def is_ready(self):
         return (
             self._context.buffer_count >= self._context.window_size
-            and self._l1.is_ready()
             and self._shape_tracker.count() >= self._context.window_size - self._lag
         )
 
     def reset(self):
         self._context.reset(full=True)
-        self._l1.reset()
         self._shape_tracker.reset()
         self._state = MotionState.IDLE
         self._packet_count = 0

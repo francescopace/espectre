@@ -185,8 +185,8 @@ struct SeededProfiles {
 }  // namespace
 
 void test_frequency_coherence_matches_the_reference_formula(void) {
-    const uint8_t offsets[] = {2U, 12U};
-    const uint16_t expected_pairs[] = {52U, 32U};
+    const uint8_t offsets[] = {4U, 12U};
+    const uint16_t expected_pairs[] = {48U, 32U};
 
     // The half walk must reproduce exactly the pairs the full scan found.
     for (uint8_t i = 0; i < FREQUENCY_COHERENCE_COUNT; i++) {
@@ -253,7 +253,7 @@ void test_frequency_coherences_matches_single_offset_calls(void) {
     float combined[FREQUENCY_COHERENCE_COUNT]{};
 
     TEST_ASSERT_EQUAL(2U, FREQUENCY_COHERENCE_COUNT);
-    TEST_ASSERT_EQUAL_UINT8(2U, FREQUENCY_COHERENCE_OFFSETS[0]);
+    TEST_ASSERT_EQUAL_UINT8(4U, FREQUENCY_COHERENCE_OFFSETS[0]);
     TEST_ASSERT_EQUAL_UINT8(12U, FREQUENCY_COHERENCE_OFFSETS[1]);
 
     for (uint16_t trial = 0; trial < 32U; trial++) {

@@ -187,7 +187,7 @@ CONFIG_SCHEMA = cv.Schema({
     ),
     
     # Detection algorithm: classic (default) or ml
-    # CLASSIC: weighted L1 + autocorrelation fusion - adaptive threshold
+    # CLASSIC: autocorrelation + frequency-coherence fusion - adaptive threshold
     # ML: Machine Learning (MLP neural network) - higher accuracy, fixed subcarriers
     cv.Optional(CONF_DETECTION_ALGORITHM, default=DETECTION_ALGORITHM_DEFAULT): cv.one_of("classic", "ml", lower=True),
     # Internal benchmark switch for shared runtime debug telemetry.

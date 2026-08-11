@@ -44,7 +44,7 @@ def get_detector_algorithm(detector):
 # Single source of truth for the available detector algorithms:
 # canonical key -> (module name, class name, needs startup calibration, label).
 DETECTOR_REGISTRY = {
-    "classic": ("classic_detector", "ClassicDetector", True, "Classic (weighted L1 + autocorrelation)"),
+    "classic": ("classic_detector", "ClassicDetector", True, "Classic (autocorrelation + frequency coherence)"),
     "ml": ("ml_detector", "MLDetector", False, "ML (Neural Network)"),
 }
 
@@ -90,7 +90,7 @@ class IDetector:
     Interface for motion detection algorithms.
     
     Implementations:
-    - ClassicDetector: weighted L1 + autocorrelation fusion (default non-ML)
+    - ClassicDetector: autocorrelation and frequency-coherence fusion (default non-ML)
     - MLDetector: Neural Network classifier
     
     Subclasses must implement all methods.

@@ -2,7 +2,7 @@
 """
 ESPectre - Classic Candidate Replay
 
-Research-only fitter and replay harness for one- and two-feature Classic detector
+Research-only fitter and replay harness for one-, two-, and three-feature Classic detector
 candidates. It mirrors the grouped logistic fit and startup-threshold workflow
 of `fit_classic_detector.py`, but never writes runtime artifacts.
 
@@ -71,6 +71,12 @@ PRIMARY_ROLES = DISCOVERY_ROLES + (HOLDOUT_ROLE,)
 EXCLUDE_ROLE = "exclude"
 REPLAY_ROLES = PRIMARY_ROLES + (EXCLUDE_ROLE,)
 CURRENT_CLASSIC_COMBINATION = ("turb_autocorr", "chan_freq_coh_curve_std")
+STRESS_SCENARIOS = {
+    "base": ("base",),
+    "drift": ("drift",),
+    "burst-loss": ("burst-loss",),
+    "combined": ("base", "drift", "burst-loss"),
+}
 CALIBRATION_Q95_SHIFT = "q95_shift"
 CALIBRATION_ROBUST_LOGIT = "robust_logit"
 CALIBRATION_FEATURE_SHIFT = "feature_shift"
@@ -80,6 +86,14 @@ CALIBRATION_MODES = (
     CALIBRATION_ROBUST_LOGIT,
     CALIBRATION_FEATURE_SHIFT,
     CALIBRATION_GUARDED_UPWARD,
+)
+FUSION_LINEAR = "linear"
+FUSION_INTERACTION = "interaction"
+FUSION_QUADRATIC = "quadratic"
+FUSION_MODES = (
+    FUSION_LINEAR,
+    FUSION_INTERACTION,
+    FUSION_QUADRATIC,
 )
 RUNTIME_READY_FEATURES = tuple(FEATURE_NAMES)
 HOST_ONLY_FEATURES = tuple(CANDIDATE_FEATURES)
@@ -98,7 +112,17 @@ def parse_args() -> argparse.Namespace:
         "--features",
         action="append",
         default=[],
-        help="candidate feature set as feature_a[,feature_b]",
+        help="candidate feature set as feature_a[,feature_b[,feature_c]]",
+    )
+    parser.add_argument(
+        "--fusion",
+        action="append",
+        choices=FUSION_MODES,
+        default=[],
+        help=(
+            "research fusion surface; repeat for a comparison "
+            f"(default: {FUSION_LINEAR}). Non-linear modes require two features"
+        ),
     )
     parser.add_argument(
         "--json",
@@ -225,6 +249,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--stress-scenario",
+        action="append",
+        choices=tuple(STRESS_SCENARIOS),
+        default=[],
+        help=(
+            "packet-stress scenario to replay; repeat to select more than one. "
+            "Passing this option enables stress replay without --stress-augment"
+        ),
+    )
+    parser.add_argument(
         "--top-k",
         type=int,
         default=20,
@@ -244,14 +278,35 @@ def parse_feature_sets(raw_specs: Sequence[str]) -> List[Tuple[str, ...]]:
     parsed: List[Tuple[str, ...]] = []
     for raw in raw_specs:
         names = [part.strip() for part in raw.split(",") if part.strip()]
-        if len(names) < 1 or len(names) > 2:
+        if len(names) < 1 or len(names) > 3:
             raise ReplayError(
-                f"Invalid --features {raw!r}; expected 1 or 2 distinct features"
+                f"Invalid --features {raw!r}; expected 1, 2, or 3 distinct features"
             )
         if len(set(names)) != len(names):
             raise ReplayError(f"Invalid --features {raw!r}; features must differ")
         parsed.append(tuple(names))
     return parsed
+
+
+def transform_fusion_rows(rows: np.ndarray, mode: str) -> np.ndarray:
+    """Map two extracted features to a small research-only fusion surface."""
+    values = np.asarray(rows, dtype=np.float64)
+    if values.ndim != 2:
+        raise ReplayError("Fusion rows must be a two-dimensional matrix")
+    if mode == FUSION_LINEAR:
+        return values
+    if mode not in FUSION_MODES:
+        raise ReplayError(f"Unknown fusion mode: {mode}")
+    if values.shape[1] != 2:
+        raise ReplayError(f"Fusion mode {mode!r} requires exactly two features")
+    first = values[:, 0]
+    second = values[:, 1]
+    interaction = first * second
+    if mode == FUSION_INTERACTION:
+        return np.column_stack((first, second, interaction))
+    return np.column_stack(
+        (first, second, interaction, first * first, second * second)
+    )
 
 
 def iter_replay_pairs() -> List[Dict[str, Any]]:
@@ -370,26 +425,33 @@ def build_replay_cache(
 ) -> Dict[str, Dict[str, np.ndarray]]:
     unique_paths = sorted({str(path) for path in paths})
     cache: Dict[str, Dict[str, np.ndarray]] = {}
+    cache_hits = 0
     runtime_ready = all(name in RUNTIME_READY_FEATURES for name in feature_names)
     for index, path_text in enumerate(unique_paths, start=1):
         path = Path(path_text)
         if not quiet:
             print(f"  [{index}/{len(unique_paths)}] {path.name}", flush=True)
         packets_factory = None
-        stream_provenance = None
+        packet_stream_provenance = None
         if packet_augmentation:
+            prepared_packets = None
+
             def packets_factory(source_path: Path = path):
+                nonlocal prepared_packets
+                if prepared_packets is not None:
+                    return prepared_packets
                 record = {
                     "path": source_path,
                     "packets": load_npz_as_packets(source_path),
                 }
-                return train_ml_model._prepare_feature_packets_for_record(
+                prepared_packets = train_ml_model._prepare_feature_packets_for_record(
                     record,
                     packet_augmentation=packet_augmentation,
                     augmentation_seed=augmentation_seed,
                 )
+                return prepared_packets
 
-            stream_provenance = train_ml_model._packet_augmentation_stream_provenance(
+            packet_stream_provenance = train_ml_model._packet_augmentation_stream_provenance(
                 packet_augmentation,
                 augmentation_seed,
             )
@@ -401,41 +463,53 @@ def build_replay_cache(
                 window_size=None,
                 feature_names=feature_names,
                 sample_contract="replay_tick",
-                stream_provenance=stream_provenance,
+                stream_provenance=packet_stream_provenance,
             )
-            rows = np.asarray(replay_rows["X"], dtype=np.float64)
-            packet_index = np.asarray(replay_rows["packet_index"], dtype=np.int64)
-            reset_index = np.asarray(replay_rows["reset_index"], dtype=np.int64)
-            packets_for_window = (
-                packets_factory()
-                if packets_factory is not None
-                else load_npz_as_packets(path)
-            )
-            window_packets = detector_window_packets(packets_for_window)
-            deoverlapped = np.zeros(len(rows), dtype=bool)
-            last_boundary_by_reset: Dict[int, int] = {}
-            for row_index, (packet, reset) in enumerate(zip(packet_index, reset_index)):
-                last_boundary = last_boundary_by_reset.get(int(reset))
-                if (
-                    last_boundary is None
-                    or int(packet) - last_boundary >= window_packets
-                ):
-                    deoverlapped[row_index] = True
-                    last_boundary_by_reset[int(reset)] = int(packet)
         else:
-            packets = (
-                packets_factory()
-                if packets_factory is not None
-                else load_npz_as_packets(path)
+            replay_rows = train_ml_model.load_or_compute_host_feature_rows(
+                path,
+                packets_factory=packets_factory,
+                feature_names=feature_names,
+                sample_contract="replay_tick",
+                stream_provenance=train_ml_model._host_feature_stream_provenance(
+                    feature_names,
+                    packet_augmentation=packet_augmentation,
+                    augmentation_seed=augmentation_seed,
+                ),
             )
-            rows, deoverlapped = extract_window_features(
-                packets,
-                feature_names,
-            )
+
+        rows = np.asarray(replay_rows["X"], dtype=np.float64)
+        packet_index = np.asarray(replay_rows["packet_index"], dtype=np.int64)
+        reset_index = np.asarray(replay_rows["reset_index"], dtype=np.int64)
+        packets_for_window = (
+            packets_factory()
+            if packets_factory is not None
+            else load_npz_as_packets(path)
+        )
+        window_packets = detector_window_packets(packets_for_window)
+        deoverlapped = np.zeros(len(rows), dtype=bool)
+        last_boundary_by_reset: Dict[int, int] = {}
+        for row_index, (packet, reset) in enumerate(zip(packet_index, reset_index)):
+            last_boundary = last_boundary_by_reset.get(int(reset))
+            if (
+                last_boundary is None
+                or int(packet) - last_boundary >= window_packets
+            ):
+                deoverlapped[row_index] = True
+                last_boundary_by_reset[int(reset)] = int(packet)
+        cache_hit = bool(replay_rows.get("cache_hit", False))
+        cache_hits += int(cache_hit)
         cache[path_text] = {
             "rows": rows,
             "deoverlapped": deoverlapped,
+            "cache_hit": cache_hit,
         }
+    if not quiet:
+        print(
+            f"  Persistent feature cache: {cache_hits} hit(s), "
+            f"{len(unique_paths) - cache_hits} miss(es)",
+            flush=True,
+        )
     return cache
 
 
@@ -1145,6 +1219,7 @@ def replay_score(primary_pairs: Mapping[str, Any], primary_idle: Mapping[str, An
 
 def evaluate_candidate(
     combination: Sequence[str],
+    fusion: str,
     pairs: Sequence[Mapping[str, Any]],
     empties: Sequence[Mapping[str, Any]],
     cache: Mapping[str, Mapping[str, np.ndarray]],
@@ -1156,7 +1231,10 @@ def evaluate_candidate(
     calibration: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     combination = tuple(combination)
-    runtime_ready = all(name in RUNTIME_READY_FEATURES for name in combination)
+    runtime_ready = (
+        fusion == FUSION_LINEAR
+        and all(name in RUNTIME_READY_FEATURES for name in combination)
+    )
     corpus = build_training_corpus(pairs, cache, feature_index, combination)
     include_train_empty = bool(
         getattr(args, "include_train_empty", False)
@@ -1169,7 +1247,8 @@ def evaluate_candidate(
             feature_index,
             combination,
         )
-    x, y = corpus["x"], corpus["y"]
+    x = transform_fusion_rows(corpus["x"], fusion)
+    y = corpus["y"]
     deoverlapped = np.asarray(corpus["deoverlapped"], dtype=bool)
     fit_x, fit_y = x[deoverlapped], y[deoverlapped]
     fit_weights = balanced_sample_weights(
@@ -1270,6 +1349,8 @@ def evaluate_candidate(
             cache[str(pair["motion_path"])]["rows"][:, cols],
             dtype=np.float64,
         )
+        static_rows = transform_fusion_rows(static_rows, fusion)
+        motion_rows = transform_fusion_rows(motion_rows, fusion)
         replay_metrics = replay_one_pair(
             static_rows,
             motion_rows,
@@ -1302,6 +1383,7 @@ def evaluate_candidate(
     idle_rows: List[Dict[str, Any]] = []
     for empty in empties:
         rows = np.asarray(cache[str(empty["path"])]["rows"][:, cols], dtype=np.float64)
+        rows = transform_fusion_rows(rows, fusion)
         metrics = replay_one_stream(
             rows,
             coefficients,
@@ -1347,6 +1429,7 @@ def evaluate_candidate(
     return {
         "combination": list(combination),
         "combination_size": len(combination),
+        "fusion": fusion,
         "runtime_ready": runtime_ready,
         "score": replay_score(
             discovery_pair_summary,
@@ -1397,6 +1480,7 @@ def evaluate_fixed_candidate(
 ) -> Dict[str, Any]:
     """Replay clean-fitted constants on another packet stream without refitting."""
     combination = tuple(str(name) for name in fitted["combination"])
+    fusion = str(fitted.get("fusion", FUSION_LINEAR))
     cols = [feature_index[name] for name in combination]
     raw_coefficients = fitted["coefficients"]
     coefficients = {
@@ -1434,6 +1518,8 @@ def evaluate_fixed_candidate(
         motion_rows = np.asarray(
             cache[str(pair["motion_path"])]["rows"][:, cols], dtype=np.float64
         )
+        static_rows = transform_fusion_rows(static_rows, fusion)
+        motion_rows = transform_fusion_rows(motion_rows, fusion)
         replay_metrics = replay_one_pair(
             static_rows,
             motion_rows,
@@ -1464,6 +1550,7 @@ def evaluate_fixed_candidate(
         rows = np.asarray(
             cache[str(empty["path"])]["rows"][:, cols], dtype=np.float64
         )
+        rows = transform_fusion_rows(rows, fusion)
         metrics = replay_one_stream(
             rows,
             coefficients,
@@ -1503,6 +1590,10 @@ def evaluate_fixed_candidate(
         "discovery": discovery,
         "holdout": holdout,
         "exclude": exclude,
+        "replay_rows": {
+            "paired": paired_rows,
+            "idle": idle_rows,
+        },
     }
 
 
@@ -1515,6 +1606,7 @@ def print_summary(result: Mapping[str, Any]) -> None:
     exclude_idle = result["exclude"]["idle"]
     bucket = "runtime-ready" if result["runtime_ready"] else "host-only"
     calibration = result.get("calibration", {})
+    fusion = str(result.get("fusion", FUSION_LINEAR))
     mode = calibration.get("mode", CALIBRATION_Q95_SHIFT)
     calibration_detail = ""
     if mode == CALIBRATION_ROBUST_LOGIT:
@@ -1533,7 +1625,7 @@ def print_summary(result: Mapping[str, Any]) -> None:
         )
     print(
         f"#{result['rank']}  {' + '.join(result['combination'])}  "
-        f"[{bucket}]  score={result['score']:.3f}  "
+        f"[{bucket}; fusion={fusion}]  score={result['score']:.3f}  "
         f"calibration={mode}{calibration_detail}  "
         f"startup={result['startup_strength']:.3f}  "
         f"settle_margin={result['settle_margin_logits']:.3f}"
@@ -1690,6 +1782,7 @@ def main() -> int:
             "--upward-max-positive-fraction must be between 0 and 1"
         )
     policies = iter_calibration_policies(args, startup_strengths)
+    fusion_modes = list(dict.fromkeys(args.fusion or [FUSION_LINEAR]))
     candidates = parse_feature_sets(args.features)
     candidate_set = {tuple(candidate) for candidate in candidates}
     if not args.no_baseline:
@@ -1700,6 +1793,11 @@ def main() -> int:
     )
     if unknown:
         raise ReplayError("Unknown feature(s) requested: " + ", ".join(unknown))
+    if any(
+        fusion != FUSION_LINEAR and len(candidate) != 2
+        for fusion, candidate in product(fusion_modes, candidate_set)
+    ):
+        raise ReplayError("Non-linear fusion modes require exactly two features")
 
     feature_surface = sorted(
         {name for candidate in candidate_set for name in candidate}
@@ -1717,11 +1815,21 @@ def main() -> int:
     runtime_surface = sorted(
         {name for candidate in runtime_candidates for name in candidate}
     )
+    host_candidates = [
+        candidate
+        for candidate in candidate_set
+        if candidate not in runtime_candidates
+    ]
+    host_surface = sorted(
+        {name for candidate in host_candidates for name in candidate}
+    )
     runtime_cache: Dict[str, Dict[str, np.ndarray]] = {}
+    status_file = sys.stderr if args.json else sys.stdout
     if runtime_surface:
         print(
             f"Extracting runtime replay rows for {len(paths)} files and "
             f"{len(runtime_surface)} features",
+            file=status_file,
             flush=True,
         )
         runtime_cache = build_replay_cache(
@@ -1732,43 +1840,36 @@ def main() -> int:
     runtime_index = {
         name: index for index, name in enumerate(runtime_surface)
     }
-    host_bundles: Dict[
-        Tuple[str, ...],
-        Tuple[Dict[str, Dict[str, np.ndarray]], Dict[str, int]],
-    ] = {}
-    for candidate in candidate_set:
-        if candidate in runtime_candidates:
-            continue
-        candidate_surface = list(candidate)
+    host_cache: Dict[str, Dict[str, np.ndarray]] = {}
+    if host_surface:
         print(
-            f"Extracting host-only replay rows for {' + '.join(candidate)}",
+            f"Extracting shared host-only replay rows for {len(host_surface)} features",
+            file=status_file,
             flush=True,
         )
-        host_bundles[candidate] = (
-            build_replay_cache(
-                paths,
-                candidate_surface,
-                quiet=args.quiet,
-            ),
-            {
-                name: index
-                for index, name in enumerate(candidate_surface)
-            },
+        host_cache = build_replay_cache(
+            paths,
+            host_surface,
+            quiet=args.quiet,
         )
+    host_index = {name: index for index, name in enumerate(host_surface)}
     results = []
     for candidate in sorted(candidate_set):
         if candidate in runtime_candidates:
             candidate_cache = runtime_cache
             candidate_index = runtime_index
         else:
-            candidate_cache, candidate_index = host_bundles[candidate]
-        for policy, settle_margin_logits in product(
+            candidate_cache = host_cache
+            candidate_index = host_index
+        for fusion, policy, settle_margin_logits in product(
+            fusion_modes,
             policies,
             settle_margins,
         ):
             results.append(
                 evaluate_candidate(
                     candidate,
+                    fusion,
                     pairs,
                     empties,
                     candidate_cache,
@@ -1780,13 +1881,13 @@ def main() -> int:
                 )
             )
     stress_scenarios: Dict[str, Mapping[str, Any]] = {}
-    if args.stress_augment:
-        for components in (
-            ("base",),
-            ("drift",),
-            ("burst-loss",),
-            ("base", "drift", "burst-loss"),
-        ):
+    if args.stress_augment or args.stress_scenario:
+        scenario_names = (
+            list(dict.fromkeys(args.stress_scenario))
+            if args.stress_scenario else list(STRESS_SCENARIOS)
+        )
+        for scenario_name in scenario_names:
+            components = STRESS_SCENARIOS[scenario_name]
             scenario = "+".join(components)
             _active, _feature_config, packet_config = (
                 train_ml_model.resolve_training_augmentation(components)
@@ -1797,6 +1898,7 @@ def main() -> int:
             print(
                 f"Extracting {scenario} packet-stress rows for "
                 f"{len(paths)} files",
+                file=status_file,
                 flush=True,
             )
             stress_runtime_cache: Dict[str, Dict[str, np.ndarray]] = {}
@@ -1810,30 +1912,18 @@ def main() -> int:
                         packet_config
                     ),
                 )
-            stress_host_bundles: Dict[
-                Tuple[str, ...],
-                Tuple[Dict[str, Dict[str, np.ndarray]], Dict[str, int]],
-            ] = {}
-            for candidate in candidate_set:
-                if candidate in runtime_candidates:
-                    continue
-                candidate_surface = list(candidate)
-                stress_host_bundles[candidate] = (
-                    build_replay_cache(
-                        paths,
-                        candidate_surface,
-                        quiet=args.quiet,
-                        packet_augmentation=packet_config,
-                        augmentation_seed=(
-                            train_ml_model.training_packet_augmentation_seed(
-                                packet_config
-                            )
-                        ),
+            stress_host_cache: Dict[str, Dict[str, np.ndarray]] = {}
+            if host_surface:
+                stress_host_cache = build_replay_cache(
+                    paths,
+                    host_surface,
+                    quiet=args.quiet,
+                    packet_augmentation=packet_config,
+                    augmentation_seed=(
+                        train_ml_model.training_packet_augmentation_seed(
+                            packet_config
+                        )
                     ),
-                    {
-                        name: index
-                        for index, name in enumerate(candidate_surface)
-                    },
                 )
             for row in results:
                 candidate = tuple(row["combination"])
@@ -1841,7 +1931,8 @@ def main() -> int:
                     candidate_cache = stress_runtime_cache
                     candidate_index = runtime_index
                 else:
-                    candidate_cache, candidate_index = stress_host_bundles[candidate]
+                    candidate_cache = stress_host_cache
+                    candidate_index = host_index
                 row.setdefault("stress", {})[scenario] = evaluate_fixed_candidate(
                     row,
                     pairs,
@@ -1892,7 +1983,7 @@ def main() -> int:
         print()
     ranking_basis = (
         "worst clean/packet-stress discovery score"
-        if args.stress_augment
+        if args.stress_augment or args.stress_scenario
         else "clean discovery score"
     )
     print(f"Candidate replay ranking ({ranking_basis}):")

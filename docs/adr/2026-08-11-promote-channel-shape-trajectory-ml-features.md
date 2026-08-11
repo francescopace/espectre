@@ -26,7 +26,7 @@ For the initial promotion export, keep the `7 -> 24 -> 12 -> 1` topology, seed `
 
 The trajectory tracker uses a gain-normalized eight-subband energy profile, `80 ms` physical-time median bins, a one-second window, exact duplicate suppression, and missing-bin skipping. Coherent innovation measures positive low-order DCT energy left after a constant-velocity prediction and high-order noise subtraction. Excess path measures positive two-step path length beyond its chord after subtracting high-order DCT path excess.
 
-Remove runtime extractors and tracker state that neither the exported ML model nor Classic consumes. Retain `l1_delta_autocorr`, `turb_mad_over_mean`, `chan_freq_coh_cv`, `chan_coh_gap`, and `chan_coh_subband_gap_median` as host-only candidates. Keep `chan_freq_coh_curve_std` in production only because Classic consumes it; its runtime path computes offsets 2 and 12, not the retired offset-4 coherence.
+Remove runtime extractors and tracker state that neither the exported ML model nor Classic consumes. Retain `l1_delta_autocorr`, `turb_mad_over_mean`, `chan_freq_coh_cv`, `chan_coh_gap`, and `chan_coh_subband_gap_median` as host-only candidates. Keep `chan_freq_coh_curve_std` in production only because Classic consumes it; its runtime path computes the two offsets selected by the current Classic decision.
 
 ## Validation
 

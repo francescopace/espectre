@@ -34,7 +34,7 @@ constexpr std::array<uint8_t, HT20_LIVE_BAND_SIZE> HT20_LIVE_BINS = {
 constexpr uint8_t HT20_LIVE_HALF_SIZE = HT20_LIVE_BAND_SIZE / 2U;
 constexpr uint8_t FREQUENCY_COHERENCE_COUNT = 2U;
 constexpr std::array<uint8_t, FREQUENCY_COHERENCE_COUNT> FREQUENCY_COHERENCE_OFFSETS = {
-    2U, 12U,
+    4U, 12U,
 };
 constexpr uint8_t CHANNEL_SHAPE_SUBBAND_COUNT = 8U;
 constexpr uint8_t CHANNEL_SHAPE_SUBBAND_SIZE =
@@ -154,7 +154,7 @@ inline float frequency_coherence_from_squares(const std::complex<float>* profile
     return std::abs(numerator) / denominator;
 }
 
-inline float frequency_coherence(const std::complex<float>* profile, uint8_t offset = 2U) {
+inline float frequency_coherence(const std::complex<float>* profile, uint8_t offset = 4U) {
     if (profile == nullptr ||
         (offset != FREQUENCY_COHERENCE_OFFSETS[0] &&
          offset != FREQUENCY_COHERENCE_OFFSETS[1])) {
@@ -456,12 +456,16 @@ class ChannelShapeTracker {
  public:
   ChannelShapeTracker() = default;
 
-  void configure(uint16_t capacity, uint16_t lag, bool track_frequency = true) {
+  void configure(uint16_t capacity, uint16_t lag, bool track_frequency = true,
+                 bool track_shape = true) {
     capacity_ = std::min<uint16_t>(capacity, DETECTOR_MAX_WINDOW_SIZE);
     lag_ = std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX);
     track_frequency_ = track_frequency;
+    track_shape_ = track_shape;
     frequency_curve_ring_.assign(track_frequency_ ? capacity_ : 0U, 0.0f);
-    motion_energy_ring_.assign(static_cast<size_t>(capacity_) * HT20_LIVE_BAND_SIZE, 0.0f);
+    motion_energy_ring_.assign(
+        track_shape_ ? static_cast<size_t>(capacity_) * HT20_LIVE_BAND_SIZE : 0U,
+        0.0f);
     ring_.assign(lag_profile_size_(), 0.0f);
     clear();
   }
@@ -486,15 +490,19 @@ class ChannelShapeTracker {
       return;
     }
     std::complex<float> complex_values[HT20_LIVE_BAND_SIZE]{};
-    float profile[HT20_LIVE_BAND_SIZE]{};
     extract_ht20_live_complex_profile(csi_data, csi_len, complex_values);
-    normalized_amplitude_profile(complex_values, profile);
-    process_profile_(profile, complex_values);
+    if (track_shape_) {
+      float profile[HT20_LIVE_BAND_SIZE]{};
+      normalized_amplitude_profile(complex_values, profile);
+      process_profile_(profile, complex_values);
+    } else {
+      process_profile_(nullptr, complex_values);
+    }
   }
 
   void process_subcarrier_amplitudes(const float* amplitudes,
                                      uint8_t amplitude_count) {
-    if (capacity_ == 0U || amplitudes == nullptr) {
+    if (capacity_ == 0U || amplitudes == nullptr || !track_shape_) {
       return;
     }
     float profile[HT20_LIVE_BAND_SIZE]{};
@@ -513,11 +521,16 @@ class ChannelShapeTracker {
     process_profile_(profile, nullptr);
   }
 
-  uint16_t count() const { return lag_distance_count_; }
+  uint16_t count() const {
+    return track_shape_ ? lag_distance_count_ : frequency_curve_count_;
+  }
   bool tracks_frequency() const { return track_frequency_; }
+  bool tracks_shape() const { return track_shape_; }
 
   float shape_spread() const {
-    return motion_participation(motion_energy_.data(), HT20_LIVE_BAND_SIZE);
+    return track_shape_
+               ? motion_participation(motion_energy_.data(), HT20_LIVE_BAND_SIZE)
+               : 0.0f;
   }
 
   float frequency_coherence_curve_std() const {
@@ -535,21 +548,28 @@ class ChannelShapeTracker {
  private:
   void process_profile_(const float* profile,
                         const std::complex<float>* complex_values) {
-    const uint16_t slot = ring_index_;
-    const size_t ring_base = static_cast<size_t>(slot) * HT20_LIVE_BAND_SIZE;
-    if (ring_filled_[slot]) {
+    if (track_shape_ && profile != nullptr) {
+      const uint16_t slot = ring_index_;
+      const size_t ring_base = static_cast<size_t>(slot) * HT20_LIVE_BAND_SIZE;
+      if (ring_filled_[slot]) {
         float delta[HT20_LIVE_BAND_SIZE]{};
         for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-            const float diff = profile[i] - ring_[ring_base + i];
-            delta[i] = diff * diff;
+          const float diff = profile[i] - ring_[ring_base + i];
+          delta[i] = diff * diff;
         }
         lag_distance_count_ = std::min<uint16_t>(
             capacity_, static_cast<uint16_t>(lag_distance_count_ + 1U));
         push_motion_energy_(delta);
+      }
+      for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
+        ring_[ring_base + i] = profile[i];
+      }
+      ring_filled_[slot] = true;
+      ring_index_ = static_cast<uint16_t>((ring_index_ + 1U) % lag_);
     }
 
     if (track_frequency_ && complex_values != nullptr) {
-      static_assert(FREQUENCY_COHERENCE_OFFSETS[0] == 2U &&
+      static_assert(FREQUENCY_COHERENCE_OFFSETS[0] == 4U &&
                         FREQUENCY_COHERENCE_OFFSETS[1] == 12U,
                     "short and long coherence are read by index below");
       float coherences[FREQUENCY_COHERENCE_COUNT]{};
@@ -557,21 +577,16 @@ class ChannelShapeTracker {
       const float short_coherence = coherences[0];
       const float long_coherence = coherences[1];
       const float coherence_sum = short_coherence + long_coherence;
-      const float curve_contrast = coherence_sum > 0.0f
-          ? (short_coherence - long_coherence) / coherence_sum
-          : 0.0f;
+      const float curve_contrast =
+          coherence_sum > 0.0f
+              ? (short_coherence - long_coherence) / coherence_sum
+              : 0.0f;
       push_frequency_curve_(curve_contrast);
     }
-
-    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        ring_[ring_base + i] = profile[i];
-    }
-    ring_filled_[slot] = true;
-    ring_index_ = static_cast<uint16_t>((ring_index_ + 1U) % lag_);
   }
   // A tracker configured with no capacity is never fed, so it holds no ring.
   size_t lag_profile_size_() const {
-    return capacity_ == 0U ? 0U
+    return capacity_ == 0U || !track_shape_ ? 0U
                            : static_cast<size_t>(lag_) * HT20_LIVE_BAND_SIZE;
   }
 
@@ -615,6 +630,7 @@ class ChannelShapeTracker {
   uint16_t capacity_{0U};
   uint16_t lag_{1U};
   bool track_frequency_{true};
+  bool track_shape_{true};
   uint16_t ring_index_{0U};
   // Sized to the configured lag rather than L1_DELTA_LAG_MAX: the ceiling is
   // 32 while the 100 ms contract resolves to 10 packets at the nominal rate,

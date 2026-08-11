@@ -21,6 +21,7 @@ from .host_feature_trackers import (
     AMPLITUDE_PROFILE_FEATURES,
     CHANNEL_COHERENCE_FEATURES,
     CHANNEL_SHAPE_FEATURES,
+    CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES,
     CHANNEL_SHAPE_TRAJECTORY_FEATURES,
     COMPOSITE_FEATURES,
     L1_SERIES_FEATURES,
@@ -43,6 +44,7 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
     + AGGREGATED_SPECTRAL_FEATURES
     + PHASE_FEATURES
     + CHANNEL_SHAPE_FEATURES
+    + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
     + L1_SERIES_FEATURES
     + tuple(
         name for name in CHANNEL_SHAPE_TRAJECTORY_FEATURES
@@ -405,6 +407,23 @@ def candidate_values(
             if shape_tracker is None:
                 raise ValueError(f"{name} needs the channel-shape tracker")
             values[name] = shape_tracker.frequency_coherence_cv()
+        elif name == 'chan_freq_coh_curve_iqr':
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.frequency_coherence_curve_iqr()
+        elif name == 'chan_freq_coh_curve_std':
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.frequency_coherence_curve_std()
+        elif name in (
+            'chan_freq_coh_curve_2_4_std',
+            'chan_freq_coh_curve_4_12_std',
+            'chan_freq_coh_decay_std',
+            'chan_freq_coh_curvature_std',
+        ):
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.frequency_coherence_candidate_std(name)
         elif name == 'chan_coh_gap_spread':
             if coherence_tracker is None or shape_tracker is None:
                 raise ValueError(

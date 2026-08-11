@@ -20,7 +20,7 @@ try:
     from src.detector_interface import IDetector, MotionState
     from src.segmentation import SegmentationContext
     from src.csi_features import (
-        CHANNEL_FREQUENCY_FEATURES, CHANNEL_SHAPE_FEATURES,
+        CHANNEL_SHAPE_FEATURES,
         CHANNEL_SHAPE_TRAJECTORY_FEATURES,
         AGGREGATED_TURBULENCE_FEATURES,
         L1_DELTA_LAG, L1_TRACKER_FEATURES,
@@ -35,7 +35,7 @@ except ImportError:
     from detector_interface import IDetector, MotionState
     from segmentation import SegmentationContext
     from csi_features import (
-        CHANNEL_FREQUENCY_FEATURES, CHANNEL_SHAPE_FEATURES,
+        CHANNEL_SHAPE_FEATURES,
         CHANNEL_SHAPE_TRAJECTORY_FEATURES,
         AGGREGATED_TURBULENCE_FEATURES,
         L1_DELTA_LAG, L1_TRACKER_FEATURES,
@@ -257,10 +257,8 @@ class MLDetector(IDetector):
             ChannelShapeTracker(
                 window_size=delta_window,
                 lag=L1_DELTA_LAG,
-                track_frequency=any(
-                    name in CHANNEL_FREQUENCY_FEATURES
-                    for name in FEATURE_NAMES
-                ),
+                track_frequency=False,
+                track_shape="chan_shape_spread" in FEATURE_NAMES,
             )
             if self._use_shape_tracker else None
         )
@@ -481,12 +479,6 @@ class MLDetector(IDetector):
             chan_shape_excess_path=(
                 trajectory_excess
                 if "chan_shape_excess_path" in FEATURE_NAMES
-                else None
-            ),
-            chan_freq_coh_curve_std=(
-                self._shape_tracker.frequency_coherence_curve_std()
-                if self._shape_tracker is not None
-                and "chan_freq_coh_curve_std" in FEATURE_NAMES
                 else None
             ),
             out=self._feature_buffer,

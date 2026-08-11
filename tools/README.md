@@ -471,20 +471,13 @@ The benchmark never writes runtime artifacts.
 
 ### 14. Classic Candidate Replay (`replay_classic_candidates.py`)
 
-**Purpose**: Fit and replay research-only one- or two-feature Classic detector
-candidates without writing runtime artifacts
+**Purpose**: Fit and replay research-only one-, two-, or three-feature Classic detector candidates without writing runtime artifacts
 
-The tool fits coefficients only on de-overlapped clean `train` rows, evaluates
-the production startup calibration and settled-level policy at the runtime
-cadence, and reports discovery, historical holdout, `exclude`, paired, and
-empty-room metrics separately. `--include-train-empty` admits only train-role
-empty recordings as grouped hard negatives.
+The tool fits coefficients only on de-overlapped clean `train` rows, evaluates the production startup calibration and settled-level policy at the runtime cadence, and reports discovery, historical holdout, `exclude`, paired, and empty-room metrics separately. `--include-train-empty` admits only train-role empty recordings as grouped hard negatives.
 
-`--stress-augment` keeps the clean-fitted coefficients and operating point
-fixed, then replays `base`, `drift`, `burst-loss`, and the combined packet
-recipe. The stress is packet-domain only; ML feature-space jitter is not an
-inference stream. Candidates are ranked by their worst discovery score across
-clean and augmented replays, while holdout and `exclude` remain diagnostics.
+`--fusion` compares the linear surface with research-only interaction and quadratic expansions of an extracted two-feature pair. The expansion is applied consistently to grouped fitting, causal calibration, clean replay, and packet-stress replay; it never writes runtime artifacts.
+
+`--stress-augment` keeps the clean-fitted coefficients and operating point fixed, then replays `base`, `drift`, `burst-loss`, and the combined packet recipe. `--stress-scenario` can select one or more of those recipes for a targeted diagnosis. The stress is packet-domain only; ML feature-space jitter is not an inference stream. Candidates are ranked by their worst discovery score across clean and augmented replays, while holdout and `exclude` remain diagnostics. Exact extracted host rows are stored in the shared persistent NPZ cache, keyed by source and packet-transform provenance, so repeated fits reuse feature extraction without changing packet timing semantics.
 
 ```bash
 python replay_classic_candidates.py \
@@ -500,6 +493,14 @@ python replay_classic_candidates.py \
 
 The current verdict and retained metrics are recorded in
 [FEATURES.md](../docs/FEATURES.md).
+
+Production coefficient export is a separate step. `fit_classic_detector.py` reports the grouped OOF operating point by default; when sequential replay selects a different production point, pass its centered logit explicitly so Python and C++ receive the same reproducible coefficients, idle reference, and threshold:
+
+```bash
+python fit_classic_detector.py --centered-threshold-logit 1.73 --apply --quiet
+```
+
+The override does not waive the low-RSSI, empty-room, packet-rate, or C++/Python parity gates. Dense-window OOF FP does not encode the debounced empty-room alarm contract.
 
 ---
 
