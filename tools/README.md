@@ -191,8 +191,8 @@ python train_ml_model.py --no-cache       # Bypass persisted time-aware rows
 python train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python train_ml_model.py --seed-search-until-improvement 20  # Evaluate all seeds and keep the best robust improvement
 python train_ml_model.py --seed 12345 --force-promote  # Deliberate baseline reset: export even if the gates fail
-python train_ml_model.py --features turb_iqr_over_mean_aggr,turb_autocorr,turb_zcr,l1_delta_autocorr --no-export  # Evaluate a feature subset
-python train_ml_model.py --features turb_iqr_over_mean_aggr,turb_autocorr,turb_zcr,l1_delta_autocorr,l1_delta_lag_ratio,chan_coh_lag_ratio --no-export  # Evaluate a host-side candidate without export
+python train_ml_model.py --features turb_iqr_over_mean_aggr,turb_autocorr,turb_zcr,l1_delta_lag_ratio --no-export  # Evaluate a feature subset
+python train_ml_model.py --features turb_iqr_over_mean_aggr,turb_autocorr,turb_zcr,l1_delta_lag_ratio,chan_shape_scale_curvature --no-export  # Evaluate a host-side candidate without export
 python train_ml_model.py --augment            # Same as --augment base,drift,burst-loss
 python train_ml_model.py --augment drift      # Slow correlated drift only
 python train_ml_model.py --augment base,drift
@@ -431,10 +431,7 @@ features, so the worst pair carries the evidence, and it is only a paired
 comparison when the `same pair` column says the limiting recording is the same
 in both configurations.
 
-In `candidates` mode, `turb_mad_over_mean` remains the historical reference row
-for the original screen. The promoted runtime instead computes
-`turb_iqr_over_mean_aggr` on a dedicated `W=5` ML-only buffer; the benchmark
-continues to preserve the broader width sweep as research evidence.
+In `candidates` mode, `turb_mad_over_mean` remains the historical reference row for the original screen. The promoted runtime instead computes `turb_iqr_over_mean_aggr` on a dedicated `W=5` ML-only buffer; the benchmark continues to preserve the broader width sweep as research evidence. Reusable candidate formulas from this screen are also registered in `lib/candidate_features.py`, so they can participate in the generic host-only training and Classic comparison workflows.
 
 The measured verdict, the width sweep, and the mechanism are recorded in
 [`2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md`](../docs/adr/2026-08-05-reject-adjacent-subcarrier-aggregation-on-the-shared-band.md)
@@ -455,6 +452,8 @@ python benchmark_subcarrier_aggregation.py --mode candidates --widths 3 --json o
 **Purpose**: Compare single features, pairs, or triplets on time-aware real paired windows before coupling the ranking to a threshold or startup-calibration sweep
 
 The projection fits on `train`, the primary ranking uses `train` plus `selection`, and `holdout` and `exclude` remain diagnostics. Use `--feature` for the initial one-dimensional screen, then use `--pair` or `--triple` only for candidates whose direction and worst-pair behavior justify a larger replay.
+
+The accepted feature surface includes every registered host-only candidate, including formulations whose current ledger verdict is `Rejected`. Those formulations remain available for reproducibility and new combinations, but they cannot be exported without matching production implementations.
 
 ```bash
 python benchmark_classic_candidate_pairs.py \

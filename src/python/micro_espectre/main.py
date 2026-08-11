@@ -356,7 +356,11 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
                 print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                 remap_logged = True
             del frame
-            detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
+            detector.process_packet(
+                csi_data,
+                config.DEFAULT_SUBCARRIERS,
+                timestamp_us=frame_result[4],
+            )
             packets_since_evaluation += 1
             last_packet_time = time.ticks_ms()
 
@@ -938,7 +942,11 @@ def main():
                             f'{resolved_window_packets} samples for '
                             f'{getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)} ms'
                         )
-                    detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
+                    detector.process_packet(
+                        csi_data,
+                        config.DEFAULT_SUBCARRIERS,
+                        timestamp_us=frame_result[4],
+                    )
 
                 if runtime_policy.detector_rate_supported and runtime_policy.should_evaluate():
                     # Detect WiFi channel changes (AP may switch channels automatically)

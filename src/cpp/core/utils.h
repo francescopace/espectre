@@ -157,8 +157,8 @@ inline float calculate_magnitude(int8_t i, int8_t q) {
 /**
  * Write the mean-normalized amplitude profile into `out`
  *
- * Shared numeric core for the L1-Delta detector; mirrors the Python
- * `features.normalize_amplitude_profile_into` helper.
+ * Shared numeric core for the C++ L1-delta tracker. The MicroPython tracker
+ * performs the same normalization directly in its packet loop.
  *
  * @param amplitudes Input amplitude values
  * @param count Number of input values

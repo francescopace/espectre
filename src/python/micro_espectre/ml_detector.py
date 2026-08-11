@@ -20,35 +20,42 @@ try:
     from src.detector_interface import IDetector, MotionState
     from src.segmentation import SegmentationContext
     from src.csi_features import (
-        CHANNEL_COHERENCE_FEATURES, CHANNEL_SHAPE_FEATURES,
+        CHANNEL_FREQUENCY_FEATURES, CHANNEL_SHAPE_FEATURES,
+        CHANNEL_SHAPE_TRAJECTORY_FEATURES,
         AGGREGATED_TURBULENCE_FEATURES,
-        L1_DELTA_LAG, L1_SERIES_FEATURES, L1_TRACKER_FEATURES,
+        L1_DELTA_LAG, L1_TRACKER_FEATURES,
         TURB_IQR_AGGREGATION_WIDTH, L1DeltaTracker, extract_features_by_name,
     )
-    from src.ml_feature_trackers import ChannelCoherenceTracker, ChannelShapeTracker
+    from src.ml_feature_trackers import (
+        ChannelShapeTracker,
+        ChannelShapeTrajectoryTracker,
+    )
     from src.config import DEFAULT_SUBCARRIERS
 except ImportError:
     from detector_interface import IDetector, MotionState
     from segmentation import SegmentationContext
     from csi_features import (
-        CHANNEL_COHERENCE_FEATURES, CHANNEL_SHAPE_FEATURES,
+        CHANNEL_FREQUENCY_FEATURES, CHANNEL_SHAPE_FEATURES,
+        CHANNEL_SHAPE_TRAJECTORY_FEATURES,
         AGGREGATED_TURBULENCE_FEATURES,
-        L1_DELTA_LAG, L1_SERIES_FEATURES, L1_TRACKER_FEATURES,
+        L1_DELTA_LAG, L1_TRACKER_FEATURES,
         TURB_IQR_AGGREGATION_WIDTH, L1DeltaTracker, extract_features_by_name,
     )
-    from ml_feature_trackers import ChannelCoherenceTracker, ChannelShapeTracker
+    from ml_feature_trackers import (
+        ChannelShapeTracker,
+        ChannelShapeTrajectoryTracker,
+    )
     from config import DEFAULT_SUBCARRIERS
 
 try:
-    from src.ml_weights import (
-        FEATURE_MEAN, FEATURE_SCALE,
-        WEIGHTS, BIASES, FEATURE_NAMES,
-    )
+    from src import ml_weights as _ml_weights
 except ImportError:
-    from ml_weights import (
-        FEATURE_MEAN, FEATURE_SCALE,
-        WEIGHTS, BIASES, FEATURE_NAMES,
-    )
+    import ml_weights as _ml_weights
+
+FEATURE_MEAN = _ml_weights.FEATURE_MEAN
+FEATURE_SCALE = _ml_weights.FEATURE_SCALE
+BIASES = _ml_weights.BIASES
+FEATURE_NAMES = _ml_weights.FEATURE_NAMES
 
 # Re-export for convenience
 __all__ = ['MLDetector', 'predict', 'is_motion', 'DEFAULT_SUBCARRIERS', 'FEATURE_NAMES']
@@ -59,26 +66,20 @@ ML_MIN_THRESHOLD = 0.0
 ML_MAX_THRESHOLD = 1.0
 ML_METRIC_SCALE = 1.0
 
-# Transpose weight matrices at load time: [input][output] → [output][input].
-# This makes the inner multiply-add loop access weights[j] once per output
-# neuron instead of weights[i][j] (2 lookups) per multiply-add.
-_WEIGHTS_T = []
-for _lw in WEIGHTS:
-    _n_in = len(_lw)
-    _n_out = len(_lw[0])
-    _WEIGHTS_T.append([[_lw[i][j] for i in range(_n_in)] for j in range(_n_out)])
-del _lw, _n_in, _n_out
-
-# On MicroPython the generated source matrix is no longer needed after the
-# transposed runtime layout has been built. Clearing it releases its nested
-# list containers while keeping CPython analysis/test imports unchanged.
-try:
-    import sys
-    if sys.implementation.name == "micropython":
-        WEIGHTS.clear()
-except (AttributeError, ImportError):
-    pass
-del WEIGHTS
+# New exports are already [output][input]. Retain a compatibility path for
+# older deployed weight modules so over-the-air module updates remain safe.
+_WEIGHTS_T = getattr(_ml_weights, "WEIGHTS_T", None)
+if _WEIGHTS_T is None:
+    _legacy_weights = _ml_weights.WEIGHTS
+    _WEIGHTS_T = []
+    for _lw in _legacy_weights:
+        _n_in = len(_lw)
+        _n_out = len(_lw[0])
+        _WEIGHTS_T.append(
+            [[_lw[i][j] for i in range(_n_in)] for j in range(_n_out)]
+        )
+    del _legacy_weights, _lw, _n_in, _n_out
+del _ml_weights
 
 # ============================================================================
 # Neural Network Inference Functions
@@ -215,19 +216,15 @@ class MLDetector(IDetector):
         self._motion_count = 0
         self._state = MotionState.IDLE
         self._current_probability = 0.0
-        # The lag ratio needs the tracker but not the rebuilt series, so the
-        # two questions are asked separately; mirrors MLDetector in C++.
+        # The lag ratio needs the profile rings, but no rebuilt delta series.
         self._use_amplitude_history = any(
             name in L1_TRACKER_FEATURES for name in FEATURE_NAMES
-        )
-        self._use_l1_series = any(
-            name in L1_SERIES_FEATURES for name in FEATURE_NAMES
         )
         self._use_shape_tracker = any(
             name in CHANNEL_SHAPE_FEATURES for name in FEATURE_NAMES
         )
-        self._use_coherence_tracker = any(
-            name in CHANNEL_COHERENCE_FEATURES for name in FEATURE_NAMES
+        self._use_shape_trajectory_tracker = any(
+            name in CHANNEL_SHAPE_TRAJECTORY_FEATURES for name in FEATURE_NAMES
         )
         self._use_aggregated_turbulence = any(
             name in AGGREGATED_TURBULENCE_FEATURES for name in FEATURE_NAMES
@@ -254,25 +251,40 @@ class MLDetector(IDetector):
                 hampel_window=hampel_window,
                 hampel_threshold=hampel_threshold,
             )
-            self._l1_series_buffer = (
-                [0.0] * delta_window if self._use_l1_series else None
-            )
         else:
             self._l1_tracker = None
-            self._l1_series_buffer = None
         self._shape_tracker = (
-            ChannelShapeTracker(window_size=delta_window, lag=L1_DELTA_LAG)
+            ChannelShapeTracker(
+                window_size=delta_window,
+                lag=L1_DELTA_LAG,
+                track_frequency=any(
+                    name in CHANNEL_FREQUENCY_FEATURES
+                    for name in FEATURE_NAMES
+                ),
+            )
             if self._use_shape_tracker else None
         )
-        self._coherence_tracker = (
-            ChannelCoherenceTracker(window_size=delta_window, lag=L1_DELTA_LAG)
-            if self._use_coherence_tracker else None
+        self._shape_trajectory_tracker = (
+            ChannelShapeTrajectoryTracker()
+            if self._use_shape_trajectory_tracker else None
         )
         self._ordered_turbulence = [0.0] * window_size
         self._ordered_aggregated_turbulence = (
             [0.0] * window_size if self._use_aggregated_turbulence else None
         )
+        self._series_sort_scratch = (
+            self._ordered_aggregated_turbulence
+            if self._ordered_aggregated_turbulence is not None
+            else ([0.0] * window_size if "turb_zcr" in FEATURE_NAMES else None)
+        )
         self._feature_buffer = [0.0] * len(FEATURE_NAMES)
+        # Production windows already exceed one HT20 frame. Packet extraction
+        # and chronological ordering never overlap, so they share that scratch.
+        self._packet_subcarrier_values = (
+            self._ordered_turbulence
+            if window_size >= 64
+            else [0.0] * 64
+        )
         workspace_size = max(
             len(FEATURE_MEAN),
             max(len(layer_biases) for layer_biases in BIASES),
@@ -285,7 +297,8 @@ class MLDetector(IDetector):
         self.state_history = []
         self.track_data = False
     
-    def process_packet(self, csi_data, selected_subcarriers=None, rssi_dbm=None):
+    def process_packet(self, csi_data, selected_subcarriers=None, rssi_dbm=None,
+                       timestamp_us=None):
         """
         Process a CSI packet.
         
@@ -293,35 +306,57 @@ class MLDetector(IDetector):
             csi_data: Raw CSI data (int8 I/Q pairs)
             selected_subcarriers: Subcarrier indices to use
             rssi_dbm: Optional per-packet RSSI metadata (ignored by ML)
+            timestamp_us: Optional monotonic packet timestamp in microseconds
         """
         self._packet_count += 1
         if selected_subcarriers is None:
             selected_subcarriers = DEFAULT_SUBCARRIERS
 
-        if self._use_amplitude_history:
-            turbulence = self._context.calculate_spatial_turbulence(
-                csi_data, selected_subcarriers
+        packet_values = self._packet_subcarrier_values
+        packet_value_count = SegmentationContext.fill_subcarrier_energy_buffer(
+            csi_data,
+            packet_values,
+        )
+        if self._shape_trajectory_tracker is not None:
+            self._shape_trajectory_tracker.process_packet(
+                csi_data,
+                timestamp_us,
+                packet_values,
+                packet_value_count,
             )
+        SegmentationContext.energies_to_amplitudes_in_place(
+            packet_values,
+            packet_value_count,
+        )
+
+        turbulence = (
+            self._context.calculate_spatial_turbulence_from_subcarrier_amplitudes(
+                packet_values,
+                packet_value_count,
+                selected_subcarriers,
+            )
+        )
+        if self._use_amplitude_history:
             self._l1_tracker.process_amplitudes(
                 self._context._amplitude_buffer,
                 self._context._amplitude_count,
             )
-        else:
-            # Fast path for the default exported models: only the turbulence window is needed.
-            turbulence = self._context.calculate_spatial_turbulence(
-                csi_data, selected_subcarriers
-            )
         if self._shape_tracker is not None:
-            self._shape_tracker.process_packet(csi_data)
-        if self._coherence_tracker is not None:
-            self._coherence_tracker.process_packet(csi_data)
+            if self._shape_tracker.track_frequency:
+                self._shape_tracker.process_packet(csi_data)
+            else:
+                self._shape_tracker.process_subcarrier_amplitudes(
+                    packet_values,
+                    packet_value_count,
+                )
 
         # Add to buffer
         self._context.add_turbulence(turbulence)
         if self._aggregated_context is not None:
             aggregated_turbulence = (
-                self._aggregated_context.calculate_spatial_turbulence(
-                    csi_data,
+                self._aggregated_context.calculate_spatial_turbulence_from_subcarrier_amplitudes(
+                    packet_values,
+                    packet_value_count,
                     selected_subcarriers,
                 )
             )
@@ -395,9 +430,6 @@ class MLDetector(IDetector):
             for i in range(count):
                 turb_list[i] = ctx.turbulence_buffer[(idx + i) % count]
 
-        l1_count = 0
-        if self._l1_series_buffer is not None:
-            l1_count = self._l1_tracker.copy_deltas_into(self._l1_series_buffer)
         aggregated_count = 0
         aggregated_turbulence = None
         if self._aggregated_context is not None:
@@ -415,13 +447,18 @@ class MLDetector(IDetector):
                     aggregated_turbulence[i] = aggregated_ctx.turbulence_buffer[
                         (aggregated_idx + i) % aggregated_count
                     ]
+        trajectory_innovation = None
+        trajectory_excess = None
+        if self._shape_trajectory_tracker is not None:
+            trajectory_innovation, trajectory_excess = (
+                self._shape_trajectory_tracker.trajectory_features()
+            )
         return extract_features_by_name(
             turb_list, count,
             feature_names=FEATURE_NAMES,
             aggregated_turbulence_buffer=aggregated_turbulence,
             aggregated_turbulence_count=aggregated_count,
-            l1_series=self._l1_series_buffer,
-            l1_series_count=l1_count,
+            sort_scratch=self._series_sort_scratch,
             l1_delta_lag_ratio=(
                 self._l1_tracker.delta_lag_ratio()
                 if (
@@ -436,10 +473,14 @@ class MLDetector(IDetector):
                 and "chan_shape_spread" in FEATURE_NAMES
                 else None
             ),
-            chan_freq_coh_cv=(
-                self._shape_tracker.frequency_coherence_cv()
-                if self._shape_tracker is not None
-                and "chan_freq_coh_cv" in FEATURE_NAMES
+            chan_shape_coherent_innovation_energy=(
+                trajectory_innovation
+                if "chan_shape_coherent_innovation_energy" in FEATURE_NAMES
+                else None
+            ),
+            chan_shape_excess_path=(
+                trajectory_excess
+                if "chan_shape_excess_path" in FEATURE_NAMES
                 else None
             ),
             chan_freq_coh_curve_std=(
@@ -448,20 +489,7 @@ class MLDetector(IDetector):
                 and "chan_freq_coh_curve_std" in FEATURE_NAMES
                 else None
             ),
-            chan_coh_gap=(
-                self._coherence_tracker.coherence_gap()
-                if self._coherence_tracker is not None
-                and "chan_coh_gap" in FEATURE_NAMES
-                else None
-            ),
-            chan_coh_subband_gap_median=(
-                self._coherence_tracker.coherence_subband_gap_median()
-                if self._coherence_tracker is not None
-                and "chan_coh_subband_gap_median" in FEATURE_NAMES
-                else None
-            ),
             out=self._feature_buffer,
-            reuse_turbulence_buffer=True,
             reuse_aggregated_turbulence_buffer=True,
         )
     
@@ -492,8 +520,6 @@ class MLDetector(IDetector):
             return False
         if self._shape_tracker is not None and self._shape_tracker.count() < (self._context.window_size - L1_DELTA_LAG):
             return False
-        if self._coherence_tracker is not None and self._coherence_tracker.count() < (self._context.window_size - L1_DELTA_LAG):
-            return False
         if (
             self._aggregated_context is not None
             and self._aggregated_context.buffer_count
@@ -513,8 +539,8 @@ class MLDetector(IDetector):
             self._l1_tracker.reset()
         if self._shape_tracker is not None:
             self._shape_tracker.reset()
-        if self._coherence_tracker is not None:
-            self._coherence_tracker.reset()
+        if self._shape_trajectory_tracker is not None:
+            self._shape_trajectory_tracker.reset()
         if self._aggregated_context is not None:
             self._aggregated_context.reset(full=True)
         self.probability_history = []

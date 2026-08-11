@@ -317,6 +317,7 @@ def extract_window_features(
     extractor = train_ml_model.StreamingFeatureExtractor(
         feature_names,
         window_packets=window_packets,
+        packet_interval_us=interval_us,
     )
     timing_tracker, cadence = timing_cadence_for_window(
         window_packets,
@@ -335,6 +336,7 @@ def extract_window_features(
             extractor = train_ml_model.StreamingFeatureExtractor(
                 feature_names,
                 window_packets=window_packets,
+                packet_interval_us=interval_us,
             )
             cadence.reset()
             timing_tracker.reset()
@@ -344,7 +346,7 @@ def extract_window_features(
                 timing_tracker=timing_tracker,
             )
             since_window = 0
-        values = extractor.process_packet(packet["csi_data"])
+        values = extractor.process_packet(packet["csi_data"], packet=packet)
         since_window += 1
         if not should_evaluate or values is None:
             continue

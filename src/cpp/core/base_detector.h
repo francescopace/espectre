@@ -83,6 +83,12 @@ public:
                                 const uint8_t* selected_subcarriers = nullptr,
                                 uint8_t num_subcarriers = 0,
                                 int8_t rssi_dbm = INT8_MIN);
+
+    /** Supply the monotonic arrival timestamp consumed by time-binned features. */
+    void set_packet_timestamp_us(uint64_t timestamp_us) {
+        packet_timestamp_us_ = timestamp_us;
+        has_packet_timestamp_ = true;
+    }
     
     /**
      * Reset detector state
@@ -259,6 +265,10 @@ protected:
 
     void process_amplitudes(const float* amplitudes, uint8_t count);
 
+    uint64_t packet_timestamp_us_or(uint64_t fallback) const {
+        return has_packet_timestamp_ ? packet_timestamp_us_ : fallback;
+    }
+
     /**
      * Add turbulence value to buffer (with filtering)
      */
@@ -298,6 +308,8 @@ protected:
     float current_metric_;
     uint32_t total_packets_;
     uint32_t packet_index_;
+    uint64_t packet_timestamp_us_;
+    bool has_packet_timestamp_;
     
     // Filters
     hampel_filter_state_t hampel_state_;

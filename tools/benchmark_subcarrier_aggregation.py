@@ -453,8 +453,8 @@ def candidate_values(turbulence: np.ndarray, profiles: np.ndarray) -> List[float
     `turb_mad_over_mean` is the historical production reference for this
     screen: it must reproduce the `features` mode result, which is what makes
     the retired candidates around it trustworthy. It uses the true median
-    absolute deviation, matching `csi_features.calc_mad`; the mean absolute
-    deviation is a different statistic and does not reproduce it.
+    absolute deviation; the mean absolute deviation is a different statistic
+    and does not reproduce the historical value.
     """
     count = len(turbulence)
     mean = float(turbulence.mean())

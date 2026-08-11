@@ -1,4 +1,4 @@
-"""Delay-compensated coherence parity between the runtime path and the formula.
+"""Host-only delay-compensated coherence checks against the plain formula.
 
 The full-band and subband coherences of one reference now read a shared
 cross-product array instead of each rebuilding it. The reference here spells the
@@ -13,16 +13,13 @@ import random
 import numpy as np
 import pytest
 
-from ml_feature_trackers import (
-    HT20_LIVE_BINS,
-    HT20_LIVE_WIDTH,
-    ChannelCoherenceTracker,
-    _SUBBAND_SPANS,
-    complex_profile,
-    delay_compensated_coherence,
-    subband_coherences,
-)
 from tools.lib import host_feature_trackers as host
+
+HT20_LIVE_BINS = host.HT20_LIVE_BINS
+HT20_LIVE_WIDTH = len(HT20_LIVE_BINS)
+ChannelCoherenceTracker = host.ChannelCoherenceTracker
+_SUBBAND_SPANS = host._SUBBAND_SPANS
+complex_profile = host.complex_profile
 
 # The reference keeps the absolute bins the definition is written in. The
 # runtime no longer needs them, because the derotation factors them out as one
@@ -130,7 +127,6 @@ def random_pairs(count=24, seed=20260805):
 def test_subbands_tile_the_live_band_exactly() -> None:
     """Sharing one cross array is only valid because the spans tile the band."""
     assert len(_SUBBAND_SPANS) == SUBBAND_COUNT
-    assert _SUBBAND_SPANS == host._SUBBAND_SPANS
 
     covered = []
     for start, stop in _SUBBAND_SPANS:
@@ -146,20 +142,13 @@ def test_deterministic_pairs_match_the_reference(name) -> None:
     np_reference = np.asarray(reference, dtype=np.complex128)
 
     expected_full = reference_full_band(current, reference)
-    assert delay_compensated_coherence(current, reference) == pytest.approx(
-        expected_full, rel=RELATIVE_TOLERANCE, abs=RELATIVE_TOLERANCE
-    )
     assert host.delay_compensated_coherence(np_current, np_reference) == pytest.approx(
         expected_full, rel=RELATIVE_TOLERANCE, abs=RELATIVE_TOLERANCE
     )
 
     expected_bands = reference_subbands(current, reference)
-    micro_bands = subband_coherences(current, reference)
     host_bands = host.subband_coherences(np_current, np_reference)
     for i in range(SUBBAND_COUNT):
-        assert micro_bands[i] == pytest.approx(
-            expected_bands[i], rel=RELATIVE_TOLERANCE, abs=RELATIVE_TOLERANCE
-        )
         assert host_bands[i] == pytest.approx(
             expected_bands[i], rel=RELATIVE_TOLERANCE, abs=RELATIVE_TOLERANCE
         )
@@ -172,21 +161,14 @@ def test_random_pairs_match_the_reference() -> None:
 
         expected_full = reference_full_band(current, reference)
         assert expected_full > 0.0
-        assert delay_compensated_coherence(current, reference) == pytest.approx(
-            expected_full, rel=RELATIVE_TOLERANCE
-        )
         assert host.delay_compensated_coherence(
             np_current, np_reference
         ) == pytest.approx(expected_full, rel=RELATIVE_TOLERANCE)
 
         expected_bands = reference_subbands(current, reference)
-        micro_bands = subband_coherences(current, reference)
         host_bands = host.subband_coherences(np_current, np_reference)
         for i in range(SUBBAND_COUNT):
             assert expected_bands[i] > 0.0
-            assert micro_bands[i] == pytest.approx(
-                expected_bands[i], rel=RELATIVE_TOLERANCE
-            )
             assert host_bands[i] == pytest.approx(
                 expected_bands[i], rel=RELATIVE_TOLERANCE
             )
@@ -196,17 +178,15 @@ def test_zero_profiles_are_guarded_rather_than_divided() -> None:
     zeros = [0j] * HT20_LIVE_WIDTH
     np_zeros = np.zeros(HT20_LIVE_WIDTH, dtype=np.complex128)
 
-    assert delay_compensated_coherence(zeros, zeros) == 0.0
     assert host.delay_compensated_coherence(np_zeros, np_zeros) == 0.0
-    assert list(subband_coherences(zeros, zeros)) == [0.0] * SUBBAND_COUNT
     assert list(host.subband_coherences(np_zeros, np_zeros)) == [0.0] * SUBBAND_COUNT
 
 
 def test_null_csi_gives_a_zero_profile_and_zero_coherence() -> None:
     for csi_data in (None, [], [0] * 16):
         profile = complex_profile(csi_data)
-        assert delay_compensated_coherence(profile, profile) == 0.0
-        assert list(subband_coherences(profile, profile)) == [0.0] * SUBBAND_COUNT
+        assert host.delay_compensated_coherence(profile, profile) == 0.0
+        assert list(host.subband_coherences(profile, profile)) == [0.0] * SUBBAND_COUNT
 
 
 def test_shared_cross_buffer_is_not_reused_across_references() -> None:
@@ -220,7 +200,7 @@ def test_shared_cross_buffer_is_not_reused_across_references() -> None:
     profiles = []
 
     for _ in range(6):
-        csi_data = [rng.randrange(0, 256) for _ in range(128)]
+        csi_data = [rng.randrange(-128, 128) for _ in range(128)]
         profiles.append(complex_profile(csi_data))
         tracker.process_packet(csi_data)
 
@@ -242,11 +222,11 @@ def test_shared_cross_buffer_is_not_reused_across_references() -> None:
 
 def test_tracker_subband_gap_follows_the_reference() -> None:
     rng = random.Random(777)
-    tracker = ChannelCoherenceTracker(window_size=32, lag=3)
+    tracker = ChannelCoherenceTracker(window_size=32, lag=3, track_subbands=True)
     profiles = []
 
     for _ in range(9):
-        csi_data = [rng.randrange(0, 256) for _ in range(128)]
+        csi_data = [rng.randrange(-128, 128) for _ in range(128)]
         profiles.append(complex_profile(csi_data))
         tracker.process_packet(csi_data)
 

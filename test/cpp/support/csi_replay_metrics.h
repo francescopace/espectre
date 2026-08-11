@@ -55,6 +55,18 @@ inline csi_replay_timing::TimingObservation observe_packet(
       metadata.wifi_rx_ts_us != nullptr);
 }
 
+inline uint64_t packet_timestamp_us(const ReplayPacketMetadata& metadata,
+                                    int packet_index,
+                                    uint32_t nominal_interval_us) {
+  if (metadata.device_ticks_us != nullptr) {
+    return metadata.device_ticks_us[packet_index];
+  }
+  if (metadata.wifi_rx_ts_us != nullptr) {
+    return metadata.wifi_rx_ts_us[packet_index];
+  }
+  return static_cast<uint64_t>(packet_index) * nominal_interval_us;
+}
+
 /**
  * Effective interval of one replayed stream.
  *
@@ -224,6 +236,8 @@ inline bool calibrate_classic_detector(
       timing_tracker.reset();
       timing = observe_packet(timing_tracker, baseline_metadata, i);
     }
+    detector.set_packet_timestamp_us(packet_timestamp_us(
+        baseline_metadata, i, nominal_interval_us));
     detector.process_packet(
         baseline_packets[i],
         static_cast<size_t>(pkt_size),
@@ -295,6 +309,8 @@ ReplayMetrics evaluate_detector(
       packets_since_reset = 0;
       timing = observe_packet(timing_tracker, baseline_metadata, i);
     }
+    detector.set_packet_timestamp_us(packet_timestamp_us(
+        baseline_metadata, i, nominal_interval_us));
     detector.process_packet(
         baseline_packets[i],
         static_cast<size_t>(pkt_size),
@@ -337,6 +353,8 @@ ReplayMetrics evaluate_detector(
       packets_since_reset = 0;
       timing = observe_packet(timing_tracker, motion_metadata, i);
     }
+    detector.set_packet_timestamp_us(packet_timestamp_us(
+        motion_metadata, i, nominal_interval_us));
     detector.process_packet(
         motion_packets[i],
         static_cast<size_t>(pkt_size),

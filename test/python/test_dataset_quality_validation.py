@@ -1124,6 +1124,72 @@ def test_capture_continuity_flags_low_rate_and_stream_gaps() -> None:
     assert "after packet 2 (seq 12 -> 60)" in by_name["stream_seq_max_gap"].message
 
 
+def test_capture_continuity_allows_bounded_low_rssi_stream_loss() -> None:
+    module = _load_validator_module()
+
+    class FakeNpz:
+        files = ["duration_ms", "stream_seq_num"]
+
+        def __init__(self):
+            self.values = {
+                "duration_ms": np.array(960.0),
+                "stream_seq_num": np.delete(
+                    np.arange(100, dtype=np.uint32),
+                    [20, 40, 60, 80],
+                ),
+            }
+
+        def __getitem__(self, key):
+            return self.values[key]
+
+    data = FakeNpz()
+    csi_data = np.zeros((96, 128), dtype=np.int8)
+
+    normal_results = module.validate_capture_continuity(data, csi_data)
+    low_rssi_results = module.validate_capture_continuity(
+        data,
+        csi_data,
+        low_rssi=True,
+    )
+    normal_gaps = next(result for result in normal_results if result.name == "stream_seq_gaps")
+    low_rssi_gaps = next(
+        result for result in low_rssi_results if result.name == "stream_seq_gaps"
+    )
+
+    assert normal_gaps.status == "FAIL"
+    assert low_rssi_gaps.status == "WARN"
+    assert low_rssi_gaps.value == 0.04
+    assert "low_rssi fail > 5.0%" in low_rssi_gaps.message
+
+
+def test_capture_continuity_rejects_low_rssi_stream_loss_above_ceiling() -> None:
+    module = _load_validator_module()
+
+    class FakeNpz:
+        files = ["duration_ms", "stream_seq_num"]
+
+        def __init__(self):
+            self.values = {
+                "duration_ms": np.array(940.0),
+                "stream_seq_num": np.delete(
+                    np.arange(100, dtype=np.uint32),
+                    [10, 20, 30, 40, 50, 60],
+                ),
+            }
+
+        def __getitem__(self, key):
+            return self.values[key]
+
+    data = FakeNpz()
+    csi_data = np.zeros((94, 128), dtype=np.int8)
+
+    results = module.validate_capture_continuity(data, csi_data, low_rssi=True)
+    gaps = next(result for result in results if result.name == "stream_seq_gaps")
+
+    assert gaps.status == "FAIL"
+    assert gaps.value == 0.06
+
+
 def test_capture_continuity_accepts_packet_rate_at_minimum_threshold() -> None:
     module = _load_validator_module()
 
@@ -1781,6 +1847,8 @@ def test_generate_report_uses_agnostic_wording(tmp_path, monkeypatch) -> None:
     assert "`Cover`" in report
     assert "`Sep`" in report
     assert "`RefExc`" in report
+    assert "`Stream loss`" in report
+    assert "`low_rssi: true`" in report
     assert "ClassicDetector" not in report
     assert "| Threshold |" not in report
     assert "`TP`" not in report

@@ -134,10 +134,12 @@ class ClassicDetector(IDetector):
         fraction = position - lower
         return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
 
-    def process_packet(self, csi_data, selected_subcarriers=None, rssi_dbm=None):
+    def process_packet(self, csi_data, selected_subcarriers=None, rssi_dbm=None,
+                       timestamp_us=None):
         """Process one CSI packet. ``rssi_dbm`` is accepted for interface parity
         and ignored: both Classic features are already invariant to link gain."""
         self._packet_count += 1
+        del timestamp_us
         turbulence = self._context.calculate_spatial_turbulence(
             csi_data, selected_subcarriers
         )

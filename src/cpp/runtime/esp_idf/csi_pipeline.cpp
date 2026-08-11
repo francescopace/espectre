@@ -193,6 +193,7 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   const int8_t rssi_dbm = data->rx_ctrl.rssi;
   last_rssi_dbm_ = rssi_dbm;
   last_channel_ = data->rx_ctrl.channel;
+  detector_->set_packet_timestamp_us(data->rx_ctrl.timestamp);
 
   // The cadence is advanced before the interceptor, not after it. Calibration
   // consumes the packet here, and feeding the estimator only on the detection

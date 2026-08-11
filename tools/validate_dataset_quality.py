@@ -117,6 +117,7 @@ PAIR_MAX_DELTA_SECONDS = 30 * 60
 MIN_PACKETS = 5000
 MAX_ZERO_PACKET_RATIO = 0.005
 MIN_AMPLITUDE_MEAN = 15.0
+MAX_LOW_RSSI_STREAM_SEQ_MISSING_FAIL_RATIO = 0.05
 # Self-calibrated idle-baseline review. Empty and static-presence captures may
 # come from different sessions, so each capture owns its startup calibration.
 BASELINE_BLOCK_SECONDS = 5.0
@@ -2278,8 +2279,13 @@ def _estimate_average_packet_rate_from_capture(label, entry):
     )
 
 
-def validate_capture_continuity(data, csi_data):
-    """Check packet cadence and stream continuity metadata when available."""
+def validate_capture_continuity(data, csi_data, *, low_rssi=False):
+    """Check packet cadence and stream continuity metadata when available.
+
+    Real weak-link captures intentionally preserve bounded transport stress, so
+    cataloged ``low_rssi`` recordings use a five-percent missing-sequence
+    admission ceiling. Normal recordings retain the shared three-percent gate.
+    """
     results = []
     num_packets = int(csi_data.shape[0])
 
@@ -2348,19 +2354,30 @@ def validate_capture_continuity(data, csi_data):
     seq_gap_sizes = np.maximum(seq_delta - 1, 0)
     max_seq_gap = int(seq_gap_sizes.max(initial=0))
 
-    if missing_ratio > MAX_STREAM_SEQ_MISSING_FAIL_RATIO:
+    missing_fail_ratio = (
+        MAX_LOW_RSSI_STREAM_SEQ_MISSING_FAIL_RATIO
+        if low_rssi
+        else MAX_STREAM_SEQ_MISSING_FAIL_RATIO
+    )
+    if missing_ratio > missing_fail_ratio:
         status = "FAIL"
     elif missing_ratio > MAX_STREAM_SEQ_MISSING_WARN_RATIO:
         status = "WARN"
     else:
         status = "PASS"
 
+    threshold_note = (
+        f", low_rssi fail > {missing_fail_ratio:.1%}"
+        if low_rssi
+        else ""
+    )
     results.append(ValidationResult(
         "stream_seq_gaps",
         status,
         (
             f"Missing stream packets: {missing_ratio:.1%} "
-            f"({missing_packets}/{produced_packets}, non-unit steps: {nonunit_steps})"
+            f"({missing_packets}/{produced_packets}, non-unit steps: {nonunit_steps}"
+            f"{threshold_note})"
         ),
         round(missing_ratio, 4),
     ))
@@ -3751,6 +3768,14 @@ def run_validation(
         }
         for label in PER_FILE_QUALITY_LABELS
     }
+    entries_by_label_and_filename = {
+        label: {
+            str(entry.get("filename")): entry
+            for entry in dataset_info.get("files", {}).get(label, [])
+            if entry.get("filename")
+        }
+        for label in PER_FILE_QUALITY_LABELS
+    }
 
     for label in PER_FILE_QUALITY_LABELS:
         label_dir = DATA_DIR / label
@@ -3775,7 +3800,12 @@ def run_validation(
                 _tag_results(quality_results, 'integrity')
                 file_results.extend(quality_results)
 
-                continuity_results = validate_capture_continuity(data, data[csi_key])
+                entry = entries_by_label_and_filename.get(label, {}).get(npz_file.name, {})
+                continuity_results = validate_capture_continuity(
+                    data,
+                    data[csi_key],
+                    low_rssi=bool(entry.get("low_rssi")),
+                )
                 _tag_results(continuity_results, 'integrity')
                 file_results.extend(continuity_results)
 
@@ -4093,6 +4123,13 @@ def _generate_report(
         "integrity, continuity, metadata, overlap, and ML readiness."
     )
     lines.append("\n## Validation rule\n")
+    lines.append(
+        f"- `Stream loss` (missing `stream_seq_num` records): "
+        f"⚠️ `>{MAX_STREAM_SEQ_MISSING_WARN_RATIO:.0%}`, "
+        f"❌ `>{MAX_STREAM_SEQ_MISSING_FAIL_RATIO:.0%}` for normal recordings, "
+        f"and ❌ `>{MAX_LOW_RSSI_STREAM_SEQ_MISSING_FAIL_RATIO:.0%}` when "
+        f"`low_rssi: true`"
+    )
     lines.append(
         f"- `Cover` (Pair Scores, motion windows above the idle p95): "
         f"⚠️ `<{MIN_MOTION_COVERAGE_RATIO:.0%}`, "

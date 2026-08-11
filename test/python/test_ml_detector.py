@@ -11,6 +11,9 @@ import pytest
 import numpy as np
 
 from tools.lib.repo_paths import generated_data_dir
+from tools.lib.host_feature_trackers import (
+    ChannelShapeTrajectoryTracker as HostChannelShapeTrajectoryTracker,
+)
 
 from config import DEFAULT_SUBCARRIERS
 import ml_detector as ml_detector_module
@@ -19,6 +22,12 @@ from ml_detector import (
     MLDetector, ML_DEFAULT_THRESHOLD, ML_METRIC_SCALE
 )
 from detector_interface import MotionState
+from ml_feature_trackers import (
+    CHANNEL_SHAPE_BIN_US,
+    ChannelShapeTracker,
+    ChannelShapeTrajectoryTracker,
+)
+from segmentation import SegmentationContext
 
 from ml_weights import FEATURE_MEAN, FEATURE_NAMES
 
@@ -41,6 +50,78 @@ def _make_csi_payload(profile):
         csi[sc_idx * 2] = 0
         csi[sc_idx * 2 + 1] = int(amplitude)
     return csi
+
+
+def _make_trajectory_payload(step):
+    profile = {
+        sc: 18 + ((sc * 5 + step * step + step * (sc % 7)) % 70)
+        for sc in range(64)
+    }
+    return _make_csi_payload(profile)
+
+
+def test_shared_packet_frame_matches_direct_shape_trackers():
+    direct_trajectory = ChannelShapeTrajectoryTracker()
+    shared_trajectory = ChannelShapeTrajectoryTracker()
+    direct_shape = ChannelShapeTracker(
+        window_size=32,
+        lag=3,
+        track_frequency=False,
+    )
+    shared_shape = ChannelShapeTracker(
+        window_size=32,
+        lag=3,
+        track_frequency=False,
+    )
+    frame = [0.0] * 64
+
+    for step in range(12):
+        payload = _make_trajectory_payload(step)
+        timestamp_us = step * CHANNEL_SHAPE_BIN_US
+        count = SegmentationContext.fill_subcarrier_energy_buffer(payload, frame)
+        direct_trajectory.process_packet(payload, timestamp_us)
+        shared_trajectory.process_packet(payload, timestamp_us, frame, count)
+        SegmentationContext.energies_to_amplitudes_in_place(frame, count)
+        direct_shape.process_packet(payload)
+        shared_shape.process_subcarrier_amplitudes(frame, count)
+
+    direct_innovation, direct_excess = direct_trajectory.trajectory_features()
+    shared_innovation, shared_excess = shared_trajectory.trajectory_features()
+    assert shared_innovation == pytest.approx(direct_innovation, abs=1e-12)
+    assert shared_excess == pytest.approx(direct_excess, abs=1e-12)
+    assert shared_trajectory.coherent_innovation_energy() == pytest.approx(
+        shared_innovation,
+        abs=1e-12,
+    )
+    assert shared_trajectory.excess_path() == pytest.approx(
+        shared_excess,
+        abs=1e-12,
+    )
+    assert shared_shape.count() == direct_shape.count()
+    assert shared_shape.shape_spread() == pytest.approx(
+        direct_shape.shape_spread(),
+        abs=1e-12,
+    )
+
+
+def test_cached_dct_trajectory_matches_profile_space_reference():
+    runtime = ChannelShapeTrajectoryTracker()
+    reference = HostChannelShapeTrajectoryTracker()
+    for step in range(12):
+        payload = _make_trajectory_payload(step)
+        timestamp_us = step * CHANNEL_SHAPE_BIN_US
+        runtime.process_packet(payload, timestamp_us)
+        reference.process_packet(np.asarray(payload, dtype=np.int8), timestamp_us)
+
+    runtime_innovation, runtime_excess = runtime.trajectory_features()
+    assert runtime_innovation == pytest.approx(
+        reference.coherent_innovation_energy(),
+        abs=1e-10,
+    )
+    assert runtime_excess == pytest.approx(
+        reference.excess_path(),
+        abs=1e-10,
+    )
 
 
 class TestRelu:
@@ -352,7 +433,7 @@ class TestMLDetectorProcessing:
         assert 'probability' in metrics
         assert 'threshold' in metrics
         assert 0.0 <= metrics['probability'] <= ML_METRIC_SCALE
-    
+
     def test_tracking_enabled(self, detector, sample_csi_data):
         """Test that tracking records data when enabled."""
         detector.track_data = True
@@ -399,26 +480,6 @@ class TestExtractFeaturesIntegration:
         assert len(features) == len(FEATURE_NAMES)
         assert all(isinstance(f, (int, float)) for f in features)
 
-    def test_extract_features_supports_l1_series_runtime_path(self, monkeypatch):
-        """MLDetector keeps amplitude history when a feature needs the L1 series."""
-        monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta_autocorr"])
-        detector = MLDetector(window_size=20)
-
-        quiet = _make_csi_payload(_make_band_profile(offset=0))
-        moved = _make_csi_payload(_make_band_profile(offset=2))
-
-        for _ in range(30):
-            detector.process_packet(quiet, DEFAULT_SUBCARRIERS)
-        for i in range(40):
-            detector.process_packet(moved if i % 3 == 0 else quiet, DEFAULT_SUBCARRIERS)
-
-        features = detector._extract_features()
-
-        # An autocorrelation may be negative; what this pins is that the
-        # tracker ran at all, which a missing amplitude history would prevent.
-        assert len(features) == 1
-        assert features[0] != 0.0
-
     def test_extract_features_supports_l1_delta_lag_ratio(self, monkeypatch):
         """MLDetector forwards the tracker's floor-invariant lag ratio."""
         monkeypatch.setattr(
@@ -437,7 +498,7 @@ class TestExtractFeaturesIntegration:
 
     def test_hampel_configuration_covers_l1_feature_stream(self, monkeypatch):
         """The ML Hampel flag configures both turbulence and L1 streams."""
-        monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta_autocorr"])
+        monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta_lag_ratio"])
 
         enabled = MLDetector(window_size=20, enable_hampel=True)
         disabled = MLDetector(window_size=20, enable_hampel=False)

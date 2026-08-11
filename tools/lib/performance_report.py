@@ -573,7 +573,11 @@ def build_ml_replay_rows(
                 timing_tracker=timing_tracker,
             )
             packets_since_reset = 0
-        detector.process_packet(_packet_csi_data(packet), selected_subcarriers)
+        detector.process_packet(
+            _packet_csi_data(packet),
+            selected_subcarriers,
+            timestamp_us=_packet_timestamp_us(packet, packet_index, interval_us),
+        )
         packets_since_reset += 1
         if packets_since_reset < window_size or not detector.is_ready():
             continue
@@ -733,6 +737,7 @@ def _collect_classic_replay_phase_rows(
             _packet_csi_data(packet),
             selected_subcarriers,
             rssi_dbm=packet.get("rssi_dbm"),
+            timestamp_us=_packet_timestamp_us(packet, packet_index, interval_us),
         )
         packets_since_reset += 1
         cadence.note_packet(elapsed_us=packet_timing["coverage_us"])
@@ -1093,7 +1098,7 @@ def evaluate_detector_packets(
         warmup = max(1, int(detector_window()))
     timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
-    for pkt in static_presence_packets:
+    for packet_index, pkt in enumerate(static_presence_packets):
         should_evaluate, contaminated = note_evaluation_tick(
             cadence,
             packet=pkt,
@@ -1113,6 +1118,7 @@ def evaluate_detector_packets(
             _packet_csi_data(pkt),
             selected_band,
             rssi_dbm=pkt.get("rssi_dbm"),
+            timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
         packets_since_reset += 1
         if not should_evaluate:
@@ -1130,7 +1136,7 @@ def evaluate_detector_packets(
     motion_without_motion = 0
     timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
-    for pkt in motion_packets:
+    for packet_index, pkt in enumerate(motion_packets):
         should_evaluate, contaminated = note_evaluation_tick(
             cadence,
             packet=pkt,
@@ -1150,6 +1156,7 @@ def evaluate_detector_packets(
             _packet_csi_data(pkt),
             selected_band,
             rssi_dbm=pkt.get("rssi_dbm"),
+            timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
         packets_since_reset += 1
         if not should_evaluate:
@@ -1401,12 +1408,11 @@ def replay_idle_stream(
     no person at all, which makes them the reference both detectors are gated
     on. See the empty-room false-positive ADR.
     """
-    timing_tracker, cadence = timing_cadence_for_window(
-        window_size, measure_packet_interval_us(packets)
-    )
+    interval_us = measure_packet_interval_us(packets)
+    timing_tracker, cadence = timing_cadence_for_window(window_size, interval_us)
     packets_since_reset = 0
     raw_motion_states: list[bool] = []
-    for pkt in packets:
+    for packet_index, pkt in enumerate(packets):
         should_evaluate, contaminated = note_evaluation_tick(
             cadence,
             packet=pkt,
@@ -1426,6 +1432,7 @@ def replay_idle_stream(
             _packet_csi_data(pkt),
             selected_subcarriers,
             rssi_dbm=pkt.get("rssi_dbm"),
+            timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
         packets_since_reset += 1
         if not should_evaluate:
@@ -1670,6 +1677,29 @@ def _packet_csi_data(packet: Any) -> Any:
     return csi_data.tolist() if isinstance(csi_data, np.ndarray) else csi_data
 
 
+def _packet_timestamp_us(
+    packet: Any,
+    packet_index: int,
+    nominal_interval_us: int,
+) -> int:
+    """Return the replay timestamp using the same precedence as the C++ gate."""
+    if isinstance(packet, MappingABC):
+        device_ticks_us = packet.get("device_ticks_us")
+        if device_ticks_us is not None:
+            return int(device_ticks_us)
+        wifi_rx_ts_us = packet.get("wifi_rx_ts_us")
+        if wifi_rx_ts_us is not None:
+            return int(wifi_rx_ts_us)
+    else:
+        device_ticks_us = getattr(packet, "device_ticks_us", None)
+        if device_ticks_us is not None:
+            return int(device_ticks_us)
+        wifi_rx_ts_us = getattr(packet, "wifi_rx_ts_us", None)
+        if wifi_rx_ts_us is not None:
+            return int(wifi_rx_ts_us)
+    return int(packet_index) * max(1, int(nominal_interval_us))
+
+
 def _packet_rssi_dbm(packet: Any) -> Any:
     """Return optional RSSI metadata from a packet dictionary or packet object."""
     if isinstance(packet, MappingABC):
@@ -1805,7 +1835,7 @@ def evaluate_ml_long_recording(
 
     timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
-    for pkt in baseline_packets:
+    for packet_index, pkt in enumerate(baseline_packets):
         should_evaluate, contaminated = note_evaluation_tick(
             cadence,
             packet=pkt,
@@ -1825,6 +1855,7 @@ def evaluate_ml_long_recording(
             _packet_csi_data(pkt),
             DEFAULT_SUBCARRIERS,
             rssi_dbm=_packet_rssi_dbm(pkt),
+            timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
         packets_since_reset += 1
         if not should_evaluate:
@@ -1839,7 +1870,7 @@ def evaluate_ml_long_recording(
 
     timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
-    for pkt in movement_packets:
+    for packet_index, pkt in enumerate(movement_packets):
         should_evaluate, contaminated = note_evaluation_tick(
             cadence,
             packet=pkt,
@@ -1859,6 +1890,7 @@ def evaluate_ml_long_recording(
             _packet_csi_data(pkt),
             DEFAULT_SUBCARRIERS,
             rssi_dbm=_packet_rssi_dbm(pkt),
+            timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
         packets_since_reset += 1
         if not should_evaluate:
@@ -1934,7 +1966,7 @@ def evaluate_classic_long_recording(
     interval_us = measure_packet_interval_us(baseline_packets)
     timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
-    for pkt in baseline_packets:
+    for packet_index, pkt in enumerate(baseline_packets):
         should_evaluate, contaminated = note_evaluation_tick(
             cadence,
             packet=pkt,
@@ -1954,6 +1986,7 @@ def evaluate_classic_long_recording(
             _packet_csi_data(pkt),
             DEFAULT_SUBCARRIERS,
             rssi_dbm=_packet_rssi_dbm(pkt),
+            timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
         packets_since_reset += 1
         if not should_evaluate:
@@ -1968,7 +2001,7 @@ def evaluate_classic_long_recording(
 
     timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
-    for pkt in movement_packets:
+    for packet_index, pkt in enumerate(movement_packets):
         should_evaluate, contaminated = note_evaluation_tick(
             cadence,
             packet=pkt,
@@ -1988,6 +2021,7 @@ def evaluate_classic_long_recording(
             _packet_csi_data(pkt),
             DEFAULT_SUBCARRIERS,
             rssi_dbm=_packet_rssi_dbm(pkt),
+            timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
         packets_since_reset += 1
         if not should_evaluate:

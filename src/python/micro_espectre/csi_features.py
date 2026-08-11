@@ -1,9 +1,9 @@
 """
-Micro-ESPectre - Shared Feature And L1-Delta Helpers
+Micro-ESPectre - Production Feature Helpers
 
 Pure Python implementation for MicroPython.
 Provides the production ML feature extraction helpers plus the allocation-free
-L1-delta tracker used by the classic detector and offline tooling.
+L1-delta tracker shared by both detectors.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -54,36 +54,6 @@ def calc_autocorrelation(turbulence_buffer, buffer_count, mean=None, variance=No
     return autocovariance / variance
 
 
-def calc_mad(turbulence_buffer, buffer_count, sorted_values=None):
-    """Calculate median absolute deviation (MAD).
-
-    Args:
-        sorted_values: Pre-sorted copy to avoid redundant sorting.
-    """
-    if buffer_count < 2:
-        return 0.0
-
-    if sorted_values is None:
-        sorted_vals = turbulence_buffer[:buffer_count]
-        sorted_vals.sort()
-    else:
-        sorted_vals = sorted_values
-
-    mid = buffer_count // 2
-    if buffer_count % 2 == 0:
-        median = (sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0
-    else:
-        median = sorted_vals[mid]
-
-    for i in range(buffer_count):
-        sorted_vals[i] = abs(sorted_vals[i] - median)
-    sorted_vals.sort()
-
-    if buffer_count % 2 == 0:
-        return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0
-    return sorted_vals[mid]
-
-
 def calc_zero_crossing_rate(values, count, center):
     """
     Calculate the crossing rate of ``values`` around ``center``.
@@ -122,10 +92,10 @@ PHASELESS7_FEATURES = [
     'turb_iqr_over_mean_aggr',
     'turb_autocorr',
     'turb_zcr',
-    'l1_delta_autocorr',
     'l1_delta_lag_ratio',
     'chan_shape_spread',
-    'chan_freq_coh_curve_std',
+    'chan_shape_coherent_innovation_energy',
+    'chan_shape_excess_path',
 ]
 
 DEFAULT_FEATURES = PHASELESS7_FEATURES
@@ -133,10 +103,7 @@ DEFAULT_FEATURES = PHASELESS7_FEATURES
 # immediately preceding exported artifact. Generated models still select only
 # DEFAULT_FEATURES; legacy names are not part of the production default.
 LEGACY_FEATURES = (
-    'turb_mad_over_mean',
-    'chan_freq_coh_cv',
-    'chan_coh_gap',
-    'chan_coh_subband_gap_median',
+    'chan_freq_coh_curve_std',
 )
 ALL_FEATURES = tuple(DEFAULT_FEATURES) + LEGACY_FEATURES
 
@@ -146,101 +113,18 @@ AGGREGATED_TURBULENCE_FEATURES = frozenset({
 
 CHANNEL_SHAPE_FEATURES = frozenset({
     'chan_shape_spread',
-    'chan_freq_coh_cv',
     'chan_freq_coh_curve_std',
 })
-CHANNEL_COHERENCE_FEATURES = frozenset({
-    'chan_coh_gap',
-    'chan_coh_subband_gap_median',
+CHANNEL_FREQUENCY_FEATURES = frozenset({
+    'chan_freq_coh_curve_std',
 })
-
-# Features computed from the rebuilt L1-delta series. The lag ratio is
-# deliberately absent: it shares the l1_ prefix but the tracker hands it over
-# ready-made, so requesting it alone must not demand a series. Mirrors
-# MLFeatureSource in csi_features.h; keep the two in step.
-L1_SERIES_FEATURES = frozenset({
-    'l1_delta_autocorr',
+CHANNEL_SHAPE_TRAJECTORY_FEATURES = frozenset({
+    'chan_shape_coherent_innovation_energy',
+    'chan_shape_excess_path',
 })
-
-# Features that need the L1 tracker running at all. The lag ratio belongs here
-# but not above: it needs the profile rings, not the rebuilt series.
-L1_TRACKER_FEATURES = L1_SERIES_FEATURES | {'l1_delta_lag_ratio'}
-
-
-def normalize_amplitude_profile_into(amplitudes, count, out):
-    """
-    Write the mean-normalized amplitude profile into ``out[:count]``.
-
-    Shared numeric core for the L1-delta detector and the ML feature path;
-    allocation-free so device hot paths can reuse pre-allocated buffers.
-
-    Returns:
-        int: Number of values written (0 when the profile is invalid).
-    """
-    if amplitudes is None or count < 2 or count > len(out):
-        return 0
-    total = 0.0
-    for i in range(count):
-        total += amplitudes[i]
-    if total <= 0.0:
-        return 0
-    mean = total / count
-    for i in range(count):
-        out[i] = amplitudes[i] / mean
-    return count
-
-
-def _normalize_amplitude_profile(amplitudes):
-    """Return a mean-normalized amplitude profile as a new list, or None if invalid."""
-    if amplitudes is None:
-        return None
-    count = len(amplitudes)
-    out = [0.0] * count
-    if normalize_amplitude_profile_into(amplitudes, count, out) == 0:
-        return None
-    return out
-
-
-def l1_delta_series(amplitude_history, buffer_count, lag=L1_DELTA_LAG):
-    """
-    Return the per-packet L1 normalized profile displacement series.
-
-    This is the raw `d` stream the shared L1-delta tracker averages into the
-    classic primary motion metric:
-    1. normalize each per-packet amplitude profile by its mean
-    2. compare each profile with the one `lag` packets earlier
-    3. emit the mean absolute per-subcarrier displacement for that pair
-
-    Exposing the series (not just its mean) lets the ML feature path build a
-    full statistical descriptor on the L1-delta axis, mirroring what the
-    turbulence path already does on the turbulence buffer. Returns an empty
-    list when there is no comparable lagged profile.
-    """
-    if amplitude_history is None:
-        return []
-    n = min(int(buffer_count), len(amplitude_history))
-    if n < lag + 1:
-        return []
-
-    normalized_profiles = [None] * n
-    for i in range(n):
-        normalized_profiles[i] = _normalize_amplitude_profile(amplitude_history[i])
-
-    deltas = []
-    for i in range(lag, n):
-        current = normalized_profiles[i]
-        reference = normalized_profiles[i - lag]
-        if current is None or reference is None or len(current) != len(reference):
-            continue
-
-        total = 0.0
-        width = len(current)
-        for j in range(width):
-            diff = current[j] - reference[j]
-            total += diff if diff >= 0.0 else -diff
-        deltas.append(total / width)
-
-    return deltas
+# Features that need the L1 profile rings. Retired L1-series statistics live in
+# the host-only candidate registry and never allocate a series in production.
+L1_TRACKER_FEATURES = frozenset({'l1_delta_lag_ratio'})
 
 
 class L1DeltaTracker:
@@ -485,17 +369,14 @@ def extract_features_by_name(
     feature_names=None,
     aggregated_turbulence_buffer=None,
     aggregated_turbulence_count=None,
-    l1_series=None,
-    l1_series_count=None,
     out=None,
-    reuse_turbulence_buffer=False,
     reuse_aggregated_turbulence_buffer=False,
+    sort_scratch=None,
     l1_delta_lag_ratio=None,
     chan_shape_spread=None,
-    chan_freq_coh_cv=None,
+    chan_shape_coherent_innovation_energy=None,
+    chan_shape_excess_path=None,
     chan_freq_coh_curve_std=None,
-    chan_coh_gap=None,
-    chan_coh_subband_gap_median=None,
 ):
     """Extract configured features from explicitly preprocessed streams."""
     if feature_names is None:
@@ -519,10 +400,11 @@ def extract_features_by_name(
         )
     required_scalars = {
         'chan_shape_spread': chan_shape_spread,
-        'chan_freq_coh_cv': chan_freq_coh_cv,
+        'chan_shape_coherent_innovation_energy': (
+            chan_shape_coherent_innovation_energy
+        ),
+        'chan_shape_excess_path': chan_shape_excess_path,
         'chan_freq_coh_curve_std': chan_freq_coh_curve_std,
-        'chan_coh_gap': chan_coh_gap,
-        'chan_coh_subband_gap_median': chan_coh_subband_gap_median,
     }
     for name in feature_names:
         if name in required_scalars and required_scalars[name] is None:
@@ -559,10 +441,6 @@ def extract_features_by_name(
         diff = turb_list[i] - turb_mean
         var_sum += diff * diff
     turb_var = var_sum / n
-    turb_std = math.sqrt(turb_var) if turb_var > 0 else 0.0
-    abs_mean = abs(turb_mean)
-    mean_denom = abs_mean if abs_mean > 1e-6 else 1e-6
-
     aggregated_iqr_over_mean = None
     if any(name in AGGREGATED_TURBULENCE_FEATURES for name in feature_names):
         aggregated_n = (
@@ -576,7 +454,11 @@ def extract_features_by_name(
         if aggregated_n < 2:
             aggregated_iqr_over_mean = 0.0
         else:
-            if (
+            if sort_scratch is not None and len(sort_scratch) == aggregated_n:
+                aggregated_values = sort_scratch
+                for i in range(aggregated_n):
+                    aggregated_values[i] = aggregated_turbulence_buffer[i]
+            elif (
                 isinstance(aggregated_turbulence_buffer, list)
                 and reuse_aggregated_turbulence_buffer
                 and len(aggregated_turbulence_buffer) == aggregated_n
@@ -607,88 +489,44 @@ def extract_features_by_name(
                 q75 - q25
             ) / aggregated_denom
 
-    turb_mad = None
     turb_autocorr = None
     turb_zcr = None
-    _l1_series = None
-    _l1_n = 0
-    _l1_mean = 0.0
-    _l1_std = 0.0
-    _l1_var = 0.0
-    needs_l1 = False
-    needs_mad = False
     for name in feature_names:
-        if name in L1_SERIES_FEATURES:
-            needs_l1 = True
-        elif name == "turb_mad_over_mean":
-            needs_mad = True
-        elif name == "turb_autocorr":
+        if name == "turb_autocorr":
             turb_autocorr = calc_autocorrelation(
                 turb_list, n, mean=turb_mean, variance=turb_var
             )
         elif name == "turb_zcr":
             # Crossing rate needs the time-ordered series; compute it before
             # any in-place sort of the reused turbulence buffer.
-            sorted_copy = sorted(turb_list)
+            if sort_scratch is not None and len(sort_scratch) == n:
+                sorted_copy = sort_scratch
+                for i in range(n):
+                    sorted_copy[i] = turb_list[i]
+                sorted_copy.sort()
+            else:
+                sorted_copy = sorted(turb_list)
             turb_zcr = calc_zero_crossing_rate(
                 turb_list, n, sorted_copy[n // 2]
             )
-    if needs_l1:
-        if l1_series is None:
-            raise ValueError(
-                "l1_series is required for L1 features; pass the explicitly "
-                "preprocessed detector stream"
-            )
-        _l1_series = l1_series
-        _l1_n = len(l1_series) if l1_series_count is None else min(
-            int(l1_series_count), len(l1_series)
-        )
-        if _l1_n:
-            total = 0.0
-            for i in range(_l1_n):
-                total += _l1_series[i]
-            _l1_mean = total / _l1_n
-            vs = 0.0
-            for i in range(_l1_n):
-                value = _l1_series[i]
-                d = value - _l1_mean
-                vs += d * d
-            _l1_var = vs / _l1_n
-            _l1_std = math.sqrt(_l1_var) if _l1_var > 0 else 0.0
-
-    if needs_mad and reuse_turbulence_buffer:
-        turb_list.sort()
-        turb_mad = calc_mad(turb_list, n, sorted_values=turb_list)
-
     features = out if out is not None else []
     for feature_index, name in enumerate(feature_names):
         if name == 'turb_iqr_over_mean_aggr':
             value = aggregated_iqr_over_mean
-        elif name == 'turb_mad_over_mean':
-            if turb_mad is None:
-                turb_mad = calc_mad(turb_list, n)
-            value = turb_mad / mean_denom
         elif name == 'turb_autocorr':
             value = turb_autocorr
         elif name == 'turb_zcr':
             value = turb_zcr
-        elif name == 'l1_delta_autocorr':
-            value = (
-                calc_autocorrelation(_l1_series, _l1_n, mean=_l1_mean, variance=_l1_var)
-                if _l1_n else 0.0
-            )
         elif name == 'l1_delta_lag_ratio':
             value = l1_delta_lag_ratio
         elif name == 'chan_shape_spread':
             value = chan_shape_spread
-        elif name == 'chan_freq_coh_cv':
-            value = chan_freq_coh_cv
+        elif name == 'chan_shape_coherent_innovation_energy':
+            value = chan_shape_coherent_innovation_energy
+        elif name == 'chan_shape_excess_path':
+            value = chan_shape_excess_path
         elif name == 'chan_freq_coh_curve_std':
             value = chan_freq_coh_curve_std
-        elif name == 'chan_coh_gap':
-            value = chan_coh_gap
-        elif name == 'chan_coh_subband_gap_median':
-            value = chan_coh_subband_gap_median
         else:
             raise ValueError(f"Unknown feature: {name}")
         if out is None:

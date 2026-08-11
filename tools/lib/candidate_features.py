@@ -18,17 +18,23 @@ import numpy as np
 
 from .host_feature_trackers import (
     AGGREGATED_SPECTRAL_FEATURES,
+    AMPLITUDE_PROFILE_FEATURES,
     CHANNEL_COHERENCE_FEATURES,
     CHANNEL_SHAPE_FEATURES,
+    CHANNEL_SHAPE_TRAJECTORY_FEATURES,
     COMPOSITE_FEATURES,
+    L1_SERIES_FEATURES,
     PHASE_FEATURES,
-    PROMOTED_CHANNEL_COHERENCE_FEATURES,
     PROMOTED_CHANNEL_SHAPE_FEATURES,
+    PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES,
     SPECTRAL_FEATURES,
     SUBBAND_COHERENCE_FEATURES,
+    AmplitudeProfileTracker,
     ChannelCoherenceTracker,
+    ChannelShapeTrajectoryTracker,
     ChannelShapeTracker,
     PhaseResidualTracker,
+    turbulence_band_power_ratio,
 )
 
 CANDIDATE_FEATURES: Tuple[str, ...] = (
@@ -37,6 +43,12 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
     + AGGREGATED_SPECTRAL_FEATURES
     + PHASE_FEATURES
     + CHANNEL_SHAPE_FEATURES
+    + L1_SERIES_FEATURES
+    + tuple(
+        name for name in CHANNEL_SHAPE_TRAJECTORY_FEATURES
+        if name not in PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES
+    )
+    + AMPLITUDE_PROFILE_FEATURES
     + COMPOSITE_FEATURES
 )
 
@@ -45,7 +57,6 @@ def needs_channel_coherence(feature_names: Iterable[str]) -> bool:
     """Return whether any requested feature needs the coherence tracker."""
     return any(
         name in CHANNEL_COHERENCE_FEATURES
-        or name in PROMOTED_CHANNEL_COHERENCE_FEATURES
         or name in COMPOSITE_FEATURES
         for name in feature_names
     )
@@ -61,9 +72,23 @@ def needs_turbulence_series(feature_names: Iterable[str]) -> bool:
     return any(name in SPECTRAL_FEATURES for name in feature_names)
 
 
+def needs_l1_series(feature_names: Iterable[str]) -> bool:
+    """Return whether a host-only candidate reads the L1-delta series."""
+    return any(name in L1_SERIES_FEATURES for name in feature_names)
+
+
 def needs_aggregated_turbulence(feature_names: Iterable[str]) -> bool:
     """Return whether any requested candidate reads the aggregated window."""
     return any(name in AGGREGATED_SPECTRAL_FEATURES for name in feature_names)
+
+
+def needs_amplitude_profiles(feature_names: Iterable[str]) -> bool:
+    """Return whether a candidate reads base or aggregated tone profiles."""
+    return any(
+        name in AMPLITUDE_PROFILE_FEATURES
+        or name == 'turb_iqr_over_mean_aggr_tone_detrended'
+        for name in feature_names
+    )
 
 
 def needs_phase_residual(feature_names: Iterable[str]) -> bool:
@@ -77,6 +102,14 @@ def needs_channel_shape(feature_names: Iterable[str]) -> bool:
         name in CHANNEL_SHAPE_FEATURES
         or name in PROMOTED_CHANNEL_SHAPE_FEATURES
         or name in COMPOSITE_FEATURES
+        for name in feature_names
+    )
+
+
+def needs_channel_shape_trajectory(feature_names: Iterable[str]) -> bool:
+    """Return whether a requested feature needs time-binned channel shape."""
+    return any(
+        name in CHANNEL_SHAPE_TRAJECTORY_FEATURES
         for name in feature_names
     )
 
@@ -114,6 +147,9 @@ def candidate_values(
     aggregated_turbulence_series: Sequence[float] = None,
     phase_tracker: PhaseResidualTracker = None,
     shape_tracker: ChannelShapeTracker = None,
+    shape_trajectory_tracker: ChannelShapeTrajectoryTracker = None,
+    amplitude_profile_tracker: AmplitudeProfileTracker = None,
+    l1_series: Sequence[float] = None,
 ) -> Dict[str, float]:
     """Evaluate the requested candidates from their preprocessed trackers."""
     values: Dict[str, float] = {}
@@ -126,9 +162,16 @@ def candidate_values(
             aggregated_turbulence_series,
             dtype=np.float64,
         )
+    l1_deltas = None
+    if l1_series is not None:
+        l1_deltas = np.asarray(l1_series, dtype=np.float64)
     mean_denom = None
     iqr = None
     q95 = None
+    q05 = None
+    turbulence_median = None
+    turbulence_mad = None
+    turbulence_std = None
     aggregated_mean_denom = None
     aggregated_mad = None
     aggregated_q95 = None
@@ -154,10 +197,69 @@ def candidate_values(
                     iqr = float(q75 - q25)
                 values[name] = iqr / mean_denom
                 continue
+            if name == 'turb_band_power_ratio':
+                values[name] = turbulence_band_power_ratio(turbulence)
+                continue
+            if name == 'turb_cv':
+                if turbulence_std is None:
+                    turbulence_std = float(np.std(turbulence))
+                values[name] = turbulence_std / mean_denom
+                continue
+            if name == 'turb_mad_over_mean':
+                if turbulence_median is None:
+                    turbulence_median = float(np.median(turbulence))
+                if turbulence_mad is None:
+                    turbulence_mad = float(
+                        np.median(np.abs(turbulence - turbulence_median))
+                    )
+                values[name] = turbulence_mad / mean_denom
+                continue
             if name == 'turb_p95_over_mean':
                 if q95 is None:
                     q95 = float(np.percentile(turbulence, 95))
                 values[name] = q95 / mean_denom
+                continue
+            if name == 'turb_p05_over_mean':
+                if q05 is None:
+                    q05 = float(np.percentile(turbulence, 5))
+                values[name] = q05 / mean_denom
+                continue
+            if name == 'turb_max_over_mean':
+                values[name] = float(np.max(turbulence)) / mean_denom
+                continue
+            if name == 'turb_min_over_mean':
+                values[name] = float(np.min(turbulence)) / mean_denom
+                continue
+            if name == 'turb_range_over_mean':
+                values[name] = (
+                    float(np.max(turbulence)) - float(np.min(turbulence))
+                ) / mean_denom
+                continue
+            if name == 'turb_peak_over_mad':
+                if turbulence_median is None:
+                    turbulence_median = float(np.median(turbulence))
+                if turbulence_mad is None:
+                    turbulence_mad = float(
+                        np.median(np.abs(turbulence - turbulence_median))
+                    )
+                values[name] = (
+                    (float(np.max(turbulence)) - mean) / turbulence_mad
+                    if turbulence_mad > 0.0 else 0.0
+                )
+                continue
+            if name == 'waveform_length_over_mean':
+                values[name] = float(
+                    np.mean(np.abs(np.diff(turbulence)))
+                ) / mean_denom
+                continue
+            if name == 'turb_skewness':
+                if turbulence_std is None:
+                    turbulence_std = float(np.std(turbulence))
+                values[name] = (
+                    float(np.mean((turbulence - mean) ** 3))
+                    / (turbulence_std ** 3)
+                    if turbulence_std > 0.0 else 0.0
+                )
                 continue
         if name in AGGREGATED_SPECTRAL_FEATURES:
             if aggregated_turbulence is None:
@@ -188,6 +290,32 @@ def candidate_values(
                     aggregated_q95 = float(np.percentile(aggregated_turbulence, 95))
                 values[name] = aggregated_q95 / aggregated_mean_denom
                 continue
+            if name == 'turb_iqr_over_mean_aggr_detrended':
+                time = np.arange(len(aggregated_turbulence), dtype=np.float64)
+                time -= float(np.mean(time))
+                time_energy = float(np.dot(time, time))
+                slope = (
+                    float(
+                        np.dot(
+                            time,
+                            aggregated_turbulence - aggregated_mean,
+                        )
+                    ) / time_energy
+                    if time_energy > 0.0 else 0.0
+                )
+                residual = aggregated_turbulence - slope * time
+                q25, q75 = np.percentile(residual, [25, 75])
+                values[name] = float(q75 - q25) / aggregated_mean_denom
+                continue
+            if name == 'turb_iqr_over_mean_aggr_tone_detrended':
+                if amplitude_profile_tracker is None:
+                    raise ValueError(
+                        f"{name} needs the amplitude-profile tracker"
+                    )
+                values[name] = (
+                    amplitude_profile_tracker.tone_detrended_aggregated_iqr()
+                )
+                continue
         if name in CHANNEL_COHERENCE_FEATURES and coherence_tracker is None:
             raise ValueError(
                 f"{name} needs the channel coherence tracker; pass the "
@@ -203,6 +331,32 @@ def candidate_values(
             )
         if name == 'chan_coh_lag_ratio':
             values[name] = coherence_tracker.coherence_lag_ratio()
+        elif name == 'chan_coh_mean':
+            values[name] = coherence_tracker.mean_coherence()
+        elif name == 'chan_coh_gap_low_frac':
+            values[name] = coherence_tracker.coherence_gap_low_frac()
+        elif name == 'chan_coh_gap_q20':
+            values[name] = coherence_tracker.coherence_gap_q20()
+        elif name == 'chan_coh_subband_median_gap':
+            values[name] = coherence_tracker.coherence_subband_median_gap()
+        elif name == 'chan_coh_gap':
+            values[name] = coherence_tracker.coherence_gap()
+        elif name == 'chan_coh_subband_gap_median':
+            values[name] = coherence_tracker.coherence_subband_gap_median()
+        elif name == 'l1_delta_autocorr':
+            if l1_deltas is None:
+                raise ValueError(
+                    f"{name} needs the L1-delta series; pass the explicitly "
+                    f"preprocessed stream"
+                )
+            if len(l1_deltas) < 3 or float(np.var(l1_deltas)) < 1e-10:
+                values[name] = 0.0
+            else:
+                centered = l1_deltas - float(np.mean(l1_deltas))
+                values[name] = float(
+                    np.mean(centered[:-1] * centered[1:])
+                    / np.var(l1_deltas)
+                )
         elif name == 'phase_resid_lag_ratio':
             if phase_tracker is None:
                 raise ValueError(
@@ -215,4 +369,55 @@ def candidate_values(
                     f"{name} needs the sanitized phase tracker"
                 )
             values[name] = phase_tracker.phase_closure_variance_std()
+        elif name == 'chan_shape_excess_path':
+            if shape_trajectory_tracker is None:
+                raise ValueError(
+                    f"{name} needs the time-binned channel-shape tracker"
+                )
+            values[name] = shape_trajectory_tracker.excess_path()
+        elif name == 'chan_shape_scale_curvature':
+            if shape_trajectory_tracker is None:
+                raise ValueError(
+                    f"{name} needs the time-binned channel-shape tracker"
+                )
+            values[name] = shape_trajectory_tracker.scale_curvature()
+        elif name == 'chan_shape_coherent_innovation_energy':
+            if shape_trajectory_tracker is None:
+                raise ValueError(
+                    f"{name} needs the time-binned channel-shape tracker"
+                )
+            values[name] = (
+                shape_trajectory_tracker.coherent_innovation_energy()
+            )
+        elif name == 'chan_shape_lag_ratio':
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.shape_lag_ratio()
+        elif name == 'chan_rank_gap':
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.rank_gap()
+        elif name == 'chan_ratio_gap':
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.ratio_gap()
+        elif name == 'chan_freq_coh_cv':
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.frequency_coherence_cv()
+        elif name == 'chan_coh_gap_spread':
+            if coherence_tracker is None or shape_tracker is None:
+                raise ValueError(
+                    f"{name} needs coherence and channel-shape trackers"
+                )
+            values[name] = max(
+                0.0,
+                coherence_tracker.coherence_gap(),
+            ) * shape_tracker.shape_spread()
+        elif name == 'corr_amp_d1':
+            if amplitude_profile_tracker is None:
+                raise ValueError(f"{name} needs the amplitude-profile tracker")
+            values[name] = (
+                amplitude_profile_tracker.adjacent_amplitude_correlation()
+            )
     return values

@@ -176,6 +176,46 @@ class SegmentationContext:
         return n
 
     @staticmethod
+    def fill_subcarrier_energy_buffer(csi_data, out_buffer):
+        """Extract one squared magnitude per CSI bin into reusable storage."""
+        count = min(len(out_buffer), len(csi_data) // 2)
+        for sc_idx in range(count):
+            i = sc_idx * 2
+            imag = csi_data[i]
+            real = csi_data[i + 1]
+            imag = float(imag if imag < 128 else imag - 256)
+            real = float(real if real < 128 else real - 256)
+            out_buffer[sc_idx] = real * real + imag * imag
+        for sc_idx in range(count, len(out_buffer)):
+            out_buffer[sc_idx] = 0.0
+        return count
+
+    @staticmethod
+    def energies_to_amplitudes_in_place(values, count):
+        """Convert a reusable squared-magnitude frame to magnitudes in place."""
+        for i in range(min(int(count), len(values))):
+            values[i] = math.sqrt(values[i])
+
+    @staticmethod
+    def _fill_amplitude_buffer_from_subcarrier_amplitudes(
+        subcarrier_amplitudes,
+        subcarrier_count,
+        selected_subcarriers,
+        out_buffer,
+    ):
+        """Select detector-band amplitudes from a shared per-bin frame."""
+        if selected_subcarriers is None:
+            selected_subcarriers = range(subcarrier_count)
+        n = 0
+        for sc_idx in selected_subcarriers:
+            if n >= len(out_buffer):
+                break
+            if 0 <= sc_idx < subcarrier_count:
+                out_buffer[n] = subcarrier_amplitudes[sc_idx]
+                n += 1
+        return n
+
+    @staticmethod
     def _fill_adjacent_aggregated_amplitude_buffer(
         csi_data,
         selected_subcarriers,
@@ -213,6 +253,42 @@ class SegmentationContext:
                 imag = float(imag if imag < 128 else imag - 256)
                 real = float(real if real < 128 else real - 256)
                 total += math.sqrt(real * real + imag * imag)
+                count += 1
+            if count:
+                out_buffer[n] = total / count
+                n += 1
+        return n
+
+    @staticmethod
+    def _fill_adjacent_aggregated_amplitude_buffer_from_subcarrier_amplitudes(
+        subcarrier_amplitudes,
+        subcarrier_count,
+        selected_subcarriers,
+        out_buffer,
+        width,
+    ):
+        """Build adjacent-bin means from a shared per-bin magnitude frame."""
+        if selected_subcarriers is None or width is None or width < 1:
+            return 0
+
+        n = 0
+        half = (width - 1) // 2
+        for subcarrier in selected_subcarriers:
+            if n >= len(out_buffer):
+                break
+            low = subcarrier - half
+            high = subcarrier + (width - 1 - half)
+            if low < 4:
+                low, high = 4, 4 + width - 1
+            if high > 60:
+                low, high = 60 - width + 1, 60
+
+            total = 0.0
+            count = 0
+            for sc_idx in range(low, high + 1):
+                if sc_idx == 32 or sc_idx < 0 or sc_idx >= subcarrier_count:
+                    continue
+                total += subcarrier_amplitudes[sc_idx]
                 count += 1
             if count:
                 out_buffer[n] = total / count
@@ -315,6 +391,44 @@ class SegmentationContext:
             return turbulence, self.last_amplitudes
         self.last_amplitudes = None
         return turbulence
+
+    def calculate_spatial_turbulence_from_subcarrier_amplitudes(
+        self,
+        subcarrier_amplitudes,
+        subcarrier_count,
+        selected_subcarriers=None,
+    ):
+        """Calculate turbulence from a packet-wide magnitude frame.
+
+        The caller may reuse one frame for the normal band, adjacent-bin
+        aggregation, L1 displacement, and channel-shape tracking.
+        """
+        if self._amplitude_buffer is None:
+            raise RuntimeError("Amplitude extraction buffer is disabled")
+        if self.adjacent_aggregation_width is None:
+            self._amplitude_count = (
+                self._fill_amplitude_buffer_from_subcarrier_amplitudes(
+                    subcarrier_amplitudes,
+                    subcarrier_count,
+                    selected_subcarriers,
+                    self._amplitude_buffer,
+                )
+            )
+        else:
+            self._amplitude_count = (
+                self._fill_adjacent_aggregated_amplitude_buffer_from_subcarrier_amplitudes(
+                    subcarrier_amplitudes,
+                    subcarrier_count,
+                    selected_subcarriers,
+                    self._amplitude_buffer,
+                    self.adjacent_aggregation_width,
+                )
+            )
+        self.last_amplitudes = None
+        return self._turbulence_from_amplitude_buffer(
+            self._amplitude_buffer,
+            self._amplitude_count,
+        )
 
     def add_turbulence(self, turbulence):
         """

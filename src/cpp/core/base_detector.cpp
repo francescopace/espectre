@@ -41,7 +41,9 @@ BaseDetector::BaseDetector(uint16_t window_size)
     , state_(MotionState::IDLE)
     , current_metric_(0.0f)
     , total_packets_(0)
-    , packet_index_(0) {
+    , packet_index_(0)
+    , packet_timestamp_us_(0U)
+    , has_packet_timestamp_(false) {
 
     // Validate and clamp window size
     if (window_size_ < DETECTOR_MIN_WINDOW_SIZE) {
@@ -82,6 +84,8 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , current_metric_(other.current_metric_)
     , total_packets_(other.total_packets_)
     , packet_index_(other.packet_index_)
+    , packet_timestamp_us_(other.packet_timestamp_us_)
+    , has_packet_timestamp_(other.has_packet_timestamp_)
     , hampel_state_(other.hampel_state_)
     , lowpass_state_(other.lowpass_state_) {
     // Transfer ownership - null out source pointers
@@ -105,6 +109,8 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         current_metric_ = other.current_metric_;
         total_packets_ = other.total_packets_;
         packet_index_ = other.packet_index_;
+        packet_timestamp_us_ = other.packet_timestamp_us_;
+        has_packet_timestamp_ = other.has_packet_timestamp_;
         lowpass_state_ = other.lowpass_state_;
         hampel_state_ = other.hampel_state_;
 
@@ -177,6 +183,7 @@ void BaseDetector::reset() {
     clear_evaluation_state_();
     packet_index_ = 0;
     total_packets_ = 0;
+    has_packet_timestamp_ = false;
 
     // Don't clear buffer - preserve "warm" state
 }
@@ -202,6 +209,7 @@ void BaseDetector::clear_buffer() {
     }
     buffer_index_ = 0;
     buffer_count_ = 0;
+    has_packet_timestamp_ = false;
     clear_evaluation_state_();
 
     // Reset filters

@@ -1,9 +1,10 @@
 # ADR: promote the compact aggregated-IQR ML model
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-08-07
 - Recorded: 2026-08-08 (retrospective)
 - Supersedes: 2026-07-28-drop-the-absolute-l1-features.md
+- Superseded by: 2026-08-11-promote-channel-shape-trajectory-ml-features.md
 
 ## Context
 

@@ -12,7 +12,6 @@ import math
 import numpy as np
 from csi_features import (
     calc_autocorrelation,
-    calc_mad,
     calc_zero_crossing_rate,
     extract_features_by_name,
     ALL_FEATURES,
@@ -36,10 +35,9 @@ def _stats(values, count=None):
 def _promoted_tracker_kwargs():
     return {
         "chan_shape_spread": 0.4,
-        "chan_freq_coh_cv": 0.2,
+        "chan_shape_coherent_innovation_energy": 0.03,
+        "chan_shape_excess_path": 0.02,
         "chan_freq_coh_curve_std": 0.05,
-        "chan_coh_gap": 0.08,
-        "chan_coh_subband_gap_median": 0.07,
     }
 
 
@@ -83,53 +81,6 @@ class TestCalcAutocorrelation:
         assert -1.0 <= ac <= 1.0
 
 
-class TestCalcMAD:
-    """Test Median Absolute Deviation calculation"""
-    
-    def test_empty_buffer(self):
-        """Test MAD of empty buffer"""
-        assert calc_mad([], 0) == 0.0
-    
-    def test_single_value(self):
-        """Test MAD of single value"""
-        assert calc_mad([5.0], 1) == 0.0
-    
-    def test_constant_values(self):
-        """Test MAD of constant values"""
-        buffer = [5.0] * 10
-        mad = calc_mad(buffer, 10)
-        assert mad == 0.0
-    
-    def test_symmetric_distribution(self):
-        """Test MAD of symmetric values"""
-        # Values: [1, 2, 3, 4, 5], median = 3
-        # |1-3|=2, |2-3|=1, |3-3|=0, |4-3|=1, |5-3|=2
-        # Sorted abs devs: [0, 1, 1, 2, 2], median = 1
-        buffer = [1.0, 2.0, 3.0, 4.0, 5.0]
-        mad = calc_mad(buffer, 5)
-        assert mad == pytest.approx(1.0, rel=1e-6)
-    
-    def test_with_outlier(self):
-        """Test MAD robustness to outliers"""
-        # MAD should be robust to outliers
-        buffer_no_outlier = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
-        buffer_with_outlier = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 100.0]
-        
-        mad_clean = calc_mad(buffer_no_outlier, 10)
-        mad_outlier = calc_mad(buffer_with_outlier, 10)
-        
-        # MAD should not change dramatically with one outlier
-        # (unlike std which would increase a lot)
-        assert mad_outlier < 3 * mad_clean
-    
-    def test_positive_result(self):
-        """Test that MAD is non-negative"""
-        np.random.seed(42)
-        buffer = list(np.random.normal(5, 2, 50))
-        mad = calc_mad(buffer, 50)
-        assert mad >= 0
-
-
 class TestExtractAllFeatures:
     """Test full feature extraction"""
     
@@ -137,7 +88,7 @@ class TestExtractAllFeatures:
         """Test that the default feature count is returned"""
         buffer = [float(i) for i in range(50)]
         features = extract_features_by_name(
-            buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer,
+            buffer, 50, feature_names=DEFAULT_FEATURES,
             aggregated_turbulence_buffer=list(buffer),
             l1_delta_lag_ratio=1.0,
             **_promoted_tracker_kwargs(),
@@ -168,20 +119,18 @@ class TestExtractAllFeatures:
         assert FEATURE_NAMES == DEFAULT_FEATURES
 
     def test_production_set_is_the_only_feature_surface(self):
-        """The default is compact even when one migration extractor remains."""
-        assert tuple(DEFAULT_FEATURES) == ALL_FEATURES[:len(DEFAULT_FEATURES)]
-        assert 'turb_mad_over_mean' in ALL_FEATURES
-        assert 'chan_freq_coh_cv' in ALL_FEATURES
-        assert 'chan_coh_gap' in ALL_FEATURES
-        assert 'chan_coh_subband_gap_median' in ALL_FEATURES
+        """Only current ML inputs and the Classic curve remain at runtime."""
+        assert set(ALL_FEATURES) == set(DEFAULT_FEATURES) | {
+            'chan_freq_coh_curve_std'
+        }
         assert DEFAULT_FEATURES == [
             'turb_iqr_over_mean_aggr',
             'turb_autocorr',
             'turb_zcr',
-            'l1_delta_autocorr',
             'l1_delta_lag_ratio',
             'chan_shape_spread',
-            'chan_freq_coh_curve_std',
+            'chan_shape_coherent_innovation_energy',
+            'chan_shape_excess_path',
         ]
 
     def test_unknown_feature_raises(self):
@@ -195,7 +144,7 @@ class TestExtractAllFeatures:
         np.random.seed(42)
         buffer = list(np.random.normal(5, 2, 50))
         features = extract_features_by_name(
-            buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=buffer,
+            buffer, 50, feature_names=DEFAULT_FEATURES,
             aggregated_turbulence_buffer=list(buffer),
             l1_delta_lag_ratio=1.0,
             **_promoted_tracker_kwargs(),
@@ -212,13 +161,13 @@ class TestExtractAllFeatures:
         motion_buffer = list(np.random.normal(5, 3, 50))
         
         idle_features = extract_features_by_name(
-            idle_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=idle_buffer,
+            idle_buffer, 50, feature_names=DEFAULT_FEATURES,
             aggregated_turbulence_buffer=list(idle_buffer),
             l1_delta_lag_ratio=1.0,
             **_promoted_tracker_kwargs(),
         )
         motion_features = extract_features_by_name(
-            motion_buffer, 50, feature_names=DEFAULT_FEATURES, l1_series=motion_buffer,
+            motion_buffer, 50, feature_names=DEFAULT_FEATURES,
             aggregated_turbulence_buffer=list(motion_buffer),
             l1_delta_lag_ratio=2.0,
             **_promoted_tracker_kwargs(),
@@ -290,40 +239,28 @@ class TestFeatureSemantics:
         """
         np.random.seed(13)
         turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
-        series = [abs(v) + 0.05 for v in np.random.normal(0.1, 0.03, 40)]
 
         base = extract_features_by_name(
             turb, 50, feature_names=DEFAULT_FEATURES,
             aggregated_turbulence_buffer=list(turb),
-            l1_series=series, l1_delta_lag_ratio=1.4,
+            l1_delta_lag_ratio=1.4,
             **_promoted_tracker_kwargs())
         boosted = extract_features_by_name(
             [v * 10.0 for v in turb], 50, feature_names=DEFAULT_FEATURES,
             aggregated_turbulence_buffer=[v * 10.0 for v in turb],
-            l1_series=[v * 10.0 for v in series], l1_delta_lag_ratio=1.4,
+            l1_delta_lag_ratio=1.4,
             **_promoted_tracker_kwargs())
 
         for name, before, after in zip(DEFAULT_FEATURES, base, boosted):
             assert after == pytest.approx(before, abs=1e-9), (
                 f"{name} moved when both streams were scaled by 10")
 
-    def test_l1_delta_autocorr_matches_direct_computation(self):
-        turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
-        series = [0.1, 0.12, 0.11, 0.3, 0.32, 0.31, 0.1, 0.12, 0.11, 0.3]
-        value = extract_features_by_name(
-            turb, 50, feature_names=['l1_delta_autocorr'], l1_series=series
-        )[0]
-        assert value == pytest.approx(calc_autocorrelation(series, len(series)))
-
     def test_l1_delta_lag_ratio_uses_preprocessed_tracker_metric(self):
         turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
-        series = [0.1 + 0.01 * (i % 3) for i in range(40)]
-
         value = extract_features_by_name(
             turb,
             50,
             feature_names=['l1_delta_lag_ratio'],
-            l1_series=series,
             l1_delta_lag_ratio=1.75,
         )[0]
 
@@ -337,14 +274,4 @@ class TestFeatureSemantics:
                 turb,
                 50,
                 feature_names=['l1_delta_lag_ratio'],
-                l1_series=[0.1] * 40,
             )
-
-    def test_l1_candidates_return_zero_without_series_samples(self):
-        turb = [5.0 + 0.1 * (i % 5) for i in range(50)]
-        values = extract_features_by_name(
-            turb, 50,
-            feature_names=['l1_delta_autocorr'],
-            l1_series=[],
-        )
-        assert values == [0.0]

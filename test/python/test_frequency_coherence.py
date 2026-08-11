@@ -31,8 +31,9 @@ from tools.lib import host_feature_trackers as host
 # orders tighter than any real change to the pair set or the normalization.
 RELATIVE_TOLERANCE = 1e-12
 
-SUPPORTED_OFFSETS = (2, 4, 12)
-EXPECTED_PAIR_COUNTS = {2: 52, 4: 48, 12: 32}
+SUPPORTED_OFFSETS = (2, 12)
+REFERENCE_OFFSETS = (2, 4, 12)
+EXPECTED_PAIR_COUNTS = {2: 52, 12: 32}
 UNSUPPORTED_OFFSETS = (-4, -1, 0, 1, 3, 5, 11, 13, 28, 56)
 
 
@@ -48,7 +49,7 @@ def reference_pairs(offset):
 
 def reference_frequency_coherence(profile, offset):
     """The definition, written straight from the pair table."""
-    if int(offset) not in SUPPORTED_OFFSETS:
+    if int(offset) not in REFERENCE_OFFSETS:
         return 0.0
     numerator = 0j
     left_norm = 0.0
@@ -121,7 +122,17 @@ def _micro_spans():
 
 def test_offsets_match_the_documented_set() -> None:
     assert FREQUENCY_COHERENCE_OFFSETS == SUPPORTED_OFFSETS
-    assert host.FREQUENCY_COHERENCE_OFFSETS == SUPPORTED_OFFSETS
+    assert host.FREQUENCY_COHERENCE_OFFSETS == (2, 4, 12)
+
+
+def test_retired_offset_four_coherence_is_host_only() -> None:
+    profile = random_profiles(count=1)[0]
+    expected = reference_frequency_coherence(profile, 4)
+
+    assert frequency_coherence(profile, 4) == 0.0
+    assert host.frequency_coherence(
+        np.asarray(profile, dtype=np.complex128), 4
+    ) == pytest.approx(expected, rel=RELATIVE_TOLERANCE)
 
 
 @pytest.mark.parametrize("offset", SUPPORTED_OFFSETS)
@@ -179,7 +190,7 @@ def test_unsupported_offsets_return_zero(offset) -> None:
     assert host.frequency_coherence(np.asarray(profile, dtype=np.complex128), offset) == 0.0
 
 
-def test_combined_output_equals_the_three_single_calls() -> None:
+def test_combined_output_equals_the_two_single_calls() -> None:
     """The tracker reads the combined form, so it must not drift from singles."""
     squares = new_frequency_coherence_squares()
     out = [0.0] * len(FREQUENCY_COHERENCE_OFFSETS)
@@ -230,29 +241,20 @@ def test_tracker_curve_features_follow_the_reference_coherences() -> None:
     # expected statistics below cover exactly the packets that were fed.
     tracker = ChannelShapeTracker(window_size=packets * 2, lag=3)
     expected_curve = []
-    expected_base = []
 
     for _ in range(packets):
         csi_data = [rng.randrange(0, 256) for _ in range(128)]
         profile = complex_profile(csi_data)
         short = reference_frequency_coherence(profile, 2)
-        base = reference_frequency_coherence(profile, 4)
         long = reference_frequency_coherence(profile, 12)
         total = short + long
         expected_curve.append((short - long) / total if total > 0.0 else 0.0)
-        expected_base.append(base)
         tracker.process_packet(csi_data)
 
     mean_curve = sum(expected_curve) / len(expected_curve)
     curve_std = math.sqrt(
         max(0.0, sum(v * v for v in expected_curve) / len(expected_curve) - mean_curve**2)
     )
-    mean_base = sum(expected_base) / len(expected_base)
-    base_cv = math.sqrt(
-        max(0.0, sum(v * v for v in expected_base) / len(expected_base) - mean_base**2)
-    ) / mean_base
-
     assert tracker.frequency_coherence_curve_std() == pytest.approx(
         curve_std, rel=1e-9, abs=1e-12
     )
-    assert tracker.frequency_coherence_cv() == pytest.approx(base_cv, rel=1e-9, abs=1e-12)

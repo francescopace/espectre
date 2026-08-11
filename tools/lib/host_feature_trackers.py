@@ -66,41 +66,99 @@ COHERENCE_GAP_LOW_THRESHOLD = 0.02
 
 CHANNEL_COHERENCE_FEATURES = (
     'chan_coh_lag_ratio',
-)
-PROMOTED_CHANNEL_COHERENCE_FEATURES = (
+    'chan_coh_mean',
     'chan_coh_gap',
+    'chan_coh_gap_low_frac',
+    'chan_coh_gap_q20',
     'chan_coh_subband_gap_median',
+    'chan_coh_subband_median_gap',
 )
 SUBBAND_COHERENCE_FEATURES = (
     'chan_coh_subband_gap_median',
+    'chan_coh_subband_median_gap',
 )
 SPECTRAL_FEATURES = (
+    'turb_band_power_ratio',
+    'turb_cv',
+    'turb_mad_over_mean',
     'turb_iqr_over_mean',
     'turb_p95_over_mean',
+    'turb_p05_over_mean',
+    'turb_max_over_mean',
+    'turb_min_over_mean',
+    'turb_range_over_mean',
+    'turb_peak_over_mad',
+    'waveform_length_over_mean',
+    'turb_skewness',
 )
 AGGREGATED_SPECTRAL_FEATURES = (
     'turb_mad_over_mean_aggr',
     'turb_p95_over_mean_aggr',
+    'turb_iqr_over_mean_aggr_detrended',
+    'turb_iqr_over_mean_aggr_tone_detrended',
+)
+AMPLITUDE_PROFILE_FEATURES = (
+    'corr_amp_d1',
 )
 PHASE_FEATURES = (
     'phase_resid_lag_ratio',
     'phase_closure_var_std',
 )
-CHANNEL_SHAPE_FEATURES = ()
+CHANNEL_SHAPE_FEATURES = (
+    'chan_shape_lag_ratio',
+    'chan_rank_gap',
+    'chan_ratio_gap',
+    'chan_freq_coh_cv',
+)
+L1_SERIES_FEATURES = (
+    'l1_delta_autocorr',
+)
+CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
+    'chan_shape_scale_curvature',
+    'chan_shape_coherent_innovation_energy',
+    'chan_shape_excess_path',
+)
+PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
+    'chan_shape_coherent_innovation_energy',
+    'chan_shape_excess_path',
+)
 PROMOTED_CHANNEL_SHAPE_FEATURES = (
     'chan_shape_spread',
-    'chan_freq_coh_cv',
     'chan_freq_coh_curve_std',
 )
-COMPOSITE_FEATURES = ()
+COMPOSITE_FEATURES = (
+    'chan_coh_gap_spread',
+)
 CANDIDATE_FEATURES: Tuple[str, ...] = (
     CHANNEL_COHERENCE_FEATURES
     + SPECTRAL_FEATURES
     + AGGREGATED_SPECTRAL_FEATURES
     + PHASE_FEATURES
     + CHANNEL_SHAPE_FEATURES
+    + L1_SERIES_FEATURES
+    + tuple(
+        name for name in CHANNEL_SHAPE_TRAJECTORY_FEATURES
+        if name not in PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES
+    )
+    + AMPLITUDE_PROFILE_FEATURES
     + COMPOSITE_FEATURES
 )
+
+CHANNEL_SHAPE_SUBBAND_COUNT = 8
+CHANNEL_SHAPE_BIN_US = 80_000
+_CHANNEL_SHAPE_SUBBAND_WIDTH = (
+    len(HT20_LIVE_BINS) // CHANNEL_SHAPE_SUBBAND_COUNT
+)
+_CHANNEL_SHAPE_DCT = np.sqrt(2.0 / CHANNEL_SHAPE_SUBBAND_COUNT) * np.cos(
+    np.pi
+    / CHANNEL_SHAPE_SUBBAND_COUNT
+    * (
+        np.arange(CHANNEL_SHAPE_SUBBAND_COUNT, dtype=np.float64)[:, None]
+        + 0.5
+    )
+    * np.arange(CHANNEL_SHAPE_SUBBAND_COUNT, dtype=np.float64)[None, :]
+)
+_CHANNEL_SHAPE_DCT[:, 0] /= np.sqrt(2.0)
 
 
 def complex_profile(csi_data, out=None) -> np.ndarray:
@@ -109,6 +167,8 @@ def complex_profile(csi_data, out=None) -> np.ndarray:
     Payload layout matches `SegmentationContext._fill_amplitude_buffer`: each
     subcarrier is an ``(imag, real)`` int8 pair.
     """
+    if csi_data is None:
+        return np.zeros(len(HT20_LIVE_BINS), dtype=np.complex128)
     raw = np.asarray(csi_data, dtype=np.int8)
     if raw.ndim != 1 or raw.size < 2 * (HT20_LIVE_BINS[-1] + 1):
         return np.zeros(len(HT20_LIVE_BINS), dtype=np.complex128)
@@ -316,6 +376,281 @@ def normalized_amplitude_profile(profile: np.ndarray) -> np.ndarray:
     if norm <= 0.0:
         return np.zeros(len(amplitude), dtype=np.float64)
     return amplitude / norm
+
+
+def hellinger_subband_profile(profile: np.ndarray) -> np.ndarray:
+    """Return the gain-invariant Hellinger energy profile of eight subbands."""
+    amplitude = np.abs(np.asarray(profile, dtype=np.complex128))
+    if amplitude.shape != (len(HT20_LIVE_BINS),):
+        return np.zeros(CHANNEL_SHAPE_SUBBAND_COUNT, dtype=np.float64)
+    energy = amplitude * amplitude
+    total = float(np.sum(energy))
+    if total <= 0.0:
+        return np.zeros(CHANNEL_SHAPE_SUBBAND_COUNT, dtype=np.float64)
+    subband_energy = energy.reshape(
+        CHANNEL_SHAPE_SUBBAND_COUNT,
+        _CHANNEL_SHAPE_SUBBAND_WIDTH,
+    ).sum(axis=1)
+    return np.sqrt(subband_energy / total)
+
+
+class ChannelShapeTrajectoryTracker:
+    """Track physical-time geometry of the Hellinger channel profile.
+
+    Packet profiles are reduced to eight contiguous live-band subbands, then
+    grouped in fixed physical-time bins using component-wise medians. Exact
+    consecutive duplicates are discarded and absent bins are left absent.
+    """
+
+    def __init__(
+        self,
+        window_duration_us: int = 1_000_000,
+        bin_us: int = CHANNEL_SHAPE_BIN_US,
+    ):
+        self.window_duration_us = max(3, int(window_duration_us))
+        self.bin_us = max(1, int(bin_us))
+        self._window_bins = max(
+            3,
+            (self.window_duration_us + self.bin_us - 1) // self.bin_us,
+        )
+        self.reset()
+
+    @staticmethod
+    def _median_profile(profiles: Sequence[np.ndarray]) -> np.ndarray:
+        median = np.median(np.asarray(profiles, dtype=np.float64), axis=0)
+        norm = float(np.linalg.norm(median))
+        return median / norm if norm > 0.0 else np.zeros_like(median)
+
+    def _finalize_current_bin(self) -> None:
+        if self._current_bin is None or not self._current_profiles:
+            return
+        self._bins.append(
+            (
+                self._current_bin,
+                self._median_profile(self._current_profiles),
+            )
+        )
+
+    def _trim(self, current_bin: int) -> None:
+        first_bin = int(current_bin) - self._window_bins + 1
+        while self._bins and self._bins[0][0] < first_bin:
+            del self._bins[0]
+
+    def process_packet(self, csi_data, timestamp_us: int) -> None:
+        """Consume one CSI payload at its monotonic physical timestamp."""
+        raw = np.asarray(csi_data, dtype=np.int8)
+        if self._previous_raw is not None and np.array_equal(
+            raw,
+            self._previous_raw,
+        ):
+            return
+        self._previous_raw = raw.copy()
+        bin_index = max(0, int(timestamp_us)) // self.bin_us
+        profile = hellinger_subband_profile(complex_profile(raw))
+        if self._current_bin is None:
+            self._current_bin = bin_index
+        elif bin_index != self._current_bin:
+            self._finalize_current_bin()
+            self._current_bin = bin_index
+            self._current_profiles = []
+            self._trim(bin_index)
+        self._current_profiles.append(profile)
+
+    def _binned_path(self) -> List[Tuple[int, np.ndarray]]:
+        path = list(self._bins)
+        if self._current_profiles:
+            path.append(
+                (
+                    self._current_bin,
+                    self._median_profile(self._current_profiles),
+                )
+            )
+        return path
+
+    def _profile_path(self) -> List[np.ndarray]:
+        return [profile for _, profile in self._binned_path()]
+
+    def _distance_at_bin_lag(self, lag_bins: int) -> float:
+        path = self._binned_path()
+        profiles = {index: profile for index, profile in path}
+        distances = [
+            float(np.linalg.norm(profile - profiles[index - lag_bins]))
+            for index, profile in path
+            if index - lag_bins in profiles
+        ]
+        return float(np.median(distances)) if distances else 0.0
+
+    def scale_curvature(self, epsilon: float = 1e-6) -> float:
+        """Log-distance curvature at physical lags 80, 240, and 720 ms."""
+        short = self._distance_at_bin_lag(1)
+        middle = self._distance_at_bin_lag(3)
+        long = self._distance_at_bin_lag(9)
+        if min(short, middle, long) <= 0.0:
+            return 0.0
+        floor = max(float(epsilon), 1e-12)
+        return float(
+            2.0 * np.log(middle + floor)
+            - np.log(short + floor)
+            - np.log(long + floor)
+        )
+
+    def coherent_innovation_energy(
+        self,
+        high_order_weight: float = 1.0,
+    ) -> float:
+        """Median positive low-order constant-velocity innovation energy."""
+        path = self._binned_path()
+        if len(path) < 3:
+            return 0.0
+        samples = []
+        for (first_bin, first), (middle_bin, middle), (last_bin, last) in zip(
+            path,
+            path[1:],
+            path[2:],
+        ):
+            previous_dt = middle_bin - first_bin
+            current_dt = last_bin - middle_bin
+            if previous_dt <= 0 or current_dt <= 0:
+                continue
+            prediction = middle + (
+                float(current_dt) / float(previous_dt)
+            ) * (middle - first)
+            modes = (last - prediction) @ _CHANNEL_SHAPE_DCT
+            low_energy = float(np.dot(modes[1:4], modes[1:4]))
+            high_energy = float(np.dot(modes[4:], modes[4:]))
+            samples.append(
+                max(
+                    0.0,
+                    low_energy - max(0.0, float(high_order_weight)) * high_energy,
+                )
+            )
+        return float(np.median(samples)) if samples else 0.0
+
+    def excess_path(self) -> float:
+        """Median positive excess path after high-order DCT subtraction."""
+        profiles = self._profile_path()
+        if len(profiles) < 3:
+            return 0.0
+        samples = []
+        for previous, middle, current in zip(
+            profiles,
+            profiles[1:],
+            profiles[2:],
+        ):
+            first = middle - previous
+            second = current - middle
+            chord = current - previous
+            raw_excess = (
+                float(np.linalg.norm(first))
+                + float(np.linalg.norm(second))
+                - float(np.linalg.norm(chord))
+            )
+            first_modes = first @ _CHANNEL_SHAPE_DCT
+            second_modes = second @ _CHANNEL_SHAPE_DCT
+            chord_modes = chord @ _CHANNEL_SHAPE_DCT
+            high_excess = (
+                float(np.linalg.norm(first_modes[4:]))
+                + float(np.linalg.norm(second_modes[4:]))
+                - float(np.linalg.norm(chord_modes[4:]))
+            )
+            samples.append(max(0.0, raw_excess - max(0.0, high_excess)))
+        return float(np.median(samples)) if samples else 0.0
+
+    def reset(self) -> None:
+        self._bins: List[Tuple[int, np.ndarray]] = []
+        self._current_bin = None
+        self._current_profiles: List[np.ndarray] = []
+        self._previous_raw = None
+
+
+# Compatibility name retained for experiments created before the tracker grew
+# the scale-curvature and coherent-innovation readouts.
+ChannelShapeExcessPathTracker = ChannelShapeTrajectoryTracker
+
+
+class AmplitudeProfileTracker:
+    """Retain scale-free twelve-tone profiles for host-only candidates."""
+
+    def __init__(self, window_size: int = 100):
+        self.window_size = max(2, int(window_size))
+        self.reset()
+
+    @staticmethod
+    def _normalized_profile(amplitudes) -> np.ndarray:
+        profile = np.asarray(amplitudes, dtype=np.float64)
+        if profile.ndim != 1 or profile.size < 2:
+            return np.zeros(0, dtype=np.float64)
+        mean = float(np.mean(profile))
+        if mean <= 0.0:
+            return np.zeros_like(profile)
+        return profile / mean
+
+    def process_amplitudes(
+        self,
+        amplitudes,
+        aggregated_amplitudes=None,
+    ) -> None:
+        profile = self._normalized_profile(amplitudes)
+        if profile.size:
+            self._profiles.append(profile)
+            if len(self._profiles) > self.window_size:
+                del self._profiles[0]
+        if aggregated_amplitudes is not None:
+            aggregated = self._normalized_profile(aggregated_amplitudes)
+            if aggregated.size:
+                self._aggregated_profiles.append(aggregated)
+                if len(self._aggregated_profiles) > self.window_size:
+                    del self._aggregated_profiles[0]
+
+    def adjacent_amplitude_correlation(self) -> float:
+        """Mean Pearson correlation of consecutive amplitude profiles."""
+        if len(self._profiles) < 2:
+            return 0.0
+        values = []
+        for previous, current in zip(self._profiles, self._profiles[1:]):
+            if previous.shape != current.shape:
+                continue
+            previous_centered = previous - float(np.mean(previous))
+            current_centered = current - float(np.mean(current))
+            denominator = float(
+                np.linalg.norm(previous_centered)
+                * np.linalg.norm(current_centered)
+            )
+            values.append(
+                float(np.dot(previous_centered, current_centered) / denominator)
+                if denominator > 0.0 else 0.0
+            )
+        return float(np.mean(values)) if values else 0.0
+
+    def tone_detrended_aggregated_iqr(self) -> float:
+        """Relative turbulence IQR after detrending each aggregated tone."""
+        if len(self._aggregated_profiles) < 4:
+            return 0.0
+        matrix = np.asarray(self._aggregated_profiles, dtype=np.float64)
+        time = np.arange(len(matrix), dtype=np.float64)
+        time -= float(np.mean(time))
+        denominator = float(np.dot(time, time))
+        if denominator <= 0.0:
+            return 0.0
+        centered = matrix - np.mean(matrix, axis=0, keepdims=True)
+        slopes = (time[:, None] * centered).sum(axis=0) / denominator
+        detrended = matrix - time[:, None] * slopes[None, :]
+        means = np.mean(detrended, axis=1)
+        turbulence = np.divide(
+            np.std(detrended, axis=1),
+            means,
+            out=np.zeros(len(detrended), dtype=np.float64),
+            where=means > 0.0,
+        )
+        mean = float(np.mean(turbulence))
+        if abs(mean) <= 1e-6:
+            return 0.0
+        q25, q75 = np.percentile(turbulence, [25, 75])
+        return float((q75 - q25) / abs(mean))
+
+    def reset(self) -> None:
+        self._profiles: List[np.ndarray] = []
+        self._aggregated_profiles: List[np.ndarray] = []
 
 
 def _average_ranks(values: np.ndarray) -> np.ndarray:
@@ -1084,6 +1419,10 @@ class ChannelCoherenceTracker:
         if self._lag_count == 0:
             return 1.0
         return self._lag_sum / self._lag_count
+
+    def count(self) -> int:
+        """Return the number of lagged coherence samples in the window."""
+        return self._lag_count
 
     def coherence_lag_ratio(self) -> float:
         """Lag-``lag`` coherence divided by lag-1 coherence.

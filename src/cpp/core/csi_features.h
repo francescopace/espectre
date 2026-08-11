@@ -35,16 +35,13 @@ static_assert(ML_MODEL_INPUT_SIZE >= 1,
 // tools/train_ml_model.py (CPP_FEATURE_IDS).
 enum MLFeatureId : uint8_t {
     ML_FEAT_TURB_AUTOCORR = 6,
-    ML_FEAT_TURB_MAD_OVER_MEAN = 13,
     ML_FEAT_TURB_ZCR = 14,
-    ML_FEAT_L1_DELTA_AUTOCORR = 24,
     ML_FEAT_L1_DELTA_LAG_RATIO = 25,
     ML_FEAT_CHAN_SHAPE_SPREAD = 40,
-    ML_FEAT_CHAN_FREQ_COH_CV = 41,
     ML_FEAT_CHAN_FREQ_COH_CURVE_STD = 42,
-    ML_FEAT_CHAN_COH_GAP = 43,
-    ML_FEAT_CHAN_COH_SUBBAND_GAP_MEDIAN = 44,
     ML_FEAT_TURB_IQR_OVER_MEAN_AGGR = 45,
+    ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY = 46,
+    ML_FEAT_CHAN_SHAPE_EXCESS_PATH = 47,
 };
 
 // Where a feature's value comes from. Ids carry no ordering: a new turbulence
@@ -53,31 +50,26 @@ enum MLFeatureId : uint8_t {
 enum class MLFeatureSource : uint8_t {
     TURBULENCE_SERIES,
     AGGREGATED_TURBULENCE_SERIES,
-    L1_DELTA_SERIES,
     L1_TRACKER,
     CHANNEL_SHAPE_TRACKER,
-    CHANNEL_COHERENCE_TRACKER,
+    CHANNEL_SHAPE_TRAJECTORY_TRACKER,
 };
 
 inline MLFeatureSource ml_feature_source(MLFeatureId id) {
     switch (id) {
         case ML_FEAT_TURB_AUTOCORR:
-        case ML_FEAT_TURB_MAD_OVER_MEAN:
         case ML_FEAT_TURB_ZCR:
             return MLFeatureSource::TURBULENCE_SERIES;
         case ML_FEAT_TURB_IQR_OVER_MEAN_AGGR:
             return MLFeatureSource::AGGREGATED_TURBULENCE_SERIES;
-        case ML_FEAT_L1_DELTA_AUTOCORR:
-            return MLFeatureSource::L1_DELTA_SERIES;
         case ML_FEAT_L1_DELTA_LAG_RATIO:
             return MLFeatureSource::L1_TRACKER;
         case ML_FEAT_CHAN_SHAPE_SPREAD:
-        case ML_FEAT_CHAN_FREQ_COH_CV:
         case ML_FEAT_CHAN_FREQ_COH_CURVE_STD:
             return MLFeatureSource::CHANNEL_SHAPE_TRACKER;
-        case ML_FEAT_CHAN_COH_GAP:
-        case ML_FEAT_CHAN_COH_SUBBAND_GAP_MEDIAN:
-            return MLFeatureSource::CHANNEL_COHERENCE_TRACKER;
+        case ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY:
+        case ML_FEAT_CHAN_SHAPE_EXCESS_PATH:
+            return MLFeatureSource::CHANNEL_SHAPE_TRAJECTORY_TRACKER;
     }
     // No default label above, so -Wswitch reports a new enumerator here
     // instead of letting it inherit a neighbour's buffers. An id the enum does
@@ -90,15 +82,7 @@ inline MLFeatureSource ml_feature_source(MLFeatureId id) {
 inline bool ml_feature_needs_l1_tracker(uint8_t id) {
     const MLFeatureSource source =
         ml_feature_source(static_cast<MLFeatureId>(id));
-    return source == MLFeatureSource::L1_DELTA_SERIES ||
-           source == MLFeatureSource::L1_TRACKER;
-}
-
-// True when the id needs the rebuilt L1-delta series. The lag ratio does not:
-// it arrives ready-made from the tracker.
-inline bool ml_feature_needs_l1_series(uint8_t id) {
-    return ml_feature_source(static_cast<MLFeatureId>(id)) ==
-           MLFeatureSource::L1_DELTA_SERIES;
+    return source == MLFeatureSource::L1_TRACKER;
 }
 
 inline bool ml_feature_needs_channel_shape_tracker(uint8_t id) {
@@ -106,9 +90,13 @@ inline bool ml_feature_needs_channel_shape_tracker(uint8_t id) {
            MLFeatureSource::CHANNEL_SHAPE_TRACKER;
 }
 
-inline bool ml_feature_needs_channel_coherence_tracker(uint8_t id) {
+inline bool ml_feature_needs_channel_frequency_tracker(uint8_t id) {
+    return id == ML_FEAT_CHAN_FREQ_COH_CURVE_STD;
+}
+
+inline bool ml_feature_needs_channel_shape_trajectory_tracker(uint8_t id) {
     return ml_feature_source(static_cast<MLFeatureId>(id)) ==
-           MLFeatureSource::CHANNEL_COHERENCE_TRACKER;
+           MLFeatureSource::CHANNEL_SHAPE_TRAJECTORY_TRACKER;
 }
 
 inline bool ml_feature_needs_aggregated_turbulence(uint8_t id) {
@@ -147,35 +135,6 @@ inline float calc_autocorrelation(const float* values, uint16_t count, float mea
 
     return autocovariance / variance;
 }
-
-/**
- * Median absolute deviation.
- *
- * Both the sorted view and the scratch are caller-owned: the only caller
- * already sorts for the zcr center, so MAD reuses that view instead of
- * sorting a second copy.
- *
- * @param sorted_values Ascending copy of `values`, `count` entries
- * @param abs_dev_scratch Scratch of at least `count` floats, overwritten
- * @param scratch_capacity Length of `abs_dev_scratch`
- */
-inline float calc_mad(const float* values, uint16_t count,
-                      const float* sorted_values,
-                      float* abs_dev_scratch, uint16_t scratch_capacity) {
-    if (values == nullptr || sorted_values == nullptr ||
-        abs_dev_scratch == nullptr || count < 2 || scratch_capacity < count) {
-        return 0.0f;
-    }
-
-    const float median = median_from_sorted(sorted_values, count);
-
-    for (uint16_t i = 0; i < count; i++) {
-        abs_dev_scratch[i] = std::fabs(values[i] - median);
-    }
-
-    return calculate_median_float(abs_dev_scratch, count);
-}
-
 // Crossing rate of the series around `center`. Shift and scale invariant when
 // `center` tracks the window; matches the Python `calc_zero_crossing_rate`,
 // whose zcr center is the upper median `sorted[count / 2]`.
@@ -198,8 +157,6 @@ struct MLSeriesStats {
     uint16_t count = 0;
     float mean = 0.0f;
     float variance = 0.0f;
-    float std = 0.0f;
-    float mad = 0.0f;
     float iqr = 0.0f;
     float autocorr = 0.0f;
     float zcr = 0.0f;
@@ -207,12 +164,11 @@ struct MLSeriesStats {
 };
 
 // Which per-series statistics one feature set actually references. Lets the
-// hot path skip the unused ones (notably the sort, which the delta series
-// never needs under the production feature set). Mean, variance, std, and
-// mean_denom are always computed: they are cheap and interdependent.
+// hot path skip unused passes over the window.
 struct MLStatNeeds {
-    bool sorted = false;   // mad, iqr, and/or zcr share one sort
-    bool mad = false;
+    bool mean = false;
+    bool variance = false;
+    bool sorted = false;   // iqr and/or zcr share one sort
     bool iqr = false;
     bool zcr = false;
     bool autocorr = false;
@@ -222,26 +178,19 @@ struct MLStatNeeds {
 // it to their window and keep it alive for their lifetime, so no feature
 // helper allocates on the CSI callback stack.
 //
-// One scratch is reused across all series within a single feature extraction
-// (normal turbulence, aggregated turbulence, then L1 delta). That is safe only
-// because MLSeriesStats holds scalars: each call's results are fully
-// materialised before the next call overwrites the buffers. A statistic that
-// returned a pointer or a view into the sorted values would silently read the
-// wrong series, with no compiler diagnostic and no test failure, because every
-// series produces plausible numbers. Keep MLSeriesStats pointer-free, or give
-// each series its own slice.
+// One sorted view is reused by the turbulence and aggregated-turbulence
+// series. MLSeriesStats contains only scalars, so each result is materialised
+// before the next call overwrites the view.
 struct MLSeriesScratch {
     float* sorted_values = nullptr;
-    float* abs_devs = nullptr;
     uint16_t capacity = 0U;
 
     bool holds(uint16_t count) const {
-        return sorted_values != nullptr && abs_devs != nullptr && capacity >= count;
+        return sorted_values != nullptr && capacity >= count;
     }
 };
 
-// Derive the needs of one series (turbulence when l1 is false, L1-delta when
-// true) from the exported feature id list.
+// Derive the statistics needed by one production series from the exported ids.
 inline MLStatNeeds ml_series_needs(const uint8_t *feature_ids,
                                    uint8_t num_features,
                                    MLFeatureSource wanted) {
@@ -252,11 +201,8 @@ inline MLStatNeeds ml_series_needs(const uint8_t *feature_ids,
             continue;
         }
         switch (id) {
-            case ML_FEAT_TURB_MAD_OVER_MEAN:
-                needs.sorted = true;
-                needs.mad = true;
-                break;
             case ML_FEAT_TURB_IQR_OVER_MEAN_AGGR:
+                needs.mean = true;
                 needs.sorted = true;
                 needs.iqr = true;
                 break;
@@ -265,7 +211,8 @@ inline MLStatNeeds ml_series_needs(const uint8_t *feature_ids,
                 needs.zcr = true;
                 break;
             case ML_FEAT_TURB_AUTOCORR:
-            case ML_FEAT_L1_DELTA_AUTOCORR:
+                needs.mean = true;
+                needs.variance = true;
                 needs.autocorr = true;
                 break;
             default:  // mean / std features need no extra statistic
@@ -284,22 +231,24 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
     }
     out->count = count;
 
-    const MeanVariance moments = calculate_mean_variance_two_pass(values, count);
-    out->mean = moments.mean;
-    out->variance = moments.variance;
-    out->std = out->variance > 0.0f ? std::sqrt(out->variance) : 0.0f;
-    out->mean_denom = std::max(std::fabs(out->mean), 1e-6f);
+    if (needs.variance) {
+        const MeanVariance moments =
+            calculate_mean_variance_two_pass(values, count);
+        out->mean = moments.mean;
+        out->variance = moments.variance;
+    } else if (needs.mean) {
+        out->mean = calculate_mean(values, count);
+    }
+    if (needs.mean) {
+        out->mean_denom = std::max(std::fabs(out->mean), 1e-6f);
+    }
 
-    // Sort once; MAD and the zcr center share the sorted view.
+    // Sort once; IQR and the zcr center share the sorted view.
     if (needs.sorted && scratch.holds(count)) {
         for (uint16_t i = 0; i < count; i++) {
             scratch.sorted_values[i] = values[i];
         }
         std::sort(scratch.sorted_values, scratch.sorted_values + count);
-        if (needs.mad) {
-            out->mad = calc_mad(values, count, scratch.sorted_values,
-                                scratch.abs_devs, scratch.capacity);
-        }
         if (needs.iqr) {
             out->iqr = percentile_from_sorted(
                 scratch.sorted_values, count, 0.75f) -
@@ -325,26 +274,22 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
  */
 inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
                                          const MLSeriesStats& aggregated_turb,
-                                         const MLSeriesStats& delta,
                                          float l1_delta_lag_ratio,
                                          float chan_shape_spread,
-                                         float chan_freq_coh_cv,
-                                         float chan_freq_coh_curve_std,
-                                         float chan_coh_gap,
-                                         float chan_coh_subband_gap_median) {
+                                         float chan_shape_coherent_innovation_energy,
+                                         float chan_shape_excess_path,
+                                         float chan_freq_coh_curve_std) {
     switch (id) {
         case ML_FEAT_TURB_AUTOCORR: return turb.autocorr;
-        case ML_FEAT_TURB_MAD_OVER_MEAN: return turb.mad / turb.mean_denom;
         case ML_FEAT_TURB_IQR_OVER_MEAN_AGGR:
             return aggregated_turb.iqr / aggregated_turb.mean_denom;
         case ML_FEAT_TURB_ZCR: return turb.zcr;
-        case ML_FEAT_L1_DELTA_AUTOCORR: return delta.autocorr;
         case ML_FEAT_L1_DELTA_LAG_RATIO: return l1_delta_lag_ratio;
         case ML_FEAT_CHAN_SHAPE_SPREAD: return chan_shape_spread;
-        case ML_FEAT_CHAN_FREQ_COH_CV: return chan_freq_coh_cv;
+        case ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY:
+            return chan_shape_coherent_innovation_energy;
+        case ML_FEAT_CHAN_SHAPE_EXCESS_PATH: return chan_shape_excess_path;
         case ML_FEAT_CHAN_FREQ_COH_CURVE_STD: return chan_freq_coh_curve_std;
-        case ML_FEAT_CHAN_COH_GAP: return chan_coh_gap;
-        case ML_FEAT_CHAN_COH_SUBBAND_GAP_MEDIAN: return chan_coh_subband_gap_median;
         default: return 0.0f;
     }
 }
@@ -352,16 +297,14 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
 inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_count,
                                       const float* aggregated_turb_buffer,
                                       uint16_t aggregated_turb_count,
-                                      const float* delta_buffer, uint16_t delta_count,
                                       const uint8_t* feature_ids, uint8_t num_features,
                                       float* features_out,
                                       const MLSeriesScratch& series_scratch,
                                       float l1_delta_lag_ratio,
                                       float chan_shape_spread,
-                                      float chan_freq_coh_cv,
-                                      float chan_freq_coh_curve_std,
-                                      float chan_coh_gap,
-                                      float chan_coh_subband_gap_median) {
+                                      float chan_shape_coherent_innovation_energy,
+                                      float chan_shape_excess_path,
+                                      float chan_freq_coh_curve_std) {
     MLSeriesStats turb;
     compute_ml_series_stats(turb_buffer, turb_count, &turb,
                             ml_series_needs(
@@ -377,19 +320,12 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
             MLFeatureSource::AGGREGATED_TURBULENCE_SERIES),
         series_scratch);
 
-    MLSeriesStats delta;
-    compute_ml_series_stats(delta_buffer, delta_count, &delta,
-                            ml_series_needs(
-                                feature_ids, num_features,
-                                MLFeatureSource::L1_DELTA_SERIES),
-                            series_scratch);
-
     for (uint8_t i = 0; i < num_features; i++) {
         features_out[i] = ml_feature_value_from_stats(
-            feature_ids[i], turb, aggregated_turb, delta,
+            feature_ids[i], turb, aggregated_turb,
             l1_delta_lag_ratio, chan_shape_spread,
-            chan_freq_coh_cv, chan_freq_coh_curve_std, chan_coh_gap,
-            chan_coh_subband_gap_median);
+            chan_shape_coherent_innovation_energy, chan_shape_excess_path,
+            chan_freq_coh_curve_std);
     }
 }
 

@@ -275,14 +275,14 @@ The production model consumes these seven scale-invariant inputs, in export orde
 1. `turb_iqr_over_mean_aggr`
 2. `turb_autocorr`
 3. `turb_zcr`
-4. `l1_delta_autocorr`
-5. `l1_delta_lag_ratio`
-6. `chan_shape_spread`
-7. `chan_freq_coh_curve_std`
+4. `l1_delta_lag_ratio`
+5. `chan_shape_spread`
+6. `chan_shape_coherent_innovation_energy`
+7. `chan_shape_excess_path`
 
-Every member is a ratio, a correlation, or a crossing rate. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in [FEATURES.md](FEATURES.md).
+Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in [FEATURES.md](FEATURES.md).
 
-The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists only when the exported ML feature ids request it. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series, so the amplitude path is not silently changed for those features or for Classic. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. The final two inputs come from the normalized channel-shape tracker. The production export no longer requests the delay-compensated channel-coherence tracker, so Python and C++ skip that tracker for ML inference. Every caller passing the production set must still supply the selected tracker-derived values explicitly.
+The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists only when the exported ML feature ids request it. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series, so the amplitude path is not silently changed for those features or for Classic. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. `chan_shape_spread` comes from the normalized channel-shape tracker. The final two inputs reduce the live band to eight gain-normalized Hellinger subbands, take component-wise medians in physical `80 ms` bins over a one-second path, discard exact consecutive CSI duplicates, and leave missing bins absent. Coherent innovation measures positive low-order DCT energy after a constant-velocity prediction and high-order noise subtraction; excess path measures positive two-step path length beyond its chord after the analogous high-order subtraction. Finalized bins retain their orthonormal DCT coefficients instead of their profiles, while the changing current bin is transformed once per extraction. DCT linearity preserves the constant-velocity residual, and Parseval's identity preserves the full-profile L2 distances used by excess path, so this representation changes storage and repeated computation without changing either feature definition. The runtime feeds their tracker the packet arrival timestamp, so packet-rate changes and loss do not redefine their temporal scale. The production ML export no longer requests L1-delta autocorrelation or frequency-coherence curve standard deviation; Classic continues to own and use the latter independently.
 
 ### Inference Flow
 

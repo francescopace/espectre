@@ -18,6 +18,96 @@ namespace espectre {
 static const char *TAG = "MLDetector";
 static_assert(ML_MODEL_INPUT_SIZE == ML_NUM_FEATURES,
               "Exported model input size must match extracted ML feature count");
+static_assert(DETECTOR_MIN_WINDOW_SIZE >= HT20_NUM_SUBCARRIERS,
+              "ML scratch must hold one packet-wide HT20 feature frame");
+
+namespace {
+
+uint8_t fill_packet_energies(const int8_t* csi_data, size_t csi_len,
+                             float* out) {
+    if (csi_data == nullptr || out == nullptr) return 0U;
+    const uint8_t count = static_cast<uint8_t>(std::min<size_t>(
+        HT20_NUM_SUBCARRIERS, csi_len / 2U));
+    for (uint8_t subcarrier = 0U; subcarrier < count; subcarrier++) {
+        const float imag = static_cast<float>(csi_data[subcarrier * 2U]);
+        const float real = static_cast<float>(csi_data[subcarrier * 2U + 1U]);
+        out[subcarrier] = real * real + imag * imag;
+    }
+    return count;
+}
+
+void energies_to_amplitudes(float* values, uint8_t count) {
+    if (values == nullptr) return;
+    for (uint8_t i = 0U; i < count; i++) {
+        values[i] = std::sqrt(values[i]);
+    }
+}
+
+uint8_t select_amplitudes(const float* packet_amplitudes,
+                          uint8_t packet_count,
+                          const uint8_t* selected_subcarriers,
+                          uint8_t selected_count,
+                          float* out) {
+    if (packet_amplitudes == nullptr || selected_subcarriers == nullptr ||
+        out == nullptr) {
+        return 0U;
+    }
+    uint8_t written = 0U;
+    for (uint8_t i = 0U;
+         i < selected_count && written < HT20_SELECTED_BAND_SIZE; i++) {
+        const uint8_t subcarrier = selected_subcarriers[i];
+        if (subcarrier < packet_count) {
+            out[written++] = packet_amplitudes[subcarrier];
+        }
+    }
+    return written;
+}
+
+uint8_t select_aggregated_amplitudes(
+        const float* packet_amplitudes,
+        uint8_t packet_count,
+        const uint8_t* selected_subcarriers,
+        uint8_t selected_count,
+        uint8_t width,
+        float* out) {
+    if (packet_amplitudes == nullptr || selected_subcarriers == nullptr ||
+        width == 0U || out == nullptr) {
+        return 0U;
+    }
+    const int half = static_cast<int>((width - 1U) / 2U);
+    uint8_t written = 0U;
+    for (uint8_t i = 0U;
+         i < selected_count && written < HT20_SELECTED_BAND_SIZE; i++) {
+        int low = static_cast<int>(selected_subcarriers[i]) - half;
+        int high = static_cast<int>(selected_subcarriers[i]) +
+                   static_cast<int>(width - 1U) - half;
+        if (low < HT20_GUARD_BAND_LOW) {
+            low = HT20_GUARD_BAND_LOW;
+            high = HT20_GUARD_BAND_LOW + width - 1U;
+        }
+        if (high > HT20_GUARD_BAND_HIGH) {
+            low = HT20_GUARD_BAND_HIGH - width + 1U;
+            high = HT20_GUARD_BAND_HIGH;
+        }
+
+        float total = 0.0f;
+        uint8_t count = 0U;
+        for (int bin = low; bin <= high; bin++) {
+            if (bin == HT20_DC_SUBCARRIER || bin < 0 ||
+                bin >= packet_count) {
+                continue;
+            }
+            total += packet_amplitudes[bin];
+            count++;
+        }
+        if (count > 0U) {
+            out[written++] = total / static_cast<float>(count);
+        }
+    }
+    return written;
+}
+
+}  // namespace
 
 // ============================================================================
 // CONSTRUCTOR
@@ -27,9 +117,8 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     : BaseDetector(window_size)
     , threshold_(threshold)
     , uses_l1_tracker_(false)
-    , uses_l1_series_(false)
     , uses_shape_tracker_(false)
-    , uses_coherence_tracker_(false)
+    , uses_shape_trajectory_tracker_(false)
     , uses_aggregated_turbulence_(false)
     , lag_(std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX))
     , feature_scratch_(nullptr)
@@ -38,25 +127,28 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     , aggregated_turbulence_index_(0U)
     , aggregated_turbulence_count_(0U) {
     threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
+    bool uses_shape_frequency_tracker = false;
 
     // Maintain the L1-delta rings only when the exported model needs them, and
     // reserve the rebuilt series only for the features that read it.
     for (uint8_t i = 0; i < ML_MODEL_INPUT_SIZE; i++) {
         const uint8_t id = ML_FEATURE_IDS[i];
         uses_l1_tracker_ = uses_l1_tracker_ || ml_feature_needs_l1_tracker(id);
-        uses_l1_series_ = uses_l1_series_ || ml_feature_needs_l1_series(id);
         uses_shape_tracker_ =
             uses_shape_tracker_ || ml_feature_needs_channel_shape_tracker(id);
-        uses_coherence_tracker_ =
-            uses_coherence_tracker_ || ml_feature_needs_channel_coherence_tracker(id);
+        uses_shape_frequency_tracker =
+            uses_shape_frequency_tracker ||
+            ml_feature_needs_channel_frequency_tracker(id);
+        uses_shape_trajectory_tracker_ =
+            uses_shape_trajectory_tracker_ ||
+            ml_feature_needs_channel_shape_trajectory_tracker(id);
         uses_aggregated_turbulence_ =
             uses_aggregated_turbulence_ ||
             ml_feature_needs_aggregated_turbulence(id);
     }
 
     // One block holds every working array the feature path needs; the
-    // accessors below carve it into the sort view, the absolute-deviation
-    // view, and the rebuilt L1-delta series.
+    // accessors below expose as the reusable sorted-series view.
     feature_scratch_ = alloc_zeroed_floats(feature_scratch_size_());
     if (feature_scratch_ == nullptr) {
         ESP_LOGE(TAG, "Failed to allocate feature scratch (%u floats)",
@@ -77,14 +169,16 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
         &aggregated_lowpass_state_, LOWPASS_CUTOFF_DEFAULT,
         LOWPASS_SAMPLE_RATE, false);
     l1_tracker_.configure(uses_l1_tracker_ ? l1_delta_capacity_() : 0U, lag_);
-    shape_tracker_.configure(uses_shape_tracker_ ? l1_delta_capacity_() : 0U, lag_);
-    coherence_tracker_.configure(uses_coherence_tracker_ ? l1_delta_capacity_() : 0U, lag_);
-
+    shape_tracker_.configure(
+        uses_shape_tracker_ ? l1_delta_capacity_() : 0U,
+        lag_,
+        uses_shape_frequency_tracker);
+    shape_trajectory_tracker_.configure(uses_shape_trajectory_tracker_);
     ESP_LOGI(TAG,
-             "Initialized (window=%d, threshold=%.2f, l1=%d, l1_series=%d, shape=%d, coh=%d, aggr=%d)",
+             "Initialized (window=%d, threshold=%.2f, l1=%d, shape=%d, trajectory=%d, aggr=%d)",
              window_size_, threshold_, uses_l1_tracker_ ? 1 : 0,
-             uses_l1_series_ ? 1 : 0, uses_shape_tracker_ ? 1 : 0,
-             uses_coherence_tracker_ ? 1 : 0,
+             uses_shape_tracker_ ? 1 : 0,
+             uses_shape_trajectory_tracker_ ? 1 : 0,
              uses_aggregated_turbulence_ ? 1 : 0);
 }
 
@@ -98,14 +192,13 @@ MLDetector::MLDetector(MLDetector&& other) noexcept
     : BaseDetector(std::move(other))
     , threshold_(other.threshold_)
     , uses_l1_tracker_(other.uses_l1_tracker_)
-    , uses_l1_series_(other.uses_l1_series_)
     , uses_shape_tracker_(other.uses_shape_tracker_)
-    , uses_coherence_tracker_(other.uses_coherence_tracker_)
+    , uses_shape_trajectory_tracker_(other.uses_shape_trajectory_tracker_)
     , uses_aggregated_turbulence_(other.uses_aggregated_turbulence_)
     , lag_(other.lag_)
     , l1_tracker_(std::move(other.l1_tracker_))
     , shape_tracker_(std::move(other.shape_tracker_))
-    , coherence_tracker_(std::move(other.coherence_tracker_))
+    , shape_trajectory_tracker_(std::move(other.shape_trajectory_tracker_))
     , feature_scratch_(other.feature_scratch_)
     , aggregated_turbulence_buffer_(other.aggregated_turbulence_buffer_)
     , aggregated_turbulence_ordered_(other.aggregated_turbulence_ordered_)
@@ -123,14 +216,13 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
         BaseDetector::operator=(std::move(other));
         threshold_ = other.threshold_;
         uses_l1_tracker_ = other.uses_l1_tracker_;
-        uses_l1_series_ = other.uses_l1_series_;
         uses_shape_tracker_ = other.uses_shape_tracker_;
-        uses_coherence_tracker_ = other.uses_coherence_tracker_;
+        uses_shape_trajectory_tracker_ = other.uses_shape_trajectory_tracker_;
         uses_aggregated_turbulence_ = other.uses_aggregated_turbulence_;
         lag_ = other.lag_;
         l1_tracker_ = std::move(other.l1_tracker_);
         shape_tracker_ = std::move(other.shape_tracker_);
-        coherence_tracker_ = std::move(other.coherence_tracker_);
+        shape_trajectory_tracker_ = std::move(other.shape_trajectory_tracker_);
         delete[] feature_scratch_;
         feature_scratch_ = other.feature_scratch_;
         other.feature_scratch_ = nullptr;
@@ -149,24 +241,14 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
 }
 
 uint16_t MLDetector::feature_scratch_size_() const {
-    // Sort view + absolute-deviation view, plus the L1-delta series when the
-    // exported model uses it.
-    return static_cast<uint16_t>(2U * window_size_ +
-                                 (uses_l1_series_ ? l1_delta_capacity_() : 0U));
-}
-
-float* MLDetector::delta_series_() const {
-    if (feature_scratch_ == nullptr || !uses_l1_series_) {
-        return nullptr;
-    }
-    return feature_scratch_ + 2U * window_size_;
+    return window_size_;
 }
 
 MLSeriesScratch MLDetector::series_scratch_() const {
     if (feature_scratch_ == nullptr) {
         return MLSeriesScratch{};
     }
-    return MLSeriesScratch{feature_scratch_, feature_scratch_ + window_size_, window_size_};
+    return MLSeriesScratch{feature_scratch_, window_size_};
 }
 
 void MLDetector::configure_hampel(bool enabled, uint8_t window_size,
@@ -223,11 +305,6 @@ bool MLDetector::set_threshold(float threshold) {
 // ============================================================================
 
 void MLDetector::extract_features(float* features_out) {
-    // Reconstruct the L1-delta series (chronological) when the model uses it.
-    float* delta_series = delta_series_();
-    const uint16_t delta_len =
-        delta_series != nullptr ? l1_tracker_.build_series(delta_series) : 0U;
-
     uint16_t turb_count = 0U;
     const float* turb_series = ordered_turbulence(turb_count);
     if (turb_series == nullptr) {
@@ -239,17 +316,22 @@ void MLDetector::extract_features(float* features_out) {
     const float* aggregated_turb_series =
         ordered_aggregated_turbulence_(aggregated_turb_count);
 
+    float trajectory_innovation = 0.0f;
+    float trajectory_excess = 0.0f;
+    if (uses_shape_trajectory_tracker_) {
+        shape_trajectory_tracker_.trajectory_features(
+            trajectory_innovation, trajectory_excess);
+    }
+
     extract_ml_features_by_id(turb_series, turb_count,
                               aggregated_turb_series, aggregated_turb_count,
-                              delta_series, delta_len,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features_out,
                               series_scratch_(),
                               l1_tracker_.delta_lag_ratio(),
                               shape_tracker_.shape_spread(),
-                              shape_tracker_.frequency_coherence_cv(),
-                              shape_tracker_.frequency_coherence_curve_std(),
-                              coherence_tracker_.coherence_gap(),
-                              coherence_tracker_.coherence_subband_gap_median());
+                              trajectory_innovation,
+                              trajectory_excess,
+                              shape_tracker_.frequency_coherence_curve_std());
 }
 
 // ============================================================================
@@ -257,10 +339,9 @@ void MLDetector::extract_features(float* features_out) {
 // ============================================================================
 
 uint16_t MLDetector::l1_delta_capacity_() const {
-    // window_size profiles yield window_size - lag deltas, matching the Python
-    // features.l1_delta_series window semantics. Use the configured lag rather
-    // than the nominal constant so replay experiments cannot make the ring and
-    // its readiness gate disagree.
+    // window_size profiles yield window_size - lag deltas. Use the configured
+    // lag rather than the nominal constant so replay experiments cannot make
+    // the ring and its readiness gate disagree.
     return window_size_ > lag_ ? static_cast<uint16_t>(window_size_ - lag_) : 0;
 }
 
@@ -275,7 +356,6 @@ bool MLDetector::is_ready() const {
     // no-motion sentinel rather than signalling "not ready".
     return (!uses_l1_tracker_ || l1_tracker_.count() >= l1_delta_capacity_()) &&
            (!uses_shape_tracker_ || shape_tracker_.count() >= l1_delta_capacity_()) &&
-           (!uses_coherence_tracker_ || coherence_tracker_.count() >= l1_delta_capacity_()) &&
            (!uses_aggregated_turbulence_ ||
             aggregated_turbulence_count_ >= window_size_);
 }
@@ -297,19 +377,34 @@ void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
         resolved_count = HT20_SELECTED_BAND_SIZE;
     }
 
+    float local_packet_values[HT20_NUM_SUBCARRIERS]{};
+    float* packet_values = feature_scratch_ != nullptr
+        ? feature_scratch_ : local_packet_values;
+    const uint8_t packet_value_count =
+        fill_packet_energies(csi_data, csi_len, packet_values);
+
+    if (uses_shape_trajectory_tracker_) {
+        const uint64_t fallback_timestamp =
+            static_cast<uint64_t>(get_total_packets()) * 10000U;
+        shape_trajectory_tracker_.process_packet(
+            csi_data, csi_len, packet_timestamp_us_or(fallback_timestamp),
+            packet_values, packet_value_count);
+    }
+
+    energies_to_amplitudes(packet_values, packet_value_count);
     float amplitudes[HT20_SELECTED_BAND_SIZE]{};
-    const uint8_t amplitude_count = extract_subcarrier_amplitudes(
-        csi_data, csi_len, resolved_subcarriers, resolved_count,
-        amplitudes, HT20_SELECTED_BAND_SIZE);
+    const uint8_t amplitude_count = select_amplitudes(
+        packet_values, packet_value_count, resolved_subcarriers,
+        resolved_count, amplitudes);
     process_amplitudes(amplitudes, amplitude_count);
 
     if (uses_aggregated_turbulence_) {
         float aggregated_amplitudes[HT20_SELECTED_BAND_SIZE]{};
         const uint8_t aggregated_count =
-            extract_adjacent_aggregated_subcarrier_amplitudes(
-                csi_data, csi_len, resolved_subcarriers, resolved_count,
-                TURB_IQR_AGGREGATION_WIDTH, aggregated_amplitudes,
-                HT20_SELECTED_BAND_SIZE);
+            select_aggregated_amplitudes(
+                packet_values, packet_value_count,
+                resolved_subcarriers, resolved_count,
+                TURB_IQR_AGGREGATION_WIDTH, aggregated_amplitudes);
         add_aggregated_turbulence_(
             calculate_spatial_turbulence_from_amplitudes(
                 aggregated_amplitudes, aggregated_count));
@@ -317,19 +412,23 @@ void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
 
     if (!uses_l1_tracker_) {
         if (uses_shape_tracker_) {
-            shape_tracker_.process_packet(csi_data, csi_len);
-        }
-        if (uses_coherence_tracker_) {
-            coherence_tracker_.process_packet(csi_data, csi_len);
+            if (shape_tracker_.tracks_frequency()) {
+                shape_tracker_.process_packet(csi_data, csi_len);
+            } else {
+                shape_tracker_.process_subcarrier_amplitudes(
+                    packet_values, packet_value_count);
+            }
         }
         return;
     }
     l1_tracker_.process(amplitudes, amplitude_count);
     if (uses_shape_tracker_) {
-        shape_tracker_.process_packet(csi_data, csi_len);
-    }
-    if (uses_coherence_tracker_) {
-        coherence_tracker_.process_packet(csi_data, csi_len);
+        if (shape_tracker_.tracks_frequency()) {
+            shape_tracker_.process_packet(csi_data, csi_len);
+        } else {
+            shape_tracker_.process_subcarrier_amplitudes(
+                packet_values, packet_value_count);
+        }
     }
 }
 
@@ -337,7 +436,7 @@ void MLDetector::clear_buffer() {
     BaseDetector::clear_buffer();
     l1_tracker_.clear();
     shape_tracker_.clear();
-    coherence_tracker_.clear();
+    shape_trajectory_tracker_.clear();
     if (aggregated_turbulence_buffer_ != nullptr) {
         std::fill(
             aggregated_turbulence_buffer_,

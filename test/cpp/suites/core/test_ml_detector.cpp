@@ -123,10 +123,10 @@ void test_ml_production_feature_schema(void) {
         ML_FEAT_TURB_IQR_OVER_MEAN_AGGR,
         ML_FEAT_TURB_AUTOCORR,
         ML_FEAT_TURB_ZCR,
-        ML_FEAT_L1_DELTA_AUTOCORR,
         ML_FEAT_L1_DELTA_LAG_RATIO,
         ML_FEAT_CHAN_SHAPE_SPREAD,
-        ML_FEAT_CHAN_FREQ_COH_CURVE_STD,
+        ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY,
+        ML_FEAT_CHAN_SHAPE_EXCESS_PATH,
     };
     TEST_ASSERT_EQUAL_UINT8(sizeof(expected), ML_MODEL_INPUT_SIZE);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(
@@ -134,7 +134,6 @@ void test_ml_production_feature_schema(void) {
 
     MLDetector detector;
     TEST_ASSERT_TRUE(detector.uses_shape_tracker_);
-    TEST_ASSERT_FALSE(detector.uses_coherence_tracker_);
 }
 
 void test_ml_detector_hampel_master_switch_controls_both_streams(void) {
@@ -247,23 +246,20 @@ void test_ml_inference_classification(void) {
 
 void test_feature_extraction_basic(void) {
     float turb_buffer[50];
-    float delta_buffer[50];
     float features[ML_NUM_FEATURES];
     float sorted_scratch[50];
-    float abs_devs[50];
-    const MLSeriesScratch scratch{sorted_scratch, abs_devs, 50U};
+    const MLSeriesScratch scratch{sorted_scratch, 50U};
 
     // Fill both series with synthetic data.
     for (int i = 0; i < 50; i++) {
         turb_buffer[i] = 10.0f + (i % 5) * 0.5f;
-        delta_buffer[i] = 0.01f + (i % 7) * 0.002f;
     }
 
     // Extract exactly the exported feature set (turbulence and/or L1-delta).
     extract_ml_features_by_id(turb_buffer, 50, turb_buffer, 50,
-                              delta_buffer, 50,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
-                              scratch, 1.75f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+                              scratch, 1.75f, 0.0f, 0.0f, 0.0f,
+                              0.0f);
 
     // Every exported feature must be a finite number.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
@@ -276,15 +272,15 @@ void test_feature_extraction_empty_buffer(void) {
     float turb_buffer[50] = {0};
     float features[ML_NUM_FEATURES];
     float sorted_scratch[50];
-    float abs_devs[50];
-    const MLSeriesScratch scratch{sorted_scratch, abs_devs, 50U};
+    const MLSeriesScratch scratch{sorted_scratch, 50U};
 
     // The tracker reports 1.0 when it holds no deltas, which is what the
     // detector would pass here, so the lag ratio is the one exported feature
     // whose empty-buffer value is not zero.
-    extract_ml_features_by_id(turb_buffer, 0, nullptr, 0, nullptr, 0,
+    extract_ml_features_by_id(turb_buffer, 0, nullptr, 0,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
-                              scratch, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+                              scratch, 1.0f, 0.0f, 0.0f, 0.0f,
+                              0.0f);
 
     // Every series-derived feature should be 0 for an empty buffer.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
@@ -300,30 +296,24 @@ void test_candidate_feature_python_parity(void) {
     // Same deterministic series as the Python reference:
     // turb[i] = 10.0 + (i % 5) * 0.5, delta[i] = 0.01 + (i % 7) * 0.002.
     float turb_buffer[50];
-    float delta_buffer[50];
     for (int i = 0; i < 50; i++) {
         turb_buffer[i] = 10.0f + (i % 5) * 0.5f;
-        delta_buffer[i] = 0.01f + (i % 7) * 0.002f;
     }
 
-    const uint8_t candidate_ids[3] = {
+    const uint8_t selected_ids[2] = {
         ML_FEAT_TURB_ZCR,
-        ML_FEAT_L1_DELTA_AUTOCORR,
         ML_FEAT_L1_DELTA_LAG_RATIO,
     };
-    float features[3];
+    float features[2];
     float sorted_scratch[50];
-    float abs_devs[50];
-    const MLSeriesScratch scratch{sorted_scratch, abs_devs, 50U};
+    const MLSeriesScratch scratch{sorted_scratch, 50U};
     extract_ml_features_by_id(turb_buffer, 50, nullptr, 0,
-                              delta_buffer, 50,
-                              candidate_ids, 3, features, scratch, 1.75f,
-                              0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+                              selected_ids, 2, features, scratch, 1.75f,
+                              0.0f, 0.0f, 0.0f, 0.0f);
 
     // Expected values computed by src/python/micro_espectre/csi_features.py.
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.3877551f, features[0]);
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.2449956f, features[1]);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.75f, features[2]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.75f, features[1]);
 }
 
 void test_zero_crossing_rate_alternating_signal(void) {
@@ -337,54 +327,34 @@ void test_zero_crossing_rate_alternating_signal(void) {
 }
 
 void test_ml_series_needs_tracks_only_referenced_stats(void) {
-    // Production ids: normal turb {autocorr, zcr}, aggregated turb {iqr},
-    // delta {autocorr}, plus the
-    // tracker-sourced lag ratio. The delta series needs no sort, which is the
-    // whole point of asking per series.
-    const uint8_t production[5] = {
+    // Production ids: normal turb {autocorr, zcr}, aggregated turb {iqr}, plus
+    // the tracker-sourced lag ratio.
+    const uint8_t production[4] = {
         ML_FEAT_TURB_IQR_OVER_MEAN_AGGR, ML_FEAT_TURB_AUTOCORR,
-        ML_FEAT_TURB_ZCR,
-        ML_FEAT_L1_DELTA_AUTOCORR, ML_FEAT_L1_DELTA_LAG_RATIO,
+        ML_FEAT_TURB_ZCR, ML_FEAT_L1_DELTA_LAG_RATIO,
     };
 
     const MLStatNeeds turb = ml_series_needs(
-        production, 5, MLFeatureSource::TURBULENCE_SERIES);
+        production, 4, MLFeatureSource::TURBULENCE_SERIES);
     TEST_ASSERT_TRUE(turb.sorted);       // zcr
     TEST_ASSERT_TRUE(turb.zcr);
     TEST_ASSERT_FALSE(turb.iqr);
     TEST_ASSERT_TRUE(turb.autocorr);
 
     const MLStatNeeds aggregated = ml_series_needs(
-        production, 5, MLFeatureSource::AGGREGATED_TURBULENCE_SERIES);
+        production, 4, MLFeatureSource::AGGREGATED_TURBULENCE_SERIES);
     TEST_ASSERT_TRUE(aggregated.sorted);
     TEST_ASSERT_TRUE(aggregated.iqr);
     TEST_ASSERT_FALSE(aggregated.zcr);
 
-    const MLStatNeeds delta = ml_series_needs(
-        production, 5, MLFeatureSource::L1_DELTA_SERIES);
-    TEST_ASSERT_FALSE(delta.sorted);     // no mad/zcr on the delta series
-    TEST_ASSERT_TRUE(delta.autocorr);
-
-    // Turbulence ids alone ask nothing of the delta series.
-    const uint8_t turb_only[2] = {
-        ML_FEAT_TURB_IQR_OVER_MEAN_AGGR, ML_FEAT_TURB_ZCR};
-    const MLStatNeeds none = ml_series_needs(
-        turb_only, 2, MLFeatureSource::L1_DELTA_SERIES);
-    TEST_ASSERT_FALSE(none.sorted);
-    TEST_ASSERT_FALSE(none.autocorr);
 }
 
 void test_ml_feature_source_separates_tracker_from_series(void) {
     // The lag ratio needs the profile rings but not the rebuilt delta series;
     // classifying it by id magnitude would reserve a buffer it never reads.
     TEST_ASSERT_TRUE(ml_feature_needs_l1_tracker(ML_FEAT_L1_DELTA_LAG_RATIO));
-    TEST_ASSERT_FALSE(ml_feature_needs_l1_series(ML_FEAT_L1_DELTA_LAG_RATIO));
-
-    TEST_ASSERT_TRUE(ml_feature_needs_l1_tracker(ML_FEAT_L1_DELTA_AUTOCORR));
-    TEST_ASSERT_TRUE(ml_feature_needs_l1_series(ML_FEAT_L1_DELTA_AUTOCORR));
 
     TEST_ASSERT_FALSE(ml_feature_needs_l1_tracker(ML_FEAT_TURB_ZCR));
-    TEST_ASSERT_FALSE(ml_feature_needs_l1_series(ML_FEAT_TURB_ZCR));
     TEST_ASSERT_TRUE(
         ml_feature_needs_aggregated_turbulence(
             ML_FEAT_TURB_IQR_OVER_MEAN_AGGR));
@@ -395,8 +365,7 @@ void test_ml_feature_source_separates_tracker_from_series(void) {
     const uint8_t ratio_only[1] = {ML_FEAT_L1_DELTA_LAG_RATIO};
     for (MLFeatureSource source : {
             MLFeatureSource::TURBULENCE_SERIES,
-            MLFeatureSource::AGGREGATED_TURBULENCE_SERIES,
-            MLFeatureSource::L1_DELTA_SERIES}) {
+            MLFeatureSource::AGGREGATED_TURBULENCE_SERIES}) {
         const MLStatNeeds needs = ml_series_needs(ratio_only, 1, source);
         TEST_ASSERT_FALSE(needs.sorted);
         TEST_ASSERT_FALSE(needs.autocorr);
@@ -409,11 +378,11 @@ void test_aggregated_iqr_feature_matches_python_percentiles(void) {
     const uint8_t ids[1] = {ML_FEAT_TURB_IQR_OVER_MEAN_AGGR};
     float features[1];
     float sorted_scratch[4];
-    float abs_devs[4];
-    const MLSeriesScratch scratch{sorted_scratch, abs_devs, 4U};
+    const MLSeriesScratch scratch{sorted_scratch, 4U};
     extract_ml_features_by_id(
-        turb, 4, aggregated, 4, nullptr, 0, ids, 1, features,
-        scratch, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        turb, 4, aggregated, 4, ids, 1, features,
+        scratch, 1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.8666667f, features[0]);
 }
 

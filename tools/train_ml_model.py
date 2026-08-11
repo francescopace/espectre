@@ -369,6 +369,7 @@ from config import (
 )
 from detector_interface import MotionState
 from runtime_policy import (
+    PacketTimingTracker,
     RuntimeMotionPolicy,
     derive_detector_timing,
     nominal_packet_interval_us,
@@ -387,7 +388,6 @@ from csi_features import (
     ALL_FEATURES,
     DEFAULT_FEATURES,
     L1_DELTA_LAG,
-    L1_SERIES_FEATURES,
     L1_TRACKER_FEATURES,
     L1DeltaTracker,
     TURB_IQR_AGGREGATION_WIDTH,
@@ -403,14 +403,19 @@ from tools.lib.candidate_features import (
     assemble_feature_vector,
     candidate_values,
     needs_aggregated_turbulence,
+    needs_amplitude_profiles,
     needs_channel_coherence,
     needs_channel_shape,
+    needs_channel_shape_trajectory,
+    needs_l1_series as needs_candidate_l1_series,
     needs_phase_residual,
     needs_subband_coherence,
     split_feature_names,
 )
 from tools.lib.host_feature_trackers import (
+    AmplitudeProfileTracker,
     ChannelCoherenceTracker,
+    ChannelShapeTrajectoryTracker,
     ChannelShapeTracker,
     PhaseResidualTracker,
 )
@@ -419,7 +424,10 @@ from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES, MLDetector  # n
 
 def _needs_l1_tracker(feature_names):
     """Return whether any requested feature needs the L1-delta tracker."""
-    return any(name in L1_TRACKER_FEATURES for name in feature_names)
+    return (
+        any(name in L1_TRACKER_FEATURES for name in feature_names)
+        or needs_candidate_l1_series(feature_names)
+    )
 
 
 def _needs_l1_series(feature_names):
@@ -428,27 +436,32 @@ def _needs_l1_series(feature_names):
     The lag ratio needs the tracker but not the series, so the two questions
     are asked separately; mirrors MLFeatureSource in csi_features.h.
     """
-    return any(name in L1_SERIES_FEATURES for name in feature_names)
+    return needs_candidate_l1_series(feature_names)
 
 
-def _production_tracker_feature_kwargs(feature_names, coherence_tracker, shape_tracker):
+def _production_tracker_feature_kwargs(
+    feature_names,
+    coherence_tracker,
+    shape_tracker,
+    shape_trajectory_tracker=None,
+):
     """Return preprocessed production-only tracker values for extraction."""
     kwargs = {}
     if shape_tracker is not None:
         if 'chan_shape_spread' in feature_names:
             kwargs['chan_shape_spread'] = shape_tracker.shape_spread()
-        if 'chan_freq_coh_cv' in feature_names:
-            kwargs['chan_freq_coh_cv'] = shape_tracker.frequency_coherence_cv()
         if 'chan_freq_coh_curve_std' in feature_names:
             kwargs['chan_freq_coh_curve_std'] = (
                 shape_tracker.frequency_coherence_curve_std()
             )
-    if coherence_tracker is not None:
-        if 'chan_coh_gap' in feature_names:
-            kwargs['chan_coh_gap'] = coherence_tracker.coherence_gap()
-        if 'chan_coh_subband_gap_median' in feature_names:
-            kwargs['chan_coh_subband_gap_median'] = (
-                coherence_tracker.coherence_subband_gap_median()
+    if shape_trajectory_tracker is not None:
+        if 'chan_shape_coherent_innovation_energy' in feature_names:
+            kwargs['chan_shape_coherent_innovation_energy'] = (
+                shape_trajectory_tracker.coherent_innovation_energy()
+            )
+        if 'chan_shape_excess_path' in feature_names:
+            kwargs['chan_shape_excess_path'] = (
+                shape_trajectory_tracker.excess_path()
             )
     return kwargs
 
@@ -2466,19 +2479,33 @@ def load_exported_ml_weights():
     return module
 
 
+def exported_weight_matrices(weights_module):
+    """Return exported matrices in the host [input][output] convention."""
+    if hasattr(weights_module, 'WEIGHTS_T'):
+        return [
+            np.asarray(layer, dtype=np.float32).T
+            for layer in weights_module.WEIGHTS_T
+        ]
+    return [
+        np.asarray(layer, dtype=np.float32)
+        for layer in weights_module.WEIGHTS
+    ]
+
+
 def predict_exported_probabilities_from_weights(weights_module, X_raw):
     """Vectorized inference matching src/python/micro_espectre/ml_detector.py for exported weights."""
     center = np.asarray(weights_module.FEATURE_MEAN, dtype=np.float32)
     scale = np.asarray(weights_module.FEATURE_SCALE, dtype=np.float32)
     scale[scale < 1e-6] = 1.0
+    matrices = exported_weight_matrices(weights_module)
     layers = [
         (
-            np.asarray(layer_weights, dtype=np.float32),
+            layer_weights,
             np.asarray(layer_biases, dtype=np.float32),
-            layer_index == len(weights_module.WEIGHTS) - 1,
+            layer_index == len(matrices) - 1,
         )
         for layer_index, (layer_weights, layer_biases) in enumerate(
-            zip(weights_module.WEIGHTS, weights_module.BIASES)
+            zip(matrices, weights_module.BIASES)
         )
     ]
     return predict_probabilities_from_arrays(X_raw, center, scale, layers)
@@ -3778,34 +3805,16 @@ def get_model_architecture(model):
     return layer_sizes
 
 
-def export_micropython(model, scaler, output_path, seed=None,
-                       feature_names=None, scaler_mode=DEFAULT_SCALER_MODE):
-    """
-    Export model weights to MicroPython code.
-    
-    Generates ml_weights.py with network weights only.
-    The inference functions are in ml_detector.py (not auto-generated).
-    
-    Args:
-        model: Trained PyTorch model
-        scaler: Fitted preprocessing object exposing center/scale arrays
-        output_path: Output file path
-        seed: Random seed used for training (or None if not set)
-        feature_names: Ordered feature names expected by the model
-        scaler_mode: Normalization mode used during training
-    
-    Returns:
-        Size of generated code
-    """
+def render_micropython_weights(weights, center, scale, architecture, seed=None,
+                               feature_names=None,
+                               scaler_mode=DEFAULT_SCALER_MODE,
+                               trained_at=None):
+    """Render inference-ready MicroPython weights without a runtime transpose."""
     from datetime import datetime
-    weights = extract_model_weights(model)
-    center, scale = get_preprocessor_arrays(scaler)
-    architecture = get_model_architecture(model)
     if feature_names is None:
         feature_names = list(TRAINING_FEATURES)
-    
     seed_info = f"Seed: {seed}"
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = trained_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     architecture_text = ' -> '.join(map(str, architecture))
     architecture_csv = ', '.join(str(x) for x in architecture)
     hidden_csv = ', '.join(str(x) for x in architecture[1:-1])
@@ -3844,7 +3853,9 @@ FEATURE_SCALE = [{scale_csv}]
 
 '''
     
-    # Add weights for each layer
+    # Store each matrix as [output][input], matching the inference loop. This
+    # avoids retaining a second forest of nested lists while transposing at
+    # import time on memory-constrained MicroPython targets.
     weight_names = []
     bias_names = []
     for i in range(0, len(weights), 2):
@@ -3855,20 +3866,41 @@ FEATURE_SCALE = [{scale_csv}]
         
         activation = 'Sigmoid' if i == len(weights) - 2 else 'ReLU'
         code += f'# Layer {layer_num}: {in_size} -> {out_size} ({activation})\n'
-        code += f'W{layer_num} = [\n'
-        for row in W:
+        code += f'WT{layer_num} = [\n'
+        for row in W.T:
             code += '    [' + ', '.join(f'{x:.9g}' for x in row) + '],\n'
         code += ']\n'
         code += f'B{layer_num} = [' + ', '.join(f'{x:.9g}' for x in b) + ']\n\n'
-        weight_names.append(f'W{layer_num}')
+        weight_names.append(f'WT{layer_num}')
         bias_names.append(f'B{layer_num}')
 
-    code += f'WEIGHTS = [{", ".join(weight_names)}]\n'
+    code += f'WEIGHTS_T = [{", ".join(weight_names)}]\n'
     code += f'BIASES = [{", ".join(bias_names)}]\n'
-    
+    return code
+
+
+def export_micropython(model, scaler, output_path, seed=None,
+                       feature_names=None, scaler_mode=DEFAULT_SCALER_MODE):
+    """
+    Export model weights to MicroPython code.
+
+    Generates ml_weights.py with inference-ready transposed network weights.
+    The inference functions are in ml_detector.py (not auto-generated).
+    """
+    weights = extract_model_weights(model)
+    center, scale = get_preprocessor_arrays(scaler)
+    architecture = get_model_architecture(model)
+    code = render_micropython_weights(
+        weights,
+        center,
+        scale,
+        architecture,
+        seed=seed,
+        feature_names=feature_names,
+        scaler_mode=scaler_mode,
+    )
     with open(output_path, 'w') as f:
         f.write(code)
-    
     return len(code)
 
 
@@ -3877,16 +3909,13 @@ FEATURE_SCALE = [{scale_csv}]
 # with a real C++ extractor entry can be exported to firmware.
 CPP_FEATURE_IDS = {
     'turb_autocorr': 6,
-    'turb_mad_over_mean': 13,
     'turb_zcr': 14,
-    'l1_delta_autocorr': 24,
     'l1_delta_lag_ratio': 25,
     'chan_shape_spread': 40,
-    'chan_freq_coh_cv': 41,
     'chan_freq_coh_curve_std': 42,
-    'chan_coh_gap': 43,
-    'chan_coh_subband_gap_median': 44,
     'turb_iqr_over_mean_aggr': 45,
+    'chan_shape_coherent_innovation_energy': 46,
+    'chan_shape_excess_path': 47,
 }
 def resolve_cpp_feature_ids(feature_names):
     """Map feature names to their published C++ extractor ids."""
@@ -5206,9 +5235,23 @@ class StreamingFeatureExtractor:
         self,
         feature_names,
         window_packets=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        packet_interval_us=None,
     ):
         self.feature_names = list(feature_names)
         self.window_packets = max(1, int(window_packets))
+        self.packet_interval_us = max(
+            1,
+            int(
+                packet_interval_us
+                if packet_interval_us is not None
+                else nominal_packet_interval_us(self.window_packets)
+            ),
+        )
+        self.packet_timing_tracker = PacketTimingTracker(
+            self.packet_interval_us,
+        )
+        self.trajectory_elapsed_us = 0
+        self.trajectory_packet_count = 0
         self.context = SegmentationContext(
             window_size=self.window_packets,
             enable_lowpass=ENABLE_LOWPASS_FILTER,
@@ -5273,8 +5316,37 @@ class StreamingFeatureExtractor:
             ChannelShapeTracker(window_size=l1_capacity, lag=L1_DELTA_LAG)
             if needs_channel_shape(self.feature_names) else None
         )
+        self.shape_trajectory_tracker = (
+            ChannelShapeTrajectoryTracker(
+                window_duration_us=SEGMENTATION_WINDOW_SIZE_MS * 1000,
+            )
+            if needs_channel_shape_trajectory(self.feature_names) else None
+        )
+        self.amplitude_profile_tracker = (
+            AmplitudeProfileTracker(window_size=self.window_packets)
+            if needs_amplitude_profiles(self.feature_names) else None
+        )
 
-    def process_packet(self, csi_data):
+    def _trajectory_timestamp_us(self, packet):
+        if self.trajectory_packet_count == 0:
+            self.trajectory_packet_count = 1
+            if packet is not None:
+                self.packet_timing_tracker.observe_packet(packet)
+            return 0
+        timing = (
+            self.packet_timing_tracker.observe_packet(packet)
+            if packet is not None else None
+        )
+        delta_us = (
+            timing['delta_us']
+            if timing is not None and timing['source'] != 'missing'
+            else self.packet_interval_us
+        )
+        self.trajectory_elapsed_us += max(0, int(delta_us))
+        self.trajectory_packet_count += 1
+        return self.trajectory_elapsed_us
+
+    def process_packet(self, csi_data, packet=None):
         turbulence, amplitudes = self.context.calculate_spatial_turbulence(
             csi_data,
             DEFAULT_SUBCARRIERS,
@@ -5282,14 +5354,30 @@ class StreamingFeatureExtractor:
         )
         self.context.add_turbulence(turbulence)
         aggregated_turbulence = None
+        aggregated_amplitudes = None
         if self.aggregated_context is not None:
-            aggregated_turbulence = (
-                self.aggregated_context.calculate_spatial_turbulence(
+            if self.amplitude_profile_tracker is not None:
+                (
+                    aggregated_turbulence,
+                    aggregated_amplitudes,
+                ) = self.aggregated_context.calculate_spatial_turbulence(
                     csi_data,
                     DEFAULT_SUBCARRIERS,
+                    return_amplitudes=True,
                 )
-            )
+            else:
+                aggregated_turbulence = (
+                    self.aggregated_context.calculate_spatial_turbulence(
+                        csi_data,
+                        DEFAULT_SUBCARRIERS,
+                    )
+                )
             self.aggregated_context.add_turbulence(aggregated_turbulence)
+        if self.amplitude_profile_tracker is not None:
+            self.amplitude_profile_tracker.process_amplitudes(
+                amplitudes,
+                aggregated_amplitudes,
+            )
         if self.l1_tracker is not None:
             self.l1_tracker.process_amplitudes(amplitudes, len(amplitudes))
         if self.coherence_tracker is not None:
@@ -5298,6 +5386,11 @@ class StreamingFeatureExtractor:
             self.phase_tracker.process_packet(csi_data)
         if self.shape_tracker is not None:
             self.shape_tracker.process_packet(csi_data)
+        if self.shape_trajectory_tracker is not None:
+            self.shape_trajectory_tracker.process_packet(
+                csi_data,
+                self._trajectory_timestamp_us(packet),
+            )
         if self.context.buffer_count < self.context.window_size:
             return None
 
@@ -5326,8 +5419,6 @@ class StreamingFeatureExtractor:
                 len(aggregated_turb_list)
                 if aggregated_turb_list is not None else None
             ),
-            l1_series=self.l1_series,
-            l1_series_count=l1_count,
             l1_delta_lag_ratio=(
                 self.l1_tracker.delta_lag_ratio()
                 if (
@@ -5337,7 +5428,10 @@ class StreamingFeatureExtractor:
                 else None
             ),
             **_production_tracker_feature_kwargs(
-                self.production_names, self.coherence_tracker, self.shape_tracker
+                self.production_names,
+                self.coherence_tracker,
+                self.shape_tracker,
+                self.shape_trajectory_tracker,
             ),
         )
         if not self.candidate_names:
@@ -5353,6 +5447,12 @@ class StreamingFeatureExtractor:
                 aggregated_turbulence_series=aggregated_turb_list,
                 phase_tracker=self.phase_tracker,
                 shape_tracker=self.shape_tracker,
+                shape_trajectory_tracker=self.shape_trajectory_tracker,
+                amplitude_profile_tracker=self.amplitude_profile_tracker,
+                l1_series=(
+                    self.l1_series[:l1_count]
+                    if self.l1_series is not None else None
+                ),
             ),
         )
 
@@ -5446,6 +5546,7 @@ def build_host_feature_rows(packets, feature_names, *,
     extractor = StreamingFeatureExtractor(
         requested_feature_names,
         window_packets,
+        packet_interval_us=interval_us,
     )
     packets_since_reset = 0
     reset_index = 0
@@ -5466,6 +5567,7 @@ def build_host_feature_rows(packets, feature_names, *,
             extractor = StreamingFeatureExtractor(
                 requested_feature_names,
                 window_packets,
+                packet_interval_us=interval_us,
             )
             cadence.reset()
             timing_tracker.reset()
@@ -5476,7 +5578,7 @@ def build_host_feature_rows(packets, feature_names, *,
                 timing_tracker=timing_tracker,
             )
             packets_since_reset = 0
-        values = extractor.process_packet(packet_csi_data(packet))
+        values = extractor.process_packet(packet_csi_data(packet), packet=packet)
         packets_since_reset += 1
         if values is None or packets_since_reset < window_packets:
             continue
@@ -6040,12 +6142,13 @@ def _load_exported_model_arrays():
     module = load_exported_ml_weights()
     center = np.asarray(module.FEATURE_MEAN, dtype=np.float32)
     scale = np.asarray(module.FEATURE_SCALE, dtype=np.float32)
+    matrices = exported_weight_matrices(module)
     layers = []
-    for idx, (weights, biases) in enumerate(zip(module.WEIGHTS, module.BIASES)):
+    for idx, (weights, biases) in enumerate(zip(matrices, module.BIASES)):
         layers.append((
-            np.asarray(weights, dtype=np.float32),
+            weights,
             np.asarray(biases, dtype=np.float32),
-            idx == len(module.WEIGHTS) - 1,
+            idx == len(matrices) - 1,
         ))
     return list(module.FEATURE_NAMES), center, scale, layers
 

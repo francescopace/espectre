@@ -103,8 +103,7 @@ private:
 
     /**
      * L1-delta ring capacity for this window: window_size - lag (0 if window
-     * is not larger than the lag). Sized so the series matches Python
-     * features.l1_delta_series (window_size profiles -> window_size - lag deltas).
+     * is not larger than the lag).
      */
     uint16_t l1_delta_capacity_() const;
 
@@ -114,14 +113,7 @@ private:
     uint16_t feature_scratch_size_() const;
 
     /**
-     * Slice of the scratch block holding the rebuilt L1-delta series, or
-     * nullptr when the model has no L1 features or allocation failed.
-     */
-    float* delta_series_() const;
-
-    /**
-     * Sort and absolute-deviation views onto the scratch block. Empty (and
-     * therefore inert) when allocation failed.
+     * Sorted-series view onto the scratch block. Empty when allocation failed.
      */
     MLSeriesScratch series_scratch_() const;
 
@@ -144,17 +136,15 @@ private:
     // L1-delta profile-displacement state, maintained only when the exported
     // model actually uses L1-delta features (checked against ML_FEATURE_IDS).
     // Mirrors the shared L1-delta tracker rings; keep aligned with the Python
-    // features.l1_delta_series reference. The two flags differ for the lag
-    // ratio, which needs the rings running but not the rebuilt series.
+    // lag ratio reference.
     bool uses_l1_tracker_;
-    bool uses_l1_series_;
     bool uses_shape_tracker_;
-    bool uses_coherence_tracker_;
+    bool uses_shape_trajectory_tracker_;
     bool uses_aggregated_turbulence_;
     uint16_t lag_;
     L1DeltaTracker l1_tracker_;
     ChannelShapeTracker shape_tracker_;
-    ChannelCoherenceTracker coherence_tracker_;
+    ChannelShapeTrajectoryTracker shape_trajectory_tracker_;
 
     // Single heap block backing every feature-path working array, so nothing
     // window-sized lands on the CSI callback stack. Carved by the accessors

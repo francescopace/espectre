@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-08-10T20:48:02+02:00",
+  "updated_at": "2026-08-11T12:50:45.546153",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -241,11 +241,27 @@
         "collected_at": "2026-08-10T19:31:11.652556",
         "duration_ms": 119998,
         "num_packets": 11970,
-        "description": "HT20 empty sample",
+        "description": "HT20 empty sample (LT300)",
         "environment": "vacation_home",
         "device_id": "0x0000acebe64ad194",
         "dataset_role": "exclude",
         "average_packet_rate": 99.334,
+        "nominal_packet_rate": 100
+      },
+      {
+        "filename": "empty_c3_64sc_dev0000acebe64ad194_20260811_124837_810491_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-08-11T12:48:37.802585",
+        "duration_ms": 119949,
+        "num_packets": 11580,
+        "description": "HT20 empty sample (LT300)",
+        "environment": "vacation_home",
+        "low_rssi": true,
+        "dataset_role": "exclude",
+        "device_id": "0x0000acebe64ad194",
+        "average_packet_rate": 99.85,
         "nominal_packet_rate": 100
       }
     ],
@@ -847,13 +863,30 @@
         "collected_at": "2026-08-10T19:22:27.355650",
         "duration_ms": 180000,
         "num_packets": 17994,
-        "description": "HT20 static presence sample",
+        "description": "HT20 static presence sample (LT300)",
         "environment": "vacation_home",
         "device_id": "0x0000acebe64ad194",
         "dataset_role": "exclude",
         "average_packet_rate": 99.92,
         "nominal_packet_rate": 100,
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ad194_20260810_192504_011681_0001.npz"
+      },
+      {
+        "filename": "static_presence_c3_64sc_dev0000acebe64ad194_20260811_123959_740522_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-08-11T12:39:59.730855",
+        "duration_ms": 179912,
+        "num_packets": 17298,
+        "description": "HT20 static presence sample (LT300)",
+        "environment": "vacation_home",
+        "low_rssi": true,
+        "dataset_role": "exclude",
+        "device_id": "0x0000acebe64ad194",
+        "average_packet_rate": 98.971,
+        "nominal_packet_rate": 100,
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ad194_20260811_124245_115379_0001.npz"
       }
     ],
     "motion": [
@@ -1454,13 +1487,30 @@
         "collected_at": "2026-08-10T19:25:04.005225",
         "duration_ms": 89989,
         "num_packets": 9001,
-        "description": "HT20 motion sample",
+        "description": "HT20 motion sample (LT300)",
         "environment": "vacation_home",
         "device_id": "0x0000acebe64ad194",
         "dataset_role": "exclude",
         "average_packet_rate": 99.88,
         "nominal_packet_rate": 100,
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ad194_20260810_192227_366239_0001.npz"
+      },
+      {
+        "filename": "motion_c3_64sc_dev0000acebe64ad194_20260811_124245_115379_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-08-11T12:42:45.109425",
+        "duration_ms": 89981,
+        "num_packets": 8638,
+        "description": "HT20 motion sample (LT300)",
+        "environment": "vacation_home",
+        "low_rssi": true,
+        "dataset_role": "exclude",
+        "device_id": "0x0000acebe64ad194",
+        "average_packet_rate": 99.671,
+        "nominal_packet_rate": 100,
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ad194_20260811_123959_740522_0001.npz"
       }
     ]
   },
@@ -1476,6 +1526,10 @@
     {
       "id": "hobby_room",
       "description": "Hobby room environment"
+    },
+    {
+      "id": "vacation_home",
+      "description": "Vacation home environment"
     }
   ]
 }

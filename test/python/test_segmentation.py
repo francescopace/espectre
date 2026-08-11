@@ -310,6 +310,45 @@ class TestLowPassIntegration:
 class TestCalculateSpatialTurbulence:
     """Test the instance method calculate_spatial_turbulence"""
 
+    def test_shared_packet_frame_matches_direct_csi_extraction(self):
+        csi_data = np.asarray(
+            [((index * 37 + 91) % 255) - 127 for index in range(128)],
+            dtype=np.int8,
+        )
+        selected = (4, 8, 12, 16, 20, 24, 28, 36, 40, 48, 56, 60)
+        frame = [0.0] * 64
+        count = SegmentationContext.fill_subcarrier_energy_buffer(
+            csi_data,
+            frame,
+        )
+        SegmentationContext.energies_to_amplitudes_in_place(frame, count)
+
+        for aggregation_width in (None, 5):
+            direct = SegmentationContext(
+                adjacent_aggregation_width=aggregation_width,
+            )
+            shared = SegmentationContext(
+                adjacent_aggregation_width=aggregation_width,
+            )
+
+            direct_value, direct_amplitudes = direct.calculate_spatial_turbulence(
+                csi_data,
+                selected,
+                return_amplitudes=True,
+            )
+            shared_value = (
+                shared.calculate_spatial_turbulence_from_subcarrier_amplitudes(
+                    frame,
+                    count,
+                    selected,
+                )
+            )
+
+            assert shared_value == pytest.approx(direct_value, abs=1e-12)
+            assert shared._amplitude_buffer[:shared._amplitude_count] == (
+                pytest.approx(direct_amplitudes, abs=1e-12)
+            )
+
     def test_stores_amplitudes(self, synthetic_csi_packet, default_subcarriers):
         """Test that amplitudes are available when explicitly requested"""
         ctx = SegmentationContext()

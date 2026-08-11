@@ -96,7 +96,8 @@ class IDetector:
     Subclasses must implement all methods.
     """
     
-    def process_packet(self, csi_data, selected_subcarriers=None, rssi_dbm=None):
+    def process_packet(self, csi_data, selected_subcarriers=None, rssi_dbm=None,
+                       timestamp_us=None):
         """
         Process a single CSI packet.
         

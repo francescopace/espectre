@@ -15,12 +15,34 @@ import pytest
 from tools.lib.repo_paths import generated_data_dir
 
 from ml_detector import predict, ML_METRIC_SCALE, ML_DEFAULT_THRESHOLD
-from tools.train_ml_model import predict_probabilities_from_arrays
+from tools.train_ml_model import (
+    predict_probabilities_from_arrays,
+    render_micropython_weights,
+)
 
 # Test data path
 GENERATED_DATA_DIR = generated_data_dir()
 TEST_DATA_PATH = GENERATED_DATA_DIR / 'ml_test_data.npz'
 INFERENCE_TOLERANCE = 2e-3
+
+
+def test_micropython_export_uses_inference_ready_weight_layout():
+    source = render_micropython_weights(
+        [
+            np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+            np.asarray([0.25, -0.5], dtype=np.float32),
+        ],
+        np.asarray([0.0, 0.0], dtype=np.float32),
+        np.asarray([1.0, 1.0], dtype=np.float32),
+        [2, 2],
+        feature_names=["first", "second"],
+        trained_at="2026-08-11 00:00:00",
+    )
+    namespace = {}
+    exec(source, namespace)
+
+    assert "WEIGHTS" not in namespace
+    assert namespace["WEIGHTS_T"] == [[[1.0, 3.0], [2.0, 4.0]]]
 
 
 def test_array_inference_uses_runtime_saturation_contract():
