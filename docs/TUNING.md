@@ -1,10 +1,8 @@
 # Tuning Guide
 
-Shared operational tuning guide for ESPectre.
+Use this operational guide after a device is installed and producing motion data. It explains what to change, in what order, and what result to expect. Detailed detector formulas and validation evidence remain in [ALGORITHMS.md](ALGORITHMS.md) and the generated [performance report](performance/README.md).
 
-This document is the main operational reference for startup behavior, thresholds, filters, placement, and troubleshooting.
-
-Inline snippets use `ESPHome` YAML only as a concrete example.
+Inline snippets use ESPHome YAML as a concrete example. CSI means channel state information, and `pps` means accepted CSI packets per second.
 
 ## Quick Start
 
@@ -27,7 +25,7 @@ Practical rule:
 - after the first quiet phase, one short motion can help `classic` converge faster, but it is optional
 - repeated movement during startup still hurts calibration quality
 
-`ml` does not use startup threshold calibration and becomes active as soon as CSI capture is ready.
+`ml` does not use startup threshold calibration and becomes active as soon as CSI capture is ready and its feature window has filled.
 
 ### 2. Watch The Runtime Surface
 
@@ -54,7 +52,7 @@ Start with threshold. If needed, then adjust window size or filters.
 
 ### Threshold
 
-The threshold is selected automatically at startup. Classic adapts its trained probability threshold from quiet session logits, while ML starts from the threshold validated with the exported model. Both remain adjustable from the frontend for the current session; recalibration restores the automatic value.
+The threshold is selected automatically at startup. Classic adapts it from the observed quiet room, while ML uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session; recalibration restores the automatic value. Matter currently exposes no writable sensing controls.
 
 Both detectors expose a `0.0-1.0` probability threshold.
 
@@ -63,7 +61,7 @@ Rules of thumb:
 - too many false positives: raise the threshold
 - missed movement: lower the threshold
 
-Runtime threshold changes are session-only and are recalculated at boot. ESPHome and Native persist runtime detector selections; Matter uses its fixed frontend default of `classic`, and Streamer does not run a detector.
+Runtime threshold changes are session-only and are recalculated at boot. ESPHome and Native can switch between `classic` and `ml` at runtime and persist the selection. Matter supports either detector as a build-time choice but exposes no runtime detector control; published Matter firmware uses `classic`. Streamer does not run a detector.
 
 ### Detection Algorithm
 
@@ -72,12 +70,12 @@ espectre:
   detection_algorithm: classic  # or ml
 ```
 
-| Algorithm | Best for | Startup behavior |
-|-----------|----------|------------------|
-| `classic` | default adaptive non-ML path | startup threshold calibration |
-| `ml` | calibration-free startup, highest recall | fixed probability threshold |
+| Algorithm | Accuracy and cost | Startup behavior |
+|-----------|-------------------|------------------|
+| `classic` | Lower detector CPU and working-memory cost, with lower accuracy and robustness than ML | Quiet-room threshold calibration, up to about 10 seconds |
+| `ml` | Higher accuracy and generalization, with additional feature state and neural-inference work | No threshold calibration; waits only for CSI readiness and feature-window warmup |
 
-`classic` keeps false positives low on the maintained normal-link paired corpus, but its recall varies by chip and drops on weak links. Its long quiet C6 replay also exceeds the published `<5%` false-positive target; that suite is currently a diagnostic rather than a binding Classic gate. If you miss real motion and the false positives are already rare, switch to `ml` before tuning anything else: on the project corpus it recovers most of that gap without giving the false positives back. See the Known Limits section in [ALGORITHMS.md](ALGORITHMS.md) and the per-chip tables in [README.md](performance/README.md).
+Choose `classic` when the device must reserve resources for other firmware features or when its compute and memory budget is tight. Choose `ml` when detection quality is the priority and the additional runtime cost fits the product budget. On ESPHome and Native you can compare them at runtime; on Matter the choice is made at build time. Current measurements and known limits are documented in [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](performance/README.md).
 
 ### Window Size
 
@@ -86,20 +84,9 @@ espectre:
   segmentation_window_size_ms: 1000
 ```
 
-The setting is elapsed time. The runtime measures the clean CSI cadence and rounds the sample count up so the window covers at least the requested duration. The default `1000 ms` interval resolves to `80` samples at `80 pps`, `100` at `100 pps`, and `120` at `120 pps`. The feature lags remain at the fitted `10:1` packet offsets; changing those definitions still requires a Classic refit and ML retraining. Below `80 pps`, the detector does not have enough samples for the supported feature contract and should remain on hold until the stream recovers.
+The setting is elapsed time. The runtime converts it to the number of samples available at the measured CSI rate, so the default `1000 ms` window uses about `80` samples at `80 pps` and `100` at `100 pps`. Below `80 pps`, detection pauses because the supported feature contract no longer has enough data. Repair packet supply instead of shortening the window to compensate.
 
-The current augmented ML model was rechecked on 60-second prefixes of 22 normal-link pairs, reducing stable streams to `80 pps` by removing packets and preserving a clean `12.5 ms` cadence. This avoids the invalid shortcut of merely replaying a `100 pps` stream through a smaller window:
-
-| replay contract | aggregate recall | aggregate false positives | worst-session recall |
-| --- | ---: | ---: | ---: |
-| fixed 100 samples | `99.546%` | `0.041%` | not used for the floor decision |
-| temporal 1000 ms at 80 pps (80 samples) | `98.844%` | `0.019%` | `92.797%` |
-
-The aggregate result supports `80 pps`, but the localized worst-session recall remains below the `95%` target. This is why `80 pps` is a supported floor rather than evidence that lower rates are safe. On the explicit high-rate C3 regression pair, stable decimation to `120`, `100`, and `80 pps` with matching one-second windows keeps ML at `100%` recall and `0%` false positives at every rate; Classic reaches `99.1%` recall and `0%` false positives at `80 pps`.
-
-Correct native-cadence replay also replaces two optimistic Classic measurements that rounded `~92-93 pps` captures back to a synthetic `100 pps`. The affected normal-link C3 training replay moves from `93.64%` to `91.64%` recall, and the affected weak-link S3 replay moves from `85.06%` to `83.62%`; both remain at `0-4.2%` false positives, and the normal-link chip aggregates remain above their production targets. These are localized Classic limitations, not evidence for restoring packet-count windows.
-
-Training follows the same rule. Packet-rate augmentation creates a lower-rate stable stream with advancing timestamps and contiguous sequence numbers, then feature extraction resolves the one-second window from that augmented cadence. Packet loss and burst loss remain separate contamination augmentations and do not masquerade as a stable rate change.
+The validation evidence for the `80 pps` floor and time-based replay contract belongs in [ALGORITHMS.md](ALGORITHMS.md#detector-timing) and the [performance report](performance/README.md).
 
 Rules of thumb:
 
@@ -119,7 +106,7 @@ espectre:
   traffic_generator_adaptive: true
 ```
 
-The rate is the target for valid local CSI callbacks, not a fixed network send rate. By default, the shared C++ runtime and Micro-ESPectre use the same adaptive policy: send pacing can rise toward about `125%` of the target when CSI is short, backs off by `15%` on sustained socket send errors or sustained CSI oversupply, never drops below `70%` of the target, and waits three control windows between reductions. A severe CSI deficit below `50%` holds the current send rate rather than cutting it; on the original ESP32 the runtime now reports sustained low-supply windows as passive telemetry instead of trying to rearm CSI capture. Set `traffic_generator_adaptive: false` (or `TRAFFIC_GENERATOR_ADAPTIVE = False` in Micro-ESPectre) only when you need a fixed network send rate for an experiment.
+The rate is a target for valid local CSI callbacks, not a promise that the network sends exactly that many packets. Adaptive mode raises or lowers network pacing to keep accepted CSI near the target while reacting to socket pressure. Set `traffic_generator_adaptive: false` only when an experiment requires a fixed network send rate.
 
 Rules of thumb:
 
@@ -213,9 +200,9 @@ Recommended operating range:
 
 | Distance to AP | Typical RSSI | Practical reading |
 |----------------|--------------|-------------------|
-| too close | above `-40 dB` | more saturation risk |
-| best range | `-40` to `-70 dB` | good CSI headroom |
-| too far | below `-80 dB` | weaker signal, more noise |
+| too close | above `-40 dBm` | more saturation risk |
+| best range | `-40` to `-70 dBm` | good CSI headroom |
+| too far | below `-80 dBm` | weaker signal, more noise |
 
 Practical advice:
 
@@ -294,11 +281,7 @@ If your AP changes channel often:
 
 `classic` can recompute its threshold without changing firmware.
 
-Use the recalibration control exposed by your frontend, for example:
-
-- ESPHome calibration entity
-- Matter writable recalibration attribute
-- native BLE or other frontend-specific control surface
+Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, and Native exposes the shared control through its command surfaces. Matter currently exposes no writable sensing controls.
 
 When recalibrating:
 
@@ -320,7 +303,7 @@ Whatever frontend you use, keep an eye on:
 
 Use a `DEBUG` build when comparing firmware variants. Record the binary size and free application-partition space from the build summary, then monitor the device for several minutes after startup has settled.
 
-For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It tests the ESPHome Dev and Native Debug frontends with both `classic` and `ml`, then writes the generated chip report under `docs/performance/`. The Classic build starts clean for each frontend, and the following ML build reuses its build directory. The ML build runs concurrently with Classic monitoring; firmware flashes and monitoring windows remain ordered and do not overlap.
+For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It samples Native Classic and ML, ESPHome Classic, Matter's build-time default, and Streamer collection. This is representative benchmark coverage, not a capability matrix: ESPHome, Native, and Matter support both detectors, while only ESPHome and Native switch at runtime. See [tools/README.md](../tools/README.md#firmware-benchmark) for prerequisites and report behavior.
 
 The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10 seconds at `DEBUG` level. Check that:
 

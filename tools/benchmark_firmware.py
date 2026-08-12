@@ -66,6 +66,28 @@ CHIP_LABELS = {
     "c6": "ESP32-C6",
     "s3": "ESP32-S3",
 }
+FRONTEND_LABELS = {
+    "esphome": "ESPHome",
+    "matter": "Matter",
+    "native": "Native",
+    "streamer": "Streamer",
+}
+DETECTOR_LABELS = {
+    "classic": "Classic",
+    "collect": "Collect",
+    "default": "Default",
+    "ml": "ML",
+}
+REPORT_SNAPSHOT_SCOPE = (
+    "Snapshot scope: Results apply to the Git revision and run time above; "
+    "they do not certify newer source revisions."
+)
+REPORT_DETECTOR_SCOPE = (
+    "Detector coverage: ESPHome, Native, and Matter support Classic and ML. "
+    "ESPHome and Native support runtime switching; Matter selects the detector "
+    "at build time. The matrix below samples representative cases rather than "
+    "every supported combination."
+)
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 STATUS_RE = re.compile(r"\b(?P<state>MOTION|IDLE)\s*\|\s*(?P<pps>\d+)\s+pkt/s\b")
@@ -125,6 +147,10 @@ class BenchmarkCase:
 
     @property
     def label(self) -> str:
+        return f"{FRONTEND_LABELS[self.frontend]} {DETECTOR_LABELS[self.detector]}"
+
+    @property
+    def legacy_label(self) -> str:
         return f"{self.frontend.capitalize()} {self.detector.capitalize()}"
 
 
@@ -1591,6 +1617,10 @@ def render_report(
         f"Monitor duration per firmware: `{MONITOR_DURATION_SECONDS} seconds`",
         f"Overall result: **{overall}**",
         "",
+        REPORT_SNAPSHOT_SCOPE,
+        "",
+        REPORT_DETECTOR_SCOPE,
+        "",
         "## Summary",
         "",
         "| Frontend | Detector | Result | Binary size | Partition free | CPU load | Min free heap |",
@@ -1793,6 +1823,8 @@ def parse_report_metric_value(text: str) -> int | float | None:
 
 def parse_report_results(text: str) -> list[BenchmarkResult]:
     case_by_label = {case.label: case for case in CASES}
+    case_by_label.update({case.legacy_label: case for case in CASES})
+    case_by_label["Matter Classic"] = BenchmarkCase("matter", "default", benchmark_mode="smoke")
     results: list[BenchmarkResult] = []
     lines = text.splitlines()
     index = 0

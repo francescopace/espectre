@@ -57,7 +57,15 @@ describe('website UX and content contracts', () => {
     it('uses natural scrolling and progressively loads narrative images', () => {
         assert.doesNotMatch(app, /function scrollyWheel|function scrollyTouch|function stepScrolly/);
         assert.match(index, /data-src-mobile="\/assets\/images\/home\/scene-motion-lights-mobile\.webp"/);
+        assert.match(index, /data-src="\/assets\/images\/home\/scene-standards-backend\.jpg" data-src-mobile="\/assets\/images\/home\/scene-standards-backend-mobile\.webp"/);
         assert.match(app, /image\.dataset\.srcMobile/);
+        const sceneIds = [...index.matchAll(/class="[^"]*\bjs-scrolly-scene\b[^"]*" data-scene="(\d+)"/g)].map((match) => Number(match[1]));
+        const captionIds = [...index.matchAll(/class="[^"]*\bjs-scrolly-caption\b[^"]*" data-scene="(\d+)"/g)].map((match) => Number(match[1]));
+        const markerIds = [...index.matchAll(/class="js-scrolly-marker" data-scene="(\d+)"/g)].map((match) => Number(match[1]));
+        assert.deepEqual(sceneIds, Array.from({ length: 13 }, (_, index) => index));
+        assert.deepEqual(captionIds, sceneIds);
+        assert.deepEqual(markerIds, sceneIds.slice(1));
+        assert.match(index, /<span>\/ 12<\/span>/);
     });
 
     it('keeps privacy discoverable and serves a real 404 page', () => {

@@ -1,13 +1,8 @@
 # Architecture Guide
 
-This document describes the current firmware-side architecture of ESPectre: code layout, layer boundaries, and runtime surfaces that exist in the repository today.
+This reference is for contributors and firmware integrators who need the current code layout, dependency boundaries, and runtime contracts. It is not an installation guide; use [SETUP.md](SETUP.md) for deployment and [EMBEDDING.md](EMBEDDING.md) for the supported SDK path.
 
-For the decision history behind this structure, use the ADR index in [`README.md` (ADR)](adr/README.md), especially:
-
-- [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](adr/2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
-- [`2025-12-06-adopt-a-dual-platform-development-model.md`](adr/2025-12-06-adopt-a-dual-platform-development-model.md)
-- [`2025-12-06-adopt-esphome-as-the-production-integration-surface.md`](adr/2025-12-06-adopt-esphome-as-the-production-integration-surface.md)
-- [`2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md`](adr/2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md)
+In this document, **core** means portable detector logic, **runtime** means the execution and event layer around it, and **frontend** means an ecosystem-specific adapter such as ESPHome or Matter. Historical rationale lives in the [ADR index](adr/README.md); this page describes only the current structure.
 
 ## Current Source Layout
 
@@ -156,7 +151,7 @@ Normalized runtime events include:
 
 Frontends should use this surface instead of reaching directly into low-level Wi-Fi or CSI pipeline services.
 
-Runtime detector selection is capability-gated. ESPHome and Native enable the shared ESP-IDF detector store, which persists `classic` or `ml` in NVS and restores it at boot. Matter keeps a frontend-owned `classic` default without a writable detector surface, while Streamer remains detector-free.
+Runtime detector selection is capability-gated. ESPHome and Native enable the shared ESP-IDF detector store, which persists `classic` or `ml` in NVS and restores it at boot. Matter can be built with either detector but has no writable runtime detector surface; published Matter firmware selects `classic`. Streamer remains detector-free.
 
 ### Shared Runtime Debug Telemetry
 

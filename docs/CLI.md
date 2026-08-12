@@ -1,8 +1,8 @@
 # Repository CLI
 
-ESPectre ships with a repository CLI wrapper for host tools, MicroPython device workflows, and local frontend build/flash flows.
+Use this reference when you already know which ESPectre workflow you need and want the repository command for it. Start with [SETUP.md](SETUP.md) if you have not chosen a frontend yet. Frontend READMEs own configuration, prerequisites, and device-specific troubleshooting.
 
-This document covers the shared CLI surface. See the frontend READMEs for frontend-specific configuration, prerequisites, and operational details.
+The command tables below are summaries; `./espectre --help` and `./espectre <namespace> --help` are authoritative for current flags.
 
 ## Launchers
 
@@ -174,9 +174,17 @@ When `--target` is omitted, `collect` performs one mDNS/DNS-SD browse for `_espe
 
 `--info` is also read-only: it uses `dataset_info.json` as the source of truth and prints one table per `environment`, with label rows and one column per chip.
 
-In live streamer mode, `collect` sends ordinary UDP traffic to the selected target device. The device learns the collector IP from the source address of those packets and sends one CSI stream packet back for each received CSI callback. Without `--label`, live mode inspects the stream and does not write dataset files. Pass `--label` when you want to save captures. By default, pacing is adaptive: the collector ignores isolated TX pressure, backs off when firmware-reported backpressure reaches 5% of a control window, and then recovers additively toward the requested `--pps`. For broadcast and multicast targets, when delivered records fall below the target while the device converts received pacing into fresh CSI cleanly (retry-less path loss), the collector also boosts the send rate above `--pps` in proportional steps, up to 1.5x, trims back once delivery overshoots, and drops straight back to `--pps` if the CSI freshness ratio degrades while boosted, since above-target pacing can itself starve CSI conversion. Unicast pacing never boosts above `--pps`: unicast delivery is MAC-retransmitted, so a delivery deficit there is device-side rather than path loss. Boost and trim act on a smoothed delivery measurement, so the send rate settles at the loss-adjusted level instead of chasing per-second RF variance. A low CSI freshness ratio never triggers a boost or a slowdown on its own. Use `--fixed` when you want a constant send rate instead.
+In live streamer mode, `collect` sends UDP pacing traffic to the device. The device learns the collector address, creates one CSI record for each valid pacing packet, and batches records into return datagrams. Without `--label`, the collector only inspects the stream; with `--label`, it saves a dataset.
 
-`--detector` always selects the production detector used for collection readiness. The detector window is configured in milliseconds; `--pps` supplies only its initial packet estimate, then `collect` uses the same measured-timing and resize policy as MicroESPectre to resolve the window independently for each device. `classic` performs its normal startup calibration before it can become ready. `ml` does not use startup calibration, but still needs its feature window to fill. Live inspection can compare `classic,ml` in parallel.
+Pacing terms:
+
+- **Delivered rate:** CSI records received by the collector, measured in packets per second (`pps`).
+- **Backpressure:** firmware reports that it cannot transmit records as quickly as they are produced.
+- **Freshness:** the share of pacing packets that produce new CSI rather than stale or missing records.
+
+The default adaptive policy backs off on sustained backpressure and can compensate broadcast or multicast path loss by sending above the requested delivered rate. Unicast never boosts above `--pps` because Wi-Fi already retries unicast delivery. Use `--fixed` when an experiment requires a constant send rate. Transport thresholds and control-loop behavior are implementation details owned by the Streamer [README.md](../src/cpp/frontend/streamer/README.md).
+
+`--detector` always selects the production detector used for collection readiness. The detector window is configured in milliseconds; `--pps` supplies only its initial packet estimate, then `collect` uses the same measured-timing and resize policy as Micro-ESPectre to resolve the window independently for each device. `classic` performs its normal startup calibration before it can become ready. `ml` does not use startup calibration, but still needs its feature window to fill. Live inspection can compare `classic,ml` in parallel.
 
 When `--label` is set, saved collection waits for the detector to stay below threshold for `--ready-stable-seconds` before packets are recorded. Set `--ready-stable-seconds 0` to bypass that gate explicitly.
 

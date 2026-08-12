@@ -40,6 +40,7 @@
   --scene-embedded: #ff9f66;
   --scene-integration: #a68cff;
   --scene-cloud: #6fe0c0;
+  --scene-standards: #67cdf5;
 }
 
 html, body {
@@ -684,6 +685,7 @@ a.hero-badge:hover {
 .scrolly-caption[data-scene="9"] { --scene-color: var(--scene-integration); }
 .scrolly-caption[data-scene="10"] { --scene-color: var(--scene-cloud); }
 .scrolly-caption[data-scene="11"] { --scene-color: var(--scene-embedded); }
+.scrolly-caption[data-scene="12"] { --scene-color: var(--scene-standards); }
 .scrolly-kicker {
   margin-bottom: 13px;
   color: var(--scene-color);

@@ -27,7 +27,7 @@ This is the first release candidate for the v3 platform. It brings the productio
 - **Native on-demand MQTT diagnostics** for traffic and CSI rates, Wi-Fi channel, and RSSI through the `stats` command.
 - **Configurable SDK capability groups** for MQTT, BLE, provisioning, OTA, frontend support, and stream runtime when ESPectre is consumed as an ESP-IDF component.
 - **Parallel detector inspection during collection** through `./espectre collect --detector classic,ml`.
-- **BLE-assisted Streamer provisioning**, collector-driven discovery, UDP record batching, and per-record PHY mode, LTF type, and channel-width metadata.
+- **Streamer discovery and collection improvements**, with collector-driven mDNS discovery, UDP record batching, and per-record PHY mode, LTF type, and channel-width metadata. Streamer credentials remain build-time `sdkconfig` values; the frontend does not expose a BLE control plane.
 - **CSI amplitude heatmap generation** through `tools/plot_heatmap.py`.
 
 ### Changed

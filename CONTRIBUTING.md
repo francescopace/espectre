@@ -99,7 +99,7 @@ ctest --test-dir test/cpp/build --output-on-failure
 # C++ tests with coverage
 ./test/cpp/run_coverage.sh
 
-# Python tests (Micro-ESPectre)
+# Python tests (device runtime, CLI, tools, and validation)
 pytest test/python -v
 
 # With coverage (run from repo root)
@@ -109,13 +109,9 @@ pytest test/python -v --cov=src/python/micro_espectre --cov-report=term-missing
 python -m http.server 8080 --directory docs/web
 ```
 
-Direct single-config CMake builds and `run_all_tests.sh` default to
-`RelWithDebInfo` with assertions enabled; `run_coverage.sh` uses an instrumented
-`Debug` build.
+Direct single-config CMake builds and `run_all_tests.sh` default to `RelWithDebInfo` with assertions enabled; `run_coverage.sh` uses an instrumented `Debug` build.
 
-Python test auto-parallelism is capped at four workers because replay-heavy
-tests become slower under higher process counts. Set
-`PYTEST_XDIST_AUTO_NUM_WORKERS` to a positive integer to override the cap.
+Python test auto-parallelism is capped at four workers because replay-heavy tests become slower under higher process counts. Set `PYTEST_XDIST_AUTO_NUM_WORKERS` to a positive integer to override the cap.
 
 The coverage helper is a Bash script used on macOS/Linux and CI. On Windows, run the CMake/CTest commands above for the host-side C++ suite, or use WSL/Git Bash if you specifically need the coverage script.
 
@@ -175,17 +171,11 @@ test: add unit tests for Hampel filter
 
 ### DCO Sign-off (required)
 
-This repository enforces the Developer Certificate of Origin (DCO) in CI.
-Every commit in a pull request must include a valid `Signed-off-by` trailer.
+This repository enforces the Developer Certificate of Origin (DCO) in CI. Every commit in a pull request must include a valid `Signed-off-by` trailer.
 
 ### CLA (required once)
 
-ESPectre is dual-licensed (see [LICENSING.md](LICENSING.md)), so the project
-also requires a one-time [Contributor License Agreement](CLA.md) signature.
-To sign, add your GitHub login to `.github/cla-signatures.json` in your first
-pull request, as described in [CLA.md](CLA.md); the CLA check on the pull
-request verifies the entry. One signature covers all your past and future
-contributions while you retain ownership of your work.
+ESPectre is dual-licensed (see [LICENSING.md](LICENSING.md)), so the project also requires a one-time [Contributor License Agreement](CLA.md) signature. To sign, add your GitHub login to `.github/cla-signatures.json` in your first pull request, as described in [CLA.md](CLA.md); the CLA check on the pull request verifies the entry. One signature covers all your past and future contributions while you retain ownership of your work.
 
 Use:
 
@@ -202,9 +192,10 @@ git push --force-with-lease
 
 ### Code Style
 
-#### C++ (ESPHome Component)
+#### C++
 
-- Follow ESPHome component conventions
+- Keep shared `core` and `runtime` code frontend-agnostic
+- Follow ESPHome component conventions only under `src/cpp/frontend/esphome/`
 - Use ESP-IDF framework (not Arduino)
 - Use `ESP_LOGD`, `ESP_LOGI`, `ESP_LOGW`, `ESP_LOGE` for logging
 - All code and comments in English
@@ -213,9 +204,9 @@ git push --force-with-lease
 ```cpp
 /*
  * ESPectre - [Component Name]
- * 
+ *
  * [Brief description]
- * 
+ *
  * Author: [your name] <[your email]>
  * License: GPLv3
  */
@@ -281,8 +272,7 @@ Executable tool scripts may keep a `#!/usr/bin/env python3` shebang above the he
 
 ## Data Contributions
 
-Help build a diverse CSI dataset for ML training. For v3, the most useful data
-improves room-state robustness across real homes, routers, and ESP32 boards.
+Help build a diverse CSI dataset for ML training. For v3, the most useful data improves room-state robustness across real homes, routers, and ESP32 boards.
 
 ### How to Contribute Data
 
@@ -310,8 +300,7 @@ We're particularly looking for room-state datasets:
 | High | `static_presence` | Person present but mostly still | Occupancy-like stillness coverage |
 | High | `motion` | Walking or ordinary room movement | Recall across homes, routers, and board variants |
 
-Gesture recognition, HAR, and people counting are useful future research tracks,
-but they are not the primary v3 dataset request.
+Gesture recognition, HAR, and people counting are useful future research tracks, but they are not the primary v3 dataset request.
 
 ### Data Privacy
 
@@ -399,7 +388,6 @@ All contributors are recognized in:
 - Release notes for significant contributions
 - Data contributors credited in dataset documentation
 
-All contributions must also be certified under the Developer Certificate of Origin (DCO) by adding the `Signed-off-by` trailer to each commit, and covered by a one-time [CLA](CLA.md) signature.
-The DCO certifies that you have the right to submit the contribution; the CLA lets the project distribute it under both licensing tracks described in [LICENSING.md](LICENSING.md).
+All contributions must also be certified under the Developer Certificate of Origin (DCO) by adding the `Signed-off-by` trailer to each commit, and covered by a one-time [CLA](CLA.md) signature. The DCO certifies that you have the right to submit the contribution; the CLA lets the project distribute it under both licensing tracks described in [LICENSING.md](LICENSING.md).
 
 See [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for details.

@@ -2,6 +2,8 @@
 
 This document is the durable literature index for ESPectre sensing research. It records the parts of each source that matter to this project: signal features, preprocessing and filters, algorithms, evaluation results, hardware assumptions, and the resulting research action.
 
+This index is for sensing researchers and feature contributors. It is intentionally detailed and does not explain the operational detector; start with [ALGORITHMS.md](ALGORITHMS.md) for current behavior or [TUNING.md](TUNING.md) for device settings. In the notes, HT20 means a 20 MHz Wi-Fi channel, CIR means channel impulse response, and a transfer limit explains why a published result may not apply directly to ESP32 hardware or ESPectre data.
+
 The index covers every external publication reviewed from the local `.papers` collection and the additional online sources reviewed through 2026-07-28. Internally authored ESPectre research is excluded; the historical NBVI work is retained in its [adoption ADR](adr/2025-12-03-adopt-nbvi-for-runtime-subcarrier-selection.md). Primary publisher, DOI, institutional, or arXiv links are preferred so the local PDF collection is not required. Release dates refer to the first public version or online publication date, not the date on which ESPectre reviewed the source.
 
 This is not evidence that an algorithm works on ESPectre data. Published accuracy values are rarely comparable because tasks, labels, radio hardware, packet rates, environments, splits, and leakage controls differ. Use [FEATURES.md](FEATURES.md) for ESPectre measurements and verdicts, and use ADRs for durable production decisions.

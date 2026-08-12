@@ -42,7 +42,7 @@ If you cannot use GitHub Security Advisories, email security@espectre.dev.
 ### Scope
 
 Security issues relevant to ESPectre include:
-- WiFi/CSI data exposure
+- Wi-Fi/CSI data exposure
 - MQTT authentication bypass
 - ESPHome/Home Assistant integration vulnerabilities
 - Firmware vulnerabilities on ESP32

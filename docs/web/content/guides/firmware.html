@@ -61,13 +61,19 @@ cd espectre
 
     <h2>Embed ESPectre in an existing firmware</h2>
     <p>The reusable C++ layers let an ESP-IDF product own boot, networking, storage, OTA, and UI while ESPectre supplies the sensing path. The <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">embedding guide</a> documents the layers, the runtime contracts, and the build integration in detail.</p>
+    <h3>Choose the detector against the complete product budget</h3>
+    <p>Classic is the leaner production path: it leaves more CPU time and working memory for connectivity, OTA, UI, or other application services, at the cost of lower detection accuracy and generalization. ML provides higher detection quality but maintains more feature state and runs neural inference. Classic adapts its threshold during up to about 10 seconds of quiet startup calibration; ML skips that calibration, although it still waits for CSI readiness and feature-window warmup.</p>
+    <p>Both detectors are available through the SDK. Select the initial path with <code>RuntimeConfig::detection_algorithm</code>. Expose runtime switching only when the product needs it; including both paths can retain ML code and weights in flash even when Classic is active.</p>
+    <h3>Designed beyond today's ESP32 CSI APIs</h3>
+    <p>Today's firmware captures CSI through the APIs available on supported ESP32 devices. <a href="https://standards.ieee.org/ieee/802.11bf/11574/" target="_blank" rel="noopener">IEEE 802.11bf-2025</a> standardizes WLAN mechanisms for advertising sensing capabilities, coordinating sensing measurements, and exchanging sensing feedback. ESPectre does not currently implement 802.11bf.</p>
+    <p>The separation between detector core, runtime, events, protocols, tooling, and frontends provides a migration boundary for future hardware. If an embedded vendor exposes practical 802.11bf measurements, or an equivalent documented sensing API, ESPectre can evaluate it as a new runtime backend without replacing the product-facing integration above it. Hardware support, measurement semantics, and detector quality would still require validation before that backend could be considered supported. The <a href="/roadmap/">roadmap</a> records this as a hardware-triggered direction rather than a release commitment.</p>
     <figure>
       <img src="/assets/images/guides/embedded-firmware-layers.webp" alt="Wi-Fi CSI entering reusable sensing and runtime layers embedded inside product firmware" loading="lazy">
       <figcaption>CSI enters the reusable sensing layers; the surrounding product firmware keeps control of the platform and consumes only the score, state, and diagnostics it needs.</figcaption>
     </figure>
     <ol class="steps-list">
       <li><h3>Connect CSI capture</h3><p>Feed compatible ESP32 CSI frames into the shared capture and processing boundary, or let the ESPectre runtime own capture entirely.</p></li>
-      <li><h3>Select the reusable layers</h3><p>Use the core directly for the smallest integration, or reuse the runtime services when you also want lifecycle and orchestration.</p></li>
+      <li><h3>Select the reusable layers and detector</h3><p>Use the core directly for the smallest integration, or reuse the runtime services when you also want lifecycle and orchestration. Choose Classic or ML from the measured resource and detection-quality budget of the complete firmware.</p></li>
       <li><h3>Map product events</h3><p>Translate movement score, motion state, calibration state, and diagnostics into the product's existing event system.</p></li>
       <li><h3>Validate in context</h3><p>Measure CPU, memory, packet flow, reconnect behavior, and detection quality inside the complete product firmware.</p></li>
     </ol>
@@ -78,6 +84,7 @@ cd espectre
       <li>Build the exact chip and frontend combination you will deploy.</li>
       <li>Run the shared C++ detection tests after changing core algorithms.</li>
       <li>Verify first boot, provisioning, reconnect, and recovery on physical hardware.</li>
+      <li>Measure detector CPU and memory cost alongside the rest of the product workload.</li>
       <li>Measure motion behavior in the intended room, not only on the bench.</li>
     </ul>
 

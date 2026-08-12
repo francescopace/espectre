@@ -4,6 +4,14 @@ Train, evaluate, and promote the production ML detector after collecting labeled
 
 Use [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) to collect and validate `empty`, `static_presence`, and `motion` recordings. This guide covers the training workflow, dataset roles, model-selection gates, exported artifacts, and required validation. Use `python tools/train_ml_model.py --help` for the complete option reference, [FEATURES.md](FEATURES.md) for feature evidence, and [performance/README.md](performance/README.md) for current detector results.
 
+This guide is for ML contributors and assumes familiarity with supervised classification. Project-specific terms:
+
+- **Lineage:** recordings that share enough provenance to remain in one validation group.
+- **Grouped cross-validation:** fitting and evaluation folds keep each lineage together to reduce leakage.
+- **OOF:** out-of-fold predictions produced for samples not used to fit that fold.
+- **Replay gate:** a production-aligned recorded-data check that can block model promotion.
+- **Promotion:** replacing the exported Python and C++ runtime weights after every required gate passes.
+
 ## Prerequisites
 
 Install the ML training stack:
@@ -33,7 +41,7 @@ The production trainer admits only the HT20 sensing contract: `phy_mode=ht`, `lt
 | `holdout` | Final validation of the selected winner | No |
 | `exclude` | Retained provenance or diagnostics outside model selection | No |
 
-Entries without an explicit role remain `train` for backward compatibility. The quality validator never assigns roles automatically.
+Entries without an explicit role default to `exclude` and must be admitted explicitly. The quality validator never assigns roles automatically.
 
 An `empty` recording marked `long_recording: true` never enters the training matrix. When its role is `selection` or `holdout`, the quiet gate evaluates the complete recording and can block promotion. A long recording in `exclude` remains available only for explicit diagnostics and the generated quality report.
 

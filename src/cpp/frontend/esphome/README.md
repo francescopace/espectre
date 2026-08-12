@@ -1,10 +1,6 @@
 # ESPectre ESPHome Frontend
 
-This directory contains the ESPHome frontend for ESPectre.
-
-It is the production-oriented integration surface for Home Assistant and keeps
-the ESPHome-specific concerns separate from the shared `core` and `runtime`
-layers.
+Use this guide to install, configure, or maintain the ESPHome integration for Home Assistant. First-time users can jump to [Getting Started](#getting-started) and [Configuration Surface](#configuration-surface); component maintainers can continue through the implementation and packaging sections.
 
 ## Scope
 
@@ -16,29 +12,9 @@ The ESPHome frontend is responsible for:
 - ESPHome provisioning and dashboard-oriented usage
 - ESPHome-specific SDK configuration defaults and troubleshooting
 
-## Directory Layout
-
-- [`__init__.py`](components/espectre/__init__.py):
-  YAML schema, validation, codegen, shared local PlatformIO library registration, and ESPHome build flags
-- [`espectre.cpp`](components/espectre/espectre.cpp),
-  [`espectre.h`](components/espectre/espectre.h):
-  ESPHome adapter over the shared runtime frontend controller
-- [`sensor_publisher.cpp`](components/espectre/sensor_publisher.cpp):
-  movement and motion publishing
-- [`threshold_number.cpp`](components/espectre/threshold_number.cpp):
-  runtime threshold control
-- [`detector_select.cpp`](components/espectre/detector_select.cpp):
-  persisted runtime detector selection
-- [`calibrate_switch.cpp`](components/espectre/calibrate_switch.cpp):
-  runtime recalibration trigger
-- [`examples/`](examples/):
-  production, local-development, S3 variant, and Home Assistant dashboard examples
-
 ## Getting Started
 
-If you want the browser-flash path, start from
-[`SETUP.md`](../../../../docs/SETUP.md) and come back here
-after flashing `ESPHome`.
+If you want the browser-flash path, start from [`SETUP.md`](../../../../docs/SETUP.md) and come back here after flashing `ESPHome`.
 
 After flashing, configure Wi-Fi with one of these provisioning paths:
 
@@ -48,14 +24,9 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 | USB | Go to [web.esphome.io](https://web.esphome.io) and use **Connect** -> **Configure WiFi** |
 | Captive portal | Connect to the `ESPectre Fallback` network and finish setup in the browser |
 
-Once Wi-Fi is configured, the device is discovered automatically by Home
-Assistant through ESPHome.
+Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
-Release and snapshot channels publish one full-flash image per supported chip,
-using the default `classic` detector. After adoption, ESPHome Device Builder
-compiles and installs updates wirelessly from the device YAML. To use `ml`,
-build locally with `detection_algorithm: ml`; there is no separate precompiled
-ML image.
+Release and snapshot channels publish one full-flash image per supported chip, with `classic` as the initial detector. Both `classic` and `ml` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder compiles and installs updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
 
 ## Integration Surface
 
@@ -71,25 +42,17 @@ The frontend maps runtime state into ESPHome and Home Assistant entities.
 | runtime recalibration trigger | `calibrate_switch` |
 | on-demand CSI diagnostics | diagnostic sensors and `diagnostics_button` |
 
-The default entities are created automatically when the `espectre:` component
-is declared.
+The default entities are created automatically when the `espectre:` component is declared.
 
 ## Configuration Surface
 
-The ESPHome YAML schema is defined in [`__init__.py`](components/espectre/__init__.py).
-This README covers ESPHome-specific syntax and entity mapping. See
-[`SETUP.md`](../../../../docs/SETUP.md) for the shared configuration overview
-and [`TUNING.md`](../../../../docs/TUNING.md) for the "when and why" of tuning.
+The ESPHome YAML schema is defined in [`__init__.py`](components/espectre/__init__.py). This README covers ESPHome-specific syntax and entity mapping. See [`SETUP.md`](../../../../docs/SETUP.md) for the shared configuration overview and [`TUNING.md`](../../../../docs/TUNING.md) for the "when and why" of tuning.
 
 ### Core Parameters
 
-The shared sensing options, with their defaults and ranges, are documented in
-the [`Shared Sensing Options`](../../../../docs/SETUP.md#shared-sensing-options)
-table in `SETUP.md`. In ESPHome, those options live under the `espectre:`
-section with the same names, as shown in the example below.
+The shared sensing options, with their defaults and ranges, are documented in the [`Shared Sensing Options`](../../../../docs/SETUP.md#shared-sensing-options) table in `SETUP.md`. In ESPHome, those options live under the `espectre:` section with the same names, as shown in the example below.
 
-These options are applied from YAML during firmware configuration. Runtime
-control is exposed separately through the entities below:
+These options are applied from YAML during firmware configuration. Runtime control is exposed separately through the entities below:
 
 | Runtime surface | Config key | Runtime behavior |
 |-----------------|------------|------------------|
@@ -102,11 +65,7 @@ control is exposed separately through the entities below:
 
 ### Diagnostic Telemetry
 
-Diagnostic entities are always available in production builds. ESPectre
-refreshes their cached rate sample from the existing sensing update that also
-feeds the periodic status log, without adding a diagnostic timer or
-periodically publishing new Home Assistant states. Press `Refresh Diagnostics`
-to publish the latest cached sample on demand:
+Diagnostic entities are always available in production builds. ESPectre refreshes their cached rate sample from the existing sensing update that also feeds the periodic status log, without adding a diagnostic timer or periodically publishing new Home Assistant states. Press `Refresh Diagnostics` to publish the latest cached sample on demand:
 
 | Entity | Meaning |
 |--------|---------|
@@ -117,14 +76,9 @@ to publish the latest cached sample on demand:
 | `WiFi Channel` | Current primary channel reported by the associated access point |
 | `WiFi RSSI` | Current RSSI reported by the Wi-Fi association |
 
-Comparing the three main rates localizes failures: traffic without callbacks
-points at capture/radio state, callbacks without accepted packets points at
-validation or identity filtering, and accepted packets without stable detector
-output points above the capture layer.
+Comparing the three main rates localizes failures: traffic without callbacks points at capture/radio state, callbacks without accepted packets points at validation or identity filtering, and accepted packets without stable detector output points above the capture layer.
 
-The optional `debug_telemetry: true` setting is separate: it enables periodic
-runtime DEBUG logs with heap, load, and timing metrics, but it is not required
-for these diagnostic entities or their sampling.
+The optional `debug_telemetry: true` setting is separate: it enables periodic runtime DEBUG logs with heap, load, and timing metrics, but it is not required for these diagnostic entities or their sampling.
 
 ### Detection Algorithm Selection
 
@@ -136,13 +90,7 @@ espectre:
   detection_algorithm: classic  # or ml
 ```
 
-ESPHome owns Wi-Fi association policy through `wifi.band_mode`; it is not an
-`espectre:` property. On ESP32-C5 it accepts `2.4GHz`, `5GHz`, or `AUTO` and is
-optional; when omitted, ESPectre follows ESPHome's `AUTO` default. Other
-supported targets are single-band and remain fixed to 2.4 GHz. ESPectre mirrors
-the effective ESPHome selection into its runtime and keeps the production
-sensing contract at HT20 on the selected band. The examples select `2.4GHz`
-because detection quality on 5 GHz is not yet characterized.
+ESPHome owns Wi-Fi association policy through `wifi.band_mode`; it is not an `espectre:` property. On ESP32-C5 it accepts `2.4GHz`, `5GHz`, or `AUTO` and is optional; when omitted, ESPectre follows ESPHome's `AUTO` default. Other supported targets are single-band and remain fixed to 2.4 GHz. ESPectre mirrors the effective ESPHome selection into its runtime and keeps the production sensing contract at HT20 on the selected band. The examples select `2.4GHz` because detection quality on 5 GHz is not yet characterized.
 
 Threshold behavior:
 
@@ -150,14 +98,11 @@ Threshold behavior:
 - `classic`: automatic session-adapted startup threshold
 - `ml` default: `0.5`
 
-The YAML value is the initial detector when no persisted selection exists.
-The Home Assistant `detector_select` changes it live and persists the choice
-across reboot. `ml -> classic` starts calibration automatically, and the
-`calibrate_switch` reflects automatic and user-triggered calibration state.
+Classic uses less active detector CPU and working memory, making it suitable when the ESPHome node also runs resource-intensive components. ML uses more feature state and inference work but provides higher accuracy and skips Classic's quiet startup calibration of up to about 10 seconds. ML still waits for CSI readiness and its feature window to fill.
 
-See [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for how the two
-detectors differ and [`TUNING.md`](../../../../docs/TUNING.md) for choosing
-between them.
+The YAML value is the initial detector when no persisted selection exists. The Home Assistant `detector_select` changes it live and persists the choice across reboot. `ml -> classic` starts calibration automatically, and the `calibrate_switch` reflects automatic and user-triggered calibration state.
+
+See [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for how the two detectors differ and [`TUNING.md`](../../../../docs/TUNING.md) for choosing between them.
 
 ### Example
 
@@ -199,8 +144,7 @@ All entities support standard ESPHome options such as:
 - `icon`
 - `disabled_by_default`
 
-The `movement_sensor` also supports ESPHome
-[sensor filters](https://esphome.io/components/sensor/#sensor-filters).
+The `movement_sensor` also supports ESPHome [sensor filters](https://esphome.io/components/sensor/#sensor-filters).
 
 Common filters:
 
@@ -233,9 +177,7 @@ espectre:
     name: "Living Room Threshold"
 ```
 
-Use `internal: true` on `movement_sensor` when you want to keep the binary
-motion entity for automations without publishing the raw score to Home
-Assistant.
+Use `internal: true` on `movement_sensor` when you want to keep the binary motion entity for automations without publishing the raw score to Home Assistant.
 
 ## Home Assistant Integration
 
@@ -246,13 +188,9 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-The ESPHome frontend exposes movement, intensity, motion, threshold control,
-and recalibration as Home Assistant entities.
+The ESPHome frontend exposes movement, intensity, motion, threshold control, and recalibration as Home Assistant entities.
 
-To manage configuration and OTA updates, install ESPHome Device Builder and
-adopt the discovered device. The adopted configuration compiles the component
-from the `git_ref` substitution, which defaults to `main` and therefore tracks
-the latest release, so the device follows each new release without manual edits.
+To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration compiles the component from the `git_ref` substitution, which defaults to `main` and therefore tracks the latest release, so the device follows each new release without manual edits.
 
 To stay on one version instead, declare `git_ref` in the adopted configuration:
 
@@ -261,13 +199,9 @@ substitutions:
   git_ref: "3.0.0"
 ```
 
-The same value also drives the import URL the device republishes after the next
-build, so this one declaration is enough.
+The same value also drives the import URL the device republishes after the next build, so this one declaration is enough.
 
-The `@` suffix of the adopted `packages` URL is a separate ref, and it selects
-which revision of the example YAML is downloaded. Change it to `@${git_ref}` to
-keep both on the same revision. This matters for snapshot builds, whose URL
-carries their source commit while the component still follows `main`.
+The `@` suffix of the adopted `packages` URL is a separate ref, and it selects which revision of the example YAML is downloaded. Change it to `@${git_ref}` to keep both on the same revision. This matters for snapshot builds, whose URL carries their source commit while the component still follows `main`.
 
 ### Dashboard Examples
 
@@ -285,15 +219,11 @@ To import a dashboard:
 4. Replace the default content with the YAML from the example file
 5. Save the dashboard
 
-If you changed the device name from `espectre`, update entity IDs in the YAML.
-If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the
-entity names as well.
+If you changed the device name from `espectre`, update entity IDs in the YAML. If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the entity names as well.
 
 ## Traffic Generator and Runtime Notes
 
-The ESPHome surface exposes the shared runtime traffic-generation settings.
-By default, the device continuously generates traffic for CSI collection while
-powered on.
+The ESPHome surface exposes the shared runtime traffic-generation settings. By default, the device continuously generates traffic for CSI collection while powered on.
 
 ### Internal Traffic Generator
 
@@ -304,10 +234,7 @@ espectre:
   traffic_generator_mode: ping
 ```
 
-`traffic_generator_rate` is the target rate of valid local CSI callbacks. The
-adaptive controller is enabled by default and changes the network send pace to
-hold that target. Set `traffic_generator_adaptive: false` to interpret the
-configured rate as a fixed DNS or ICMP send rate.
+`traffic_generator_rate` is the target rate of valid local CSI callbacks. The adaptive controller is enabled by default and changes the network send pace to hold that target. Set `traffic_generator_adaptive: false` to interpret the configured rate as a fixed DNS or ICMP send rate.
 
 Available modes:
 
@@ -327,22 +254,15 @@ espectre:
   evaluation_interval_ms: 250
 ```
 
-In that mode the runtime opens a UDP listener on port `5555`. Use
-[`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py)
-to drive one or more devices from the network.
+In that mode the runtime opens a UDP listener on port `5555`. Use [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) to drive one or more devices from the network.
 
-For rate recommendations, airtime tradeoffs, and placement guidance, see
-[`TUNING.md`](../../../../docs/TUNING.md).
+For rate recommendations, airtime tradeoffs, and placement guidance, see [`TUNING.md`](../../../../docs/TUNING.md).
 
 ## Startup Calibration
 
-In `classic` mode, keep the room quiet after boot so the runtime can complete
-the startup threshold bootstrap; `ml` skips the bootstrap and starts as soon
-as CSI capture is ready. For the startup workflow and budget details, see
-[`TUNING.md`](../../../../docs/TUNING.md).
+In `classic` mode, keep the room quiet after boot so the runtime can complete the startup threshold bootstrap; `ml` skips the bootstrap and starts once CSI capture is ready and its feature window has filled. For the startup workflow and budget details, see [`TUNING.md`](../../../../docs/TUNING.md).
 
-Runtime recalibration is exposed as the `calibrate_switch` entity in Home
-Assistant.
+Runtime recalibration is exposed as the `calibrate_switch` entity in Home Assistant.
 
 ## Build and Consumption
 
@@ -371,8 +291,7 @@ external_components:
 
 ### Repository CLI
 
-See [`CLI.md`](../../../../docs/CLI.md) for shared CLI syntax, host-side
-tools, and wrapper behavior.
+See [`CLI.md`](../../../../docs/CLI.md) for shared CLI syntax, host-side tools, and wrapper behavior.
 
 ```bash
 ./espectre esphome build --chip c6 --clean
@@ -381,19 +300,15 @@ tools, and wrapper behavior.
 ./espectre esphome monitor --chip c6 --device /dev/cu.usbmodemXXXX
 ```
 
-On Windows, use `.\espectre.cmd esphome ...` from the repository root and pass
-a COM port such as `COM5` to `--device` when serial access is needed.
+On Windows, use `.\espectre.cmd esphome ...` from the repository root and pass a COM port such as `COM5` to `--device` when serial access is needed.
 
-Add `--dev` to use the local development YAML mapping.
-Use `flash` for upload-only and `monitor` for logs.
+Add `--dev` to use the local development YAML mapping. Use `flash` for upload-only and `monitor` for logs.
 
 ## Hardware and Packaging Notes
 
 ### Automatic SDK Configuration
 
-The frontend automatically sets the ESP-IDF options required by the runtime,
-including CSI enablement and timing-related defaults. In most cases you do not
-need to set these manually.
+The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement and timing-related defaults. In most cases you do not need to set these manually.
 
 For board-specific tweaks, you can still add `sdkconfig_options` in YAML:
 
@@ -408,8 +323,7 @@ esp32:
 
 ### Flash Size and Partitions
 
-The ESPHome frontend fits in `4 MB` flash with OTA. It uses the board and
-framework default partition table unless you override it in your own project.
+The ESPHome frontend fits in `4 MB` flash with OTA. It uses the board and framework default partition table unless you override it in your own project.
 
 If you need a custom table:
 
@@ -494,10 +408,18 @@ esphome logs <your-config>.yaml
 esphome logs <your-config>.yaml --device espectre.local
 ```
 
+## Implementation Map
+
+This map is for component maintainers; it is not required for normal installation or tuning.
+
+- [`__init__.py`](components/espectre/__init__.py): YAML schema, validation, codegen, shared local PlatformIO library registration, and ESPHome build flags
+- [`espectre.cpp`](components/espectre/espectre.cpp), [`espectre.h`](components/espectre/espectre.h): ESPHome adapter over the shared runtime frontend controller
+- [`sensor_publisher.cpp`](components/espectre/sensor_publisher.cpp): movement and motion publishing
+- [`threshold_number.cpp`](components/espectre/threshold_number.cpp): runtime threshold control
+- [`detector_select.cpp`](components/espectre/detector_select.cpp): persisted runtime detector selection
+- [`calibrate_switch.cpp`](components/espectre/calibrate_switch.cpp): runtime recalibration trigger
+- [`examples/`](examples/): production, local-development, S3 variant, and Home Assistant dashboard examples
+
 ## Packaging Notes
 
-[`__init__.py`](components/espectre/__init__.py) registers the local
-[`library.json`](../../library.json) package so PlatformIO builds the
-canonical shared sources directly from `src/cpp/core/` and
-`src/cpp/runtime/esp_idf/`. This keeps ESPHome packaging aligned with the main
-repository layout across platforms.
+[`__init__.py`](components/espectre/__init__.py) registers the local [`library.json`](../../library.json) package so PlatformIO builds the canonical shared sources directly from `src/cpp/core/` and `src/cpp/runtime/esp_idf/`. This keeps ESPHome packaging aligned with the main repository layout across platforms.

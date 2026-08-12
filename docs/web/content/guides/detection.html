@@ -30,34 +30,37 @@
       <li><strong>Movement score (0.0–1.0)</strong>: how strongly the channel is changing right now. It is a room-specific signal, not a physical unit: 0.3 in your living room and 0.3 in your office are not the same thing.</li>
       <li><strong>Threshold</strong>: the score level that counts as motion. Classic adapts it during calibration; you can adjust it at runtime from Home Assistant, the Configure page, or MQTT.</li>
       <li><strong>Motion state</strong>: turns on after the score stays above the threshold for a few consecutive evaluations (about one second at default settings) and off after it stays below (slightly faster). This hit filter is why a single spike does not trigger a false alarm.</li>
-      <li><strong>Calibration</strong>: at startup the detector learns the quiet baseline of your room, which takes roughly ten seconds at the default packet rate. Keep the room still while it runs, and recalibrate whenever you move the device.</li>
+      <li><strong>Calibration</strong>: Classic learns a quiet threshold at startup, taking up to about ten seconds at the default packet rate. ML uses its trained threshold and does not run this calibration, although its feature window still needs to fill.</li>
     </ul>
 
     <h2>Classic or ML?</h2>
     <div class="table-wrap"><table>
       <thead><tr><th></th><th>Classic (default)</th><th>ML</th></tr></thead>
       <tbody>
-        <tr><td>How it decides</td><td>Fuses two channel features into a motion probability</td><td>Small neural network over a six-feature window</td></tr>
+        <tr><td>How it decides</td><td>Fuses two channel features into a motion probability</td><td>Small neural network over seven production features</td></tr>
         <tr><td>Training data</td><td>None needed</td><td>Ships with a pre-trained model</td></tr>
         <tr><td>Threshold</td><td>Self-calibrated per session, adjustable</td><td>Fixed default (0.5), adjustable</td></tr>
-        <tr><td>Best for</td><td>Most rooms; transparent and lightweight</td><td>Experiments with learned decision boundaries</td></tr>
+        <tr><td>CPU and working memory</td><td>Lower active cost</td><td>Higher cost from feature state and neural inference</td></tr>
+        <tr><td>Detection quality</td><td>Lower accuracy and generalization</td><td>Higher accuracy and stronger generalization on the maintained corpus</td></tr>
+        <tr><td>Startup</td><td>Up to about 10 seconds of quiet threshold calibration</td><td>No threshold calibration; waits for CSI and feature-window readiness</td></tr>
+        <tr><td>Best for</td><td>Constrained devices or firmware reserving resources for other work</td><td>Products that prioritize detection quality</td></tr>
       </tbody>
     </table></div>
-    <p>Both run entirely on the ESP32, use the same 0.0–1.0 scale, and can be switched at runtime on ESPHome and Native firmware. Start with Classic; try ML if you are curious or your room proves difficult.</p>
+    <p>Both are production detectors, run entirely on the ESP32, and use the same 0.0–1.0 scale. ESPHome and Native can switch between them at runtime and persist the selection; Matter supports both as build-time choices but does not switch at runtime.</p>
 
     <h2>Placement that works</h2>
     <ul class="checklist">
       <li>Keep the sensor roughly 3–8 meters from your Wi-Fi access point. Too close risks receiver saturation; too far means a weaker, noisier signal.</li>
       <li>Put it in the room you want to monitor, where people cross the space between the router and the sensor or move near the device.</li>
       <li>Do not enclose it in a metal cabinet or press the antenna against a large metal surface.</li>
-      <li>Keep the room still during the ten-second startup calibration.</li>
-      <li>Moved the device? Recalibrate. Placement changes the baseline more than any parameter does.</li>
+      <li>When using Classic, keep the room still during startup calibration.</li>
+      <li>Moved the device? Recalibrate Classic. With ML, let the feature window refill and repeat the same quiet-and-motion test.</li>
     </ul>
     <p>For antenna orientation, RSSI ranges, room layouts, and a repeatable comparison procedure, follow the dedicated <a href="/guides/placement/">sensor placement guide</a>.</p>
 
     <h2>Quick tuning recipe</h2>
     <div class="mini-cards">
-      <article><h3>Triggers with nobody there</h3><ul><li>Raise the threshold a little.</li><li>Recalibrate with the room genuinely empty.</li><li>Look for fans, curtains in airflow, or pets: the sensor sees them too.</li></ul></article>
+      <article><h3>Triggers with nobody there</h3><ul><li>Raise the threshold a little.</li><li>With Classic, recalibrate with the room genuinely empty.</li><li>Look for fans, curtains in airflow, or pets: the sensor sees them too.</li></ul></article>
       <article><h3>Misses real motion</h3><ul><li>Lower the threshold a little.</li><li>Check placement: distance from the AP and obstacles matter most.</li><li>Verify the device receives steady traffic (the built-in traffic generator keeps ~100 packets/s by default).</li></ul></article>
     </div>
     <div class="note">Wi-Fi sensing detects changes in the radio environment. It does not identify people, count them, or replace a safety-certified presence sensor.</div>

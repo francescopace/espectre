@@ -4,6 +4,16 @@ This document is the source of truth for ESPectre feature status, physical inter
 
 It is a decision ledger, not an experiment log. Durable production decisions and their campaign-level evidence live in [adr/](adr/), current detector behavior lives in [ALGORITHMS.md](ALGORITHMS.md), mutable detector metrics live in [performance/README.md](performance/README.md), collection workflow lives in [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md), and experiment commands live in [ML_TRAINING.md](ML_TRAINING.md) and [tools/README.md](../tools/README.md).
 
+## How To Read This Ledger
+
+This is a research and maintenance reference, not an introduction to the detector. Read the two production-set sections to see what ships today, and consult the research or historical tables only when evaluating a candidate or reconstructing a past result.
+
+- **Candidate:** a feature formulation being evaluated but not approved for runtime export.
+- **Lineage:** recordings related closely enough that they must stay in the same validation group.
+- **Grouped OOF:** out-of-fold evaluation in which related lineages do not cross between fitting and evaluation folds.
+- **Replay:** running recorded CSI through production-aligned timing and feature logic.
+- **Worst-group metric:** the weakest retained result across sessions, lineages, chips, or another declared grouping; it prevents a strong average from hiding one deployment failure.
+
 ## Evidence Contract
 
 Feature metrics are comparable only when the corpus, split policy, seed, and gate are the same. A higher F1 from an older campaign is not evidence that its feature set would beat the current baseline. The ADR linked from a ledger row owns that campaign context.
@@ -109,7 +119,7 @@ Rows group only formulations that shared one experiment and one failure mode. Di
 
 The standalone AUC, recall, FP, and F1 values above used session-calibrated thresholds and an older corpus. They preserve historical behavior but must not be ranked against current grouped-CV campaigns.
 
-### 2026-08-11 Vacation-Home Blind-Spot MLP Screen
+### Trajectory Feature Promotion Evidence (2026-08-11)
 
 This host-only screen used seed `1161881508`, the current `24-12` MLP, `fp_weight=1.75`, standard scaling, feature jitter, and the promoted `base,drift,burst-loss` packet augmentation mixed from seeds `20260807` and `20260808`. Training and grouped CV used only `train`; the six-file `selection` role was evaluated separately, and the excluded C3 vacation-home empty/static/motion recordings remained an external challenge. The reserved holdout was not used for feature or seed selection. After the candidate and production seed had already been selected, an `--evaluate-gates` CLI default accidentally opened the first C3 holdout pair; that result was discarded, the run was interrupted, and the authoritative deployment gate was rerun with `deployment_roles=('selection',)` and legacy fallback disabled. Raw replay-tick probabilities were classified at `0.5` unless a threshold is named. The exported Aggregated-IQR-7 baseline reproduced the challenge exactly at `87.93%` motion recall, `0%` static FP, and `1.08%` empty FP, with `42/348` motion ticks below threshold. For this campaign, environment, router, and weak-link transfer are the primary production-generalization axes because the supported commercial chip families are already represented in the corpus. Leave-one-chip-out remains a conservative diagnostic for hardware dependence, but it is not a promotion veto when supported-chip deployment gates pass.
 
@@ -137,7 +147,7 @@ The initial promotable training run, before admitting the vacation-home recordin
 
 Raising the global threshold was not a remedy. At `0.6`, the baseline C5 empty replay changed only from `44/117` to `43/117` positives while selection worst-session recall fell from `91.011%` to `89.888%`; the innovation-only model still produced `82/117` positives, vacation recall fell from `94.540%` to `93.103%`, and selection worst-session recall fell to `88.764%`. On the balanced replacement, `0.6` reduced C6-unseen FP only from `12` to `10` (`1.149%` to `0.958%`, still above the baseline `0.383%`) while selection recall fell from `98.106%` to `97.348%`, selection worst-session recall fell from `95.506%` to `93.258%`, and vacation recall fell from `93.391%` to `91.667%`. The next useful evidence is a second independently collected blind-spot motion domain with matched static and empty recordings, plus real high-RSSI coverage; another threshold or single-session fit is not justified.
 
-## 2026-08-11 Vacation-Home Training Refresh And Seed Search
+## Production Training Refresh And Seed Search (2026-08-11)
 
 The matched vacation-home empty, static-presence, and motion recordings were admitted to `train` under the new `vacation_home` environment, producing dataset revision `sha256:b52b823fe696b9fb1fa2497fbf6cbbb7a9f77ebbe8bb3ad8a92d4f902a30bfd7`. Retraining seed `1161881508` with the unchanged production augmentation reached blocked OOF F1 `98.42%`; grouped exclusion of the only vacation-home lineage yielded `80.0%` motion recall, while the full fit reached `100%` recall and precision with `0%` static and empty FP on that now in-sample session. The full deployment gate still passed with `92.84%` worst paired recall, `0%` maximum FP, and no alarms, but the result did not establish transfer to a second vacation-home session.
 
@@ -185,11 +195,11 @@ Source summaries, publication dates, hardware and signal assumptions, reported m
 
 For each seriously evaluated feature or formulation:
 
-1. update one canonical ledger row rather than appending a chronological narrative;
+1. update one canonical ledger row for routine candidates rather than appending an unbounded chronological narrative;
 2. retain its exact name and definition, physical interpretation, implementation scope, and invariance claim;
-3. retain the campaign corpus, split, seed, baseline, primary metric, worst-group metrics, redundancy evidence, verdict, and dominant failure mode, either in the row or its linked ADR;
+3. retain the campaign corpus, split, seed, baseline, primary metric, worst-group metrics, redundancy evidence, verdict, and dominant failure mode in the row, a bounded promotion-evidence section, or its linked ADR;
 4. use an ADR only when the campaign produces a durable production, architectural, validation-policy, or stop-direction decision;
 5. keep routine sweeps, intermediate seeds, superseded grids, per-file output, and transient commands out of permanent documentation; and
 6. update current behavior, mutable metrics, data-collection priorities, and operator workflow only in their owning documents.
 
-An experiment that produces no durable decision normally needs only its ledger row. When a durable ADR exists, the ledger summarizes the result and links it without copying the campaign narrative. Code remains authoritative for executable formulas; this ledger is authoritative for feature status and retained project evidence.
+An experiment that produces no durable decision normally needs only its ledger row. A bounded promotion-evidence section is appropriate when one row cannot preserve the evidence contract for the current production decision; organize it around that decision, fold later evidence into the same section, and avoid a date-by-date experiment log. When a durable ADR exists, the ledger summarizes the result and links it without copying the full campaign narrative. Code remains authoritative for executable formulas; this ledger is authoritative for feature status and retained project evidence.

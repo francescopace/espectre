@@ -4,6 +4,17 @@ Current detector and signal-processing reference for ESPectre.
 
 This file documents only algorithms active in the current project surface. Feature experiments and promotion evidence live in [FEATURES.md](FEATURES.md), decision rationale lives in [adr/](adr/), and mutable detector metrics live in the generated [performance report](performance/README.md).
 
+This reference is for detector and firmware contributors. Operators normally need [TUNING.md](TUNING.md), which turns these mechanisms into practical settings.
+
+Terms used throughout this document:
+
+- **CSI:** channel state information, the complex Wi-Fi channel measurement captured for each packet.
+- **Subcarrier:** one narrow frequency bin inside the Wi-Fi channel.
+- **HT20:** the supported 20 MHz 802.11n channel layout.
+- **AGC:** automatic gain control in the radio; ESPectre keeps it active and therefore favors scale-invariant features.
+- **CV:** coefficient of variation, standard deviation divided by the mean.
+- **pps:** accepted CSI packets per second.
+
 ## Overview
 
 ESPectre detects motion from Wi-Fi CSI by extracting a small, fixed slice of subcarriers, deriving gain-robust scalar signals from those amplitudes, and feeding those signals into either:
@@ -23,6 +34,15 @@ The current production detector definition is:
 - the classic runtime has no voting branch or legacy low-RSSI blend term
 - the ML path uses the compact seven-feature scale-invariant production set
 
+## Why Two Detectors
+
+Classic and ML are both production paths because they optimize different constraints.
+
+- **Classic minimizes active detector cost.** It uses two scalar feature streams, does not allocate the ML-only L1 and trajectory state, and performs less per-packet work. This leaves more CPU time and working memory for constrained chips or products in which sensing is only one firmware feature. The trade-off is lower accuracy and weaker generalization than ML on the maintained corpus.
+- **ML prioritizes detection quality.** It maintains seven production features and runs a compact neural network, increasing memory and computation while improving accuracy and transfer across recorded environments. Its trained threshold also removes Classic's initial quiet-room calibration.
+
+Classic calibration can take up to about 10 seconds of clean equivalent CSI coverage. ML skips that calibration but still waits for CSI readiness and enough samples to fill its feature window. In images that support runtime detector switching, choosing Classic reduces active working state and per-packet detector work; it does not necessarily remove ML code or weights from flash.
+
 ## Processing Pipeline
 
 Steady-state detector flow:
@@ -41,7 +61,7 @@ CSI packet
 At boot:
 
 - `classic` performs startup threshold calibration
-- `ml` starts as soon as CSI capture is active from its trained default threshold
+- `ml` starts from its trained default threshold once CSI capture is active and its feature window has filled
 
 With the default `1000 ms` detector window, the `classic` startup budget is ten seconds of clean equivalent coverage. At the nominal `100 pps`, that is 1000 packets; at `80 pps`, it is 800. This is a maximum, not a mandatory wait.
 
@@ -220,7 +240,7 @@ The settled-level rule cannot create a high threshold. It only ever lowers one a
 
 Classic clears the aggregate normal-link recall target on every chip, but C5 and C6 retain the largest false-positive tails, including on long quiet recordings. Weak-link captures remain report-only stress diagnostics. See the generated [performance report](performance/README.md) for current metrics.
 
-Use `ml` where quiet-room robustness or held-out generalization matters more than zero-training deployment cost. The active Classic feature-selection record now lives in `FEATURES.md`; no additional pair or triplet is approved for export on the current corpus.
+Use ML where accuracy, quiet-room robustness, or held-out generalization matters more than the additional runtime cost. Use Classic when CPU and working-memory headroom are the stronger product constraint. The active Classic feature-selection record lives in `FEATURES.md`; no additional pair or triplet is approved for export on the current corpus.
 
 ### Settled-Level Threshold Recovery
 
@@ -253,7 +273,7 @@ Current threshold:
 motion if probability > 0.5
 ```
 
-Unlike `classic`, the ML path does not need startup threshold calibration.
+Unlike Classic, ML does not need startup threshold calibration. It can begin detection as soon as CSI is ready and its feature window has filled, rather than spending up to about 10 seconds adapting a threshold to the initial room.
 
 ### Current Runtime Topology
 
@@ -311,7 +331,7 @@ The same production feature set is used by:
 | Detector | Threshold | Startup behavior |
 |----------|-----------|------------------|
 | `classic` | automatic, session-adjustable | quiet-logit startup adaptation with motion-first completion and quiet-only fallback |
-| `ml` | trained default, session-adjustable | immediate detector startup once CSI is active |
+| `ml` | trained default, session-adjustable | no threshold calibration; starts once CSI is active and its feature window has filled |
 
 Both detectors use the same fixed subcarrier set. Only the detector metric and threshold behavior differ.
 

@@ -24,45 +24,28 @@ CTEST_PARALLEL_LEVEL=2 ./test/cpp/run_all_tests.sh
 
 The registered targets are grouped by the layer they exercise:
 
-- Core: `test_utils`, `test_core_helpers`, `test_hampel_filter`,
-  `test_classic_detector`, and `test_ml_detector`
-- Runtime: `test_traffic_generator`, `test_runtime_helpers`,
-  `test_runtime_frontend_controller`, `test_runtime_detector_switch`,
-  `test_wifi_lifecycle`, `test_pending_event`,
-  `test_wifi_provisioning_service`, `test_device_config_store`,
-  `test_espectre_protocol`, `test_csi_pipeline`, `test_csi_frame_identity`,
-  `test_csi_traffic_service`, and `test_udp_listener`
-- Integration with real CSI: `test_motion_detection`,
-  `test_long_recordings`, `test_low_rssi`, `test_empty_rooms`, and
-  `test_packet_rate_adaptation`
-- Frontend: `test_sensor_publisher`, `test_frontend_controls`,
-  `test_native_frontend`, and `test_matter_frontend`
+- Core: `test_utils`, `test_core_helpers`, `test_hampel_filter`, `test_classic_detector`, and `test_ml_detector`
+- Runtime: `test_traffic_generator`, `test_runtime_helpers`, `test_runtime_frontend_controller`, `test_sdk_surface`, `test_runtime_detector_switch`, `test_wifi_lifecycle`, `test_wifi_lifecycle_dual_band`, `test_pending_event`, `test_wifi_provisioning_service`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_pipeline`, `test_csi_frame_identity`, `test_csi_traffic_service`, and `test_udp_listener`
+- Integration with real CSI: `test_motion_detection`, `test_long_recordings`, `test_low_rssi`, `test_empty_rooms`, and `test_packet_rate_adaptation`
+- Frontend: `test_sensor_publisher`, `test_frontend_controls`, `test_native_frontend`, and `test_matter_frontend`
 
-`test/cpp/suites/CMakeLists.txt` is the executable registration source of truth;
-this list is the human-readable catalog.
+`test/cpp/suites/CMakeLists.txt` is the executable registration source of truth; this list is the human-readable catalog.
 
-The normal test runner, direct single-config CMake builds, and the
-performance-report parity gate use `RelWithDebInfo` so replay-heavy suites run
-with compiler optimizations while retaining debug information and test
-assertions. Coverage builds remain `Debug` so their line and branch mapping
-stays reliable.
+The normal test runner, direct single-config CMake builds, and the performance-report parity gate use `RelWithDebInfo` so replay-heavy suites run with compiler optimizations while retaining debug information and test assertions. Coverage builds remain `Debug` so their line and branch mapping stays reliable.
 
-The test, coverage, and performance-report launchers use every detected logical
-CPU by default. Set the standard `CTEST_PARALLEL_LEVEL` environment variable to
-a positive integer to limit concurrency on constrained hosts.
+The test, coverage, and performance-report launchers use every detected logical CPU by default. Set the standard `CTEST_PARALLEL_LEVEL` environment variable to a positive integer to limit concurrency on constrained hosts.
 
-`test_packet_rate_adaptation` replays 60-second prefixes at 120, 100, and 80
-pps, covering the upper, nominal, and lower boundaries of the supported
-detector cadence without repeating the full high-rate captures.
-
+`test_packet_rate_adaptation` replays 60-second prefixes at 120, 100, and 80 pps, covering the upper, nominal, and lower boundaries of the supported detector cadence without repeating the full high-rate captures.
 
 ### Target Metrics (Motion Detection)
+
 - **Recall**: >95% for all chips (detect motion in motion datasets)
 - **FP Rate**: <5% for all chips (avoid false alarms)
 
 See [docs/performance](../../docs/performance/README.md) for detailed targets per chip and algorithm.
 
 ### Performance Report Parity Gate
+
 - `tools/generate_performance_report.py` now depends on the host-side C++ integration suites staying aligned with the published Python replay metrics.
 - The report command configures and builds `test/cpp/build` as `RelWithDebInfo`, runs `test_motion_detection` and `test_long_recordings`, and compares their structured aggregate outputs against the Python report data before writing `docs/performance/README.md`.
 - If the paired or long-recording aggregates drift, the report generation fails and prints the mismatched chip/algorithm/metric entries instead of publishing stale documentation.
@@ -83,8 +66,7 @@ Tests load real CSI data from NPZ files in `data/` using the [cnpy](https://gith
 | ESP32-S3 | `static_presence_s3_64sc_*.npz` | `motion_s3_64sc_*.npz` |
 | ESP32 | `static_presence_esp32_64sc_*.npz` | `motion_esp32_64sc_*.npz` |
 
-Tests run with **multiple chip datasets** (C3, C5, C6, S3, and ESP32) using
-64 SC (HT20 mode).
+Tests run with **multiple chip datasets** (C3, C5, C6, S3, and ESP32) using 64 SC (HT20 mode).
 
 Both Python and C++ tests use the same NPZ files, eliminating duplication.
 

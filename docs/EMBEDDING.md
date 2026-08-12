@@ -2,6 +2,8 @@
 
 This guide is for firmware teams that want to integrate the ESPectre sensing engine into their own ESP32 firmware instead of shipping one of the published frontends. It complements [ARCHITECTURE.md](ARCHITECTURE.md), which describes the internal layering in detail.
 
+It assumes C++17, an ESP-IDF application or equivalent host build, and familiarity with callbacks and task ownership. A **snapshot** is one immutable view of runtime state, a **listener** receives runtime events, and a **capability** reports whether the selected backend supports an optional control. If you only need an existing ESPectre firmware image, use [SETUP.md](SETUP.md) instead.
+
 ## Five-minute integration
 
 Include one header, implement one interface, and drive one object:
@@ -66,6 +68,12 @@ The frontend layer is a set of reference integrations, not a supported API. Read
 ESP32, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, using standard single-antenna Wi-Fi CSI with AGC active and HT20 bandwidth. No extra sensors or radio hardware are required. See [SETUP.md](SETUP.md) for the current per-frontend target matrix.
 
 Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. `BAND_2G` is the default and is supported by every target; `BAND_5G` and `AUTO` require dual-band silicon, currently ESP32-C5 among the published targets. The runtime applies that choice and pins an 802.11n protocol ceiling plus HT20 on the selected band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the HT20 contract are dropped and counted.
+
+## Choosing A Detector
+
+Choose Classic when sensing must leave more CPU time and working memory for the rest of the product. It runs fewer feature trackers and less per-packet computation, but gives up accuracy and cross-environment robustness relative to ML. Choose ML when detection quality is the priority and the product can afford its additional feature state and neural inference.
+
+Classic adapts its threshold during up to about 10 seconds of quiet startup coverage. ML uses a trained threshold and skips that calibration, although it still needs CSI readiness and one feature window of warmup. A runtime-switching build may contain both detector implementations and ML weights in flash even while Classic is active; budget flash separately from active detector CPU and working memory.
 
 ## Integration paths
 

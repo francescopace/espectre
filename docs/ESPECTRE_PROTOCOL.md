@@ -4,6 +4,8 @@ ESPectre Protocol is the shared logical protocol for ESPectre devices, tools, MQ
 
 ESPectre Protocol defines the message model. BLE, MQTT, MQTT over TLS, device shadows, jobs, and future bridges are transports or profiles that carry the same semantics across different trust boundaries.
 
+This is an implementation reference for firmware, client, and integration developers. Read [Principles](#principles) and [Message Families](#message-families) when implementing a consumer; read the transport sections only for the connection mechanism you use. A **transport** carries messages, a **profile** adds deployment rules without changing their meaning, and a **retained** MQTT message is stored by the broker for future subscribers.
+
 ## Principles
 
 - Derived telemetry only; raw CSI is not part of the normal protocol surface.
@@ -206,7 +208,7 @@ Select and persist the active detector on frontends that advertise runtime detec
 }
 ```
 
-Accepted detector values are `classic` and `ml`. Switching to `classic` starts calibration automatically; switching to `ml` cancels any active calibration and starts detection immediately.
+Accepted detector values are `classic` and `ml`. Switching to `classic` starts calibration automatically; switching to `ml` cancels any active calibration and follows the normal CSI-readiness and feature-window warmup path without threshold calibration.
 
 Update the motion debounce thresholds on frontends that advertise runtime motion-hit control:
 

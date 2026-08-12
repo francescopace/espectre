@@ -22,10 +22,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/styles.css?v=3.19.8">
-<script src="/assets/js/espectre-ble.js?v=3.19.8"></script>
-<script src="/assets/js/navigation.js?v=3.19.8" defer></script>
-<script src="/assets/js/analytics.js?v=3.19.8" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=3.19.9">
+<script src="/assets/js/espectre-ble.js?v=3.19.9"></script>
+<script src="/assets/js/navigation.js?v=3.19.9" defer></script>
+<script src="/assets/js/analytics.js?v=3.19.9" defer></script>
 </head>
 <body>
 
@@ -137,6 +137,9 @@
         <figure class="scrolly-scene js-scrolly-scene" data-scene="11">
           <img data-src="/assets/images/home/scene-embedded-sdk.jpg" data-src-mobile="/assets/images/home/scene-embedded-sdk-mobile.webp" alt="" width="1920" height="1080">
         </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="12">
+          <img data-src="/assets/images/home/scene-standards-backend.jpg" data-src-mobile="/assets/images/home/scene-standards-backend-mobile.webp" alt="" width="1920" height="1080">
+        </figure>
       </div>
       <div class="scrolly-scrim" aria-hidden="true"></div>
       <div class="scrolly-inner">
@@ -161,7 +164,7 @@
 
         <div class="scrolly-progress js-scrolly-progress" aria-hidden="true">
           <span class="js-scrolly-current">01</span>
-          <span>/ 11</span>
+          <span>/ 12</span>
         </div>
 
         <article class="scrolly-caption js-scrolly-caption" data-scene="1">
@@ -288,11 +291,22 @@
         <article class="scrolly-caption js-scrolly-caption" data-scene="11">
           <div class="scrolly-kicker">Built to embed</div>
           <h2>Your product.<br>Now motion-aware.</h2>
-          <p>ESPectre’s shared C++ core adds local motion sensing to ESP32 products without cameras or dedicated radar hardware. OEM reference paths such as TuyaOpen/TuyaOS are under evaluation.</p>
+          <p>ESPectre’s shared C++ core adds local motion sensing to ESP32 products without cameras or dedicated radar hardware. OEMs can choose lightweight Classic when CPU and working memory are tight, or the more accurate ML detector when detection quality is the priority.</p>
           <div class="scene-ui scene-ui-embedded">
             <span class="scene-ui-dot"></span>
             <span><small>Custom firmware</small><strong>ESPectre runtime active</strong></span>
             <span class="scene-ui-action">Events local</span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="12">
+          <div class="scrolly-kicker">Standards-backed sensing · Roadmap</div>
+          <h2>New radio.<br>Same product contract.</h2>
+          <p>Today ESPectre uses ESP32 CSI APIs. If embedded vendors expose practical IEEE 802.11bf or equivalent sensing measurements, a new runtime can be evaluated while preserving detectors, events, protocols, tooling, and product integrations. <a href="/roadmap/" class="scene-roadmap-link">See the roadmap →</a></p>
+          <div class="scene-ui scene-ui-standards">
+            <span class="scene-ui-dot"></span>
+            <span><small>Future sensing backend</small><strong>New runtime candidate</strong></span>
+            <span class="scene-ui-action">Validation required</span>
           </div>
         </article>
 
@@ -308,6 +322,7 @@
           <span class="js-scrolly-marker" data-scene="9"></span>
           <span class="js-scrolly-marker" data-scene="10"></span>
           <span class="js-scrolly-marker" data-scene="11"></span>
+          <span class="js-scrolly-marker" data-scene="12"></span>
         </div>
         <div class="scrolly-cue" aria-hidden="true">Scroll to explore <span>↓</span></div>
       </div>
@@ -373,6 +388,7 @@
           <p>Reuse the C++ core and ESP-IDF runtime while your firmware keeps ownership of boot, networking, UI, and product behavior.</p>
           <ul>
             <li>ESP-IDF 5.1+ and C++17</li>
+            <li>Classic for resource headroom, or ML for higher accuracy</li>
             <li>Reference frontends and public runtime contracts</li>
             <li>GPLv3 or separate commercial licensing</li>
           </ul>
@@ -873,6 +889,6 @@
 
 <div class="toast js-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
-<script src="/assets/js/app.js?v=3.19.8"></script>
+<script src="/assets/js/app.js?v=3.19.9"></script>
 </body>
 </html>

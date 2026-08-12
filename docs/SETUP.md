@@ -1,12 +1,8 @@
 # Setup Guide
 
-This document is the shared setup hub for choosing a frontend and finding the right installation path.
+Use this guide to choose a frontend, flash published firmware, or prepare a local build. If you are embedding ESPectre into another firmware product, go directly to [EMBEDDING.md](EMBEDDING.md).
 
-ESPectre now exposes multiple frontends, and each frontend owns its own configuration surface, integration workflow, and troubleshooting. This guide covers the shared entry points and links you to the frontend-specific README for everything else.
-
-Use `Latest Release` for the newest official firmware, or `Release Preview` for the newest development build from `main`. A separate `Developer Preview` GitHub Release is also published from `develop` for pre-main validation, but GitHub Pages continues to expose only `Latest Release` and `Release Preview`.
-
-The SDK now mirrors the same channel model: `stable` is published at `https://espectre.dev/artifacts/sdk/stable/`, `snapshot` at `https://espectre.dev/artifacts/sdk/main/`, and `snapshot-dev` remains GitHub-only as the `snapshot-dev` prerelease.
+The fastest path is [Web Flash](#web-flash-no-coding-required). Local builds require the repository environment and, for ESP-IDF frontends, the ESP-IDF prerequisite below. Each frontend README owns its configuration and troubleshooting after installation.
 
 ## Choose Your Frontend
 
@@ -41,19 +37,9 @@ Use the frontend README for the workflow and surface details after you choose th
 - Chromium-based browser with Web Serial support for browser flashing
 - For local workflows, use the repository [CLI.md](CLI.md) plus the relevant frontend README
 
-### ESP-IDF Local Build Prerequisite
+### Local Build Prerequisites
 
-Local `Native`, `Matter`, and `Streamer` firmware builds require ESP-IDF to be available to the repository CLI.
-
-The repository Python dependencies include ESPHome. ESPHome uses PlatformIO and can provide a reusable ESP-IDF framework package at `~/.platformio/packages/framework-espidf` after an ESPHome build has downloaded it. If that package exists, reuse it instead of installing a second ESP-IDF copy.
-
-For the current repository baseline, `requirements.txt` pins `esphome==2026.6.2`, and the matching ESPHome/PlatformIO ESP-IDF framework package is ESP-IDF `5.5.4` (`framework-espidf` package `3.50504.0`). Use that same ESP-IDF version for local `Native`, `Matter`, and `Streamer` builds. If the ESPHome/PlatformIO package does not exist yet, install ESP-IDF `5.5.4` with the official Espressif setup flow for your host:
-
-- [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html)
-
-One-time repository setup:
-
-macOS/Linux:
+Create the repository environment before any local firmware build:
 
 ```bash
 python3 -m venv .venv
@@ -61,107 +47,20 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Windows PowerShell:
+On Windows PowerShell, create the environment with `py -3 -m venv .venv`, activate `.\.venv\Scripts\Activate.ps1`, and run the same install command.
 
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-```
-
-Fast path for local `Native`, `Matter`, and `Streamer` builds:
-
-1. activate the repository virtual environment
-2. run the frontend-specific `build` or `flash` command
-3. if ESP-IDF detection fails, run `doctor` for troubleshooting
-
-macOS/Linux:
+Native, Matter, and Streamer builds also require ESP-IDF `5.5.4`. The wrapper reuses the matching framework downloaded by ESPHome/PlatformIO when available, otherwise it detects a standard ESP-IDF installation or `IDF_PATH`. Check the selected environment before troubleshooting a build:
 
 ```bash
-source .venv/bin/activate
+./espectre doctor
 ./espectre native build --chip c3
-./espectre native build --chip c3 --clean
 ```
 
-Windows PowerShell:
+On Windows, use `.\espectre.cmd doctor` and `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter and Streamer.
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-.\espectre.cmd native build --chip c3
-```
+If `doctor` finds no usable installation, either run one ESPHome build to download the matching PlatformIO framework or install ESP-IDF `5.5.4` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow. Only export an ESP-IDF environment manually when `doctor` cannot validate an existing installation.
 
-Build cleanup options:
-
-- `--clean` removes only the selected frontend build before rebuilding.
-- `--clean-all` removes all builds for that frontend plus shared generated artifacts before rebuilding.
-- For ESPHome, these flags delegate to the native `esphome clean` and `esphome clean-all` commands for the selected config.
-
-Flash note:
-
-- For ESP-IDF frontends, `flash` prefers the build directory that matches the connected chip detected on the selected serial port.
-- The wrapper still delegates to `idf.py flash`, so ESP-IDF may configure or complete the selected build directory before flashing if that build is not already ready.
-
-Optional environment check:
-
-- use `./espectre doctor` or `.\espectre.cmd doctor` when a build fails to find or validate ESP-IDF
-- use it when you want to see which local ESP-IDF install the wrapper will use
-
-What `doctor` auto-detects today:
-
-| Install source | macOS/Linux | Windows |
-|----------------|-------------|---------|
-| ESPHome/PlatformIO package | `~/.platformio/packages/framework-espidf` | `%USERPROFILE%\.platformio\packages\framework-espidf` |
-| Standard ESP-IDF install | `~/esp/esp-idf` | `%USERPROFILE%\esp\esp-idf` |
-| Existing `IDF_PATH` | uses `IDF_PATH` when it points to an ESP-IDF install | uses `IDF_PATH` when it points to an ESP-IDF install |
-
-If a build fails and `doctor` reports that no usable ESP-IDF install was found:
-
-- first choice: reuse the ESP-IDF package downloaded by ESPHome/PlatformIO
-- second choice: install official ESP-IDF `5.5.4`, then rerun `doctor`
-
-If the ESPHome/PlatformIO package does not exist yet, any local ESPHome build will download it:
-
-macOS/Linux:
-
-```bash
-./espectre esphome build --chip c3
-./espectre doctor
-```
-
-Windows PowerShell:
-
-```powershell
-.\espectre.cmd esphome build --chip c3
-.\espectre.cmd doctor
-```
-
-### ESP-IDF Troubleshooting
-
-Use these manual exports only when `doctor` cannot auto-detect or validate your ESP-IDF install.
-
-macOS/Linux:
-
-```bash
-source ~/.platformio/packages/framework-espidf/export.sh
-./espectre doctor
-```
-
-```bash
-source ~/esp/esp-idf/export.sh
-./espectre doctor
-```
-
-Windows PowerShell:
-
-```powershell
-. "$env:USERPROFILE\.platformio\packages\framework-espidf\export.ps1"
-.\espectre.cmd doctor
-```
-
-```powershell
-. "$env:USERPROFILE\esp\esp-idf\export.ps1"
-.\espectre.cmd doctor
-```
+Build cleanup, chip-matched flash selection, and namespace-specific flags are documented in [CLI.md](CLI.md#frontend-workflow-commands).
 
 ## Local CLI Workflows
 
@@ -200,7 +99,7 @@ Use the frontend READMEs for frontend-specific prerequisites, examples, and chip
 - [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md)
 - [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md)
 
-## SDK Bundles
+## Advanced: SDK Bundles
 
 If you want to embed the sensing layers into your own firmware instead of flashing a published frontend, use the SDK bundle channels:
 
@@ -227,16 +126,7 @@ Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 - the firmware channel
 - your target chip
 
-Release and snapshot publishing provide one full-flash image for each supported chip on the `ESPHome`, `Native`, and `Matter` frontends. GitHub Releases also provide application-only OTA payloads for Native. GitHub Pages stages only the full-flash images used by the browser flasher. The published `ESPHome` image uses the default `Classic` detector, and CI pins its `git_ref` substitution to the exact source commit used to build the published binary. Subsequent ESPHome updates are compiled and installed through ESPHome Device Builder; see [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) for which revision an adopted configuration compiles from.
-
-The published `Matter` image also uses the default `Classic` detector. The `ML` detector remains available through local firmware builds; it is not published as a separate precompiled image. `Streamer` is also source-built because its Wi-Fi credentials are supplied at build time.
-
-| Publication surface | Full-flash images | OTA payloads | Manifests |
-|---------------------|------------------:|-------------:|-----------|
-| GitHub Release or snapshot | 15 | 5 | unified manifest plus 5 Native per-chip OTA manifests |
-| GitHub Pages | 15 | 0 | factory-only web-flash manifest |
-
-The OTA payloads are five Native application binaries. ESPHome Device Builder produces its OTA image from the adopted device configuration. Matter does not use this OTA flow, and Streamer firmware is not published.
+Use `Latest Release` for official firmware or `Release Preview` for the latest build from `main`. Published ESPHome firmware starts with Classic and supports persisted runtime switching to ML. Published Matter firmware starts with Classic; ML is available in local Matter builds and is selected at build time. Streamer is source-built because it needs build-time Wi-Fi configuration.
 
 To flash:
 
@@ -247,28 +137,7 @@ To flash:
 
 If your browser does not support Web Serial, the same page exposes direct download links for manual flashing.
 
-For local preview of the web flasher with same-origin firmware assets:
-
-1. Build the firmware you want to test, or download the published binaries into a local directory.
-2. Stage a channel manifest and matching binaries under `docs/web/artifacts/firmware/<channel>/`:
-
-```bash
-python .github/scripts/stage_web_firmware.py \
-  --firmware-dir /path/to/firmware \
-  --output-dir docs/web/artifacts/firmware/stable \
-  --channel stable \
-  --version 3.0.0 \
-  --release-tag 3.0.0 \
-  --url-prefix /artifacts/firmware/stable
-```
-
-3. Serve the site root locally:
-
-```bash
-python -m http.server 8080 --directory docs/web
-```
-
-4. Open `http://localhost:8080/flash/` in a Chromium-based browser and verify the selected firmware resolves from `/artifacts/firmware/...`.
+Website maintainers can find local preview and artifact-staging instructions in [`docs/web/README.md`](web/README.md).
 
 ## After Flashing
 
@@ -281,7 +150,7 @@ The next step depends on the frontend you chose:
 | `Matter` | [`README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter occupancy surface, and local ESP-IDF workflow |
 | `Streamer` | [`README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, build-time Wi-Fi setup, and the frontend's intentionally narrow scope |
 
-## Shared Runtime Concepts
+## Reference: Shared Runtime Concepts
 
 These concepts are shared across the C++ platform, even though each frontend exposes them differently.
 
@@ -305,8 +174,8 @@ Support in this phase:
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
 | `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5; Native can persist the policy over BLE and applies a changed policy after restart; ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
-| `detection_algorithm` | `classic` or `ml` | `classic`, including Matter | Shared detector family |
-| Runtime threshold | probability | detector-specific | Selected automatically at startup; adjustable from the frontend during the session |
+| `detection_algorithm` | `classic` or `ml` | `classic`, including Matter | Classic uses less detector CPU and working memory; ML is more accurate and skips startup calibration |
+| Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable where the frontend exposes a writable control. Matter currently exposes no writable sensing controls |
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; resolved to samples from measured CSI cadence |
 | `traffic_generator_rate` | int | `100` | Arithmetic validation range `0-100000`; `0` disables internal traffic generation. Supported ESP32 targets sustain much lower practical CSI rates, normally around the `100` target |
 | `traffic_generator_adaptive` | bool | `true` | Adjusts DNS or ICMP send pacing from CSI feedback and local socket backpressure; floor at `70%` of target, overshoot up to about `125%` |
@@ -331,9 +200,11 @@ Use the frontend README for the exact syntax and local workflow:
 
 ### Detection Algorithms And Startup
 
-ESPectre supports two runtime detector families, `classic` and `ml`. At boot, the sensing path starts with AGC active: `classic` performs startup threshold calibration, while `ml` starts as soon as CSI capture is ready.
+ESPectre keeps two production detectors because no single choice optimizes both accuracy and resource use. Classic runs fewer feature trackers and is the leaner choice when the chip or surrounding firmware needs more CPU time and working memory for other work. ML uses a larger feature state and neural inference to provide higher accuracy and stronger generalization on the maintained corpus.
 
-ESPHome and Native can switch detectors at runtime and persist the selection. The switch resets the threshold to the selected detector's default; `ml -> classic` starts calibration automatically. Matter remains read-only, does not consume that persisted selection, and uses its firmware default of `classic` to keep the published path conservative while the frontend remains preview. Streamer has no detector.
+At boot, Classic adapts its threshold to the room during an initial quiet calibration that can take up to about 10 seconds. ML uses its trained threshold and skips that calibration; it becomes active after CSI capture is ready and the feature window has filled.
+
+ESPHome, Native, and Matter support both `classic` and `ml`. ESPHome and Native can switch detectors at runtime and persist the selection; the switch resets the threshold to the selected detector's default, and `ml -> classic` starts calibration automatically. Matter selects the detector at build time, exposes no runtime detector control, and uses `classic` in published firmware while the frontend remains preview. Streamer has no detector.
 
 See:
 

@@ -1,6 +1,8 @@
 # ML Data Collection Guide
 
-This guide covers the current data-collection workflow for ESPectre datasets: collection, labels, and the dataset format.
+This guide is for dataset contributors collecting `empty`, `static_presence`, and `motion` recordings. New contributors can follow [Quick Start](#quick-start) and [`espectre collect`](#espectre-collect); metadata and validation sections are reference material for curators.
+
+A **label** is the observed room state, a **pair** links comparable static-presence and motion recordings, a **dataset role** controls how a recording may be used during model selection, and an **NPZ** file is the compressed NumPy container written for one device capture.
 
 Use:
 
@@ -8,29 +10,7 @@ Use:
 - [`ML_TRAINING.md`](ML_TRAINING.md) for training, export, and validation
 - [`ALGORITHMS.md`](ALGORITHMS.md) for detector and feature definitions
 
-For historical rationale behind the current dataset contract, see:
-
-- [`2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md`](adr/2026-06-30-keep-empty-captures-as-first-class-idle-training-data.md)
-- [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](adr/2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
-- [`2026-07-29-make-dataset-quality-review-detector-agnostic.md`](adr/2026-07-29-make-dataset-quality-review-detector-agnostic.md)
-
-Use `tools/validate_dataset_quality.py` before training:
-
-```bash
-python tools/validate_dataset_quality.py
-python tools/validate_dataset_quality.py --chip C6
-python tools/validate_dataset_quality.py --no-report
-```
-
-Every run refreshes explicit `static_presence` / `motion` pair metadata in `data/dataset_info.json` (writes and bumps `updated_at` only on real changes) and writes `data/auto_generated/DATASET_QUALITY_CHECK.md` unless `--no-report` is set. Admission checks (integrity, empty/static sanity, ML readiness) can fail the run. Shared feature-space review adds indicative 0-100 scores for review only, so the dataset is not filtered to "what one detector already solves".
-
-Read the feature-space review tables with three rules in mind:
-
-- `dataset_role` stays a manual curation decision; the validator never assigns `train`, `selection`, or `holdout`.
-- Idle-table `Burst` marks are same-chip review signals when enough clean idle references exist for that chip; otherwise they fall back to fixed review thresholds instead of cross-chip empirical marks.
-- `PPS` reports the observed packet rate from metadata, while `Cover`, `Sep`, `Tail`, and `Drift` explain whether a capture separates cleanly and how much it leaves its own baseline in feature space.
-
-Tooling details live in [`tools/README.md`](../tools/README.md).
+Historical rationale behind the dataset contract remains in the [ADR index](adr/README.md); this guide describes the current collection workflow.
 
 ## Scope
 
@@ -189,7 +169,7 @@ All current ESPectre datasets use HT20 CSI with 64 logical subcarriers. Training
 - `long_recording: true` for quiet long-run `empty` captures reserved for the long-recording replay suites; these stay evaluation-only and do not enter ML training or the standard empty-room admission table
 - `dataset_role: train | selection | holdout | exclude` to reserve recordings for the deployment safety replays. Entries without a role default to `exclude` and must be admitted explicitly. `selection` recordings gate candidate selection, `holdout` recordings stay sealed until the trainer evaluates the final winner once, and `exclude` keeps a dataset in the catalog while removing it from the current train/selection/holdout workflow
 
-`validate_dataset_quality.py` regenerates those pair fields automatically before admission and Classic review. It never pairs a real capture with a synthetic capture; generated pair identity is read from the NPZ metadata.
+`validate_dataset_quality.py` regenerates those pair fields automatically before admission and shared feature-space review. It never pairs a real capture with a synthetic capture; generated pair identity is read from the NPZ metadata.
 
 Legacy synthetic low-RSSI derivatives use the standard `data/<label>/` directories. Their `low_rssi: true` and `synthetic: true` catalog markers describe the link condition and generated origin without changing the `empty`, `static_presence`, or `motion` meaning. The repository no longer ships the synthetic generator, and current model promotion relies on real captures.
 
@@ -272,6 +252,8 @@ python tools/train_ml_model.py --info
 ```
 
 `collect --info` summarizes collected files. `validate_dataset_quality.py` refreshes pair metadata, runs admission plus feature-space review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. Temporal quality and ML-readiness checks require a usable recorded packet rate, or `num_packets` plus `duration_ms`; insufficient timing metadata is a validation failure and is never interpreted as 100 pps. `train_ml_model.py --info` shows the dataset view used by the trainer.
+
+Run the validator before training. Admission failures block the workflow; feature-space scores are diagnostic only. Dataset roles remain manual, and the validator never assigns `train`, `selection`, or `holdout`. See [`tools/README.md`](../tools/README.md#dataset-inspection-and-validation) for command variants and report behavior.
 
 ## Contributing Data
 
