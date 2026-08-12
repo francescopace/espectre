@@ -74,6 +74,38 @@ def test_generated_report_revision_tracks_exact_dataset_catalog(tmp_path) -> Non
     )
 
 
+def test_generated_report_revision_tracks_implementation_inputs(tmp_path) -> None:
+    dataset_info_path = tmp_path / "dataset_info.json"
+    dependency_path = tmp_path / "detector.py"
+    report_path = tmp_path / "REPORT.md"
+    dataset_info_path.write_text('{"files": {}}\n', encoding="utf-8")
+    dependency_path.write_text("VERSION = 1\n", encoding="utf-8")
+    report_path.write_text(
+        "\n".join(
+            (
+                "Dataset revision: "
+                f"`sha256:{dataset_metadata.dataset_info_revision(dataset_info_path)}`",
+                "Input revision: "
+                f"`sha256:{dataset_metadata.generated_input_revision([dependency_path])}`",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert dataset_metadata.generated_report_is_current(
+        report_path,
+        dataset_info_path,
+        input_paths=[dependency_path],
+    )
+    dependency_path.write_text("VERSION = 2\n", encoding="utf-8")
+    assert not dataset_metadata.generated_report_is_current(
+        report_path,
+        dataset_info_path,
+        input_paths=[dependency_path],
+    )
+
+
 def _write_dataset_info(tmp_path: Path, payload: dict) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)

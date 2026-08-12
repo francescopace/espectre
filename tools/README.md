@@ -144,7 +144,9 @@ Plots help diagnose signal structure; they do not establish detector quality by 
 
 ## Cache Maintenance
 
-Training and replay tools share a persistent NPZ cache. Normal runs validate cache provenance automatically, and host-side feature subsets reuse the smallest compatible cached superset without rebuilding packet rows. Pruning removes only artifacts that can no longer be used because their capture, implementation dependencies, layout, or artifact version changed:
+Training and replay tools share a persistent NPZ cache. Normal runs validate cache provenance automatically. Runtime-supported features use complete replay matrices; host-only experiments use one row-spine artifact plus one column artifact per feature. Adding a variant to an existing provider family leaves sibling columns valid, so later model comparisons compute only columns that are actually missing. Reordering or selecting a subset reads the same columns without rebuilding packet rows. Cold producers serialize on a per-key process lock and recheck the cache after acquiring it.
+
+Pruning removes only artifacts that can no longer be used because their capture, implementation dependencies, layout, or artifact version changed. Historical but still reachable feature columns remain until an explicit age or size policy is requested:
 
 ```bash
 python tools/prune_npz_cache.py

@@ -35,8 +35,29 @@ from tools.lib.performance_report import (
 from tools.lib.cpp_parity import verify_cpp_report_parity
 from tools.lib.dataset_metadata import (
     dataset_info_revision,
+    generated_input_revision,
     generated_report_is_current,
 )
+
+
+def _report_input_paths() -> tuple[Path, ...]:
+    """Return implementation, model, and capture inputs to the report."""
+    roots = (
+        REPO_ROOT / "tools" / "lib",
+        REPO_ROOT / "src" / "python" / "micro_espectre",
+        REPO_ROOT / "src" / "cpp" / "core",
+    )
+    paths = {
+        path
+        for root in roots
+        for pattern in ("*.py", "*.h", "*.cpp")
+        for path in root.glob(pattern)
+        if path.is_file()
+    }
+    paths.add(Path(__file__).resolve())
+    paths.add(REPO_ROOT / "tools" / "train_ml_model.py")
+    paths.update((REPO_ROOT / "data").glob("*/*.npz"))
+    return tuple(sorted(paths))
 
 
 def _format_duration(seconds: float) -> str:
@@ -101,16 +122,19 @@ def main() -> int:
     parser.add_argument(
         "--check-current",
         action="store_true",
-        help="Exit successfully only when the existing report matches dataset_info.json.",
+        help="Exit successfully only when the report matches its current inputs.",
     )
     args = parser.parse_args()
 
     if args.check_current:
-        if generated_report_is_current(args.output):
+        if generated_report_is_current(
+            args.output,
+            input_paths=_report_input_paths(),
+        ):
             print(f"Current: {args.output}")
             return 0
         print(
-            f"Stale or missing: {args.output}; regenerate it from data/dataset_info.json",
+            f"Stale or missing: {args.output}; regenerate it from current inputs",
             file=sys.stderr,
         )
         return 1
@@ -129,6 +153,7 @@ def main() -> int:
         "last_update": datetime.now().astimezone().date().isoformat(),
         "source": "data/dataset_info.json",
         "dataset_revision": dataset_info_revision(),
+        "input_revision": generated_input_revision(_report_input_paths()),
         "generated_by": "tools/generate_performance_report.py",
         "run_started": started_at.isoformat(timespec="seconds"),
         "run_duration": _format_duration(get_elapsed()),

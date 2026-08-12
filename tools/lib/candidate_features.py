@@ -13,6 +13,11 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 from __future__ import annotations
 
+import ast
+import hashlib
+import inspect
+import textwrap
+from functools import lru_cache
 from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
 
 import numpy as np
@@ -56,6 +61,104 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
     + AMPLITUDE_PROFILE_FEATURES
     + COMPOSITE_FEATURES
 )
+
+# Cache identities deliberately live below the feature registry. Adding a new
+# sibling does not alter an existing feature identity. Increment a provider
+# version only when its shared tracker or preprocessing contract changes;
+# feature-local formula edits are detected from the matching ``name == ...``
+# branch in ``candidate_values``.
+FEATURE_PROVIDER_VERSIONS = {
+    'channel_coherence': 1,
+    'turbulence_series': 1,
+    'aggregated_turbulence_series': 1,
+    'phase_residual': 1,
+    'channel_shape': 1,
+    'channel_shape_trajectory': 1,
+    'amplitude_profile': 1,
+    'l1_series': 1,
+    'composite': 1,
+}
+
+
+def candidate_feature_provider(feature_name: str) -> str:
+    """Return the shared intermediate provider for one host-only feature."""
+    name = str(feature_name)
+    if name in CHANNEL_COHERENCE_FEATURES:
+        return 'channel_coherence'
+    if name in SPECTRAL_FEATURES:
+        return 'turbulence_series'
+    if name in AGGREGATED_SPECTRAL_FEATURES:
+        return 'aggregated_turbulence_series'
+    if name in PHASE_FEATURES:
+        return 'phase_residual'
+    shape_features = (
+        CHANNEL_SHAPE_FEATURES
+        + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
+        + RETIRED_CHANNEL_SHAPE_FEATURES
+    )
+    if name in shape_features:
+        return 'channel_shape'
+    if name in CHANNEL_SHAPE_TRAJECTORY_FEATURES:
+        return 'channel_shape_trajectory'
+    if name in AMPLITUDE_PROFILE_FEATURES:
+        return 'amplitude_profile'
+    if name in L1_SERIES_FEATURES:
+        return 'l1_series'
+    if name in COMPOSITE_FEATURES:
+        return 'composite'
+    raise ValueError(f"Unknown candidate feature: {name}")
+
+
+@lru_cache(maxsize=None)
+def _feature_formula_digest(feature_name: str) -> str:
+    """Hash the feature-local branch without hashing sibling branches."""
+    source = textwrap.dedent(inspect.getsource(candidate_values))
+    tree = ast.parse(source)
+    matching = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        if not isinstance(test, ast.Compare) or len(test.ops) != 1:
+            continue
+        if not isinstance(test.ops[0], ast.Eq) or len(test.comparators) != 1:
+            continue
+        operands = (test.left, test.comparators[0])
+        names = [item for item in operands if isinstance(item, ast.Name)]
+        constants = [item for item in operands if isinstance(item, ast.Constant)]
+        if (
+            any(item.id == 'name' for item in names)
+            and any(item.value == feature_name for item in constants)
+        ):
+            matching.append(
+                ast.dump(
+                    ast.Module(body=node.body, type_ignores=[]),
+                    annotate_fields=True,
+                    include_attributes=False,
+                )
+            )
+    payload = '\n'.join(matching) or f"registry-only:{feature_name}"
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+@lru_cache(maxsize=None)
+def _candidate_feature_cache_identity_items(
+    feature_name: str,
+) -> Tuple[Tuple[str, object], ...]:
+    """Return one immutable memoized candidate-feature identity."""
+    name = str(feature_name)
+    provider = candidate_feature_provider(name)
+    return tuple({
+        'feature_name': name,
+        'provider': provider,
+        'provider_version': FEATURE_PROVIDER_VERSIONS[provider],
+        'formula_sha256': _feature_formula_digest(name),
+    }.items())
+
+
+def candidate_feature_cache_identity(feature_name: str) -> Dict[str, object]:
+    """Return an isolated copy of one memoized candidate-feature identity."""
+    return dict(_candidate_feature_cache_identity_items(str(feature_name)))
 
 
 def needs_channel_coherence(feature_names: Iterable[str]) -> bool:

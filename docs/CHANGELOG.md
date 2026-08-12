@@ -52,6 +52,7 @@ This is the first release candidate for the v3 platform. It brings the productio
 - **Published firmware separates installation and update artifacts**: releases provide 15 full-flash images for ESPHome, Native, and Matter, plus five application-only OTA images for Native.
 - **ML training moved from TensorFlow/Keras to PyTorch** and now separates training data, model-selection replays, sealed holdouts, excluded recordings, and low-RSSI stress diagnostics. Training exports by default; use `--no-export` for candidate-only experiments.
 - **ML augmentation caching now keeps only the selected mixed rows**, caches lightweight source-admission metadata separately, avoids persisting complete intermediate seed views, and supports explicit age- and size-based cache pruning.
+- **Host-side feature caching is now column-granular**: replay coordinates are stored once, each feature owns an independently versioned column, and adding a variant no longer invalidates sibling columns used by seed searches or model comparisons. Cold cache producers use per-key process locks, and augmented host views reuse the same granular artifacts.
 - **Dataset validation is detector-independent** and evaluates shared scale-invariant feature evidence. Detector-specific promotion results remain in the performance report.
 - **The documentation and website now follow the modular platform structure**, with task-oriented setup, detection, hardware, embedded integration, and use case guides.
 
@@ -67,6 +68,7 @@ This is the first release candidate for the v3 platform. It brings the productio
 - **Streamer long-session handling is more resilient**, with PSRAM-backed staging where available, improved retry and duplicate telemetry, BLE suspension during sustained streaming, and chip-specific transport defaults.
 - **C++ and Python detector replays now follow the same timing, cadence, calibration, and state-transition behavior**.
 - **Classic settled-level recovery was recalibrated for temporal windows**, restoring the weak-link S3 recall floor without increasing the measured normal-link or quiet-room false-positive tails.
+- **Cache and generated-artifact publication now fails safely under overlap or interruption**: nested provenance parameters are no longer dropped from feature-index identities, generated reports track implementation and capture revisions, related model outputs publish as a rollback-capable set, and seed-search rollback removes artifacts that were absent before the search.
 
 ### Breaking changes and migration
 

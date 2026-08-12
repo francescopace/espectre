@@ -137,6 +137,29 @@ def test_feature_superset_index_keeps_stream_provenance_isolated(tmp_path):
     ) is None
 
 
+def test_feature_index_keeps_nested_window_parameters_distinct():
+    first = {
+        "feature_names": ["f0"],
+        "window_size": 100,
+        "stream_provenance": {
+            "transform": "host_feature_rows_v2",
+            "feature_names": ["f0"],
+            "provider": {"window_size": 32},
+        },
+    }
+    second = {
+        **first,
+        "stream_provenance": {
+            **first["stream_provenance"],
+            "provider": {"window_size": 64},
+        },
+    }
+
+    assert npz_cache._feature_index_parameters(first) != (
+        npz_cache._feature_index_parameters(second)
+    )
+
+
 def test_runtime_artifact_reuses_value_until_source_changes(tmp_path):
     source_path = tmp_path / "sample.npz"
     _write_source_npz(source_path, values=[1, 2, 3, 4])

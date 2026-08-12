@@ -47,6 +47,7 @@ import os
 import sys
 
 import argparse
+import ast
 import copy
 import hashlib
 import importlib.util
@@ -57,6 +58,7 @@ import random
 import re
 import shutil
 import tempfile
+import textwrap
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
@@ -80,8 +82,9 @@ from tools.lib.repo_paths import (
     python_src_dir,
 )
 from tools.lib import npz_cache
+from tools.lib.atomic_io import atomic_savez, atomic_write_set, atomic_write_text
 from tools.lib.timing_quality import summarize_capture_timing
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from time import perf_counter
 
@@ -393,6 +396,8 @@ from csi_features import (
     L1_TRACKER_FEATURES,
     L1DeltaTracker,
     TURB_IQR_AGGREGATION_WIDTH,
+    calc_autocorrelation,
+    calc_zero_crossing_rate,
     extract_features_by_name,
 )
 
@@ -403,6 +408,7 @@ DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE = derive_detector_timing(
 from tools.lib.candidate_features import (
     CANDIDATE_FEATURES,
     assemble_feature_vector,
+    candidate_feature_cache_identity,
     candidate_values,
     needs_aggregated_turbulence,
     needs_amplitude_profiles,
@@ -1174,17 +1180,29 @@ def _load_or_compute_training_source_metadata(npz_file):
     )
     if cached is not None:
         return cached
-    metadata = _build_training_source_metadata(npz_file)
-    npz_cache.save_ml_training_source_metadata_artifact(
+    with npz_cache.artifact_build_lock(
         npz_file,
+        artifact_name='ml_training_source_metadata',
+        artifact_version=npz_cache.ML_TRAINING_SOURCE_METADATA_ARTIFACT_VERSION,
         parameters=parameters,
-        metadata=metadata,
-    )
-    persisted = npz_cache.load_ml_training_source_metadata_artifact(
-        npz_file,
-        parameters=parameters,
-    )
-    return persisted if persisted is not None else metadata
+    ):
+        cached = npz_cache.load_ml_training_source_metadata_artifact(
+            npz_file,
+            parameters=parameters,
+        )
+        if cached is not None:
+            return cached
+        metadata = _build_training_source_metadata(npz_file)
+        npz_cache.save_ml_training_source_metadata_artifact(
+            npz_file,
+            parameters=parameters,
+            metadata=metadata,
+        )
+        persisted = npz_cache.load_ml_training_source_metadata_artifact(
+            npz_file,
+            parameters=parameters,
+        )
+        return persisted if persisted is not None else metadata
 
 
 def _load_training_file_records(environment_filter=None, excluded_chips=None,
@@ -1433,6 +1451,7 @@ def _prepare_feature_packets_for_record(record, packet_augmentation=None, augmen
     return packets
 
 
+@lru_cache(maxsize=None)
 def _implementation_source_digest(*objects):
     """Hash only the implementation objects that affect one cached stream."""
     digest = hashlib.sha256()
@@ -1445,13 +1464,12 @@ def _implementation_source_digest(*objects):
     return digest.hexdigest()
 
 
-def _packet_augmentation_stream_provenance(packet_augmentation, augmentation_seed):
-    """Return a stable cache identity for one deterministic packet transform."""
-    if not packet_augmentation or augmentation_seed is None:
-        return None
+@lru_cache(maxsize=64)
+def _packet_augmentation_stream_provenance_cached(config_json, augmentation_seed):
+    """Build one immutable-by-convention packet-transform provenance value."""
     return {
         'transform': 'training_packet_augmentation_v2',
-        'config': dict(packet_augmentation),
+        'config': json.loads(config_json),
         'seed': int(augmentation_seed),
         'implementation_sha256': _implementation_source_digest(
             _prepare_feature_packets_for_record,
@@ -1471,33 +1489,58 @@ def _packet_augmentation_stream_provenance(packet_augmentation, augmentation_see
     }
 
 
+def _packet_augmentation_stream_provenance(packet_augmentation, augmentation_seed):
+    """Return a stable cache identity for one deterministic packet transform."""
+    if not packet_augmentation or augmentation_seed is None:
+        return None
+    config_json = json.dumps(
+        dict(packet_augmentation),
+        sort_keys=True,
+        separators=(',', ':'),
+    )
+    return copy.deepcopy(
+        _packet_augmentation_stream_provenance_cached(
+            config_json,
+            int(augmentation_seed),
+        )
+    )
+
+
+@lru_cache(maxsize=64)
+def _host_feature_base_stream_provenance(feature_names):
+    """Build shared host provenance once per ordered feature schema."""
+    return {
+        'transform': 'host_feature_rows_v3',
+        'feature_names': list(feature_names),
+        'row_stream': {
+            'contract': 'host_feature_row_spine_v1',
+            'timing_sources': {
+                'runtime_policy': npz_cache.source_manifest(
+                    python_src_dir() / 'runtime_policy.py'
+                ),
+                'config': npz_cache.source_manifest(
+                    python_src_dir() / 'config.py'
+                ),
+                'row_builder_sha256': _implementation_source_digest(
+                    build_host_feature_rows,
+                    timing_cadence_for_window,
+                    note_evaluation_tick,
+                ),
+            },
+        },
+        'feature_identities': {
+            name: _host_feature_cache_identity(name)
+            for name in feature_names
+        },
+    }
+
+
 def _host_feature_stream_provenance(feature_names, *,
                                     packet_augmentation=None,
                                     augmentation_seed=None):
-    """Return a stable cache identity for host-side feature-row extraction."""
-    provenance = {
-        'transform': 'host_feature_rows_v2',
-        'feature_names': [str(name) for name in feature_names],
-        'aggregated_candidate_width': DEFAULT_AGGREGATED_CANDIDATE_WIDTH,
-        'implementation': {
-            'streaming_rows_sha256': _implementation_source_digest(
-                _production_tracker_feature_kwargs,
-                _needs_l1_tracker,
-                _needs_l1_series,
-                StreamingFeatureExtractor,
-                build_host_feature_rows,
-            ),
-            'candidate_features': npz_cache.source_manifest(
-                SCRIPT_DIR / 'lib' / 'candidate_features.py'
-            ),
-            'host_feature_trackers': npz_cache.source_manifest(
-                SCRIPT_DIR / 'lib' / 'host_feature_trackers.py'
-            ),
-            'adjacent_aggregation': npz_cache.source_manifest(
-                SCRIPT_DIR / 'lib' / 'adjacent_aggregation.py'
-            ),
-        },
-    }
+    """Return an isolated copy of memoized granular host provenance."""
+    names = tuple(str(name) for name in feature_names)
+    provenance = copy.deepcopy(_host_feature_base_stream_provenance(names))
     packet_provenance = _packet_augmentation_stream_provenance(
         packet_augmentation,
         augmentation_seed,
@@ -1505,6 +1548,126 @@ def _host_feature_stream_provenance(feature_names, *,
     if packet_provenance is not None:
         provenance['packet_augmentation'] = packet_provenance
     return provenance
+
+
+PRODUCTION_FEATURE_PROVIDER_VERSIONS = {
+    'turbulence_window': 1,
+    'aggregated_turbulence_window': 1,
+    'l1_delta_tracker': 1,
+    'channel_shape_trajectory': 1,
+}
+
+
+def _production_feature_provider(feature_name):
+    """Return the independently versioned provider of one runtime feature."""
+    if feature_name == 'turb_iqr_over_mean_aggr':
+        return 'aggregated_turbulence_window'
+    if feature_name in {'turb_autocorr', 'turb_zcr'}:
+        return 'turbulence_window'
+    if feature_name == 'l1_delta_lag_ratio':
+        return 'l1_delta_tracker'
+    if feature_name in {
+        'chan_shape_spread_subband',
+        'chan_shape_coherent_innovation_energy',
+        'chan_shape_excess_path',
+    }:
+        return 'channel_shape_trajectory'
+    raise ValueError(f'Unknown production feature: {feature_name}')
+
+
+@lru_cache(maxsize=None)
+def _named_feature_branch_digest(function, feature_name):
+    """Hash only branches that explicitly implement one named feature."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+    matching = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If) or not isinstance(node.test, ast.Compare):
+            continue
+        operands = (node.test.left, *node.test.comparators)
+        if not any(
+            isinstance(item, ast.Name) and item.id == 'name'
+            for item in operands
+        ):
+            continue
+        if not any(
+            isinstance(item, ast.Constant) and item.value == feature_name
+            for item in operands
+        ):
+            continue
+        matching.append(
+            ast.dump(
+                ast.Module(body=node.body, type_ignores=[]),
+                annotate_fields=True,
+                include_attributes=False,
+            )
+        )
+    payload = '\n'.join(matching)
+    if not payload:
+        raise ValueError(f'No extraction branch found for {feature_name}')
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+@lru_cache(maxsize=None)
+def _production_provider_digest(provider):
+    """Hash shared provider behavior without hashing unrelated siblings."""
+    if provider == 'turbulence_window':
+        return _implementation_source_digest(
+            calc_autocorrelation,
+            calc_zero_crossing_rate,
+        )
+    if provider == 'aggregated_turbulence_window':
+        return hashlib.sha256(
+            f'aggregation-width:{TURB_IQR_AGGREGATION_WIDTH}'.encode('utf-8')
+        ).hexdigest()
+    if provider == 'l1_delta_tracker':
+        return _implementation_source_digest(
+            L1DeltaTracker.__init__,
+            L1DeltaTracker.process_amplitudes,
+            L1DeltaTracker.delta_lag_ratio,
+            L1DeltaTracker.reset,
+        )
+    if provider == 'channel_shape_trajectory':
+        return _implementation_source_digest(
+            ChannelShapeTrajectoryTracker.__init__,
+            ChannelShapeTrajectoryTracker.reset,
+            ChannelShapeTrajectoryTracker.process_packet,
+            ChannelShapeTrajectoryTracker._binned_path,
+            ChannelShapeTrajectoryTracker.trajectory_features_with_spread,
+        )
+    raise ValueError(f'Unknown production provider: {provider}')
+
+
+@lru_cache(maxsize=None)
+def _host_feature_cache_identity_cached(name):
+    """Build one memoized host-feature identity."""
+    if name in CANDIDATE_FEATURES:
+        return candidate_feature_cache_identity(name)
+    provider = _production_feature_provider(name)
+    return {
+        'feature_name': name,
+        'provider': provider,
+        'provider_version': PRODUCTION_FEATURE_PROVIDER_VERSIONS[provider],
+        'provider_sha256': _production_provider_digest(provider),
+        'formula_sha256': _named_feature_branch_digest(
+            extract_features_by_name,
+            name,
+        ),
+    }
+
+
+def _host_feature_cache_identity(feature_name):
+    """Return an isolated copy of one memoized host-feature identity."""
+    return dict(_host_feature_cache_identity_cached(str(feature_name)))
+
+
+def _host_row_stream_identity(stream_provenance):
+    """Strip the requested schema while retaining stream-transform identity."""
+    provenance = dict(stream_provenance or {})
+    return {
+        'transform': provenance.get('transform', 'host_feature_rows_v3'),
+        'row_stream': provenance.get('row_stream', {}),
+        'packet_augmentation': provenance.get('packet_augmentation'),
+    }
 
 
 def training_packet_augmentation_seed(packet_augmentation):
@@ -1658,58 +1821,75 @@ def _load_or_compute_packet_augmentation_mix_rows(record, *,
         if cached is not None:
             cached['cache_hit'] = True
             return cached
-
-    views = []
-    for view_index, seed in enumerate(seeds):
-        packets_factory = lambda current_record=record, current_seed=seed: (
-            _prepare_feature_packets_for_record(
-                current_record,
-                packet_augmentation=packet_augmentation,
-                augmentation_seed=current_seed,
-            )
-        )
-        if use_runtime_cache:
-            rows = load_or_compute_ml_replay_rows(
-                record['path'],
-                packets_factory=packets_factory,
-                selected_subcarriers=DEFAULT_SUBCARRIERS,
-                window_size=None,
-                feature_names=feature_names,
-                sample_contract=TRAINING_SAMPLE_CONTRACT,
-                use_cache=use_cache,
-                cache_write=False,
-                stream_provenance=_packet_augmentation_stream_provenance(
-                    packet_augmentation,
-                    seed,
-                ),
-                row_stride=len(seeds),
-                row_offset=view_index,
-            )
-        else:
-            rows = load_or_compute_host_feature_rows(
-                record['path'],
-                packets_factory=packets_factory,
-                feature_names=feature_names,
-                sample_contract=TRAINING_SAMPLE_CONTRACT,
-                use_cache=use_cache,
-                cache_write=False,
-                stream_provenance=_host_feature_stream_provenance(
-                    feature_names,
-                    packet_augmentation=packet_augmentation,
-                    augmentation_seed=seed,
-                ),
-                row_stride=len(seeds),
-                row_offset=view_index,
-            )
-        views.append(rows)
-
-    mixed = _concatenate_packet_augmentation_replay_rows(views)
-    if use_cache:
-        npz_cache.save_ml_training_augmentation_row_artifact(
+    lock_context = (
+        npz_cache.artifact_build_lock(
             record['path'],
+            artifact_name='ml_training_augmentation_rows',
+            artifact_version=npz_cache.ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION,
             parameters=parameters,
-            rows=mixed,
         )
+        if use_cache
+        else nullcontext()
+    )
+    with lock_context:
+        if use_cache:
+            cached = npz_cache.load_ml_training_augmentation_row_artifact(
+                record['path'],
+                parameters=parameters,
+            )
+            if cached is not None:
+                cached['cache_hit'] = True
+                return cached
+        views = []
+        for view_index, seed in enumerate(seeds):
+            packets_factory = lambda current_record=record, current_seed=seed: (
+                _prepare_feature_packets_for_record(
+                    current_record,
+                    packet_augmentation=packet_augmentation,
+                    augmentation_seed=current_seed,
+                )
+            )
+            if use_runtime_cache:
+                rows = load_or_compute_ml_replay_rows(
+                    record['path'],
+                    packets_factory=packets_factory,
+                    selected_subcarriers=DEFAULT_SUBCARRIERS,
+                    window_size=None,
+                    feature_names=feature_names,
+                    sample_contract=TRAINING_SAMPLE_CONTRACT,
+                    use_cache=use_cache,
+                    cache_write=False,
+                    stream_provenance=_packet_augmentation_stream_provenance(
+                        packet_augmentation,
+                        seed,
+                    ),
+                    row_stride=len(seeds),
+                    row_offset=view_index,
+                )
+            else:
+                rows = load_or_compute_host_feature_rows(
+                    record['path'],
+                    packets_factory=packets_factory,
+                    feature_names=feature_names,
+                    sample_contract=TRAINING_SAMPLE_CONTRACT,
+                    use_cache=use_cache,
+                    cache_write=True,
+                    stream_provenance=_host_feature_stream_provenance(
+                        feature_names,
+                        packet_augmentation=packet_augmentation,
+                        augmentation_seed=seed,
+                    ),
+                )
+                rows = _select_host_feature_rows(rows, len(seeds), view_index)
+            views.append(rows)
+
+        mixed = _concatenate_packet_augmentation_replay_rows(views)
+        if use_cache:
+            npz_cache.save_ml_training_augmentation_row_artifact(
+                record['path'],
+                parameters=parameters,
+                rows=mixed,
+            )
     mixed['cache_hit'] = False
     return mixed
 
@@ -4026,8 +4206,7 @@ def export_micropython(model, scaler, output_path, seed=None,
         scaler_mode=scaler_mode,
         trained_at=trained_at,
     )
-    with open(output_path, 'w') as f:
-        f.write(code)
+    atomic_write_text(output_path, code)
     return len(code)
 
 
@@ -4183,8 +4362,7 @@ constexpr uint8_t ML_FEATURE_IDS[{len(feature_ids)}] = {{{feature_ids_csv}}};
     code += '''}  // namespace espectre
 '''
     
-    with open(output_path, 'w') as f:
-        f.write(code)
+    atomic_write_text(output_path, code)
     
     return len(code)
 
@@ -4220,7 +4398,7 @@ def export_test_data(model, scaler, X_test_raw, y_test, output_path):
         'labels': y_test.astype(np.int32),
         'expected_outputs': predictions.astype(np.float32),
     }
-    np.savez(output_path, **payload)
+    atomic_savez(output_path, payload)
     
     return len(X_test_raw)
 
@@ -5214,37 +5392,42 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     print("\nExporting model artifacts...")
     export_start = perf_counter()
 
-    # MicroPython weights
     mp_path = SRC_DIR / 'ml_weights.py'
-    mp_size = export_micropython(
-        model, scaler, mp_path,
-        seed=seed,
-        feature_names=actual_feature_names,
-        scaler_mode=scaler_mode,
-    )
-    print(f"  MicroPython weights: {mp_path.name} ({mp_size/1024:.1f} KB)")
-    
-    # C++ weights for ESPHome
     cpp_path = CPP_DIR / 'ml_weights.h'
-    cpp_size = export_cpp_weights(
-        model, scaler, cpp_path,
-        seed=seed,
-        feature_names=actual_feature_names,
-        scaler_mode=scaler_mode,
-    )
-    print(f"  C++ weights: {cpp_path.name} ({cpp_size/1024:.1f} KB)")
-
-    # Test data for validation (save deterministic regression subset)
-    with suppress_stderr():
-        GENERATED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        test_data_path = GENERATED_DATA_DIR / 'ml_test_data.npz'
-        n_test = export_test_data(
-            model,
-            scaler,
-            X[regression_indices],
-            y[regression_indices],
-            test_data_path,
+    test_data_path = GENERATED_DATA_DIR / 'ml_test_data.npz'
+    with tempfile.TemporaryDirectory(prefix='espectre_model_export_') as staging:
+        staging_dir = Path(staging)
+        staged_mp_path = staging_dir / mp_path.name
+        staged_cpp_path = staging_dir / cpp_path.name
+        staged_test_data_path = staging_dir / test_data_path.name
+        mp_size = export_micropython(
+            model, scaler, staged_mp_path,
+            seed=seed,
+            feature_names=actual_feature_names,
+            scaler_mode=scaler_mode,
         )
+        cpp_size = export_cpp_weights(
+            model, scaler, staged_cpp_path,
+            seed=seed,
+            feature_names=actual_feature_names,
+            scaler_mode=scaler_mode,
+        )
+        with suppress_stderr():
+            n_test = export_test_data(
+                model,
+                scaler,
+                X[regression_indices],
+                y[regression_indices],
+                staged_test_data_path,
+            )
+        atomic_write_set({
+            mp_path: staged_mp_path.read_bytes(),
+            cpp_path: staged_cpp_path.read_bytes(),
+            test_data_path: staged_test_data_path.read_bytes(),
+        })
+
+    print(f"  MicroPython weights: {mp_path.name} ({mp_size/1024:.1f} KB)")
+    print(f"  C++ weights: {cpp_path.name} ({cpp_size/1024:.1f} KB)")
     print(f"  Test data: {test_data_path.name} ({n_test} blocked samples)")
     print(f"  Export time: {format_duration(perf_counter() - export_start)}")
     
@@ -5802,7 +5985,7 @@ def load_or_compute_host_feature_rows(source_path, *,
                                       stream_provenance=None,
                                       row_stride=None,
                                       row_offset=0):
-    """Load or build one cached host-side ML replay-row artifact."""
+    """Load or assemble host rows from independently cached feature columns."""
     if packets is not None and packets_factory is not None:
         raise ValueError("pass packets or packets_factory, not both")
     requested_feature_names = [str(name) for name in feature_names]
@@ -5812,90 +5995,160 @@ def load_or_compute_host_feature_rows(source_path, *,
         raise ValueError("dense row selection requires sample_contract='stream_dense'")
     if stride is not None and use_cache and cache_write:
         raise ValueError("selected rows cannot be written under a full-row cache key")
-    def cache_parameters(window_packets):
-        return npz_cache.ml_replay_row_parameters(
-            selected_subcarriers=DEFAULT_SUBCARRIERS,
-            window_size=window_packets,
-            feature_names=requested_feature_names,
-            stream_provenance=stream_provenance,
-        )
+    resolved_provenance = stream_provenance or _host_feature_stream_provenance(
+        requested_feature_names
+    )
+    stream_identity = _host_row_stream_identity(resolved_provenance)
+    spine_parameters = {
+        'contract': 'host_feature_row_spine_v1',
+        'selected_subcarriers': [int(value) for value in DEFAULT_SUBCARRIERS],
+        'stream': stream_identity,
+    }
 
-    def project_cached(cached):
-        cached['cache_hit'] = True
-        if normalized_contract == 'stream_dense':
-            return _select_host_feature_rows(cached, stride, offset)
-        row_mask = np.asarray(cached['evaluation_due'], dtype=bool)
+    def feature_parameters(name):
+        identities = resolved_provenance.get('feature_identities', {})
+        identity = identities.get(name) or _host_feature_cache_identity(name)
         return {
-            'X': np.asarray(cached['X'], dtype=np.float32)[row_mask],
-            'feature_names': list(cached['feature_names']),
-            'packet_index': np.asarray(cached['packet_index'], dtype=np.int32)[row_mask],
-            'evaluation_index': np.arange(int(np.sum(row_mask)), dtype=np.int32),
-            'reset_index': np.asarray(cached['reset_index'], dtype=np.int32)[row_mask],
-            'evaluation_due': np.asarray(cached['evaluation_due'], dtype=bool)[row_mask],
-            'cache_hit': True,
+            'contract': 'host_feature_column_v1',
+            'spine': spine_parameters,
+            'feature': identity,
         }
 
-    # The feature index deliberately excludes the derived window size. For one
-    # source and deterministic stream provenance that value is redundant, so a
-    # hit can be resolved before opening or augmenting the packet capture.
-    if use_cache:
-        cached = npz_cache.load_ml_replay_row_artifact(
+    def load_cached_parts():
+        spine = npz_cache.load_host_feature_row_spine_artifact(
             source_path,
-            parameters=cache_parameters(0),
+            parameters=spine_parameters,
         )
-        if cached is not None:
-            return project_cached(cached)
+        if spine is None:
+            return None, {}
+        row_count = len(spine['packet_index'])
+        columns = {}
+        for name in requested_feature_names:
+            column = npz_cache.load_host_feature_column_artifact(
+                source_path,
+                parameters=feature_parameters(name),
+            )
+            if column is not None and len(column) == row_count:
+                columns[name] = column
+        return spine, columns
 
-    if packets is not None:
-        packet_stream = packets
-    elif packets_factory is not None:
-        packet_stream = packets_factory()
-    else:
-        packet_stream = load_npz_packet_view(Path(source_path))
-    interval_us = measure_packet_interval_us(packet_stream)
-    window_packets = derive_detector_timing(
-        interval_us,
-        SEGMENTATION_WINDOW_SIZE_MS,
-    )["window_packets"]
-    parameters = cache_parameters(window_packets)
-    if use_cache:
-        cached = npz_cache.load_ml_replay_row_artifact(
-            source_path,
-            parameters=parameters,
+    def assemble(spine, columns, *, cache_hit):
+        row_count = len(spine['packet_index'])
+        matrix = (
+            np.column_stack([columns[name] for name in requested_feature_names])
+            .astype(np.float32, copy=False)
+            if requested_feature_names
+            else np.empty((row_count, 0), dtype=np.float32)
         )
-        if cached is not None:
-            return project_cached(cached)
-    rows = build_host_feature_rows(
-        packet_stream,
-        requested_feature_names,
-        sample_contract='stream_dense',
-        row_stride=stride,
-        row_offset=offset,
-    )
-    if use_cache and cache_write:
-        npz_cache.save_ml_replay_row_artifact(
-            source_path,
-            parameters=parameters,
-            X=rows['X'],
-            feature_names=rows['feature_names'],
-            packet_index=rows['packet_index'],
-            evaluation_index=rows['evaluation_index'],
-            reset_index=rows['reset_index'],
-            evaluation_due=rows['evaluation_due'],
+        rows = {
+            'X': matrix,
+            'feature_names': list(requested_feature_names),
+            **spine,
+            'cache_hit': bool(cache_hit),
+        }
+        if normalized_contract == 'stream_dense':
+            return _select_host_feature_rows(rows, stride, offset)
+        row_mask = np.asarray(rows['evaluation_due'], dtype=bool)
+        return {
+            'X': matrix[row_mask],
+            'feature_names': list(requested_feature_names),
+            'packet_index': np.asarray(rows['packet_index'], dtype=np.int32)[row_mask],
+            'evaluation_index': np.arange(int(np.sum(row_mask)), dtype=np.int32),
+            'reset_index': np.asarray(rows['reset_index'], dtype=np.int32)[row_mask],
+            'evaluation_due': np.asarray(rows['evaluation_due'], dtype=bool)[row_mask],
+            'cache_hit': bool(cache_hit),
+        }
+
+    spine, columns = load_cached_parts() if use_cache else (None, {})
+    missing = [name for name in requested_feature_names if name not in columns]
+    if spine is not None and not missing:
+        return assemble(spine, columns, cache_hit=True)
+    if stride is not None:
+        if packets is not None:
+            packet_stream = packets
+        elif packets_factory is not None:
+            packet_stream = packets_factory()
+        else:
+            packet_stream = load_npz_packet_view(Path(source_path))
+        rows = build_host_feature_rows(
+            packet_stream,
+            requested_feature_names,
+            sample_contract='stream_dense',
+            row_stride=stride,
+            row_offset=offset,
         )
-    rows['cache_hit'] = False
-    if normalized_contract == 'stream_dense':
+        rows['cache_hit'] = False
         return rows
-    row_mask = np.asarray(rows['evaluation_due'], dtype=bool)
-    return {
-        'X': np.asarray(rows['X'], dtype=np.float32)[row_mask],
-        'feature_names': list(rows['feature_names']),
-        'packet_index': np.asarray(rows['packet_index'], dtype=np.int32)[row_mask],
-        'evaluation_index': np.arange(int(np.sum(row_mask)), dtype=np.int32),
-        'reset_index': np.asarray(rows['reset_index'], dtype=np.int32)[row_mask],
-        'evaluation_due': np.asarray(rows['evaluation_due'], dtype=bool)[row_mask],
-        'cache_hit': False,
+
+    build_lock_parameters = {
+        'contract': 'host_feature_column_build_v1',
+        'spine': spine_parameters,
     }
+    lock_context = (
+        npz_cache.artifact_build_lock(
+            source_path,
+            artifact_name='host_feature_columns',
+            artifact_version=npz_cache.HOST_FEATURE_COLUMN_ARTIFACT_VERSION,
+            parameters=build_lock_parameters,
+        )
+        if use_cache and cache_write and missing
+        else nullcontext()
+    )
+    with lock_context:
+        if use_cache:
+            spine, columns = load_cached_parts()
+            missing = [name for name in requested_feature_names if name not in columns]
+            if spine is not None and not missing:
+                return assemble(spine, columns, cache_hit=True)
+
+        if packets is not None:
+            packet_stream = packets
+        elif packets_factory is not None:
+            packet_stream = packets_factory()
+        else:
+            packet_stream = load_npz_packet_view(Path(source_path))
+        computed_names = missing or requested_feature_names
+        computed = build_host_feature_rows(
+            packet_stream,
+            computed_names,
+            sample_contract='stream_dense',
+            row_stride=stride,
+            row_offset=offset,
+        )
+        computed_spine = {
+            key: np.asarray(computed[key])
+            for key in (
+                'packet_index',
+                'evaluation_index',
+                'reset_index',
+                'evaluation_due',
+            )
+        }
+        if spine is not None:
+            for key, values in computed_spine.items():
+                if not np.array_equal(values, np.asarray(spine[key])):
+                    raise RuntimeError(
+                        f"cached host feature row spine diverged for {key}"
+                    )
+        else:
+            spine = computed_spine
+            if use_cache and cache_write:
+                npz_cache.save_host_feature_row_spine_artifact(
+                    source_path,
+                    parameters=spine_parameters,
+                    rows=spine,
+                )
+        computed_matrix = np.asarray(computed['X'], dtype=np.float32)
+        for index, name in enumerate(computed_names):
+            column = computed_matrix[:, index]
+            columns[name] = column
+            if use_cache and cache_write:
+                npz_cache.save_host_feature_column_artifact(
+                    source_path,
+                    parameters=feature_parameters(name),
+                    values=column,
+                )
+        return assemble(spine, columns, cache_hit=False)
 
 
 def _feature_names_support_replay_rows(feature_names):
@@ -6723,16 +6976,22 @@ def _backup_artifacts():
         if path.exists():
             rel_name = path.name
             shutil.copy2(path, backup_dir / rel_name)
-            saved_files.append((path, backup_dir / rel_name))
+            saved_files.append((path, backup_dir / rel_name, True))
+        else:
+            saved_files.append((path, None, False))
     return backup_dir, saved_files
 
 
 def _restore_artifacts(saved_files):
     """Restore model artifacts from backup copies."""
-    for original, backup in saved_files:
-        if backup.exists():
+    for original, backup, existed in saved_files:
+        if existed and backup is not None and backup.exists():
             original.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(backup, original)
+            temporary = original.parent / f".{original.name}.restore.{os.getpid()}"
+            shutil.copy2(backup, temporary)
+            os.replace(temporary, original)
+        elif not existed:
+            original.unlink(missing_ok=True)
 
 
 def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_names=None,
@@ -7210,8 +7469,10 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
 
 def write_json_results(path, payload):
     """Write a JSON experiment payload."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, default=_json_value))
+    atomic_write_text(
+        path,
+        json.dumps(payload, indent=2, default=_json_value) + '\n',
+    )
 
 
 def _json_value(value):

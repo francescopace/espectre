@@ -18,8 +18,9 @@ import shutil
 import threading
 import uuid
 from collections import OrderedDict
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, MutableMapping, Optional
+from typing import Any, Callable, Dict, Iterator, Mapping, MutableMapping, Optional
 
 import numpy as np
 
@@ -30,12 +31,16 @@ CLASSIC_REPLAY_ROW_ARTIFACT_VERSION = 1
 ML_REPLAY_ROW_ARTIFACT_VERSION = 3
 ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION = 1
 ML_TRAINING_SOURCE_METADATA_ARTIFACT_VERSION = 1
+HOST_FEATURE_ROW_SPINE_ARTIFACT_VERSION = 1
+HOST_FEATURE_COLUMN_ARTIFACT_VERSION = 1
 
 CURRENT_ARTIFACT_VERSIONS = {
     "classic_replay_rows": CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
     "ml_replay_rows": ML_REPLAY_ROW_ARTIFACT_VERSION,
     "ml_training_augmentation_rows": ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION,
     "ml_training_source_metadata": ML_TRAINING_SOURCE_METADATA_ARTIFACT_VERSION,
+    "host_feature_row_spines": HOST_FEATURE_ROW_SPINE_ARTIFACT_VERSION,
+    "host_feature_columns": HOST_FEATURE_COLUMN_ARTIFACT_VERSION,
 }
 OBSOLETE_ARTIFACT_NAMES = {
     "feature_matrix",
@@ -287,6 +292,44 @@ def runtime_cache_key(
     return str(artifact_name), manifest_digest(manifest)
 
 
+@contextmanager
+def artifact_build_lock(
+    source_path: str | Path,
+    *,
+    artifact_name: str,
+    artifact_version: int,
+    parameters: Optional[Mapping[str, Any]] = None,
+) -> Iterator[None]:
+    """Serialize producers of one persisted artifact across host processes.
+
+    Lock files intentionally remain in ``.locks``. Removing a lock pathname
+    while another process is waiting on its inode permits a third process to
+    create a different lock for the same key and defeats mutual exclusion.
+    """
+    manifest = artifact_manifest(
+        source_path,
+        artifact_name=artifact_name,
+        artifact_version=artifact_version,
+        parameters=parameters,
+    )
+    lock_directory = artifact_dir(artifact_name) / ".locks"
+    lock_directory.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_directory / f"{manifest_digest(manifest)}.lock"
+    handle = lock_path.open("a+b")
+    try:
+        try:
+            import fcntl
+        except ImportError:  # pragma: no cover - Windows has no fcntl
+            fcntl = None
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
 def get_runtime_artifact(
     source_path: str | Path,
     *,
@@ -519,22 +562,21 @@ def load_npz_artifact(
 
 
 def _feature_index_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the schema-independent identity of cached feature rows."""
-    normalized: dict[str, Any] = {}
-    for key, value in parameters.items():
-        if str(key) in {"feature_names", "window_size"}:
-            continue
-        if isinstance(value, Mapping):
-            normalized[str(key)] = _feature_index_parameters(value)
-        elif isinstance(value, list):
-            normalized[str(key)] = [
-                _feature_index_parameters(item)
-                if isinstance(item, Mapping)
-                else item
-                for item in value
-            ]
-        else:
-            normalized[str(key)] = value
+    """Return the explicitly schema-independent identity of feature rows.
+
+    Only the top-level derived schema and the duplicated host transform schema
+    are omitted. Recursively dropping every ``window_size`` used to alias
+    unrelated transform parameters that happened to use the same field name.
+    """
+    normalized = _json_safe(dict(parameters))
+    normalized.pop("feature_names", None)
+    normalized.pop("window_size", None)
+    provenance = normalized.get("stream_provenance")
+    if isinstance(provenance, dict) and provenance.get("transform") in {
+        "host_feature_rows_v2",
+        "training_packet_augmentation_mix_v1",
+    }:
+        provenance.pop("feature_names", None)
     return normalized
 
 
@@ -728,6 +770,92 @@ def save_ml_training_source_metadata_artifact(
                 json.dumps(_json_safe(dict(metadata)), sort_keys=True)
             ),
         },
+    )
+
+
+def load_host_feature_row_spine_artifact(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+) -> Optional[dict[str, np.ndarray]]:
+    """Load row coordinates shared by independently cached host features."""
+    payload = load_npz_artifact(
+        source_path,
+        artifact_name="host_feature_row_spines",
+        artifact_version=HOST_FEATURE_ROW_SPINE_ARTIFACT_VERSION,
+        parameters=parameters,
+    )
+    if payload is None:
+        return None
+    return {
+        "packet_index": np.asarray(payload.get("packet_index", ()), dtype=np.int32),
+        "evaluation_index": np.asarray(
+            payload.get("evaluation_index", ()), dtype=np.int32
+        ),
+        "reset_index": np.asarray(payload.get("reset_index", ()), dtype=np.int32),
+        "evaluation_due": np.asarray(payload.get("evaluation_due", ()), dtype=bool),
+    }
+
+
+def save_host_feature_row_spine_artifact(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+    rows: Mapping[str, Any],
+) -> Path:
+    """Persist row coordinates independently from feature values."""
+    return save_npz_artifact(
+        source_path,
+        artifact_name="host_feature_row_spines",
+        artifact_version=HOST_FEATURE_ROW_SPINE_ARTIFACT_VERSION,
+        parameters=parameters,
+        payload={
+            "packet_index": np.asarray(rows.get("packet_index", ()), dtype=np.int32),
+            "evaluation_index": np.asarray(
+                rows.get("evaluation_index", ()), dtype=np.int32
+            ),
+            "reset_index": np.asarray(rows.get("reset_index", ()), dtype=np.int32),
+            "evaluation_due": np.asarray(
+                rows.get("evaluation_due", ()), dtype=bool
+            ),
+        },
+    )
+
+
+def load_host_feature_column_artifact(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+) -> Optional[np.ndarray]:
+    """Load one independently versioned host feature column."""
+    payload = load_npz_artifact(
+        source_path,
+        artifact_name="host_feature_columns",
+        artifact_version=HOST_FEATURE_COLUMN_ARTIFACT_VERSION,
+        parameters=parameters,
+    )
+    if payload is None or "values" not in payload:
+        return None
+    values = np.asarray(payload["values"], dtype=np.float32)
+    return values if values.ndim == 1 else None
+
+
+def save_host_feature_column_artifact(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+    values: Any,
+) -> Path:
+    """Persist one feature column independently from sibling features."""
+    column = np.asarray(values, dtype=np.float32)
+    if column.ndim != 1:
+        raise ValueError("host feature columns must be one-dimensional")
+    return save_npz_artifact(
+        source_path,
+        artifact_name="host_feature_columns",
+        artifact_version=HOST_FEATURE_COLUMN_ARTIFACT_VERSION,
+        parameters=parameters,
+        payload={"values": column},
     )
 
 

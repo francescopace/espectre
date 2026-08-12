@@ -316,32 +316,105 @@ def test_host_feature_cache_hit_does_not_materialize_packets(monkeypatch, tmp_pa
     )
     cached_rows = {
         "X": np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
-        "feature_names": ["f0", "f1"],
+        "feature_names": ["turb_autocorr", "turb_zcr"],
         "packet_index": np.asarray([100, 101], dtype=np.int32),
         "evaluation_index": np.asarray([0, 1], dtype=np.int32),
         "reset_index": np.asarray([0, 0], dtype=np.int32),
         "evaluation_due": np.asarray([True, False]),
     }
-    seen_windows = []
+    seen_features = []
 
-    def fake_load(_source_path, *, parameters):
-        seen_windows.append(parameters["window_size"])
-        return cached_rows
+    def fake_load_spine(_source_path, *, parameters):
+        assert parameters["contract"] == "host_feature_row_spine_v1"
+        return {
+            key: cached_rows[key]
+            for key in (
+                "packet_index",
+                "evaluation_index",
+                "reset_index",
+                "evaluation_due",
+            )
+        }
 
-    monkeypatch.setattr(trainer.npz_cache, "load_ml_replay_row_artifact", fake_load)
+    def fake_load_column(_source_path, *, parameters):
+        name = parameters["feature"]["feature_name"]
+        seen_features.append(name)
+        return cached_rows["X"][:, cached_rows["feature_names"].index(name)]
+
+    monkeypatch.setattr(
+        trainer.npz_cache,
+        "load_host_feature_row_spine_artifact",
+        fake_load_spine,
+    )
+    monkeypatch.setattr(
+        trainer.npz_cache,
+        "load_host_feature_column_artifact",
+        fake_load_column,
+    )
 
     rows = trainer.load_or_compute_host_feature_rows(
         source_path,
         packets_factory=lambda: pytest.fail("cache hit must not build packets"),
-        feature_names=["f0", "f1"],
+        feature_names=["turb_autocorr", "turb_zcr"],
         sample_contract="replay_tick",
-        stream_provenance={"transform": "host_feature_rows_v2"},
+        stream_provenance={"transform": "host_feature_rows_v3"},
     )
 
-    assert seen_windows == [0]
+    assert seen_features == ["turb_autocorr", "turb_zcr"]
     assert rows["cache_hit"] is True
-    assert rows["feature_names"] == ["f0", "f1"]
+    assert rows["feature_names"] == ["turb_autocorr", "turb_zcr"]
     np.testing.assert_array_equal(rows["X"], [[1.0, 2.0]])
+
+
+def test_host_feature_cache_computes_only_new_columns(monkeypatch, tmp_path):
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv(trainer.npz_cache.NPZ_CACHE_DIR_ENV, str(cache_root))
+    source_path = tmp_path / "host_feature_columns.npz"
+    np.savez(source_path, csi_data=np.zeros((4, 128), dtype=np.int8))
+    calls = []
+
+    def fake_build(_packets, feature_names, **_kwargs):
+        calls.append(list(feature_names))
+        values = {
+            "turb_cv": np.asarray([1.0, 2.0], dtype=np.float32),
+            "turb_mad_over_mean": np.asarray([3.0, 4.0], dtype=np.float32),
+        }
+        return {
+            "X": np.column_stack([values[name] for name in feature_names]),
+            "feature_names": list(feature_names),
+            "packet_index": np.asarray([100, 101], dtype=np.int32),
+            "evaluation_index": np.asarray([0, 1], dtype=np.int32),
+            "reset_index": np.asarray([0, 0], dtype=np.int32),
+            "evaluation_due": np.asarray([True, False]),
+        }
+
+    monkeypatch.setattr(trainer, "build_host_feature_rows", fake_build)
+
+    first = trainer.load_or_compute_host_feature_rows(
+        source_path,
+        packets=[object()],
+        feature_names=["turb_cv"],
+        sample_contract="stream_dense",
+    )
+    extended = trainer.load_or_compute_host_feature_rows(
+        source_path,
+        packets=[object()],
+        feature_names=["turb_cv", "turb_mad_over_mean"],
+        sample_contract="stream_dense",
+    )
+    warm = trainer.load_or_compute_host_feature_rows(
+        source_path,
+        packets_factory=lambda: pytest.fail("warm columns must not build packets"),
+        feature_names=["turb_mad_over_mean", "turb_cv"],
+        sample_contract="stream_dense",
+    )
+
+    assert calls == [["turb_cv"], ["turb_mad_over_mean"]]
+    assert first["cache_hit"] is False
+    assert extended["cache_hit"] is False
+    assert warm["cache_hit"] is True
+    np.testing.assert_array_equal(extended["X"], [[1.0, 3.0], [2.0, 4.0]])
+    np.testing.assert_array_equal(warm["X"], [[3.0, 1.0], [4.0, 2.0]])
 
 
 def test_build_ml_replay_rows_selects_before_materializing_dense_features():

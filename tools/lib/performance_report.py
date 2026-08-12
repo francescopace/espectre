@@ -14,12 +14,14 @@ import time
 from collections.abc import Mapping as MappingABC
 from collections import defaultdict
 from functools import lru_cache
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 import numpy as np
 
 from .bootstrap import setup_paths
+from .atomic_io import atomic_write_text
 from .dataset_metadata import (
     admitted_dataset_role,
     build_calibrated_classic_detector,
@@ -720,33 +722,60 @@ def load_or_compute_ml_replay_rows(
                 row_stride=stride,
                 row_offset=offset,
             )
-    if packet_stream is None:
-        if packets is not None:
-            packet_stream = packets
-        elif packets_factory is not None:
-            packet_stream = packets_factory()
-        else:
-            packet_stream = load_npz_packet_view(Path(source_path))
-    rows = build_ml_replay_rows(
-        packet_stream,
-        selected_subcarriers,
-        resolved_window_size,
-        cached_feature_names,
-        sample_contract="stream_dense",
-        row_stride=stride,
-        row_offset=offset,
-    )
-    if use_cache and cache_write:
-        npz_cache.save_ml_replay_row_artifact(
+    lock_context = (
+        npz_cache.artifact_build_lock(
             source_path,
+            artifact_name="ml_replay_rows",
+            artifact_version=npz_cache.ML_REPLAY_ROW_ARTIFACT_VERSION,
             parameters=parameters,
-            X=rows["X"],
-            feature_names=rows["feature_names"],
-            packet_index=rows["packet_index"],
-            evaluation_index=rows["evaluation_index"],
-            reset_index=rows["reset_index"],
-            evaluation_due=rows["evaluation_due"],
         )
+        if use_cache and cache_write
+        else nullcontext()
+    )
+    with lock_context:
+        if use_cache:
+            cached = npz_cache.load_ml_replay_row_artifact(
+                source_path,
+                parameters=parameters,
+            )
+            if cached is not None:
+                cached["cache_hit"] = True
+                return _select_ml_replay_rows(
+                    _project_ml_replay_rows(
+                        cached,
+                        requested_feature_names,
+                        normalized_contract,
+                    ),
+                    row_stride=stride,
+                    row_offset=offset,
+                )
+        if packet_stream is None:
+            if packets is not None:
+                packet_stream = packets
+            elif packets_factory is not None:
+                packet_stream = packets_factory()
+            else:
+                packet_stream = load_npz_packet_view(Path(source_path))
+        rows = build_ml_replay_rows(
+            packet_stream,
+            selected_subcarriers,
+            resolved_window_size,
+            cached_feature_names,
+            sample_contract="stream_dense",
+            row_stride=stride,
+            row_offset=offset,
+        )
+        if use_cache and cache_write:
+            npz_cache.save_ml_replay_row_artifact(
+                source_path,
+                parameters=parameters,
+                X=rows["X"],
+                feature_names=rows["feature_names"],
+                packet_index=rows["packet_index"],
+                evaluation_index=rows["evaluation_index"],
+                reset_index=rows["reset_index"],
+                evaluation_due=rows["evaluation_due"],
+            )
     rows["cache_hit"] = False
     return _project_ml_replay_rows(
         rows,
@@ -949,26 +978,46 @@ def load_or_compute_classic_replay_rows(
             cached["replay_interval_us"] = replay_interval_us
             cached["cache_hit"] = True
             return cached
-
-    resolved_motion_packets = motion_packets
-    if resolved_motion_packets is None:
-        resolved_motion_packets = (
-            () if motion_path is None else load_npz_packet_view(Path(motion_path))
-        )
-    rows = build_classic_replay_rows(
-        static_packets,
-        resolved_motion_packets,
-        selected_subcarriers,
-        timing=timing,
-        replay_interval_us=replay_interval_us,
-        warmup_packets=resolved_warmup,
-    )
-    if use_cache:
-        npz_cache.save_classic_replay_row_artifact(
+    lock_context = (
+        npz_cache.artifact_build_lock(
             static_presence_path,
+            artifact_name="classic_replay_rows",
+            artifact_version=npz_cache.CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
             parameters=parameters,
-            rows=rows,
         )
+        if use_cache
+        else nullcontext()
+    )
+    with lock_context:
+        if use_cache:
+            cached = npz_cache.load_classic_replay_row_artifact(
+                static_presence_path,
+                parameters=parameters,
+            )
+            if cached is not None:
+                cached["timing"] = timing
+                cached["replay_interval_us"] = replay_interval_us
+                cached["cache_hit"] = True
+                return cached
+        resolved_motion_packets = motion_packets
+        if resolved_motion_packets is None:
+            resolved_motion_packets = (
+                () if motion_path is None else load_npz_packet_view(Path(motion_path))
+            )
+        rows = build_classic_replay_rows(
+            static_packets,
+            resolved_motion_packets,
+            selected_subcarriers,
+            timing=timing,
+            replay_interval_us=replay_interval_us,
+            warmup_packets=resolved_warmup,
+        )
+        if use_cache:
+            npz_cache.save_classic_replay_row_artifact(
+                static_presence_path,
+                parameters=parameters,
+                rows=rows,
+            )
     rows["cache_hit"] = False
     return rows
 
@@ -2362,6 +2411,12 @@ def render_performance_report_markdown(
             f"Last update: {execution_info['last_update']}",
             f"Source: `{execution_info['source']}`",
             f"Dataset revision: `sha256:{execution_info['dataset_revision']}`",
+        ])
+        if execution_info.get('input_revision'):
+            lines.append(
+                f"Input revision: `sha256:{execution_info['input_revision']}`"
+            )
+        lines.extend([
             f"Generated by: `{execution_info['generated_by']}`",
             f"Run started: `{execution_info['run_started']}`",
             f"Run duration: `{execution_info['run_duration']}`",
@@ -2609,12 +2664,12 @@ def write_performance_report(
             if progress is None
             else compute_performance_report_data(progress=progress)
         )
-    destination.write_text(
+    atomic_write_text(
+        destination,
         render_performance_report_markdown(
             computed_report_data,
             execution_info=execution_info,
         ),
-        encoding="utf-8",
     )
     _emit_progress(progress, f"report written to {destination}")
     return destination

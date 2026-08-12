@@ -28,6 +28,7 @@ from typing import (
     Tuple,
 )
 
+from .atomic_io import atomic_write_text
 from .bootstrap import setup_paths
 from .repo_paths import data_dir
 
@@ -152,10 +153,7 @@ def load_dataset_info(path: Optional[Path] = None) -> Dict[str, Any]:
 def save_dataset_info(info: Dict[str, Any], path: Optional[Path] = None) -> None:
     """Persist dataset info to disk with stable formatting."""
     info_path = DATASET_INFO_FILE if path is None else Path(path)
-    info_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(info_path, "w", encoding="utf-8") as handle:
-        json.dump(info, handle, indent=2)
-        handle.write("\n")
+    atomic_write_text(info_path, json.dumps(info, indent=2) + "\n")
 
 
 def dataset_info_revision(path: Optional[Path] = None) -> str:
@@ -164,16 +162,48 @@ def dataset_info_revision(path: Optional[Path] = None) -> str:
     return hashlib.sha256(info_path.read_bytes()).hexdigest()
 
 
+def generated_input_revision(paths: Iterable[Path]) -> str:
+    """Return a stable digest of all inputs that determine a generated report."""
+    digest = hashlib.sha256()
+    for raw_path in sorted({Path(path).resolve() for path in paths}, key=str):
+        if not raw_path.is_file():
+            digest.update(b"missing\0")
+            digest.update(str(raw_path).encode("utf-8"))
+            digest.update(b"\0")
+            continue
+        try:
+            identity = str(raw_path.relative_to(DATA_DIR.parent))
+        except ValueError:
+            identity = str(raw_path)
+        digest.update(identity.encode("utf-8"))
+        digest.update(b"\0")
+        with raw_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def generated_report_is_current(
     report_path: Path,
     dataset_info_path: Optional[Path] = None,
+    *,
+    input_paths: Optional[Iterable[Path]] = None,
 ) -> bool:
-    """Return whether a generated report names the current dataset revision."""
+    """Return whether a report names its current catalog and implementation inputs."""
     output_path = Path(report_path)
     if not output_path.exists():
         return False
+    lines = output_path.read_text(encoding="utf-8").splitlines()
     expected = f"Dataset revision: `sha256:{dataset_info_revision(dataset_info_path)}`"
-    return expected in output_path.read_text(encoding="utf-8").splitlines()
+    if expected not in lines:
+        return False
+    if input_paths is None:
+        return True
+    input_expected = (
+        f"Input revision: `sha256:{generated_input_revision(input_paths)}`"
+    )
+    return input_expected in lines
 
 
 def get_dataset_stats() -> Dict[str, Any]:

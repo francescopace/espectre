@@ -72,9 +72,39 @@ def test_cache_provenance_fingerprints_only_stream_implementations():
     assert packet_provenance["transform"] == "training_packet_augmentation_v2"
     assert len(packet_provenance["implementation_sha256"]) == 64
     assert packet_provenance["timing_quality"]["content_sha256"]
-    assert host_provenance["transform"] == "host_feature_rows_v2"
-    assert len(host_provenance["implementation"]["streaming_rows_sha256"]) == 64
-    assert "train_ml_model" not in host_provenance["implementation"]
+    assert host_provenance["transform"] == "host_feature_rows_v3"
+    feature_identity = host_provenance["feature_identities"][
+        "turb_mad_over_mean_aggr"
+    ]
+    assert feature_identity["provider"] == "aggregated_turbulence_series"
+    assert len(feature_identity["formula_sha256"]) == 64
+    assert "train_ml_model" not in host_provenance["row_stream"]
+
+
+def test_cache_provenance_memoization_returns_isolated_values():
+    trainer._host_feature_base_stream_provenance.cache_clear()
+    trainer._packet_augmentation_stream_provenance_cached.cache_clear()
+    feature_names = ["turb_mad_over_mean_aggr"]
+    packet_config = {"packet_loss": 0.05, "noise_sigma": 0.01}
+
+    first_host = trainer._host_feature_stream_provenance(feature_names)
+    first_packet = trainer._packet_augmentation_stream_provenance(
+        packet_config,
+        20260807,
+    )
+    first_host["feature_names"].append("mutated")
+    first_packet["config"]["packet_loss"] = 1.0
+
+    second_host = trainer._host_feature_stream_provenance(feature_names)
+    second_packet = trainer._packet_augmentation_stream_provenance(
+        {"noise_sigma": 0.01, "packet_loss": 0.05},
+        20260807,
+    )
+
+    assert second_host["feature_names"] == feature_names
+    assert second_packet["config"]["packet_loss"] == pytest.approx(0.05)
+    assert trainer._host_feature_base_stream_provenance.cache_info().hits == 1
+    assert trainer._packet_augmentation_stream_provenance_cached.cache_info().hits == 1
 
 
 def test_promoted_packet_augmentation_uses_two_fixed_views():
@@ -87,6 +117,31 @@ def test_promoted_packet_augmentation_uses_two_fixed_views():
         trainer.training_packet_augmentation_seed({"packet_loss": 0.05})
         == 20260807
     )
+
+
+def test_seed_search_restore_removes_artifacts_created_after_backup(
+    monkeypatch,
+    tmp_path,
+):
+    existing = tmp_path / "ml_weights.py"
+    initially_missing = tmp_path / "ml_weights.h"
+    existing.write_text("before\n", encoding="utf-8")
+    monkeypatch.setattr(
+        trainer,
+        "_model_artifact_paths",
+        lambda: [existing, initially_missing],
+    )
+
+    backup_dir, saved_files = trainer._backup_artifacts()
+    try:
+        existing.write_text("after\n", encoding="utf-8")
+        initially_missing.write_text("created\n", encoding="utf-8")
+        trainer._restore_artifacts(saved_files)
+    finally:
+        trainer.shutil.rmtree(backup_dir, ignore_errors=True)
+
+    assert existing.read_text(encoding="utf-8") == "before\n"
+    assert not initially_missing.exists()
 
 
 def test_packet_augmentation_view_mix_is_constant_size_and_deterministic():
