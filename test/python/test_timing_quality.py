@@ -307,6 +307,43 @@ def test_load_or_compute_ml_replay_rows_reuses_full_runtime_cache(monkeypatch, t
     )
 
 
+def test_host_feature_cache_hit_does_not_materialize_packets(monkeypatch, tmp_path):
+    source_path = tmp_path / "host_feature_cache_hit.npz"
+    packets = _timed_packets(count=128)
+    np.savez(
+        source_path,
+        csi_data=np.asarray([packet["csi_data"] for packet in packets], dtype=np.int8),
+    )
+    cached_rows = {
+        "X": np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+        "feature_names": ["f0", "f1"],
+        "packet_index": np.asarray([100, 101], dtype=np.int32),
+        "evaluation_index": np.asarray([0, 1], dtype=np.int32),
+        "reset_index": np.asarray([0, 0], dtype=np.int32),
+        "evaluation_due": np.asarray([True, False]),
+    }
+    seen_windows = []
+
+    def fake_load(_source_path, *, parameters):
+        seen_windows.append(parameters["window_size"])
+        return cached_rows
+
+    monkeypatch.setattr(trainer.npz_cache, "load_ml_replay_row_artifact", fake_load)
+
+    rows = trainer.load_or_compute_host_feature_rows(
+        source_path,
+        packets_factory=lambda: pytest.fail("cache hit must not build packets"),
+        feature_names=["f0", "f1"],
+        sample_contract="replay_tick",
+        stream_provenance={"transform": "host_feature_rows_v2"},
+    )
+
+    assert seen_windows == [0]
+    assert rows["cache_hit"] is True
+    assert rows["feature_names"] == ["f0", "f1"]
+    np.testing.assert_array_equal(rows["X"], [[1.0, 2.0]])
+
+
 def test_build_ml_replay_rows_selects_before_materializing_dense_features():
     packets = _timed_packets(count=256)
     full_rows = performance_report.build_ml_replay_rows(

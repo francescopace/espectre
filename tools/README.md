@@ -44,7 +44,7 @@ The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3
 | `benchmark_classic_candidate_pairs.py` | screen Classic features and combinations without threshold coupling |
 | `replay_classic_candidates.py` | fit and replay research-only Classic candidates end to end |
 | `fit_classic_detector.py` | fit production Classic coefficients and optionally apply an approved result |
-| `prune_npz_cache.py` | remove unreachable or expired cached analysis artifacts |
+| `prune_npz_cache.py` | remove cached analysis artifacts whose sources or implementation dependencies are no longer current |
 | `espectre_traffic_generator.py` | run the standalone laboratory traffic-generator service |
 
 ## Dataset Inspection And Validation
@@ -144,13 +144,11 @@ Plots help diagnose signal structure; they do not establish detector quality by 
 
 ## Cache Maintenance
 
-Training and replay tools share a persistent NPZ cache. Normal runs validate cache provenance automatically. Prune only when dataset or implementation churn leaves unreachable artifacts, or when you deliberately need an age or size limit:
+Training and replay tools share a persistent NPZ cache. Normal runs validate cache provenance automatically, and host-side feature subsets reuse the smallest compatible cached superset without rebuilding packet rows. Pruning removes only artifacts that can no longer be used because their capture, implementation dependencies, layout, or artifact version changed:
 
 ```bash
 python tools/prune_npz_cache.py
 python tools/prune_npz_cache.py --artifact ml_replay_rows
-python tools/prune_npz_cache.py --max-age-days 30
-python tools/prune_npz_cache.py --artifact ml_replay_rows --max-size-mib 2048
 ```
 
 ## Related Documentation

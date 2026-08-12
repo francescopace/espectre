@@ -16,7 +16,6 @@ import json
 import os
 import shutil
 import threading
-import time
 import uuid
 from collections import OrderedDict
 from pathlib import Path
@@ -42,6 +41,11 @@ OBSOLETE_ARTIFACT_NAMES = {
     "feature_matrix",
     "feature_column",
     "idle_baseline",
+}
+
+FEATURE_INDEXED_ARTIFACT_NAMES = {
+    "ml_replay_rows",
+    "ml_training_augmentation_rows",
 }
 
 RUNTIME_CACHE_MAX_ENTRIES = 64
@@ -345,17 +349,78 @@ def read_artifact_manifest(artifact_path: str | Path) -> Optional[dict[str, Any]
         return None
 
 
-def prune_persisted_artifacts(
-    *artifact_names: str,
-    max_age_seconds: Optional[float] = None,
-    max_bytes: Optional[int] = None,
-) -> dict[str, int]:
+def _nested_source_manifests(value: Any) -> list[Mapping[str, Any]]:
+    """Return every source manifest nested inside artifact parameters."""
+    found: list[Mapping[str, Any]] = []
+    if isinstance(value, Mapping):
+        if {"path", "size", "content_sha256"}.issubset(value):
+            found.append(value)
+        for nested in value.values():
+            found.extend(_nested_source_manifests(nested))
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            found.extend(_nested_source_manifests(nested))
+    return found
+
+
+def _source_manifest_state(manifest: Mapping[str, Any]) -> str:
+    """Return ``current``, ``missing``, or ``stale`` for one source manifest."""
+    try:
+        source = resolve_manifest_source(manifest)
+        if not source.is_file():
+            return "missing"
+        return "current" if source_manifest(source) == manifest else "stale"
+    except (OSError, TypeError, ValueError):
+        return "stale"
+
+
+def _prune_feature_index(artifact_directory: Path) -> int:
+    """Remove malformed or orphaned feature-index entries."""
+    index_root = artifact_directory / ".feature_index"
+    if not index_root.is_dir():
+        return 0
+    removed = 0
+    for entry_path in index_root.glob("*/*.json"):
+        try:
+            entry = json.loads(entry_path.read_text(encoding="utf-8"))
+            artifact_path = artifact_directory / str(
+                entry.get("artifact_filename", "")
+            )
+            indexed_manifest = entry.get("manifest", {})
+            artifact_manifest_value = read_artifact_manifest(artifact_path)
+            valid = (
+                artifact_path.is_file()
+                and isinstance(indexed_manifest, Mapping)
+                and artifact_manifest_value == indexed_manifest
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            valid = False
+        if not valid:
+            entry_path.unlink(missing_ok=True)
+            removed += 1
+    for directory in sorted(
+        (path for path in index_root.rglob("*") if path.is_dir()),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+    try:
+        index_root.rmdir()
+    except OSError:
+        pass
+    return removed
+
+
+def prune_persisted_artifacts(*artifact_names: str) -> dict[str, int]:
     """Delete unreachable persisted artifacts and return what was removed.
 
     An artifact is unreachable when it is unreadable, when its source capture is
-    gone, or when the source no longer matches the recorded identity. Optional
-    retention limits then remove expired artifacts and the oldest artifacts
-    needed to satisfy the requested byte cap.
+    gone or changed, or when any source dependency recorded in its parameters is
+    gone or changed. Feature-index entries are usable only while their complete
+    target artifact remains available and unchanged.
     """
     cache_root = npz_cache_dir()
     removed = {
@@ -364,8 +429,9 @@ def prune_persisted_artifacts(
         "stale_source": 0,
         "obsolete_artifact": 0,
         "obsolete_version": 0,
-        "expired": 0,
-        "capacity": 0,
+        "missing_dependency": 0,
+        "stale_dependency": 0,
+        "orphaned_index": 0,
     }
     if not cache_root.exists():
         return removed
@@ -375,17 +441,6 @@ def prune_persisted_artifacts(
         if selected
         else [entry for entry in cache_root.iterdir() if entry.is_dir()]
     )
-    retention_candidates: list[Path] = []
-    age_cutoff = (
-        time.time() - float(max_age_seconds)
-        if max_age_seconds is not None
-        else None
-    )
-    if age_cutoff is not None and float(max_age_seconds) < 0.0:
-        raise ValueError("max_age_seconds must be >= 0")
-    if max_bytes is not None and int(max_bytes) < 0:
-        raise ValueError("max_bytes must be >= 0")
-
     for directory in directories:
         if not directory.is_dir():
             continue
@@ -407,32 +462,27 @@ def prune_persisted_artifacts(
             ):
                 reason = "obsolete_version"
             else:
-                source = resolve_manifest_source(manifest.get("source", {}))
-                if not source.exists():
+                source_state = _source_manifest_state(manifest.get("source", {}))
+                if source_state == "missing":
                     reason = "missing_source"
-                elif source_manifest(source) != manifest.get("source"):
+                elif source_state == "stale":
                     reason = "stale_source"
-                elif age_cutoff is not None and artifact_path.stat().st_mtime < age_cutoff:
-                    reason = "expired"
                 else:
-                    retention_candidates.append(artifact_path)
-                    continue
+                    dependency_states = {
+                        _source_manifest_state(dependency)
+                        for dependency in _nested_source_manifests(
+                            manifest.get("parameters", {})
+                        )
+                    }
+                    if "missing" in dependency_states:
+                        reason = "missing_dependency"
+                    elif "stale" in dependency_states:
+                        reason = "stale_dependency"
+                    else:
+                        continue
             artifact_path.unlink(missing_ok=True)
             removed[reason] += 1
-
-    if max_bytes is not None:
-        remaining = [path for path in retention_candidates if path.exists()]
-        total_bytes = sum(path.stat().st_size for path in remaining)
-        for artifact_path in sorted(
-            remaining,
-            key=lambda path: (path.stat().st_mtime_ns, str(path)),
-        ):
-            if total_bytes <= int(max_bytes):
-                break
-            artifact_bytes = artifact_path.stat().st_size
-            artifact_path.unlink(missing_ok=True)
-            total_bytes -= artifact_bytes
-            removed["capacity"] += 1
+        removed["orphaned_index"] += _prune_feature_index(directory)
 
     for directory in directories:
         try:
@@ -468,6 +518,144 @@ def load_npz_artifact(
         return None
 
 
+def _feature_index_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the schema-independent identity of cached feature rows."""
+    normalized: dict[str, Any] = {}
+    for key, value in parameters.items():
+        if str(key) in {"feature_names", "window_size"}:
+            continue
+        if isinstance(value, Mapping):
+            normalized[str(key)] = _feature_index_parameters(value)
+        elif isinstance(value, list):
+            normalized[str(key)] = [
+                _feature_index_parameters(item)
+                if isinstance(item, Mapping)
+                else item
+                for item in value
+            ]
+        else:
+            normalized[str(key)] = value
+    return normalized
+
+
+def _feature_index_identity(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the stable lookup identity shared by feature supersets."""
+    return {
+        "cache_layout_version": manifest.get("cache_layout_version"),
+        "artifact_name": manifest.get("artifact_name"),
+        "artifact_version": manifest.get("artifact_version"),
+        "source": manifest.get("source"),
+        "parameters": _feature_index_parameters(
+            manifest.get("parameters", {})
+        ),
+    }
+
+
+def _feature_index_directory(manifest: Mapping[str, Any]) -> Path:
+    """Return the lookup directory shared by compatible feature schemas."""
+    artifact_name = str(manifest.get("artifact_name", ""))
+    identity = _feature_index_identity(manifest)
+    return artifact_dir(artifact_name) / ".feature_index" / manifest_digest(identity)
+
+
+def _register_feature_artifact(
+    manifest: Mapping[str, Any],
+    artifact_path: Path,
+) -> None:
+    """Publish a lightweight pointer that enables feature-superset reuse."""
+    artifact_name = str(manifest.get("artifact_name", ""))
+    parameters = manifest.get("parameters", {})
+    feature_names = [str(name) for name in parameters.get("feature_names", ())]
+    provenance = parameters.get("stream_provenance", {})
+    transform = str(provenance.get("transform", ""))
+    if (
+        artifact_name not in FEATURE_INDEXED_ARTIFACT_NAMES
+        or not feature_names
+        or transform not in {
+            "host_feature_rows_v2",
+            "training_packet_augmentation_mix_v1",
+        }
+    ):
+        return
+    index_directory = _feature_index_directory(manifest)
+    index_directory.mkdir(parents=True, exist_ok=True)
+    entry_path = index_directory / f"{manifest_digest(manifest)}.json"
+    entry = {
+        "artifact_filename": artifact_path.name,
+        "feature_names": feature_names,
+        "manifest": manifest,
+    }
+    if entry_path.exists():
+        return
+    tmp_path = entry_path.parent / (
+        f"{entry_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        tmp_path.write_text(json.dumps(entry, sort_keys=True), encoding="utf-8")
+        os.replace(tmp_path, entry_path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def load_feature_superset_artifact(
+    source_path: str | Path,
+    *,
+    artifact_name: str,
+    artifact_version: int,
+    parameters: Mapping[str, Any],
+) -> Optional[dict[str, np.ndarray]]:
+    """Load the smallest indexed artifact containing the requested features."""
+    requested_manifest = artifact_manifest(
+        source_path,
+        artifact_name=artifact_name,
+        artifact_version=artifact_version,
+        parameters=parameters,
+    )
+    requested_features = [
+        str(name) for name in parameters.get("feature_names", ())
+    ]
+    requested_set = set(requested_features)
+    index_directory = _feature_index_directory(requested_manifest)
+    if not requested_features or not index_directory.is_dir():
+        return None
+    candidates: list[tuple[int, Path, Mapping[str, Any]]] = []
+    for entry_path in index_directory.glob("*.json"):
+        try:
+            entry = json.loads(entry_path.read_text(encoding="utf-8"))
+            available = [str(name) for name in entry.get("feature_names", ())]
+            if requested_set.issubset(available):
+                candidates.append((len(available), entry_path, entry))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    for _, _, entry in sorted(candidates, key=lambda item: (item[0], str(item[1]))):
+        cached_manifest = entry.get("manifest", {})
+        if _feature_index_identity(cached_manifest) != _feature_index_identity(
+            requested_manifest
+        ):
+            continue
+        artifact_path = artifact_dir(artifact_name) / str(
+            entry.get("artifact_filename", "")
+        )
+        if not artifact_path.is_file():
+            continue
+        try:
+            with np.load(artifact_path, allow_pickle=False) as data:
+                stored_manifest = json.loads(
+                    str(np.asarray(data["manifest_json"]).item())
+                )
+                if stored_manifest != cached_manifest:
+                    continue
+                return {
+                    key: np.asarray(data[key])
+                    for key in data.files
+                    if key != "manifest_json"
+                }
+        except Exception:
+            continue
+    return None
+
+
 def save_npz_artifact(
     source_path: str | Path,
     *,
@@ -496,6 +684,7 @@ def save_npz_artifact(
     try:
         np.savez(tmp_path, **serializable)
         os.replace(tmp_path, artifact_path)
+        _register_feature_artifact(manifest, artifact_path)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
@@ -628,14 +817,30 @@ def load_ml_training_augmentation_row_artifact(
     parameters: Mapping[str, Any],
 ) -> Optional[dict[str, Any]]:
     """Load one persisted deterministic mixed augmentation row set."""
+    manifest, artifact_path = artifact_cache_path(
+        source_path,
+        artifact_name="ml_training_augmentation_rows",
+        artifact_version=ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION,
+        parameters=parameters,
+    )
     payload = load_npz_artifact(
         source_path,
         artifact_name="ml_training_augmentation_rows",
         artifact_version=ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION,
         parameters=parameters,
     )
+    if payload is not None:
+        _register_feature_artifact(manifest, artifact_path)
+    else:
+        payload = load_feature_superset_artifact(
+            source_path,
+            artifact_name="ml_training_augmentation_rows",
+            artifact_version=ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION,
+            parameters=parameters,
+        )
     if payload is None:
         return None
+    payload = _project_feature_payload(payload, parameters.get("feature_names", ()))
     return {
         "X": np.asarray(payload.get("X", np.empty((0, 0))), dtype=np.float32),
         "feature_names": np.asarray(
@@ -695,14 +900,30 @@ def load_ml_replay_row_artifact(
     parameters: Mapping[str, Any],
 ) -> Optional[dict[str, Any]]:
     """Load one persisted ML replay-row artifact."""
+    manifest, artifact_path = artifact_cache_path(
+        source_path,
+        artifact_name="ml_replay_rows",
+        artifact_version=ML_REPLAY_ROW_ARTIFACT_VERSION,
+        parameters=parameters,
+    )
     payload = load_npz_artifact(
         source_path,
         artifact_name="ml_replay_rows",
         artifact_version=ML_REPLAY_ROW_ARTIFACT_VERSION,
         parameters=parameters,
     )
+    if payload is not None:
+        _register_feature_artifact(manifest, artifact_path)
+    else:
+        payload = load_feature_superset_artifact(
+            source_path,
+            artifact_name="ml_replay_rows",
+            artifact_version=ML_REPLAY_ROW_ARTIFACT_VERSION,
+            parameters=parameters,
+        )
     if payload is None:
         return None
+    payload = _project_feature_payload(payload, parameters.get("feature_names", ()))
     return {
         "X": np.asarray(payload.get("X", np.empty((0, 0))), dtype=np.float32),
         "feature_names": np.asarray(
@@ -721,6 +942,24 @@ def load_ml_replay_row_artifact(
             payload.get("evaluation_due", np.empty(0)), dtype=bool
         ),
     }
+
+
+def _project_feature_payload(
+    payload: Mapping[str, Any],
+    feature_names: Any,
+) -> dict[str, Any]:
+    """Project a cached feature superset while preserving row metadata."""
+    requested = [str(name) for name in feature_names]
+    available = np.asarray(payload.get("feature_names", np.empty(0))).astype(str).tolist()
+    if not requested or requested == available:
+        return dict(payload)
+    if not set(requested).issubset(available):
+        return dict(payload)
+    indices = [available.index(name) for name in requested]
+    projected = dict(payload)
+    projected["X"] = np.asarray(payload.get("X", np.empty((0, 0))))[:, indices]
+    projected["feature_names"] = np.asarray(requested)
+    return projected
 
 
 def save_ml_replay_row_artifact(

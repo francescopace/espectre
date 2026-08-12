@@ -109,6 +109,9 @@ CHANNEL_SHAPE_FEATURES = (
     'chan_shape_lag_ratio',
     'chan_rank_gap',
     'chan_ratio_gap',
+    'chan_shape_spread_ds2',
+    'chan_shape_spread_ema_fast',
+    'chan_shape_spread_ema_slow',
     'chan_freq_coh_cv',
     'chan_freq_coh_curve_iqr',
     'chan_freq_coh_curve_2_4_std',
@@ -121,6 +124,7 @@ L1_SERIES_FEATURES = (
 )
 CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
     'chan_shape_scale_curvature',
+    'chan_shape_spread_subband',
     'chan_shape_coherent_innovation_energy',
     'chan_shape_excess_path',
 )
@@ -566,6 +570,25 @@ class ChannelShapeTrajectoryTracker:
             samples.append(max(0.0, raw_excess - max(0.0, high_excess)))
         return float(np.median(samples)) if samples else 0.0
 
+    def shape_spread_subband(self) -> float:
+        """Participation of adjacent-bin motion energy across eight subbands.
+
+        This candidate reuses the physical-time profiles already retained for
+        the promoted trajectory features. Missing bins are skipped rather than
+        turning a longer interval into an apparent 80 ms displacement.
+        """
+        path = self._binned_path()
+        energy = np.zeros(CHANNEL_SHAPE_SUBBAND_COUNT, dtype=np.float64)
+        for (previous_bin, previous), (current_bin, current) in zip(
+            path,
+            path[1:],
+        ):
+            if current_bin - previous_bin != 1:
+                continue
+            delta = current - previous
+            energy += delta * delta
+        return motion_participation(energy)
+
     def reset(self) -> None:
         self._bins: List[Tuple[int, np.ndarray]] = []
         self._current_bin = None
@@ -855,6 +878,15 @@ class ChannelShapeTracker:
         self._track_spread = track_all or bool(
             {'chan_shape_spread', 'chan_coh_gap_spread'} & names
         )
+        self._track_spread_ds2 = 'chan_shape_spread_ds2' in names
+        self._track_spread_ema_fast = 'chan_shape_spread_ema_fast' in names
+        self._track_spread_ema_slow = 'chan_shape_spread_ema_slow' in names
+        self._track_any_spread = any((
+            self._track_spread,
+            self._track_spread_ds2,
+            self._track_spread_ema_fast,
+            self._track_spread_ema_slow,
+        ))
         self._track_rank = track_all or 'chan_rank_gap' in names
         self._track_ratio = track_all or 'chan_ratio_gap' in names
         self._track_frequency_cv = track_all or 'chan_freq_coh_cv' in names
@@ -873,7 +905,7 @@ class ChannelShapeTracker:
         }
         self._track_profile = any((
             self._track_lag_ratio,
-            self._track_spread,
+            self._track_any_spread,
             self._track_rank,
             self._track_ratio,
         ))
@@ -916,6 +948,31 @@ class ChannelShapeTracker:
         )
         self._motion_energy_slot = 0
         self._motion_energy_count = 0
+        self._motion_energy_ds2 = np.zeros(
+            width if self._track_spread_ds2 else 0,
+            dtype=np.float64,
+        )
+        self._motion_energy_ds2_window = max(1, (self.window_size + 1) // 2)
+        self._motion_energy_ds2_ring = np.zeros(
+            (self._motion_energy_ds2_window, width)
+            if self._track_spread_ds2 else (0, 0),
+            dtype=np.float64,
+        )
+        self._motion_energy_ds2_slot = 0
+        self._motion_energy_ds2_count = 0
+        self._motion_energy_ds2_phase = 0
+        self._motion_energy_ema_fast = np.zeros(
+            width if self._track_spread_ema_fast else 0,
+            dtype=np.float64,
+        )
+        self._motion_energy_ema_slow = np.zeros(
+            width if self._track_spread_ema_slow else 0,
+            dtype=np.float64,
+        )
+        self._motion_energy_ema_fast_count = 0
+        self._motion_energy_ema_slow_count = 0
+        self._motion_energy_ema_fast_alpha = 2.0 / (self.window_size + 1.0)
+        self._motion_energy_ema_slow_alpha = 1.0 / self.window_size
         self._frequency_coherence_ring = (
             [0.0] * self.window_size if self._track_frequency_cv else []
         )
@@ -994,6 +1051,29 @@ class ChannelShapeTracker:
             self._motion_energy_slot + 1
         ) % self.window_size
 
+    def _push_motion_energy_ds2(self, values):
+        if self._motion_energy_ds2_phase == 0:
+            if self._motion_energy_ds2_count < self._motion_energy_ds2_window:
+                self._motion_energy_ds2_count += 1
+            else:
+                self._motion_energy_ds2 -= self._motion_energy_ds2_ring[
+                    self._motion_energy_ds2_slot
+                ]
+            self._motion_energy_ds2_ring[self._motion_energy_ds2_slot] = values
+            self._motion_energy_ds2 += values
+            self._motion_energy_ds2_slot = (
+                self._motion_energy_ds2_slot + 1
+            ) % self._motion_energy_ds2_window
+        self._motion_energy_ds2_phase = 1 - self._motion_energy_ds2_phase
+
+    @staticmethod
+    def _push_motion_energy_ema(energy, values, count, alpha):
+        if count == 0:
+            energy[:] = values
+        else:
+            energy += alpha * (values - energy)
+        return count + 1
+
     def _push_frequency_coherence(self, value):
         if self._frequency_coherence_count < self.window_size:
             self._frequency_coherence_count += 1
@@ -1065,8 +1145,30 @@ class ChannelShapeTracker:
                     self._lag_distance_count,
                     self._lag_distance_sum,
                 )
-            if self._track_spread:
-                self._push_motion_energy(delta * delta)
+            if self._track_any_spread:
+                squared_delta = delta * delta
+                if self._track_spread:
+                    self._push_motion_energy(squared_delta)
+                if self._track_spread_ds2:
+                    self._push_motion_energy_ds2(squared_delta)
+                if self._track_spread_ema_fast:
+                    self._motion_energy_ema_fast_count = (
+                        self._push_motion_energy_ema(
+                            self._motion_energy_ema_fast,
+                            squared_delta,
+                            self._motion_energy_ema_fast_count,
+                            self._motion_energy_ema_fast_alpha,
+                        )
+                    )
+                if self._track_spread_ema_slow:
+                    self._motion_energy_ema_slow_count = (
+                        self._push_motion_energy_ema(
+                            self._motion_energy_ema_slow,
+                            squared_delta,
+                            self._motion_energy_ema_slow_count,
+                            self._motion_energy_ema_slow_alpha,
+                        )
+                    )
             if self._track_rank:
                 (
                     self._rank_lag_slot,
@@ -1215,6 +1317,18 @@ class ChannelShapeTracker:
         """Participation ratio of lagged motion energy over the live band."""
         return motion_participation(self._motion_energy)
 
+    def shape_spread_ds2(self) -> float:
+        """Rectangular-window spread evaluated on every second lag delta."""
+        return motion_participation(self._motion_energy_ds2)
+
+    def shape_spread_ema_fast(self) -> float:
+        """Spread from an EMA whose conventional span equals the window."""
+        return motion_participation(self._motion_energy_ema_fast)
+
+    def shape_spread_ema_slow(self) -> float:
+        """Spread from a one-window exponential time constant."""
+        return motion_participation(self._motion_energy_ema_slow)
+
     def frequency_coherence_cv(self) -> float:
         """Temporal CV of the gain- and offset-free frequency coherence."""
         if self._frequency_coherence_count == 0:
@@ -1299,6 +1413,14 @@ class ChannelShapeTracker:
         self._motion_energy.fill(0.0)
         self._motion_energy_slot = 0
         self._motion_energy_count = 0
+        self._motion_energy_ds2.fill(0.0)
+        self._motion_energy_ds2_slot = 0
+        self._motion_energy_ds2_count = 0
+        self._motion_energy_ds2_phase = 0
+        self._motion_energy_ema_fast.fill(0.0)
+        self._motion_energy_ema_slow.fill(0.0)
+        self._motion_energy_ema_fast_count = 0
+        self._motion_energy_ema_slow_count = 0
         self._frequency_coherence_slot = 0
         self._frequency_coherence_count = 0
         self._frequency_coherence_sum = 0.0

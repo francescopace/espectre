@@ -384,6 +384,12 @@ def candidate_values(
                     f"{name} needs the time-binned channel-shape tracker"
                 )
             values[name] = shape_trajectory_tracker.scale_curvature()
+        elif name == 'chan_shape_spread_subband':
+            if shape_trajectory_tracker is None:
+                raise ValueError(
+                    f"{name} needs the time-binned channel-shape tracker"
+                )
+            values[name] = shape_trajectory_tracker.shape_spread_subband()
         elif name == 'chan_shape_coherent_innovation_energy':
             if shape_trajectory_tracker is None:
                 raise ValueError(
@@ -396,6 +402,18 @@ def candidate_values(
             if shape_tracker is None:
                 raise ValueError(f"{name} needs the channel-shape tracker")
             values[name] = shape_tracker.shape_lag_ratio()
+        elif name == 'chan_shape_spread_ds2':
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.shape_spread_ds2()
+        elif name == 'chan_shape_spread_ema_fast':
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.shape_spread_ema_fast()
+        elif name == 'chan_shape_spread_ema_slow':
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.shape_spread_ema_slow()
         elif name == 'chan_rank_gap':
             if shape_tracker is None:
                 raise ValueError(f"{name} needs the channel-shape tracker")

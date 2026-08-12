@@ -383,3 +383,61 @@ def test_curve_only_trackers_match_full_trackers_without_shape_history() -> None
     assert runtime_curve._complex_profile is None
     assert host_curve._ring == []
     assert host_curve._motion_energy_ring.size == 0
+
+
+def test_economic_shape_spreads_are_gain_invariant_and_resettable() -> None:
+    names = (
+        "chan_shape_spread_ds2",
+        "chan_shape_spread_ema_fast",
+        "chan_shape_spread_ema_slow",
+    )
+    baseline = host.ChannelShapeTracker(
+        window_size=18,
+        lag=3,
+        feature_names=names,
+    )
+    gained = host.ChannelShapeTracker(
+        window_size=18,
+        lag=3,
+        feature_names=names,
+    )
+    rng = random.Random(6117)
+    for packet_index in range(30):
+        packet = [rng.randrange(-30, 31) for _ in range(128)]
+        gain = (1, 2, 3)[packet_index % 3]
+        gained_packet = [value * gain for value in packet]
+        baseline.process_packet(packet)
+        gained.process_packet(gained_packet)
+
+    for accessor in (
+        "shape_spread_ds2",
+        "shape_spread_ema_fast",
+        "shape_spread_ema_slow",
+    ):
+        baseline_value = getattr(baseline, accessor)()
+        gained_value = getattr(gained, accessor)()
+        assert baseline_value > 0.0
+        assert gained_value == pytest.approx(baseline_value, abs=1e-12)
+
+    baseline.reset()
+    assert baseline.shape_spread_ds2() == 0.0
+    assert baseline.shape_spread_ema_fast() == 0.0
+    assert baseline.shape_spread_ema_slow() == 0.0
+
+
+def test_subband_shape_spread_reuses_trajectory_profiles() -> None:
+    tracker = host.ChannelShapeTrajectoryTracker(
+        window_duration_us=1_000_000,
+        bin_us=80_000,
+    )
+    for step in range(14):
+        packet = [0] * 128
+        for subcarrier in range(64):
+            packet[2 * subcarrier + 1] = (
+                8 + (subcarrier * 3 + step * (subcarrier % 9)) % 70
+            )
+        tracker.process_packet(packet, step * 80_000)
+
+    assert tracker.shape_spread_subband() > 0.0
+    tracker.reset()
+    assert tracker.shape_spread_subband() == 0.0

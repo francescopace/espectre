@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 import os
-import time
 
 import numpy as np
 import pytest
@@ -48,6 +47,94 @@ def test_persisted_cache_miss_does_not_create_directories(
 
     assert cached is None
     assert not isolated_cache_root.exists()
+
+
+def test_ml_replay_cache_projects_an_indexed_feature_superset(tmp_path):
+    source_path = tmp_path / "feature_superset.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    superset_parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=[1, 2],
+        window_size=100,
+        feature_names=["f0", "f1", "f2"],
+        stream_provenance={
+            "transform": "host_feature_rows_v2",
+            "feature_names": ["f0", "f1", "f2"],
+            "implementation": {"digest": "stable"},
+        },
+    )
+    npz_cache.save_ml_replay_row_artifact(
+        source_path,
+        parameters=superset_parameters,
+        X=np.asarray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32),
+        feature_names=["f0", "f1", "f2"],
+        packet_index=np.asarray([10, 20], dtype=np.int32),
+        evaluation_index=np.asarray([0, 1], dtype=np.int32),
+        reset_index=np.asarray([0, 0], dtype=np.int32),
+        evaluation_due=np.asarray([True, False]),
+    )
+    subset_parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=[1, 2],
+        window_size=0,
+        feature_names=["f2", "f0"],
+        stream_provenance={
+            "transform": "host_feature_rows_v2",
+            "feature_names": ["f2", "f0"],
+            "implementation": {"digest": "stable"},
+        },
+    )
+
+    cached = npz_cache.load_ml_replay_row_artifact(
+        source_path,
+        parameters=subset_parameters,
+    )
+
+    assert cached is not None
+    assert cached["feature_names"] == ["f2", "f0"]
+    np.testing.assert_array_equal(
+        cached["X"],
+        np.asarray([[3.0, 1.0], [6.0, 4.0]], dtype=np.float32),
+    )
+    np.testing.assert_array_equal(cached["packet_index"], [10, 20])
+
+
+def test_feature_superset_index_keeps_stream_provenance_isolated(tmp_path):
+    source_path = tmp_path / "isolated_streams.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=[1, 2],
+        window_size=100,
+        feature_names=["f0", "f1"],
+        stream_provenance={
+            "transform": "host_feature_rows_v2",
+            "feature_names": ["f0", "f1"],
+            "packet_augmentation": {"seed": 123},
+        },
+    )
+    npz_cache.save_ml_replay_row_artifact(
+        source_path,
+        parameters=parameters,
+        X=np.asarray([[1.0, 2.0]], dtype=np.float32),
+        feature_names=["f0", "f1"],
+        packet_index=np.asarray([10], dtype=np.int32),
+        evaluation_index=np.asarray([0], dtype=np.int32),
+        reset_index=np.asarray([0], dtype=np.int32),
+        evaluation_due=np.asarray([True]),
+    )
+    incompatible = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=[1, 2],
+        window_size=0,
+        feature_names=["f0"],
+        stream_provenance={
+            "transform": "host_feature_rows_v2",
+            "feature_names": ["f0"],
+            "packet_augmentation": {"seed": 124},
+        },
+    )
+
+    assert npz_cache.load_ml_replay_row_artifact(
+        source_path,
+        parameters=incompatible,
+    ) is None
 
 
 def test_runtime_artifact_reuses_value_until_source_changes(tmp_path):
@@ -400,64 +487,92 @@ def test_prune_removes_obsolete_known_artifact_versions(tmp_path):
     assert not artifact_path.exists()
 
 
-def test_prune_retention_removes_expired_valid_artifacts(tmp_path):
-    source_path = tmp_path / "retained_source.npz"
+@pytest.mark.parametrize(
+    ("mutation", "expected_reason"),
+    (("rewrite", "stale_dependency"), ("delete", "missing_dependency")),
+)
+def test_prune_removes_artifacts_with_unusable_nested_dependencies(
+    tmp_path, mutation, expected_reason
+):
+    source_path = tmp_path / "capture.npz"
+    dependency_path = tmp_path / "extractor.py"
     _write_source_npz(source_path, values=[1, 2, 3, 4])
-    old_path = npz_cache.save_npz_artifact(
+    dependency_path.write_text("VERSION = 1\n", encoding="utf-8")
+    artifact_path = npz_cache.save_npz_artifact(
         source_path,
-        artifact_name="unit_retention",
+        artifact_name="unit_dependency",
         artifact_version=1,
-        parameters={"variant": "old"},
+        parameters={
+            "implementation": {
+                "sources": [npz_cache.source_manifest(dependency_path)]
+            }
+        },
         payload={"value": np.arange(4)},
     )
-    fresh_path = npz_cache.save_npz_artifact(
+    if mutation == "rewrite":
+        dependency_path.write_text("VERSION = 2\n", encoding="utf-8")
+    else:
+        dependency_path.unlink()
+
+    removed = npz_cache.prune_persisted_artifacts("unit_dependency")
+
+    assert removed[expected_reason] == 1
+    assert not artifact_path.exists()
+
+
+def test_prune_keeps_artifacts_with_current_nested_dependencies(tmp_path):
+    source_path = tmp_path / "capture.npz"
+    dependency_path = tmp_path / "extractor.py"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    dependency_path.write_text("VERSION = 1\n", encoding="utf-8")
+    artifact_path = npz_cache.save_npz_artifact(
         source_path,
-        artifact_name="unit_retention",
+        artifact_name="unit_dependency",
         artifact_version=1,
-        parameters={"variant": "fresh"},
+        parameters={"source": npz_cache.source_manifest(dependency_path)},
         payload={"value": np.arange(4)},
     )
-    old_timestamp = time.time() - 10 * 24 * 60 * 60
-    os.utime(old_path, (old_timestamp, old_timestamp))
 
-    removed = npz_cache.prune_persisted_artifacts(
-        "unit_retention",
-        max_age_seconds=24 * 60 * 60,
-    )
+    removed = npz_cache.prune_persisted_artifacts("unit_dependency")
 
-    assert removed["expired"] == 1
-    assert not old_path.exists()
-    assert fresh_path.exists()
+    assert sum(removed.values()) == 0
+    assert artifact_path.exists()
 
 
-def test_prune_capacity_removes_oldest_valid_artifacts(tmp_path):
-    source_path = tmp_path / "bounded_source.npz"
+def test_prune_removes_orphaned_feature_index_entries(tmp_path):
+    source_path = tmp_path / "indexed.npz"
     _write_source_npz(source_path, values=[1, 2, 3, 4])
-    old_path = npz_cache.save_npz_artifact(
+    parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=[1, 2],
+        window_size=100,
+        feature_names=["f0", "f1"],
+        stream_provenance={
+            "transform": "host_feature_rows_v2",
+            "feature_names": ["f0", "f1"],
+        },
+    )
+    artifact_path = npz_cache.save_ml_replay_row_artifact(
         source_path,
-        artifact_name="unit_capacity",
-        artifact_version=1,
-        parameters={"variant": "old"},
-        payload={"value": np.arange(128)},
+        parameters=parameters,
+        X=np.asarray([[1.0, 2.0]], dtype=np.float32),
+        feature_names=["f0", "f1"],
+        packet_index=np.asarray([10], dtype=np.int32),
+        evaluation_index=np.asarray([0], dtype=np.int32),
+        reset_index=np.asarray([0], dtype=np.int32),
+        evaluation_due=np.asarray([True]),
     )
-    fresh_path = npz_cache.save_npz_artifact(
-        source_path,
-        artifact_name="unit_capacity",
-        artifact_version=1,
-        parameters={"variant": "fresh"},
-        payload={"value": np.arange(128)},
+    index_entries = list(
+        (npz_cache.artifact_dir("ml_replay_rows") / ".feature_index").glob(
+            "*/*.json"
+        )
     )
-    old_timestamp = time.time() - 60
-    os.utime(old_path, (old_timestamp, old_timestamp))
+    assert len(index_entries) == 1
+    artifact_path.unlink()
 
-    removed = npz_cache.prune_persisted_artifacts(
-        "unit_capacity",
-        max_bytes=fresh_path.stat().st_size,
-    )
+    removed = npz_cache.prune_persisted_artifacts("ml_replay_rows")
 
-    assert removed["capacity"] == 1
-    assert not old_path.exists()
-    assert fresh_path.exists()
+    assert removed["orphaned_index"] == 1
+    assert not index_entries[0].exists()
 
 
 @pytest.mark.parametrize("artifact_name", ("feature_column", "idle_baseline"))
@@ -497,6 +612,16 @@ def test_prune_tool_removes_selected_obsolete_artifacts(tmp_path, capsys):
     assert "Total: 1 artifact(s)" in output.out
     assert not artifact_path.exists()
     assert not npz_cache.artifact_dir("idle_baseline").exists()
+
+
+def test_prune_tool_rejects_removed_retention_options(capsys):
+    from tools import prune_npz_cache
+
+    with pytest.raises(SystemExit) as exc_info:
+        prune_npz_cache.main(["--max-age-days", "30"])
+
+    assert exc_info.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
 
 
 def test_ml_replay_parameters_expose_version_to_derived_caches():

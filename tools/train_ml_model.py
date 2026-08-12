@@ -5817,6 +5817,40 @@ def load_or_compute_host_feature_rows(source_path, *,
         raise ValueError("dense row selection requires sample_contract='stream_dense'")
     if stride is not None and use_cache and cache_write:
         raise ValueError("selected rows cannot be written under a full-row cache key")
+    def cache_parameters(window_packets):
+        return npz_cache.ml_replay_row_parameters(
+            selected_subcarriers=DEFAULT_SUBCARRIERS,
+            window_size=window_packets,
+            feature_names=requested_feature_names,
+            stream_provenance=stream_provenance,
+        )
+
+    def project_cached(cached):
+        cached['cache_hit'] = True
+        if normalized_contract == 'stream_dense':
+            return _select_host_feature_rows(cached, stride, offset)
+        row_mask = np.asarray(cached['evaluation_due'], dtype=bool)
+        return {
+            'X': np.asarray(cached['X'], dtype=np.float32)[row_mask],
+            'feature_names': list(cached['feature_names']),
+            'packet_index': np.asarray(cached['packet_index'], dtype=np.int32)[row_mask],
+            'evaluation_index': np.arange(int(np.sum(row_mask)), dtype=np.int32),
+            'reset_index': np.asarray(cached['reset_index'], dtype=np.int32)[row_mask],
+            'evaluation_due': np.asarray(cached['evaluation_due'], dtype=bool)[row_mask],
+            'cache_hit': True,
+        }
+
+    # The feature index deliberately excludes the derived window size. For one
+    # source and deterministic stream provenance that value is redundant, so a
+    # hit can be resolved before opening or augmenting the packet capture.
+    if use_cache:
+        cached = npz_cache.load_ml_replay_row_artifact(
+            source_path,
+            parameters=cache_parameters(0),
+        )
+        if cached is not None:
+            return project_cached(cached)
+
     if packets is not None:
         packet_stream = packets
     elif packets_factory is not None:
@@ -5828,32 +5862,14 @@ def load_or_compute_host_feature_rows(source_path, *,
         interval_us,
         SEGMENTATION_WINDOW_SIZE_MS,
     )["window_packets"]
-    parameters = npz_cache.ml_replay_row_parameters(
-        selected_subcarriers=DEFAULT_SUBCARRIERS,
-        window_size=window_packets,
-        feature_names=requested_feature_names,
-        stream_provenance=stream_provenance,
-    )
+    parameters = cache_parameters(window_packets)
     if use_cache:
         cached = npz_cache.load_ml_replay_row_artifact(
             source_path,
             parameters=parameters,
         )
         if cached is not None:
-            cached['cache_hit'] = True
-            if normalized_contract == 'stream_dense':
-                return _select_host_feature_rows(cached, stride, offset)
-            row_mask = np.asarray(cached['evaluation_due'], dtype=bool)
-            projected = {
-                'X': np.asarray(cached['X'], dtype=np.float32)[row_mask],
-                'feature_names': list(cached['feature_names']),
-                'packet_index': np.asarray(cached['packet_index'], dtype=np.int32)[row_mask],
-                'evaluation_index': np.arange(int(np.sum(row_mask)), dtype=np.int32),
-                'reset_index': np.asarray(cached['reset_index'], dtype=np.int32)[row_mask],
-                'evaluation_due': np.asarray(cached['evaluation_due'], dtype=bool)[row_mask],
-                'cache_hit': True,
-            }
-            return projected
+            return project_cached(cached)
     rows = build_host_feature_rows(
         packet_stream,
         requested_feature_names,

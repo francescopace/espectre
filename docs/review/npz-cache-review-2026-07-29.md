@@ -145,7 +145,7 @@ Current cost: 199 entries for 73 distinct sources, 60 MB. `extract_features` cos
 
 **Resolution**
 
-Make the persisted unit one capture plus one feature, or one capture plus a feature superset that requests slice by column. Assemble the requested matrix from cached columns and compute only the missing ones.
+Keep the immutable full-schema artifacts, and publish a lightweight index keyed by source and schema-independent stream provenance. A subset request loads the smallest compatible indexed superset, validates its complete stored manifest, and projects the requested columns in order. Host-side hits resolve before packet materialization or deterministic augmentation. On the working 49-capture training corpus, a previously unseen six-feature subset reused all 49 cached eight-feature artifacts in `0.279 s`; the equivalent cold extraction had taken `10 min 38 s`.
 
 <a id="k-3"></a>
 
@@ -226,7 +226,7 @@ Mark cached arrays read-only and hand out a mapping the caller cannot mutate. Ke
 
 **Resolution**
 
-Add a prune operation that drops entries whose source manifest no longer resolves, and expose it on the tooling surface.
+Add a prune operation that drops entries whose capture or any nested implementation-source manifest no longer resolves to the recorded content, and expose it on the tooling surface. Also remove malformed and orphaned feature-superset index entries. Pruning is strictly reachability-based: it has no age or size retention modes, so every remaining artifact is usable under its recorded provenance.
 
 <a id="r-3"></a>
 
