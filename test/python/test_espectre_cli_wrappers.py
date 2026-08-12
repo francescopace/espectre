@@ -21,7 +21,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from espectre_cli import app, common, esphome, idf, mqtt_shell, serial_monitor, targets
+from espectre_cli import app, common, esphome, idf, idf_container, mqtt_shell, serial_monitor, targets
 
 
 def _mqtt_args() -> argparse.Namespace:
@@ -337,6 +337,191 @@ def test_run_idf_command_build_reuses_matching_target(monkeypatch, tmp_path: Pat
     assert calls == [
         (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults", "build"], app_dir),
     ]
+
+
+def test_run_idf_command_build_falls_back_to_cached_docker_backend(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: (_ for _ in ()).throw(FileNotFoundError()))
+    monkeypatch.setattr(idf, "ensure_docker_backend", lambda _policy: "/usr/bin/docker")
+    monkeypatch.setattr(idf, "run_idf_container", lambda **kwargs: calls.append(kwargs))
+
+    idf.run_idf_command(
+        "native",
+        argparse.Namespace(
+            chip="c3",
+            idf_command="build",
+            port=None,
+            clean=False,
+            clean_all=False,
+            backend="auto",
+            pull="ask",
+        ),
+    )
+
+    assert calls == [
+        {
+            "frontend": "native",
+            "app_path": app_dir,
+            "commands": [
+                [
+                    "idf.py",
+                    "-B",
+                    "build-esp32c3-docker",
+                    "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                    "set-target",
+                    "esp32c3",
+                ],
+                [
+                    "idf.py",
+                    "-B",
+                    "build-esp32c3-docker",
+                    "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                    "build",
+                ],
+            ],
+            "repo_root": common.REPO_ROOT,
+            "sdkconfig_defaults": "sdkconfig.defaults",
+            "pull_policy": "ask",
+            "docker": "/usr/bin/docker",
+        }
+    ]
+
+
+def test_run_idf_command_forced_local_backend_does_not_try_docker(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    docker_calls: list[str] = []
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: (_ for _ in ()).throw(FileNotFoundError()))
+    monkeypatch.setattr(idf, "ensure_docker_backend", lambda policy: docker_calls.append(policy))
+
+    with pytest.raises(SystemExit):
+        idf.run_idf_command(
+            "native",
+            argparse.Namespace(
+                chip="c3",
+                idf_command="build",
+                port=None,
+                clean=False,
+                clean_all=False,
+                backend="local",
+                pull="ask",
+            ),
+        )
+
+    assert docker_calls == []
+
+
+def test_docker_backend_failure_does_not_clean_existing_build(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    build_dir = app_dir / "build-esp32c3-docker"
+    build_dir.mkdir(parents=True)
+    (build_dir / "firmware.bin").write_text("keep", encoding="utf-8")
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(
+        idf,
+        "ensure_docker_backend",
+        lambda _policy: (_ for _ in ()).throw(idf.DockerBackendError("download declined")),
+    )
+
+    with pytest.raises(SystemExit):
+        idf.run_idf_command(
+            "native",
+            argparse.Namespace(
+                chip="c3",
+                idf_command="build",
+                port=None,
+                clean=True,
+                clean_all=False,
+                backend="docker",
+                pull="ask",
+            ),
+        )
+
+    assert (build_dir / "firmware.bin").read_text(encoding="utf-8") == "keep"
+
+
+def test_docker_backend_uses_cached_image_without_prompt(monkeypatch) -> None:
+    prompts: list[str] = []
+    monkeypatch.setattr(idf_container, "docker_executable", lambda: "/usr/bin/docker")
+    monkeypatch.setattr(idf_container, "docker_daemon_is_running", lambda _docker: True)
+    monkeypatch.setattr(idf_container, "docker_image_is_present", lambda _docker, _image: True)
+
+    docker = idf_container.ensure_docker_backend("ask", input_fn=lambda prompt: prompts.append(prompt) or "n")
+
+    assert docker == "/usr/bin/docker"
+    assert prompts == []
+
+
+def test_docker_backend_asks_before_downloading_missing_image(monkeypatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(idf_container, "docker_executable", lambda: "/usr/bin/docker")
+    monkeypatch.setattr(idf_container, "docker_daemon_is_running", lambda _docker: True)
+    monkeypatch.setattr(idf_container, "docker_image_is_present", lambda _docker, _image: False)
+    monkeypatch.setattr(idf_container, "_interactive_terminal", lambda: True)
+    monkeypatch.setattr(
+        idf_container.subprocess,
+        "run",
+        lambda command, check: calls.append(command) or SimpleNamespace(returncode=0),
+    )
+
+    idf_container.ensure_docker_backend("ask", input_fn=lambda _prompt: "yes")
+
+    assert calls == [["/usr/bin/docker", "pull", idf_container.IDF_DOCKER_IMAGE]]
+
+
+def test_docker_backend_requires_explicit_pull_in_noninteractive_session(monkeypatch) -> None:
+    monkeypatch.setattr(idf_container, "docker_executable", lambda: "/usr/bin/docker")
+    monkeypatch.setattr(idf_container, "docker_daemon_is_running", lambda _docker: True)
+    monkeypatch.setattr(idf_container, "docker_image_is_present", lambda _docker, _image: False)
+    monkeypatch.setattr(idf_container, "_interactive_terminal", lambda: False)
+
+    with pytest.raises(idf_container.DockerBackendError, match="--pull missing"):
+        idf_container.ensure_docker_backend("ask")
+
+
+def test_docker_backend_waits_for_user_to_start_engine(monkeypatch) -> None:
+    engine_states = iter((False, True))
+    prompts: list[str] = []
+    monkeypatch.setattr(idf_container, "docker_executable", lambda: "/usr/bin/docker")
+    monkeypatch.setattr(idf_container, "docker_daemon_is_running", lambda _docker: next(engine_states))
+    monkeypatch.setattr(idf_container, "docker_image_is_present", lambda _docker, _image: True)
+    monkeypatch.setattr(idf_container, "_interactive_terminal", lambda: True)
+
+    docker = idf_container.ensure_docker_backend(
+        "ask", input_fn=lambda prompt: prompts.append(prompt) or ""
+    )
+
+    assert docker == "/usr/bin/docker"
+    assert len(prompts) == 1
+
+
+def test_build_docker_command_mounts_repository_and_uses_separate_build_dir(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    app_dir = repo_root / "src" / "cpp" / "frontend" / "native" / "app"
+    app_dir.mkdir(parents=True)
+    commands = [["idf.py", "-B", "build-esp32c3-docker", "build"]]
+
+    command = idf_container.build_docker_command(
+        "/usr/bin/docker",
+        frontend="native",
+        app_path=app_dir,
+        commands=commands,
+        repo_root=repo_root,
+        sdkconfig_defaults="sdkconfig.defaults;sdkconfig.wifi",
+    )
+
+    assert command[:3] == ["/usr/bin/docker", "run", "--rm"]
+    assert f"{repo_root.resolve()}:/work" in command
+    assert "/work/src/cpp/frontend/native/app" in command
+    assert "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi" in command
+    assert command[-1] == "idf.py -B build-esp32c3-docker build"
 
 
 def test_sdkconfig_matches_target_rejects_a_different_target(tmp_path: Path) -> None:
@@ -794,6 +979,26 @@ def test_idf_build_parser_accepts_clean_flag() -> None:
     assert args.idf_command == "build"
     assert args.chip == "c6"
     assert args.clean is True
+
+
+def test_idf_build_parser_accepts_backend_and_pull_policy() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(
+        ["native", "build", "--chip", "c3", "--backend", "docker", "--pull", "missing"]
+    )
+
+    assert args.backend == "docker"
+    assert args.pull == "missing"
+
+
+def test_idf_build_parser_defaults_to_automatic_backend() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["matter", "build", "--chip", "c6"])
+
+    assert args.backend == "auto"
+    assert args.pull == "ask"
 
 
 def test_idf_build_parser_accepts_clean_all_flag() -> None:

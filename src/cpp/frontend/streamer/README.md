@@ -206,7 +206,7 @@ When multiple streamers share the same target, the host collector is expected to
 
 ## Build and Tooling
 
-Before building locally, complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#local-build-prerequisites). The repository CLI auto-detects a reusable ESP-IDF installation; use [`CLI.md`](../../../../docs/CLI.md) for command syntax and wrapper behavior.
+Before building locally, complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#local-build-prerequisites). The repository CLI prefers a reusable local ESP-IDF installation and falls back to the pinned Docker build environment when local ESP-IDF is absent; use [`CLI.md`](../../../../docs/CLI.md) for backend controls and command syntax.
 
 Repository CLI:
 
@@ -216,7 +216,7 @@ Repository CLI:
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
 
-On Windows, use `.\espectre.cmd streamer ...` and `.\espectre.cmd monitor --port COM5`. If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor` or `./espectre doctor` for troubleshooting.
+On Windows, use `.\espectre.cmd streamer ...` and `.\espectre.cmd monitor --port COM5`. Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
 
 When `app/sdkconfig.wifi` exists, the repository CLI automatically passes `sdkconfig.defaults`, the matching `sdkconfig.defaults.<idf_target>` when present, and `sdkconfig.wifi` to `idf.py` for `build`.
 

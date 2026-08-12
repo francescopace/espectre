@@ -11,8 +11,11 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
+
+from espectre_cli.idf_container import IDF_DOCKER_IMAGE
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -204,6 +207,44 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
     assert root.findall("s:url/s:changefreq", namespace) == []
 
 
+def test_generated_pages_have_sitemap_lastmod_ownership() -> None:
+    static_pages = load_script("build_static_pages")
+    sitemap_builder = load_script("build_sitemap")
+    verifier = load_script("verify_web_build")
+
+    namespace = {"s": sitemap_builder.SITEMAP_NAMESPACE}
+    root = ET.parse(REPO_ROOT / "docs" / "web" / "sitemap.xml").getroot()
+    sitemap_paths = {
+        urlparse(location).path
+        for location in (
+            entry.findtext("s:loc", namespaces=namespace)
+            for entry in root.findall("s:url", namespace)
+        )
+        if location
+    }
+    generated_pages = {
+        f"/{page['output'].strip('/')}/": Path("docs/web") / page["source"]
+        for page in static_pages.PAGES
+    }
+
+    assert len(generated_pages) == len(static_pages.PAGES), "Generated page routes must be unique"
+    assert not generated_pages.keys() - sitemap_paths, (
+        "Generated pages missing from the sitemap: "
+        f"{sorted(generated_pages.keys() - sitemap_paths)}"
+    )
+    assert sitemap_paths == verifier.EXPECTED_SITEMAP_PATHS
+
+    for route, source in generated_pages.items():
+        assert route in sitemap_builder.ROUTE_SOURCES, (
+            f"Generated page {route} has no sitemap lastmod ownership mapping"
+        )
+        ownership = sitemap_builder.ROUTE_SOURCES[route]
+        assert source in ownership, f"Sitemap lastmod for {route} does not track {source}"
+        assert sitemap_builder.STATIC_PAGE_BUILDER in ownership, (
+            f"Sitemap lastmod for {route} does not track the static page builder"
+        )
+
+
 def test_sitemap_verifier_requires_accurate_dates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -320,8 +361,9 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         "build_streamer_firmware.sh",
     ):
         source = (SCRIPTS_DIR / script_name).read_text(encoding="utf-8")
-        assert "@sha256:" in source
+        assert IDF_DOCKER_IMAGE in source
         assert ".espectre-requirements-\\${REQUIREMENTS_HASH}" in source
+        assert "--backend local --clean" in source
 
 
 def test_website_sources_use_the_generated_sdk_api_path() -> None:

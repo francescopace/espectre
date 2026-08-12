@@ -52,7 +52,7 @@ docker run --rm \
     fi
     export ESPECTRE_IDF_BUILD_DIR=${BUILD_DIR}
     cd /work
-    python /work/espectre streamer build --chip \"\${STREAMER_CHIP}\" --clean
+    python /work/espectre streamer build --chip \"\${STREAMER_CHIP}\" --backend local --clean
     cd /work/src/cpp/frontend/streamer/app/${BUILD_DIR}
     if python -m esptool merge-bin -h >/dev/null 2>&1; then
       python -m esptool --chip ${STREAMER_TARGET} merge-bin --pad-to-size 4MB -o \"\${STREAMER_OUTPUT}\" @flash_args

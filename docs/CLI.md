@@ -35,7 +35,7 @@ Run the CLI from the repository root.
 - Use `./espectre --help` for the current top-level command list.
 - Use `./espectre <namespace> --help` for namespace-specific flags.
 - The wrapper prefers repository defaults and shared host autodetection over long manual setup steps.
-- `Native`, `Matter`, and `Streamer` reuse the local ESP-IDF environment detected by the wrapper. Use `./espectre doctor` when that detection fails or when you want to inspect which ESP-IDF install will be used.
+- `Native`, `Matter`, and `Streamer` prefer the local ESP-IDF environment detected by the wrapper and fall back to Docker for builds when no local installation is available. Use `./espectre doctor` to inspect the local ESP-IDF path.
 
 ## Frontend Workflow Commands
 
@@ -71,6 +71,15 @@ For `build`, cleanup flags are:
 - `--clean`: remove only the resolved build directory for the selected chip, such as `build-esp32c3`.
 - `--clean-all`: remove all frontend build directories plus shared artifacts such as `sdkconfig`, `sdkconfig.old`, and `dependencies.lock`.
 
+Build environment flags are:
+
+- `--backend auto`: prefer local ESP-IDF and use Docker only when no local installation is detected; this is the default.
+- `--backend local`: require local ESP-IDF and do not consider Docker.
+- `--backend docker`: require the pinned ESP-IDF Docker image.
+- `--pull ask|missing|never`: ask before downloading a missing Docker image, download it automatically, or require it to be cached. The default is `ask`; non-interactive jobs should use `missing` or `never` explicitly.
+
+Docker builds use a separate directory such as `build-esp32c3-docker`, which prevents host and container CMake caches from sharing incompatible absolute paths. Docker is a build backend only; `flash` continues to use the detected local ESP-IDF environment and host serial port.
+
 For `flash`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout.
 
 `flash` still delegates to `idf.py flash`, so ESP-IDF may configure CMake or complete a missing build inside that selected directory before writing the firmware. The important guarantee is that the wrapper now prefers the chip-matched build directory first.
@@ -85,6 +94,7 @@ Examples:
 
 ```bash
 ./espectre native build --chip c3
+./espectre native build --chip c3 --backend docker
 ./espectre native build --chip c3 --clean
 ./espectre native build --chip c3 --clean-all
 ./espectre esphome build --chip c3 --clean

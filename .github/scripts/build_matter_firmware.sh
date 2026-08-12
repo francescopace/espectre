@@ -52,7 +52,7 @@ docker run --rm \
     fi
     export ESPECTRE_IDF_BUILD_DIR=${BUILD_DIR}
     cd /work
-    python /work/espectre matter build --chip \"\${MATTER_CHIP}\" --clean
+    python /work/espectre matter build --chip \"\${MATTER_CHIP}\" --backend local --clean
     cd /work/src/cpp/frontend/matter/app/${BUILD_DIR}
     if python -m esptool merge-bin -h >/dev/null 2>&1; then
       python -m esptool --chip ${MATTER_TARGET} merge-bin --pad-to-size 4MB -o \"\${MATTER_OUTPUT}\" @flash_args

@@ -17,6 +17,7 @@ from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_nam
 from .esphome import run_esphome_command
 from .host import collect_csi_data, open_web_ui
 from .idf import run_idf_command, run_idf_doctor
+from .idf_container import DOCKER_PULL_POLICIES
 from .micro import deploy_code, flash_firmware, run_application, verify_installation
 from .mqtt_shell import EspectreMQTTShell
 from .serial_monitor import run_serial_monitor
@@ -225,6 +226,18 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
         command_parser = idf_subparsers.add_parser(command_name, help=help_text)
         if command_name == "build":
             command_parser.add_argument("--chip", choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()), required=True, help="ESP-IDF target chip")
+            command_parser.add_argument(
+                "--backend",
+                choices=("auto", "local", "docker"),
+                default="auto",
+                help="Build environment: prefer local ESP-IDF, require local ESP-IDF, or use Docker (default: auto)",
+            )
+            command_parser.add_argument(
+                "--pull",
+                choices=DOCKER_PULL_POLICIES,
+                default="ask",
+                help="Docker image download policy when the image is missing (default: ask)",
+            )
             clean_group = command_parser.add_mutually_exclusive_group()
             clean_group.add_argument(
                 "--clean",

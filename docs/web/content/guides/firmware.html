@@ -34,7 +34,7 @@
       <figcaption>The shared wrapper turns the selected frontend and chip configuration into a firmware image, then flashes it to the board over USB.</figcaption>
     </figure>
     <ol class="steps-list">
-      <li><h3>Clone and check the environment</h3><p>Clone the repository, create the virtual environment, and run the doctor command: it verifies Python, ESP-IDF, and the serial tooling before your first build. Native, Matter, and Streamer need a working ESP-IDF installation; ESPHome installs its own toolchain.</p></li>
+      <li><h3>Clone and check the environment</h3><p>Clone the repository and create the virtual environment. Native, Matter, and Streamer prefer local ESP-IDF and automatically use the pinned Docker build environment when it is absent; ESPHome installs its own toolchain. Flashing from the CLI still uses local ESP-IDF and serial tooling.</p></li>
       <li><h3>Build for your chip</h3><p>Every frontend builds through the same wrapper; pick the chip explicitly.</p></li>
       <li><h3>Flash and watch the logs</h3><p>Each build command has a matching flash/monitor flow; use <code>--help</code> on any subcommand for current options and port naming.</p></li>
     </ol>

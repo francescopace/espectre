@@ -49,16 +49,17 @@ python -m pip install -r requirements.txt
 
 On Windows PowerShell, create the environment with `py -3 -m venv .venv`, activate `.\.venv\Scripts\Activate.ps1`, and run the same install command.
 
-Native, Matter, and Streamer builds also require ESP-IDF `5.5.4`. The wrapper reuses the matching framework downloaded by ESPHome/PlatformIO when available, otherwise it detects a standard ESP-IDF installation or `IDF_PATH`. Check the selected environment before troubleshooting a build:
+Native, Matter, and Streamer builds prefer a local ESP-IDF `5.5.4` environment and automatically fall back to the pinned ESP-IDF Docker image when no local installation is detected. The local path reuses the matching framework downloaded by ESPHome/PlatformIO when available, otherwise it detects a standard ESP-IDF installation or `IDF_PATH`.
 
 ```bash
-./espectre doctor
 ./espectre native build --chip c3
 ```
 
-On Windows, use `.\espectre.cmd doctor` and `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter and Streamer.
+On Windows, use `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter and Streamer.
 
-If `doctor` finds no usable installation, either run one ESPHome build to download the matching PlatformIO framework or install ESP-IDF `5.5.4` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow. Only export an ESP-IDF environment manually when `doctor` cannot validate an existing installation.
+When the local environment is absent and Docker is running, a cached image is used without prompting. If the image is missing, an interactive build asks before downloading it; non-interactive builds must opt in with `--pull missing`. If Docker is installed but stopped, the CLI asks you to start it and retry. Use `--backend local` or `--backend docker` to require one path, and use `./espectre doctor` to inspect only the local ESP-IDF environment.
+
+Docker currently covers builds only. Flashing through the repository CLI still uses local serial tooling and ESP-IDF. If neither build backend is available, either install Docker or install ESP-IDF `5.5.4` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow.
 
 Build cleanup, chip-matched flash selection, and namespace-specific flags are documented in [CLI.md](CLI.md#frontend-workflow-commands).
 

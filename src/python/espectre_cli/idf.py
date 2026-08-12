@@ -19,7 +19,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from .common import Fore, Style, cli_command, detect_chip_type, get_serial_port
+from .common import Fore, REPO_ROOT, Style, cli_command, detect_chip_type, get_serial_port
+from .idf_container import DockerBackendError, ensure_docker_backend, run_idf_container
 from .targets import IDF_FRONTENDS, resolve_idf_target
 
 
@@ -131,7 +132,11 @@ def resolve_configured_idf_target(app_path: Path) -> str | None:
 
 
 def resolve_idf_build_dir_name(
-    app_path: Path, idf_target: str | None = None, *, prefer_existing_default: bool = False
+    app_path: Path,
+    idf_target: str | None = None,
+    *,
+    container: bool = False,
+    prefer_existing_default: bool = False,
 ) -> str | None:
     """Resolve the ESP-IDF build directory, honoring overrides and per-target defaults."""
     if build_dir_name := os.environ.get("ESPECTRE_IDF_BUILD_DIR"):
@@ -141,7 +146,7 @@ def resolve_idf_build_dir_name(
     if not configured_target:
         return None
 
-    target_build_dir_name = f"build-{configured_target}"
+    target_build_dir_name = f"build-{configured_target}{'-docker' if container else ''}"
     if not prefer_existing_default:
         return target_build_dir_name
 
@@ -445,8 +450,34 @@ def run_idf_command(frontend: str, args) -> None:
         if not read_matter_onboarding(port):
             raise SystemExit(1)
         return
+    idf_env = None
+    docker = None
+    build_backend = "local"
     if args.idf_command == "build":
-        build_dir_name = resolve_idf_build_dir_name(app_path, idf_target)
+        requested_backend = getattr(args, "backend", "auto")
+        if requested_backend != "docker":
+            try:
+                idf_env = resolve_idf_environment()
+            except FileNotFoundError:
+                if requested_backend == "local":
+                    print(f"{Fore.RED}❌ No usable local ESP-IDF installation was auto-detected.{Style.RESET_ALL}")
+                    print_idf_recovery_instructions()
+                    raise SystemExit(1)
+                build_backend = "docker"
+        else:
+            build_backend = "docker"
+        if build_backend == "docker":
+            print(f"{Fore.CYAN}Build env: Docker with the pinned ESP-IDF image{Style.RESET_ALL}")
+            try:
+                docker = ensure_docker_backend(getattr(args, "pull", "ask"))
+            except DockerBackendError as exc:
+                print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
+                raise SystemExit(1)
+        build_dir_name = resolve_idf_build_dir_name(
+            app_path,
+            idf_target,
+            container=build_backend == "docker",
+        )
     clean_requested = getattr(args, "clean", False) or getattr(args, "clean_all", False)
     if args.idf_command == "build":
         if getattr(args, "clean_all", False):
@@ -454,7 +485,8 @@ def run_idf_command(frontend: str, args) -> None:
         elif getattr(args, "clean", False):
             clean_idf_build_artifacts(app_path, build_dir_name)
 
-    defaults_arg = f"-DSDKCONFIG_DEFAULTS={resolve_sdkconfig_defaults(app_path, idf_target)}"
+    sdkconfig_defaults = resolve_sdkconfig_defaults(app_path, idf_target)
+    defaults_arg = f"-DSDKCONFIG_DEFAULTS={sdkconfig_defaults}"
 
     commands = []
     flash_port = None
@@ -471,10 +503,28 @@ def run_idf_command(frontend: str, args) -> None:
         base_command = build_idf_base_command(build_dir_name)
         commands = [[*base_command, "-p", port, "flash"]]
 
+    if args.idf_command == "build" and build_backend == "docker":
+        for command in commands:
+            print(f"{Fore.CYAN}Command: {' '.join(command)}{Style.RESET_ALL}")
+        try:
+            run_idf_container(
+                frontend=frontend,
+                app_path=app_path,
+                commands=commands,
+                repo_root=REPO_ROOT,
+                sdkconfig_defaults=sdkconfig_defaults,
+                pull_policy=getattr(args, "pull", "ask"),
+                docker=docker,
+            )
+        except DockerBackendError as exc:
+            print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
+            raise SystemExit(1)
+        return
+
     try:
-        env = resolve_idf_environment()
+        env = idf_env or resolve_idf_environment()
     except FileNotFoundError:
-        print(f"{Fore.RED}❌ No usable ESP-IDF installation was auto-detected.{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ No usable local ESP-IDF installation was auto-detected.{Style.RESET_ALL}")
         print_idf_recovery_instructions()
         raise SystemExit(1)
 

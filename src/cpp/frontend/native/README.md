@@ -29,7 +29,7 @@ Each release and snapshot publishes one full-flash native image and one applicat
 
 ### Local ESP-IDF Workflow
 
-Before building locally, complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#local-build-prerequisites). The repository CLI auto-detects a reusable ESP-IDF installation; use [`CLI.md`](../../../../docs/CLI.md) for command syntax and wrapper behavior.
+Before building locally, complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#local-build-prerequisites). The repository CLI prefers a reusable local ESP-IDF installation and falls back to the pinned Docker build environment when local ESP-IDF is absent; use [`CLI.md`](../../../../docs/CLI.md) for backend controls and command syntax.
 
 Repository CLI:
 
@@ -39,7 +39,7 @@ Repository CLI:
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
 
-The CLI is a thin wrapper over the ESP-IDF app in this directory. On Windows, use `.\espectre.cmd native ...` and `.\espectre.cmd monitor --port COM5`. If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor` or `./espectre doctor` to inspect the detected environment.
+The CLI is a thin wrapper over the ESP-IDF app in this directory. On Windows, use `.\espectre.cmd native ...` and `.\espectre.cmd monitor --port COM5`. Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
 
 ### Web Bluetooth Configuration Client
 

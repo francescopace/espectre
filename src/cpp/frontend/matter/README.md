@@ -35,7 +35,7 @@ The first boot generates a random setup passcode, discriminator, and SPAKE2+ sal
 
 ### Local ESP-IDF Workflow
 
-Before building locally, complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#local-build-prerequisites). The repository CLI auto-detects a reusable ESP-IDF installation; use [`CLI.md`](../../../../docs/CLI.md) for command syntax and wrapper behavior.
+Before building locally, complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#local-build-prerequisites). The repository CLI prefers a reusable local ESP-IDF installation and falls back to the pinned Docker build environment when local ESP-IDF is absent; use [`CLI.md`](../../../../docs/CLI.md) for backend controls and command syntax.
 
 Repository CLI:
 
@@ -49,7 +49,7 @@ Repository CLI:
 Notes:
 
 - On Windows, use `.\espectre.cmd matter ...` and `.\espectre.cmd monitor --port COM5`.
-- If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor` or `./espectre doctor` for troubleshooting.
+- Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
 - Shared sensing options are selected through the shared ESPectre sensing `sdkconfig` menu.
 - the first build downloads managed components and compiles `esp_matter`, so it is significantly slower than incremental builds
 
