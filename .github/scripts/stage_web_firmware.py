@@ -33,7 +33,12 @@ def parse_args() -> argparse.Namespace:
 def clean_output_dir(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     for path in output_dir.iterdir():
-        if path.is_file() and (path.suffix == ".bin" or path.name.startswith("firmware-manifest-")):
+        if path.is_file() and (
+            path.suffix in (".bin", ".zip")
+            or path.name.endswith("-sbom.spdx.json")
+            or path.name.endswith("-THIRD_PARTY_NOTICES.txt")
+            or path.name.startswith("firmware-manifest-")
+        ):
             path.unlink()
 
 
@@ -73,6 +78,11 @@ def stage_web_firmware(args: argparse.Namespace) -> Path:
 
     for filename in sorted(referenced_filenames(manifest)):
         shutil.copy2(firmware_dir / filename, output_dir / filename)
+        firmware_stem = Path(filename).stem
+        for suffix in ("-sbom.spdx.json", "-THIRD_PARTY_NOTICES.txt", "-third-party-licenses.zip"):
+            companion = firmware_dir / f"{firmware_stem}{suffix}"
+            if companion.is_file():
+                shutil.copy2(companion, output_dir / companion.name)
 
     return manifest_path
 

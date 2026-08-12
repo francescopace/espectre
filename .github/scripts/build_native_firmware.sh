@@ -66,4 +66,16 @@ docker run --rm \
     if [ -n \"\${NATIVE_OTA_OUTPUT:-}\" ]; then
       cp espectre-native.bin \"\${NATIVE_OTA_OUTPUT}\"
     fi
+    python /work/.github/scripts/build_firmware_compliance.py \
+      --frontend native \
+      --project-description /work/src/cpp/frontend/native/app/${BUILD_DIR}/project_description.json \
+      --firmware \"\${NATIVE_OUTPUT}\" \
+      --output-dir \"\$(dirname \"\${NATIVE_OUTPUT}\")\"
+    if [ -n \"\${NATIVE_OTA_OUTPUT:-}\" ]; then
+      python /work/.github/scripts/build_firmware_compliance.py \
+        --frontend native \
+        --project-description /work/src/cpp/frontend/native/app/${BUILD_DIR}/project_description.json \
+        --firmware \"\${NATIVE_OTA_OUTPUT}\" \
+        --output-dir \"\$(dirname \"\${NATIVE_OTA_OUTPUT}\")\"
+    fi
   "

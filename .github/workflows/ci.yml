@@ -82,7 +82,7 @@ jobs:
           mkdir -p stable-sdk
           if gh release view >/dev/null 2>&1; then
             STABLE_TAG="$(gh release view --json tagName --jq '.tagName')"
-            gh release download "$STABLE_TAG" --pattern '*.bin' --dir stable-firmware --clobber
+            gh release download "$STABLE_TAG" --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir stable-firmware --clobber
             gh release download "$STABLE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir stable-sdk --clobber
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir stable-firmware \
@@ -108,7 +108,7 @@ jobs:
           mkdir -p snapshot-firmware
           mkdir -p snapshot-sdk
           if gh release view snapshot >/dev/null 2>&1; then
-            gh release download snapshot --pattern '*.bin' --dir snapshot-firmware --clobber
+            gh release download snapshot --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir snapshot-firmware --clobber
             gh release download snapshot --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir snapshot-sdk --clobber
             SNAPSHOT_COMMIT="$(gh release view snapshot --json targetCommitish --jq '.targetCommitish // ""')"
             python .github/scripts/stage_web_firmware.py \
@@ -405,12 +405,25 @@ jobs:
           fi
           cp "${{ steps.esphome-artifacts.outputs.factory_bin }}" "output/${PREFIX}-${CHIP}.bin"
 
+      - name: Build ESPHome compliance artifacts
+        if: github.event_name == 'push'
+        run: |
+          PROJECT_DESCRIPTION="$(find src/cpp/frontend/esphome/examples/.esphome/build -path '*/.pioenvs/*/project_description.json' -print -quit)"
+          FIRMWARE="$(find output -maxdepth 1 -type f -name 'espectre-snapshot*.bin' -print -quit)"
+          test -n "${PROJECT_DESCRIPTION}"
+          test -n "${FIRMWARE}"
+          python .github/scripts/build_firmware_compliance.py \
+            --frontend esphome \
+            --project-description "${PROJECT_DESCRIPTION}" \
+            --firmware "${FIRMWARE}" \
+            --output-dir output
+
       - name: Upload ESPHome firmware artifact
         if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
         with:
           name: firmware-esphome-${{ matrix.chip }}
-          path: output/espectre-snapshot*.bin
+          path: output/espectre-snapshot*
           retention-days: 7
 
   build-matter:
@@ -474,7 +487,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: firmware-matter-${{ matrix.chip }}
-          path: output/espectre-matter-snapshot*.bin
+          path: output/espectre-matter-snapshot*
           retention-days: 7
 
   build-native:
@@ -540,7 +553,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: firmware-native-${{ matrix.chip }}
-          path: output/espectre-native-snapshot*.bin
+          path: output/espectre-native-snapshot*
           retention-days: 7
 
   build-streamer:

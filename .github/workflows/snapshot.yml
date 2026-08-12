@@ -31,7 +31,7 @@ jobs:
         run: |
           # Check if any code files changed in the last commit.
           # The ESPHome examples live under src/, so ^src/ already covers them.
-          if git diff --name-only HEAD~1 HEAD | grep -qE '^(src/|\.github/workflows/(ci|snapshot|release)\.yml$|\.github/scripts/build_[^/]+_firmware\.sh$|\.github/scripts/build_firmware_manifest\.py$|\.github/scripts/build_sdk_package\.py$|\.github/scripts/stage_web_sdk\.py$)'; then
+          if git diff --name-only HEAD~1 HEAD | grep -qE '^(src/|LICENSE$|LICENSES/|LICENSING\.md$|THIRD_PARTY_NOTICES\.md$|third_party/notices/|\.github/workflows/(ci|snapshot|release)\.yml$|\.github/scripts/build_[^/]+_firmware\.sh$|\.github/scripts/(build_firmware_compliance|build_firmware_manifest|build_sdk_package|stage_web_firmware|stage_web_sdk)\.py$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
             echo "Code changes detected, will build snapshot"
           else
@@ -127,11 +127,14 @@ jobs:
             **Commit:** ${{ github.event.workflow_run.head_sha }}
             **Date:** ${{ github.event.workflow_run.created_at }}
           files: |
-            firmware/*.bin
-            firmware/*.json
+            firmware/*
             sdk/*.tar.gz
             sdk/*.zip
             sdk/*.json
+            LICENSE
+            LICENSES/Apache-2.0.txt
+            LICENSING.md
+            THIRD_PARTY_NOTICES.md
           draft: false
           prerelease: true
           make_latest: false
@@ -195,7 +198,7 @@ jobs:
           mkdir -p stable-sdk
           if gh release view >/dev/null 2>&1; then
             STABLE_TAG="$(gh release view --json tagName --jq '.tagName')"
-            gh release download "$STABLE_TAG" --pattern '*.bin' --dir stable-firmware --clobber
+            gh release download "$STABLE_TAG" --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir stable-firmware --clobber
             gh release download "$STABLE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir stable-sdk --clobber
             echo "stable_tag=$STABLE_TAG" >> "$GITHUB_ENV"
           else

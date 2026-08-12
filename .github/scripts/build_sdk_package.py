@@ -69,7 +69,9 @@ SDK_TOP_LEVEL_FILES = (
     Path("docs/EMBEDDING.md"),
     Path("docs/Doxyfile"),
     Path("LICENSE"),
+    Path("LICENSES/Apache-2.0.txt"),
     Path("LICENSING.md"),
+    Path("THIRD_PARTY_NOTICES.md"),
 )
 
 

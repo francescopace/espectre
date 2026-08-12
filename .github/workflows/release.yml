@@ -55,12 +55,24 @@ jobs:
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
           find src/cpp/frontend/esphome/examples/.esphome/build -name "firmware.factory.bin" -exec cp {} output/ \;
           mv "output/firmware.factory.bin" "output/espectre-${VERSION}-${CHIP}.bin"
+
+      - name: Build ESPHome compliance artifacts
+        run: |
+          PROJECT_DESCRIPTION="$(find src/cpp/frontend/esphome/examples/.esphome/build -path '*/.pioenvs/*/project_description.json' -print -quit)"
+          FIRMWARE="$(find output -maxdepth 1 -type f -name 'espectre-*.bin' -print -quit)"
+          test -n "${PROJECT_DESCRIPTION}"
+          test -n "${FIRMWARE}"
+          python .github/scripts/build_firmware_compliance.py \
+            --frontend esphome \
+            --project-description "${PROJECT_DESCRIPTION}" \
+            --firmware "${FIRMWARE}" \
+            --output-dir output
       
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v7
         with:
           name: firmware-${{ matrix.chip }}
-          path: output/espectre-${{ github.ref_name }}-*.bin
+          path: output/espectre-${{ github.ref_name }}-*
           retention-days: 7
 
   build-matter:
@@ -103,12 +115,13 @@ jobs:
         env:
           MATTER_TARGET: ${{ matrix.target }}
           MATTER_OUTPUT: ${{ github.workspace }}/output/espectre-matter-${{ github.ref_name }}-${{ matrix.target }}.bin
+          MATTER_SDKCONFIG_DEFAULTS: ${{ matrix.target == 'esp32' && 'sdkconfig.defaults;sdkconfig.defaults.esp32' || '' }}
 
       - name: Upload Matter firmware artifact
         uses: actions/upload-artifact@v7
         with:
           name: firmware-matter-${{ matrix.chip }}
-          path: output/espectre-matter-*.bin
+          path: output/espectre-matter-*
           retention-days: 7
 
   build-native:
@@ -149,12 +162,13 @@ jobs:
           NATIVE_TARGET: ${{ matrix.target }}
           NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-${{ github.ref_name }}-${{ matrix.target }}.bin
           NATIVE_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-native-${{ github.ref_name }}-${{ matrix.target }}-ota.bin
+          NATIVE_SDKCONFIG_DEFAULTS: ${{ matrix.target == 'esp32' && 'sdkconfig.defaults;sdkconfig.defaults.esp32' || '' }}
 
       - name: Upload native firmware artifact
         uses: actions/upload-artifact@v7
         with:
           name: firmware-native-${{ matrix.chip }}
-          path: output/espectre-native-*.bin
+          path: output/espectre-native-*
           retention-days: 7
 
   build-sdk:
@@ -291,11 +305,14 @@ jobs:
           name: "v${{ github.ref_name }} - ${{ steps.changelog.outputs.title }}"
           body_path: release_notes.md
           files: |
-            firmware/*.bin
-            firmware/*.json
+            firmware/*
             sdk/*.tar.gz
             sdk/*.zip
             sdk/*.json
+            LICENSE
+            LICENSES/Apache-2.0.txt
+            LICENSING.md
+            THIRD_PARTY_NOTICES.md
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           discussion_category_name: "Announcements"
@@ -352,7 +369,7 @@ jobs:
           mkdir -p snapshot-firmware
           mkdir -p snapshot-sdk
           if gh release view snapshot >/dev/null 2>&1; then
-            gh release download snapshot --pattern '*.bin' --dir snapshot-firmware --clobber
+            gh release download snapshot --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir snapshot-firmware --clobber
             gh release download snapshot --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir snapshot-sdk --clobber
           else
             echo "No snapshot release found; skipping main channel staging."

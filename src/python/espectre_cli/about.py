@@ -39,7 +39,6 @@ def print_about(_args=None) -> int:
     print()
     print(f"Version: {cli_version_label()}")
     print("GitHub: github.com/francescopace/espectre")
-    print("Author: Francesco Pace <francesco.pace@espectre.dev>")
     return 0
 
 

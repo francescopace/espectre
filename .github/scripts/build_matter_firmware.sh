@@ -54,4 +54,9 @@ docker run --rm \
     else
       python -m esptool --chip ${MATTER_TARGET} merge_bin --fill-flash-size 4MB -o \"\${MATTER_OUTPUT}\" @flash_args
     fi
+    python /work/.github/scripts/build_firmware_compliance.py \
+      --frontend matter \
+      --project-description /work/src/cpp/frontend/matter/app/${BUILD_DIR}/project_description.json \
+      --firmware \"\${MATTER_OUTPUT}\" \
+      --output-dir \"\$(dirname \"\${MATTER_OUTPUT}\")\"
   "

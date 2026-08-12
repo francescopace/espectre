@@ -137,11 +137,6 @@ ESPectre is dual-licensed:
 - **GPLv3** for open-source use: see [LICENSE](LICENSE).
 - **Commercial licenses** for embedding ESPectre into proprietary firmware: see [LICENSING.md](LICENSING.md).
 
+Third-party terms and build-specific compliance artifacts are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Published firmware releases include an SPDX SBOM, a notice summary, and the corresponding upstream license files.
+
 Contributions require a DCO `Signed-off-by` trailer on each commit (`git commit -s`) and a one-time [CLA](CLA.md) signature, so contributed code can be distributed under both licensing tracks.
-
-## Author
-
-**Francesco Pace**
-
-- Email: [francesco.pace@espectre.dev](mailto:francesco.pace@espectre.dev)
-- LinkedIn: [linkedin.com/in/francescopace](https://www.linkedin.com/in/francescopace/)

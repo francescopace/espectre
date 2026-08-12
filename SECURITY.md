@@ -1,14 +1,5 @@
 # Security Policy
 
-## Supported Versions
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 2.x.x   | :white_check_mark: |
-| 1.x.x   | :x:                |
-
-Only the latest major version receives security updates. We recommend always using the latest release.
-
 ## Reporting a Vulnerability
 
 **Please do not report security vulnerabilities through public GitHub issues.**
@@ -31,7 +22,7 @@ This allows private discussion, coordinated disclosure, and automatic CVE assign
 
 ### Alternative Contact
 
-If you cannot use GitHub Security Advisories, email security@espectre.dev.
+If you cannot use GitHub Security Advisories, email <security@espectre.dev>.
 
 ### What to Expect
 

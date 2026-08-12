@@ -119,6 +119,27 @@ def build_artifact_url(filename: str, release_tag: str, url_prefix: str | None) 
     return f"https://github.com/francescopace/espectre/releases/download/{release_tag}/{filename}"
 
 
+def compliance_artifacts(asset_path: Path, release_tag: str, url_prefix: str | None) -> list[dict]:
+    companions = (
+        ("spdx-sbom", "-sbom.spdx.json"),
+        ("notices", "-THIRD_PARTY_NOTICES.txt"),
+        ("license-archive", "-third-party-licenses.zip"),
+    )
+    artifacts = []
+    for kind, suffix in companions:
+        path = asset_path.with_name(f"{asset_path.stem}{suffix}")
+        if not path.is_file():
+            continue
+        artifacts.append(
+            {
+                "kind": kind,
+                "filename": path.name,
+                "url": build_artifact_url(path.name, release_tag, url_prefix),
+            }
+        )
+    return artifacts
+
+
 def validate_complete_matrix(manifest: dict) -> None:
     expected = set()
     for chip in CHIP_METADATA:
@@ -140,6 +161,18 @@ def validate_complete_matrix(manifest: dict) -> None:
             f"Invalid firmware matrix: missing={missing}, unexpected={unexpected}, "
             f"duplicates={len(entries) - len(actual)}"
         )
+
+    required_compliance = {"spdx-sbom", "notices", "license-archive"}
+    incomplete_compliance = []
+    for frontend, metadata in manifest["frontends"].items():
+        for artifact in metadata["artifacts"]:
+            kinds = {entry["kind"] for entry in artifact["compliance"]}
+            if kinds != required_compliance:
+                incomplete_compliance.append(
+                    (frontend, artifact["filename"], sorted(required_compliance - kinds))
+                )
+    if incomplete_compliance:
+        raise ValueError(f"Missing firmware compliance artifacts: {incomplete_compliance}")
 
 
 def build_manifest(args: argparse.Namespace) -> dict:
@@ -212,6 +245,7 @@ def build_manifest(args: argparse.Namespace) -> dict:
             "build_type": parsed["build_type"],
             "filename": filename,
             "url": build_artifact_url(filename, args.release_tag, args.url_prefix),
+            "compliance": compliance_artifacts(asset_path, args.release_tag, args.url_prefix),
         }
         manifest["frontends"][parsed["frontend"]]["artifacts"].append(artifact)
 

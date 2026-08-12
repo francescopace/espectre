@@ -1,6 +1,6 @@
 //Copyright (C) 2011  Carl Rogers
 //Released under MIT License
-//license available in LICENSE file, or at http://www.opensource.org/licenses/mit-license.php
+//license available in LICENSE.cnpy, or at https://opensource.org/license/mit
 
 #include"cnpy.h"
 #include<complex>
@@ -394,6 +394,5 @@ cnpy::NpyArray cnpy::npy_load(std::string fname) {
     fclose(fp);
     return arr;
 }
-
 
 

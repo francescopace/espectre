@@ -55,4 +55,9 @@ docker run --rm \
     else
       python -m esptool --chip ${STREAMER_TARGET} merge_bin --fill-flash-size 4MB -o \"\${STREAMER_OUTPUT}\" @flash_args
     fi
+    python /work/.github/scripts/build_firmware_compliance.py \
+      --frontend streamer \
+      --project-description /work/src/cpp/frontend/streamer/app/${BUILD_DIR}/project_description.json \
+      --firmware \"\${STREAMER_OUTPUT}\" \
+      --output-dir \"\$(dirname \"\${STREAMER_OUTPUT}\")\"
   "
