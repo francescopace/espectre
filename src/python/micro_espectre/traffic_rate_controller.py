@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - Traffic Rate Controller
 
@@ -5,7 +7,6 @@ Adapts CSI traffic-generator send pacing from observed valid CSI load and
 local socket backpressure. Mirrors the C++ TrafficRateController policy.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 

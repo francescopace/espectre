@@ -6,7 +6,8 @@
  * pages report their canonical path directly.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
- * License: GPLv3
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
 const GA_MEASUREMENT_ID = 'G-S0NQNG0V11';

@@ -3,6 +3,7 @@
  *
  * Copyright 2026 Francesco Pace <francescopace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
 import { describe, it } from 'node:test';
@@ -13,6 +14,11 @@ const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), '
 const index = read('docs/web/index.html');
 const app = read('docs/web/assets/js/app.js');
 const styles = read('docs/web/assets/css/styles.css');
+const GPL_HTML_HEADER = `<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+`;
 
 describe('website security and asset policy', () => {
     it('does not execute third-party scripts before an explicit analytics choice', () => {
@@ -88,9 +94,9 @@ describe('website UX and content contracts', () => {
         const roadmapContent = read('docs/web/content/roadmap.html');
         const privacyContent = read('docs/web/content/privacy.html');
         const staticPageBuilder = read('.github/scripts/build_static_pages.py');
-        assert.match(docsContent, /^<div class="docs-quickstart">/);
-        assert.match(roadmapContent, /^<div class="roadmap-page">/);
-        assert.match(privacyContent, /^<div class="privacy-page">/);
+        assert.ok(docsContent.startsWith(`${GPL_HTML_HEADER}<div class="docs-quickstart">`));
+        assert.ok(roadmapContent.startsWith(`${GPL_HTML_HEADER}<div class="roadmap-page">`));
+        assert.ok(privacyContent.startsWith(`${GPL_HTML_HEADER}<div class="privacy-page">`));
         assert.doesNotMatch(docsContent, /^<article\b/);
         assert.doesNotMatch(roadmapContent, /^<article\b/);
         assert.doesNotMatch(privacyContent, /^<article\b/);

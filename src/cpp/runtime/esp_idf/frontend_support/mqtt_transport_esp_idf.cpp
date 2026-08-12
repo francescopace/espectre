@@ -4,7 +4,8 @@
  * ESP-IDF MQTT transport implementation for the native sensing frontend.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
- * License: GPLv3
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "mqtt_transport_esp_idf.h"
 

@@ -4,7 +4,8 @@
  * Host-side mock of esp_netif_ip_addr.h for native C++ tests.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
- * License: GPLv3
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #ifndef ESP_NETIF_IP_ADDR_H
 #define ESP_NETIF_IP_ADDR_H

@@ -1,10 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Analysis Tools
 
 Host-side analysis and tooling package.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 # Make common tooling helpers available at package level.

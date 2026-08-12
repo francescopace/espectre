@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 import numpy as np
 import pytest
 import tools.train_ml_model as trainer

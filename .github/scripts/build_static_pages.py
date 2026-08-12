@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Build Static Pages
 
@@ -19,7 +21,6 @@ theme like the app. Runtime JavaScript is limited to responsive navigation and
 consent-gated analytics.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """Frequency-coherence parity between the runtime path and the plain formula.
 
 The MicroPython and host implementations walk the two contiguous live-band

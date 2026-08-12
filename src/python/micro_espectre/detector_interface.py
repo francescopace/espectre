@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - Detector Interface
 
@@ -7,7 +9,6 @@ Provides polymorphic interface for Classic and ML detectors.
 Note: MicroPython doesn't have abc module, so we use a simple base class.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 

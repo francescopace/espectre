@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - SDK Surface Invariants
 
@@ -10,7 +12,6 @@ runtime layer, used in a facade-visible signature, but never made reachable
 through the facade, leaving integrators with an incomplete type.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 from __future__ import annotations

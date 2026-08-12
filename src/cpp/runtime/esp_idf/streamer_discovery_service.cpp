@@ -4,7 +4,8 @@
  * Advertises streamer pacing endpoints through mDNS/DNS-SD.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
- * License: GPLv3
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "streamer_discovery_service.h"
 

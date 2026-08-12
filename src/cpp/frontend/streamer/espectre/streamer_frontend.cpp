@@ -4,7 +4,8 @@
  * Streamer frontend adapter over the shared ESP-IDF runtime.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
- * License: GPLv3
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "streamer_frontend.h"
 

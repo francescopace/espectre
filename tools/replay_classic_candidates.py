@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Classic Candidate Replay
 
@@ -14,7 +16,6 @@ Usage:
         --features turb_autocorr,chan_freq_coh_curve_std
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 from __future__ import annotations

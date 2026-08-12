@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - Production ML Feature Trackers
 
@@ -5,7 +7,6 @@ Allocation-aware, MicroPython-friendly trackers for the promoted production ML
 features that go beyond turbulence and L1-delta statistics.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 import math

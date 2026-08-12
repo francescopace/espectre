@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - WiFi Traffic Generator
 
@@ -5,7 +7,6 @@ Generates UDP/DNS or ICMP ping traffic to ensure continuous CSI data flow.
 Essential for maintaining stable CSI packet reception on ESP32 chips.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 import socket
 import time

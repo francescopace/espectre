@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """Build per-firmware SPDX and third-party license artifacts."""
 
 from __future__ import annotations

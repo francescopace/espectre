@@ -1,10 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Python Test Fixtures
 
 Shared pytest fixtures for ESPectre Python tests.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 import sys

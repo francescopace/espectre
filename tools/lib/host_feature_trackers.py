@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Host-Side Feature Trackers
 
@@ -6,7 +8,6 @@ training and evaluation flows. Production and candidate feature registries build
 on top of these helpers.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 from __future__ import annotations

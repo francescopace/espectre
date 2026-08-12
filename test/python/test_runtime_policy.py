@@ -1,10 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Runtime Policy Tests
 
 Tests for runtime evaluation policy helpers.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 from detector_interface import MotionState

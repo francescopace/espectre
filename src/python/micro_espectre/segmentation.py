@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - Shared Turbulence Context
 
@@ -7,7 +9,6 @@ ClassicDetector and ML feature extraction.
 Uses two-pass variance helpers for numerical stability (matches C++).
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 import math
 

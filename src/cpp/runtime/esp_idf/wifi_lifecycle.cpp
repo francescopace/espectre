@@ -4,7 +4,8 @@
  * Controls STA lifecycle and HT20 CSI compatibility for sensing runtimes.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
- * License: GPLv3
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "wifi_lifecycle.h"
 #include "espectre_log.h"

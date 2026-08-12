@@ -4,7 +4,8 @@
  * Provides IP address types and macros for native testing
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
- * License: GPLv3
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #ifndef LWIP_IP_ADDR_H
 #define LWIP_IP_ADDR_H

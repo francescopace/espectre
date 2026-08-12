@@ -4,7 +4,8 @@
  * Packages accepted CSI samples into UDP stream datagrams for collectors.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
- * License: GPLv3
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "csi_stream_transport.h"
 

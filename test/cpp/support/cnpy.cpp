@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //Copyright (C) 2011  Carl Rogers
 //Released under MIT License
 //license available in LICENSE.cnpy, or at https://opensource.org/license/mit
@@ -394,5 +395,4 @@ cnpy::NpyArray cnpy::npy_load(std::string fname) {
     fclose(fp);
     return arr;
 }
-
 

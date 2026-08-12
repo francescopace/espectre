@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - Classic Detector
 
@@ -7,7 +9,6 @@ applies to the turbulence stream; the channel-shape tracker reads the full-band
 CSI profile directly.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 import math
 

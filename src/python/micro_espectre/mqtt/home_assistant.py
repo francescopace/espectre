@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - Home Assistant MQTT adapter.
 
@@ -5,7 +7,6 @@ Publishes Home Assistant MQTT Discovery and entity-shaped state topics while
 preserving the canonical ESPectre protocol topics.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 try:

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """License packaging and repository policy invariants."""
 
 from __future__ import annotations
@@ -5,6 +7,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -14,6 +17,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / ".github" / "scripts" / "build_firmware_compliance.py"
+GPL_SPDX_HEADER = "SPDX-License-Identifier: GPL-3.0-only"
+COMMERCIAL_LICENSE_NOTICE = "Commercial licensing available under separate agreement; see LICENSING.md."
 
 
 def load_compliance_module():
@@ -229,3 +234,47 @@ def test_web_lockfile_uses_reviewed_license_families():
     assert not unexpected
     staging = (REPO_ROOT / ".github" / "scripts" / "stage_web_vendor.py").read_text(encoding="utf-8")
     assert 'NODE_MODULES / "qrcodejs" / "LICENSE"' in staging
+
+
+def test_source_files_have_consistent_license_headers():
+    compiled_sources = subprocess.run(
+        ["git", "ls-files", "*.c", "*.cc", "*.cpp", "*.h", "*.hpp", "*.py"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    web_sources = subprocess.run(
+        ["git", "ls-files", "docs/web", "test/web/*.mjs"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    relative_paths = set(compiled_sources.stdout.splitlines())
+    relative_paths.update(
+        path
+        for path in web_sources.stdout.splitlines()
+        if Path(path).suffix in (".css", ".html", ".js", ".mjs")
+    )
+    license_exceptions = {
+        "docs/web/assets/js/espectre-ble.js": "Apache-2.0",
+        "test/cpp/support/cnpy.cpp": "MIT",
+        "test/cpp/support/cnpy.h": "MIT",
+        "test/web/test_espectre_ble.mjs": "Apache-2.0",
+    }
+    missing = []
+    for relative_path in sorted(relative_paths):
+        path = REPO_ROOT / relative_path
+        header = "\n".join(path.read_text(encoding="utf-8", errors="ignore").splitlines()[:45])
+        exception = license_exceptions.get(relative_path)
+        if exception is not None:
+            if f"SPDX-License-Identifier: {exception}" not in header:
+                missing.append(f"{relative_path}: SPDX {exception} header")
+            continue
+        if GPL_SPDX_HEADER not in header:
+            missing.append(f"{relative_path}: SPDX GPL header")
+        if COMMERCIAL_LICENSE_NOTICE not in header:
+            missing.append(f"{relative_path}: commercial licensing notice")
+
+    assert not missing, "\n".join(missing)

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Classic low-RSSI regression test
 
@@ -5,7 +7,6 @@ Validates the production Classic detector on every real low-RSSI pair that the
 metadata exposes, across all covered chips and dataset roles.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 import pytest

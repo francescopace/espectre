@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Adjacent-Subcarrier Aggregation Benchmark
 
@@ -29,7 +31,6 @@ Usage:
     python tools/benchmark_subcarrier_aggregation.py --mode candidates --json out.json
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 from __future__ import annotations

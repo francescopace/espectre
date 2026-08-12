@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """Host-only delay-compensated coherence checks against the plain formula.
 
 The full-band and subband coherences of one reference now read a shared

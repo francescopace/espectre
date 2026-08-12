@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - Threshold
 
@@ -24,7 +26,6 @@ configured packet budget: successful motion-first calibration may finish early,
 and fallback quiet-first must converge inside the same budget.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 # Default startup multiplier for detectors that use the shared metric.

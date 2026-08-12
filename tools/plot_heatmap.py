@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - CSI Amplitude Heatmap Plotter
 
@@ -13,7 +15,6 @@ Usage:
     python tools/plot_heatmap.py --packets 400 --offset 100 --output /tmp/csi.png
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 from __future__ import annotations

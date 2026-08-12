@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Classic Detector Coefficient Fit
 
@@ -29,7 +31,6 @@ reproducible. The OOF sweep still reports its diagnostic point, but dense-window
 FP does not encode the production empty-room zero-alarm contract.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 from __future__ import annotations

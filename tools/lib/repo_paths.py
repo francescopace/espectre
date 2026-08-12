@@ -1,10 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Repo Paths
 
 Repository path helpers for ESPectre host-side tooling.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 from pathlib import Path

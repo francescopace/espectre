@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - MQTT Handler Module
 
@@ -5,7 +7,6 @@ Handles MQTT communication and command processing.
 Manages connection, publishing state updates, and processing remote commands.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 import json
 import time

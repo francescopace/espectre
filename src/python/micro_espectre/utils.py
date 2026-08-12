@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - Utility Functions
 
@@ -5,7 +7,6 @@ Shared utility functions used across multiple modules.
 Mirrors utils.h from ESPectre C++ implementation.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
-License: GPLv3
 """
 
 import math
