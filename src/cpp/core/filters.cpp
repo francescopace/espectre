@@ -137,7 +137,10 @@ float hampel_filter_turbulence(hampel_turbulence_state_t *state, float turbulenc
     }
 
     state->buffer[state->index] = turbulence;
-    state->index = (state->index + 1) % state->window_size;
+    state->index++;
+    if (state->index >= state->window_size) {
+        state->index = 0U;
+    }
     if (state->count < state->window_size) {
         state->count++;
     }

@@ -42,7 +42,10 @@ struct L1DeltaWindow {
     }
     ring[index] = value;
     sum += value;
-    index = static_cast<uint16_t>((index + 1U) % capacity);
+    index++;
+    if (index >= capacity) {
+      index = 0U;
+    }
     if (count < capacity) {
       count++;
     }
@@ -189,7 +192,10 @@ class L1DeltaTracker {
 
     std::memcpy(profile_ring_[profile_index_], profile, profile_len * sizeof(float));
     profile_len_[profile_index_] = profile_len;
-    profile_index_ = static_cast<uint16_t>((profile_index_ + 1U) % lag_);
+    profile_index_++;
+    if (profile_index_ >= lag_) {
+      profile_index_ = 0U;
+    }
   }
 
   uint16_t count() const { return lagged_.count; }

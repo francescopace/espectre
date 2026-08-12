@@ -65,6 +65,19 @@ DETECTOR_RESET_DROP_STREAK = 8
 _CSI_READ_SUPPORTS_REUSE = None
 
 
+class CsiPayloadNormalizationState:
+    """Reusable metadata state for lower-allocation HT20 normalization."""
+
+    __slots__ = ("assessment", "bin_layout")
+
+    def __init__(self):
+        self.assessment = {}
+        self.bin_layout = LAYOUT_BINS_UNKNOWN
+
+    def reset(self):
+        self.bin_layout = LAYOUT_BINS_UNKNOWN
+
+
 class CsiFrameTimestampFilter:
     """Reject duplicate or stale CSI frames using the Wi-Fi RX timestamp."""
 
@@ -362,33 +375,47 @@ def rotate_ht20_classic_to_centered(csi_data, remap_buffer=None):
     return remap_buffer
 
 
+def _resolve_ht20_bin_layout_once(payload, expected_len, bin_layout, state):
+    resolved = state.bin_layout if state is not None else bin_layout
+    if resolved is None:
+        resolved = LAYOUT_BINS_UNKNOWN
+    if resolved == LAYOUT_BINS_UNKNOWN:
+        resolved = detect_ht20_bin_layout(payload, expected_len)
+        if state is not None and resolved != LAYOUT_BINS_UNKNOWN:
+            state.bin_layout = resolved
+    return resolved
+
+
 def normalize_ht20_csi_payload(csi_data, expected_len=128, remap_buffer=None,
-                               bin_layout=None):
+                               bin_layout=None, assessment=None, state=None):
     """Normalize supported CSI payload layouts to one HT20 payload.
 
     ``bin_layout`` carries the caller's latched ordering. Detection needs a fully
     populated guard set, so it can be inconclusive on an individual packet;
     passing the last confident answer keeps the stream internally consistent.
+    Device loops pass their existing ``assessment`` and a reusable ``state`` to
+    avoid rebuilding either object for every packet.
     """
     try:
         input_len = len(csi_data)
     except TypeError:
         return None, 0, None
-    assessment = assess_ht20_payload_layout(input_len, expected_len=expected_len)
+    if assessment is None:
+        assessment = assess_ht20_payload_layout(
+            input_len,
+            expected_len=expected_len,
+            out=state.assessment if state is not None else None,
+        )
     raw_len = assessment["raw_len"]
     normalization_id = assessment["normalization_id"]
     if assessment["reason_code"] != REASON_NONE:
         return None, raw_len, None
 
-    def _resolve_layout(payload):
-        detected = detect_ht20_bin_layout(payload, expected_len)
-        if detected != LAYOUT_BINS_UNKNOWN:
-            return detected
-        return bin_layout if bin_layout is not None else LAYOUT_BINS_UNKNOWN
-
     if normalization_id == NORMALIZATION_DOUBLE_HT20:
         collapsed = memoryview(csi_data)[:expected_len]
-        if _resolve_layout(collapsed) == LAYOUT_BINS_CLASSIC:
+        if _resolve_ht20_bin_layout_once(
+            collapsed, expected_len, bin_layout, state
+        ) == LAYOUT_BINS_CLASSIC:
             # Rotate straight from the source so the collapse and the rotation
             # share one pass and never alias the destination buffer.
             return (
@@ -404,7 +431,9 @@ def normalize_ht20_csi_payload(csi_data, expected_len=128, remap_buffer=None,
     if raw_len == expected_len:
         # A full-width payload still has to be checked for bin ordering: classic
         # MACs deliver "0~31, -32~-1" while Wi-Fi 6 parts deliver it centered.
-        if _resolve_layout(csi_data) == LAYOUT_BINS_CLASSIC:
+        if _resolve_ht20_bin_layout_once(
+            csi_data, expected_len, bin_layout, state
+        ) == LAYOUT_BINS_CLASSIC:
             return rotate_ht20_classic_to_centered(csi_data, remap_buffer), raw_len, None
         return csi_data, raw_len, None
 

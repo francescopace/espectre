@@ -552,20 +552,38 @@ class ChannelShapeTracker {
       const uint16_t slot = ring_index_;
       const size_t ring_base = static_cast<size_t>(slot) * HT20_LIVE_BAND_SIZE;
       if (ring_filled_[slot]) {
-        float delta[HT20_LIVE_BAND_SIZE]{};
+        const size_t motion_base =
+            static_cast<size_t>(motion_energy_slot_) * HT20_LIVE_BAND_SIZE;
+        const bool full = motion_energy_count_ >= capacity_;
+        if (!full) {
+          motion_energy_count_++;
+        }
         for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
           const float diff = profile[i] - ring_[ring_base + i];
-          delta[i] = diff * diff;
+          const float value = diff * diff;
+          if (full) {
+            motion_energy_[i] -= motion_energy_ring_[motion_base + i];
+          }
+          motion_energy_ring_[motion_base + i] = value;
+          motion_energy_[i] += value;
+          ring_[ring_base + i] = profile[i];
         }
         lag_distance_count_ = std::min<uint16_t>(
             capacity_, static_cast<uint16_t>(lag_distance_count_ + 1U));
-        push_motion_energy_(delta);
-      }
-      for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        ring_[ring_base + i] = profile[i];
+        motion_energy_slot_++;
+        if (motion_energy_slot_ >= capacity_) {
+          motion_energy_slot_ = 0U;
+        }
+      } else {
+        for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
+          ring_[ring_base + i] = profile[i];
+        }
       }
       ring_filled_[slot] = true;
-      ring_index_ = static_cast<uint16_t>((ring_index_ + 1U) % lag_);
+      ring_index_++;
+      if (ring_index_ >= lag_) {
+        ring_index_ = 0U;
+      }
     }
 
     if (track_frequency_ && complex_values != nullptr) {
@@ -590,25 +608,6 @@ class ChannelShapeTracker {
                            : static_cast<size_t>(lag_) * HT20_LIVE_BAND_SIZE;
   }
 
-  void push_motion_energy_(const float* values) {
-    if (motion_energy_ring_.empty() || values == nullptr) {
-        return;
-    }
-    const size_t base = static_cast<size_t>(motion_energy_slot_) * HT20_LIVE_BAND_SIZE;
-    if (motion_energy_count_ < capacity_) {
-        motion_energy_count_++;
-    } else {
-        for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-            motion_energy_[i] -= motion_energy_ring_[base + i];
-        }
-    }
-    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        motion_energy_ring_[base + i] = values[i];
-        motion_energy_[i] += values[i];
-    }
-    motion_energy_slot_ = static_cast<uint16_t>((motion_energy_slot_ + 1U) % capacity_);
-  }
-
   void push_frequency_curve_(float value) {
     if (frequency_curve_ring_.empty()) {
         return;
@@ -623,8 +622,10 @@ class ChannelShapeTracker {
     frequency_curve_ring_[frequency_curve_slot_] = value;
     frequency_curve_sum_ += value;
     frequency_curve_square_sum_ += value * value;
-    frequency_curve_slot_ =
-        static_cast<uint16_t>((frequency_curve_slot_ + 1U) % capacity_);
+    frequency_curve_slot_++;
+    if (frequency_curve_slot_ >= capacity_) {
+      frequency_curve_slot_ = 0U;
+    }
   }
 
   uint16_t capacity_{0U};

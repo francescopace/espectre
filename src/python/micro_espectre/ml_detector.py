@@ -425,8 +425,11 @@ class MLDetector(IDetector):
                 turb_list[i] = ctx.turbulence_buffer[i]
         else:
             idx = ctx.buffer_index
-            for i in range(count):
-                turb_list[i] = ctx.turbulence_buffer[(idx + i) % count]
+            tail = count - idx
+            for i in range(tail):
+                turb_list[i] = ctx.turbulence_buffer[idx + i]
+            for i in range(idx):
+                turb_list[tail + i] = ctx.turbulence_buffer[i]
 
         aggregated_count = 0
         aggregated_turbulence = None
@@ -441,10 +444,15 @@ class MLDetector(IDetector):
                     )
             else:
                 aggregated_idx = aggregated_ctx.buffer_index
-                for i in range(aggregated_count):
-                    aggregated_turbulence[i] = aggregated_ctx.turbulence_buffer[
-                        (aggregated_idx + i) % aggregated_count
-                    ]
+                aggregated_tail = aggregated_count - aggregated_idx
+                for i in range(aggregated_tail):
+                    aggregated_turbulence[i] = (
+                        aggregated_ctx.turbulence_buffer[aggregated_idx + i]
+                    )
+                for i in range(aggregated_idx):
+                    aggregated_turbulence[aggregated_tail + i] = (
+                        aggregated_ctx.turbulence_buffer[i]
+                    )
         trajectory_innovation = None
         trajectory_excess = None
         if self._shape_trajectory_tracker is not None:

@@ -13,6 +13,7 @@ import os
 import src.config as config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN
 from src.device_utils import (
+    CsiPayloadNormalizationState,
     CsiFrameTimestampFilter,
     DETECTOR_RESET_DROP_STREAK,
     DISPOSITION_SENSE,
@@ -300,6 +301,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
     collapse_logged = False
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
+    normalization_state = CsiPayloadNormalizationState()
     frame_timestamp_filter = CsiFrameTimestampFilter()
     frame_result = None
     # Reused per-frame assessment mapping: keeps this loop allocation-free.
@@ -330,7 +332,10 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
                 continue
 
             csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
-                frame[5], EXPECTED_CSI_LEN, remap_buffer=ht57_remap_buffer
+                frame[5], EXPECTED_CSI_LEN,
+                remap_buffer=ht57_remap_buffer,
+                assessment=assessment,
+                state=normalization_state,
             )
             if csi_data is None:
                 filtered_count += 1
@@ -718,6 +723,7 @@ def main():
     collapse_logged = False
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
+    normalization_state = CsiPayloadNormalizationState()
     frame_timestamp_filter = CsiFrameTimestampFilter()
     out_of_order_count = 0
     frame_result = None
@@ -811,7 +817,10 @@ def main():
                     continue
 
                 csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
-                    frame[5], EXPECTED_CSI_LEN, remap_buffer=ht57_remap_buffer
+                    frame[5], EXPECTED_CSI_LEN,
+                    remap_buffer=ht57_remap_buffer,
+                    assessment=assessment,
+                    state=normalization_state,
                 )
                 if csi_data is None:
                     filtered_count += 1
@@ -955,6 +964,7 @@ def main():
                         print(f"[WARN] WiFi channel changed: {g_state.current_channel} -> {packet_channel}, resetting detection buffer")
                         detector.reset()
                         runtime_policy.reset()
+                        normalization_state.reset()
                     g_state.current_channel = packet_channel
                     
                     metrics = detector.update_state()

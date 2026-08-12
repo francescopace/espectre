@@ -248,7 +248,10 @@ void BaseDetector::add_turbulence_to_buffer(float turbulence) {
     
     // Add to circular buffer
     turbulence_buffer_[buffer_index_] = filtered_turbulence;
-    buffer_index_ = (buffer_index_ + 1) % window_size_;
+    buffer_index_++;
+    if (buffer_index_ >= window_size_) {
+        buffer_index_ = 0U;
+    }
     if (buffer_count_ < window_size_) {
         buffer_count_++;
     }

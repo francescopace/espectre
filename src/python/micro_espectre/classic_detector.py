@@ -146,8 +146,12 @@ class ClassicDetector(IDetector):
             for i in range(count):
                 values[i] = ctx.turbulence_buffer[i]
         else:
-            for i in range(count):
-                values[i] = ctx.turbulence_buffer[(ctx.buffer_index + i) % count]
+            start = ctx.buffer_index
+            tail = count - start
+            for i in range(tail):
+                values[i] = ctx.turbulence_buffer[start + i]
+            for i in range(start):
+                values[tail + i] = ctx.turbulence_buffer[i]
         mean = sum(values[:count]) / count if count else 0.0
         variance = 0.0
         for i in range(count):

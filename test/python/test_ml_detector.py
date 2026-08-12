@@ -124,6 +124,17 @@ def test_cached_dct_trajectory_matches_profile_space_reference():
     )
 
 
+def test_trajectory_duplicate_detection_accepts_signed_payloads():
+    tracker = ChannelShapeTrajectoryTracker()
+    payload = [(-128 + index * 17) % 256 - 128 for index in range(128)]
+
+    tracker.process_packet(payload, 0)
+    profile_count = tracker._current_profile_count
+    tracker.process_packet(list(payload), CHANNEL_SHAPE_BIN_US // 2)
+
+    assert tracker._current_profile_count == profile_count
+
+
 class TestRelu:
     """Test ReLU activation function."""
     

@@ -21,6 +21,7 @@ from ml_feature_trackers import (
     complex_profile,
     frequency_coherence,
     frequency_coherences,
+    frequency_coherences_from_csi,
     new_frequency_coherence_squares,
 )
 from tools.lib import host_feature_trackers as host
@@ -226,6 +227,28 @@ def test_reused_squares_buffer_does_not_leak_between_packets() -> None:
     assert reused == fresh
 
 
+def test_raw_coherences_accept_numpy_int8_without_overflow() -> None:
+    payload = np.asarray(
+        [(-128 + index * 17) % 256 - 128 for index in range(128)],
+        dtype=np.int8,
+    )
+    numpy_out = [0.0] * len(FREQUENCY_COHERENCE_OFFSETS)
+    list_out = [0.0] * len(FREQUENCY_COHERENCE_OFFSETS)
+
+    frequency_coherences_from_csi(
+        payload,
+        numpy_out,
+        new_frequency_coherence_squares(),
+    )
+    frequency_coherences_from_csi(
+        payload.tolist(),
+        list_out,
+        new_frequency_coherence_squares(),
+    )
+
+    assert numpy_out == list_out
+
+
 def test_host_rejects_a_profile_that_is_not_the_live_band() -> None:
     assert host.frequency_coherence(np.zeros(8, dtype=np.complex128), 4) == 0.0
     assert host.frequency_coherence(
@@ -355,5 +378,6 @@ def test_curve_only_trackers_match_full_trackers_without_shape_history() -> None
     )
     assert runtime_curve._ring == []
     assert runtime_curve._motion_energy_ring == []
+    assert runtime_curve._complex_profile is None
     assert host_curve._ring == []
     assert host_curve._motion_energy_ring.size == 0

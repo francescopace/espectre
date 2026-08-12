@@ -146,12 +146,11 @@ private:
     ChannelShapeTracker shape_tracker_;
     ChannelShapeTrajectoryTracker shape_trajectory_tracker_;
 
-    // Single heap block backing every feature-path working array, so nothing
-    // window-sized lands on the CSI callback stack. Carved by the accessors
-    // above; see feature_scratch_size_() for the layout.
+    // Single heap block reused for packet amplitudes, chronological aggregate
+    // reconstruction, and sorted feature statistics, so these non-overlapping
+    // phases do not each reserve a window-sized buffer.
     float* feature_scratch_;
     float* aggregated_turbulence_buffer_;
-    mutable float* aggregated_turbulence_ordered_;
     uint16_t aggregated_turbulence_index_;
     uint16_t aggregated_turbulence_count_;
     hampel_filter_state_t aggregated_hampel_state_;

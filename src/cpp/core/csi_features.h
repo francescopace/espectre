@@ -300,13 +300,8 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
                                       float chan_shape_spread,
                                       float chan_shape_coherent_innovation_energy,
                                       float chan_shape_excess_path) {
-    MLSeriesStats turb;
-    compute_ml_series_stats(turb_buffer, turb_count, &turb,
-                            ml_series_needs(
-                                feature_ids, num_features,
-                                MLFeatureSource::TURBULENCE_SERIES),
-                            series_scratch);
-
+    // The aggregated chronological view may alias `series_scratch`; consume it
+    // first so the normal turbulence sort can reuse the same block afterwards.
     MLSeriesStats aggregated_turb;
     compute_ml_series_stats(
         aggregated_turb_buffer, aggregated_turb_count, &aggregated_turb,
@@ -314,6 +309,13 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
             feature_ids, num_features,
             MLFeatureSource::AGGREGATED_TURBULENCE_SERIES),
         series_scratch);
+
+    MLSeriesStats turb;
+    compute_ml_series_stats(turb_buffer, turb_count, &turb,
+                            ml_series_needs(
+                                feature_ids, num_features,
+                                MLFeatureSource::TURBULENCE_SERIES),
+                            series_scratch);
 
     for (uint8_t i = 0; i < num_features; i++) {
         features_out[i] = ml_feature_value_from_stats(

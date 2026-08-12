@@ -123,7 +123,6 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     , lag_(std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX))
     , feature_scratch_(nullptr)
     , aggregated_turbulence_buffer_(nullptr)
-    , aggregated_turbulence_ordered_(nullptr)
     , aggregated_turbulence_index_(0U)
     , aggregated_turbulence_count_(0U) {
     threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
@@ -156,10 +155,8 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     }
     if (uses_aggregated_turbulence_) {
         aggregated_turbulence_buffer_ = alloc_zeroed_floats(window_size_);
-        aggregated_turbulence_ordered_ = alloc_zeroed_floats(window_size_);
-        if (aggregated_turbulence_buffer_ == nullptr ||
-            aggregated_turbulence_ordered_ == nullptr) {
-            ESP_LOGE(TAG, "Failed to allocate aggregated turbulence buffers");
+        if (aggregated_turbulence_buffer_ == nullptr) {
+            ESP_LOGE(TAG, "Failed to allocate aggregated turbulence buffer");
         }
     }
     hampel_turbulence_init(
@@ -184,7 +181,6 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
 MLDetector::~MLDetector() {
     delete[] feature_scratch_;
     delete[] aggregated_turbulence_buffer_;
-    delete[] aggregated_turbulence_ordered_;
 }
 
 MLDetector::MLDetector(MLDetector&& other) noexcept
@@ -200,14 +196,12 @@ MLDetector::MLDetector(MLDetector&& other) noexcept
     , shape_trajectory_tracker_(std::move(other.shape_trajectory_tracker_))
     , feature_scratch_(other.feature_scratch_)
     , aggregated_turbulence_buffer_(other.aggregated_turbulence_buffer_)
-    , aggregated_turbulence_ordered_(other.aggregated_turbulence_ordered_)
     , aggregated_turbulence_index_(other.aggregated_turbulence_index_)
     , aggregated_turbulence_count_(other.aggregated_turbulence_count_)
     , aggregated_hampel_state_(other.aggregated_hampel_state_)
     , aggregated_lowpass_state_(other.aggregated_lowpass_state_) {
     other.feature_scratch_ = nullptr;
     other.aggregated_turbulence_buffer_ = nullptr;
-    other.aggregated_turbulence_ordered_ = nullptr;
 }
 
 MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
@@ -226,15 +220,12 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
         feature_scratch_ = other.feature_scratch_;
         other.feature_scratch_ = nullptr;
         delete[] aggregated_turbulence_buffer_;
-        delete[] aggregated_turbulence_ordered_;
         aggregated_turbulence_buffer_ = other.aggregated_turbulence_buffer_;
-        aggregated_turbulence_ordered_ = other.aggregated_turbulence_ordered_;
         aggregated_turbulence_index_ = other.aggregated_turbulence_index_;
         aggregated_turbulence_count_ = other.aggregated_turbulence_count_;
         aggregated_hampel_state_ = other.aggregated_hampel_state_;
         aggregated_lowpass_state_ = other.aggregated_lowpass_state_;
         other.aggregated_turbulence_buffer_ = nullptr;
-        other.aggregated_turbulence_ordered_ = nullptr;
     }
     return *this;
 }
@@ -455,8 +446,10 @@ void MLDetector::add_aggregated_turbulence_(float turbulence) {
     const float filtered = lowpass_filter_apply(
         &aggregated_lowpass_state_, hampel_filtered);
     aggregated_turbulence_buffer_[aggregated_turbulence_index_] = filtered;
-    aggregated_turbulence_index_ = static_cast<uint16_t>(
-        (aggregated_turbulence_index_ + 1U) % window_size_);
+    aggregated_turbulence_index_++;
+    if (aggregated_turbulence_index_ >= window_size_) {
+        aggregated_turbulence_index_ = 0U;
+    }
     if (aggregated_turbulence_count_ < window_size_) {
         ++aggregated_turbulence_count_;
     }
@@ -472,19 +465,19 @@ const float* MLDetector::ordered_aggregated_turbulence_(uint16_t& count) const {
         count = aggregated_turbulence_count_;
         return aggregated_turbulence_buffer_;
     }
-    if (aggregated_turbulence_ordered_ == nullptr) return nullptr;
+    if (feature_scratch_ == nullptr) return nullptr;
     const uint16_t tail = static_cast<uint16_t>(
         window_size_ - aggregated_turbulence_index_);
     std::copy(
         aggregated_turbulence_buffer_ + aggregated_turbulence_index_,
         aggregated_turbulence_buffer_ + window_size_,
-        aggregated_turbulence_ordered_);
+        feature_scratch_);
     std::copy(
         aggregated_turbulence_buffer_,
         aggregated_turbulence_buffer_ + aggregated_turbulence_index_,
-        aggregated_turbulence_ordered_ + tail);
+        feature_scratch_ + tail);
     count = aggregated_turbulence_count_;
-    return aggregated_turbulence_ordered_;
+    return feature_scratch_;
 }
 
 // ============================================================================

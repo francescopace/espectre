@@ -10,7 +10,9 @@ License: GPLv3
 import pytest
 import math
 import numpy as np
+import device_utils as device_utils_module
 from device_utils import (
+    CsiPayloadNormalizationState,
     HT20_CENTERED_ONLY_NULL_BINS,
     HT20_CLASSIC_ONLY_NULL_BINS,
 )
@@ -172,6 +174,38 @@ class TestHt20BinLayout:
             faded, expected_len=128, bin_layout=LAYOUT_BINS_CLASSIC
         )
         assert with_latch == rotate_ht20_classic_to_centered(faded)
+
+    def test_normalization_state_classifies_layout_only_once(self, monkeypatch):
+        centered = _layout_packet(HT20_CENTERED_ONLY_NULL_BINS)
+        state = CsiPayloadNormalizationState()
+        calls = 0
+        original = device_utils_module.detect_ht20_bin_layout
+
+        def counting_detect(payload, expected_len=128):
+            nonlocal calls
+            calls += 1
+            return original(payload, expected_len)
+
+        monkeypatch.setattr(
+            device_utils_module,
+            "detect_ht20_bin_layout",
+            counting_detect,
+        )
+        first, _raw_len, _tag = normalize_ht20_csi_payload(
+            centered,
+            expected_len=128,
+            state=state,
+        )
+        second, _raw_len, _tag = normalize_ht20_csi_payload(
+            centered,
+            expected_len=128,
+            state=state,
+        )
+
+        assert first == centered
+        assert second == centered
+        assert calls == 1
+        assert state.bin_layout == LAYOUT_BINS_CENTERED
 
 
 class TestIsHt20SensingFrame:

@@ -240,9 +240,12 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   // unrotated in an otherwise rotated stream.
   int8_t csi_rotated[HT20_CSI_LEN];
   if (normalized.valid() && normalized.len == HT20_CSI_LEN) {
-    const Ht20BinLayout detected = detect_ht20_bin_layout(normalized.data, normalized.len);
-    if (detected != Ht20BinLayout::UNKNOWN) {
-      bin_layout_ = detected;
+    if (bin_layout_ == Ht20BinLayout::UNKNOWN) {
+      const Ht20BinLayout detected =
+          detect_ht20_bin_layout(normalized.data, normalized.len);
+      if (detected != Ht20BinLayout::UNKNOWN) {
+        bin_layout_ = detected;
+      }
     }
     if (bin_layout_ == Ht20BinLayout::CLASSIC) {
       rotate_ht20_classic_to_centered(normalized.data, csi_rotated);
@@ -287,6 +290,7 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
     return;
   }
   if (previous_channel != 0U && packet_channel != previous_channel) {
+    bin_layout_ = Ht20BinLayout::UNKNOWN;
     current_channel_.store(packet_channel, std::memory_order_relaxed);
     channel_change_pending_.store(true, std::memory_order_relaxed);
     channel_change_event_.post(previous_channel, packet_channel);
