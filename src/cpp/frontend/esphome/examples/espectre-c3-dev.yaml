@@ -4,19 +4,17 @@
 esphome:
   name: espectre
   friendly_name: ESPectre
-  min_version: 2026.6.0
+  min_version: 2026.7.0
   # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
   # name_add_mac_suffix: true
-  # Uncomment for ESP32-C3 Super Mini clones with flash issues (use DIO instead of QIO)
-  # platformio_options:
-  #   board_build.flash_mode: dio
   project:
     name: francescopace.espectre
     version: dev
 
 esp32:
   variant: ESP32C3
-  toolchain: platformio
+  # Uncomment for ESP32-C3 Super Mini clones with flash issues (use DIO instead of QIO)
+  # flash_mode: dio
   framework:
     type: esp-idf
 

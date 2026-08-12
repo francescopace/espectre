@@ -497,8 +497,8 @@ const float* MLDetector::ordered_aggregated_turbulence_(uint16_t& count) const {
 // compiler and the surrounding code rather than on the model.
 //
 // Both runtimes must decide the same way, so contraction is disabled here
-// rather than in one build system, which keeps ESP-IDF, PlatformIO, and the
-// host tests on the same arithmetic.
+// rather than in one build system, which keeps ESP-IDF firmware and the host
+// tests on the same arithmetic.
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC push_options
 #pragma GCC optimize("fp-contract=off")

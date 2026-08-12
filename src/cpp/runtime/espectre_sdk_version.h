@@ -24,10 +24,9 @@
  *   is your product's version, not ESPectre's.
  *
  * The value here is the single source of truth inside the C++ tree, and the
- * release tooling keeps it in step with `src/cpp/library.json` and
- * `src/cpp/idf_component.yml`. Snapshot bundles stamp a prerelease suffix onto
- * the packaging manifests only; the macros below always carry the numeric
- * release they were branched from.
+ * release tooling keeps it in step with `src/cpp/idf_component.yml`. Snapshot
+ * bundles stamp a prerelease suffix onto the component manifest only; the
+ * macros below always carry the numeric release they were branched from.
  */
 
 /** Major version. Changes when the published integration surface breaks. */

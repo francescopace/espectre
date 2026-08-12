@@ -9,7 +9,7 @@
  */
 #pragma once
 
-// Mock ESPHome Component for PlatformIO tests
+// Mock ESPHome Component for host tests
 
 #include <cstdint>
 

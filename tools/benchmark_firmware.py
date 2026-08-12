@@ -898,7 +898,7 @@ def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tupl
 
 def _latest_firmware_artifact(frontend: str) -> Path | None:
     if frontend == "esphome":
-        candidates = list((ESPHOME_EXAMPLES_DIR / ".esphome").glob("build/*/.pioenvs/*/firmware.bin"))
+        candidates = list((ESPHOME_EXAMPLES_DIR / ".esphome").glob("build/*/build/espectre.bin"))
     else:
         app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
         build_dir = os.environ.get("ESPECTRE_IDF_BUILD_DIR", "build")

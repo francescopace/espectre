@@ -194,8 +194,6 @@ jobs:
           cache: 'pip'
           cache-dependency-path: requirements.txt
       
-      # setup-python already caches pip. Caching the full PlatformIO home creates
-      # one roughly 2.6 GiB archive per matrix target and exceeds the repository quota.
       - name: Install ESPHome
         run: |
           python -m pip install --upgrade pip
@@ -242,7 +240,7 @@ jobs:
       - name: Build ESPHome compliance artifacts
         if: github.event_name == 'push'
         run: |
-          PROJECT_DESCRIPTION="$(find src/cpp/frontend/esphome/examples/.esphome/build -path '*/.pioenvs/*/project_description.json' -print -quit)"
+          PROJECT_DESCRIPTION="$(find src/cpp/frontend/esphome/examples/.esphome/build -path '*/build/project_description.json' -print -quit)"
           FIRMWARE="$(find output -maxdepth 1 -type f -name 'espectre-snapshot*.bin' -print -quit)"
           test -n "${PROJECT_DESCRIPTION}"
           test -n "${FIRMWARE}"

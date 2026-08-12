@@ -9,7 +9,7 @@
  */
 #pragma once
 
-// Mock ESPHome Button for PlatformIO tests
+// Mock ESPHome Button for host tests
 
 #include <string>
 
@@ -36,4 +36,3 @@ protected:
 
 } // namespace button
 } // namespace esphome
-

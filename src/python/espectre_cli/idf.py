@@ -201,12 +201,7 @@ def iter_idf_install_candidates() -> list[tuple[str, Path]]:
         candidates.append(("IDF_PATH", Path(env_idf_path).expanduser()))
 
     home = Path(os.environ.get("USERPROFILE") or Path.home()) if is_windows_host() else Path.home()
-    candidates.extend(
-        [
-            ("ESPHome/PlatformIO package", home / ".platformio" / "packages" / "framework-espidf"),
-            ("standard ESP-IDF install", home / "esp" / "esp-idf"),
-        ]
-    )
+    candidates.append(("standard ESP-IDF install", home / "esp" / "esp-idf"))
     if is_windows_host():
         candidates.append(("standard ESP-IDF install", home / "esp" / "v5.5" / "esp-idf"))
 
@@ -281,14 +276,10 @@ def print_idf_recovery_instructions() -> None:
     """Print concise, platform-aware recovery guidance."""
     print(f"{Fore.YELLOW}Try one of these setup paths, then rerun {cli_command('doctor')}.{Style.RESET_ALL}")
     if is_windows_host():
-        print('  1. . "$env:USERPROFILE\\.platformio\\packages\\framework-espidf\\export.ps1"')
-        print(f"     {cli_command('doctor')}")
-        print('  2. . "$env:USERPROFILE\\esp\\esp-idf\\export.ps1"')
+        print('  1. . "$env:USERPROFILE\\esp\\esp-idf\\export.ps1"')
         print(f"     {cli_command('doctor')}")
     else:
-        print("  1. source ~/.platformio/packages/framework-espidf/export.sh")
-        print(f"     {cli_command('doctor')}")
-        print("  2. source ~/esp/esp-idf/export.sh")
+        print("  1. source ~/esp/esp-idf/export.sh")
         print(f"     {cli_command('doctor')}")
 
 

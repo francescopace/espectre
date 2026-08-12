@@ -899,7 +899,7 @@ a.hero-badge:hover {
 .home-privacy-copy h2 {
   max-width: 640px;
   margin: 0 0 16px;
-  font-size: clamp(36px, 5vw, 58px);
+  font-size: clamp(36px, 5vw, 56px);
   line-height: 1.04;
   letter-spacing: -.045em;
 }

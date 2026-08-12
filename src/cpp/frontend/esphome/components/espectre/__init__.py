@@ -16,6 +16,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, binary_sensor, button, number, select, switch
 from esphome.components.esp32 import (
+    add_idf_component,
     add_idf_sdkconfig_option,
     const as esp32_const,
     get_esp32_variant,
@@ -92,6 +93,7 @@ ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.S
 ESpectreDiagnosticsButton = espectre_ns.class_("ESpectreDiagnosticsButton", button.Button, cg.Component)
 
 _LIBRARY_ROOT = Path(__file__).resolve().parents[4]
+_COMPONENT_ROOT = Path(__file__).resolve().parent
 _SCHEMA_HEADER = _LIBRARY_ROOT / "runtime" / "runtime_sensing_schema.h"
 _SCHEMA_CONST_PATTERN = re.compile(
     r"constexpr\s+(?:const char \*const|bool|float|uint8_t|uint16_t|uint32_t)\s+"
@@ -103,11 +105,6 @@ _WIFI_BAND_POLICY_BY_MODE = {
     "2.4GHZ": "2g",
     "5GHZ": "5g",
 }
-
-
-def _library_uri(path: Path) -> str:
-    """Return a PlatformIO-compatible file URI for local libraries."""
-    return path.resolve().as_uri()
 
 
 def _parse_schema_literal(raw_value):
@@ -318,12 +315,11 @@ def _runtime_wifi_band_policy():
 
 
 async def to_code(config):
-    cg.add_library("espectre-shared", None, _library_uri(_LIBRARY_ROOT))
+    add_idf_component(name="espectre", path=str(_COMPONENT_ROOT))
 
-    # PlatformIO compiles the shared library without the ESPHome source tree on
-    # its include path, so espectre_log.h would fall back to vanilla esp_log,
-    # which ESPHome builds strip below ERROR (CONFIG_LOG_DEFAULT_LEVEL=ERROR).
-    # Expose the ESPHome headers so shared runtime logs reach the ESPHome logger.
+    # The shared ESP-IDF component does not depend on the higher-level ESPHome
+    # component, so expose the generated source tree only for the portable
+    # logging shim. This lets shared runtime logs reach the ESPHome logger.
     cg.add_build_flag("-Isrc")
 
     var = cg.new_Pvariable(config[CONF_ID])

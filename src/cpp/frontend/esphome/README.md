@@ -308,7 +308,7 @@ Add `--dev` to use the local development YAML mapping. Use `flash` for upload-on
 
 ### Build Toolchain
 
-The ESPHome examples explicitly select `toolchain: platformio` while continuing to use the ESP-IDF framework. ESPHome 2026.7 changed the default ESP32 toolchain to its native ESP-IDF backend, but ESPectre currently registers the shared `src/cpp/` tree through `library.json` as a local PlatformIO library. Keep the explicit PlatformIO toolchain selection until the shared package is migrated to ESPHome's native ESP-IDF component model.
+The ESPHome examples use ESPHome 2026.7's native ESP-IDF backend. The external component registers the shared sensing tree as a local ESP-IDF component, so no toolchain override or separate library package is required.
 
 ### Automatic SDK Configuration
 
@@ -319,7 +319,6 @@ For board-specific tweaks, you can still add `sdkconfig_options` in YAML:
 ```yaml
 esp32:
   variant: ESP32C6
-  toolchain: platformio
   framework:
     type: esp-idf
     sdkconfig_options:
@@ -333,10 +332,9 @@ The ESPHome frontend fits in `4 MB` flash with OTA. It uses the board and framew
 If you need a custom table:
 
 ```yaml
-esphome:
-  name: my-device
-  platformio_options:
-    board_build.partitions: /absolute/path/to/partitions_custom.csv
+esp32:
+  variant: ESP32C6
+  partitions: /absolute/path/to/partitions_custom.csv
 ```
 
 The frontend itself does not require a custom partition table.
@@ -394,9 +392,9 @@ logger:
 Flash mode example:
 
 ```yaml
-esphome:
-  platformio_options:
-    board_build.flash_mode: dio
+esp32:
+  variant: ESP32C3
+  flash_mode: dio
 ```
 
 ### Flash failed
@@ -417,7 +415,8 @@ esphome logs <your-config>.yaml --device espectre.local
 
 This map is for component maintainers; it is not required for normal installation or tuning.
 
-- [`__init__.py`](components/espectre/__init__.py): YAML schema, validation, codegen, shared local PlatformIO library registration, and ESPHome build flags
+- [`__init__.py`](components/espectre/__init__.py): YAML schema, validation, codegen, native ESP-IDF component registration, and ESPHome build flags
+- [`CMakeLists.txt`](components/espectre/CMakeLists.txt): native ESP-IDF bridge to the canonical shared SDK build definition
 - [`espectre.cpp`](components/espectre/espectre.cpp), [`espectre.h`](components/espectre/espectre.h): ESPHome adapter over the shared runtime frontend controller
 - [`sensor_publisher.cpp`](components/espectre/sensor_publisher.cpp): movement and motion publishing
 - [`threshold_number.cpp`](components/espectre/threshold_number.cpp): runtime threshold control
@@ -427,4 +426,4 @@ This map is for component maintainers; it is not required for normal installatio
 
 ## Packaging Notes
 
-[`__init__.py`](components/espectre/__init__.py) registers the local [`library.json`](../../library.json) package so PlatformIO builds the canonical shared sources directly from `src/cpp/core/` and `src/cpp/runtime/esp_idf/`. This keeps ESPHome packaging aligned with the main repository layout across platforms.
+[`__init__.py`](components/espectre/__init__.py) registers this component directory with ESP-IDF's component manager. Its [`CMakeLists.txt`](components/espectre/CMakeLists.txt) reuses the canonical SDK build definition at [`CMakeLists.txt`](../../CMakeLists.txt), so ESPHome compiles `src/cpp/core/` and `src/cpp/runtime/esp_idf/` directly through the native ESP-IDF backend.

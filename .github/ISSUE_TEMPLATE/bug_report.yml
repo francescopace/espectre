@@ -136,7 +136,7 @@ body:
       label: Crash debug artifacts
       description: If this is a crash, attach the `.elf` and `.map` files, then note the paths here.
       value: |
-        ESPHome: `.esphome/build/<device-name>/.pioenvs/<device-name>/firmware.elf` and `firmware.map`
+        ESPHome: `.esphome/build/<device-name>/build/firmware.elf` and `<device-name>.map`
         Matter: `src/cpp/frontend/matter/app/build-<target>/espectre-matter.elf` and the corresponding `.map`
         Native: `src/cpp/frontend/native/app/build-<target>/espectre-native.elf` and the corresponding `.map`
         Streamer: `src/cpp/frontend/streamer/app/build-<target>/espectre-streamer.elf` and the corresponding `.map`

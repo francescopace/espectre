@@ -9,7 +9,7 @@
  */
 #pragma once
 
-// Mock ESPHome Preferences for PlatformIO tests
+// Mock ESPHome Preferences for host tests
 
 #include <string>
 #include <cstddef>

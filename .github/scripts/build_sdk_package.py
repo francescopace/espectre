@@ -31,7 +31,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
 RUNTIME_PROTOCOL_HEADER = CPP_ROOT / "runtime" / "espectre_protocol.h"
 SDK_VERSION_HEADER = CPP_ROOT / "runtime" / "espectre_sdk_version.h"
-LIBRARY_MANIFEST = CPP_ROOT / "library.json"
 IDF_COMPONENT_MANIFEST = CPP_ROOT / "idf_component.yml"
 SDK_SUPPORTED_ESP_IDF = ">=5.1.0"
 OPTIONAL_SOURCE_GROUPS = (
@@ -46,7 +45,6 @@ SDK_REQUIRED_PATHS = (
     Path("src/cpp/idf_component.yml"),
     Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
-    Path("src/cpp/library.json"),
     Path("src/cpp/core/ml_weights.h"),
     Path("src/cpp/runtime/espectre_sdk_version.h"),
     Path("docs/EMBEDDING.md"),
@@ -67,7 +65,6 @@ SDK_TOP_LEVEL_FILES = (
     Path("src/cpp/idf_component.yml"),
     Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
-    Path("src/cpp/library.json"),
     # The integration guide and the Doxygen config travel with the sources, so a
     # bundle is self-contained: `doxygen docs/Doxyfile` from the bundle root
     # rebuilds the API reference offline, because INPUT is relative to the
@@ -103,10 +100,6 @@ def parse_args() -> argparse.Namespace:
         help="Optional URL prefix used instead of GitHub Releases for artifact URLs.",
     )
     return parser.parse_args()
-
-
-def load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def detect_protocol_version() -> str:
@@ -189,39 +182,21 @@ def collect_bundle_files() -> list[Path]:
     return deduped
 
 
-def validate_layout(bundle_files: list[Path], library_manifest: dict) -> None:
+def validate_layout(bundle_files: list[Path]) -> None:
     bundle_file_set = set(bundle_files)
     missing = [str(path) for path in SDK_REQUIRED_PATHS if path not in bundle_file_set]
     if missing:
         raise ValueError(f"SDK bundle is missing required paths: {missing}")
 
-    src_filter = library_manifest.get("build", {}).get("srcFilter", [])
-    if "+<runtime/esp_idf/runtime_sensing_kconfig.cpp>" not in src_filter:
-        raise ValueError("PlatformIO manifest is missing runtime_sensing_kconfig.cpp")
-
-    build_flags = library_manifest.get("build", {}).get("flags", [])
-    if "-I." not in build_flags:
-        raise ValueError("PlatformIO manifest does not expose the SDK root include dir")
-
     # The compile-time macros integrators guard against are only useful if they
     # agree with the package metadata a dependency manager resolves.
     sdk_version = detect_sdk_version()
-    manifest_versions = {
-        "src/cpp/library.json": str(library_manifest["version"]),
-        "src/cpp/idf_component.yml": idf_component_manifest_version(),
-    }
+    manifest_versions = {"src/cpp/idf_component.yml": idf_component_manifest_version()}
     mismatched = {path: value for path, value in manifest_versions.items() if value != sdk_version}
     if mismatched:
         raise ValueError(
             f"ESPECTRE_SDK_VERSION_STRING is {sdk_version!r} but packaging metadata disagrees: {mismatched}"
         )
-
-
-def stamp_library_manifest(path: Path, sdk_package_version: str) -> dict:
-    payload = load_json(path)
-    payload["version"] = sdk_package_version
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return payload
 
 
 def stamp_idf_component_manifest(path: Path, sdk_package_version: str) -> None:
@@ -239,16 +214,15 @@ def stamp_idf_component_manifest(path: Path, sdk_package_version: str) -> None:
     path.write_text("\n".join(output_lines) + "\n", encoding="utf-8")
 
 
-def stage_bundle_tree(destination_root: Path, sdk_package_version: str, bundle_files: list[Path]) -> tuple[int, dict]:
+def stage_bundle_tree(destination_root: Path, sdk_package_version: str, bundle_files: list[Path]) -> int:
     for relative_path in bundle_files:
         source = REPO_ROOT / relative_path
         target = destination_root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
 
-    staged_library_manifest = stamp_library_manifest(destination_root / "src" / "cpp" / "library.json", sdk_package_version)
     stamp_idf_component_manifest(destination_root / "src" / "cpp" / "idf_component.yml", sdk_package_version)
-    return len(bundle_files), staged_library_manifest
+    return len(bundle_files)
 
 
 def resolve_source_date_epoch(explicit_epoch: int | None = None) -> int:
@@ -386,11 +360,6 @@ def build_manifest(
                 "entrypoint": "src/cpp/espectre_sources.cmake",
                 "optional_source_groups": list(OPTIONAL_SOURCE_GROUPS),
             },
-            "platformio": {
-                "manifest": "src/cpp/library.json",
-                "package_name": "espectre-shared",
-                "package_version": sdk_package_version,
-            },
             "esp_idf_component": {
                 "component_root": "src/cpp",
                 "cmake": "src/cpp/CMakeLists.txt",
@@ -405,15 +374,14 @@ def build_sdk_package(args: argparse.Namespace) -> dict:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    tracked_library_manifest = load_json(LIBRARY_MANIFEST)
     bundle_files = collect_bundle_files()
-    validate_layout(bundle_files, tracked_library_manifest)
+    validate_layout(bundle_files)
 
     sdk_package_version = package_version(
         args.channel,
         args.version,
         args.commit,
-        str(tracked_library_manifest["version"]),
+        idf_component_manifest_version(),
     )
     asset_stem = release_asset_stem(args.channel, args.version)
     bundle_root = asset_stem
@@ -427,7 +395,7 @@ def build_sdk_package(args: argparse.Namespace) -> dict:
 
     with tempfile.TemporaryDirectory(prefix="espectre-sdk-") as tmp_dir:
         staged_root = Path(tmp_dir) / bundle_root
-        file_count, _ = stage_bundle_tree(staged_root, sdk_package_version, bundle_files)
+        file_count = stage_bundle_tree(staged_root, sdk_package_version, bundle_files)
         write_tarball(staged_root, tarball_path, bundle_root, source_date_epoch)
         write_zipfile(staged_root, zip_path, bundle_root, source_date_epoch)
 

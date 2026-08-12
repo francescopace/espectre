@@ -6,7 +6,6 @@
 #   - github-actions: Workflow action versions
 #
 # Not supported by Dependabot:
-#   - PlatformIO: No native support (libraries managed via platformio.ini)
 #   - C/C++: No standard package manager
 
 version: 2
@@ -52,4 +51,3 @@ updates:
       github-actions:
         patterns:
           - "*"
-          

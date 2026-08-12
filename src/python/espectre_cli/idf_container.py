@@ -14,8 +14,8 @@ from typing import Callable
 
 
 IDF_DOCKER_IMAGE = (
-    "espressif/idf:release-v5.5@sha256:"
-    "0c439ea923cd42700f9bbbe82542749d980712edb0ead0ea6db7eef35619b812"
+    "espressif/idf:v5.5.5@sha256:"
+    "a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2"
 )
 DOCKER_PULL_POLICIES = ("ask", "missing", "never")
 
@@ -74,7 +74,7 @@ def ensure_docker_backend(
     docker = docker_executable()
     if docker is None:
         raise DockerBackendError(
-            "Docker is not installed. Install Docker, or install ESP-IDF 5.5.4 for local builds."
+            "Docker is not installed. Install Docker, or install ESP-IDF 5.5.5 for local builds."
         )
 
     while not docker_daemon_is_running(docker):

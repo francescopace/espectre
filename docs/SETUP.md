@@ -49,7 +49,7 @@ python -m pip install -r requirements.txt
 
 On Windows PowerShell, create the environment with `py -3 -m venv .venv`, activate `.\.venv\Scripts\Activate.ps1`, and run the same install command.
 
-Native, Matter, and Streamer builds prefer a local ESP-IDF `5.5.4` environment and automatically fall back to the pinned ESP-IDF Docker image when no local installation is detected. The local path reuses the matching framework downloaded by ESPHome/PlatformIO when available, otherwise it detects a standard ESP-IDF installation or `IDF_PATH`.
+Native, Matter, and Streamer builds prefer a standard local ESP-IDF installation or an active `IDF_PATH` environment and automatically fall back to the pinned ESP-IDF Docker image when no local installation is detected. ESPHome manages its own native ESP-IDF toolchain separately.
 
 ```bash
 ./espectre native build --chip c3
@@ -59,7 +59,7 @@ On Windows, use `.\espectre.cmd native build --chip c3`. The same pattern applie
 
 When the local environment is absent and Docker is running, a cached image is used without prompting. If the image is missing, an interactive build asks before downloading it; non-interactive builds must opt in with `--pull missing`. If Docker is installed but stopped, the CLI asks you to start it and retry. Use `--backend local` or `--backend docker` to require one path, and use `./espectre doctor` to inspect only the local ESP-IDF environment.
 
-Docker currently covers builds only. Flashing through the repository CLI still uses local serial tooling and ESP-IDF. If neither build backend is available, either install Docker or install ESP-IDF `5.5.4` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow.
+Docker currently covers builds only. Flashing through the repository CLI still uses local serial tooling and ESP-IDF. If neither build backend is available, either install Docker or install ESP-IDF `5.5.5` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow.
 
 Build cleanup, chip-matched flash selection, and namespace-specific flags are documented in [CLI.md](CLI.md#frontend-workflow-commands).
 
@@ -114,7 +114,6 @@ The bundle is source-first. It includes:
 
 - `src/cpp/espectre_sdk.h`, the single include that reaches the supported integration surface
 - `src/cpp/espectre_sources.cmake` for CMake / ESP-IDF integration
-- `src/cpp/library.json` for PlatformIO metadata
 - a component-shaped `src/cpp/` root with `CMakeLists.txt`, `idf_component.yml`, and `Kconfig.projbuild`, where the optional MQTT, BLE, provisioning, OTA, and stream-runtime groups are selected under the "ESPectre SDK" menuconfig menu
 
 Use [EMBEDDING.md](EMBEDDING.md) for the actual integration model and runtime contracts.

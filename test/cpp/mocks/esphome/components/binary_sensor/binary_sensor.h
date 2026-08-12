@@ -9,7 +9,7 @@
  */
 #pragma once
 
-// Mock ESPHome BinarySensor for PlatformIO tests
+// Mock ESPHome BinarySensor for host tests
 
 #include <string>
 

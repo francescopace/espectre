@@ -167,7 +167,7 @@ The shipped ESP-IDF runtime always collects these counters. Native and ESPHome r
 
 ### Versioning
 
-`ESPECTRE_SDK_VERSION_STRING` identifies the SDK sources you compiled against, and `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` guards code that needs a given release. This is distinct from `espectre_firmware_version()`, which reports *your* application version, and from `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format. The release tooling keeps the header, `library.json`, and `idf_component.yml` in agreement and fails the SDK build if they drift.
+`ESPECTRE_SDK_VERSION_STRING` identifies the SDK sources you compiled against, and `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` guards code that needs a given release. This is distinct from `espectre_firmware_version()`, which reports *your* application version, and from `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format. The release tooling keeps the header and `idf_component.yml` in agreement and fails the SDK build if they drift.
 
 ## Build integration
 
@@ -175,7 +175,6 @@ Both surfaces build the same sources; they differ only in how you select the opt
 
 - **CMake / ESP-IDF**: include `src/cpp/espectre_sources.cmake` and consume the source lists (`ESPECTRE_CORE_SOURCES`, `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, and the per-capability lists for BLE, MQTT, provisioning, and OTA) plus `ESPECTRE_SHARED_INCLUDE_DIRS`. The frontend `CMakeLists.txt` files show the working combinations.
 - **Vendored ESP-IDF component**: drop `src/cpp/` into your project's `components/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
-- **PlatformIO**: `src/cpp/library.json` packages the same layers with an equivalent source filter.
 - **Toolchain**: C++17, ESP-IDF `>= 5.1` for the `runtime/esp_idf` services.
 
 `ESPECTRE_SHARED_INCLUDE_DIRS` puts the SDK root on the include path, so both the flat form (`#include "runtime_interface.h"`) and the layer-prefixed form (`#include "runtime/runtime_interface.h"`) work. Prefer the prefixed form: the shared tree contains generic basenames such as `utils.h` and `filters.h`, and the prefix keeps them from colliding with headers of your own.
@@ -210,7 +209,6 @@ Each SDK bundle includes:
 - `src/cpp/runtime/`
 - `src/cpp/runtime/esp_idf/espectre_config/`
 - `src/cpp/espectre_sources.cmake`
-- `src/cpp/library.json`
 - `src/cpp/CMakeLists.txt`
 - `src/cpp/idf_component.yml`
 - `src/cpp/Kconfig.projbuild`

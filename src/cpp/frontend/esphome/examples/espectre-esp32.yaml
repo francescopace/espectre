@@ -16,7 +16,7 @@ substitutions:
 esphome:
   name: espectre
   friendly_name: ESPectre
-  min_version: 2026.6.0
+  min_version: 2026.7.0
   # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
   # name_add_mac_suffix: true
   project:
@@ -25,7 +25,6 @@ esphome:
 
 esp32:
   board: esp32dev
-  toolchain: platformio
   cpu_frequency: 240MHz
   framework:
     type: esp-idf

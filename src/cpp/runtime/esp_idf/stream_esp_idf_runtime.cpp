@@ -22,7 +22,7 @@
 #include "sdkconfig.h"
 
 // Wi-Fi credentials come from the streamer/native Kconfig surface. Builds
-// without it (e.g. ESPHome/PlatformIO) still compile this runtime but never
+// without it (e.g. ESPHome) still compile this runtime but never
 // select the STREAM profile, so fall back to empty values.
 #ifndef CONFIG_ESPECTRE_WIFI_SSID
 #define CONFIG_ESPECTRE_WIFI_SSID ""

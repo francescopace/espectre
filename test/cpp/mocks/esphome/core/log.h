@@ -9,7 +9,7 @@
  */
 #pragma once
 
-// Mock ESPHome logging for PlatformIO tests
+// Mock ESPHome logging for host tests
 
 #include <stdio.h>
 #include <stdarg.h>

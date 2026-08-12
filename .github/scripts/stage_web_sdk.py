@@ -137,7 +137,6 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
       <thead><tr><th>Surface</th><th>Bundle anchor</th></tr></thead>
       <tbody>
         <tr><td>CMake / ESP-IDF</td><td><code>{manifest["install_surfaces"]["cmake"]["entrypoint"]}</code> plus optional groups <code>{optional_groups}</code></td></tr>
-        <tr><td>PlatformIO</td><td><code>{manifest["install_surfaces"]["platformio"]["manifest"]}</code></td></tr>
         <tr><td>ESP-IDF component layout</td><td><code>{manifest["install_surfaces"]["esp_idf_component"]["component_root"]}</code>, <code>{manifest["install_surfaces"]["esp_idf_component"]["cmake"]}</code>, and <code>{manifest["install_surfaces"]["esp_idf_component"]["kconfig"]}</code></td></tr>
       </tbody>
     </table></div>

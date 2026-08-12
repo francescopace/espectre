@@ -9,7 +9,7 @@
  */
 #pragma once
 
-// Mock ESPHome Application for PlatformIO tests
+// Mock ESPHome Application for host tests
 
 #include "component.h"
 #include <vector>

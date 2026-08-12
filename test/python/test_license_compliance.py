@@ -52,7 +52,7 @@ def test_build_firmware_compliance_collects_actual_component_licenses(tmp_path):
         "project_version": "3.0.0",
         "target": "esp32c6",
         "idf_path": str(idf_root),
-        "git_revision": "5.5.4",
+        "git_revision": "5.5.5",
         "build_component_info": {
             "network": {
                 "dir": str(idf_component),
@@ -85,7 +85,7 @@ def test_build_firmware_compliance_collects_actual_component_licenses(tmp_path):
 
     sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
     packages = {package["name"]: package for package in sbom["packages"]}
-    assert packages["ESP-IDF"]["versionInfo"] == "5.5.4"
+    assert packages["ESP-IDF"]["versionInfo"] == "5.5.5"
     assert packages["vendor/sensor"]["versionInfo"] == "1.2.3"
     assert packages["vendor/sensor"]["licenseDeclared"] == "MIT"
     firmware_package = packages[firmware.name]

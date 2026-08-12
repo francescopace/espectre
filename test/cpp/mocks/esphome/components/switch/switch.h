@@ -9,7 +9,7 @@
  */
 #pragma once
 
-// Mock ESPHome Switch for PlatformIO tests
+// Mock ESPHome Switch for host tests
 
 #include <string>
 
@@ -43,4 +43,3 @@ protected:
 
 } // namespace switch_
 } // namespace esphome
-

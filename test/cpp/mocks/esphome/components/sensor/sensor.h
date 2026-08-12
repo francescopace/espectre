@@ -9,7 +9,7 @@
  */
 #pragma once
 
-// Mock ESPHome Sensor for PlatformIO tests
+// Mock ESPHome Sensor for host tests
 
 #include <string>
 #include <cstdint>

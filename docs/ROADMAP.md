@@ -15,41 +15,39 @@
 | **v4.0.0** | After v3.4.0 | Planned | Add optional privacy-first onboarding, fleet visibility, history, and alerting |
 | **v5.0.0** | Hardware-triggered | Exploratory | Adopt practical standards-backed Wi-Fi sensing without breaking product contracts |
 
-## v3.0.0 - Platform Baseline
+## v3.0.0-rc1 - First Release Candidate
 
-**Product outcome**: ship the first stable v3 platform with shared sensing logic, a stable runtime and protocol contract, multiple firmware frontends, and an embeddable foundation for custom firmware and OEM products.
+**Product outcome**: freeze the intended v3.0.0 platform contract, publish the first complete candidate artifacts, and finish whole-platform release validation.
 
 ### Release Scope
 
-| Area | Readiness | Release position |
-| --- | --- | --- |
-| **Architecture** | Ready | Shared `core`, `runtime`, ESP-IDF services, and frontend adapters are separated and documented |
-| **Frontends** | Ready with known limits | ESPHome has the broadest Home Assistant surface; Native MQTT Discovery, optional Micro-ESPectre discovery, Matter occupancy, and Streamer are available; Matter controller coverage remains limited |
-| **Protocol** | Ready | BLE and MQTT provisioning, telemetry, status, info, commands, and reusable services share the documented protocol contract |
-| **Detection** | Ready with known limits | The promoted seven-feature ML model passes the maintained real-data, long-recording, low-RSSI, packet-rate, and C++/Python parity gates. Classic passes the maintained normal-link paired-data, packet-rate, and parity gates; weak-link and long quiet recordings remain report-only stress diagnostics because recall drops on weak links and the C6 long-quiet false-positive tail exceeds the published target |
-| **Documentation** | Release candidate | Setup, architecture, protocol, tuning, performance, and frontend workflows describe the v3 surface; final review remains open |
+The candidate covers the shared sensing architecture, runtime and protocol contracts, supported firmware frontends, release artifacts, and embeddable SDK surface intended for v3.0.0. New product capabilities move to a later minor release unless they are required to correct a release blocker.
 
 Completed implementation, detector experiments, and dated reviews live in [CHANGELOG.md](CHANGELOG.md), [FEATURES.md](FEATURES.md), and [review/](review/).
 
 **Exit criteria**:
 
-- [x] Complete ClassicDetector and MLDetector tuning, pass their maintained detector-performance and C++/Python parity gates, and document the report-only Classic weak-link and long-recording limits
+- [ ] Quantify detection gains since v2.8.0 with a fair head-to-head on the current dataset using the v2.8 model features and the base detector
+- [ ] Capture a current Home Assistant visualization for the project overview and docs
 - [ ] Close the remaining documentation, security, and first-party code reviews
-- [x] Audit the release notes
 - [ ] Re-enable the `CLA Signature Check` as required on `develop`, and test the GitHub issue and pull request templates end to end
-- [ ] Verify the GA4 property-side settings and live events, and capture a current Home Assistant visualization for the project overview
+- [ ] Verify the GA4 property-side settings and live events
 
-## v3.0.x - Stable-Line Maintenance
+## v3.0.0-rc2 - Second Release Candidate
 
-**Product outcome**: keep the stable v3.0 contract dependable while feature development proceeds in later minor releases.
+**Product outcome**: resolve findings from the first candidate and prove that the frozen v3.0.0 contract is ready for stable release.
 
-**Scope**: compatibility and security fixes, packaging corrections, documentation fixes, and release-process follow-up discovered after `3.0.0`. New product capabilities begin in `3.1.0` or later.
+**Scope**: compatibility, correctness, security, packaging, documentation, and release-process fixes discovered after `v3.0.0-rc1`. The candidate does not widen the product baseline.
 
-**Exit criteria**: each patch has targeted regression evidence, preserves the published v3.0 contracts, and keeps release artifacts and documentation aligned.
+**Exit criteria**: every `rc1` release blocker is closed, required validation and release gates pass on the candidate commit, and firmware, SDK, web, and vendor artifacts are reproducible and aligned with the candidate documentation.
 
-## v3.x - Minor Release Plan
+## v3.0.0 - Stable Release
 
-The v3 minor line improves the product without redefining the v3 platform contract. Releases and their activities are ordered by dependency. Calendar targets are assigned only after the preceding release clears its exit criteria. Research may feed a future minor, but it enters a numbered release only after a production promotion decision.
+**Product outcome**: publish the supported v3 platform baseline validated by the two release candidates.
+
+**Scope**: release the contract and artifacts accepted in `v3.0.0-rc2`. Only fixes for stable-release blockers may land after the second candidate.
+
+**Exit criteria**: no release blockers remain, every required gate passes on the release commit, release notes describe the final cumulative behavior and migration path, and published artifacts match the tagged source.
 
 ### v3.1.0 - Sensing Quality and Performance
 
@@ -70,7 +68,7 @@ The v3 minor line improves the product without redefining the v3 platform contra
 
 **Scope**:
 
-- Define the supported distribution surfaces for PlatformIO and ESP-IDF component consumers, including registry publication where it fits the project trust model
+- Define the supported distribution surface for ESP-IDF component consumers, including registry publication where it fits the project trust model
 - Keep `stable`, `snapshot`, and `snapshot-dev` channels aligned across bundle manifests, website links, and release automation
 - Package the web BLE client with ESM, IIFE, npm, and TypeScript surfaces, or retain it in-tree with a documented rationale if a reusable package does not meet the support bar
 
@@ -110,22 +108,6 @@ The v3 minor line improves the product without redefining the v3 platform contra
 - Evaluate a TuyaOpen reference integration that embeds the shared `core` and `runtime`, with licensing and cloud coupling documented as integrator-side prerequisites
 
 **Exit criteria**: each candidate has a measured promotion or rejection decision. Release `3.5.0` only when at least one candidate passes its production gates; otherwise retain the findings in [FEATURES.md](FEATURES.md) without creating an empty feature release. This conditional minor does not block `4.0.0`.
-
-## Research Pipeline
-
-Research answers product questions; it does not reserve release scope. Work is sequenced by prerequisite, and a measured rejection or deferral is a valid outcome. Detailed experiments and internal evidence belong in [FEATURES.md](FEATURES.md); external evidence belongs in [LITERATURE.md](LITERATURE.md).
-
-| Order | Track | Product question | Promotion gate |
-| --- | --- | --- | --- |
-| R1 | **5 GHz HT20** | Can ESP32-C5 deployments make a validated 5 GHz sensing claim? | Paired dual-band captures on the same hardware and environments validate both detectors |
-| R2 | **VHT20** | Can the nearest PHY extension reuse the production sensing contract safely? | Proven capture provenance, safe normalization, representative detector results, and C++/Python parity after the 5 GHz HT20 baseline |
-| R3 | **Stationary presence** | Can ESPectre distinguish an occupied quiet room from an empty room? | Paired same-session data supports a scale-invariant Presence-versus-Empty boundary |
-| R4 | **Brief gestures** | Does preserved high-rate information support a distinct gesture product? | The `3.1.0` high-rate path is stable, and a gesture-specific corpus passes validation |
-| R5 | **Breathing-related motion** | Are longer-window spectral features useful for non-medical micro-motion? | Stationary presence is measurable, paired recordings support longer windows, and host-side evidence justifies runtime work |
-| Later | **HE20** | Can a substantially different subcarrier layout map into detector inputs? | Host-side mapping, representative corpus validation, and C++/Python parity justify a new runtime path |
-| Later | **HT40 and wider layouts** | Does added bandwidth justify a separate sensing contract? | Each candidate proves value against the cost of its own grid, normalization, corpus, and detector validation |
-
-Promotion follows the project workflow: prototype host-side, retain the verdict in the feature ledger, and add production C++ and device-side Python behavior only when the evidence justifies parity work.
 
 ## v4.0.0 - Web Orchestration Layer
 
@@ -167,6 +149,22 @@ The shared device contract remains owned by [ESPECTRE_PROTOCOL.md](ESPECTRE_PROT
 - Document migration from ESP32 CSI firmware
 
 **Exit criteria**: supported hardware and APIs are available, the new backend passes its sensing and compatibility gates, and existing product integrations can adopt it without a parallel control plane.
+
+## Research Pipeline
+
+Research answers product questions; it does not reserve release scope. Work is sequenced by prerequisite, and a measured rejection or deferral is a valid outcome. Detailed experiments and internal evidence belong in [FEATURES.md](FEATURES.md); external evidence belongs in [LITERATURE.md](LITERATURE.md).
+
+| Order | Track | Product question | Promotion gate |
+| --- | --- | --- | --- |
+| R1 | **5 GHz HT20** | Can ESP32-C5 deployments make a validated 5 GHz sensing claim? | Paired dual-band captures on the same hardware and environments validate both detectors |
+| R2 | **VHT20** | Can the nearest PHY extension reuse the production sensing contract safely? | Proven capture provenance, safe normalization, representative detector results, and C++/Python parity after the 5 GHz HT20 baseline |
+| R3 | **Stationary presence** | Can ESPectre distinguish an occupied quiet room from an empty room? | Paired same-session data supports a scale-invariant Presence-versus-Empty boundary |
+| R4 | **Brief gestures** | Does preserved high-rate information support a distinct gesture product? | The `3.1.0` high-rate path is stable, and a gesture-specific corpus passes validation |
+| R5 | **Breathing-related motion** | Are longer-window spectral features useful for non-medical micro-motion? | Stationary presence is measurable, paired recordings support longer windows, and host-side evidence justifies runtime work |
+| Later | **HE20** | Can a substantially different subcarrier layout map into detector inputs? | Host-side mapping, representative corpus validation, and C++/Python parity justify a new runtime path |
+| Later | **HT40 and wider layouts** | Does added bandwidth justify a separate sensing contract? | Each candidate proves value against the cost of its own grid, normalization, corpus, and detector validation |
+
+Promotion follows the project workflow: prototype host-side, retain the verdict in the feature ledger, and add production C++ and device-side Python behavior only when the evidence justifies parity work.
 
 ## Ownership and Updates
 

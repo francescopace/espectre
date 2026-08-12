@@ -1077,13 +1077,10 @@ def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, t
     assert exc.value.code == 9
 
 
-def test_resolve_idf_environment_prefers_platformio_export(monkeypatch, tmp_path: Path) -> None:
-    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.sh"
+def test_resolve_idf_environment_prefers_standard_export(monkeypatch, tmp_path: Path) -> None:
+    export_script = tmp_path / "esp" / "esp-idf" / "export.sh"
     export_script.parent.mkdir(parents=True)
     export_script.write_text("#!/bin/sh\n", encoding="utf-8")
-    manual_export = tmp_path / "esp" / "esp-idf" / "export.sh"
-    manual_export.parent.mkdir(parents=True)
-    manual_export.write_text("#!/bin/sh\n", encoding="utf-8")
 
     monkeypatch.delenv("IDF_PATH", raising=False)
     monkeypatch.setattr(idf.Path, "home", lambda: tmp_path)
@@ -1092,13 +1089,13 @@ def test_resolve_idf_environment_prefers_platformio_export(monkeypatch, tmp_path
     env = idf.resolve_idf_environment()
 
     assert env.mode == "export"
-    assert env.source == "ESPHome/PlatformIO package"
+    assert env.source == "standard ESP-IDF install"
     assert env.export_script == export_script
     assert env.export_kind == "sh"
 
 
-def test_prepare_idf_subprocess_command_uses_platformio_export_fallback(monkeypatch, tmp_path: Path) -> None:
-    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.sh"
+def test_prepare_idf_subprocess_command_uses_standard_export(monkeypatch, tmp_path: Path) -> None:
+    export_script = tmp_path / "esp" / "esp-idf" / "export.sh"
     export_script.parent.mkdir(parents=True)
     export_script.write_text("#!/bin/sh\n", encoding="utf-8")
 
@@ -1110,7 +1107,7 @@ def test_prepare_idf_subprocess_command_uses_platformio_export_fallback(monkeypa
 
     env = idf.ResolvedIdfEnvironment(
         mode="export",
-        source="ESPHome/PlatformIO package",
+        source="standard ESP-IDF install",
         install_dir=export_script.parent,
         export_script=export_script,
         export_kind="sh",
@@ -1124,7 +1121,7 @@ def test_prepare_idf_subprocess_command_uses_platformio_export_fallback(monkeypa
 def test_prepare_idf_subprocess_command_sequence_combines_exported_build_steps(
     monkeypatch, tmp_path: Path
 ) -> None:
-    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.sh"
+    export_script = tmp_path / "esp" / "esp-idf" / "export.sh"
     export_script.parent.mkdir(parents=True)
     export_script.write_text("#!/bin/sh\n", encoding="utf-8")
 
@@ -1136,7 +1133,7 @@ def test_prepare_idf_subprocess_command_sequence_combines_exported_build_steps(
 
     env = idf.ResolvedIdfEnvironment(
         mode="export",
-        source="ESPHome/PlatformIO package",
+        source="standard ESP-IDF install",
         install_dir=export_script.parent,
         export_script=export_script,
         export_kind="sh",
@@ -1166,7 +1163,7 @@ def test_run_idf_command_build_uses_single_exported_subprocess(monkeypatch, tmp_
     app_dir.mkdir()
     (app_dir / "sdkconfig.wifi").write_text("", encoding="utf-8")
     calls: list[tuple[list[str], Path]] = []
-    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.sh"
+    export_script = tmp_path / "esp" / "esp-idf" / "export.sh"
     export_script.parent.mkdir(parents=True)
     export_script.write_text("#!/bin/sh\n", encoding="utf-8")
 
@@ -1181,7 +1178,7 @@ def test_run_idf_command_build_uses_single_exported_subprocess(monkeypatch, tmp_
         "resolve_idf_environment",
         lambda: idf.ResolvedIdfEnvironment(
             mode="export",
-            source="ESPHome/PlatformIO package",
+            source="standard ESP-IDF install",
             install_dir=export_script.parent,
             export_script=export_script,
             export_kind="sh",
@@ -1208,7 +1205,7 @@ def test_run_idf_command_build_uses_single_exported_subprocess(monkeypatch, tmp_
 
 
 def test_resolve_idf_environment_supports_windows_export_bat(monkeypatch, tmp_path: Path) -> None:
-    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.bat"
+    export_script = tmp_path / "esp" / "esp-idf" / "export.bat"
     export_script.parent.mkdir(parents=True)
     export_script.write_text("@echo off\r\n", encoding="utf-8")
 
@@ -1220,13 +1217,13 @@ def test_resolve_idf_environment_supports_windows_export_bat(monkeypatch, tmp_pa
     env = idf.resolve_idf_environment()
 
     assert env.mode == "export"
-    assert env.source == "ESPHome/PlatformIO package"
+    assert env.source == "standard ESP-IDF install"
     assert env.export_script == export_script
     assert env.export_kind == "bat"
 
 
 def test_run_idf_doctor_uses_export_fallback_on_windows(monkeypatch, tmp_path: Path) -> None:
-    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.bat"
+    export_script = tmp_path / "esp" / "esp-idf" / "export.bat"
     export_script.parent.mkdir(parents=True)
     export_script.write_text("@echo off\r\n", encoding="utf-8")
     calls: list[list[str]] = []
