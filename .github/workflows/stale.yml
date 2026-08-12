@@ -6,12 +6,13 @@ on:
 
 jobs:
   stale:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/stale@v10
+      - uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629 # v10
         with:
           # Issue settings
           stale-issue-message: >
@@ -46,4 +47,3 @@ jobs:
           
           # Operations per run (GitHub API limit friendly)
           operations-per-run: 50
-

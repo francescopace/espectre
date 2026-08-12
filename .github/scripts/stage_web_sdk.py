@@ -177,11 +177,14 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
 def stage_web_sdk(args: argparse.Namespace) -> Path:
     sdk_dir = Path(args.sdk_dir)
     output_dir = Path(args.output_dir)
-    clean_output_dir(output_dir)
-
     manifest = load_sdk_manifest(sdk_dir)
-    if manifest.get("channel") not in {"stable", "main"}:
-        raise ValueError("Only stable and main SDK manifests may be staged on the website")
+    if manifest.get("channel") != args.channel:
+        raise ValueError(
+            f"SDK manifest channel mismatch: expected {args.channel!r}, "
+            f"found {manifest.get('channel')!r}"
+        )
+
+    clean_output_dir(output_dir)
 
     manifest_path = output_dir / f"sdk-manifest-{args.channel}.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

@@ -10,10 +10,11 @@ permissions:
 jobs:
   cla-check:
     name: CLA Signature Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     if: ${{ !endsWith(github.event.pull_request.user.login, '[bot]') }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Verify the PR author has signed the CLA
         env:

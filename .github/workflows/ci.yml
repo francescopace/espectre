@@ -10,70 +10,22 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  detect-push-origin:
-    name: Detect Push Origin
-    runs-on: ubuntu-latest
-    outputs:
-      run_ci: ${{ steps.detect.outputs.run_ci }}
-      is_pr_push: ${{ steps.detect.outputs.is_pr_push }}
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Detect if push commit belongs to merged PR
-        id: detect
-        uses: actions/github-script@v9
-        with:
-          script: |
-            // Default: run CI unless we prove this is a merged-PR push to develop.
-            if (context.eventName !== "push" || context.ref !== "refs/heads/develop") {
-              core.setOutput("run_ci", "true");
-              core.setOutput("is_pr_push", "false");
-              core.info("Not a push on develop. CI will run.");
-              return;
-            }
-
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const sha = context.sha;
-
-            const response = await github.request("GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls", {
-              owner,
-              repo,
-              commit_sha: sha,
-              mediaType: { previews: ["groot"] }
-            });
-
-            const relatedMergedPr = response.data.find((pr) =>
-              pr &&
-              pr.merged_at &&
-              pr.base &&
-              pr.base.ref === "develop"
-            );
-
-            const isPrPush = Boolean(relatedMergedPr);
-            core.setOutput("is_pr_push", isPrPush ? "true" : "false");
-            core.setOutput("run_ci", isPrPush ? "false" : "true");
-
-            if (isPrPush) {
-              core.info(`Detected merged PR push (PR #${relatedMergedPr.number}). Skipping duplicate CI on develop push.`);
-            } else {
-              core.info("No merged PR associated with this push commit. Treating as direct push; CI will run.");
-            }
-
   build-site:
     name: Validate Website
-    needs: detect-push-origin
-    if: needs.detect-push-origin.outputs.run_ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
-      pages: write
-      id-token: write
     
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
       
       - name: Download stable release assets
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -130,140 +82,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
       
-      - name: Stage Browser Dependencies
-        run: |
-          npm --prefix docs/web ci --ignore-scripts
-          npm --prefix docs/web run stage:vendor
-
-      - name: Test Web Client
-        run: node --test 'test/web/*.mjs'
-
-      - name: Build Static Pages
-        run: python3 .github/scripts/build_static_pages.py
-
-      - name: Install Doxygen
-        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
-
-      - name: Generate SDK API Reference
-        # Written straight into the Pages tree so
-        # espectre.dev/artifacts/sdk/api/ serves
-        # it. WARN_AS_ERROR is set in the Doxyfile, so a partially documented
-        # member on the published surface fails the build here rather than
-        # shipping a reference that reads as complete.
-        run: |
-          # Doxygen creates OUTPUT_DIRECTORY only one level deep, and
-          # docs/web/artifacts/ is not tracked because everything under it is
-          # generated, so the parent has to exist first.
-          mkdir -p docs/web/artifacts/sdk
-          ( cat docs/Doxyfile
-            echo "OUTPUT_DIRECTORY=docs/web/artifacts/sdk"
-            echo "HTML_OUTPUT=api"
-          ) | doxygen -
-
-      - name: Verify Website
-        run: |
-          test -f docs/web/sitemap.xml
-          test -f docs/web/index.html
-          test -f docs/web/assets/js/app.js
-          test -f docs/web/assets/css/styles.css
-          test -f docs/web/assets/js/espectre-ble.js
-          test -f docs/web/vendor/qrcodejs-1.0.0/qrcode.min.js
-          test -f docs/web/vendor/esp-web-tools-10.4.0/install-button.js
-          test -f docs/web/vendor/mqtt-5.3.0/mqtt.min.js
-          test -f docs/web/privacy/index.html
-          for route in flash configure monitor theremin game guides \
-              guide-hardware guide-setup guide-placement guide-detection guide-firmware \
-              docs docs-api docs-examples docs-architecture media roadmap; do
-            grep -q "data-page=\"$route\"" docs/web/index.html \
-              || { echo "Missing SPA route: $route"; exit 1; }
-          done
-          # Retired URLs fall through to this catch-all, served by Pages on 404.
-          test -f docs/web/404.html \
-            || { echo "Missing 404.html catch-all"; exit 1; }
-          # Canonical content pages are generated; the sitemap is committed.
-          for guide in hardware setup placement detection custom-firmware; do
-            test -f "docs/web/guides/$guide/index.html" \
-              || { echo "Missing generated guide page: $guide"; exit 1; }
-          done
-          test -f docs/web/media/index.html \
-            || { echo "Missing generated media page"; exit 1; }
-          test -f docs/web/roadmap/index.html \
-            || { echo "Missing generated roadmap page"; exit 1; }
-          test -f docs/web/artifacts/sdk/api/index.html \
-            || { echo "Missing generated SDK API reference"; exit 1; }
-          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
-            test -f docs/web/artifacts/firmware/stable/firmware-manifest-stable.json
-            test "$(find docs/web/artifacts/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
-            test -f docs/web/artifacts/sdk/stable/index.html
-            test -f docs/web/artifacts/sdk/stable/sdk-manifest-stable.json
-            test -f docs/web/artifacts/sdk/main/index.html
-            test -f docs/web/artifacts/sdk/main/sdk-manifest-main.json
-          fi
-          echo "Website verified!"
-      
-      - name: Setup Pages
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: actions/configure-pages@v6
-      
-      - name: Upload Pages Artifact
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v5
+      - name: Build and verify Pages tree
+        uses: ./.github/actions/build-pages
         with:
-          path: docs/web
-
-  deploy-site:
-    name: Deploy to GitHub Pages
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    needs: build-site
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    concurrency:
-      group: pages
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
-
-  notify-indexnow:
-    name: Notify IndexNow
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    needs: deploy-site
-    
-    steps:
-      - uses: actions/checkout@v7
-      
-      - name: Extract URLs and notify IndexNow
-        run: |
-          # Extract URLs from sitemap
-          URLS=$(grep -oP '(?<=<loc>)[^<]+' docs/web/sitemap.xml | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          
-          # Notify IndexNow (Bing, Yandex, Seznam, Naver)
-          curl -s -X POST "https://api.indexnow.org/indexnow" \
-            -H "Content-Type: application/json; charset=utf-8" \
-            -d "{\"host\":\"espectre.dev\",\"key\":\"1a2e73ccf9558a06830546c288699e0c\",\"keyLocation\":\"https://espectre.dev/1a2e73ccf9558a06830546c288699e0c.txt\",\"urlList\":$URLS}"
-          
-          echo "Notified IndexNow with $(echo "$URLS" | jq length) URLs"
+          require-main: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+          require-stable: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
 
   test-cpp:
     name: C++ Unit Tests
-    needs: detect-push-origin
-    if: needs.detect-push-origin.outputs.run_ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'
           cache: 'pip'
@@ -278,7 +112,7 @@ jobs:
         run: ./test/cpp/run_coverage.sh --ci
       
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
         with:
           files: test/cpp/coverage.xml,test/cpp/coverage.lcov
           flags: cpp
@@ -289,15 +123,14 @@ jobs:
 
   test-python:
     name: Python Unit Tests
-    needs: detect-push-origin
-    if: needs.detect-push-origin.outputs.run_ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'
           cache: 'pip'
@@ -309,7 +142,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Restore shared NPZ cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .npz_cache
           key: ${{ format('npz-cache-v1-{0}-{1}', runner.os, hashFiles('data/dataset_info.json', 'src/python/micro_espectre/runtime_policy.py', 'tools/lib/csi_io.py', 'tools/lib/dataset_metadata.py', 'tools/lib/npz_cache.py', 'tools/lib/performance_report.py', 'tools/train_ml_model.py', 'tools/validate_dataset_quality.py', 'test/python/test_packet_rate_adaptation_regression.py')) }}
@@ -323,7 +156,7 @@ jobs:
           PYTEST_XDIST_AUTO_NUM_WORKERS: '4'
       
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
         with:
           files: coverage.xml
           flags: python
@@ -334,9 +167,8 @@ jobs:
 
   build-esphome:
     name: Build ESPHome ${{ matrix.chip }}
-    runs-on: ubuntu-latest
-    needs: detect-push-origin
-    if: needs.detect-push-origin.outputs.run_ci == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -353,10 +185,10 @@ jobs:
             config: src/cpp/frontend/esphome/examples/espectre-c6.yaml
     
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'
           cache: 'pip'
@@ -375,6 +207,8 @@ jobs:
           CONFIG_PATH="${{ matrix.config }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             CONFIG_PATH="src/cpp/frontend/esphome/examples/.ci-${{ matrix.chip }}.yaml"
+            # ${git_ref} below is literal ESPHome YAML content.
+            # shellcheck disable=SC2016
             MATRIX_CONFIG="${{ matrix.config }}" MATRIX_CHIP="${{ matrix.chip }}" python3 -c 'from pathlib import Path; import os; src = Path(os.environ["MATRIX_CONFIG"]); chip = os.environ["MATRIX_CHIP"]; dst = Path(f"src/cpp/frontend/esphome/examples/.ci-{chip}.yaml"); text = src.read_text(encoding="utf-8"); old = "external_components:\n  - source:\n      type: git\n      url: https://github.com/francescopace/espectre\n      ref: ${git_ref}\n      path: src/cpp/frontend/esphome/components\n    components: [ espectre ]\n    refresh: always\n"; new = "external_components:\n  - source:\n      type: local\n      path: ../components\n    components: [ espectre ]\n"; assert old in text, "expected external_components block not found"; dst.write_text(text.replace(old, new), encoding="utf-8")'
           fi
           echo "config_path=${CONFIG_PATH}" >> "$GITHUB_OUTPUT"
@@ -420,7 +254,7 @@ jobs:
 
       - name: Upload ESPHome firmware artifact
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: firmware-esphome-${{ matrix.chip }}
           path: output/espectre-snapshot*
@@ -428,9 +262,8 @@ jobs:
 
   build-matter:
     name: Build Matter ${{ matrix.chip }}
-    runs-on: ubuntu-latest
-    needs: detect-push-origin
-    if: needs.detect-push-origin.outputs.run_ci == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -448,7 +281,7 @@ jobs:
             target: esp32s3
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Select Matter artifact names
         id: matter-names
@@ -464,7 +297,7 @@ jobs:
       # These paths contain dependencies, not target build outputs, so the matrix
       # shares one cache entry across all supported chips.
       - name: Cache Matter toolchain and components
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             .github/.cache/matter-home
@@ -484,7 +317,7 @@ jobs:
 
       - name: Upload Matter firmware artifact
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: firmware-matter-${{ matrix.chip }}
           path: output/espectre-matter-snapshot*
@@ -492,9 +325,8 @@ jobs:
 
   build-native:
     name: Build Native ${{ matrix.chip }}
-    runs-on: ubuntu-latest
-    needs: detect-push-origin
-    if: needs.detect-push-origin.outputs.run_ci == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -512,7 +344,7 @@ jobs:
             target: esp32s3
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Select native artifact names
         id: native-names
@@ -530,7 +362,7 @@ jobs:
 
       # The cached home contains target-independent Python and component dependencies.
       - name: Cache native toolchain
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .github/.cache/native-home
           key: native-${{ runner.os }}-idf-v5.5-deps-v2-${{ hashFiles('requirements.txt') }}
@@ -550,7 +382,7 @@ jobs:
 
       - name: Upload native firmware artifact
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: firmware-native-${{ matrix.chip }}
           path: output/espectre-native-snapshot*
@@ -558,9 +390,8 @@ jobs:
 
   build-streamer:
     name: Build Streamer ${{ matrix.chip }}
-    runs-on: ubuntu-latest
-    needs: detect-push-origin
-    if: needs.detect-push-origin.outputs.run_ci == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -577,11 +408,11 @@ jobs:
             target: esp32s3
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # The cached home contains target-independent Python and component dependencies.
       - name: Cache streamer toolchain
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .github/.cache/streamer-home
           key: streamer-${{ runner.os }}-idf-v5.5-deps-v2-${{ hashFiles('requirements.txt') }}
@@ -598,15 +429,14 @@ jobs:
 
   build-sdk:
     name: Build SDK Package
-    runs-on: ubuntu-latest
-    needs: detect-push-origin
-    if: needs.detect-push-origin.outputs.run_ci == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'
 
@@ -614,17 +444,23 @@ jobs:
         id: sdk
         run: |
           if [ "${{ github.event_name }}" != "push" ]; then
-            echo "channel=main" >> "$GITHUB_OUTPUT"
-            echo "version=pr-preview" >> "$GITHUB_OUTPUT"
-            echo "release_tag=pr-preview" >> "$GITHUB_OUTPUT"
+            {
+              echo "channel=main"
+              echo "version=pr-preview"
+              echo "release_tag=pr-preview"
+            } >> "$GITHUB_OUTPUT"
           elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            echo "channel=develop" >> "$GITHUB_OUTPUT"
-            echo "version=develop" >> "$GITHUB_OUTPUT"
-            echo "release_tag=snapshot-dev" >> "$GITHUB_OUTPUT"
+            {
+              echo "channel=develop"
+              echo "version=develop"
+              echo "release_tag=snapshot-dev"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "channel=main" >> "$GITHUB_OUTPUT"
-            echo "version=main" >> "$GITHUB_OUTPUT"
-            echo "release_tag=snapshot" >> "$GITHUB_OUTPUT"
+            {
+              echo "channel=main"
+              echo "version=main"
+              echo "release_tag=snapshot"
+            } >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build SDK package
@@ -639,7 +475,7 @@ jobs:
 
       - name: Upload SDK package artifact
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sdk-bundle
           path: |

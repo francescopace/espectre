@@ -1,0 +1,64 @@
+name: Build and verify Pages tree
+description: Build the generated website, SDK API reference, and channel artifacts consistently.
+
+inputs:
+  require-main:
+    description: Require the rolling main firmware and SDK channels.
+    required: false
+    default: "false"
+  require-stable:
+    description: Require the stable firmware and SDK channels.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Stage browser dependencies
+      shell: bash
+      run: |
+        npm --prefix docs/web ci --ignore-scripts
+        npm --prefix docs/web run stage:vendor
+
+    - name: Test web client
+      shell: bash
+      run: node --test 'test/web/*.mjs'
+
+    - name: Build static pages
+      shell: bash
+      run: python3 .github/scripts/build_static_pages.py
+
+    - name: Install Doxygen
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends doxygen graphviz
+
+    - name: Generate SDK API reference
+      shell: bash
+      run: |
+        mkdir -p docs/web/artifacts/sdk
+        (
+          cat docs/Doxyfile
+          echo "OUTPUT_DIRECTORY=docs/web/artifacts/sdk"
+          echo "HTML_OUTPUT=api"
+        ) | doxygen -
+
+    - name: Generate sitemap lastmod values
+      shell: bash
+      run: python3 .github/scripts/build_sitemap.py
+
+    - name: Verify website
+      shell: bash
+      env:
+        REQUIRE_MAIN: ${{ inputs.require-main }}
+        REQUIRE_STABLE: ${{ inputs.require-stable }}
+      run: |
+        args=()
+        if [[ "${REQUIRE_MAIN}" == "true" ]]; then
+          args+=(--require-main)
+        fi
+        if [[ "${REQUIRE_STABLE}" == "true" ]]; then
+          args+=(--require-stable)
+        fi
+        python3 .github/scripts/verify_web_build.py "${args[@]}"

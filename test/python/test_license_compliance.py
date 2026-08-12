@@ -111,6 +111,7 @@ def test_repository_license_policy_covers_exceptions_and_release_artifacts():
         encoding="utf-8"
     )
     ble_tests = (REPO_ROOT / "test" / "web" / "test_espectre_ble.mjs").read_text(encoding="utf-8")
+    ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     release_workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     snapshot_workflow = (REPO_ROOT / ".github" / "workflows" / "snapshot.yml").read_text(encoding="utf-8")
 
@@ -128,7 +129,7 @@ def test_repository_license_policy_covers_exceptions_and_release_artifacts():
     assert "THIRD_PARTY_NOTICES.md" in snapshot_workflow
     assert "LICENSES/Apache-2.0.txt" in release_workflow
     assert "LICENSES/Apache-2.0.txt" in snapshot_workflow
-    assert "build_firmware_compliance" in snapshot_workflow
+    assert "build_firmware_compliance" in ci_workflow
     apache_license = (REPO_ROOT / "LICENSES" / "Apache-2.0.txt").read_text(encoding="utf-8")
     assert "Apache License" in apache_license
     assert "Version 2.0" in apache_license

@@ -11,10 +11,11 @@ permissions:
 jobs:
   dco:
     name: Verify Signed-off-by trailers
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Validate commit DCO trailers
-        uses: actions/github-script@v9
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
         with:
           script: |
             const allowlistedLogins = new Set(["dependabot[bot]"]);

@@ -32,6 +32,7 @@ This is the first release candidate for the v3 platform. It brings the productio
 
 ### Changed
 
+- **The website sitemap now omits ignored change-frequency hints** and receives source-accurate `lastmod` dates from Git history and published SDK metadata during the Pages build.
 - **Classic detection now uses its final v3 two-feature model**: gain-invariant turbulence autocorrelation and the offset-4/12 channel frequency-coherence curve spread feed a fixed weighted logistic fusion. The promoted curve evaluates 80 complex bin pairs per packet instead of 84 for the earlier offset-2/12 definition, with unchanged ring memory. Startup calibration adapts the probability threshold to the current session and can recover once an unrepresentative startup period settles. Its runtime no longer allocates or updates the unused L1-delta tracker retained by ML, and the shared channel tracker runs in frequency-curve-only mode without the profile histories used only by ML.
 - **ML detection now uses the promoted trajectory-aware seven-feature model** with 505 parameters. Physical-time coherent innovation and excess path replace L1-delta autocorrelation and the ML frequency-coherence curve, improving unseen-environment and vacation-home blind-spot transfer. The ML runtime and exporter expose only those seven selected inputs; the frequency-coherence curve is Classic-only in production and remains host-side for research replay. Other retired feature trackers remain host-only, while training, Python replay, C++ replay, and firmware inference use the same exported features and arithmetic contract. Current performance and parity evidence is published in [performance/README.md](performance/README.md).
 - **Threshold modes were removed**. Classic calibrates automatically at startup, ML uses its trained threshold, and runtime threshold changes apply only to the current session.
@@ -53,6 +54,7 @@ This is the first release candidate for the v3 platform. It brings the productio
 
 ### Fixed
 
+- **Release and snapshot publication now fail closed on stale or unvalidated sources**, reuse one verified Pages build, publish rolling tags atomically, and produce reproducible SDK archives with SHA-256 digests.
 - **Wi-Fi channel changes no longer leave sensing or streaming in a stale CSI session**. Frontends now invalidate the session, reset the active detector or Streamer transport, and rearm capture outside the Wi-Fi callback.
 - **Native Wi-Fi can reassociate correctly after BLE coexistence or protocol renegotiation**, including after a station stop event.
 - **ESP-IDF frontends no longer attempt the unsupported 802.11n-only protocol configuration** before applying the shared Wi-Fi policy.

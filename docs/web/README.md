@@ -58,6 +58,10 @@ Outcome events use `result` values such as `success`, `failure`, `cancelled`, `u
 
 The website stages all downloadable output under the generated `artifacts/` tree. SDK downloads live under `artifacts/sdk/stable/` and `artifacts/sdk/main/`, the Doxygen reference lives under `artifacts/sdk/api/`, and firmware lives under `artifacts/firmware/<channel>/`. CI recreates the entire tree before deployment; none of its contents are tracked.
 
+CI, stable releases, and snapshots use the same local `build-pages` action. It stages pinned browser dependencies, runs the web tests, generates static routes and the Doxygen reference, and verifies the complete tree before it can be uploaded to Pages. Channel-aware verification also rejects incomplete firmware matrices, mismatched SDK manifests, missing artifacts, and obsolete `/sdk/api/` links.
+
+The committed `sitemap.xml` is the canonical URL inventory and intentionally contains neither `changefreq` nor generated dates. During the Pages build, `build_sitemap.py` adds date-only `lastmod` values from the latest owning Git commit for editorial routes and the API reference, and from the staged SDK manifests for `stable` and `main`. Unknown dates are omitted rather than replaced with the deployment time. Pages-producing checkouts must retain full Git history so these dates remain source-accurate.
+
 ## BLE client API
 
 `assets/js/espectre-ble.js` is a dependency-free client for the ESPectre BLE surface defined in `docs/ESPECTRE_PROTOCOL.md`. It exposes two globals: `ESPectreBleClient` and `ESPectreValidationError`. Web Bluetooth needs a Chromium-based browser and a secure context (HTTPS or `localhost`); check `ESPectreBleClient.supported` before connecting.

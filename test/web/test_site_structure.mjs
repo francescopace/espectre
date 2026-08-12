@@ -82,7 +82,9 @@ describe('website UX and content contracts', () => {
         assert.match(app, /'\/privacy\/': 'privacy'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/#privacy">Privacy<\/a>/);
         assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/#privacy">Privacy<\/a>/);
-        assert.match(read('docs/web/sitemap.xml'), /https:\/\/espectre\.dev\/privacy\//);
+        const sitemap = read('docs/web/sitemap.xml');
+        assert.match(sitemap, /https:\/\/espectre\.dev\/privacy\//);
+        assert.doesNotMatch(sitemap, /<(?:changefreq|lastmod)>/);
         assert.match(read('docs/web/content/privacy.html'), /Never included:/);
         const notFound = read('docs/web/404.html');
         assert.doesNotMatch(notFound, /http-equiv="refresh"|location\.replace/);
@@ -149,6 +151,14 @@ describe('website UX and content contracts', () => {
         assert.match(docsContent, /href="\/artifacts\/sdk\/api\/"/);
         assert.doesNotMatch(docsContent, /href="\/sdk\//);
         assert.match(read('docs/web/.gitignore'), /^\/artifacts\/$/m);
+        for (const path of [
+            'docs/web/content/docs.html',
+            'docs/web/content/docs/api.html',
+            'docs/web/content/docs/architecture.html',
+            'docs/web/content/docs/examples.html',
+        ]) {
+            assert.doesNotMatch(read(path), /href="\/sdk\/api(?:\/|")/);
+        }
     });
 
     it('maps BLE capabilities, runtime controls, and dual-band Wi-Fi safely', () => {

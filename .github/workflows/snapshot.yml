@@ -9,56 +9,63 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: snapshot-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
 jobs:
-  check-changes:
-    name: Check Code Changes
-    runs-on: ubuntu-latest
+  validate-run:
+    name: Validate Source Run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     if: >
       github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
       (github.event.workflow_run.head_branch == 'main' ||
        github.event.workflow_run.head_branch == 'develop')
     outputs:
-      should_build: ${{ steps.filter.outputs.code }}
+      current: ${{ steps.current.outputs.current }}
     
     steps:
-      - uses: actions/checkout@v7
+      - name: Verify source commit is still the branch head
+        id: current
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 2
-      
-      - name: Check for code changes
-        id: filter
-        run: |
-          # Check if any code files changed in the last commit.
-          # The ESPHome examples live under src/, so ^src/ already covers them.
-          if git diff --name-only HEAD~1 HEAD | grep -qE '^(src/|LICENSE$|LICENSES/|LICENSING\.md$|THIRD_PARTY_NOTICES\.md$|third_party/notices/|\.github/workflows/(ci|snapshot|release)\.yml$|\.github/scripts/build_[^/]+_firmware\.sh$|\.github/scripts/(build_firmware_compliance|build_firmware_manifest|build_sdk_package|stage_web_firmware|stage_web_sdk)\.py$)'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            echo "Code changes detected, will build snapshot"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
-            echo "No code changes, skipping snapshot"
-          fi
+          script: |
+            const branch = context.payload.workflow_run.head_branch;
+            const expected = context.payload.workflow_run.head_sha;
+            const response = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch
+            });
+            const current = response.data.commit.sha === expected;
+            core.setOutput("current", current ? "true" : "false");
+            core.info(current
+              ? `Source commit ${expected} is current on ${branch}.`
+              : `Skipping stale source commit ${expected}; ${branch} is now ${response.data.commit.sha}.`);
 
   release:
     name: Create Snapshot Release
-    needs: check-changes
-    if: needs.check-changes.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
+    needs: validate-run
+    if: needs.validate-run.outputs.current == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: write
     
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'
 
       - name: Download all firmware artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -67,7 +74,7 @@ jobs:
           merge-multiple: true
 
       - name: Download SDK package artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -85,15 +92,19 @@ jobs:
         id: snapshot
         run: |
           if [ "${{ github.event.workflow_run.head_branch }}" = "develop" ]; then
-            echo "channel=develop" >> "$GITHUB_OUTPUT"
-            echo "version=develop" >> "$GITHUB_OUTPUT"
-            echo "tag=snapshot-dev" >> "$GITHUB_OUTPUT"
-            echo "title=Snapshot Dev Build" >> "$GITHUB_OUTPUT"
+            {
+              echo "channel=develop"
+              echo "version=develop"
+              echo "tag=snapshot-dev"
+              echo "title=Snapshot Dev Build"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "channel=main" >> "$GITHUB_OUTPUT"
-            echo "version=main" >> "$GITHUB_OUTPUT"
-            echo "tag=snapshot" >> "$GITHUB_OUTPUT"
-            echo "title=Snapshot Build" >> "$GITHUB_OUTPUT"
+            {
+              echo "channel=main"
+              echo "version=main"
+              echo "tag=snapshot"
+              echo "title=Snapshot Build"
+            } >> "$GITHUB_OUTPUT"
           fi
 
       - name: Verify firmware matrix and build snapshot manifests
@@ -108,16 +119,52 @@ jobs:
             --native-ota-manifest-dir firmware \
             --require-complete-matrix
 
-      - name: Delete existing snapshot release
-        run: gh release delete "${{ steps.snapshot.outputs.tag }}" --yes --cleanup-tag || true
+      - name: Recheck source commit before publishing
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        with:
+          script: |
+            const branch = context.payload.workflow_run.head_branch;
+            const expected = context.payload.workflow_run.head_sha;
+            const response = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch
+            });
+            if (response.data.commit.sha !== expected) {
+              core.setFailed(`Refusing to publish stale commit ${expected}; ${branch} is now ${response.data.commit.sha}.`);
+            }
+
+      - name: Move snapshot tag atomically
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+          SNAPSHOT_TAG: ${{ steps.snapshot.outputs.tag }}
+        with:
+          script: |
+            const tag = process.env.SNAPSHOT_TAG;
+            const sha = context.payload.workflow_run.head_sha;
+            try {
+              await github.rest.git.updateRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`,
+                sha,
+                force: true
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${tag}`,
+                sha
+              });
+            }
       
       - name: Create snapshot release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
         with:
           tag_name: ${{ steps.snapshot.outputs.tag }}
+          target_commitish: ${{ github.event.workflow_run.head_sha }}
           name: ${{ steps.snapshot.outputs.title }}
           body: |
             ⚠️ **This is an automated snapshot build from the `${{ github.event.workflow_run.head_branch }}` branch.**
@@ -138,6 +185,7 @@ jobs:
           draft: false
           prerelease: true
           make_latest: false
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -145,19 +193,19 @@ jobs:
     name: Publish Website
     needs: release
     if: github.event.workflow_run.head_branch == 'main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     permissions:
       contents: read
-      pages: write
-      id-token: write
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
 
       - name: Download main firmware artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -166,7 +214,7 @@ jobs:
           merge-multiple: true
 
       - name: Download main SDK artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -233,56 +281,17 @@ jobs:
             echo "No stable SDK downloaded; leaving stable SDK channel empty."
           fi
 
-      - name: Stage Browser Dependencies
-        run: |
-          npm --prefix docs/web ci --ignore-scripts
-          npm --prefix docs/web run stage:vendor
-
-      - name: Build Static Pages
-        run: python3 .github/scripts/build_static_pages.py
-
-      - name: Verify Build
-        run: |
-          test -f docs/web/sitemap.xml
-          test -f docs/web/index.html
-          test -f docs/web/assets/js/app.js
-          test -f docs/web/assets/css/styles.css
-          test -f docs/web/assets/js/espectre-ble.js
-          test -f docs/web/vendor/qrcodejs-1.0.0/qrcode.min.js
-          test -f docs/web/vendor/esp-web-tools-10.4.0/install-button.js
-          test -f docs/web/vendor/mqtt-5.3.0/mqtt.min.js
-          test -f docs/web/privacy/index.html
-          for route in flash configure monitor theremin game guides \
-              guide-hardware guide-setup guide-placement guide-detection guide-firmware \
-              docs docs-api docs-examples docs-architecture media roadmap; do
-            grep -q "data-page=\"$route\"" docs/web/index.html \
-              || { echo "Missing SPA route: $route"; exit 1; }
-          done
-          # Retired URLs fall through to this catch-all, served by Pages on 404.
-          test -f docs/web/404.html \
-            || { echo "Missing 404.html catch-all"; exit 1; }
-          # Canonical content pages are generated; the sitemap is committed.
-          for guide in hardware setup placement detection custom-firmware; do
-            test -f "docs/web/guides/$guide/index.html" \
-              || { echo "Missing generated guide page: $guide"; exit 1; }
-          done
-          test -f docs/web/media/index.html \
-            || { echo "Missing generated media page"; exit 1; }
-          test -f docs/web/roadmap/index.html \
-            || { echo "Missing generated roadmap page"; exit 1; }
-          test -f docs/web/artifacts/firmware/main/firmware-manifest-main.json
-          test "$(find docs/web/artifacts/firmware/main -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
-          test -f docs/web/artifacts/sdk/main/index.html
-          test -f docs/web/artifacts/sdk/main/sdk-manifest-main.json
-          test -f docs/web/artifacts/sdk/stable/index.html
-          test -f docs/web/artifacts/sdk/stable/sdk-manifest-stable.json
-          echo "Website build verified!"
+      - name: Build and verify Pages tree
+        uses: ./.github/actions/build-pages
+        with:
+          require-main: "true"
+          require-stable: "true"
 
       - name: Setup Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
 
       - name: Upload Pages Artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: docs/web
 
@@ -290,7 +299,8 @@ jobs:
     name: Deploy Website
     needs: publish-pages
     if: github.event.workflow_run.head_branch == 'main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       pages: write
@@ -305,4 +315,11 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Notify IndexNow
+        run: python3 .github/scripts/notify_indexnow.py

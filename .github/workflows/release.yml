@@ -9,10 +9,63 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  validate-release:
+    name: Validate Release Source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag, changelog, version, and main ancestry
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main \
+            || { echo "Release commit is not reachable from main." >&2; exit 1; }
+          python3 .github/scripts/validate_release.py --tag "${RELEASE_TAG}"
+
+      - name: Require a successful main CI run for this commit
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        with:
+          script: |
+            const response = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "ci.yml",
+              branch: "main",
+              head_sha: context.sha,
+              status: "success",
+              per_page: 100
+            });
+            const valid = response.data.workflow_runs.find((run) =>
+              run.event === "push" &&
+              run.head_branch === "main" &&
+              run.head_sha === context.sha &&
+              run.conclusion === "success"
+            );
+            if (!valid) {
+              core.setFailed(`No successful main CI push run found for ${context.sha}.`);
+            } else {
+              core.info(`Release is gated by successful CI run ${valid.id}.`);
+            }
+
   build-esphome:
     name: Build ESPHome ${{ matrix.chip }}
-    runs-on: ubuntu-latest
+    needs: validate-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -29,10 +82,10 @@ jobs:
             config: src/cpp/frontend/esphome/examples/espectre-c6.yaml
     
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'
           cache: 'pip'
@@ -46,7 +99,7 @@ jobs:
           pip install -r requirements.txt
       
       - name: Compile
-        run: esphome -s git_ref ${{ github.ref_name }} -s detection_algorithm classic compile ${{ matrix.config }}
+        run: esphome -s git_ref "${GITHUB_REF_NAME}" -s detection_algorithm classic compile "${{ matrix.config }}"
       
       - name: Rename firmware files
         run: |
@@ -69,7 +122,7 @@ jobs:
             --output-dir output
       
       - name: Upload firmware artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: firmware-${{ matrix.chip }}
           path: output/espectre-${{ github.ref_name }}-*
@@ -77,7 +130,9 @@ jobs:
 
   build-matter:
     name: Build Matter ${{ matrix.chip }}
-    runs-on: ubuntu-latest
+    needs: validate-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -94,12 +149,12 @@ jobs:
             target: esp32s3
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # These paths contain dependencies, not target build outputs, so the matrix
       # shares one cache entry across all supported chips.
       - name: Cache Matter toolchain and components
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             .github/.cache/matter-home
@@ -118,7 +173,7 @@ jobs:
           MATTER_SDKCONFIG_DEFAULTS: ${{ matrix.target == 'esp32' && 'sdkconfig.defaults;sdkconfig.defaults.esp32' || '' }}
 
       - name: Upload Matter firmware artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: firmware-matter-${{ matrix.chip }}
           path: output/espectre-matter-*
@@ -126,7 +181,9 @@ jobs:
 
   build-native:
     name: Build native ${{ matrix.chip }}
-    runs-on: ubuntu-latest
+    needs: validate-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -143,11 +200,11 @@ jobs:
             target: esp32s3
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # The cached home contains target-independent Python and component dependencies.
       - name: Cache native toolchain
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .github/.cache/native-home
           key: native-${{ runner.os }}-idf-v5.5-deps-v2-${{ hashFiles('requirements.txt') }}
@@ -165,7 +222,7 @@ jobs:
           NATIVE_SDKCONFIG_DEFAULTS: ${{ matrix.target == 'esp32' && 'sdkconfig.defaults;sdkconfig.defaults.esp32' || '' }}
 
       - name: Upload native firmware artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: firmware-native-${{ matrix.chip }}
           path: output/espectre-native-*
@@ -173,13 +230,15 @@ jobs:
 
   build-sdk:
     name: Build SDK Package
-    runs-on: ubuntu-latest
+    needs: validate-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'
 
@@ -190,10 +249,11 @@ jobs:
             --channel stable \
             --version "${GITHUB_REF_NAME}" \
             --release-tag "${GITHUB_REF_NAME}" \
-            --output-dir output
+            --output-dir output \
+            --commit "${GITHUB_SHA}"
 
       - name: Upload SDK artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sdk-bundle
           path: |
@@ -205,28 +265,29 @@ jobs:
   release:
     name: Create Release
     needs: [build-esphome, build-matter, build-native, build-sdk]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: write
       discussions: write
     
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'
 
       - name: Download all firmware artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: firmware-*
           path: firmware
           merge-multiple: true
 
       - name: Download SDK package artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: sdk-*
           path: sdk
@@ -246,6 +307,7 @@ jobs:
             --channel stable \
             --version "${GITHUB_REF_NAME}" \
             --release-tag "${GITHUB_REF_NAME}" \
+            --commit "${GITHUB_SHA}" \
             --native-ota-manifest-dir firmware \
             --require-complete-matrix
 
@@ -299,7 +361,7 @@ jobs:
           cat release_notes.md
       
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
         with:
           tag_name: ${{ github.ref_name }}
           name: "v${{ github.ref_name }} - ${{ steps.changelog.outputs.title }}"
@@ -314,34 +376,35 @@ jobs:
             LICENSING.md
             THIRD_PARTY_NOTICES.md
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           discussion_category_name: "Announcements"
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-pages:
     name: Publish Website
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     permissions:
       contents: read
-      pages: write
-      id-token: write
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: main
+          ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Download stable firmware artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: firmware-*
           path: stable-firmware
           merge-multiple: true
 
       - name: Download stable SDK artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: sdk-*
           path: stable-sdk
@@ -408,63 +471,25 @@ jobs:
             echo "No snapshot SDK downloaded; leaving main SDK channel empty."
           fi
 
-      - name: Stage Browser Dependencies
-        run: |
-          npm --prefix docs/web ci --ignore-scripts
-          npm --prefix docs/web run stage:vendor
-
-      - name: Build Static Pages
-        run: python3 .github/scripts/build_static_pages.py
-
-      - name: Verify Build
-        run: |
-          test -f docs/web/sitemap.xml
-          test -f docs/web/index.html
-          test -f docs/web/assets/js/app.js
-          test -f docs/web/assets/css/styles.css
-          test -f docs/web/assets/js/espectre-ble.js
-          test -f docs/web/vendor/qrcodejs-1.0.0/qrcode.min.js
-          test -f docs/web/vendor/esp-web-tools-10.4.0/install-button.js
-          test -f docs/web/vendor/mqtt-5.3.0/mqtt.min.js
-          test -f docs/web/privacy/index.html
-          for route in flash configure monitor theremin game guides \
-              guide-hardware guide-setup guide-placement guide-detection guide-firmware \
-              docs docs-api docs-examples docs-architecture media roadmap; do
-            grep -q "data-page=\"$route\"" docs/web/index.html \
-              || { echo "Missing SPA route: $route"; exit 1; }
-          done
-          # Retired URLs fall through to this catch-all, served by Pages on 404.
-          test -f docs/web/404.html \
-            || { echo "Missing 404.html catch-all"; exit 1; }
-          # Canonical content pages are generated; the sitemap is committed.
-          for guide in hardware setup placement detection custom-firmware; do
-            test -f "docs/web/guides/$guide/index.html" \
-              || { echo "Missing generated guide page: $guide"; exit 1; }
-          done
-          test -f docs/web/media/index.html \
-            || { echo "Missing generated media page"; exit 1; }
-          test -f docs/web/roadmap/index.html \
-            || { echo "Missing generated roadmap page"; exit 1; }
-          test -f docs/web/artifacts/firmware/stable/firmware-manifest-stable.json
-          test "$(find docs/web/artifacts/firmware/stable -maxdepth 1 -type f -name '*.bin' | wc -l | tr -d ' ')" -eq 15
-          test -f docs/web/artifacts/sdk/stable/index.html
-          test -f docs/web/artifacts/sdk/stable/sdk-manifest-stable.json
-          test -f docs/web/artifacts/sdk/main/index.html
-          test -f docs/web/artifacts/sdk/main/sdk-manifest-main.json
-          echo "Website build verified!"
+      - name: Build and verify Pages tree
+        uses: ./.github/actions/build-pages
+        with:
+          require-main: "true"
+          require-stable: "true"
 
       - name: Setup Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
 
       - name: Upload Pages Artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: docs/web
 
   deploy-pages:
     name: Deploy Website
     needs: publish-pages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       pages: write
@@ -479,4 +504,11 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Notify IndexNow
+        run: python3 .github/scripts/notify_indexnow.py

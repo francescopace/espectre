@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="build-${MATTER_TARGET}"
-DOCKER_IMAGE="${MATTER_DOCKER_IMAGE:-espressif/idf:release-v5.5}"
+DOCKER_IMAGE="${MATTER_DOCKER_IMAGE:-espressif/idf:release-v5.5@sha256:0c439ea923cd42700f9bbbe82542749d980712edb0ead0ea6db7eef35619b812}"
 MATTER_HOME="${REPO_ROOT}/.github/.cache/matter-home"
 MATTER_ROOT_MANAGED_COMPONENTS="${MATTER_HOME}/root_managed_components"
 OUTPUT_DIR="$(dirname "${MATTER_OUTPUT}")"
@@ -37,10 +37,15 @@ docker run --rm \
     esac
     # ESP-IDF activates a venv where --user installs are rejected; install into HOME instead.
     SITE_PACKAGES=\"\${HOME}/.local/lib/python/site-packages\"
-    mkdir -p \"\${SITE_PACKAGES}\"
+    REQUIREMENTS_HASH=\"\$(sha256sum /work/requirements.txt | cut -d ' ' -f 1)\"
+    REQUIREMENTS_MARKER=\"\${HOME}/.espectre-requirements-\${REQUIREMENTS_HASH}\"
     export PYTHONPATH=\"\${SITE_PACKAGES}\${PYTHONPATH:+:\${PYTHONPATH}}\"
-    if ! python /work/espectre --help >/dev/null 2>&1; then
+    if [ ! -f \"\${REQUIREMENTS_MARKER}\" ]; then
+      rm -rf \"\${SITE_PACKAGES}\"
+      mkdir -p \"\${SITE_PACKAGES}\"
       python -m pip install --target \"\${SITE_PACKAGES}\" -r /work/requirements.txt
+      rm -f \"\${HOME}\"/.espectre-requirements-*
+      touch \"\${REQUIREMENTS_MARKER}\"
     fi
     if [ -n \"\${SDKCONFIG_DEFAULTS:-}\" ]; then
       export SDKCONFIG_DEFAULTS

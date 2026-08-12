@@ -13,9 +13,14 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
+import gzip
+import hashlib
 import json
+import os
 import re
 import shutil
+import stat
+import subprocess
 import tarfile
 import tempfile
 import zipfile
@@ -88,6 +93,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--release-tag", required=True, help="GitHub release tag for the published assets.")
     parser.add_argument("--output-dir", required=True, help="Directory where bundle assets are written.")
     parser.add_argument("--commit", help="Optional source commit SHA for snapshot builds.")
+    parser.add_argument(
+        "--source-date-epoch",
+        type=int,
+        help="Reproducible archive timestamp; defaults to SOURCE_DATE_EPOCH or the checkout commit time.",
+    )
     parser.add_argument(
         "--url-prefix",
         help="Optional URL prefix used instead of GitHub Releases for artifact URLs.",
@@ -241,18 +251,79 @@ def stage_bundle_tree(destination_root: Path, sdk_package_version: str, bundle_f
     return len(bundle_files), staged_library_manifest
 
 
-def write_tarball(source_dir: Path, output_path: Path, root_dir_name: str) -> None:
-    with tarfile.open(output_path, "w:gz") as archive:
-        archive.add(source_dir, arcname=root_dir_name)
+def resolve_source_date_epoch(explicit_epoch: int | None = None) -> int:
+    if explicit_epoch is not None:
+        epoch = explicit_epoch
+    elif os.environ.get("SOURCE_DATE_EPOCH"):
+        epoch = int(os.environ["SOURCE_DATE_EPOCH"])
+    else:
+        result = subprocess.run(
+            ["git", "show", "-s", "--format=%ct", "HEAD"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        epoch = int(result.stdout.strip())
+    if epoch < 0:
+        raise ValueError("SOURCE_DATE_EPOCH must not be negative")
+    return epoch
 
 
-def write_zipfile(source_dir: Path, output_path: Path, root_dir_name: str) -> None:
+def normalized_mode(path: Path) -> int:
+    if path.is_dir() or path.stat().st_mode & stat.S_IXUSR:
+        return 0o755
+    return 0o644
+
+
+def normalize_tar_info(info: tarfile.TarInfo, path: Path, epoch: int) -> tarfile.TarInfo:
+    info.uid = 0
+    info.gid = 0
+    info.uname = ""
+    info.gname = ""
+    info.mtime = epoch
+    info.mode = normalized_mode(path)
+    return info
+
+
+def write_tarball(source_dir: Path, output_path: Path, root_dir_name: str, epoch: int) -> None:
+    paths = [source_dir, *sorted(source_dir.rglob("*"))]
+    with output_path.open("wb") as output_file:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=output_file, mtime=epoch) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as archive:
+                for path in paths:
+                    relative = path.relative_to(source_dir) if path != source_dir else Path()
+                    arcname = Path(root_dir_name) / relative
+                    info = normalize_tar_info(archive.gettarinfo(str(path), str(arcname)), path, epoch)
+                    if info.isfile():
+                        with path.open("rb") as source_file:
+                            archive.addfile(info, source_file)
+                    else:
+                        archive.addfile(info)
+
+
+def write_zipfile(source_dir: Path, output_path: Path, root_dir_name: str, epoch: int) -> None:
+    zip_epoch = max(epoch, 315532800)
+    timestamp = datetime.fromtimestamp(zip_epoch, timezone.utc)
+    date_time = (timestamp.year, timestamp.month, timestamp.day, timestamp.hour, timestamp.minute, timestamp.second)
     with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(source_dir.rglob("*")):
             if not path.is_file():
                 continue
             relative = path.relative_to(source_dir)
-            archive.write(path, arcname=str(Path(root_dir_name) / relative))
+            info = zipfile.ZipInfo(str(Path(root_dir_name) / relative), date_time=date_time)
+            info.create_system = 3
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = normalized_mode(path) << 16
+            archive.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build_artifact_url(filename: str, release_tag: str, url_prefix: str | None) -> str:
@@ -273,6 +344,9 @@ def build_manifest(
     bundle_file_count: int,
     bundle_root: str,
     url_prefix: str | None,
+    generated_at: str,
+    tarball_sha256: str,
+    zip_sha256: str,
 ) -> dict:
     return {
         "schema_version": 1,
@@ -281,7 +355,7 @@ def build_manifest(
         "version": version,
         "package_version": sdk_package_version,
         "release_tag": release_tag,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at,
         "commit": commit,
         "protocol_version": detect_protocol_version(),
         "sdk_version": detect_sdk_version(),
@@ -298,11 +372,13 @@ def build_manifest(
                 "format": "tar.gz",
                 "filename": tarball_name,
                 "url": build_artifact_url(tarball_name, release_tag, url_prefix),
+                "sha256": tarball_sha256,
             },
             {
                 "format": "zip",
                 "filename": zip_name,
                 "url": build_artifact_url(zip_name, release_tag, url_prefix),
+                "sha256": zip_sha256,
             },
         ],
         "install_surfaces": {
@@ -344,12 +420,16 @@ def build_sdk_package(args: argparse.Namespace) -> dict:
     tarball_name = f"{asset_stem}.tar.gz"
     zip_name = f"{asset_stem}.zip"
     manifest_name = f"sdk-manifest-{args.release_tag}.json"
+    source_date_epoch = resolve_source_date_epoch(getattr(args, "source_date_epoch", None))
+    generated_at = datetime.fromtimestamp(source_date_epoch, timezone.utc).isoformat()
+    tarball_path = output_dir / tarball_name
+    zip_path = output_dir / zip_name
 
     with tempfile.TemporaryDirectory(prefix="espectre-sdk-") as tmp_dir:
         staged_root = Path(tmp_dir) / bundle_root
         file_count, _ = stage_bundle_tree(staged_root, sdk_package_version, bundle_files)
-        write_tarball(staged_root, output_dir / tarball_name, bundle_root)
-        write_zipfile(staged_root, output_dir / zip_name, bundle_root)
+        write_tarball(staged_root, tarball_path, bundle_root, source_date_epoch)
+        write_zipfile(staged_root, zip_path, bundle_root, source_date_epoch)
 
     manifest = build_manifest(
         channel=args.channel,
@@ -362,6 +442,9 @@ def build_sdk_package(args: argparse.Namespace) -> dict:
         bundle_file_count=file_count,
         bundle_root=bundle_root,
         url_prefix=args.url_prefix,
+        generated_at=generated_at,
+        tarball_sha256=sha256_file(tarball_path),
+        zip_sha256=sha256_file(zip_path),
     )
     (output_dir / manifest_name).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest

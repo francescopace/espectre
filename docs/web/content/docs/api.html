@@ -7,7 +7,7 @@
   <h1>API orientation</h1>
   <p class="article-lead">Most integrations need four public types. Use this page to find the right entry point, then use the generated Doxygen reference for signatures, defaults, ranges, and member-level documentation.</p>
 
-  <a href="/sdk/api/" class="api-reference-cta">
+  <a href="/artifacts/sdk/api/" class="api-reference-cta">
     <span>
       <strong>Open the generated API reference</strong>
       <small>Built from the current public headers on every deploy.</small>
@@ -17,19 +17,19 @@
 
   <h2>The four types to know</h2>
   <div class="api-map">
-    <a href="/sdk/api/classespectre_1_1_runtime_frontend_controller.html">
+    <a href="/artifacts/sdk/api/classespectre_1_1_runtime_frontend_controller.html">
       <code>RuntimeFrontendController</code>
       <span>Owns setup, the work loop, shutdown, cached state, and validated runtime controls.</span>
     </a>
-    <a href="/sdk/api/structespectre_1_1_runtime_config.html">
+    <a href="/artifacts/sdk/api/structespectre_1_1_runtime_config.html">
       <code>RuntimeConfig</code>
       <span>Defines detector, traffic, cadence, filtering, and other startup settings.</span>
     </a>
-    <a href="/sdk/api/classespectre_1_1_i_runtime_listener.html">
+    <a href="/artifacts/sdk/api/classespectre_1_1_i_runtime_listener.html">
       <code>IRuntimeListener</code>
       <span>Delivers motion, periodic status, calibration, telemetry, and fault events.</span>
     </a>
-    <a href="/sdk/api/structespectre_1_1_runtime_snapshot.html">
+    <a href="/artifacts/sdk/api/structespectre_1_1_runtime_snapshot.html">
       <code>RuntimeSnapshot</code>
       <span>Carries motion state, movement score, threshold, link state, and readiness.</span>
     </a>
@@ -48,7 +48,7 @@
   <div class="note"><strong>Supported means reachable from <code>espectre_sdk.h</code>.</strong> Headers outside that facade ship as implementation details and may change in any release.</div>
 
   <h2>Replacing the runtime</h2>
-  <p>A platform port implements <a href="/sdk/api/classespectre_1_1_i_espectre_runtime.html"><code>IEspectreRuntime</code></a>. The interface covers lifecycle, state, controls, diagnostics, capabilities, and listener delivery; the existing <code>RuntimeFrontendController</code> remains ESP-IDF-specific and does not inject an arbitrary backend.</p>
+  <p>A platform port implements <a href="/artifacts/sdk/api/classespectre_1_1_i_espectre_runtime.html"><code>IEspectreRuntime</code></a>. The interface covers lifecycle, state, controls, diagnostics, capabilities, and listener delivery; the existing <code>RuntimeFrontendController</code> remains ESP-IDF-specific and does not inject an arbitrary backend.</p>
 
   <div class="article-nav">
     <a href="/docs/examples/" class="doc-link"><div class="doc-link-title">Next: Choose an example →</div><div class="doc-link-sub">Match your product to a shipped frontend.</div></a>

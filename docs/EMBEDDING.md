@@ -211,7 +211,7 @@ Each SDK bundle includes:
 - `src/cpp/Kconfig.projbuild`
 - generated `src/cpp/core/ml_weights.h`
 
-The published bundle is not a chip-specific binary library. It is a versioned source package with stamped packaging metadata, suitable for vendoring or unpacking into your own firmware tree.
+The published bundle is not a chip-specific binary library. It is a versioned source package with stamped packaging metadata, suitable for vendoring or unpacking into your own firmware tree. Its `.tar.gz` and `.zip` archives are generated deterministically from the source commit timestamp, and the accompanying SDK manifest records a SHA-256 digest for each archive so consumers can verify downloaded bytes.
 
 ## Detector behavior
 
