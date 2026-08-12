@@ -29,6 +29,7 @@ from .host_feature_trackers import (
     PHASE_FEATURES,
     PROMOTED_CHANNEL_SHAPE_FEATURES,
     PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES,
+    RETIRED_CHANNEL_SHAPE_FEATURES,
     SPECTRAL_FEATURES,
     SUBBAND_COHERENCE_FEATURES,
     AmplitudeProfileTracker,
@@ -46,6 +47,7 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
     + PHASE_FEATURES
     + CHANNEL_SHAPE_FEATURES
     + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
+    + RETIRED_CHANNEL_SHAPE_FEATURES
     + L1_SERIES_FEATURES
     + tuple(
         name for name in CHANNEL_SHAPE_TRAJECTORY_FEATURES
@@ -104,6 +106,7 @@ def needs_channel_shape(feature_names: Iterable[str]) -> bool:
     return any(
         name in CHANNEL_SHAPE_FEATURES
         or name in PROMOTED_CHANNEL_SHAPE_FEATURES
+        or name in RETIRED_CHANNEL_SHAPE_FEATURES
         or name in COMPOSITE_FEATURES
         for name in feature_names
     )
@@ -384,12 +387,6 @@ def candidate_values(
                     f"{name} needs the time-binned channel-shape tracker"
                 )
             values[name] = shape_trajectory_tracker.scale_curvature()
-        elif name == 'chan_shape_spread_subband':
-            if shape_trajectory_tracker is None:
-                raise ValueError(
-                    f"{name} needs the time-binned channel-shape tracker"
-                )
-            values[name] = shape_trajectory_tracker.shape_spread_subband()
         elif name == 'chan_shape_coherent_innovation_energy':
             if shape_trajectory_tracker is None:
                 raise ValueError(
@@ -402,6 +399,10 @@ def candidate_values(
             if shape_tracker is None:
                 raise ValueError(f"{name} needs the channel-shape tracker")
             values[name] = shape_tracker.shape_lag_ratio()
+        elif name == 'chan_shape_spread':
+            if shape_tracker is None:
+                raise ValueError(f"{name} needs the channel-shape tracker")
+            values[name] = shape_tracker.shape_spread()
         elif name == 'chan_shape_spread_ds2':
             if shape_tracker is None:
                 raise ValueError(f"{name} needs the channel-shape tracker")

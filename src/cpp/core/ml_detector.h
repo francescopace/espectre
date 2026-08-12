@@ -139,12 +139,10 @@ private:
     // Mirrors the shared L1-delta tracker rings; keep aligned with the Python
     // lag ratio reference.
     bool uses_l1_tracker_;
-    bool uses_shape_tracker_;
     bool uses_shape_trajectory_tracker_;
     bool uses_aggregated_turbulence_;
     uint16_t lag_;
     L1DeltaTracker l1_tracker_;
-    ChannelShapeTracker shape_tracker_;
     ChannelShapeTrajectoryTracker shape_trajectory_tracker_;
 
     // Single heap block reused for packet amplitudes, chronological aggregate

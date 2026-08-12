@@ -25,7 +25,6 @@ from ml_detector import (
 from detector_interface import MotionState
 from ml_feature_trackers import (
     CHANNEL_SHAPE_BIN_US,
-    ChannelShapeTracker,
     ChannelShapeTrajectoryTracker,
 )
 from segmentation import SegmentationContext
@@ -61,19 +60,9 @@ def _make_trajectory_payload(step):
     return _make_csi_payload(profile)
 
 
-def test_shared_packet_frame_matches_direct_shape_trackers():
+def test_shared_packet_frame_matches_direct_trajectory_tracker():
     direct_trajectory = ChannelShapeTrajectoryTracker()
     shared_trajectory = ChannelShapeTrajectoryTracker()
-    direct_shape = ChannelShapeTracker(
-        window_size=32,
-        lag=3,
-        track_frequency=False,
-    )
-    shared_shape = ChannelShapeTracker(
-        window_size=32,
-        lag=3,
-        track_frequency=False,
-    )
     frame = [0.0] * 64
 
     for step in range(12):
@@ -82,14 +71,16 @@ def test_shared_packet_frame_matches_direct_shape_trackers():
         count = SegmentationContext.fill_subcarrier_energy_buffer(payload, frame)
         direct_trajectory.process_packet(payload, timestamp_us)
         shared_trajectory.process_packet(payload, timestamp_us, frame, count)
-        SegmentationContext.energies_to_amplitudes_in_place(frame, count)
-        direct_shape.process_packet(payload)
-        shared_shape.process_subcarrier_amplitudes(frame, count)
 
-    direct_innovation, direct_excess = direct_trajectory.trajectory_features()
-    shared_innovation, shared_excess = shared_trajectory.trajectory_features()
+    direct_innovation, direct_excess, direct_spread = (
+        direct_trajectory.trajectory_features_with_spread()
+    )
+    shared_innovation, shared_excess, shared_spread = (
+        shared_trajectory.trajectory_features_with_spread()
+    )
     assert shared_innovation == pytest.approx(direct_innovation, abs=1e-12)
     assert shared_excess == pytest.approx(direct_excess, abs=1e-12)
+    assert shared_spread == pytest.approx(direct_spread, abs=1e-12)
     assert shared_trajectory.coherent_innovation_energy() == pytest.approx(
         shared_innovation,
         abs=1e-12,
@@ -98,14 +89,13 @@ def test_shared_packet_frame_matches_direct_shape_trackers():
         shared_excess,
         abs=1e-12,
     )
-    assert shared_shape.count() == direct_shape.count()
-    assert shared_shape.shape_spread() == pytest.approx(
-        direct_shape.shape_spread(),
+    assert shared_trajectory.shape_spread_subband() == pytest.approx(
+        shared_spread,
         abs=1e-12,
     )
 
 
-def test_cached_dct_trajectory_matches_profile_space_reference():
+def test_cached_dct_trajectory_matches_host_dct_reference():
     runtime = ChannelShapeTrajectoryTracker()
     reference = HostChannelShapeTrajectoryTracker()
     for step in range(12):
@@ -114,15 +104,21 @@ def test_cached_dct_trajectory_matches_profile_space_reference():
         runtime.process_packet(payload, timestamp_us)
         reference.process_packet(np.asarray(payload, dtype=np.int8), timestamp_us)
 
-    runtime_innovation, runtime_excess = runtime.trajectory_features()
+    runtime_innovation, runtime_excess, runtime_spread = (
+        runtime.trajectory_features_with_spread()
+    )
+    reference_innovation, reference_excess, reference_spread = (
+        reference.trajectory_features_with_spread()
+    )
     assert runtime_innovation == pytest.approx(
-        reference.coherent_innovation_energy(),
+        reference_innovation,
         abs=1e-10,
     )
     assert runtime_excess == pytest.approx(
-        reference.excess_path(),
+        reference_excess,
         abs=1e-10,
     )
+    assert runtime_spread == pytest.approx(reference_spread, abs=1e-10)
 
 
 def test_trajectory_duplicate_detection_accepts_signed_payloads():

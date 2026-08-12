@@ -63,7 +63,7 @@ Run a production-compatible train with the promoted augmentation recipe:
 python tools/train_ml_model.py --augment
 ```
 
-The trainer runs grouped cross-validation, fits the final candidate, evaluates the deployment replay gates, compares the candidate with the exported baseline, and exports new artifacts only when every promotion requirement passes.
+Without `--features`, the trainer uses the promoted Subband 7F production order: `turb_iqr_over_mean_aggr`, `turb_autocorr`, `turb_zcr`, `l1_delta_lag_ratio`, `chan_shape_spread_subband`, `chan_shape_coherent_innovation_energy`, and `chan_shape_excess_path`. The trainer runs grouped cross-validation, fits the final candidate, evaluates the deployment replay gates, compares the candidate with the exported baseline, and exports new artifacts only when every promotion requirement passes.
 
 Use read-only variants while investigating a change:
 
@@ -173,7 +173,7 @@ python tools/train_ml_model.py --augment --shap 500 --seed SEED --no-export
 python tools/train_ml_model.py --augment --ablation-feature FEATURE_OR_JOINT_REMOVAL --seed SEED
 ```
 
-Candidate features live in `tools/lib/candidate_features.py`. They may be selected with `--features`, but they cannot be exported until they have matching Python and C++ runtime implementations and a published feature ID. Use `--evaluate-gates` or `--no-export` while evaluating them.
+Candidate features live in `tools/lib/candidate_features.py`. They may be selected with `--features`, but they cannot be exported until they have matching Python and C++ runtime implementations and a published feature ID. The superseded full-band `chan_shape_spread` remains available through this host-only path for reproducible comparisons. Use `--evaluate-gates` or `--no-export` while evaluating candidates.
 
 Use leave-one-group-out diagnostics to estimate transfer to unseen rooms or chips:
 

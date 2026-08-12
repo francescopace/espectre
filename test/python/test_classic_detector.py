@@ -47,13 +47,11 @@ def test_hampel_master_switch_controls_turbulence_stream() -> None:
     assert disabled._context.hampel_filter is None
 
 
-def test_classic_allocates_only_frequency_curve_shape_state() -> None:
+def test_classic_allocates_only_frequency_curve_state() -> None:
     detector = ClassicDetector()
 
-    assert detector._shape_tracker.track_frequency
-    assert not detector._shape_tracker.track_shape
-    assert detector._shape_tracker._ring == []
-    assert detector._shape_tracker._motion_energy_ring == []
+    assert len(detector._frequency_tracker._frequency_curve_ring) == 90
+    assert detector._frequency_tracker.count() == 0
 
 
 def test_startup_q95_adapts_probability_threshold() -> None:
@@ -105,7 +103,7 @@ def test_update_state_uses_weighted_probability(monkeypatch) -> None:
     monkeypatch.setattr(detector, "is_ready", lambda: True)
     monkeypatch.setattr(detector, "_turb_autocorr", lambda: detector.FEATURE_CENTER[0])
     monkeypatch.setattr(
-        detector._shape_tracker,
+        detector._frequency_tracker,
         "frequency_coherence_curve_std",
         lambda: detector.FEATURE_CENTER[1],
     )

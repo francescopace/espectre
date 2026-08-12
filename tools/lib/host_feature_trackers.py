@@ -129,12 +129,15 @@ CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
     'chan_shape_excess_path',
 )
 PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
+    'chan_shape_spread_subband',
     'chan_shape_coherent_innovation_energy',
     'chan_shape_excess_path',
 )
 PROMOTED_CHANNEL_SHAPE_FEATURES = (
-    'chan_shape_spread',
     'chan_freq_coh_curve_std',
+)
+RETIRED_CHANNEL_SHAPE_FEATURES = (
+    'chan_shape_spread',
 )
 CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES = (
     'chan_freq_coh_curve_std',
@@ -149,6 +152,7 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
     + PHASE_FEATURES
     + CHANNEL_SHAPE_FEATURES
     + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
+    + RETIRED_CHANNEL_SHAPE_FEATURES
     + L1_SERIES_FEATURES
     + tuple(
         name for name in CHANNEL_SHAPE_TRAJECTORY_FEATURES
@@ -438,10 +442,11 @@ class ChannelShapeTrajectoryTracker:
     def _finalize_current_bin(self) -> None:
         if self._current_bin is None or not self._current_profiles:
             return
+        profile = self._median_profile(self._current_profiles)
         self._bins.append(
             (
                 self._current_bin,
-                self._median_profile(self._current_profiles),
+                profile @ _CHANNEL_SHAPE_DCT,
             )
         )
 
@@ -471,18 +476,17 @@ class ChannelShapeTrajectoryTracker:
         self._current_profiles.append(profile)
 
     def _binned_path(self) -> List[Tuple[int, np.ndarray]]:
+        """Return the physical-time path in cached orthonormal DCT space."""
         path = list(self._bins)
         if self._current_profiles:
+            profile = self._median_profile(self._current_profiles)
             path.append(
                 (
                     self._current_bin,
-                    self._median_profile(self._current_profiles),
+                    profile @ _CHANNEL_SHAPE_DCT,
                 )
             )
         return path
-
-    def _profile_path(self) -> List[np.ndarray]:
-        return [profile for _, profile in self._binned_path()]
 
     def _distance_at_bin_lag(self, lag_bins: int) -> float:
         path = self._binned_path()
@@ -508,16 +512,37 @@ class ChannelShapeTrajectoryTracker:
             - np.log(long + floor)
         )
 
-    def coherent_innovation_energy(
+    def trajectory_features_with_spread(
         self,
         high_order_weight: float = 1.0,
-    ) -> float:
-        """Median positive low-order constant-velocity innovation energy."""
+    ) -> Tuple[float, float, float]:
+        """Return innovation, excess path, and subband motion participation.
+
+        Finalized bins use the same cached DCT representation as the device
+        runtimes. Full-profile distances stay in mode space through Parseval;
+        only the per-subband spread reconstructs adjacent profile deltas with
+        the orthonormal inverse transform.
+        """
         path = self._binned_path()
-        if len(path) < 3:
-            return 0.0
-        samples = []
-        for (first_bin, first), (middle_bin, middle), (last_bin, last) in zip(
+        if len(path) < 2:
+            return 0.0, 0.0, 0.0
+
+        spread_energy = np.zeros(CHANNEL_SHAPE_SUBBAND_COUNT, dtype=np.float64)
+        for (previous_bin, previous), (current_bin, current) in zip(
+            path,
+            path[1:],
+        ):
+            if current_bin - previous_bin != 1:
+                continue
+            delta_profile = (current - previous) @ _CHANNEL_SHAPE_DCT.T
+            spread_energy += delta_profile * delta_profile
+
+        innovation_samples = []
+        excess_samples = []
+        for (first_bin, first_modes), (middle_bin, middle_modes), (
+            last_bin,
+            last_modes,
+        ) in zip(
             path,
             path[1:],
             path[2:],
@@ -526,49 +551,53 @@ class ChannelShapeTrajectoryTracker:
             current_dt = last_bin - middle_bin
             if previous_dt <= 0 or current_dt <= 0:
                 continue
-            prediction = middle + (
+            prediction_modes = middle_modes + (
                 float(current_dt) / float(previous_dt)
-            ) * (middle - first)
-            modes = (last - prediction) @ _CHANNEL_SHAPE_DCT
-            low_energy = float(np.dot(modes[1:4], modes[1:4]))
-            high_energy = float(np.dot(modes[4:], modes[4:]))
-            samples.append(
+            ) * (middle_modes - first_modes)
+            residual_modes = last_modes - prediction_modes
+            low_energy = float(
+                np.dot(residual_modes[1:4], residual_modes[1:4])
+            )
+            high_energy = float(
+                np.dot(residual_modes[4:], residual_modes[4:])
+            )
+            innovation_samples.append(
                 max(
                     0.0,
                     low_energy - max(0.0, float(high_order_weight)) * high_energy,
                 )
             )
-        return float(np.median(samples)) if samples else 0.0
-
-    def excess_path(self) -> float:
-        """Median positive excess path after high-order DCT subtraction."""
-        profiles = self._profile_path()
-        if len(profiles) < 3:
-            return 0.0
-        samples = []
-        for previous, middle, current in zip(
-            profiles,
-            profiles[1:],
-            profiles[2:],
-        ):
-            first = middle - previous
-            second = current - middle
-            chord = current - previous
+            first = middle_modes - first_modes
+            second = last_modes - middle_modes
+            chord = last_modes - first_modes
             raw_excess = (
                 float(np.linalg.norm(first))
                 + float(np.linalg.norm(second))
                 - float(np.linalg.norm(chord))
             )
-            first_modes = first @ _CHANNEL_SHAPE_DCT
-            second_modes = second @ _CHANNEL_SHAPE_DCT
-            chord_modes = chord @ _CHANNEL_SHAPE_DCT
             high_excess = (
-                float(np.linalg.norm(first_modes[4:]))
-                + float(np.linalg.norm(second_modes[4:]))
-                - float(np.linalg.norm(chord_modes[4:]))
+                float(np.linalg.norm(first[4:]))
+                + float(np.linalg.norm(second[4:]))
+                - float(np.linalg.norm(chord[4:]))
             )
-            samples.append(max(0.0, raw_excess - max(0.0, high_excess)))
-        return float(np.median(samples)) if samples else 0.0
+            excess_samples.append(
+                max(0.0, raw_excess - max(0.0, high_excess))
+            )
+
+        innovation = (
+            float(np.median(innovation_samples))
+            if innovation_samples else 0.0
+        )
+        excess = (
+            float(np.median(excess_samples)) if excess_samples else 0.0
+        )
+        return innovation, excess, motion_participation(spread_energy)
+
+    def coherent_innovation_energy(self) -> float:
+        return self.trajectory_features_with_spread()[0]
+
+    def excess_path(self) -> float:
+        return self.trajectory_features_with_spread()[1]
 
     def shape_spread_subband(self) -> float:
         """Participation of adjacent-bin motion energy across eight subbands.
@@ -577,17 +606,7 @@ class ChannelShapeTrajectoryTracker:
         the promoted trajectory features. Missing bins are skipped rather than
         turning a longer interval into an apparent 80 ms displacement.
         """
-        path = self._binned_path()
-        energy = np.zeros(CHANNEL_SHAPE_SUBBAND_COUNT, dtype=np.float64)
-        for (previous_bin, previous), (current_bin, current) in zip(
-            path,
-            path[1:],
-        ):
-            if current_bin - previous_bin != 1:
-                continue
-            delta = current - previous
-            energy += delta * delta
-        return motion_participation(energy)
+        return self.trajectory_features_with_spread()[2]
 
     def reset(self) -> None:
         self._bins: List[Tuple[int, np.ndarray]] = []

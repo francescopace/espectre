@@ -300,8 +300,23 @@ def test_aggregated_dispersion_candidates_match_their_definitions():
 
 def test_cpp_feature_ids_accept_promoted_iqr_and_reject_host_only_candidates():
     assert trainer.resolve_cpp_feature_ids(["turb_iqr_over_mean_aggr"]) == [45]
+    assert trainer.resolve_cpp_feature_ids(["chan_shape_spread_subband"]) == [48]
     with pytest.raises(ValueError, match="no C\\+\\+ extractor id"):
         trainer.resolve_cpp_feature_ids(["turb_mad_over_mean_aggr"])
+    with pytest.raises(ValueError, match="no C\\+\\+ extractor id"):
+        trainer.resolve_cpp_feature_ids(["chan_shape_spread"])
+
+
+def test_training_default_is_the_promoted_subband_production_set():
+    assert trainer.TRAINING_FEATURES == [
+        "turb_iqr_over_mean_aggr",
+        "turb_autocorr",
+        "turb_zcr",
+        "l1_delta_lag_ratio",
+        "chan_shape_spread_subband",
+        "chan_shape_coherent_innovation_energy",
+        "chan_shape_excess_path",
+    ]
 
 
 def test_in_memory_gate_result_uses_training_metrics():

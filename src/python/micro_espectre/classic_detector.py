@@ -15,12 +15,12 @@ import math
 try:
     from src.detector_interface import IDetector, MotionState
     from src.csi_features import L1_DELTA_LAG, calc_autocorrelation
-    from src.ml_feature_trackers import ChannelShapeTracker
+    from src.ml_feature_trackers import FrequencyCoherenceTracker
     from src.segmentation import SegmentationContext
 except ImportError:
     from detector_interface import IDetector, MotionState
     from csi_features import L1_DELTA_LAG, calc_autocorrelation
-    from ml_feature_trackers import ChannelShapeTracker
+    from ml_feature_trackers import FrequencyCoherenceTracker
     from segmentation import SegmentationContext
 
 
@@ -82,10 +82,8 @@ class ClassicDetector(IDetector):
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
         )
-        self._shape_tracker = ChannelShapeTracker(
+        self._frequency_tracker = FrequencyCoherenceTracker(
             window_size=max(2, window_size - lag),
-            lag=lag,
-            track_shape=False,
         )
         self._ordered_turbulence = [0.0] * window_size
         self._threshold = self._clamp_probability(threshold)
@@ -136,7 +134,7 @@ class ClassicDetector(IDetector):
         turbulence = self._context.calculate_spatial_turbulence(
             csi_data, selected_subcarriers
         )
-        self._shape_tracker.process_packet(csi_data)
+        self._frequency_tracker.process_packet(csi_data)
         self._context.add_turbulence(turbulence)
 
     def _turb_autocorr(self):
@@ -184,7 +182,7 @@ class ClassicDetector(IDetector):
         else:
             self._current_turb_autocorr = self._turb_autocorr()
             self._current_chan_freq_coh_curve_std = (
-                self._shape_tracker.frequency_coherence_curve_std()
+                self._frequency_tracker.frequency_coherence_curve_std()
             )
             self._current_logit = self._calculate_logit(
                 self._current_turb_autocorr,
@@ -291,12 +289,13 @@ class ClassicDetector(IDetector):
     def is_ready(self):
         return (
             self._context.buffer_count >= self._context.window_size
-            and self._shape_tracker.count() >= self._context.window_size - self._lag
+            and self._frequency_tracker.count()
+            >= self._context.window_size - self._lag
         )
 
     def reset(self):
         self._context.reset(full=True)
-        self._shape_tracker.reset()
+        self._frequency_tracker.reset()
         self._state = MotionState.IDLE
         self._packet_count = 0
         self._current_probability = 0.0

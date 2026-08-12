@@ -35,7 +35,7 @@ def _stats(values, count=None):
 
 def _promoted_tracker_kwargs():
     return {
-        "chan_shape_spread": 0.4,
+        "chan_shape_spread_subband": 0.4,
         "chan_shape_coherent_innovation_energy": 0.03,
         "chan_shape_excess_path": 0.02,
     }
@@ -118,15 +118,15 @@ class TestExtractAllFeatures:
         assert len(FEATURE_NAMES) == len(DEFAULT_FEATURES)
         assert FEATURE_NAMES == DEFAULT_FEATURES
 
-    def test_production_set_is_the_only_feature_surface(self):
-        """Only current ML inputs remain in the ML runtime extractor."""
+    def test_runtime_surface_contains_only_current_inputs(self):
+        """The runtime exposes only the promoted detector inputs."""
         assert set(ALL_FEATURES) == set(DEFAULT_FEATURES)
         assert DEFAULT_FEATURES == [
             'turb_iqr_over_mean_aggr',
             'turb_autocorr',
             'turb_zcr',
             'l1_delta_lag_ratio',
-            'chan_shape_spread',
+            'chan_shape_spread_subband',
             'chan_shape_coherent_innovation_energy',
             'chan_shape_excess_path',
         ]

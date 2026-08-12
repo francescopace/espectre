@@ -118,24 +118,6 @@ uint16_t reference_pair_count(uint8_t offset) {
     return pairs;
 }
 
-// A packet whose amplitude varies across the band, and whose shape depends on
-// `shape`. Constant packets are useless here: the amplitude profile is L2
-// normalized, so every constant packet collapses onto the same profile no
-// matter its magnitude, and a ring addressing bug would go unnoticed.
-std::vector<int8_t> make_shaped_packet(uint16_t shape) {
-    std::vector<int8_t> packet(HT20_CSI_LEN);
-    uint32_t state = 0x9E3779B9U ^ (static_cast<uint32_t>(shape) * 2654435761U);
-    for (uint16_t sc = 0; sc < HT20_NUM_SUBCARRIERS; ++sc) {
-        state = state * 1664525U + 1013904223U;
-        const int8_t q = static_cast<int8_t>(static_cast<int>((state >> 16U) & 0x3FU) + 8);
-        state = state * 1664525U + 1013904223U;
-        const int8_t i = static_cast<int8_t>(static_cast<int>((state >> 16U) & 0x3FU) + 8);
-        packet[sc * 2] = q;
-        packet[sc * 2 + 1] = i;
-    }
-    return packet;
-}
-
 // Deterministic 32-bit LCG: the profiles must be reproducible across runs and
 // platforms, which <random> does not guarantee for its distributions.
 struct SeededProfiles {
@@ -279,52 +261,6 @@ void test_frequency_coherences_matches_single_offset_calls(void) {
 
 
 
-void test_lag_ring_holds_exactly_the_configured_lag(void) {
-    // The lag rings are sized to the configured lag rather than to
-    // L1_DELTA_LAG_MAX, so the flattened indexing has to keep addressing the
-    // right slot. Feeding a sequence whose period equals the lag makes the
-    // lagged reference identical to the current packet, which pins the
-    // addressing: the lagged distance collapses to zero only if the ring
-    // really wrapped onto the matching packet.
-    for (uint16_t lag = 1U; lag <= 4U; lag++) {
-        ChannelShapeTracker tracker;
-        tracker.configure(64U, lag);
-
-        std::vector<std::vector<int8_t>> period;
-        for (uint16_t p = 0; p < lag; p++) {
-            period.push_back(make_shaped_packet(static_cast<uint16_t>(p + 1U)));
-        }
-        for (uint16_t step = 0; step < lag * 6U; step++) {
-            const std::vector<int8_t>& packet = period[step % lag];
-            tracker.process_packet(packet.data(), packet.size());
-        }
-
-        // Every lagged comparison saw an identical profile, so the motion
-        // energy stays empty and the participation ratio reports nothing.
-        TEST_ASSERT_EQUAL(lag * 5U, tracker.count());
-        TEST_ASSERT_EQUAL_FLOAT(0.0f, tracker.shape_spread());
-
-        // Non-vacuity: break the period and the very same tracker reports
-        // motion energy, so the zero above is a real match and not a tracker
-        // that simply never compared anything.
-        ChannelShapeTracker moving;
-        moving.configure(64U, lag);
-        for (uint16_t step = 0; step < lag * 6U; step++) {
-            const auto packet = make_shaped_packet(static_cast<uint16_t>(step + 1U));
-            moving.process_packet(packet.data(), packet.size());
-        }
-        TEST_ASSERT_EQUAL(lag * 5U, moving.count());
-        TEST_ASSERT_TRUE(moving.shape_spread() > 0.0f);
-    }
-
-    // A tracker configured with no capacity is never fed and holds no ring.
-    ChannelShapeTracker unused;
-    unused.configure(0U, 8U);
-    auto packet = make_constant_packet(4, 6);
-    unused.process_packet(packet.data(), packet.size());
-    TEST_ASSERT_EQUAL(0, unused.count());
-}
-
 void test_channel_shape_trajectory_is_gain_and_stutter_invariant(void) {
     ChannelShapeTrajectoryTracker baseline;
     ChannelShapeTrajectoryTracker gained;
@@ -347,15 +283,11 @@ void test_channel_shape_trajectory_is_gain_and_stutter_invariant(void) {
         1e-6f, baseline.excess_path(), gained.excess_path());
 }
 
-void test_shared_packet_frame_matches_direct_shape_trackers(void) {
+void test_shared_packet_frame_matches_direct_trajectory_tracker(void) {
     ChannelShapeTrajectoryTracker direct_trajectory;
     ChannelShapeTrajectoryTracker shared_trajectory;
-    ChannelShapeTracker direct_shape;
-    ChannelShapeTracker shared_shape;
     direct_trajectory.configure(true);
     shared_trajectory.configure(true);
-    direct_shape.configure(32U, 3U, false);
-    shared_shape.configure(32U, 3U, false);
 
     for (uint8_t step = 0U; step < 12U; step++) {
         const auto packet = make_trajectory_packet(step, 1);
@@ -373,28 +305,29 @@ void test_shared_packet_frame_matches_direct_shape_trackers(void) {
         shared_trajectory.process_packet(
             packet.data(), packet.size(), timestamp,
             packet_values, HT20_NUM_SUBCARRIERS);
-        for (float& value : packet_values) value = std::sqrt(value);
-        direct_shape.process_packet(packet.data(), packet.size());
-        shared_shape.process_subcarrier_amplitudes(
-            packet_values, HT20_NUM_SUBCARRIERS);
     }
 
     float direct_innovation = 0.0f;
     float direct_excess = 0.0f;
+    float direct_spread = 0.0f;
     float shared_innovation = 0.0f;
     float shared_excess = 0.0f;
-    direct_trajectory.trajectory_features(direct_innovation, direct_excess);
-    shared_trajectory.trajectory_features(shared_innovation, shared_excess);
+    float shared_spread = 0.0f;
+    direct_trajectory.trajectory_features(
+        direct_innovation, direct_excess, direct_spread);
+    shared_trajectory.trajectory_features(
+        shared_innovation, shared_excess, shared_spread);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, direct_innovation, shared_innovation);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, direct_excess, shared_excess);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, direct_spread, shared_spread);
+    TEST_ASSERT_TRUE(shared_spread > 0.0f);
     TEST_ASSERT_FLOAT_WITHIN(
         1e-6f, shared_innovation,
         shared_trajectory.coherent_innovation_energy());
     TEST_ASSERT_FLOAT_WITHIN(
         1e-6f, shared_excess, shared_trajectory.excess_path());
-    TEST_ASSERT_EQUAL(direct_shape.count(), shared_shape.count());
     TEST_ASSERT_FLOAT_WITHIN(
-        1e-6f, direct_shape.shape_spread(), shared_shape.shape_spread());
+        1e-6f, shared_spread, shared_trajectory.shape_spread_subband());
 }
 
 void test_utils_statistical_helpers_cover_edge_cases(void) {
@@ -778,9 +711,8 @@ int process(void) {
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
     RUN_TEST(test_frequency_coherence_matches_the_reference_formula);
     RUN_TEST(test_frequency_coherences_matches_single_offset_calls);
-    RUN_TEST(test_lag_ring_holds_exactly_the_configured_lag);
     RUN_TEST(test_channel_shape_trajectory_is_gain_and_stutter_invariant);
-    RUN_TEST(test_shared_packet_frame_matches_direct_shape_trackers);
+    RUN_TEST(test_shared_packet_frame_matches_direct_trajectory_tracker);
     RUN_TEST(test_classic_detector_move_semantics_and_base_accessors);
     RUN_TEST(test_ml_detector_move_semantics_and_cv_state);
     return UNITY_END();

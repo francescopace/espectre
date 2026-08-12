@@ -27,10 +27,9 @@ ClassicDetector::ClassicDetector(uint16_t window_size, float threshold,
       startup_logit_count_(0U),
       adapted_threshold_(CLASSIC_DEFAULT_THRESHOLD),
       adapted_threshold_ready_(false),
-      // Clamped here, not only inside ChannelShapeTracker::configure(): the
-      // detector derives its ring capacity and its readiness gate from this
-      // value, so an unclamped copy would configure one lag while applying the
-      // readiness gate for another.
+      // Clamped here because the detector derives its curve-ring capacity and
+      // readiness gate from this value, so an unclamped copy would configure
+      // one lag while applying the readiness gate for another.
       lag_(std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX)),
       autocorr_lag_(autocorr_lag > 0U ? autocorr_lag : 1U),
       settle_block_max_(0.0f),
@@ -38,13 +37,13 @@ ClassicDetector::ClassicDetector(uint16_t window_size, float threshold,
       settle_block_count_(0U),
       settle_block_index_(0U) {
   reset_settled_level_();
-  shape_tracker_.configure(shape_tracker_capacity_(), lag_, true, false);
+  frequency_tracker_.configure(frequency_tracker_capacity_());
   ESP_LOGI(TAG, "Initialized weighted fusion (window=%u, threshold=%.3f, lag=%u, ac_lag=%u)",
            static_cast<unsigned>(window_size_), threshold_,
            static_cast<unsigned>(lag_), static_cast<unsigned>(autocorr_lag_));
 }
 
-uint16_t ClassicDetector::shape_tracker_capacity_() const {
+uint16_t ClassicDetector::frequency_tracker_capacity_() const {
   return window_size_ > lag_ ? static_cast<uint16_t>(window_size_ - lag_) : 0U;
 }
 
@@ -63,12 +62,12 @@ void ClassicDetector::process_packet(const int8_t* csi_data, size_t csi_len,
       csi_data, csi_len, selected_subcarriers, num_subcarriers,
       amplitudes, HT20_SELECTED_BAND_SIZE);
   process_amplitudes(amplitudes, amplitude_count);
-  shape_tracker_.process_packet(csi_data, csi_len);
+  frequency_tracker_.process_packet(csi_data, csi_len);
 }
 
 bool ClassicDetector::is_ready() const {
   return buffer_count_ >= window_size_ &&
-         shape_tracker_.count() >= shape_tracker_capacity_();
+         frequency_tracker_.count() >= frequency_tracker_capacity_();
 }
 
 float ClassicDetector::calculate_turb_autocorr_() const {
@@ -107,7 +106,7 @@ void ClassicDetector::update_state() {
 
   current_turb_autocorr_ = calculate_turb_autocorr_();
   current_chan_freq_coh_curve_std_ =
-      shape_tracker_.frequency_coherence_curve_std();
+      frequency_tracker_.frequency_coherence_curve_std();
   current_logit_ = calculate_logit_(current_turb_autocorr_,
                                     current_chan_freq_coh_curve_std_);
   current_metric_ = sigmoid_(current_logit_);
@@ -237,7 +236,7 @@ void ClassicDetector::reset() {
 void ClassicDetector::clear_buffer() {
   BaseDetector::clear_buffer();
   reset_settled_level_();
-  shape_tracker_.clear();
+  frequency_tracker_.clear();
   clear_fusion_inputs_();
 }
 

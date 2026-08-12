@@ -21,31 +21,23 @@ try:
     from src.detector_interface import IDetector, MotionState
     from src.segmentation import SegmentationContext
     from src.csi_features import (
-        CHANNEL_SHAPE_FEATURES,
         CHANNEL_SHAPE_TRAJECTORY_FEATURES,
         AGGREGATED_TURBULENCE_FEATURES,
         L1_DELTA_LAG, L1_TRACKER_FEATURES,
         TURB_IQR_AGGREGATION_WIDTH, L1DeltaTracker, extract_features_by_name,
     )
-    from src.ml_feature_trackers import (
-        ChannelShapeTracker,
-        ChannelShapeTrajectoryTracker,
-    )
+    from src.ml_feature_trackers import ChannelShapeTrajectoryTracker
     from src.config import DEFAULT_SUBCARRIERS
 except ImportError:
     from detector_interface import IDetector, MotionState
     from segmentation import SegmentationContext
     from csi_features import (
-        CHANNEL_SHAPE_FEATURES,
         CHANNEL_SHAPE_TRAJECTORY_FEATURES,
         AGGREGATED_TURBULENCE_FEATURES,
         L1_DELTA_LAG, L1_TRACKER_FEATURES,
         TURB_IQR_AGGREGATION_WIDTH, L1DeltaTracker, extract_features_by_name,
     )
-    from ml_feature_trackers import (
-        ChannelShapeTracker,
-        ChannelShapeTrajectoryTracker,
-    )
+    from ml_feature_trackers import ChannelShapeTrajectoryTracker
     from config import DEFAULT_SUBCARRIERS
 
 try:
@@ -221,9 +213,6 @@ class MLDetector(IDetector):
         self._use_amplitude_history = any(
             name in L1_TRACKER_FEATURES for name in FEATURE_NAMES
         )
-        self._use_shape_tracker = any(
-            name in CHANNEL_SHAPE_FEATURES for name in FEATURE_NAMES
-        )
         self._use_shape_trajectory_tracker = any(
             name in CHANNEL_SHAPE_TRAJECTORY_FEATURES for name in FEATURE_NAMES
         )
@@ -254,15 +243,6 @@ class MLDetector(IDetector):
             )
         else:
             self._l1_tracker = None
-        self._shape_tracker = (
-            ChannelShapeTracker(
-                window_size=delta_window,
-                lag=L1_DELTA_LAG,
-                track_frequency=False,
-                track_shape="chan_shape_spread" in FEATURE_NAMES,
-            )
-            if self._use_shape_tracker else None
-        )
         self._shape_trajectory_tracker = (
             ChannelShapeTrajectoryTracker()
             if self._use_shape_trajectory_tracker else None
@@ -340,15 +320,6 @@ class MLDetector(IDetector):
                 self._context._amplitude_buffer,
                 self._context._amplitude_count,
             )
-        if self._shape_tracker is not None:
-            if self._shape_tracker.track_frequency:
-                self._shape_tracker.process_packet(csi_data)
-            else:
-                self._shape_tracker.process_subcarrier_amplitudes(
-                    packet_values,
-                    packet_value_count,
-                )
-
         # Add to buffer
         self._context.add_turbulence(turbulence)
         if self._aggregated_context is not None:
@@ -456,9 +427,10 @@ class MLDetector(IDetector):
                     )
         trajectory_innovation = None
         trajectory_excess = None
+        trajectory_spread = None
         if self._shape_trajectory_tracker is not None:
-            trajectory_innovation, trajectory_excess = (
-                self._shape_trajectory_tracker.trajectory_features()
+            trajectory_innovation, trajectory_excess, trajectory_spread = (
+                self._shape_trajectory_tracker.trajectory_features_with_spread()
             )
         return extract_features_by_name(
             turb_list, count,
@@ -474,10 +446,9 @@ class MLDetector(IDetector):
                 )
                 else None
             ),
-            chan_shape_spread=(
-                self._shape_tracker.shape_spread()
-                if self._shape_tracker is not None
-                and "chan_shape_spread" in FEATURE_NAMES
+            chan_shape_spread_subband=(
+                trajectory_spread
+                if "chan_shape_spread_subband" in FEATURE_NAMES
                 else None
             ),
             chan_shape_coherent_innovation_energy=(
@@ -519,8 +490,6 @@ class MLDetector(IDetector):
             return False
         if self._l1_tracker is not None and self._l1_tracker.count < (self._context.window_size - L1_DELTA_LAG):
             return False
-        if self._shape_tracker is not None and self._shape_tracker.count() < (self._context.window_size - L1_DELTA_LAG):
-            return False
         if (
             self._aggregated_context is not None
             and self._aggregated_context.buffer_count
@@ -538,8 +507,6 @@ class MLDetector(IDetector):
         self._motion_count = 0
         if self._l1_tracker is not None:
             self._l1_tracker.reset()
-        if self._shape_tracker is not None:
-            self._shape_tracker.reset()
         if self._shape_trajectory_tracker is not None:
             self._shape_trajectory_tracker.reset()
         if self._aggregated_context is not None:

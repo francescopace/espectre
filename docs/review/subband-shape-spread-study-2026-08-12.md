@@ -1,18 +1,19 @@
 # Subband Shape-Spread Model Study
 
 Date: 2026-08-12
+Status: Complete
 Branch: `v3.0`
 Experiment base: `d01fae6f`
-Scope: host-only economic replacements for `chan_shape_spread`, the selected seven-feature subband model, and the six-feature ablation that removes `chan_shape_excess_path`.
+Scope: economic replacements for `chan_shape_spread`, the selected seven-feature subband model, its DCT-aligned runtime export, and the six-feature ablation that removes `chan_shape_excess_path`.
 
-This record preserves the evidence used to choose the current research candidate. `docs/FEATURES.md` remains the compact feature ledger; this document retains the protocol, seed-level result, sealed evaluations, and implementation status needed to resume the study without reconstructing temporary experiment outputs.
+This record preserves the evidence used to choose and promote the current subband model. `docs/FEATURES.md` remains the compact feature ledger; this document retains the protocol, seed-level result, sealed evaluations, runtime design, and follow-up hardware gates without requiring temporary experiment outputs.
 
 ## 1. Findings
 
 | ID | Severity | Finding | Precise locations | Status |
 | --- | --- | --- | --- | --- |
-| `S-1` | Medium | DS2, slow EMA, and subband spread are credible host-only reductions of the production shape-spread cost. DS2 is the lower-risk CPU-plus-RAM option, slow EMA minimizes state, and subband reuses trajectory history with almost no additional persistent state. | `tools/lib/host_feature_trackers.py`, `tools/lib/candidate_features.py`, `tools/train_ml_model.py` | Measured |
-| `S-2` | High | The seven-feature subband model improves selection recall and difficult `exclude` recall, but passes only `4/10` seed safety gates and concentrates cross-environment FP in the unseen bedroom. It is not ready for runtime promotion. | `tools/lib/host_feature_trackers.py`, `tools/train_ml_model.py`, `docs/FEATURES.md` | Research candidate |
+| `S-1` | Medium | DS2, slow EMA, and subband spread are credible reductions of the production shape-spread cost. DS2 is the lower-risk standalone CPU-plus-RAM option, slow EMA minimizes standalone state, and subband reuses trajectory history with almost no additional persistent state. | `tools/lib/host_feature_trackers.py`, `tools/lib/candidate_features.py`, `tools/train_ml_model.py` | Measured |
+| `S-2` | High | The seven-feature subband model improves selection recall and difficult `exclude` recall, but passes only `4/10` seed safety gates and concentrates cross-environment FP in the unseen bedroom. Seed `1584727888` passes every sealed deployment gate, exact runtime parity, and host resource benchmarks. It is accepted for production with independent-room and on-device measurements retained as explicit follow-ups. | `src/cpp/core/ml_feature_trackers.h`, `src/python/micro_espectre/ml_feature_trackers.py`, `tools/lib/host_feature_trackers.py`, `docs/FEATURES.md` | Production |
 | `S-3` | High | Removing `chan_shape_excess_path` is CV-safe at one seed but unsafe after sealed evaluation and a fresh ten-seed search: every seed produces a selection quiet alarm. | `tools/train_ml_model.py`, `docs/FEATURES.md` | Rejected |
 | `C-1` | High | Feature-subset experiments were recomputing cached supersets. Indexed superset projection now preserves manifests and column order, and semantic pruning removes artifacts whose dependencies no longer resolve. | `tools/lib/npz_cache.py`, `tools/prune_npz_cache.py`, `docs/review/npz-cache-review-2026-07-29.md` | Resolved |
 
@@ -104,11 +105,13 @@ The strongest pairwise relationships were `turb_autocorr` versus `turb_zcr` at `
 
 The production shape-spread tracker is estimated at approximately `22.1 KiB` of state. DS2 reduces this to approximately `11.2 KiB` and roughly halves its packet work. Either EMA variant reduces state to approximately `2.4 KiB` with similar per-packet arithmetic. Subband spread adds almost no persistent state when both trajectory features remain active because it consumes the eight normalized profiles already retained by the trajectory tracker.
 
-These are design estimates, not measured firmware values. No host-only candidate has been ported to MicroPython or C++, `ml_weights.h` has not been regenerated, and no runtime behavior has changed.
+The promoted subband model removes the standalone full-band shape tracker from the ML allocation path and reuses the trajectory tracker's eight DCT modes. C++ reconstructs adjacent eight-component profile differences on the extraction stack; MicroPython retains one eight-float energy accumulator; neither runtime restores the removed lagged full-band profile and energy rings. At the default window, requested dynamic float storage drops exactly from `24,720` to `2,320` bytes, or by `22,400` bytes. Host benchmarks measured `21.39%` less packet-path time, unchanged pure MLP inference time, and an `18.73%` lower modeled packet-plus-evaluation total. Device CPU time, allocator overhead, and peak RAM still require measurement.
 
-## 7. Decision And Progress
+The host, MicroPython, and C++ implementations now share the same DCT-backed contract. Finalized physical-time profiles are stored as orthonormal DCT modes; coherent innovation and excess path remain in mode space; and subband spread applies the inverse DCT only to each adjacent mode difference before computing motion participation. This reconstruction is necessary because full-profile L2 geometry is basis-invariant while per-subband participation is not.
 
-Retain the seven-feature subband model as the selected research candidate, including `chan_shape_excess_path`. Do not promote it until an independent-room gate resolves the unseen-bedroom FP tail and an on-device comparison verifies the expected CPU and RAM benefit. DS2 and slow EMA remain documented fallback candidates; ClassicDetector is outside this study.
+## 7. Decision And Completion
+
+Promote the seven-feature subband model with seed `1584727888`, including `chan_shape_excess_path`. The export passed blocked OOF evaluation and every deployment replay gate without `--force-promote`: OOF F1 was `99.2%`, worst-session recall / FP was `88.8%` / `1.2%`, all `14/14` paired replay gates passed with `96.26%` minimum recall and `0%` maximum FP, quiet maximum FP was `0.73%`, and all effective alarm counts were zero. The production paths remove the superseded full-band feature and tracker, while host tooling retains it for research. The review is complete: independent-room validation and representative-device CPU/RAM measurements are recorded as post-promotion follow-ups rather than review blockers. DS2 and slow EMA remain documented rollback candidates; ClassicDetector is outside this study.
 
 - [x] Implement host-only DS2, fast EMA, slow EMA, and subband candidates.
 - [x] Run a common single-seed screen.
@@ -118,7 +121,10 @@ Retain the seven-feature subband model as the selected research candidate, inclu
 - [x] Run the fresh ten-seed six-feature search.
 - [x] Open sealed holdout, `exclude`, and cross-environment gates only after winner selection.
 - [x] Restore cache subset reuse and semantic pruning for repeated experiments.
-- [ ] Validate the seven-feature subband candidate on a fresh independent room.
-- [ ] Implement exact Python/C++ parity for the selected finalist.
-- [ ] Measure CPU time, peak RAM, and persistent tracker state on representative devices.
-- [ ] Make the final promotion or rejection decision.
+- [x] Implement exact host, MicroPython, and C++ DCT-mode parity for the selected finalist.
+- [x] Train and export the seven-feature model at seed `1584727888` without bypassing promotion gates.
+- [x] Benchmark host packet, evaluation, and requested dynamic-float costs against the full-band export.
+- [x] Promote Subband 7F and remove the full-band feature from C++ and MicroPython production paths.
+- [x] Make the final promotion or rejection decision.
+- [x] Record fresh independent-room validation as a post-promotion follow-up.
+- [x] Record representative-device CPU time, peak RAM, and persistent tracker state measurement as a post-promotion follow-up.

@@ -125,7 +125,7 @@ void test_ml_production_feature_schema(void) {
         ML_FEAT_TURB_AUTOCORR,
         ML_FEAT_TURB_ZCR,
         ML_FEAT_L1_DELTA_LAG_RATIO,
-        ML_FEAT_CHAN_SHAPE_SPREAD,
+        ML_FEAT_CHAN_SHAPE_SPREAD_SUBBAND,
         ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY,
         ML_FEAT_CHAN_SHAPE_EXCESS_PATH,
     };
@@ -134,7 +134,7 @@ void test_ml_production_feature_schema(void) {
         expected, ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE);
 
     MLDetector detector;
-    TEST_ASSERT_TRUE(detector.uses_shape_tracker_);
+    TEST_ASSERT_TRUE(detector.uses_shape_trajectory_tracker_);
 }
 
 void test_ml_detector_hampel_master_switch_controls_both_streams(void) {
@@ -359,6 +359,8 @@ void test_ml_feature_source_separates_tracker_from_series(void) {
             ML_FEAT_TURB_IQR_OVER_MEAN_AGGR));
     TEST_ASSERT_FALSE(
         ml_feature_needs_l1_tracker(ML_FEAT_TURB_IQR_OVER_MEAN_AGGR));
+    TEST_ASSERT_TRUE(ml_feature_needs_channel_shape_trajectory_tracker(
+        ML_FEAT_CHAN_SHAPE_SPREAD_SUBBAND));
 
     // A tracker-sourced id contributes no series statistics on either side.
     const uint8_t ratio_only[1] = {ML_FEAT_L1_DELTA_LAG_RATIO};

@@ -88,14 +88,14 @@ def calc_zero_crossing_rate(values, count, center):
 # strong-link capture to training took a weak-link pair from 0% to 100% false
 # positives, because its idle displacement (0.2653) sat above its own motion
 # (0.1830) and above the added capture's motion (0.0587). The promoted compact
-# model keeps only scale-invariant members and the two channel-shape dynamics
-# that survived the 2026-08-08 joint ablation and seed search.
+# model keeps only scale-invariant members and the three physical-time
+# channel-shape dynamics retained by the 2026-08-12 production decision.
 PHASELESS7_FEATURES = [
     'turb_iqr_over_mean_aggr',
     'turb_autocorr',
     'turb_zcr',
     'l1_delta_lag_ratio',
-    'chan_shape_spread',
+    'chan_shape_spread_subband',
     'chan_shape_coherent_innovation_energy',
     'chan_shape_excess_path',
 ]
@@ -107,10 +107,8 @@ AGGREGATED_TURBULENCE_FEATURES = frozenset({
     'turb_iqr_over_mean_aggr',
 })
 
-CHANNEL_SHAPE_FEATURES = frozenset({
-    'chan_shape_spread',
-})
 CHANNEL_SHAPE_TRAJECTORY_FEATURES = frozenset({
+    'chan_shape_spread_subband',
     'chan_shape_coherent_innovation_energy',
     'chan_shape_excess_path',
 })
@@ -365,7 +363,7 @@ def extract_features_by_name(
     reuse_aggregated_turbulence_buffer=False,
     sort_scratch=None,
     l1_delta_lag_ratio=None,
-    chan_shape_spread=None,
+    chan_shape_spread_subband=None,
     chan_shape_coherent_innovation_energy=None,
     chan_shape_excess_path=None,
 ):
@@ -390,7 +388,7 @@ def extract_features_by_name(
             "pass the explicitly preprocessed tracker metric"
         )
     required_scalars = {
-        'chan_shape_spread': chan_shape_spread,
+        'chan_shape_spread_subband': chan_shape_spread_subband,
         'chan_shape_coherent_innovation_energy': (
             chan_shape_coherent_innovation_energy
         ),
@@ -509,8 +507,8 @@ def extract_features_by_name(
             value = turb_zcr
         elif name == 'l1_delta_lag_ratio':
             value = l1_delta_lag_ratio
-        elif name == 'chan_shape_spread':
-            value = chan_shape_spread
+        elif name == 'chan_shape_spread_subband':
+            value = chan_shape_spread_subband
         elif name == 'chan_shape_coherent_innovation_energy':
             value = chan_shape_coherent_innovation_energy
         elif name == 'chan_shape_excess_path':

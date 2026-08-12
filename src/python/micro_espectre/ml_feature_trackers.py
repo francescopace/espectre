@@ -70,29 +70,6 @@ def complex_profile(csi_data, out=None):
     return profile
 
 
-def normalized_amplitude_profile(profile, out=None):
-    """Return the channel magnitude divided by its packet L2 norm.
-
-    Passing `out` keeps the per-packet path free of the two list allocations the
-    magnitude and the normalized result would otherwise cost, which is garbage
-    collection the device does not need to do inside a CSI callback.
-    """
-    amplitudes = out if out is not None else [0.0] * HT20_LIVE_WIDTH
-    total = 0.0
-    for i in range(HT20_LIVE_WIDTH):
-        value = abs(profile[i])
-        amplitudes[i] = value
-        total += value * value
-    norm = math.sqrt(total)
-    if norm <= 0.0:
-        for i in range(HT20_LIVE_WIDTH):
-            amplitudes[i] = 0.0
-        return amplitudes
-    for i in range(HT20_LIVE_WIDTH):
-        amplitudes[i] = amplitudes[i] / norm
-    return amplitudes
-
-
 def motion_participation(energy):
     """Normalized participation ratio of motion energy across subcarriers."""
     total = 0.0
@@ -251,6 +228,7 @@ class ChannelShapeTrajectoryTracker:
         self._median_values = [0.0] * CHANNEL_SHAPE_MAX_PROFILES_PER_BIN
         self._median_profile_buffer = [0.0] * CHANNEL_SHAPE_SUBBAND_COUNT
         self._current_modes = [0.0] * CHANNEL_SHAPE_SUBBAND_COUNT
+        self._spread_energy = [0.0] * CHANNEL_SHAPE_SUBBAND_COUNT
         self._innovation_samples = [0.0] * self._window_bins
         self._excess_samples = [0.0] * self._window_bins
         self._current_profiles = [
@@ -398,13 +376,13 @@ class ChannelShapeTrajectoryTracker:
             modes[mode] = total
         return modes
 
-    def trajectory_features(self):
-        """Return both geometry readouts using cached orthonormal DCT modes."""
+    def trajectory_features_with_spread(self):
+        """Return all trajectory readouts from cached orthonormal DCT modes."""
         bin_count = self._bin_count
         has_current = self._current_profile_count > 0
         count = bin_count + (1 if has_current else 0)
-        if count < 3:
-            return 0.0, 0.0
+        if count < 2:
+            return 0.0, 0.0, 0.0
         if has_current:
             current_profile = self._median_profile(
                 self._current_profiles,
@@ -413,8 +391,31 @@ class ChannelShapeTrajectoryTracker:
             )
             self._modes(current_profile, self._current_modes)
 
+        spread_energy = self._spread_energy
+        for subband in range(CHANNEL_SHAPE_SUBBAND_COUNT):
+            spread_energy[subband] = 0.0
+        previous_bin, previous_modes = self._bin_at(0)
+        for index in range(1, count):
+            if index < bin_count:
+                current_bin, current_modes = self._bin_at(index)
+            else:
+                current_bin, current_modes = self._current_bin, self._current_modes
+            if current_bin - previous_bin == 1:
+                for subband in range(CHANNEL_SHAPE_SUBBAND_COUNT):
+                    delta = 0.0
+                    for mode in range(CHANNEL_SHAPE_SUBBAND_COUNT):
+                        delta += (
+                            current_modes[mode] - previous_modes[mode]
+                        ) * _CHANNEL_SHAPE_DCT[subband][mode]
+                    spread_energy[subband] += delta * delta
+            previous_bin = current_bin
+            previous_modes = current_modes
+
         first_bin, first_modes = self._bin_at(0)
-        middle_bin, middle_modes = self._bin_at(1)
+        if bin_count > 1:
+            middle_bin, middle_modes = self._bin_at(1)
+        else:
+            middle_bin, middle_modes = self._current_bin, self._current_modes
         innovation_count = 0
         excess_count = 0
         innovation_samples = self._innovation_samples
@@ -478,13 +479,22 @@ class ChannelShapeTrajectoryTracker:
         return (
             _median_prefix_in_place(innovation_samples, innovation_count),
             _median_prefix_in_place(excess_samples, excess_count),
+            motion_participation(spread_energy),
         )
+
+    def trajectory_features(self):
+        """Return the two historical geometry readouts."""
+        innovation, excess, _spread = self.trajectory_features_with_spread()
+        return innovation, excess
 
     def coherent_innovation_energy(self):
         return self.trajectory_features()[0]
 
     def excess_path(self):
         return self.trajectory_features()[1]
+
+    def shape_spread_subband(self):
+        return self.trajectory_features_with_spread()[2]
 
     def reset(self):
         self._bin_start = 0
@@ -494,51 +504,18 @@ class ChannelShapeTrajectoryTracker:
         self._has_previous_raw = False
 
 
-class ChannelShapeTracker:
-    """Track gain-free amplitude-shape and frequency-coherence dynamics."""
+class FrequencyCoherenceTracker:
+    """Track the Classic detector's frequency-coherence curve."""
 
-    def __init__(self, window_size=90, lag=L1_DELTA_LAG,
-                 track_frequency=True, track_shape=True):
+    def __init__(self, window_size=90):
         self.window_size = max(2, int(window_size))
-        self.lag = max(1, int(lag))
-        self.track_frequency = bool(track_frequency)
-        self.track_shape = bool(track_shape)
-        self._ring = (
-            [[0.0] * HT20_LIVE_WIDTH for _ in range(self.lag)]
-            if self.track_shape else []
-        )
-        self._ring_filled = [False] * self.lag if self.track_shape else []
-        self._index = 0
-        self._lag_distance_count = 0
-        self._motion_energy = (
-            [0.0] * HT20_LIVE_WIDTH if self.track_shape else []
-        )
-        self._motion_energy_ring = (
-            [[0.0] * HT20_LIVE_WIDTH for _ in range(self.window_size)]
-            if self.track_shape else []
-        )
-        self._motion_energy_slot = 0
-        self._motion_energy_count = 0
-        self._frequency_curve_ring = (
-            [0.0] * self.window_size if self.track_frequency else []
-        )
+        self._frequency_curve_ring = [0.0] * self.window_size
         self._frequency_curve_slot = 0
         self._frequency_curve_count = 0
         self._frequency_curve_sum = 0.0
         self._frequency_curve_square_sum = 0.0
-        self._complex_profile = (
-            [0j] * HT20_LIVE_WIDTH if self.track_shape else None
-        )
-        self._amplitude_profile = (
-            [0.0] * HT20_LIVE_WIDTH if self.track_shape else None
-        )
-        self._coherence_squares = (
-            new_frequency_coherence_squares() if self.track_frequency else None
-        )
-        self._coherence_values = (
-            [0.0] * len(FREQUENCY_COHERENCE_OFFSETS)
-            if self.track_frequency else None
-        )
+        self._coherence_squares = new_frequency_coherence_squares()
+        self._coherence_values = [0.0] * len(FREQUENCY_COHERENCE_OFFSETS)
 
     def _push_frequency_curve(self, value):
         if self._frequency_curve_count < self.window_size:
@@ -554,99 +531,18 @@ class ChannelShapeTracker:
         if self._frequency_curve_slot >= self.window_size:
             self._frequency_curve_slot = 0
 
-    def _process_profile(self, profile, complex_values=None):
-        if self.track_shape:
-            slot = self._index
-            reference = self._ring[slot]
-            if self._ring_filled[slot]:
-                motion_slot = self._motion_energy_ring[
-                    self._motion_energy_slot
-                ]
-                full = self._motion_energy_count >= self.window_size
-                if not full:
-                    self._motion_energy_count += 1
-                for i in range(HT20_LIVE_WIDTH):
-                    diff = profile[i] - reference[i]
-                    value = diff * diff
-                    if full:
-                        self._motion_energy[i] -= motion_slot[i]
-                    motion_slot[i] = value
-                    self._motion_energy[i] += value
-                    reference[i] = profile[i]
-                self._lag_distance_count = min(
-                    self.window_size,
-                    self._lag_distance_count + 1,
-                )
-                self._motion_energy_slot += 1
-                if self._motion_energy_slot >= self.window_size:
-                    self._motion_energy_slot = 0
-            else:
-                for i in range(HT20_LIVE_WIDTH):
-                    reference[i] = profile[i]
-        if self.track_frequency and complex_values is not None:
-            short_coherence, long_coherence = frequency_coherences(
-                complex_values, self._coherence_values, self._coherence_squares
-            )
-            coherence_sum = short_coherence + long_coherence
-            curve_contrast = (
-                (short_coherence - long_coherence) / coherence_sum
-                if coherence_sum > 0.0 else 0.0
-            )
-            self._push_frequency_curve(curve_contrast)
-        if self.track_shape:
-            self._ring_filled[slot] = True
-            self._index += 1
-            if self._index >= self.lag:
-                self._index = 0
-
     def process_packet(self, csi_data):
-        if self.track_frequency and not self.track_shape:
-            short_coherence, long_coherence = frequency_coherences_from_csi(
-                csi_data, self._coherence_values, self._coherence_squares
-            )
-            coherence_sum = short_coherence + long_coherence
-            self._push_frequency_curve(
-                (short_coherence - long_coherence) / coherence_sum
-                if coherence_sum > 0.0 else 0.0
-            )
-            return
-        complex_values = complex_profile(csi_data, self._complex_profile)
-        profile = (
-            normalized_amplitude_profile(complex_values, self._amplitude_profile)
-            if self.track_shape else None
+        short_coherence, long_coherence = frequency_coherences_from_csi(
+            csi_data, self._coherence_values, self._coherence_squares
         )
-        self._process_profile(profile, complex_values)
-
-    def process_subcarrier_amplitudes(self, amplitudes, amplitude_count):
-        """Consume a shared packet-wide magnitude frame without re-reading CSI."""
-        if not self.track_shape:
-            return
-        profile = self._amplitude_profile
-        total = 0.0
-        for live_index, subcarrier in enumerate(HT20_LIVE_BINS):
-            value = amplitudes[subcarrier] if subcarrier < amplitude_count else 0.0
-            profile[live_index] = value
-            total += value * value
-        norm = math.sqrt(total)
-        if norm > 0.0:
-            for i in range(HT20_LIVE_WIDTH):
-                profile[i] = profile[i] / norm
-        else:
-            for i in range(HT20_LIVE_WIDTH):
-                profile[i] = 0.0
-        self._process_profile(profile)
+        coherence_sum = short_coherence + long_coherence
+        self._push_frequency_curve(
+            (short_coherence - long_coherence) / coherence_sum
+            if coherence_sum > 0.0 else 0.0
+        )
 
     def count(self):
-        return (
-            self._lag_distance_count
-            if self.track_shape else self._frequency_curve_count
-        )
-
-    def shape_spread(self):
-        return (
-            motion_participation(self._motion_energy)
-            if self.track_shape else 0.0
-        )
+        return self._frequency_curve_count
 
     def frequency_coherence_curve_std(self):
         if self._frequency_curve_count == 0:
@@ -660,16 +556,6 @@ class ChannelShapeTracker:
         return math.sqrt(variance)
 
     def reset(self):
-        if self.track_shape:
-            for i in range(self.lag):
-                self._ring_filled[i] = False
-        self._index = 0
-        self._lag_distance_count = 0
-        if self.track_shape:
-            for i in range(HT20_LIVE_WIDTH):
-                self._motion_energy[i] = 0.0
-        self._motion_energy_slot = 0
-        self._motion_energy_count = 0
         self._frequency_curve_slot = 0
         self._frequency_curve_count = 0
         self._frequency_curve_sum = 0.0

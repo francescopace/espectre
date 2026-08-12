@@ -79,28 +79,6 @@ inline void extract_ht20_live_complex_profile(const int8_t* csi_data, size_t csi
 }
 
 
-inline void normalized_amplitude_profile(const std::complex<float>* profile,
-                                         float* out) {
-    if (profile == nullptr || out == nullptr) {
-        return;
-    }
-    float squared_sum = 0.0f;
-    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        out[i] = std::abs(profile[i]);
-        squared_sum += out[i] * out[i];
-    }
-    const float norm = std::sqrt(squared_sum);
-    if (norm <= 0.0f) {
-        for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-            out[i] = 0.0f;
-        }
-        return;
-    }
-    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        out[i] /= norm;
-    }
-}
-
 inline float motion_participation(const float* energy, uint8_t count) {
     if (energy == nullptr || count == 0U) {
         return 0.0f;
@@ -248,14 +226,35 @@ class ChannelShapeTrajectoryTracker {
   }
 
   void trajectory_features(float& coherent_innovation_energy,
-                           float& excess_path) const {
+                           float& excess_path,
+                           float& shape_spread_subband) const {
     coherent_innovation_energy = 0.0f;
     excess_path = 0.0f;
+    shape_spread_subband = 0.0f;
     std::array<PathPoint, CHANNEL_SHAPE_WINDOW_BINS + 1U> path{};
     const uint8_t count = build_path_(path);
-    if (count < 3U) {
+    if (count < 2U) {
       return;
     }
+
+    Profile spread_energy{};
+    for (uint8_t i = 1U; i < count; i++) {
+      if (path[i].index - path[i - 1U].index != 1U) continue;
+      for (uint8_t subband = 0U;
+           subband < CHANNEL_SHAPE_SUBBAND_COUNT; subband++) {
+        float delta = 0.0f;
+        for (uint8_t mode = 0U;
+             mode < CHANNEL_SHAPE_SUBBAND_COUNT; mode++) {
+          delta += (path[i].modes[mode] - path[i - 1U].modes[mode]) *
+                   CHANNEL_SHAPE_DCT[subband][mode];
+        }
+        spread_energy[subband] += delta * delta;
+      }
+    }
+    shape_spread_subband = motion_participation(
+        spread_energy.data(), CHANNEL_SHAPE_SUBBAND_COUNT);
+    if (count < 3U) return;
+
     std::array<float, CHANNEL_SHAPE_WINDOW_BINS - 1U> innovation_samples{};
     std::array<float, CHANNEL_SHAPE_WINDOW_BINS - 1U> excess_samples{};
     uint8_t innovation_count = 0U;
@@ -320,6 +319,12 @@ class ChannelShapeTrajectoryTracker {
     excess_path = median_(excess_samples.data(), excess_count);
   }
 
+  void trajectory_features(float& coherent_innovation_energy,
+                           float& excess_path) const {
+    float spread = 0.0f;
+    trajectory_features(coherent_innovation_energy, excess_path, spread);
+  }
+
   float coherent_innovation_energy() const {
     float innovation = 0.0f;
     float excess = 0.0f;
@@ -332,6 +337,14 @@ class ChannelShapeTrajectoryTracker {
     float excess = 0.0f;
     trajectory_features(innovation, excess);
     return excess;
+  }
+
+  float shape_spread_subband() const {
+    float innovation = 0.0f;
+    float excess = 0.0f;
+    float spread = 0.0f;
+    trajectory_features(innovation, excess, spread);
+    return spread;
   }
 
  private:
@@ -453,37 +466,22 @@ class ChannelShapeTrajectoryTracker {
   bool has_previous_raw_{false};
 };
 
-class ChannelShapeTracker {
+class FrequencyCoherenceTracker {
  public:
-  ChannelShapeTracker() = default;
+  FrequencyCoherenceTracker() = default;
 
-  void configure(uint16_t capacity, uint16_t lag, bool track_frequency = true,
-                 bool track_shape = true) {
+  void configure(uint16_t capacity) {
     capacity_ = std::min<uint16_t>(capacity, DETECTOR_MAX_WINDOW_SIZE);
-    lag_ = std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX);
-    track_frequency_ = track_frequency;
-    track_shape_ = track_shape;
-    frequency_curve_ring_.assign(track_frequency_ ? capacity_ : 0U, 0.0f);
-    motion_energy_ring_.assign(
-        track_shape_ ? static_cast<size_t>(capacity_) * HT20_LIVE_BAND_SIZE : 0U,
-        0.0f);
-    ring_.assign(lag_profile_size_(), 0.0f);
+    frequency_curve_ring_.assign(capacity_, 0.0f);
     clear();
   }
 
   void clear() {
-    ring_index_ = 0U;
-    ring_filled_.fill(false);
-    motion_energy_.fill(0.0f);
-    lag_distance_count_ = 0U;
-    motion_energy_slot_ = 0U;
-    motion_energy_count_ = 0U;
     frequency_curve_slot_ = 0U;
     frequency_curve_count_ = 0U;
     frequency_curve_sum_ = 0.0f;
     frequency_curve_square_sum_ = 0.0f;
     std::fill(frequency_curve_ring_.begin(), frequency_curve_ring_.end(), 0.0f);
-    std::fill(motion_energy_ring_.begin(), motion_energy_ring_.end(), 0.0f);
   }
 
   void process_packet(const int8_t* csi_data, size_t csi_len) {
@@ -492,47 +490,18 @@ class ChannelShapeTracker {
     }
     std::complex<float> complex_values[HT20_LIVE_BAND_SIZE]{};
     extract_ht20_live_complex_profile(csi_data, csi_len, complex_values);
-    if (track_shape_) {
-      float profile[HT20_LIVE_BAND_SIZE]{};
-      normalized_amplitude_profile(complex_values, profile);
-      process_profile_(profile, complex_values);
-    } else {
-      process_profile_(nullptr, complex_values);
-    }
+    static_assert(FREQUENCY_COHERENCE_OFFSETS[0] == 4U &&
+                      FREQUENCY_COHERENCE_OFFSETS[1] == 12U,
+                  "short and long coherence are read by index below");
+    float coherences[FREQUENCY_COHERENCE_COUNT]{};
+    frequency_coherences(complex_values, coherences);
+    const float coherence_sum = coherences[0] + coherences[1];
+    push_(coherence_sum > 0.0f
+              ? (coherences[0] - coherences[1]) / coherence_sum
+              : 0.0f);
   }
 
-  void process_subcarrier_amplitudes(const float* amplitudes,
-                                     uint8_t amplitude_count) {
-    if (capacity_ == 0U || amplitudes == nullptr || !track_shape_) {
-      return;
-    }
-    float profile[HT20_LIVE_BAND_SIZE]{};
-    float squared_sum = 0.0f;
-    for (uint8_t i = 0U; i < HT20_LIVE_BAND_SIZE; i++) {
-      const uint8_t subcarrier = HT20_LIVE_BINS[i];
-      const float value =
-          subcarrier < amplitude_count ? amplitudes[subcarrier] : 0.0f;
-      profile[i] = value;
-      squared_sum += value * value;
-    }
-    const float norm = std::sqrt(squared_sum);
-    if (norm > 0.0f) {
-      for (float& value : profile) value /= norm;
-    }
-    process_profile_(profile, nullptr);
-  }
-
-  uint16_t count() const {
-    return track_shape_ ? lag_distance_count_ : frequency_curve_count_;
-  }
-  bool tracks_frequency() const { return track_frequency_; }
-  bool tracks_shape() const { return track_shape_; }
-
-  float shape_spread() const {
-    return track_shape_
-               ? motion_participation(motion_energy_.data(), HT20_LIVE_BAND_SIZE)
-               : 0.0f;
-  }
+  uint16_t count() const { return frequency_curve_count_; }
 
   float frequency_coherence_curve_std() const {
     if (frequency_curve_count_ == 0U) {
@@ -547,69 +516,7 @@ class ChannelShapeTracker {
   }
 
  private:
-  void process_profile_(const float* profile,
-                        const std::complex<float>* complex_values) {
-    if (track_shape_ && profile != nullptr) {
-      const uint16_t slot = ring_index_;
-      const size_t ring_base = static_cast<size_t>(slot) * HT20_LIVE_BAND_SIZE;
-      if (ring_filled_[slot]) {
-        const size_t motion_base =
-            static_cast<size_t>(motion_energy_slot_) * HT20_LIVE_BAND_SIZE;
-        const bool full = motion_energy_count_ >= capacity_;
-        if (!full) {
-          motion_energy_count_++;
-        }
-        for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-          const float diff = profile[i] - ring_[ring_base + i];
-          const float value = diff * diff;
-          if (full) {
-            motion_energy_[i] -= motion_energy_ring_[motion_base + i];
-          }
-          motion_energy_ring_[motion_base + i] = value;
-          motion_energy_[i] += value;
-          ring_[ring_base + i] = profile[i];
-        }
-        lag_distance_count_ = std::min<uint16_t>(
-            capacity_, static_cast<uint16_t>(lag_distance_count_ + 1U));
-        motion_energy_slot_++;
-        if (motion_energy_slot_ >= capacity_) {
-          motion_energy_slot_ = 0U;
-        }
-      } else {
-        for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-          ring_[ring_base + i] = profile[i];
-        }
-      }
-      ring_filled_[slot] = true;
-      ring_index_++;
-      if (ring_index_ >= lag_) {
-        ring_index_ = 0U;
-      }
-    }
-
-    if (track_frequency_ && complex_values != nullptr) {
-      static_assert(FREQUENCY_COHERENCE_OFFSETS[0] == 4U &&
-                        FREQUENCY_COHERENCE_OFFSETS[1] == 12U,
-                    "short and long coherence are read by index below");
-      float coherences[FREQUENCY_COHERENCE_COUNT]{};
-      frequency_coherences(complex_values, coherences);
-      const float short_coherence = coherences[0];
-      const float long_coherence = coherences[1];
-      const float coherence_sum = short_coherence + long_coherence;
-      const float curve_contrast =
-          coherence_sum > 0.0f
-              ? (short_coherence - long_coherence) / coherence_sum
-              : 0.0f;
-      push_frequency_curve_(curve_contrast);
-    }
-  }
-  // A tracker configured with no capacity is never fed, so it holds no ring.
-  size_t lag_profile_size_() const {
-    return capacity_ == 0U || !track_shape_ ? 0U
-                           : static_cast<size_t>(lag_) * HT20_LIVE_BAND_SIZE;
-  }
-
-  void push_frequency_curve_(float value) {
+  void push_(float value) {
     if (frequency_curve_ring_.empty()) {
         return;
     }
@@ -630,21 +537,7 @@ class ChannelShapeTracker {
   }
 
   uint16_t capacity_{0U};
-  uint16_t lag_{1U};
-  bool track_frequency_{true};
-  bool track_shape_{true};
-  uint16_t ring_index_{0U};
-  // Sized to the configured lag rather than L1_DELTA_LAG_MAX: the ceiling is
-  // 32 while the 100 ms contract resolves to 10 packets at the nominal rate,
-  // so a static array would leave two thirds of 32 x 56 floats unused.
-  std::vector<float> ring_{};
-  std::array<bool, L1_DELTA_LAG_MAX> ring_filled_{};
-  std::array<float, HT20_LIVE_BAND_SIZE> motion_energy_{};
   std::vector<float> frequency_curve_ring_{};
-  std::vector<float> motion_energy_ring_{};
-  uint16_t lag_distance_count_{0U};
-  uint16_t motion_energy_slot_{0U};
-  uint16_t motion_energy_count_{0U};
   uint16_t frequency_curve_slot_{0U};
   uint16_t frequency_curve_count_{0U};
   double frequency_curve_sum_{0.0};

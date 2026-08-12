@@ -38,10 +38,10 @@ enum MLFeatureId : uint8_t {
     ML_FEAT_TURB_AUTOCORR = 6,
     ML_FEAT_TURB_ZCR = 14,
     ML_FEAT_L1_DELTA_LAG_RATIO = 25,
-    ML_FEAT_CHAN_SHAPE_SPREAD = 40,
     ML_FEAT_TURB_IQR_OVER_MEAN_AGGR = 45,
     ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY = 46,
     ML_FEAT_CHAN_SHAPE_EXCESS_PATH = 47,
+    ML_FEAT_CHAN_SHAPE_SPREAD_SUBBAND = 48,
 };
 
 // Where a feature's value comes from. Ids carry no ordering: a new turbulence
@@ -51,7 +51,6 @@ enum class MLFeatureSource : uint8_t {
     TURBULENCE_SERIES,
     AGGREGATED_TURBULENCE_SERIES,
     L1_TRACKER,
-    CHANNEL_SHAPE_TRACKER,
     CHANNEL_SHAPE_TRAJECTORY_TRACKER,
 };
 
@@ -64,10 +63,9 @@ inline MLFeatureSource ml_feature_source(MLFeatureId id) {
             return MLFeatureSource::AGGREGATED_TURBULENCE_SERIES;
         case ML_FEAT_L1_DELTA_LAG_RATIO:
             return MLFeatureSource::L1_TRACKER;
-        case ML_FEAT_CHAN_SHAPE_SPREAD:
-            return MLFeatureSource::CHANNEL_SHAPE_TRACKER;
         case ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY:
         case ML_FEAT_CHAN_SHAPE_EXCESS_PATH:
+        case ML_FEAT_CHAN_SHAPE_SPREAD_SUBBAND:
             return MLFeatureSource::CHANNEL_SHAPE_TRAJECTORY_TRACKER;
     }
     // No default label above, so -Wswitch reports a new enumerator here
@@ -82,15 +80,6 @@ inline bool ml_feature_needs_l1_tracker(uint8_t id) {
     const MLFeatureSource source =
         ml_feature_source(static_cast<MLFeatureId>(id));
     return source == MLFeatureSource::L1_TRACKER;
-}
-
-inline bool ml_feature_needs_channel_shape_tracker(uint8_t id) {
-    return ml_feature_source(static_cast<MLFeatureId>(id)) ==
-           MLFeatureSource::CHANNEL_SHAPE_TRACKER;
-}
-
-inline bool ml_feature_needs_channel_shape_spread_tracker(uint8_t id) {
-    return id == ML_FEAT_CHAN_SHAPE_SPREAD;
 }
 
 inline bool ml_feature_needs_channel_shape_trajectory_tracker(uint8_t id) {
@@ -275,7 +264,7 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
  *        no-motion value of the ratio is 1.0, so a forgotten argument would
  *        read as a plausible measurement rather than as an error. The Python
  *        extractor raises for the same reason; here the compiler does it.
- * @param chan_shape_spread Current channel-shape spread metric.
+ * @param chan_shape_spread_subband Current physical-time subband spread.
  * @param chan_shape_coherent_innovation_energy Current coherent innovation
  *        energy from the channel-shape trajectory tracker.
  * @param chan_shape_excess_path Current channel-shape excess-path metric.
@@ -284,7 +273,7 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
 inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
                                          const MLSeriesStats& aggregated_turb,
                                          float l1_delta_lag_ratio,
-                                         float chan_shape_spread,
+                                         float chan_shape_spread_subband,
                                          float chan_shape_coherent_innovation_energy,
                                          float chan_shape_excess_path) {
     switch (id) {
@@ -293,7 +282,8 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
             return aggregated_turb.iqr / aggregated_turb.mean_denom;
         case ML_FEAT_TURB_ZCR: return turb.zcr;
         case ML_FEAT_L1_DELTA_LAG_RATIO: return l1_delta_lag_ratio;
-        case ML_FEAT_CHAN_SHAPE_SPREAD: return chan_shape_spread;
+        case ML_FEAT_CHAN_SHAPE_SPREAD_SUBBAND:
+            return chan_shape_spread_subband;
         case ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY:
             return chan_shape_coherent_innovation_energy;
         case ML_FEAT_CHAN_SHAPE_EXCESS_PATH: return chan_shape_excess_path;
@@ -308,7 +298,7 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
                                       float* features_out,
                                       const MLSeriesScratch& series_scratch,
                                       float l1_delta_lag_ratio,
-                                      float chan_shape_spread,
+                                      float chan_shape_spread_subband,
                                       float chan_shape_coherent_innovation_energy,
                                       float chan_shape_excess_path) {
     // The aggregated chronological view may alias `series_scratch`; consume it
@@ -331,7 +321,7 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
     for (uint8_t i = 0; i < num_features; i++) {
         features_out[i] = ml_feature_value_from_stats(
             feature_ids[i], turb, aggregated_turb,
-            l1_delta_lag_ratio, chan_shape_spread,
+            l1_delta_lag_ratio, chan_shape_spread_subband,
             chan_shape_coherent_innovation_energy, chan_shape_excess_path);
     }
 }

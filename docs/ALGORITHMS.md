@@ -53,7 +53,7 @@ CSI packet
        -> CV turbulence (std / mean)
        -> optional Hampel / low-pass filtering
   -> 56-bin live complex profile
-       -> coherence and channel-shape trackers
+       -> Classic frequency coherence or ML L1 and trajectory trackers
   -> detector-specific metric or feature extraction
   -> thresholded motion state
 ```
@@ -73,10 +73,10 @@ The deployed detector uses a time-relative evaluation cadence and fixed feature 
 | --- | --- | --- |
 | detector window | `1000 ms` | 100 samples |
 | evaluation interval | `250 ms` | time-based, not packet-count driven |
-| channel-shape tracker lag | 10 packets | `100 ms` |
+| ML L1 profile-displacement lag | 10 packets | `100 ms` |
 | turbulence autocorrelation lag | 1 packet | `10 ms` |
 
-The runtime resolves the window duration from the measured clean CSI cadence, while v3 keeps `lag = 10` packets for the shape trackers and `autocorr_lag = 1`. Changing those feature offsets requires a Classic refit plus the normal ML validation workflow. The supported floor is `80 pps`; below it, detection stays on hold until packet supply recovers. See the [detector-timing ADR](adr/2026-08-10-configure-detector-windows-in-milliseconds.md) for the physical-time window evidence and the fixed-offset decision.
+The runtime resolves the window duration from the measured clean CSI cadence, while v3 keeps the ML L1 lag at 10 packets and Classic's `autocorr_lag` at 1. Changing either feature offset requires the owning detector's normal training or refit validation. The supported floor is `80 pps`; below it, detection stays on hold until packet supply recovers. See the [detector-timing ADR](adr/2026-08-10-configure-detector-windows-in-milliseconds.md) for the physical-time window evidence and the fixed-offset decision.
 
 Calibration and steady-state detection share one cadence, so the interceptor that consumes packets during calibration evaluates on the same schedule the detection path does.
 
@@ -206,7 +206,7 @@ and reports the temporal standard deviation over the live window:
 chan_freq_coh_curve_std = std_t(curve_t)
 ```
 
-Normalized coherence cancels common packet gain, and the short-versus-long contrast keeps the result dimensionless and bounded. The runtime reuses the frequency-curve-only mode of the shared `ChannelShapeTracker`, so Python and C++ evaluate the same per-packet contrast and the same window statistic without allocating or updating the lagged channel-profile and motion-energy history required by `chan_shape_spread`. At the default 100 packets per second, this removes 5,600 float slots, or 22,400 bytes of dynamic float storage, from Classic while preserving the 90-float coherence-curve ring.
+Normalized coherence cancels common packet gain, and the short-versus-long contrast keeps the result dimensionless and bounded. The runtime uses a dedicated frequency-only tracker, so Python and C++ evaluate the same per-packet contrast and the same window statistic without exposing or allocating the retired full-band shape-spread path. At the default 100 packets per second, Classic preserves only the 90-float coherence-curve ring.
 
 ### Weighted Fusion
 
@@ -298,13 +298,13 @@ The production model consumes these seven scale-invariant inputs, in export orde
 2. `turb_autocorr`
 3. `turb_zcr`
 4. `l1_delta_lag_ratio`
-5. `chan_shape_spread`
+5. `chan_shape_spread_subband`
 6. `chan_shape_coherent_innovation_energy`
 7. `chan_shape_excess_path`
 
 Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in [FEATURES.md](FEATURES.md).
 
-The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists only when the exported ML feature ids request it. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series, so the amplitude path is not silently changed for those features or for Classic. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. `chan_shape_spread` comes from the normalized channel-shape tracker. The final two inputs reduce the live band to eight gain-normalized Hellinger subbands, take component-wise medians in physical `80 ms` bins over a one-second path, discard exact consecutive CSI duplicates, and leave missing bins absent. Coherent innovation measures positive low-order DCT energy after a constant-velocity prediction and high-order noise subtraction; excess path measures positive two-step path length beyond its chord after the analogous high-order subtraction. Finalized bins retain their orthonormal DCT coefficients instead of their profiles, while the changing current bin is transformed once per extraction. DCT linearity preserves the constant-velocity residual, and Parseval's identity preserves the full-profile L2 distances used by excess path, so this representation changes storage and repeated computation without changing either feature definition. The runtime feeds their tracker the packet arrival timestamp, so packet-rate changes and loss do not redefine their temporal scale. The production ML export no longer requests L1-delta autocorrelation or frequency-coherence curve standard deviation; Classic continues to own and use the latter independently.
+The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists only when the exported ML feature ids request it. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series, so the amplitude path is not silently changed for those features or for Classic. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. The final three inputs share one physical-time trajectory tracker: it reduces the live band to eight gain-normalized Hellinger subbands, takes component-wise medians in `80 ms` bins over a one-second path, discards exact consecutive CSI duplicates, and leaves missing bins absent. Subband spread is the participation ratio of motion energy accumulated from adjacent profile differences; coherent innovation measures positive low-order DCT energy after a constant-velocity prediction and high-order noise subtraction; and excess path measures positive two-step path length beyond its chord after the analogous high-order subtraction. Finalized bins retain their orthonormal DCT coefficients instead of their profiles, while the changing current bin is transformed once per extraction. Innovation and excess path remain in mode space because DCT linearity and Parseval's identity preserve their geometry. Subband spread reconstructs only each adjacent eight-component profile difference through the inverse DCT because its per-subband participation ratio is basis-dependent. The runtime feeds the shared tracker the packet arrival timestamp, so packet-rate changes and loss do not redefine the temporal scale. The exported ML model no longer requests the full-band shape-spread tracker, L1-delta autocorrelation, or frequency-coherence curve standard deviation; Classic continues to own and use the latter independently.
 
 ### Inference Flow
 

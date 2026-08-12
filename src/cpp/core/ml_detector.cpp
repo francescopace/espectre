@@ -118,7 +118,6 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     : BaseDetector(window_size)
     , threshold_(threshold)
     , uses_l1_tracker_(false)
-    , uses_shape_tracker_(false)
     , uses_shape_trajectory_tracker_(false)
     , uses_aggregated_turbulence_(false)
     , lag_(std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX))
@@ -127,18 +126,11 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     , aggregated_turbulence_index_(0U)
     , aggregated_turbulence_count_(0U) {
     threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
-    bool uses_shape_spread_tracker = false;
-
     // Maintain the L1-delta rings only when the exported model needs them, and
     // reserve the rebuilt series only for the features that read it.
     for (uint8_t i = 0; i < ML_MODEL_INPUT_SIZE; i++) {
         const uint8_t id = ML_FEATURE_IDS[i];
         uses_l1_tracker_ = uses_l1_tracker_ || ml_feature_needs_l1_tracker(id);
-        uses_shape_tracker_ =
-            uses_shape_tracker_ || ml_feature_needs_channel_shape_tracker(id);
-        uses_shape_spread_tracker =
-            uses_shape_spread_tracker ||
-            ml_feature_needs_channel_shape_spread_tracker(id);
         uses_shape_trajectory_tracker_ =
             uses_shape_trajectory_tracker_ ||
             ml_feature_needs_channel_shape_trajectory_tracker(id);
@@ -167,14 +159,10 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
         &aggregated_lowpass_state_, LOWPASS_CUTOFF_DEFAULT,
         LOWPASS_SAMPLE_RATE, false);
     l1_tracker_.configure(uses_l1_tracker_ ? l1_delta_capacity_() : 0U, lag_);
-    shape_tracker_.configure(
-        uses_shape_tracker_ ? l1_delta_capacity_() : 0U,
-        lag_, false, uses_shape_spread_tracker);
     shape_trajectory_tracker_.configure(uses_shape_trajectory_tracker_);
     ESP_LOGI(TAG,
-             "Initialized (window=%d, threshold=%.2f, l1=%d, shape=%d, trajectory=%d, aggr=%d)",
+             "Initialized (window=%d, threshold=%.2f, l1=%d, trajectory=%d, aggr=%d)",
              window_size_, threshold_, uses_l1_tracker_ ? 1 : 0,
-             uses_shape_tracker_ ? 1 : 0,
              uses_shape_trajectory_tracker_ ? 1 : 0,
              uses_aggregated_turbulence_ ? 1 : 0);
 }
@@ -188,12 +176,10 @@ MLDetector::MLDetector(MLDetector&& other) noexcept
     : BaseDetector(std::move(other))
     , threshold_(other.threshold_)
     , uses_l1_tracker_(other.uses_l1_tracker_)
-    , uses_shape_tracker_(other.uses_shape_tracker_)
     , uses_shape_trajectory_tracker_(other.uses_shape_trajectory_tracker_)
     , uses_aggregated_turbulence_(other.uses_aggregated_turbulence_)
     , lag_(other.lag_)
     , l1_tracker_(std::move(other.l1_tracker_))
-    , shape_tracker_(std::move(other.shape_tracker_))
     , shape_trajectory_tracker_(std::move(other.shape_trajectory_tracker_))
     , feature_scratch_(other.feature_scratch_)
     , aggregated_turbulence_buffer_(other.aggregated_turbulence_buffer_)
@@ -210,12 +196,10 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
         BaseDetector::operator=(std::move(other));
         threshold_ = other.threshold_;
         uses_l1_tracker_ = other.uses_l1_tracker_;
-        uses_shape_tracker_ = other.uses_shape_tracker_;
         uses_shape_trajectory_tracker_ = other.uses_shape_trajectory_tracker_;
         uses_aggregated_turbulence_ = other.uses_aggregated_turbulence_;
         lag_ = other.lag_;
         l1_tracker_ = std::move(other.l1_tracker_);
-        shape_tracker_ = std::move(other.shape_tracker_);
         shape_trajectory_tracker_ = std::move(other.shape_trajectory_tracker_);
         delete[] feature_scratch_;
         feature_scratch_ = other.feature_scratch_;
@@ -309,9 +293,10 @@ void MLDetector::extract_features(float* features_out) {
 
     float trajectory_innovation = 0.0f;
     float trajectory_excess = 0.0f;
+    float trajectory_spread = 0.0f;
     if (uses_shape_trajectory_tracker_) {
         shape_trajectory_tracker_.trajectory_features(
-            trajectory_innovation, trajectory_excess);
+            trajectory_innovation, trajectory_excess, trajectory_spread);
     }
 
     extract_ml_features_by_id(turb_series, turb_count,
@@ -319,7 +304,7 @@ void MLDetector::extract_features(float* features_out) {
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features_out,
                               series_scratch_(),
                               l1_tracker_.delta_lag_ratio(),
-                              shape_tracker_.shape_spread(),
+                              trajectory_spread,
                               trajectory_innovation,
                               trajectory_excess);
 }
@@ -345,7 +330,6 @@ bool MLDetector::is_ready() const {
     // ungated ML would infer on a partly filled ring whose lag ratio returns its
     // no-motion sentinel rather than signalling "not ready".
     return (!uses_l1_tracker_ || l1_tracker_.count() >= l1_delta_capacity_()) &&
-           (!uses_shape_tracker_ || shape_tracker_.count() >= l1_delta_capacity_()) &&
            (!uses_aggregated_turbulence_ ||
             aggregated_turbulence_count_ >= window_size_);
 }
@@ -401,31 +385,14 @@ void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
     }
 
     if (!uses_l1_tracker_) {
-        if (uses_shape_tracker_) {
-            if (shape_tracker_.tracks_frequency()) {
-                shape_tracker_.process_packet(csi_data, csi_len);
-            } else {
-                shape_tracker_.process_subcarrier_amplitudes(
-                    packet_values, packet_value_count);
-            }
-        }
         return;
     }
     l1_tracker_.process(amplitudes, amplitude_count);
-    if (uses_shape_tracker_) {
-        if (shape_tracker_.tracks_frequency()) {
-            shape_tracker_.process_packet(csi_data, csi_len);
-        } else {
-            shape_tracker_.process_subcarrier_amplitudes(
-                packet_values, packet_value_count);
-        }
-    }
 }
 
 void MLDetector::clear_buffer() {
     BaseDetector::clear_buffer();
     l1_tracker_.clear();
-    shape_tracker_.clear();
     shape_trajectory_tracker_.clear();
     if (aggregated_turbulence_buffer_ != nullptr) {
         std::fill(

@@ -27,7 +27,6 @@ Completed implementation, detector experiments, and dated reviews live in [CHANG
 
 **Exit criteria**:
 
-- [ ] Quantify detection gains since v2.8.0 with a fair head-to-head on the current dataset using the v2.8 model features and the base detector
 - [ ] Capture a current Home Assistant visualization for the project overview and docs
 - [ ] Close the remaining documentation, security, and first-party code reviews
 - [ ] Re-enable the `CLA Signature Check` as required on `develop`, and test the GitHub issue and pull request templates end to end

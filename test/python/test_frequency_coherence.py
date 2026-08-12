@@ -19,7 +19,7 @@ from ml_feature_trackers import (
     FREQUENCY_COHERENCE_OFFSETS,
     HT20_LIVE_BINS,
     HT20_LIVE_WIDTH,
-    ChannelShapeTracker,
+    FrequencyCoherenceTracker,
     complex_profile,
     frequency_coherence,
     frequency_coherences,
@@ -264,7 +264,7 @@ def test_tracker_curve_features_follow_the_reference_coherences() -> None:
     packets = 24
     # A window wider than the run keeps every packet in the ring, so the
     # expected statistics below cover exactly the packets that were fed.
-    tracker = ChannelShapeTracker(window_size=packets * 2, lag=3)
+    tracker = FrequencyCoherenceTracker(window_size=packets * 2)
     expected_curve = []
 
     for _ in range(packets):
@@ -350,15 +350,9 @@ def test_host_three_offset_curve_candidates_follow_their_definitions() -> None:
     ) == pytest.approx(float(np.std(mid_long_curves)))
 
 
-def test_curve_only_trackers_match_full_trackers_without_shape_history() -> None:
+def test_runtime_frequency_tracker_matches_host_curve_only_tracker() -> None:
     rng = random.Random(1977)
-    runtime_full = ChannelShapeTracker(window_size=32, lag=3)
-    runtime_curve = ChannelShapeTracker(
-        window_size=32,
-        lag=3,
-        track_shape=False,
-    )
-    host_full = host.ChannelShapeTracker(window_size=32, lag=3)
+    runtime_curve = FrequencyCoherenceTracker(window_size=32)
     host_curve = host.ChannelShapeTracker(
         window_size=32,
         lag=3,
@@ -367,20 +361,12 @@ def test_curve_only_trackers_match_full_trackers_without_shape_history() -> None
 
     for _ in range(40):
         csi_data = [rng.randrange(-128, 128) for _ in range(128)]
-        runtime_full.process_packet(csi_data)
         runtime_curve.process_packet(csi_data)
-        host_full.process_packet(csi_data)
         host_curve.process_packet(csi_data)
 
     assert runtime_curve.frequency_coherence_curve_std() == pytest.approx(
-        runtime_full.frequency_coherence_curve_std(), abs=1e-12
+        host_curve.frequency_coherence_curve_std(), abs=1e-12
     )
-    assert host_curve.frequency_coherence_curve_std() == pytest.approx(
-        host_full.frequency_coherence_curve_std(), abs=1e-12
-    )
-    assert runtime_curve._ring == []
-    assert runtime_curve._motion_energy_ring == []
-    assert runtime_curve._complex_profile is None
     assert host_curve._ring == []
     assert host_curve._motion_energy_ring.size == 0
 
@@ -430,6 +416,7 @@ def test_subband_shape_spread_reuses_trajectory_profiles() -> None:
         window_duration_us=1_000_000,
         bin_us=80_000,
     )
+    profiles = []
     for step in range(14):
         packet = [0] * 128
         for subcarrier in range(64):
@@ -437,7 +424,20 @@ def test_subband_shape_spread_reuses_trajectory_profiles() -> None:
                 8 + (subcarrier * 3 + step * (subcarrier % 9)) % 70
             )
         tracker.process_packet(packet, step * 80_000)
+        profiles.append(
+            host.hellinger_subband_profile(
+                host.complex_profile(np.asarray(packet, dtype=np.int8))
+            )
+        )
 
-    assert tracker.shape_spread_subband() > 0.0
+    retained = profiles[-tracker._window_bins:]
+    energy = np.zeros(host.CHANNEL_SHAPE_SUBBAND_COUNT, dtype=np.float64)
+    for previous, current in zip(retained, retained[1:]):
+        delta = current - previous
+        energy += delta * delta
+    expected = host.motion_participation(energy)
+
+    assert expected > 0.0
+    assert tracker.shape_spread_subband() == pytest.approx(expected, abs=1e-12)
     tracker.reset()
     assert tracker.shape_spread_subband() == 0.0

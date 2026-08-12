@@ -129,7 +129,7 @@ class ClassicDetector : public BaseDetector {
   float get_logit() const { return current_logit_; }
 
  private:
-  uint16_t shape_tracker_capacity_() const;
+  uint16_t frequency_tracker_capacity_() const;
   float calculate_turb_autocorr_() const;
   float calculate_logit_(float turb_autocorr,
                          float chan_freq_coh_curve_std) const;
@@ -155,7 +155,7 @@ class ClassicDetector : public BaseDetector {
   uint8_t settle_block_evaluations_;
   uint8_t settle_block_count_;
   uint8_t settle_block_index_;
-  ChannelShapeTracker shape_tracker_;
+  FrequencyCoherenceTracker frequency_tracker_;
 };
 
 }  // namespace espectre

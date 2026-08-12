@@ -443,31 +443,28 @@ def _needs_l1_series(feature_names):
 
 def _production_tracker_feature_kwargs(
     feature_names,
-    coherence_tracker,
-    shape_tracker,
     shape_trajectory_tracker=None,
 ):
     """Return preprocessed production-only tracker values for extraction."""
     kwargs = {}
-    if shape_tracker is not None:
-        if 'chan_shape_spread' in feature_names:
-            kwargs['chan_shape_spread'] = shape_tracker.shape_spread()
     if shape_trajectory_tracker is not None:
+        innovation, excess, spread = (
+            shape_trajectory_tracker.trajectory_features_with_spread()
+        )
+        if 'chan_shape_spread_subband' in feature_names:
+            kwargs['chan_shape_spread_subband'] = spread
         if 'chan_shape_coherent_innovation_energy' in feature_names:
-            kwargs['chan_shape_coherent_innovation_energy'] = (
-                shape_trajectory_tracker.coherent_innovation_energy()
-            )
+            kwargs['chan_shape_coherent_innovation_energy'] = innovation
         if 'chan_shape_excess_path' in feature_names:
-            kwargs['chan_shape_excess_path'] = (
-                shape_trajectory_tracker.excess_path()
-            )
+            kwargs['chan_shape_excess_path'] = excess
     return kwargs
 
 # ============================================================================
 # Feature Selection
 # ============================================================================
 #
-# Production MLP uses the feature set in src/features.DEFAULT_FEATURES.
+# Production MLP uses the promoted Subband 7F feature set in
+# src/python/micro_espectre/csi_features.py DEFAULT_FEATURES.
 # See ALGORITHMS.md "Feature Importance" for SHAP/correlation rankings.
 # ============================================================================
 
@@ -4041,10 +4038,10 @@ CPP_FEATURE_IDS = {
     'turb_autocorr': 6,
     'turb_zcr': 14,
     'l1_delta_lag_ratio': 25,
-    'chan_shape_spread': 40,
     'turb_iqr_over_mean_aggr': 45,
     'chan_shape_coherent_innovation_energy': 46,
     'chan_shape_excess_path': 47,
+    'chan_shape_spread_subband': 48,
 }
 def resolve_cpp_feature_ids(feature_names):
     """Map feature names to their published C++ extractor ids."""
@@ -5565,8 +5562,6 @@ class StreamingFeatureExtractor:
             ),
             **_production_tracker_feature_kwargs(
                 self.production_names,
-                self.coherence_tracker,
-                self.shape_tracker,
                 self.shape_trajectory_tracker,
             ),
         )
@@ -8310,7 +8305,7 @@ def main():
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
     parser.add_argument('--features', type=str, default=None, metavar='NAME1,NAME2,...',
                        help='Comma-separated feature set for training/evaluation '
-                            'experiments (default: production baseline). Host-side '
+                            'experiments (default: promoted Subband 7F production set). Host-side '
                             'candidates from tools/lib/candidate_features.py are '
                             'selectable too; they have no C++ extractor id, so they '
                             'require --no-export or an evaluation-only flow until '
@@ -8372,7 +8367,7 @@ def main():
         print("Error: --timing-warn-weight must be in the range (0.0, 1.0]")
         return 1
     set_active_torch_device(args.device)
-    selected_training_features = list(DEFAULT_FEATURES)
+    selected_training_features = list(TRAINING_FEATURES)
     if args.features is not None:
         selected_training_features = [
             name.strip() for name in args.features.split(',') if name.strip()

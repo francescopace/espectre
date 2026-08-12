@@ -10,7 +10,10 @@ sys.path.insert(0, 'src/python/micro_espectre')
 from csi_features import ALL_FEATURES, DEFAULT_FEATURES
 from tools import train_ml_model
 from tools.lib.candidate_features import CANDIDATE_FEATURES, candidate_values
-from tools.lib.host_feature_trackers import AmplitudeProfileTracker
+from tools.lib.host_feature_trackers import (
+    AmplitudeProfileTracker,
+    ChannelShapeTracker,
+)
 
 
 RESTORED_CANDIDATES = {
@@ -36,10 +39,10 @@ RESTORED_CANDIDATES = {
     'turb_iqr_over_mean_aggr_detrended',
     'turb_iqr_over_mean_aggr_tone_detrended',
     'chan_shape_lag_ratio',
+    'chan_shape_spread',
     'chan_shape_spread_ds2',
     'chan_shape_spread_ema_fast',
     'chan_shape_spread_ema_slow',
-    'chan_shape_spread_subband',
     'chan_rank_gap',
     'chan_ratio_gap',
     'chan_shape_scale_curvature',
@@ -56,7 +59,7 @@ def test_restored_candidates_stay_out_of_the_runtime_surface() -> None:
         'turb_autocorr',
         'turb_zcr',
         'l1_delta_lag_ratio',
-        'chan_shape_spread',
+        'chan_shape_spread_subband',
         'chan_shape_coherent_innovation_energy',
         'chan_shape_excess_path',
     ]
@@ -64,6 +67,11 @@ def test_restored_candidates_stay_out_of_the_runtime_surface() -> None:
         train_ml_model.resolve_cpp_feature_ids(['chan_shape_scale_curvature'])
     with pytest.raises(ValueError, match=r'no C\+\+ extractor id'):
         train_ml_model.resolve_cpp_feature_ids(['chan_freq_coh_curve_std'])
+    with pytest.raises(ValueError, match=r'no C\+\+ extractor id'):
+        train_ml_model.resolve_cpp_feature_ids(['chan_shape_spread'])
+    assert train_ml_model.resolve_cpp_feature_ids(
+        ['chan_shape_spread_subband']
+    ) == [48]
 
 
 def test_restored_turbulence_statistics_match_their_definitions() -> None:
@@ -104,6 +112,26 @@ def test_restored_turbulence_statistics_match_their_definitions() -> None:
     assert values['turb_skewness'] == pytest.approx(
         np.mean((series - mean) ** 3) / std**3
     )
+
+
+def test_retired_full_band_spread_remains_evaluable_host_side() -> None:
+    tracker = ChannelShapeTracker(
+        window_size=16,
+        lag=3,
+        feature_names=('chan_shape_spread',),
+    )
+    for step in range(24):
+        packet = [
+            ((index * 5 + step * (index % 7)) % 61) - 30
+            for index in range(128)
+        ]
+        tracker.process_packet(packet)
+
+    values = candidate_values(
+        ['chan_shape_spread'],
+        shape_tracker=tracker,
+    )
+    assert values['chan_shape_spread'] > 0.0
 
 
 def test_retired_l1_autocorrelation_remains_host_evaluable() -> None:

@@ -79,7 +79,7 @@ def test_missing_bins_are_not_interpolated() -> None:
             timestamp_us,
         )
 
-    assert len(tracker._profile_path()) == len(path)
+    assert len(tracker._binned_path()) == len(path)
 
 
 def test_curved_low_order_path_exceeds_a_slow_one_direction_path() -> None:
