@@ -3,60 +3,58 @@
 - Status: Accepted
 - Date: 2026-03-08
 - Recorded: 2026-07-09 (retrospective)
-- Updated: 2026-07-17
+- Updated: 2026-08-12
 
 ## Context
 
-As the project added multiple detectors, multi-chip support, and a larger ML program, release notes and experiments show a clear shift away from informal single-metric wins toward stricter host-side promotion criteria.
+Single aggregate metrics and grouped CV can hide deployment-facing failures. ESPectre needs one promotion policy that covers paired motion evidence, empty rooms, weak links, packet-rate variation, long recordings, generated artifacts, and Python/C++ parity without making every exploratory training run execute the complete release suite.
 
-The `2.6.0` changelog explicitly tightened the quality bar for motion validation, aligning Python and C++ targets around `Recall >95%` and `FP <5%`. Historical sweeps then used paired sets plus long-quiet recordings as a deploy-like ranking signal. That kept CV-only wins from promoting noisy baselines, but it also made every train and seed-search pass pay the long-recording cost and blocked otherwise useful paired improvements when quiet long FP moved.
-
-On 2026-07-17 the trainer stopped using long recordings as a promotion gate so iteration stays fast and long-run quality stays in the performance report and dedicated pytest suites.
+Static-presence captures are also not false-positive ground truth: a present person can produce real micro-motion. Empty-room recordings are the strict no-motion domain for alarm gates.
 
 ## Decision
 
-Use host-side validation gates as the promotion rule for detector and feature set changes.
+Use layered host-side validation for detector, feature, and model promotion:
 
-Concretely:
+1. Use grouped CV and selection-role replays to compare candidates without opening the sealed holdout.
+2. Require per-recording paired and quiet safety gates before promotion; do not rely on chip averages alone.
+3. Treat empty-room recordings as the strict false-positive and zero-alarm ground truth. Static-presence captures may use an explicit bounded alarm budget.
+4. Keep real low-RSSI recordings visible under their documented stress policy rather than hiding them in aggregate metrics.
+5. Validate packet-rate behavior, long recordings, generated artifacts, and Python/C++ parity on the selected candidate and for published performance.
+6. Keep experiment commands non-destructive by default and require an explicit artifact-promotion step.
 
-- evaluate ML candidates with shared host-side paired validation
-- require cross-stack evidence for published detector quality, not only isolated model wins
-- treat paired pass count, max FP, worst-chip recall, and worst-chip F1 as the trainer promotion gate and primary ranking signal
-- treat grouped CV as diagnostic evidence and a final tie-breaker, not as an early rejection rule for ML candidates
-- evaluate curated long recordings in `generate_performance_report` and `test_validation_long_recordings.py`, not inside `train_ml_model` promotion
-- require explicit artifact promotion after evaluation; experiment campaigns remain non-destructive by default and compare finalists across multiple seeds
+Trainer ranking may use the narrow selection gates for iteration speed. Passing trainer selection does not replace the broader parity, performance, and generated-artifact gates required for production.
+
+## Decision History
+
+| Date | Direction | Resolution |
+| --- | --- | --- |
+| 2026-03-08 | Align detector promotion around host-side real-data gates | Accepted |
+| 2026-07-17 | Run long-recording gates inside every training trial | Moved to final promotion and published-performance validation |
+| 2026-07-25 | Treat static-presence baselines as strict false-positive truth | Replaced with empty-room zero-alarm gates and an explicit static-presence budget |
 
 ## Alternatives Considered
 
-### Promote candidates based mainly on grouped CV or one benchmark family
+### Promote from grouped CV or one benchmark family
 
-Rejected. Later experiments showed that CV-only wins can hide deployment-facing false-positive regressions on paired captures.
+Rejected. Aggregate wins can hide per-recording false positives, weak-link collapse, or runtime filtering failures.
 
-### Keep long-quiet recordings inside trainer promotion
+### Run the complete release suite for every seed
 
-Rejected for the current workflow. Long gates remain valuable for published performance evidence, but blocking every training and seed-search trial on them made training slow and over-constrained relative to the paired gate.
+Rejected. It makes exploration unnecessarily slow; the complete suite belongs at finalist promotion and release validation.
 
-### Let each runtime or frontend keep its own promotion standard
+### Let each runtime define its own gate
 
-Rejected. The project benefits from one shared quality bar across Python and shared C++ paths.
+Rejected. Detector behavior is a shared Python/C++ contract.
 
 ## Consequences
 
-Benefits:
-
-- trainer promotion stays tied to paired real-data evidence without paying the long-recording cost on every trial
-- Python and C++ validation stay aligned around shared acceptance suites
-- the project can preserve historical experiments without promoting noisy wins
-
-Trade-offs:
-
-- a promoted ML artifact can still regress on quiet long recordings until the performance report or long-recording pytest suite catches it
-- long-recording policy metrics are no longer the first-rank signal inside seed search and architecture campaigns
+- Candidate search stays practical while production promotion remains evidence-based.
+- Empty-room, weak-link, timing, long-recording, and parity failures remain independently visible.
+- A passing exploratory result cannot be described as production-ready until the broader gates run.
 
 ## Related
 
+- [`2026-07-23-separate-ml-training-data-from-promotion-replays.md`](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
+- [`2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md`](2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md)
+- [`2026-08-11-promote-channel-shape-trajectory-ml-features.md`](2026-08-11-promote-channel-shape-trajectory-ml-features.md)
 - versioned changelog snapshot: `2.6.0:CHANGELOG.md`
-- `docs/adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md`
-- `docs/adr/2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`
-- `docs/adr/2026-07-17-separate-dataset-admission-from-classic-diagnostics.md`
-- git commits: `3719e695`, `2217271d`

@@ -2,75 +2,69 @@
 
 - Status: Accepted
 - Date: 2026-07-23
+- Updated: 2026-08-12
 
 ## Context
 
-ESPectre already treated HT20 as the intended production sensing baseline, but that contract was still enforced indirectly in multiple places:
-
-- firmware capture normalized payloads from byte length before making an explicit format decision
-- detector paths assumed the normalized payload was already a valid HT20 64-subcarrier view
-- host loaders filtered mostly on `phy_mode=ht` and `channel_width=20`, without requiring `ltf_type=ht-ltf` or an approved stored layout
-- historical datasets without PHY metadata were treated broadly as HT20, even when the stored layout itself did not prove that contract
-
-That left an ambiguity gap between "payload that can be parsed" and "payload that is valid production sensing input". The same gap also made future raw collection work harder to reason about, because unsupported formats could be normalized or admitted too early.
+Parsing a CSI payload does not prove that it is valid detector input. Firmware and host tooling previously inferred too much from byte length, while band selection was initially forced to 2.4 GHz even on dual-band targets. The production contract must define PHY admission, layout normalization, and selected Wi-Fi band independently.
 
 ## Decision
 
 Adopt one explicit classifier-first sensing contract:
 
-- production sensing accepts only HT20 + HT-LTF + 64-subcarrier CSI
-- every packet or dataset row is classified before normalization
-- normalization is allowed only for known HT20 layouts that map into the same production grid
-- unsupported or ambiguous formats are dropped from sensing with explicit reason telemetry
-- host training and validation fail explicitly when format filtering removes all valid sensing data
-- historical captures without per-record PHY metadata remain compatible only when the stored payload already matches the HT20 64-subcarrier sensing layout
+- production sensing accepts only HT20, HT-LTF, and a recognized layout that maps to the internal 64-subcarrier HT20 grid;
+- classify every packet or dataset row before normalization;
+- normalize only named HT20 layouts, including exact 64-subcarrier payloads and explicitly supported short or doubled estimates;
+- drop unsupported or ambiguous formats with reason telemetry;
+- require host training and validation to fail explicitly when filtering removes all valid sensing data;
+- preserve historical captures without PHY metadata only when their stored layout itself proves the supported HT20 contract; and
+- let the frontend or SDK integrator select `2g`, `5g`, or `auto`, while enforcing an 802.11n ceiling and HT20 bandwidth on every selected band.
 
-Concretely, the runtime contract becomes:
+The validated default remains 2.4 GHz. The 5 GHz and automatic band modes are available on supported dual-band targets, but their availability does not constitute detector-performance validation on a 5 GHz corpus. VHT20, HE20, HT40, and wider layouts require their own explicit promotion.
 
-1. validate structure
-2. validate PHY, LTF, and width metadata
-3. recognize the payload layout
-4. normalize only when the layout is a named HT20 variant
-5. route either to the detector or to an explicit drop path
+The runtime admission order is:
 
-The accepted normalization set is intentionally narrow:
+1. validate structure;
+2. validate PHY, LTF, and width metadata;
+3. recognize the payload layout;
+4. normalize a named HT20 variant;
+5. route to sensing or an explicit drop path.
 
-- exact HT20 64-subcarrier payload: consume directly
-- HT20 short estimate `57 -> 64`: consume only as a named normalization
-- HT20 doubled estimate `256` or `228`: consume only as a named HT20 normalization, not as a generic "same length implies same format" rule
+## Decision History
 
-This decision does not yet promote raw multi-layout collection into the production sensing path. Unsupported formats may be preserved later in a separate raw collection flow, but they do not enter Classic or ML sensing implicitly.
+| Date | Direction | Resolution |
+| --- | --- | --- |
+| 2026-07-23 | Make HT20 admission classifier-first | Accepted |
+| 2026-08-05 | Force 2.4 GHz on every target | Replaced with explicit integrator-selected band mode while keeping HT20 on all selected bands |
 
 ## Alternatives Considered
 
-### Keep length-first normalization and tighten only host filtering
+### Keep length-first normalization
 
-Rejected. That would leave the firmware hot path able to reinterpret packets before their format was decided, and it would keep runtime and host admission rules divergent.
+Rejected. Structural compatibility is weaker than sensing compatibility and can silently reinterpret unsupported inputs.
 
-### Treat every parseable record as candidate sensing input
+### Accept every parseable PHY or width
 
-Rejected. Structural validity is weaker than sensing compatibility. Allowing partial or ambiguous layouts to flow into detectors or training would create silent behavior changes and make benchmark baselines harder to trust.
+Rejected. The repository lacks validated mappings, corpora, and parity gates for those sensing contracts.
 
-### Expand production sensing to wider or newer PHYs now
+### Force 2.4 GHz on dual-band devices
 
-Rejected. The repository does not yet carry explicit, validated layout mapping, training corpora, and regression gates for HT40, VHT, or HE sensing. Those formats must be promoted individually, not inferred from payload length.
+Rejected. It unnecessarily removes integrator choice. The validation status is documented separately from the supported radio configuration surface.
+
+### Use automatic band selection everywhere
+
+Rejected. Fixed-band deployments need deterministic policy, and integrators must be able to choose the intended band explicitly.
 
 ## Consequences
 
-Benefits:
-
-- the runtime and host toolchain now share one explicit sensing admission rule
-- unsupported formats fail loudly instead of contaminating detector or training inputs
-- telemetry can distinguish unsupported PHY, width, metadata, and layout causes
-- future raw collection work has a clean boundary from the production sensing contract
-
-Trade-offs:
-
-- historical compatibility is narrower than before
-- host tooling now rejects some previously tolerated captures unless they match the exact HT20 contract
-- new PHY support requires explicit per-format implementation work instead of opportunistic reuse of the HT20 path
+- Runtime and host tooling share one sensing admission boundary.
+- Unsupported PHYs fail loudly instead of contaminating detectors or training data.
+- HT20 remains stable while band selection becomes an explicit integration choice.
+- New PHY support requires layout mapping, representative data, detector validation, and Python/C++ parity.
 
 ## Related
 
 - [`2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md`](2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md)
-- [`2026-07-20-keep-the-12-tone-ht20-classic-band.md`](2026-07-20-keep-the-12-tone-ht20-classic-band.md)
+- [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](2026-07-25-select-the-classic-band-from-channel-coherence.md)
+- [`../ALGORITHMS.md`](../ALGORITHMS.md)
+- [`../ARCHITECTURE.md`](../ARCHITECTURE.md)

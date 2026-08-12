@@ -3,13 +3,15 @@
 - Status: Accepted
 - Date: 2025-12-06
 - Recorded: 2026-07-09 (retrospective)
-- Supersedes: 2025-11-01-adopt-standalone-esp-idf-mqtt-firmware-as-the-initial-product-shape.md
+- Updated: 2026-08-12
 
 ## Context
 
 The `2.0.0` release changelog describes a major architectural shift from standalone ESP-IDF firmware to a native ESPHome component. That release did not present ESPHome as a minor packaging tweak; it framed it as the new production-facing integration surface for smart-home users.
 
 This change also clarified the product split: ESPHome/C++ for production motion detection, and Micro-ESPectre/Python for experimentation and research work.
+
+The first product shape was a standalone ESP-IDF firmware controlled through MQTT. That path established on-device CSI sensing and the host tooling, but the 2.0.0 direction moved the primary end-user integration to ESPHome. Later native, Matter, and streamer frontends complement this surface without replacing ESPHome's role for Home Assistant users.
 
 ## Decision
 
@@ -20,6 +22,13 @@ Concretely:
 - ship the main user-facing firmware path as an ESPHome external component
 - map motion detection, thresholds, and diagnostics into ESPHome/Home Assistant entities and workflows
 - treat Home Assistant integration and ESPHome OTA/configuration flows as core parts of the deployment experience
+
+## Decision History
+
+| Date | Direction | Resolution |
+| --- | --- | --- |
+| 2025-11-01 | Ship standalone ESP-IDF firmware with MQTT as the initial product | Established the first deployable product shape |
+| 2025-12-06 | Make ESPHome the primary end-user integration | Accepted while later frontends reuse the shared runtime |
 
 ## Alternatives Considered
 
@@ -47,6 +56,5 @@ Trade-offs:
 ## Related
 
 - versioned changelog snapshot: `2.0.0:CHANGELOG.md`
-- `docs/adr/2025-12-06-adopt-a-dual-platform-development-model.md`
-- `docs/adr/2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`
+- [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
 - git commit: `6bfc035d`

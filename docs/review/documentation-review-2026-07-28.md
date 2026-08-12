@@ -77,7 +77,7 @@ Completed against dataset revision `sha256:ac37984e04d5e95e8249e7272a3ab261b4f63
 
 - [ALGORITHMS.md](../ALGORITHMS.md)
 - [TUNING.md](../TUNING.md)
-- [2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md](../adr/2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md)
+- [2026-08-10-configure-detector-windows-in-milliseconds.md](../adr/2026-08-10-configure-detector-windows-in-milliseconds.md)
 
 **Finding**
 

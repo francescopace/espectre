@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-10
-- Supersedes: 2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md (sample-count window); 2026-07-28-keep-production-feature-lags-at-nominal-offsets.md (sample-count window)
+- Updated: 2026-08-12
 
 ## Context
 
@@ -24,9 +24,17 @@ Replace the public `segmentation_window_size` packet count with `segmentation_wi
 - C++, MicroPython, ESPHome, host replay, offline analysis, validation, and training use the same duration-to-sample conversion; and
 - live and replay inputs require advancing packet timestamps; there is no packet-count timing fallback.
 
-The production feature offsets remain fixed at the fitted packet geometry: the L1 displacement ratio stays `10:1`, and turbulence autocorrelation stays at lag `1`. This ADR supersedes only the sample-count window portion of [2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](2026-07-28-keep-production-feature-lags-at-nominal-offsets.md).
+The production feature offsets remain fixed at the fitted packet geometry: the L1 displacement ratio stays `10:1`, and turbulence autocorrelation stays at lag `1`. Physical-time windows and fixed packet-offset features are deliberate parts of the same timing contract; changing an offset requires a Classic refit, an ML retrain, and the normal promotion gates.
 
 Stable packet-rate augmentation is distinct from loss. It selects packets across a source interval, rewrites sequence counters and device/Wi-Fi timestamps to a clean lower cadence, and lets feature extraction resolve the temporal window from that cadence. Packet loss, burst loss, stutter, drift, and feature jitter remain separate augmentation effects.
+
+## Decision History
+
+| Date | Direction | Resolution |
+| --- | --- | --- |
+| 2026-07-25 | Derive windows, feature lags, and schedules from measured packet rate | Retained for elapsed-time schedules but rejected for fitted feature offsets |
+| 2026-07-28 | Keep production feature lags at nominal packet offsets | Retained |
+| 2026-08-10 | Configure the analysis window in milliseconds and resolve its sample capacity from measured cadence | Accepted |
 
 ## Validation
 
@@ -84,5 +92,5 @@ Trade-offs:
 
 ## Related
 
-- [2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md](2026-07-25-derive-detector-timing-from-the-measured-packet-rate.md)
-- [2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](2026-07-28-keep-production-feature-lags-at-nominal-offsets.md)
+- [`../ALGORITHMS.md`](../ALGORITHMS.md)
+- [`2026-03-08-use-host-side-validation-gates-for-detector-promotion.md`](2026-03-08-use-host-side-validation-gates-for-detector-promotion.md)

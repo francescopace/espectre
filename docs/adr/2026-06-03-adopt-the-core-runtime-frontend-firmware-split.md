@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-06-03
 - Recorded: 2026-07-09 (retrospective)
-- Supersedes: 2025-12-06-adopt-a-dual-platform-development-model.md
+- Updated: 2026-08-12
 
 ## Context
 
@@ -20,6 +20,15 @@ Split the firmware-side C++ code into three explicit layers:
 - `src/cpp/frontend/` for integration-specific surfaces such as ESPHome, native, Matter, and streamer
 
 Keep `core` frontend-agnostic, keep platform orchestration in `runtime`, and keep ecosystem-specific behavior in the relevant `frontend`.
+
+Python retains a complementary role: Micro-ESPectre provides the device-side prototype path, while host-side Python owns research, validation, training, and export. Production behavior that graduates from Python must still land in the shared C++ layers and relevant frontends.
+
+## Decision History
+
+| Date | Direction | Resolution |
+| --- | --- | --- |
+| 2025-12-06 | Use a dual C++ production and Python experimentation model | Retained as the development workflow |
+| 2026-06-03 | Split production C++ into Core, Runtime, and Frontend layers | Accepted as the firmware architecture |
 
 ## Alternatives Considered
 
@@ -46,7 +55,7 @@ Trade-offs:
 
 ## Related
 
-- `docs/adr/2025-12-06-adopt-esphome-as-the-production-integration-surface.md`
-- `docs/adr/2025-12-06-adopt-a-dual-platform-development-model.md`
-- `docs/adr/2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md`
+- [`2025-12-06-adopt-esphome-as-the-production-integration-surface.md`](2025-12-06-adopt-esphome-as-the-production-integration-surface.md)
+- [`2025-11-28-prototype-in-python-before-porting-to-production-firmware.md`](2025-11-28-prototype-in-python-before-porting-to-production-firmware.md)
+- [`2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md`](2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md)
 - git commits: `57b126ba`, `c43d51b8`, `77fa9f48`

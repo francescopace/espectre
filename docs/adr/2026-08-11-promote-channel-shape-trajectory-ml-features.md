@@ -1,8 +1,8 @@
-# Promote channel-shape trajectory ML features
+# ADR: promote channel-shape trajectory ML features
 
 - Status: Accepted
 - Date: 2026-08-11
-- Supersedes: 2026-08-07-promote-the-compact-aggregated-iqr-ml-model.md
+- Updated: 2026-08-12
 
 ## Context
 
@@ -27,6 +27,20 @@ For the initial promotion export, keep the `7 -> 24 -> 12 -> 1` topology, seed `
 The trajectory tracker uses a gain-normalized eight-subband energy profile, `80 ms` physical-time median bins, a one-second window, exact duplicate suppression, and missing-bin skipping. Coherent innovation measures positive low-order DCT energy left after a constant-velocity prediction and high-order noise subtraction. Excess path measures positive two-step path length beyond its chord after subtracting high-order DCT path excess.
 
 Remove runtime extractors and tracker state that neither the exported ML model nor Classic consumes. Retain `l1_delta_autocorr`, `turb_mad_over_mean`, `chan_freq_coh_cv`, `chan_coh_gap`, and `chan_coh_subband_gap_median` as host-only candidates. Keep `chan_freq_coh_curve_std` in production only because Classic consumes it; its runtime path computes the two offsets selected by the current Classic decision.
+
+## Decision History
+
+Detailed measurements for every baseline and individual feature remain in [`FEATURES.md`](../FEATURES.md). The durable production lineage is:
+
+| Date | Baseline | Resolution |
+| --- | --- | --- |
+| 2026-06-29 | Raw and relative pre-Core-6 baselines | Preserved as historical evidence only |
+| 2026-07-07 | Core-6 | Replaced after absolute and energy-like inputs proved weak-link and seed fragile |
+| 2026-07-23 | Coherence-6 | Replaced after the lag ratio improved reserved replay behavior |
+| 2026-07-27 | Coherence-7 and a seven-feature-only runtime surface | Replaced after absolute L1 members inverted weak-link behavior |
+| 2026-07-28 | Invariant-5 | Retained the gain-invariance direction but expanded the physical feature surface |
+| 2026-08-07 | Aggregated-IQR-7 | Replaced after trajectory features improved environment transfer |
+| 2026-08-11 | Trajectory-7 | Current production feature schema |
 
 ## Validation
 
@@ -60,5 +74,5 @@ The preceding exported model measured `92.55%` worst paired recall and `0.29%` m
 - [FEATURES.md](../FEATURES.md)
 - [ALGORITHMS.md](../ALGORITHMS.md)
 - [ML_TRAINING.md](../ML_TRAINING.md)
-- [2026-08-11-mix-complementary-training-augmentation-seeds.md](2026-08-11-mix-complementary-training-augmentation-seeds.md)
+- [2026-07-23-separate-ml-training-data-from-promotion-replays.md](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 - [2026-03-08-use-host-side-validation-gates-for-detector-promotion.md](2026-03-08-use-host-side-validation-gates-for-detector-promotion.md)

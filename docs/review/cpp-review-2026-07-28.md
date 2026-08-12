@@ -241,7 +241,7 @@ Deleted on both runtimes in one change, per the maintainer's confirmation that t
 
 **Verification**: the 356 replay metric lines are bit-for-bit identical to the pre-change baseline, confirming the removed values never influenced any output. C++ 27/27, Python 1051 passed.
 
-**Decision record**: the abandoned direction and the measured memory saving are preserved in [2026-07-28-drop-the-unused-startup-variance-floor.md](../adr/2026-07-28-drop-the-unused-startup-variance-floor.md).
+**Decision record**: this review preserves the abandoned direction and the measured memory saving; the cleanup does not require a standalone ADR.
 
 ---
 
@@ -637,7 +637,7 @@ So the "lags are durations" argument holds for the autocorrelation lag and fails
 
 **Resolution**
 
-The lag derivation was reverted on both runtimes. Calibration starts on connect, and production constructs both detectors with the fitted nominal offsets. [B-2](#b-2), [B-4](#b-4), [B-5](#b-5), [P-3](#p-3), and the replay-only `window_override` remain because they are independently correct. The rejected direction and its measurement are preserved in [2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](../adr/2026-07-28-keep-production-feature-lags-at-nominal-offsets.md).
+The lag derivation was reverted on both runtimes. Calibration starts on connect, and production constructs both detectors with the fitted nominal offsets. [B-2](#b-2), [B-4](#b-4), [B-5](#b-5), [P-3](#p-3), and the replay-only `window_override` remain because they are independently correct. The rejected direction and its measurement are summarized in [2026-08-10-configure-detector-windows-in-milliseconds.md](../adr/2026-08-10-configure-detector-windows-in-milliseconds.md).
 
 **Reproducing the measurement.** Both arms monkeypatch `dataset_metadata.derive_detector_timing` to pin the window at `SEG_WINDOW_SIZE` and, for the control arm, the lags at `L1_DELTA_LAG` and `1`, then call `compute_classic_packet_result` on packets decimated with `_decimate_packets` from `test_packet_rate_adaptation_regression.py`. The throwaway scripts are not in the repository; promote them into `tools/` if [B-8](#b-8) is pursued, because the same harness is what validates it.
 
@@ -788,7 +788,7 @@ It changes what the feature *is*, so it cannot land without new coefficients and
 
 **Resolution**
 
-Deferred after measurement. The deployed C++ and MicroPython runtimes keep the fitted `10:1` L1 offsets and lag-1 turbulence autocorrelation, and v3 declares `80-133 pps` as the supported detector envelope. The consistent two-lag design remains a future feature change, not an open correctness fix: it must include the Classic refit, the ML retrain, and per-session non-regression evidence. The decision and the rejected partial derivation are preserved in [2026-07-28-keep-production-feature-lags-at-nominal-offsets.md](../adr/2026-07-28-keep-production-feature-lags-at-nominal-offsets.md).
+Deferred after measurement. The deployed C++ and MicroPython runtimes keep the fitted `10:1` L1 offsets and lag-1 turbulence autocorrelation, and v3 declares `80-133 pps` as the supported detector envelope. The consistent two-lag design remains a future feature change, not an open correctness fix: it must include the Classic refit, the ML retrain, and per-session non-regression evidence. The decision and the rejected partial derivation are summarized in [2026-08-10-configure-detector-windows-in-milliseconds.md](../adr/2026-08-10-configure-detector-windows-in-milliseconds.md).
 
 ---
 

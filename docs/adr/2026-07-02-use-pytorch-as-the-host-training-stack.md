@@ -46,6 +46,6 @@ Trade-offs:
 
 ## Related
 
-- `docs/adr/2026-02-15-share-ml-model-artifacts-between-python-and-cpp.md`
-- `docs/adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md`
+- [`2026-02-15-adopt-an-exportable-mlp-runtime-for-on-device-ml.md`](2026-02-15-adopt-an-exportable-mlp-runtime-for-on-device-ml.md)
+- [`2026-08-11-promote-channel-shape-trajectory-ml-features.md`](2026-08-11-promote-channel-shape-trajectory-ml-features.md)
 - git commit: `ef9df5bb`

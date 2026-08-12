@@ -46,6 +46,6 @@ Trade-offs:
 
 ## Related
 
-- `docs/adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md`
-- `docs/adr/2026-07-07-reject-detector-guided-sample-weighting-as-the-default-ml-baseline-policy.md`
+- [`2026-08-11-promote-channel-shape-trajectory-ml-features.md`](2026-08-11-promote-channel-shape-trajectory-ml-features.md)
+- [`2026-07-23-separate-ml-training-data-from-promotion-replays.md`](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 - git commits: `bf395397`, `aac68d9d`, `86d934fe`

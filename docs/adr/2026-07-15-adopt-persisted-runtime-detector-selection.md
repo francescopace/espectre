@@ -1,64 +1,65 @@
-# ADR: adopt persisted runtime detector selection
+# ADR: define detector selection capabilities and frontend defaults
 
-- Status: Superseded in part
+- Status: Accepted
 - Date: 2026-07-15
-- Superseded by: 2026-07-28-use-classic-as-the-matter-detector-default.md
-
-The persisted runtime-selection decision remains active for ESPHome and Native. Matter remains read-only but changed from the ML default recorded below to the Classic default on 2026-07-28.
+- Updated: 2026-08-12
 
 ## Context
 
-ESPectre supported `classic` and `ml`, but firmware selected the detector only before runtime setup. Comparing detectors on deployed ESPHome and Native devices therefore required rebuilding or reflashing firmware. A frontend-local solution would have duplicated validation, persistence, threshold reset, and calibration behavior across integration surfaces.
-
-The frontends also have different control contracts. ESPHome and Native expose writable runtime controls, Matter is intentionally read-only, and Streamer transports CSI without running a detector.
+ESPectre supports Classic and ML, but its frontends have different control contracts. ESPHome and Native expose writable runtime controls, Matter is intentionally read-only, and Streamer transports CSI without running a detector. A frontend-local implementation would duplicate validation, persistence, threshold reset, and calibration behavior.
 
 ## Decision
 
-Add detector selection to the shared runtime contract and gate it through an explicit runtime capability.
+Keep detector selection in the shared runtime and expose it through explicit frontend capabilities.
 
-Concretely:
+| Frontend | Detector capability | Default and persistence |
+| --- | --- | --- |
+| ESPHome | Writable `classic` or `ml` | Persist the selected value in the shared ESP-IDF store |
+| Native | Writable `classic` or `ml` | Persist the selected value in the shared ESP-IDF store |
+| Matter | Read-only | Use Classic as the frontend-owned fixed default |
+| Streamer | Unsupported | Run no detector |
 
-- let ESPHome and Native select `classic` or `ml` at runtime
-- persist their selection in a shared ESP-IDF NVS store and restore it at boot
-- reset the threshold to the selected detector's default when switching
-- start calibration automatically when switching to `classic`, and cancel any active calibration when switching to `ml`
-- keep Matter without a writable detector surface and use `ml` as its frontend-owned firmware default
-- keep Streamer detector-free and report runtime detector selection as unsupported
+On a supported runtime switch:
 
-The switch remains an explicit control-path operation and adds no detector selection work to the CSI packet hot path.
+- validate the requested detector;
+- reset the threshold to that detector's automatic default;
+- start calibration when switching to Classic;
+- cancel active Classic calibration when switching to ML; and
+- emit the shared runtime and protocol state change without adding work to the CSI hot path.
+
+Matter intentionally exposes no persisted writable selection. Its original ML default changed to Classic before the v3 release candidate so the read-only occupancy frontend follows the platform's non-ML default.
+
+## Decision History
+
+| Date | Direction | Resolution |
+| --- | --- | --- |
+| 2026-07-15 | Add shared persisted selection; use ML as Matter's fixed default | Persisted selection retained for writable frontends |
+| 2026-07-28 | Change Matter's fixed default from ML to Classic | Amended the capability matrix without superseding shared persisted selection |
 
 ## Alternatives Considered
 
 ### Keep detector selection build-time only
 
-Rejected. It would preserve a smaller runtime surface, but deployed detector comparisons would continue to require rebuilding or reflashing firmware.
+Rejected. Deployed comparisons would continue to require rebuilding or reflashing.
 
-### Persist detector selection in each frontend
+### Persist selection separately in every frontend
 
-Rejected. Separate ESPHome and Native stores would duplicate behavior and risk different validation, boot restoration, threshold, and calibration semantics.
+Rejected. It would duplicate lifecycle and validation semantics.
 
-### Expose the same writable control on every frontend
+### Expose the same writable control everywhere
 
-Rejected. Matter's product surface is intentionally read-only, and Streamer does not own a detector to configure.
+Rejected. Matter's surface is read-only, and Streamer owns no detector.
 
 ## Consequences
 
-Benefits:
-
-- ESPHome and Native devices can compare detectors without reflashing
-- persistence, validation, threshold reset, and calibration behavior stay aligned in the shared runtime
-- capabilities make unsupported frontend behavior explicit
-- detector switching does not add continuous CSI processing overhead
-
-Trade-offs:
-
-- the runtime contract, events, protocol, and frontend controls must evolve together
-- persisted detector state can override the build-time default on supported frontends
-- Matter intentionally differs by using a fixed `ml` default without consuming the shared persisted selection
+- ESPHome and Native can switch detectors without reflashing.
+- Persistence, threshold reset, and calibration remain aligned in the shared runtime.
+- Capability differences are explicit instead of appearing as frontend drift.
+- Choosing ML on Matter still requires a firmware-level product change.
 
 ## Related
 
-- `docs/adr/2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`
-- `docs/adr/2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md`
-- `docs/adr/2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md`
+- [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
+- [`2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md`](2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md)
+- [`2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
 - git commit: `52a6f350`

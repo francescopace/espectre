@@ -46,5 +46,5 @@ Trade-offs:
 ## Related
 
 - versioned changelog snapshot: `1.4.0:CHANGELOG.md`
-- `docs/adr/2025-12-06-adopt-a-dual-platform-development-model.md`
+- [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
 - git commits: `c971f874`, `14e3ceb0`

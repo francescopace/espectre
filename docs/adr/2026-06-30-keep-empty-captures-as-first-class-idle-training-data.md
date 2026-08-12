@@ -52,4 +52,4 @@ Trade-offs:
 
 - `docs/ML_DATA_COLLECTION.md`
 - `docs/adr/2026-03-08-use-host-side-validation-gates-for-detector-promotion.md`
-- `docs/adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md`
+- [`2026-08-11-promote-channel-shape-trajectory-ml-features.md`](2026-08-11-promote-channel-shape-trajectory-ml-features.md)

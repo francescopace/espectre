@@ -76,7 +76,7 @@ The deployed detector uses a time-relative evaluation cadence and fixed feature 
 | channel-shape tracker lag | 10 packets | `100 ms` |
 | turbulence autocorrelation lag | 1 packet | `10 ms` |
 
-The runtime resolves the window duration from the measured clean CSI cadence, while v3 keeps `lag = 10` packets for the shape trackers and `autocorr_lag = 1`. Changing those feature offsets requires a Classic refit plus the normal ML validation workflow. The supported floor is `80 pps`; below it, detection stays on hold until packet supply recovers. See the [temporal-window ADR](adr/2026-08-10-configure-detector-windows-in-milliseconds.md) for the window evidence and the [feature-lag ADR](adr/2026-07-28-keep-production-feature-lags-at-nominal-offsets.md) for the fixed offsets.
+The runtime resolves the window duration from the measured clean CSI cadence, while v3 keeps `lag = 10` packets for the shape trackers and `autocorr_lag = 1`. Changing those feature offsets requires a Classic refit plus the normal ML validation workflow. The supported floor is `80 pps`; below it, detection stays on hold until packet supply recovers. See the [detector-timing ADR](adr/2026-08-10-configure-detector-windows-in-milliseconds.md) for the physical-time window evidence and the fixed-offset decision.
 
 Calibration and steady-state detection share one cadence, so the interceptor that consumes packets during calibration evaluates on the same schedule the detection path does.
 
@@ -132,7 +132,7 @@ The split follows from what each family measures, rather than from two independe
 
 Both runtimes define the live band identically, as `HT20_LIVE_BINS` in [`ml_feature_trackers.h`](../src/cpp/core/ml_feature_trackers.h) and [`ml_feature_trackers.py`](../src/python/micro_espectre/ml_feature_trackers.py).
 
-HT20 is the enforced detector input contract on both supported bands, while the current detection corpus validates only 2.4 GHz operation. VHT20, HE20, and wider layouts are not accepted by the production detectors. Band-selection behavior lives in [SETUP.md](SETUP.md), and the PHY rationale lives in the [HT20 ADR](adr/2026-08-05-pin-ht20-on-every-band-instead-of-forcing-2-4-ghz.md).
+HT20 is the enforced detector input contract on both supported bands, while the current detection corpus validates only 2.4 GHz operation. VHT20, HE20, and wider layouts are not accepted by the production detectors. Band-selection behavior lives in [SETUP.md](SETUP.md), and the PHY rationale lives in the [HT20 ADR](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
 
 Non-HT20 payloads are normalized onto the same internal 64-subcarrier HT20 index grid before fixed-subcarrier extraction. Short layouts are centered so the HT20 midpoint remains aligned.
 

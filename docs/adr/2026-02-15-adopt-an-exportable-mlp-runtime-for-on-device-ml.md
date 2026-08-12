@@ -1,52 +1,69 @@
-# ADR: adopt an exportable mlp runtime for on-device ml
+# ADR: adopt a portable shared MLP runtime for on-device ML
 
 - Status: Accepted
 - Date: 2026-02-15
 - Recorded: 2026-07-09 (retrospective)
+- Updated: 2026-08-12
 
 ## Context
 
-When the ML detector became a real project direction, the repo needed a runtime model form that could run on-device in both the ESPHome/C++ path and the Micro-ESPectre/Python path without depending on a heavyweight inference runtime.
+The ML detector must run on constrained devices in both the C++ firmware and MicroPython paths without a heavyweight inference runtime. Training, export, inference, and parity must therefore form one portable contract rather than two independently maintained implementations.
 
-The `2.5.0` release changelog makes that choice explicit: the ML detector ships with manual MLP inference, no TFLite dependency, and a host-side workflow that exports runtime weights. That is a durable model choice, not just an implementation detail.
+Small temporal CNN and TCN candidates were later screened against the same false-positive-first validation policy. They did not justify a second runtime family, while the MLP remained cheap to export, inspect, and reproduce.
+
+Python and C++ also produced small decision drift when compilers contracted floating-point expressions differently. Cross-runtime parity requires control over the arithmetic path as well as shared weights.
 
 ## Decision
 
-Adopt a small exportable MLP as the supported on-device ML runtime form.
+Use a small feed-forward MLP as the supported on-device ML runtime form:
 
-Concretely:
+- train and export one model through the host-side pipeline;
+- generate the Python and C++ weight artifacts from the same candidate;
+- keep manual dense-layer inference in both runtimes, without a TFLite dependency;
+- keep feature order, scaling, topology, biases, weights, and threshold metadata aligned across both generated artifacts;
+- disable floating-point contraction for the ML inference translation unit so Python and C++ preserve the validated arithmetic order; and
+- require the normal parity and generated-artifact gates before promotion.
 
-- use a feed-forward MLP that can be exported as plain weights
-- keep runtime inference manual and lightweight in both Python and C++
-- avoid a TFLite dependency in the deployed runtime path
-- treat exportable dense layers as the runtime contract for the ML detector
+The generated weight files own the exact deployed run metadata. This ADR owns the portable runtime and artifact-sharing contract, not one model seed or feature schema.
+
+## Decision History
+
+| Date | Direction | Resolution |
+| --- | --- | --- |
+| 2026-02-15 | Export a lightweight MLP and share its artifacts between Python and C++ | Adopted as one runtime contract |
+| 2026-05-20 | Screen small temporal CNN and TCN replacements | Retained the MLP because the candidates did not clear the deployment trade-off |
+| 2026-07-26 | Allow compiler-default floating-point contraction | Rejected after measurable Python/C++ decision drift; contraction is disabled for inference |
 
 ## Alternatives Considered
 
-### Depend on TFLite in the deployed runtime
+### Deploy TFLite
 
-Rejected. The project chose a lighter runtime path with fewer integration and deployment constraints.
+Rejected. It adds a runtime dependency and integration surface without improving the current constrained deployment contract.
 
-### Use a more complex runtime model family immediately
+### Maintain independent models per runtime
 
-Rejected. The first production ML path favored a model that could be exported, reviewed, and reproduced consistently across both runtimes.
+Rejected. Independently trained or hand-transcribed artifacts would make parity, review, and reproduction unreliable.
+
+### Add a second temporal runtime family
+
+Rejected for the measured candidates. A new family remains possible only after host-side evidence justifies its export, memory, implementation, and parity cost.
 
 ## Consequences
 
 Benefits:
 
-- the runtime ML path stays lightweight and portable
-- Python and C++ can share the same inference shape
-- exported weights remain inspectable and easy to regenerate
+- one trained model drives both production runtimes;
+- inference stays small, inspectable, and frontend-independent; and
+- parity failures expose real contract drift instead of artifact provenance ambiguity.
 
 Trade-offs:
 
-- model architecture choices must stay compatible with the manual runtime path
-- some model families are less attractive if they complicate export or runtime inference
+- production model families must fit the manual export contract; and
+- compiler settings for the inference unit are part of correctness.
 
 ## Related
 
+- [`2026-07-02-use-pytorch-as-the-host-training-stack.md`](2026-07-02-use-pytorch-as-the-host-training-stack.md)
+- [`2026-08-11-promote-channel-shape-trajectory-ml-features.md`](2026-08-11-promote-channel-shape-trajectory-ml-features.md)
 - versioned changelog snapshot: `2.5.0:CHANGELOG.md`
-- `docs/adr/2026-02-15-share-ml-model-artifacts-between-python-and-cpp.md`
-- `docs/adr/2026-07-07-use-core-6-as-the-production-ml-feature-set.md`
 - git commits: `3058c750`, `6e59e485`

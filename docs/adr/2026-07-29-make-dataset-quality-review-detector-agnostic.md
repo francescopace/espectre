@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-29
-- Supersedes: `2026-07-17-separate-dataset-admission-from-classic-diagnostics.md`
+- Updated: 2026-08-12
 
 ## Context
 
@@ -30,7 +30,7 @@ Dataset admission remains unchanged and may still fail the run:
 
 The report-only review tables now derive from the shared scale-invariant feature pipeline already used elsewhere in production and training:
 
-- the core evidence surface is the current production ML feature set, all scale-invariant by construction: `turb_mad_over_mean`, `turb_autocorr`, `turb_zcr`, `l1_delta_autocorr`, `l1_delta_lag_ratio`, `chan_shape_spread`, `chan_freq_coh_cv`, `chan_freq_coh_curve_std`, `chan_coh_gap`, and `chan_coh_subband_gap_median`
+- the core evidence surface is the current production ML feature set, all gain-invariant by construction: `turb_iqr_over_mean_aggr`, `turb_autocorr`, `turb_zcr`, `l1_delta_lag_ratio`, `chan_shape_spread`, `chan_shape_coherent_innovation_energy`, and `chan_shape_excess_path`
 - feature directions are fixed from the feature semantics, not inferred from a detector replay
 - pair review compares `static_presence` and `motion` through consensus feature-evidence series
 - idle review scores each capture against its own feature-space baseline
@@ -51,6 +51,13 @@ Idle rows replace self-calibrated Classic baseline terms with:
 - `Score`: an indicative 0-100 ranking from tail cleanliness and burst length
 
 Threshold-relative detector terms are removed from the generated report entirely. `ClassicDetector` remains visible in detector promotion and performance surfaces, but not in dataset-quality review.
+
+## Decision History
+
+| Date | Direction | Resolution |
+| --- | --- | --- |
+| 2026-07-17 | Separate dataset admission from Classic diagnostics but retain Classic review tables | Removed detector behavior from admission |
+| 2026-07-29 | Make the remaining review metrics detector-agnostic | Accepted as the single dataset-quality policy |
 
 ## Consequences
 

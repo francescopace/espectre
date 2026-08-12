@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-12
-- Supersedes: 2026-07-30-adopt-frequency-coherence-for-classic.md
+- Updated: 2026-08-12
 
 ## Context
 
@@ -28,6 +28,19 @@ Refit the coefficients on the 22 admitted `train` pairs. Select the exported glo
 ```
 
 The centered logit is part of the operating-point decision. The automatic OOF point maximized window recall under an average FP ceiling, but it failed the production empty-room alarm and per-recording constraints; it must not replace the sequentially validated point.
+
+## Decision History
+
+Detailed feature evidence belongs in [`FEATURES.md`](../FEATURES.md). The Classic feature lineage is:
+
+| Date | Feature direction | Resolution |
+| --- | --- | --- |
+| 2026-07-08 | L1-primary Classic with complementary variance behavior | Established the production non-ML direction |
+| 2026-07-22 | Add a low-RSSI session-centered L1 blend | Retired when Classic stopped consuming L1 |
+| 2026-07-24 | Defer an `l1_delta_std` swap | Closed when the entire L1 family left Classic |
+| 2026-07-26 | Replace absolute L1 mean with a lag ratio | Improved scale behavior but was later replaced |
+| 2026-07-30 | Fuse turbulence autocorrelation with offset-2/12 frequency coherence | Established the current physical feature family |
+| 2026-08-12 | Use offset-4/12 frequency coherence | Current production definition |
 
 ## Validation
 
@@ -91,7 +104,7 @@ Rejected. Average dense-window FP is not equivalent to the debounced zero-alarm 
 
 ## Related
 
-- [2026-07-30-adopt-frequency-coherence-for-classic.md](2026-07-30-adopt-frequency-coherence-for-classic.md)
-- [2026-07-25-gate-classic-false-positives-on-empty-rooms.md](2026-07-25-gate-classic-false-positives-on-empty-rooms.md)
+- [2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md](2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
+- [2026-03-08-use-host-side-validation-gates-for-detector-promotion.md](2026-03-08-use-host-side-validation-gates-for-detector-promotion.md)
 - [2026-08-11-promote-channel-shape-trajectory-ml-features.md](2026-08-11-promote-channel-shape-trajectory-ml-features.md)
 - [FEATURES.md](../FEATURES.md)

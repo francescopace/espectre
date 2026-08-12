@@ -83,7 +83,8 @@ def calc_zero_crossing_rate(values, count, center):
 # meant to measure.
 #
 # `l1_delta` and `l1_delta_std` were dropped on 2026-07-28 for exactly that.
-# See docs/adr/2026-07-28-drop-the-absolute-l1-features.md: adding one
+# See docs/FEATURES.md and docs/adr/2026-08-11-promote-channel-shape-trajectory-ml-features.md:
+# adding one
 # strong-link capture to training took a weak-link pair from 0% to 100% false
 # positives, because its idle displacement (0.2653) sat above its own motion
 # (0.1830) and above the added capture's motion (0.0587). The promoted compact
