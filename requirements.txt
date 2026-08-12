@@ -1,20 +1,20 @@
 # Python dependencies for ESPectre
 
 # ESPHome build workflow
-esphome==2026.6.2
-esptool==5.3.0          # aligned with ESPHome 2026.6.2
+esphome==2026.7.4
+esptool==5.3.1          # aligned with ESPHome 2026.7.4
 mpremote==1.28.0        # CLI wrapper coverage in Python tests
 pyserial==3.5           # serial helpers used by CLI/runtime tests
 
 # Host-side CLI/runtime dependencies exercised in tests
-paho-mqtt==1.6.1        # aligned with ESPHome 2026.6.2 (avoid 2.x)
-click==8.3.3            # pinned for ESPHome 2026.6.2 / PlatformIO 6.1.19 compatibility
-requests==2.34.2        # pinned for ESPHome 2026.6.2 compatibility
+paho-mqtt==1.6.1        # required by ESPHome 2026.7.4 (avoid 2.x)
+click==8.3.3            # required by ESPHome 2026.7.4 / PlatformIO 6.1.19
+requests==2.34.2        # required by ESPHome 2026.7.4
 colorama==0.4.6         # terminal colors
 python-dotenv==1.2.2    # environment variables support
 PyYAML==6.0.3           # YAML parsing
-prompt_toolkit==3.0.52  # interactive CLI support
-zeroconf==0.149.16      # one-shot Streamer DNS-SD/mDNS discovery
+prompt_toolkit==3.0.53  # interactive CLI support
+zeroconf==0.150.0       # required by ESPHome 2026.7.4; used for Streamer discovery
 
 # Test dependencies
 numpy==2.4.6            # latest verified NumPy compatible with shap/numba on Python 3.14
@@ -24,4 +24,4 @@ pytest-xdist==3.8.0     # parallel Python test execution
 gcovr==8.6              # C++ coverage reports
 
 # Local analysis extras
-matplotlib==3.11.0      # Plotting and visualization
+matplotlib==3.11.1      # Plotting and visualization
