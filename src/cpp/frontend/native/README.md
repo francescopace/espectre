@@ -232,6 +232,7 @@ The firmware app uses the shared standalone Wi-Fi manager for station setup, BSS
 ## Related Files
 
 - `../../runtime/ble_protocol.h`: UUIDs and default device name
+- `../../runtime/ble_bindings_noop.h`: portable no-op BLE binding used when Bluetooth is disabled
 - `../../runtime/espectre_protocol.cpp`: shared protocol payload and command helpers
 - `../../runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp`: shared ESP-IDF Wi-Fi provisioning command handling
 - `espectre/native_frontend.cpp`: command parsing, sysinfo emission, telemetry serialization

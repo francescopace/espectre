@@ -41,13 +41,38 @@ def facade_includes() -> list[str]:
 
 
 def facade_reachable_headers() -> list[Path]:
-    """The facade itself plus every header it includes, as resolved paths."""
-    headers = [FACADE]
-    for include in facade_includes():
-        resolved = CPP_ROOT / include
-        assert resolved.is_file(), f"{FACADE.name} includes a header that does not exist: {include}"
-        headers.append(resolved)
-    return headers
+    """The complete local include closure rooted at the facade."""
+    available_by_name: dict[str, list[Path]] = {}
+    maintained_headers = list(CPP_ROOT.glob("*.h"))
+    for root in (CPP_ROOT / "core", CPP_ROOT / "runtime"):
+        maintained_headers.extend(root.rglob("*.h"))
+    for header in maintained_headers:
+        available_by_name.setdefault(header.name, []).append(header)
+
+    headers: list[Path] = []
+    pending = [FACADE]
+    visited: set[Path] = set()
+    while pending:
+        header = pending.pop()
+        if header in visited:
+            continue
+        visited.add(header)
+        headers.append(header)
+
+        for include in FACADE_INCLUDE_PATTERN.findall(header.read_text(encoding="utf-8")):
+            candidates = [header.parent / include, CPP_ROOT / include]
+            if "/" not in include:
+                candidates.extend(available_by_name.get(include, []))
+            resolved = next((candidate.resolve() for candidate in candidates if candidate.is_file()), None)
+            if resolved is not None and resolved.is_relative_to(CPP_ROOT):
+                pending.append(resolved)
+
+    return sorted(headers)
+
+
+def facade_reachable_header_names() -> set[str]:
+    """Paths in the public include closure, relative to the SDK root."""
+    return {header.relative_to(CPP_ROOT).as_posix() for header in facade_reachable_headers()}
 
 
 def doxygen_input_headers() -> set[str]:
@@ -62,6 +87,10 @@ def doxygen_input_headers() -> set[str]:
 
 
 def test_every_facade_include_resolves_to_a_real_header() -> None:
+    for include in facade_includes():
+        assert (CPP_ROOT / include).is_file(), (
+            f"{FACADE.name} includes a header that does not exist: {include}"
+        )
     headers = facade_reachable_headers()
     assert len(headers) > 1, "the facade should include the supported surface"
 
@@ -93,7 +122,7 @@ def test_facade_headers_are_all_in_the_generated_reference() -> None:
     a few headers the facade does not include, such as `ble_protocol.h`, whose
     types are referenced from the surface.
     """
-    missing = sorted(set(facade_includes()) - doxygen_input_headers())
+    missing = sorted(facade_reachable_header_names() - doxygen_input_headers())
     assert not missing, (
         f"headers reachable from {FACADE.name} are absent from the Doxyfile INPUT list: {missing}"
     )
@@ -105,7 +134,7 @@ def test_supported_headers_appear_in_the_embedding_header_map() -> None:
     # The map groups related headers on one row, so match anywhere in the guide
     # rather than trying to parse the table structure.
     documented = set(re.findall(r"`([\w/]+\.h)`", guide))
-    missing = sorted(set(facade_includes()) - documented)
+    missing = sorted(facade_reachable_header_names() - documented)
     assert not missing, (
         f"headers reachable from {FACADE.name} are missing from the {EMBEDDING_GUIDE.name} "
         f"header map: {missing}"

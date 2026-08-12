@@ -1,8 +1,8 @@
 /*
  * ESPectre - No-op BLE Bindings
  *
- * Lightweight BLE binding for builds or test paths that need the frontend
- * surface without an active BLE controller implementation.
+ * Portable BLE binding for builds or test paths that need the runtime
+ * contract without an active BLE controller implementation.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

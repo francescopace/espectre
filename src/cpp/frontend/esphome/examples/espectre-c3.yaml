@@ -34,6 +34,7 @@ esphome:
 
 esp32:
   variant: ESP32C3
+  toolchain: platformio
   framework:
     type: esp-idf
 

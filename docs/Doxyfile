@@ -50,7 +50,14 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/core/classic_detector.h \
                          src/cpp/core/ml_detector.h \
                          src/cpp/core/csi_format.h \
-                         src/cpp/core/detector_limits.h
+                         src/cpp/core/detector_limits.h \
+                         src/cpp/core/filters.h \
+                         src/cpp/core/utils.h \
+                         src/cpp/core/csi_features.h \
+                         src/cpp/core/ml_feature_trackers.h \
+                         src/cpp/core/l1_delta_tracker.h \
+                         src/cpp/core/ml_weights.h \
+                         src/cpp/core/threshold.h
 
 FILE_PATTERNS          = *.h
 RECURSIVE              = NO

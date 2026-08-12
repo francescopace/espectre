@@ -130,6 +130,10 @@ target_link_libraries(espectre_frontend_esphome_testlib
         espectre_runtime_testlib
         espectre_test_mocks
 )
+target_include_directories(espectre_frontend_esphome_testlib
+    PUBLIC
+        "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre"
+)
 
 add_library(espectre_frontend_matter_testlib STATIC
     ${ESPECTRE_FRONTEND_MATTER_SOURCES}
@@ -140,6 +144,10 @@ target_link_libraries(espectre_frontend_matter_testlib
     PUBLIC
         espectre_runtime_testlib
         espectre_test_mocks
+)
+target_include_directories(espectre_frontend_matter_testlib
+    PUBLIC
+        "${ESPECTRE_CPP_ROOT}/frontend/matter/espectre"
 )
 
 add_library(espectre_frontend_native_testlib STATIC
@@ -153,6 +161,10 @@ target_link_libraries(espectre_frontend_native_testlib
     PUBLIC
         espectre_runtime_testlib
         espectre_test_mocks
+)
+target_include_directories(espectre_frontend_native_testlib
+    PUBLIC
+        "${ESPECTRE_CPP_ROOT}/frontend/native/espectre"
 )
 
 foreach(target_name

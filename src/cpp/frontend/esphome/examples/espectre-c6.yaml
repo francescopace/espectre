@@ -25,6 +25,7 @@ esphome:
 
 esp32:
   variant: ESP32C6
+  toolchain: platformio
   framework:
     type: esp-idf
 

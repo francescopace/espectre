@@ -265,11 +265,21 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
 }
 
 /**
+ * Resolve one exported ML feature from precomputed series and tracker stats.
+ *
+ * @param id Exported `MLFeatureId` value to resolve.
+ * @param turb Statistics for the packet-level turbulence series.
+ * @param aggregated_turb Statistics for the aggregated turbulence series.
  * @param l1_delta_lag_ratio Preprocessed tracker metric for
  *        ML_FEAT_L1_DELTA_LAG_RATIO. Deliberately without a default: the
  *        no-motion value of the ratio is 1.0, so a forgotten argument would
  *        read as a plausible measurement rather than as an error. The Python
  *        extractor raises for the same reason; here the compiler does it.
+ * @param chan_shape_spread Current channel-shape spread metric.
+ * @param chan_shape_coherent_innovation_energy Current coherent innovation
+ *        energy from the channel-shape trajectory tracker.
+ * @param chan_shape_excess_path Current channel-shape excess-path metric.
+ * @return The requested feature value, or `0.0f` for an unknown identifier.
  */
 inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
                                          const MLSeriesStats& aggregated_turb,

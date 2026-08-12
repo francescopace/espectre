@@ -306,6 +306,10 @@ Add `--dev` to use the local development YAML mapping. Use `flash` for upload-on
 
 ## Hardware and Packaging Notes
 
+### Build Toolchain
+
+The ESPHome examples explicitly select `toolchain: platformio` while continuing to use the ESP-IDF framework. ESPHome 2026.7 changed the default ESP32 toolchain to its native ESP-IDF backend, but ESPectre currently registers the shared `src/cpp/` tree through `library.json` as a local PlatformIO library. Keep the explicit PlatformIO toolchain selection until the shared package is migrated to ESPHome's native ESP-IDF component model.
+
 ### Automatic SDK Configuration
 
 The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement and timing-related defaults. In most cases you do not need to set these manually.
@@ -315,6 +319,7 @@ For board-specific tweaks, you can still add `sdkconfig_options` in YAML:
 ```yaml
 esp32:
   variant: ESP32C6
+  toolchain: platformio
   framework:
     type: esp-idf
     sdkconfig_options:

@@ -103,6 +103,7 @@ If your firmware already owns Wi-Fi and CSI capture, you can consume the detecto
 | `runtime/runtime_sensing_schema.h` | Defaults and valid ranges for every tunable |
 | `runtime/runtime_config_utils.h` | Validators, and name/enum conversion |
 | `runtime/runtime_diagnostics.h` | Capture and link counters, and the sampler that turns them into rates |
+| `runtime/csi_traffic_types.h` | Runtime traffic-source and generator mode enums used by `RuntimeConfig` |
 | `runtime/esp_idf/runtime_frontend_controller.h` | The recommended entry point |
 | `runtime/esp_idf/runtime_sensing_kconfig.h` | Build a config from menuconfig |
 | `runtime/espectre_protocol.h` | Wire types, payload builders, command parsers |
@@ -113,6 +114,10 @@ If your firmware already owns Wi-Fi and CSI capture, you can consume the detecto
 | `core/classic_detector.h`, `core/ml_detector.h` | The core-only detector path |
 | `core/base_detector.h` | The shared detector lifecycle both detectors inherit |
 | `core/csi_format.h` | CSI layout, and the subcarrier band the detectors measure on |
+| `core/detector_limits.h`, `core/filters.h`, `core/utils.h` | Detector limits, filter state, and numeric helpers used by the public detector definitions |
+| `core/csi_features.h`, `core/ml_feature_trackers.h`, `core/l1_delta_tracker.h` | Feature extraction and tracker types embedded in the public detector definitions |
+| `core/ml_weights.h` | Generated ML model metadata and weights reachable through the ML detector |
+| `core/threshold.h` | Detector threshold validation and algorithm-name helpers reachable through the runtime contract |
 
 ## Runtime contract
 

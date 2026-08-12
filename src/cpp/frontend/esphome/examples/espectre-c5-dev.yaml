@@ -13,6 +13,7 @@ esphome:
 
 esp32:
   variant: ESP32C5
+  toolchain: platformio
   cpu_frequency: 240MHz
   framework:
     type: esp-idf
