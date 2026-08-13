@@ -249,7 +249,6 @@ FEATURE_EVIDENCE_DIRECTIONS = {
     "turb_iqr_over_mean_aggr": 1.0,
     "turb_autocorr": 1.0,
     "turb_zcr": -1.0,
-    "l1_delta_autocorr": 1.0,
     "l1_delta_lag_ratio": 1.0,
 }
 

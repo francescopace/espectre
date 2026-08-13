@@ -16,7 +16,7 @@ Usage:
         --feature turb_autocorr
     python tools/benchmark_classic_candidate_pairs.py \
         --pair l1_delta_lag_ratio,chan_coh_gap \
-        --pair l1_delta_lag_ratio,chan_shape_spread
+        --pair l1_delta_lag_ratio,chan_shape_spread_subband
     python tools/benchmark_classic_candidate_pairs.py \
         --triple turb_autocorr,chan_freq_coh_curve_std,chan_coh_gap
     python tools/benchmark_classic_candidate_pairs.py --all-runtime-triplets
@@ -60,13 +60,11 @@ HOLDOUT_ROLE = "holdout"
 EXCLUDE_ROLE = "exclude"
 DEFAULT_PAIRS = (
     ("l1_delta_lag_ratio", "chan_coh_gap"),
-    ("l1_delta_lag_ratio", "chan_shape_spread"),
     ("l1_delta_lag_ratio", "chan_freq_coh_curve_std"),
     ("turb_autocorr", "chan_freq_coh_curve_std"),
 )
 DEFAULT_TRIPLETS = (
     ("turb_autocorr", "chan_freq_coh_curve_std", "chan_coh_gap"),
-    ("turb_autocorr", "chan_freq_coh_curve_std", "chan_shape_spread"),
     ("turb_autocorr", "chan_freq_coh_curve_std", "l1_delta_lag_ratio"),
     ("turb_mad_over_mean", "turb_autocorr", "chan_freq_coh_curve_std"),
 )

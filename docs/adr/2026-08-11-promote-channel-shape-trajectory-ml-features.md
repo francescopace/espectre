@@ -30,7 +30,7 @@ The committed production artifact uses topology `7 -> 24 -> 12 -> 1`, seed `1584
 
 The trajectory tracker uses a gain-normalized eight-subband energy profile, `80 ms` physical-time median bins, a one-second window, exact duplicate suppression, and missing-bin skipping. Coherent innovation measures positive low-order DCT energy left after a constant-velocity prediction and high-order noise subtraction. Excess path measures positive two-step path length beyond its chord after subtracting high-order DCT path excess. Subband spread measures the participation of adjacent trajectory-profile differences.
 
-Remove `chan_shape_spread`, its feature ID, source routing, and its standalone tracker from the C++ and MicroPython production surfaces. Retain the implementation in host tooling as a non-exportable candidate so historical comparisons and rollback experiments remain reproducible. Classic does not activate the ML channel-shape tracker; its current aggregated-turbulence decision is recorded separately.
+Remove `chan_shape_spread`, its feature ID, source routing, and its standalone tracker from the C++ and MicroPython production surfaces. Historical comparisons and rollback evidence remain auditable through the recorded experiment configuration and results in `docs/FEATURES.md`; the retired implementation is not retained in the executable host candidate registry. Classic does not activate the ML channel-shape tracker; its current aggregated-turbulence decision is recorded separately.
 
 ## Decision History
 

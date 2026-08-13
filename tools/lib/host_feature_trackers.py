@@ -95,7 +95,6 @@ SPECTRAL_FEATURES = (
 AGGREGATED_SPECTRAL_FEATURES = (
     'turb_mad_over_mean_aggr',
     'turb_p95_over_mean_aggr',
-    'turb_iqr_over_mean_aggr_detrended',
     'turb_iqr_over_mean_aggr_tone_detrended',
 )
 AMPLITUDE_PROFILE_FEATURES = (
@@ -119,9 +118,7 @@ CHANNEL_SHAPE_FEATURES = (
     'chan_freq_coh_decay_std',
     'chan_freq_coh_curvature_std',
 )
-L1_SERIES_FEATURES = (
-    'l1_delta_autocorr',
-)
+L1_SERIES_FEATURES: Tuple[str, ...] = ()
 CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
     'chan_shape_scale_curvature',
     'chan_shape_spread_subband',
@@ -136,9 +133,6 @@ PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
 PROMOTED_CHANNEL_SHAPE_FEATURES = (
     'chan_freq_coh_curve_std',
 )
-RETIRED_CHANNEL_SHAPE_FEATURES = (
-    'chan_shape_spread',
-)
 CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES = (
     'chan_freq_coh_curve_std',
 )
@@ -152,7 +146,6 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
     + PHASE_FEATURES
     + CHANNEL_SHAPE_FEATURES
     + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
-    + RETIRED_CHANNEL_SHAPE_FEATURES
     + L1_SERIES_FEATURES
     + tuple(
         name for name in CHANNEL_SHAPE_TRAJECTORY_FEATURES
@@ -895,7 +888,7 @@ class ChannelShapeTracker:
         track_all = feature_names is None
         self._track_lag_ratio = track_all or 'chan_shape_lag_ratio' in names
         self._track_spread = track_all or bool(
-            {'chan_shape_spread', 'chan_coh_gap_spread'} & names
+            {'chan_coh_gap_spread'} & names
         )
         self._track_spread_ds2 = 'chan_shape_spread_ds2' in names
         self._track_spread_ema_fast = 'chan_shape_spread_ema_fast' in names

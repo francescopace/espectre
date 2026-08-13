@@ -2,7 +2,7 @@
 
 Date: 2026-08-13
 Review status: Complete
-Remediation status: Open
+Remediation status: Complete
 
 ## 1. Objective
 
@@ -162,32 +162,38 @@ Suggested `AGENTS.md` policy text:
 
 ## 4. Progress Checklist
 
-- [ ] `TEST-001` Remove or make the five C++ coverage-only cases observable.
-- [ ] `TEST-002` Remove the six tautological or weak C++ real-data cases.
-- [ ] `TEST-003` Remove the two removed-option tombstone tests while preserving current NPZ pruning coverage.
-- [ ] `TEST-004` Remove `test_threshold_path_regressions.py`, or move its reusable behavior to a real owner first.
-- [ ] `TEST-005` Remove retired host candidates and replace historical inventory assertions with generic current training/runtime boundaries.
-- [ ] `TEST-006` Consolidate `test_ml_inference.py` around export layout, saturation, reference parity, and output range.
-- [ ] `TEST-007` Remove filter and segmentation duplicates, and strengthen the exception and outlier assertions.
-- [ ] `TEST-008` Remove the conditional Hampel replay and decide whether long-recording validation is a quantified gate or an end-to-end report workflow.
-- [ ] `TEST-009` Split dataset-quality coverage between retained CLI primitives and the validator's end-to-end `--check-current` workflow.
-- [ ] `TEST-010` Remove unit suites for the two secondary host tools if the maintained scope remains unchanged.
-- [ ] `TEST-011` Remove interactive dataset-selection and plot-window tests while retaining metadata, pair-resolution, report-revision, and cache contracts.
-- [ ] `TEST-012` Remove the historical CI implementation-name assertion after confirming that it has no current threat model.
-- [ ] `TEST-013` Preserve and clarify the C++ parity metric-producer suites.
-- [ ] `TEST-014` Document one primary test owner and any separate integration or parity gates for each maintained production, CLI, training, CI, and cache subsystem.
-- [ ] `TEST-014` Consolidate supplemental and regression-only modules into their existing owners without creating monolithic cross-subsystem test files.
-- [ ] `TEST-014` Reduce copied feature registries, defaults, schemas, and performance targets to one canonical source plus one designated exact-schema invariant where required.
-- [ ] `TEST-014` Add the test-ownership and three-test-file explanation rules to `AGENTS.md`.
-- [ ] Inspect the final diff and confirm that GitHub CI, license compliance, and NPZ cache behavior were not weakened.
-- [ ] Run `.venv/bin/pytest test/python/test_ci_pipeline.py test/python/test_license_compliance.py test/python/test_npz_cache.py -v`.
-- [ ] Run the narrow Python suites affected by each implementation batch.
-- [ ] Run `.venv/bin/pytest test/python -v`.
-- [ ] Run `cmake -S test/cpp -B test/cpp/build` and `cmake --build test/cpp/build`.
-- [ ] Run `ctest --test-dir test/cpp/build --output-on-failure`.
-- [ ] Run `ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure`.
-- [ ] Run `.venv/bin/pytest test/python/test_validation_real_data.py::TestPerformanceMetrics -v`.
+- [x] `TEST-001` Remove or make the five C++ coverage-only cases observable.
+- [x] `TEST-002` Remove the six tautological or weak C++ real-data cases.
+- [x] `TEST-003` Remove the two removed-option tombstone tests while preserving current NPZ pruning coverage.
+- [x] `TEST-004` Remove `test_threshold_path_regressions.py`, or move its reusable behavior to a real owner first.
+- [x] `TEST-005` Remove retired host candidates and replace historical inventory assertions with generic current training/runtime boundaries.
+- [x] `TEST-006` Consolidate `test_ml_inference.py` around export layout, saturation, reference parity, and output range.
+- [x] `TEST-007` Remove filter and segmentation duplicates, and strengthen the exception and outlier assertions.
+- [x] `TEST-008` Remove the conditional Hampel replay and decide whether long-recording validation is a quantified gate or an end-to-end report workflow.
+- [x] `TEST-009` Split dataset-quality coverage between retained CLI primitives and the validator's end-to-end `--check-current` workflow.
+- [x] `TEST-010` Remove unit suites for the two secondary host tools if the maintained scope remains unchanged.
+- [x] `TEST-011` Remove interactive dataset-selection and plot-window tests while retaining metadata, pair-resolution, report-revision, and cache contracts.
+- [x] `TEST-012` Remove the historical CI implementation-name assertion after confirming that it has no current threat model.
+- [x] `TEST-013` Preserve and clarify the C++ parity metric-producer suites.
+- [x] `TEST-014` Document one primary test owner and any separate integration or parity gates for each maintained production, CLI, training, CI, and cache subsystem.
+- [x] `TEST-014` Consolidate supplemental and regression-only modules into their existing owners without creating monolithic cross-subsystem test files.
+- [x] `TEST-014` Reduce copied feature registries, defaults, schemas, and performance targets to one canonical source plus one designated exact-schema invariant where required.
+- [x] `TEST-014` Add the test-ownership and three-test-file explanation rules to `AGENTS.md`.
+- [x] Inspect the final diff and confirm that GitHub CI, license compliance, and NPZ cache behavior were not weakened.
+- [x] Run `.venv/bin/pytest test/python/test_ci_pipeline.py test/python/test_license_compliance.py test/python/test_npz_cache.py -v`.
+- [x] Run the narrow Python suites affected by each implementation batch.
+- [x] Run `.venv/bin/pytest test/python -v`.
+- [x] Run `cmake -S test/cpp -B test/cpp/build` and `cmake --build test/cpp/build`.
+- [x] Run `ctest --test-dir test/cpp/build --output-on-failure`.
+- [x] Run `ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure`.
+- [x] Run `.venv/bin/pytest test/python/test_validation_real_data.py::TestPerformanceMetrics -v`.
 
 ## 5. Review Validation
 
-The inventory was validated with `.venv/bin/pytest test/python --collect-only -q -n 0`, which collected 1,110 Python cases. The full Python and C++ suites were not executed because this review changed no implementation; they are required as remediation gates in the checklist above.
+The initial inventory was validated with `.venv/bin/pytest test/python --collect-only -q -n 0`, which collected 1,110 Python cases. After remediation, the same command collects 991 cases.
+
+The focused CI, license, and NPZ cache command passed 52 tests. The numerical Python gate passed 82 tests. The full Python run passed 986 tests and skipped two; its two UDP tests were rerun outside the network sandbox and passed. Its license-header case was rerun against a temporary index representing the pending file deletions and passed, because `git ls-files` intentionally continues to list tracked deletions in an unstaged working tree.
+
+The C++ suite configured and built successfully. Twenty-seven tests passed in the sandbox; the two UDP suites failed only because local socket binding was denied, then both passed outside the network sandbox. The explicit `test_motion_detection` parity producer also passed.
+
+The dataset-quality end-to-end workflow completed with 1,252 passes, 18 warnings, and no failures, regenerated `DATASET_QUALITY_CHECK.md`, and passed `tools/validate_dataset_quality.py --check-current`.

@@ -52,6 +52,14 @@ def _assert_classic_replays_match(cached_metrics, packet_metrics) -> None:
         )
 
 
+def _assert_confusion_matrix_accounting(metrics) -> None:
+    """Validate replay accounting without duplicating promotion thresholds."""
+    assert metrics["baseline_eval_count"] == metrics["fp"] + metrics["tn"]
+    assert metrics["movement_eval_count"] == metrics["tp"] + metrics["fn"]
+    assert metrics["effective_alarms"] <= metrics["false_motion_evaluations"]
+    assert metrics["false_motion_evaluations"] <= metrics["baseline_eval_count"]
+
+
 def _representative_long_recording_param():
     specs = get_available_long_test_dataset_specs()
     if not specs:
@@ -152,14 +160,7 @@ class TestLongRecordings:
             }
         )
 
-        assert ml_metrics["baseline_eval_count"] >= 0
-        assert ml_metrics["movement_eval_count"] >= 0
-        assert 0.0 <= ml_metrics["recall"] <= 100.0
-        assert 0.0 <= ml_metrics["precision"] <= 100.0
-        assert 0.0 <= ml_metrics["fp_rate"] <= 100.0
-        assert 0.0 <= ml_metrics["f1"] <= 100.0
-        assert ml_metrics["effective_alarms"] >= 0
-        assert ml_metrics["false_motion_evaluations"] >= 0
+        _assert_confusion_matrix_accounting(ml_metrics)
 
         classic_metrics = _evaluate_classic_long_recording(
             baseline_packets,
@@ -179,13 +180,8 @@ class TestLongRecordings:
             }
         )
 
-        assert classic_metrics["baseline_eval_count"] >= 0
-        assert classic_metrics["movement_eval_count"] >= 0
+        _assert_confusion_matrix_accounting(classic_metrics)
         assert 0.0 <= classic_metrics["adaptive_threshold"] <= 1.0
-        assert 0.0 <= classic_metrics["recall"] <= 100.0
-        assert 0.0 <= classic_metrics["precision"] <= 100.0
-        assert 0.0 <= classic_metrics["fp_rate"] <= 100.0
-        assert 0.0 <= classic_metrics["f1"] <= 100.0
 
 
 @pytest.mark.parametrize(

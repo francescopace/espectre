@@ -86,7 +86,6 @@ BUFFER_FED_FEATURES = frozenset({
     "turb_mad_over_mean",
     "turb_autocorr",
     "turb_zcr",
-    "l1_delta_autocorr",
     "l1_delta_lag_ratio",
 })
 

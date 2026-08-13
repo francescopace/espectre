@@ -61,37 +61,11 @@ void test_sensor_publisher_configuration_helpers(void) {
     TEST_ASSERT_TRUE(publisher.has_movement_sensor());
 }
 
-void test_sensor_publisher_log_status_handles_runtime_snapshot(void) {
-    SensorPublisher publisher;
-    RuntimeSnapshot snapshot{};
-    snapshot.motion_state = MotionState::MOTION;
-    snapshot.movement_metric = 6.5f;
-    snapshot.threshold = 5.0f;
-
-    publisher.log_status("sensor_publisher", snapshot, 25);
-    publisher.log_status("sensor_publisher", snapshot, 25);
-    publisher.reset_rate_counter();
-    publisher.log_status("sensor_publisher", snapshot, 25);
-
-    TEST_ASSERT_TRUE(true);
-}
-
-void test_sensor_publisher_log_status_ignores_null_tag(void) {
-    SensorPublisher publisher;
-    RuntimeSnapshot snapshot{};
-    snapshot.motion_state = MotionState::IDLE;
-
-    publisher.log_status(nullptr, snapshot, 10);
-    TEST_ASSERT_TRUE(true);
-}
-
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_sensor_publisher_publish_motion_binary_only);
     RUN_TEST(test_sensor_publisher_publish_movement_metric_only);
     RUN_TEST(test_sensor_publisher_configuration_helpers);
-    RUN_TEST(test_sensor_publisher_log_status_handles_runtime_snapshot);
-    RUN_TEST(test_sensor_publisher_log_status_ignores_null_tag);
     return UNITY_END();
 }
 

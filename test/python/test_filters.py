@@ -12,7 +12,6 @@ import pytest
 import math
 import numpy as np
 from filters import HampelFilter, LowPassFilter
-from utils import insertion_sort
 
 
 class TestHampelFilterInit:
@@ -56,18 +55,15 @@ class TestHampelFilterBasic:
         """Test that outliers are replaced with median"""
         hf = HampelFilter(window_size=5, threshold=3.0)
         
-        # Fill buffer completely with normal values
-        for v in [10.0, 10.0, 10.0, 10.0, 10.0]:
+        # Keep a non-zero MAD so the filter has an unambiguous replacement.
+        for v in [9.0, 10.0, 11.0, 10.0, 9.5]:
             hf.filter(v)
         
         # Add an extreme outlier - now buffer is full and has stable MAD
         outlier = 1000.0
         result = hf.filter(outlier)
         
-        # Outlier should be replaced with median (10.0)
-        # Note: With constant values MAD=0, so filter may pass through
-        # We need variance in the buffer for MAD-based detection
-        assert result <= outlier  # At minimum, should not increase
+        assert result == pytest.approx(10.0)
     
     def test_first_values_passthrough(self):
         """Test that first few values (count < 3) pass through"""
@@ -189,39 +185,6 @@ class TestHampelFilterCircularBuffer:
         # Buffer should now contain [4, 2, 3] or similar rotated version
         buffer_values = sorted(hf.buffer)
         assert buffer_values == [2.0, 3.0, 4.0]
-
-
-class TestHampelFilterInsertionSort:
-    """Test the internal insertion sort implementation"""
-    
-    def test_sorted_output(self):
-        """Test that insertion sort produces sorted output"""
-        test_array = [5.0, 2.0, 8.0, 1.0, 9.0]
-        insertion_sort(test_array, 5)
-        
-        assert test_array == [1.0, 2.0, 5.0, 8.0, 9.0]
-    
-    def test_already_sorted(self):
-        """Test sorting already sorted array"""
-        test_array = [1.0, 2.0, 3.0, 4.0, 5.0]
-        insertion_sort(test_array, 5)
-        
-        assert test_array == [1.0, 2.0, 3.0, 4.0, 5.0]
-    
-    def test_reverse_sorted(self):
-        """Test sorting reverse sorted array"""
-        test_array = [5.0, 4.0, 3.0, 2.0, 1.0]
-        insertion_sort(test_array, 5)
-        
-        assert test_array == [1.0, 2.0, 3.0, 4.0, 5.0]
-    
-    def test_partial_sort(self):
-        """Test partial array sorting"""
-        test_array = [5.0, 2.0, 8.0, 1.0, 9.0]
-        insertion_sort(test_array, 3)  # Only sort first 3
-        
-        # First 3 should be sorted, rest unchanged
-        assert test_array[:3] == [2.0, 5.0, 8.0]
 
 
 class TestHampelFilterRealWorldScenarios:
@@ -459,4 +422,3 @@ class TestLowPassFilterRealWorld:
         assert filtered[25] < 50.0
         # But not completely removed
         assert filtered[25] > 5.0
-

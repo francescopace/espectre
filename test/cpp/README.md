@@ -37,6 +37,22 @@ The test, coverage, and performance-report launchers use every detected logical 
 
 `test_packet_rate_adaptation` replays 60-second prefixes at 120, 100, and 80 pps, covering the upper, nominal, and lower boundaries of the supported detector cadence without repeating the full high-rate captures.
 
+### Source Ownership
+
+Each contract has one primary unit-test owner. Integration and parity suites consume those contracts without restating their constants or implementation layout.
+
+| Production source | Primary test owner | Separate integration or parity gate |
+|---|---|---|
+| `src/cpp/core/utils.*`, feature helpers, and CSI format helpers | `test_utils`, `test_core_helpers` | `test_motion_detection` only for replay metrics |
+| `src/cpp/core/hampel_filter.*` | `test_hampel_filter` | Detector replay suites run it without duplicating filter expectations |
+| `src/cpp/core/classic_detector.*` | `test_classic_detector` | `test_motion_detection`, `test_long_recordings`, `test_low_rssi`, and `test_empty_rooms` |
+| `src/cpp/core/ml_detector.*` and generated weights | `test_ml_detector` | `test_motion_detection` and `test_long_recordings` |
+| Shared runtime contracts, policies, configuration, CSI pipeline, and protocol | The matching `test_runtime_*`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_*`, or service suite | `test_packet_rate_adaptation` for quantified cadence behavior |
+| Published SDK facade | `test_sdk_surface` | Python `test_sdk_surface_invariants.py` checks facade and documentation registration |
+| ESPHome, Native, and Matter adapters | The matching frontend suite; shared controls stay in `test_frontend_controls` | Full firmware builds validate SDK-specific integration |
+
+Add a regression to the named owner. Create a new suite only for a genuinely new subsystem or an integration boundary with distinct setup and failure semantics.
+
 ### Target Metrics (Motion Detection)
 
 - **Recall**: >95% for all chips (detect motion in motion datasets)
@@ -49,6 +65,7 @@ See [docs/performance](../../docs/performance/README.md) for detailed targets pe
 - `tools/generate_performance_report.py` now depends on the host-side C++ integration suites staying aligned with the published Python replay metrics.
 - The report command configures and builds `test/cpp/build` as `RelWithDebInfo`, runs `test_motion_detection` and `test_long_recordings`, and compares their structured `selection + holdout` aggregate outputs against the Python report data before writing `docs/performance/README.md`. The suites still execute training-role recordings for regression coverage, but omit them from the report parity payload.
 - If the paired or long-recording aggregates drift, the report generation fails and prints the mismatched chip/algorithm/metric entries instead of publishing stale documentation.
+- `test_motion_detection` and `test_long_recordings` are parity metric producers. Their local assertions protect replay accounting and output structure; the numerical promotion targets are owned by `test_validation_real_data.py::TestPerformanceMetrics` and the generated report gate.
 
 ---
 

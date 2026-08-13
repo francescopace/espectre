@@ -359,19 +359,13 @@ def test_cpp_feature_ids_accept_promoted_iqr_and_reject_host_only_candidates():
     with pytest.raises(ValueError, match="no C\\+\\+ extractor id"):
         trainer.resolve_cpp_feature_ids(["turb_mad_over_mean_aggr"])
     with pytest.raises(ValueError, match="no C\\+\\+ extractor id"):
-        trainer.resolve_cpp_feature_ids(["chan_shape_spread"])
+        trainer.resolve_cpp_feature_ids(["chan_shape_scale_curvature"])
 
 
 def test_training_default_is_the_promoted_subband_production_set():
-    assert trainer.TRAINING_FEATURES == [
-        "turb_iqr_over_mean_aggr",
-        "turb_autocorr",
-        "turb_zcr",
-        "l1_delta_lag_ratio",
-        "chan_shape_spread_subband",
-        "chan_shape_coherent_innovation_energy",
-        "chan_shape_excess_path",
-    ]
+    from csi_features import DEFAULT_FEATURES
+
+    assert trainer.TRAINING_FEATURES == DEFAULT_FEATURES
 
 
 def test_in_memory_gate_result_uses_training_metrics():

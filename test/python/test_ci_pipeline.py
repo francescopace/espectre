@@ -346,7 +346,6 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     ci = workflow_sources["ci.yml"]
     snapshot = workflow_sources["snapshot.yml"]
     release = workflow_sources["release.yml"]
-    assert "detect-push-origin" not in ci
     assert "HEAD~1" not in snapshot
     assert "gh release delete" not in snapshot
     assert "git.updateRef" in snapshot and "git.createRef" in snapshot

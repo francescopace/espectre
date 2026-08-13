@@ -82,8 +82,13 @@ output text only when it is a documented user-facing or machine-consumed
 interface, and test stable semantics rather than incidental wording.
 - Keep the Python and `C++` coverage uploads and gates active.
 - Run tests that bind local UDP sockets outside the network sandbox. Treat
-`PermissionError` or `EPERM` during socket setup as a sandbox restriction,
-not evidence that the test should use a different address.
+`PermissionError` or `EPERM` during socket setup as a sandbox restriction,not evidence that the test should use a different address.
+
+- Extend the existing test owner for the changed contract. Do not create a new regression test module when an owning suite exists.
+- Do not duplicate production constants, feature registries, schemas, or performance targets in tests. Prefer parametrizing the owner suite from the canonical source.
+- A production change should not require editing integration or performance gate code unless the public contract or gate deliberately changes.
+- Before editing more than three test files for one logical production change, explain which distinct contracts require those edits. Shared implementation churn is not sufficient justification.
+- Test public results after internal refactors unless the internal property is an explicit memory, timing, reset, safety, or compatibility invariant.
 
 After changing detection or calibration logic, run both parity validations:
 
@@ -287,4 +292,3 @@ trailer; prefer `git commit -s`.
 
 - Do not modify CSI data format without updating both `C++` and Python implementations.
 - Do not modify shared detection/calibration algorithms without keeping `C++` and Python aligned.
-

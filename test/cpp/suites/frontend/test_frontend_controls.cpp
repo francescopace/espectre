@@ -336,49 +336,6 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   TEST_ASSERT_FALSE(calibrate_switch.state);
 }
 
-void test_runtime_fault_callback_handles_null_and_message_paths(void) {
-  ESpectreComponentProbe component;
-  component.setup();
-
-  component.on_runtime_fault(nullptr);
-  component.on_runtime_fault("fault");
-
-  TEST_ASSERT_TRUE(true);
-}
-
-void test_dump_config_covers_configuration_branches(void) {
-  ESpectreComponentProbe component;
-  esphome::sensor::Sensor movement_sensor;
-  esphome::binary_sensor::BinarySensor binary_sensor;
-
-  component.set_movement_sensor(&movement_sensor);
-  component.set_motion_binary_sensor(&binary_sensor);
-  RuntimeSnapshot snapshot{};
-  snapshot.detector_name = "ml";
-  snapshot.threshold = 4.2f;
-  snapshot.startup_threshold = 0.42f;
-  snapshot.ready_to_publish = true;
-  snapshot.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
-  component.runtime_.record_snapshot(snapshot);
-  component.runtime_.config().traffic_generator_rate = 25;
-  component.runtime_.config().traffic_generator_mode = RuntimeTrafficMode::DNS;
-  component.runtime_.config().lowpass_enabled = true;
-  component.runtime_.config().lowpass_cutoff = 7.5f;
-  component.runtime_.config().hampel_enabled = true;
-  component.runtime_.config().hampel_window = 9;
-  component.runtime_.config().hampel_threshold = 4.0f;
-  component.dump_config();
-
-  component.runtime_.config().traffic_generator_rate = 0;
-  component.runtime_.config().lowpass_enabled = false;
-  component.runtime_.config().hampel_enabled = false;
-  snapshot.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
-  component.runtime_.record_snapshot(snapshot);
-  component.dump_config();
-
-  TEST_ASSERT_TRUE(true);
-}
-
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_espectre_component_setup_uses_mock_runtime_snapshot);
@@ -390,8 +347,6 @@ int process(void) {
   RUN_TEST(test_calibrate_switch_behaviors_cover_all_user_paths);
   RUN_TEST(test_detector_select_switches_and_republishes_runtime_state);
   RUN_TEST(test_motion_threshold_and_calibration_callbacks_publish_expected_state);
-  RUN_TEST(test_runtime_fault_callback_handles_null_and_message_paths);
-  RUN_TEST(test_dump_config_covers_configuration_branches);
   return UNITY_END();
 }
 

@@ -15,7 +15,7 @@ every row is data the candidate never trained on.
 
 Usage:
     .venv/bin/python tools/compare_reserved_selection.py --seed 20260519 \
-        --features turb_iqr_over_mean_aggr,turb_autocorr,turb_zcr,l1_delta_autocorr
+        --features turb_iqr_over_mean_aggr,turb_autocorr,turb_zcr,l1_delta_lag_ratio
     .venv/bin/python tools/compare_reserved_selection.py --seed 20260519 --augment \
         --features ...
     .venv/bin/python tools/compare_reserved_selection.py --seed 20260519 --augment base,drift \

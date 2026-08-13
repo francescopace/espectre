@@ -269,9 +269,7 @@ void test_hampel_with_varying_values(void) {
 
 // Compatibility macros for existing test code
 #define static_presence_packets csi_test_data::static_presence_packets()
-#define motion_packets csi_test_data::motion_packets()
 #define num_static_presence csi_test_data::num_static_presence()
-#define num_motion csi_test_data::num_motion()
 #define packet_size csi_test_data::packet_size()
 
 // Using calculate_spatial_turbulence_from_csi from csi_format.h
@@ -316,33 +314,6 @@ void test_hampel_with_real_static_presence_turbulence(void) {
     TEST_ASSERT_TRUE(filtered_var <= raw_var * 1.1f);  // Allow small tolerance
 }
 
-void test_hampel_with_real_motion_turbulence(void) {
-    hampel_turbulence_state_t state;
-    hampel_turbulence_init(&state, 7, 4.0f, true);
-    
-    // Process 100 motion packets
-    float raw_values[100];
-    float filtered_values[100];
-    
-    for (int i = 0; i < 100; i++) {
-        float turb = calculate_spatial_turbulence_from_csi(motion_packets[i], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
-        raw_values[i] = turb;
-        filtered_values[i] = hampel_filter_turbulence(&state, turb);
-    }
-    
-    // Motion should have higher turbulence than static presence
-    float avg_turb = 0.0f;
-    for (int i = 0; i < 100; i++) {
-        avg_turb += filtered_values[i];
-    }
-    avg_turb /= 100;
-    
-    ESP_LOGI(TAG, "Motion average filtered turbulence: %.4f", avg_turb);
-    
-    // Turbulence should be positive
-    TEST_ASSERT_TRUE(avg_turb > 0.0f);
-}
-
 void test_hampel_outlier_detection_on_real_data(void) {
     hampel_turbulence_state_t state;
     hampel_turbulence_init(&state, 7, 3.0f, true);
@@ -368,46 +339,6 @@ void test_hampel_outlier_detection_on_real_data(void) {
     
     TEST_ASSERT_TRUE_MESSAGE(dist_to_normal < dist_to_outlier,
         "Filtered value should be closer to normal than to outlier");
-}
-
-void test_hampel_preserves_motion_signal(void) {
-    hampel_turbulence_state_t state;
-    hampel_turbulence_init(&state, 7, 4.0f, true);
-    
-    // Process mixed static-presence and motion packets
-    float static_presence_filtered[50];
-    float motion_filtered[50];
-    
-    // First 50 static-presence packets
-    for (int i = 0; i < 50; i++) {
-        float turb = calculate_spatial_turbulence_from_csi(static_presence_packets[i], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
-        static_presence_filtered[i] = hampel_filter_turbulence(&state, turb);
-    }
-    
-    // Reset and process motion
-    hampel_turbulence_init(&state, 7, 4.0f, true);
-    for (int i = 0; i < 50; i++) {
-        float turb = calculate_spatial_turbulence_from_csi(motion_packets[i], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
-        motion_filtered[i] = hampel_filter_turbulence(&state, turb);
-    }
-    
-    // Calculate averages
-    float avg_static_presence = 0.0f, avg_motion = 0.0f;
-    for (int i = 10; i < 50; i++) {  // Skip warmup period
-        avg_static_presence += static_presence_filtered[i];
-        avg_motion += motion_filtered[i];
-    }
-    avg_static_presence /= 40;
-    avg_motion /= 40;
-    
-    ESP_LOGI(TAG, "Filtered averages - Static presence: %.4f, Motion: %.4f", 
-             avg_static_presence, avg_motion);
-    
-    // Motion should still have different characteristics than static presence
-    // (filter should not remove the real signal)
-    // Note: This is a weak assertion - the main point is the filter works
-    TEST_ASSERT_TRUE(avg_static_presence > 0.0f);
-    TEST_ASSERT_TRUE(avg_motion > 0.0f);
 }
 
 int process(void) {
@@ -447,9 +378,7 @@ int process(void) {
     
     // Real CSI data tests
     RUN_TEST(test_hampel_with_real_static_presence_turbulence);
-    RUN_TEST(test_hampel_with_real_motion_turbulence);
     RUN_TEST(test_hampel_outlier_detection_on_real_data);
-    RUN_TEST(test_hampel_preserves_motion_signal);
     
     return UNITY_END();
 }

@@ -398,33 +398,7 @@ def run_classic_calibration(static_presence_packets, selected_band, window_size)
 
 class TestHampelFilterRealData:
     """Test Hampel filter with real CSI turbulence data"""
-    
-    def test_hampel_reduces_spikes(self, real_data, default_subcarriers):
-        """Test that Hampel filter reduces turbulence spikes"""
-        static_presence_packets, motion_packets = real_data
-        all_packets = static_presence_packets + motion_packets
-        
-        # Calculate raw turbulence
-        raw_turbulence = []
-        for pkt in all_packets:
-            turb = calculate_spatial_turbulence(
-                pkt['csi_data'],
-                default_subcarriers,
-            )
-            raw_turbulence.append(turb)
-        
-        # Apply Hampel filter
-        hf = HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD)
-        filtered_turbulence = [hf.filter(t) for t in raw_turbulence]
-        
-        # Filtered should have lower max (spikes reduced)
-        raw_max = max(raw_turbulence)
-        filtered_max = max(filtered_turbulence)
-        
-        # If there were spikes, they should be reduced
-        if raw_max > np.mean(raw_turbulence) * 3:
-            assert filtered_max <= raw_max, "Hampel should not increase max value"
-    
+
     def test_hampel_preserves_variance_separation(self, real_data, default_subcarriers):
         """Test that Hampel filter preserves baseline/movement separation"""
         static_presence_packets, motion_packets = real_data

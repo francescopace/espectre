@@ -425,32 +425,6 @@ void test_ml_subcarriers_sorted(void) {
 }
 
 // ============================================================================
-// PERFORMANCE TESTS
-// ============================================================================
-
-void test_ml_inference_performance(void) {
-    const int NUM_ITERATIONS = 1000;
-    
-    TEST_ASSERT_TRUE_MESSAGE(num_test_samples > 0, "No test data loaded");
-    MLDetector detector;
-    
-    // Warm up
-    for (int i = 0; i < 10; i++) {
-        detector.predict(test_features[0].data());
-    }
-    
-    // Benchmark (note: on native platform, not on actual ESP32, so this only
-    // checks that the loop runs; timing would need micros() on device)
-    for (int i = 0; i < NUM_ITERATIONS; i++) {
-        detector.predict(test_features[i % num_test_samples].data());
-    }
-
-    // Just verify it completes without error
-    ESP_LOGI(TEST_TAG, "Completed %d inference iterations", NUM_ITERATIONS);
-    TEST_PASS();
-}
-
-// ============================================================================
 // MAIN
 // ============================================================================
 
@@ -505,9 +479,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ml_subcarriers_count);
     RUN_TEST(test_ml_subcarriers_range);
     RUN_TEST(test_ml_subcarriers_sorted);
-    
-    // Performance tests
-    RUN_TEST(test_ml_inference_performance);
     
     return UNITY_END();
 }

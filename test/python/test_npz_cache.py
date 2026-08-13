@@ -637,16 +637,6 @@ def test_prune_tool_removes_selected_obsolete_artifacts(tmp_path, capsys):
     assert not npz_cache.artifact_dir("idle_baseline").exists()
 
 
-def test_prune_tool_rejects_removed_retention_options(capsys):
-    from tools import prune_npz_cache
-
-    with pytest.raises(SystemExit) as exc_info:
-        prune_npz_cache.main(["--max-age-days", "30"])
-
-    assert exc_info.value.code == 2
-    assert "unrecognized arguments" in capsys.readouterr().err
-
-
 def test_ml_replay_parameters_expose_version_to_derived_caches():
     parameters = npz_cache.ml_replay_row_parameters(
         selected_subcarriers=(1, 2, 3),

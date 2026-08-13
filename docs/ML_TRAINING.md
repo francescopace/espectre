@@ -173,7 +173,7 @@ python tools/train_ml_model.py --augment --shap 500 --seed SEED --no-export
 python tools/train_ml_model.py --augment --ablation-feature FEATURE_OR_JOINT_REMOVAL --seed SEED
 ```
 
-Candidate features live in `tools/lib/candidate_features.py`. They may be selected with `--features`, but they cannot be exported until they have matching Python and C++ runtime implementations and a published feature ID. The superseded full-band `chan_shape_spread` remains available through this host-only path for reproducible comparisons. Use `--evaluate-gates` or `--no-export` while evaluating candidates.
+Candidate features live in `tools/lib/candidate_features.py`. They may be selected with `--features`, but they cannot be exported until they have matching Python and C++ runtime implementations and a published feature ID. Retired candidate evidence remains in `docs/FEATURES.md`; retired implementations are not kept executable solely for historical comparisons. Use `--evaluate-gates` or `--no-export` while evaluating current candidates.
 
 Use leave-one-group-out diagnostics to estimate transfer to unseen rooms or chips:
 

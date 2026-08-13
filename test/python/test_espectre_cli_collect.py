@@ -252,12 +252,6 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
     monkeypatch.setitem(sys.modules, "threshold", fake_threshold)
 
 
-def test_collect_parser_rejects_removed_samples_option() -> None:
-    parser = build_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(["collect", "--samples", "3"])
-
-
 def test_collect_parser_accepts_ready_gate_override() -> None:
     parser = build_parser()
 

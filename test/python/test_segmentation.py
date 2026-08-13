@@ -10,6 +10,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 import pytest
 import numpy as np
+from unittest.mock import MagicMock
 from config import SEGMENTATION_WINDOW_SIZE_MS
 from runtime_policy import derive_detector_timing, nominal_packet_interval_us
 from segmentation import SegmentationContext
@@ -196,6 +197,24 @@ class TestAddTurbulence:
         # last_turbulence should be 5.0 (no normalization)
         assert ctx.last_turbulence == pytest.approx(5.0, rel=1e-6)
 
+    def test_hampel_failure_falls_back_to_raw_value(self, capsys):
+        ctx = SegmentationContext(enable_hampel=True, enable_lowpass=False)
+        ctx.hampel_filter.filter = MagicMock(side_effect=Exception("filter error"))
+
+        ctx.add_turbulence(5.0)
+
+        assert ctx.last_turbulence == 5.0
+        assert "Hampel filter failed: filter error" in capsys.readouterr().out
+
+    def test_lowpass_failure_falls_back_to_raw_value(self, capsys):
+        ctx = SegmentationContext(enable_hampel=False, enable_lowpass=True)
+        ctx.lowpass_filter.filter = MagicMock(side_effect=Exception("filter error"))
+
+        ctx.add_turbulence(5.0)
+
+        assert ctx.last_turbulence == 5.0
+        assert "LowPass filter failed: filter error" in capsys.readouterr().out
+
 
 class TestReset:
     """Test reset functionality"""
@@ -223,6 +242,16 @@ class TestReset:
 
         assert ctx.buffer_count == 0
         assert ctx.last_turbulence == 0.0
+
+    def test_full_reset_clears_filter_state(self):
+        ctx = SegmentationContext(enable_lowpass=True, enable_hampel=True)
+        for value in range(10):
+            ctx.add_turbulence(float(value))
+
+        ctx.reset(full=True)
+
+        assert ctx.lowpass_filter.initialized is False
+        assert ctx.hampel_filter.count == 0
 
 
 class TestHampelIntegration:

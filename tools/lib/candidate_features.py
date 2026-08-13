@@ -34,7 +34,6 @@ from .host_feature_trackers import (
     PHASE_FEATURES,
     PROMOTED_CHANNEL_SHAPE_FEATURES,
     PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES,
-    RETIRED_CHANNEL_SHAPE_FEATURES,
     SPECTRAL_FEATURES,
     SUBBAND_COHERENCE_FEATURES,
     AmplitudeProfileTracker,
@@ -52,7 +51,6 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
     + PHASE_FEATURES
     + CHANNEL_SHAPE_FEATURES
     + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
-    + RETIRED_CHANNEL_SHAPE_FEATURES
     + L1_SERIES_FEATURES
     + tuple(
         name for name in CHANNEL_SHAPE_TRAJECTORY_FEATURES
@@ -94,7 +92,6 @@ def candidate_feature_provider(feature_name: str) -> str:
     shape_features = (
         CHANNEL_SHAPE_FEATURES
         + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
-        + RETIRED_CHANNEL_SHAPE_FEATURES
     )
     if name in shape_features:
         return 'channel_shape'
@@ -209,7 +206,6 @@ def needs_channel_shape(feature_names: Iterable[str]) -> bool:
     return any(
         name in CHANNEL_SHAPE_FEATURES
         or name in PROMOTED_CHANNEL_SHAPE_FEATURES
-        or name in RETIRED_CHANNEL_SHAPE_FEATURES
         or name in COMPOSITE_FEATURES
         for name in feature_names
     )
@@ -399,23 +395,6 @@ def candidate_values(
                     aggregated_q95 = float(np.percentile(aggregated_turbulence, 95))
                 values[name] = aggregated_q95 / aggregated_mean_denom
                 continue
-            if name == 'turb_iqr_over_mean_aggr_detrended':
-                time = np.arange(len(aggregated_turbulence), dtype=np.float64)
-                time -= float(np.mean(time))
-                time_energy = float(np.dot(time, time))
-                slope = (
-                    float(
-                        np.dot(
-                            time,
-                            aggregated_turbulence - aggregated_mean,
-                        )
-                    ) / time_energy
-                    if time_energy > 0.0 else 0.0
-                )
-                residual = aggregated_turbulence - slope * time
-                q25, q75 = np.percentile(residual, [25, 75])
-                values[name] = float(q75 - q25) / aggregated_mean_denom
-                continue
             if name == 'turb_iqr_over_mean_aggr_tone_detrended':
                 if amplitude_profile_tracker is None:
                     raise ValueError(
@@ -452,20 +431,6 @@ def candidate_values(
             values[name] = coherence_tracker.coherence_gap()
         elif name == 'chan_coh_subband_gap_median':
             values[name] = coherence_tracker.coherence_subband_gap_median()
-        elif name == 'l1_delta_autocorr':
-            if l1_deltas is None:
-                raise ValueError(
-                    f"{name} needs the L1-delta series; pass the explicitly "
-                    f"preprocessed stream"
-                )
-            if len(l1_deltas) < 3 or float(np.var(l1_deltas)) < 1e-10:
-                values[name] = 0.0
-            else:
-                centered = l1_deltas - float(np.mean(l1_deltas))
-                values[name] = float(
-                    np.mean(centered[:-1] * centered[1:])
-                    / np.var(l1_deltas)
-                )
         elif name == 'phase_resid_lag_ratio':
             if phase_tracker is None:
                 raise ValueError(
@@ -502,10 +467,6 @@ def candidate_values(
             if shape_tracker is None:
                 raise ValueError(f"{name} needs the channel-shape tracker")
             values[name] = shape_tracker.shape_lag_ratio()
-        elif name == 'chan_shape_spread':
-            if shape_tracker is None:
-                raise ValueError(f"{name} needs the channel-shape tracker")
-            values[name] = shape_tracker.shape_spread()
         elif name == 'chan_shape_spread_ds2':
             if shape_tracker is None:
                 raise ValueError(f"{name} needs the channel-shape tracker")
