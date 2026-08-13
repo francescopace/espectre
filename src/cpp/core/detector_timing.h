@@ -75,7 +75,7 @@ constexpr uint32_t packets_covering_duration(uint32_t duration_us, uint32_t inte
  *
  * The window follows elapsed time. Production feature lags remain fixed at
  * their fitted packet offsets; changing those definitions still requires a
- * Classic refit and an ML retrain.
+ * Lightweight refit and an ML retrain.
  */
 inline DetectorTiming derive_detector_timing(uint32_t interval_us,
                                              uint32_t window_size_ms = DETECTOR_WINDOW_SIZE_MS_DEFAULT) {

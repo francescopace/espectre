@@ -295,7 +295,7 @@
         <article class="scrolly-caption js-scrolly-caption" data-scene="11">
           <div class="scrolly-kicker">Built to embed</div>
           <h2>Your product.<br>Now motion-aware.</h2>
-          <p>ESPectre’s shared C++ core adds local motion sensing to ESP32 products without cameras or dedicated radar hardware. OEMs can choose lightweight Classic when CPU and working memory are tight, or the more accurate ML detector when detection quality is the priority.</p>
+          <p>ESPectre’s shared C++ core adds local motion sensing to ESP32 products without cameras or dedicated radar hardware. OEMs can choose Lightweight Detection when CPU and working memory are tight, or High-Accuracy Detection when detection quality is the priority.</p>
           <div class="scene-ui scene-ui-embedded">
             <span class="scene-ui-dot"></span>
             <span><small>Custom firmware</small><strong>ESPectre runtime active</strong></span>
@@ -392,11 +392,45 @@
           <p>Reuse the C++ core and ESP-IDF runtime while your firmware keeps ownership of boot, networking, UI, and product behavior.</p>
           <ul>
             <li>ESP-IDF 5.1+ and C++17</li>
-            <li>Classic for resource headroom, or ML for higher accuracy</li>
+            <li>Lightweight for resource headroom, or High Accuracy for detection quality</li>
             <li>Reference frontends and public runtime contracts</li>
             <li>GPLv3 or separate commercial licensing</li>
           </ul>
           <a href="#docs" class="btn-secondary">Explore the SDK →</a>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="home-section home-profiles">
+    <div class="home-section-inner">
+      <div class="home-section-head">
+        <span class="home-kicker">TWO PROFILES · ONE LOCAL RUNTIME</span>
+        <h2>Choose what your product needs.</h2>
+        <p>Both profiles run entirely on the ESP32. The choice is how to spend the device’s CPU, memory, startup time, and detection-quality budget.</p>
+      </div>
+      <div class="home-path-grid home-profile-grid">
+        <article class="home-path home-profile home-path-primary">
+          <div class="home-path-top"><span>01</span><span class="home-state">Resource headroom</span></div>
+          <h3>Lightweight Detection</h3>
+          <p>Reserve more CPU time and working memory for connectivity, UI, Matter, OTA, or the rest of your product.</p>
+          <ul>
+            <li>Lower active detector cost</li>
+            <li>Quiet startup calibration</li>
+            <li>No training data required</li>
+          </ul>
+          <a href="/guides/detectors/" class="btn-secondary">Compare profiles →</a>
+        </article>
+        <article class="home-path home-profile">
+          <div class="home-path-top"><span>02</span><span class="home-state">Detection quality</span></div>
+          <h3>High-Accuracy Detection</h3>
+          <p>Spend more feature state and inference work on stronger accuracy and generalization across the maintained corpus.</p>
+          <ul>
+            <li>Higher validated accuracy</li>
+            <li>No threshold calibration</li>
+            <li>Open trained model</li>
+          </ul>
+          <a href="/guides/detectors/" class="btn-secondary">Compare profiles →</a>
         </article>
       </div>
     </div>
@@ -576,7 +610,7 @@
       <section class="panel">
         <h2>Runtime</h2>
         <div class="fields">
-          <div class="field" data-capability="supports_runtime_detector"><label for="cfg-detector">Detector</label><select id="cfg-detector"><option value="classic">Classic</option><option value="ml">ML</option></select></div>
+          <div class="field" data-capability="supports_runtime_detector"><label for="cfg-detector">Detection profile</label><select id="cfg-detector"><option value="lightweight">Lightweight Detection</option><option value="high_accuracy">High-Accuracy Detection</option></select></div>
           <div class="field-row" data-capability="supports_runtime_motion_hits">
             <div class="field"><label for="cfg-motion-on">Motion on hits</label><input type="number" id="cfg-motion-on" min="1" max="20" placeholder="4"></div>
             <div class="field"><label for="cfg-motion-off">Motion off hits</label><input type="number" id="cfg-motion-off" min="1" max="20" placeholder="3"></div>
@@ -592,7 +626,7 @@
           <div class="stat"><div class="stat-label">Protocol</div><div class="stat-value" id="diag-protocol">—</div></div>
           <div class="stat"><div class="stat-label">Firmware</div><div class="stat-value" id="diag-firmware">—</div></div>
           <div class="stat"><div class="stat-label">Chip</div><div class="stat-value" id="diag-chip">—</div></div>
-          <div class="stat"><div class="stat-label">Detector</div><div class="stat-value" id="diag-detector">—</div></div>
+          <div class="stat"><div class="stat-label">Detection profile</div><div class="stat-value" id="diag-detector">—</div></div>
           <div class="stat"><div class="stat-label">Threshold</div><div class="stat-value" id="diag-threshold">—</div></div>
           <div class="stat"><div class="stat-label">Window</div><div class="stat-value" id="diag-window">—</div></div>
           <div class="stat"><div class="stat-label">Low-pass</div><div class="stat-value" id="diag-lowpass">—</div></div>
@@ -802,6 +836,14 @@
 <main class="js-page page-narrow page-article" data-page="guide-detection" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How detection works</span></div>
   <div class="js-static-content" data-content-url="content/guides/detection.html" data-static-url="/guides/detection/">
+    <p class="guide-loading">Loading guide…</p>
+  </div>
+</main>
+
+<!-- ============================== Guide: Detection profiles ============================== -->
+<main class="js-page page-narrow page-article" data-page="guide-detectors" hidden>
+  <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose a detection profile</span></div>
+  <div class="js-static-content" data-content-url="content/guides/detectors.html" data-static-url="/guides/detectors/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>

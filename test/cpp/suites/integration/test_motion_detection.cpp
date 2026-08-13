@@ -1,11 +1,11 @@
 /*
  * ESPectre - Motion Detection Integration Tests
  *
- * Integration tests for Classic and ML motion detection algorithms.
+ * Integration tests for Lightweight and High Accuracy motion detection algorithms.
  * Tests motion detection performance with real CSI data.
  *
  * Test Categories:
- *   1. test_classic_fixed_subcarriers - Classic with fixed production subcarriers
+ *   1. test_classic_fixed_subcarriers - Lightweight with fixed production subcarriers
  *   2. test_ml_detection - ML neural network detection
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -22,9 +22,9 @@
 
 // Include headers from lib/espectre
 #include "utils.h"
-#include "classic_detector.h"
+#include "lightweight_detector.h"
 #include "filters.h"
-#include "ml_detector.h"
+#include "high_accuracy_detector.h"
 #include "runtime_sensing_schema.h"
 #include "threshold.h"
 #include "esphome/core/log.h"
@@ -212,7 +212,7 @@ static void print_summary_table() {
 
     char targets_line[128];
     snprintf(targets_line, sizeof(targets_line),
-             "Targets: Classic >%.0f%% R, <%.1f%% FP | ML >%.0f%% R, <%.1f%% FP",
+             "Targets: Lightweight >%.0f%% R, <%.1f%% FP | ML >%.0f%% R, <%.1f%% FP",
              get_classic_recall_target(), get_classic_fp_rate_target(),
              get_ml_recall_target(), get_ml_fp_rate_target());
     replay_summary::print_dual_detector_summary_table(
@@ -333,7 +333,7 @@ inline uint16_t get_window_size() {
 }
 inline bool get_enable_hampel() { return true; }
 
-// Classic targets
+// Lightweight targets
 inline float get_classic_fp_rate_target() { return 3.0f; }
 inline float get_classic_recall_target() { return 95.0f; }
 inline float get_ml_fp_rate_target() { return 5.0f; }
@@ -343,10 +343,10 @@ void setUp(void) {}
 void tearDown(void) {}
 
 // ============================================================================
-// Test 1: Classic with Fixed Subcarriers (Production Runtime)
+// Test 1: Lightweight with Fixed Subcarriers (Production Runtime)
 // ============================================================================
 // Uses the same startup-calibration flow as the runtime: build the threshold
-// from the Classic probability metric, apply its session adaptation, then warm-clear
+// from the Lightweight probability metric, apply its session adaptation, then warm-clear
 // before evaluation.
 
 void test_classic_fixed_subcarriers(void) {
@@ -358,7 +358,7 @@ void test_classic_fixed_subcarriers(void) {
 
     printf("\n");
     printf("═══════════════════════════════════════════════════════\n");
-    printf("  TEST: Classic with Fixed Subcarriers (Production Runtime)\n");
+    printf("  TEST: Lightweight with Fixed Subcarriers (Production Runtime)\n");
     printf("  Chip: %s, Window: %d\n",
            csi_test_data::chip_name(csi_test_data::current_chip()),
            window_size);
@@ -368,7 +368,7 @@ void test_classic_fixed_subcarriers(void) {
     const uint8_t* default_band = DEFAULT_SUBCARRIERS;
     const uint8_t default_size = 12;
 
-    ClassicDetector detector(window_size, CLASSIC_DEFAULT_THRESHOLD);
+    LightweightDetector detector(window_size, LIGHTWEIGHT_DEFAULT_THRESHOLD);
     detector.configure_lowpass(false);
     detector.configure_hampel(enable_hampel);
 
@@ -376,8 +376,8 @@ void test_classic_fixed_subcarriers(void) {
         num_static_presence,
         static_cast<int>(replay::calibration_packet_count(
             static_presence_metadata(), num_static_presence)));
-    float adaptive_threshold = CLASSIC_DEFAULT_THRESHOLD;
-    const bool calibrated = replay::calibrate_classic_detector(
+    float adaptive_threshold = LIGHTWEIGHT_DEFAULT_THRESHOLD;
+    const bool calibrated = replay::calibrate_lightweight_detector(
         detector,
         calibration_packets,
         static_presence_packets,
@@ -436,7 +436,7 @@ void test_ml_detection(void) {
     printf("  Chip: %s\n", csi_test_data::chip_name(csi_test_data::current_chip()));
     printf("═══════════════════════════════════════════════════════\n\n");
     
-    MLDetector detector(get_window_size(), ML_DEFAULT_THRESHOLD);
+    HighAccuracyDetector detector(get_window_size(), HIGH_ACCURACY_DEFAULT_THRESHOLD);
     detector.configure_hampel(get_enable_hampel());
     
     printf("ML subcarriers: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d] (fixed)\n",

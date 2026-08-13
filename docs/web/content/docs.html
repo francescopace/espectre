@@ -50,10 +50,10 @@
     <div class="docs-section-head">
       <span class="guide-tag">DETECTOR BUDGET</span>
       <h2 id="docs-detectors-title">Choose accuracy or resource headroom.</h2>
-      <p>Classic and ML are both production detectors. Select between them as part of the product's CPU, memory, startup, and detection-quality budget.</p>
+      <p>Lightweight and High Accuracy are both production profiles. Select between them as part of the product's CPU, memory, startup, and detection-quality budget.</p>
     </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Product concern</th><th>Classic</th><th>ML</th></tr></thead>
+      <thead><tr><th>Product concern</th><th>Lightweight</th><th>High Accuracy</th></tr></thead>
       <tbody>
         <tr><td>Runtime cost</td><td>Fewer feature trackers, less working memory, and less per-packet computation</td><td>More feature state and neural-inference work</td></tr>
         <tr><td>Detection quality</td><td>Lower accuracy and cross-environment robustness</td><td>Higher accuracy and stronger generalization on the maintained corpus</td></tr>
@@ -61,7 +61,7 @@
         <tr><td>Typical fit</td><td>Constrained chips or firmware that must reserve resources for other product features</td><td>Products that prioritize detection quality and can afford the additional runtime cost</td></tr>
       </tbody>
     </table></div>
-    <p>Set <code>RuntimeConfig::detection_algorithm</code> before setup. Runtime switching is an optional integration capability; a firmware image that contains both paths may still carry the ML code and weights in flash while Classic is active.</p>
+    <p>Set <code>RuntimeConfig::detection_algorithm</code> to <code>DetectionAlgorithm::LIGHTWEIGHT</code> or <code>DetectionAlgorithm::HIGH_ACCURACY</code> before setup. Runtime switching is an optional integration capability; a firmware image that contains both paths may still carry the ML code and weights in flash while Lightweight is active. See the <a href="/guides/detectors/">detection profile guide</a> for the complete product decision.</p>
   </section>
 
   <section class="docs-section" aria-labelledby="docs-quick-start-title">

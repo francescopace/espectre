@@ -62,7 +62,7 @@
  *   `espectre::RuntimeFrontendController` and `espectre::IRuntimeListener`.
  *   Requires ESP-IDF >= 5.1.
  * - **Core-only.** Your firmware already captures CSI. Drive
- *   `espectre::ClassicDetector` or `espectre::MLDetector` directly; they need
+ *   `espectre::LightweightDetector` or `espectre::HighAccuracyDetector` directly; they need
  *   nothing but the C++17 standard library. `runtime/esp_idf/csi_pipeline.cpp`
  *   is the reference for normalization, evaluation cadence, and hit filtering.
  *
@@ -114,9 +114,9 @@
 
 // Detectors and CSI format. Portable, C++17 standard library only.
 #include "core/base_detector.h"
-#include "core/classic_detector.h"
+#include "core/lightweight_detector.h"
 #include "core/csi_format.h"
-#include "core/ml_detector.h"
+#include "core/high_accuracy_detector.h"
 
 // Runtime contracts. Platform-agnostic and host-testable.
 #include "runtime/firmware_version.h"

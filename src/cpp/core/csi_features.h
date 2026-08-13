@@ -2,7 +2,7 @@
  * ESPectre - Shared Feature Support
  *
  * Shared L1-delta constants plus C++ feature extraction helpers for the
- * production scale-invariant ML feature set, and for the two members Classic
+ * production scale-invariant ML feature set, and for the two members Lightweight
  * reads directly. Every feature is a ratio, a correlation, or a crossing rate:
  * the per-packet CSI scaling factor is never recorded, so anything carrying
  * absolute magnitude carries the link's noise floor with it.

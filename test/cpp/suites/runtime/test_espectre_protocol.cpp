@@ -105,7 +105,7 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   snapshot.motion_state = MotionState::MOTION;
   snapshot.movement_metric = 2.75f;
   snapshot.threshold = 1.5f;
-  snapshot.detector_name = "ml";
+  snapshot.detector_name = "high_accuracy";
 
   const std::string status = espectre_status_payload(config, true, 1234);
   const std::string telemetry = espectre_telemetry_payload(config, snapshot, 222, 33, "native");
@@ -116,7 +116,7 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   TEST_ASSERT_TRUE(telemetry.find("\"frontend\":\"native\"") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"motion_state\":\"motion\"") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"threshold\":1.5") != std::string::npos);
-  TEST_ASSERT_TRUE(telemetry.find("\"detector\":\"ml\"") != std::string::npos);
+  TEST_ASSERT_TRUE(telemetry.find("\"detector\":\"high_accuracy\"") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"uptime\":44") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"free_memory_kb\":128.5") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"loop_time_ms\":6.25") != std::string::npos);
@@ -153,7 +153,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.frontend = "streamer";
   info.firmware_version = "2026.7";
   info.chip = "esp32c6";
-  info.detector = "classic";
+  info.detector = "lightweight";
   info.supports_stats = true;
   info.supports_runtime_threshold = true;
   info.supports_runtime_motion_hits = true;
@@ -180,7 +180,8 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"network\":{") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"ip_address\":\"192.168.1.10\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"channel\":{\"primary\":6}") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"detection\":{\"algorithm\":\"classic\"}") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"detection\":{\"algorithm\":\"lightweight\"}") !=
+                   std::string::npos);
 }
 
 void test_info_payload_omits_optional_sections_when_empty(void) {
@@ -248,11 +249,11 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_EQUAL_UINT8(4U, command.motion_off_hits);
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x-detector\",\"command\":\"set_detector\",\"detector\":\"ml\"}",
+      "{\"command_id\":\"x-detector\",\"command\":\"set_detector\",\"detector\":\"high_accuracy\"}",
       &command,
       &error));
   TEST_ASSERT_TRUE(command.has_detector);
-  TEST_ASSERT_EQUAL_STRING("ml", command.detector.c_str());
+  TEST_ASSERT_EQUAL_STRING("high_accuracy", command.detector.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x3\",\"command\":\"ota_check\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota_check", command.command.c_str());

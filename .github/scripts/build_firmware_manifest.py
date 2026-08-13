@@ -89,7 +89,7 @@ def parse_esphome_asset(filename: str, version_prefix: str) -> dict | None:
         filename,
         version_prefix,
         frontend="esphome",
-        algorithm="classic",
+        algorithm="lightweight",
         supports_ota=False,
     )
 

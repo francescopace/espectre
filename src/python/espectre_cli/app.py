@@ -108,10 +108,10 @@ def _add_collect_parser(
     )
     collect_parser.add_argument(
         "--detector",
-        default="classic",
+        default="lightweight",
         help=(
-            "Detector for collection readiness: classic or ml. "
-            "A comma-separated list is supported for parallel live status only (default: classic)"
+            "Detection profile for collection readiness: lightweight or high_accuracy. "
+            "A comma-separated list is supported for parallel live status only (default: lightweight)"
         ),
     )
     collect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor")

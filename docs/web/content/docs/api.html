@@ -35,7 +35,7 @@
     </a>
   </div>
 
-  <div class="note"><strong>Treat the detector as a product-budget choice.</strong> Classic uses less active CPU and working memory but is less accurate; ML improves accuracy and generalization with additional feature state and inference work. Classic calibrates for up to about 10 seconds at startup, while ML skips threshold calibration and waits only for CSI readiness and feature-window warmup.</div>
+  <div class="note"><strong>Treat the detection profile as a product-budget choice.</strong> Lightweight uses less active CPU and working memory; High Accuracy improves accuracy and generalization with additional feature state and inference work. Lightweight calibrates for up to about 10 seconds at startup, while High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup. See the <a href="/guides/detectors/">profile guide</a>.</div>
 
   <h2>Lifecycle at a glance</h2>
   <div class="pipeline api-lifecycle" aria-label="Runtime lifecycle">

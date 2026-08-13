@@ -1,0 +1,69 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article">
+    <span class="guide-tag">DETECTION PROFILES · 7 MIN READ</span>
+    <h1>Choose your detection profile</h1>
+    <p class="article-lead">Choose Lightweight when sensing must leave resources for the rest of the device. Choose High Accuracy when detection quality and cross-environment generalization matter more.</p>
+
+    <figure>
+      <img src="/assets/images/guides/detection-profiles.webp" alt="An ESP32 receives a Wi-Fi signal and processes it through a short cyan path or a deeper violet neural path before detecting a moving person" width="1672" height="941" loading="eager">
+      <figcaption>One CSI stream, two processing profiles, and the same motion-detection goal.</figcaption>
+    </figure>
+
+    <div class="mini-cards profile-choice-cards">
+      <article>
+        <span class="guide-tag">RESOURCE HEADROOM</span>
+        <h2>Lightweight Detection</h2>
+        <p>Uses fewer feature trackers, less working memory, and less per-packet computation. It adapts its threshold to the room during a quiet startup calibration of up to about ten seconds.</p>
+        <p><code>lightweight</code></p>
+      </article>
+      <article>
+        <span class="guide-tag">DETECTION QUALITY</span>
+        <h2>High-Accuracy Detection</h2>
+        <p>Uses additional feature state and a compact neural network for stronger accuracy and generalization on the maintained corpus. It does not need quiet-room threshold calibration.</p>
+        <p><code>high_accuracy</code></p>
+      </article>
+    </div>
+
+    <h2>The practical difference</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Product concern</th><th>Lightweight</th><th>High Accuracy</th></tr></thead>
+      <tbody>
+        <tr><td>Active runtime cost</td><td>Lower CPU and working-memory use</td><td>More feature state and neural-inference work</td></tr>
+        <tr><td>Detection quality</td><td>Good production baseline, with less cross-environment robustness</td><td>Higher accuracy and stronger generalization on the maintained corpus</td></tr>
+        <tr><td>Startup</td><td>Up to about ten seconds of quiet threshold calibration</td><td>No threshold calibration; waits for CSI and feature-window readiness</td></tr>
+        <tr><td>Training dependency</td><td>No training data needed</td><td>Ships with an open, pre-trained model</td></tr>
+        <tr><td>Typical fit</td><td>Constrained devices or firmware reserving resources for other services</td><td>Products that prioritize detection quality and can afford the additional runtime cost</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="note"><strong>These are resource profiles, not power modes.</strong> The project benchmarks detector CPU and memory separately; it does not claim that selecting a profile produces a measured whole-device energy saving. If both implementations are compiled into one image, Lightweight can reduce active detector work without removing the High Accuracy model and weights from flash.</div>
+
+    <h2>Choose in thirty seconds</h2>
+    <ul class="checklist">
+      <li><strong>Choose Lightweight</strong> when sensing shares a smaller chip with displays, connectivity, Matter, OTA, or other application services.</li>
+      <li><strong>Choose High Accuracy</strong> when false-positive control, transfer across rooms, and detection quality are the priority.</li>
+      <li><strong>Start with Lightweight</strong> when you are unsure, then compare High Accuracy in the installed room if your frontend supports runtime switching.</li>
+      <li><strong>Validate inside the complete product</strong>: placement, packet flow, CPU load, memory headroom, and the surrounding firmware all affect the final choice.</li>
+    </ul>
+
+    <h2>Startup is different</h2>
+    <p>Lightweight observes a quiet room and adapts its threshold to the current session. Keep the room still after boot or when recalibrating, and recalibrate after moving the sensor to a substantially different position.</p>
+    <p>High Accuracy uses the threshold validated with its trained model, so it skips quiet-room threshold calibration. It is not instant: CSI capture still has to become ready, and the feature window still has to fill before detection starts.</p>
+
+    <h2>Consumer and OEM controls</h2>
+    <p>Published ESPHome and Native firmware include both profiles, can switch at runtime, and persist the selection. Matter supports both as build-time choices, publishes Lightweight by default, and does not currently expose a runtime profile control.</p>
+    <p>For ESPHome configuration:</p>
+    <pre class="code"><code>espectre:
+  detection_algorithm: lightweight  # or high_accuracy</code></pre>
+    <p>For an SDK integration:</p>
+    <pre class="code"><code>espectre::RuntimeConfig config;
+config.detection_algorithm = espectre::DetectionAlgorithm::HIGH_ACCURACY;</code></pre>
+    <p>For the shared MQTT command:</p>
+    <pre class="code"><code>{"command":"set_detector","detector":"high_accuracy"}</code></pre>
+
+    <h2>Evidence and deeper reference</h2>
+    <p>The generated <a href="https://github.com/francescopace/espectre/blob/main/docs/performance/README.md" target="_blank" rel="noopener">performance report</a> owns current replay and resource measurements. The <a href="https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md" target="_blank" rel="noopener">algorithm reference</a> documents the feature paths and startup behavior, while the <a href="/guides/detection/">detection guide</a> explains movement score, placement, and tuning.</p>
+  </article>

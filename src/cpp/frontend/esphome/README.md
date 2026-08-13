@@ -26,7 +26,7 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
-Release and snapshot channels publish one full-flash image per supported chip, with `classic` as the initial detector. Both `classic` and `ml` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder compiles and installs updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
+Release and snapshot channels publish one full-flash image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder compiles and installs updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
 
 ## Integration Surface
 
@@ -60,7 +60,7 @@ These options are applied from YAML during firmware configuration. Runtime contr
 | Intensity | `intensity_sensor` | Read-only movement-vs-threshold percent (0–200) |
 | Motion state | `motion_sensor` | Read-only Home Assistant binary sensor |
 | Threshold | `threshold_number` | Writable runtime threshold control |
-| Detector | `detector_select` | Writable, persisted `classic` / `ml` selection |
+| Detection profile | `detector_select` | Writable, persisted `lightweight` / `high_accuracy` selection |
 | Recalibration | `calibrate_switch` | Writable runtime recalibration trigger |
 
 ### Diagnostic Telemetry
@@ -80,14 +80,14 @@ Comparing the three main rates localizes failures: traffic without callbacks poi
 
 The optional `debug_telemetry: true` setting is separate: it enables periodic runtime DEBUG logs with heap, load, and timing metrics, but it is not required for these diagnostic entities or their sampling.
 
-### Detection Algorithm Selection
+### Detection Profile Selection
 
 ```yaml
 wifi:
   band_mode: 2.4GHz  # ESP32-C5: also accepts 5GHz or AUTO
 
 espectre:
-  detection_algorithm: classic  # or ml
+  detection_algorithm: lightweight  # or high_accuracy
 ```
 
 ESPHome owns Wi-Fi association policy through `wifi.band_mode`; it is not an `espectre:` property. On ESP32-C5 it accepts `2.4GHz`, `5GHz`, or `AUTO` and is optional; when omitted, ESPectre follows ESPHome's `AUTO` default. Other supported targets are single-band and remain fixed to 2.4 GHz. ESPectre mirrors the effective ESPHome selection into its runtime and keeps the production sensing contract at HT20 on the selected band. The examples select `2.4GHz` because detection quality on 5 GHz is not yet characterized.
@@ -95,12 +95,12 @@ ESPHome owns Wi-Fi association policy through `wifi.band_mode`; it is not an `es
 Threshold behavior:
 
 - range: `0.0-1.0` for both detectors
-- `classic`: automatic session-adapted startup threshold
-- `ml` default: `0.5`
+- `lightweight`: automatic session-adapted startup threshold
+- `high_accuracy` default: `0.5`
 
-Classic uses less active detector CPU and working memory, making it suitable when the ESPHome node also runs resource-intensive components. ML uses more feature state and inference work but provides higher accuracy and skips Classic's quiet startup calibration of up to about 10 seconds. ML still waits for CSI readiness and its feature window to fill.
+Lightweight Detection uses less active detector CPU and working memory, making it suitable when the ESPHome node also runs resource-intensive components. High-Accuracy Detection uses more feature state and inference work but provides higher accuracy and skips Lightweight's quiet startup calibration of up to about 10 seconds. High Accuracy still waits for CSI readiness and its feature window to fill.
 
-The YAML value is the initial detector when no persisted selection exists. The Home Assistant `detector_select` changes it live and persists the choice across reboot. `ml -> classic` starts calibration automatically, and the `calibrate_switch` reflects automatic and user-triggered calibration state.
+The YAML value is the initial profile when no persisted selection exists. The Home Assistant `detector_select` changes it live and persists the choice across reboot. `high_accuracy -> lightweight` starts calibration automatically, and the `calibrate_switch` reflects automatic and user-triggered calibration state.
 
 See [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for how the two detectors differ and [`TUNING.md`](../../../../docs/TUNING.md) for choosing between them.
 
@@ -108,7 +108,7 @@ See [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for how the two detectors 
 
 ```yaml
 espectre:
-  detection_algorithm: classic
+  detection_algorithm: lightweight
   traffic_generator_rate: 100
   traffic_generator_adaptive: true
   traffic_generator_mode: ping
@@ -127,7 +127,7 @@ espectre:
 | `intensity_sensor` | sensor | `Intensity` | Movement relative to threshold (`min(200, movement / threshold × 100)`); 100% is at threshold |
 | `motion_sensor` | binary_sensor | `Motion Detected` | Edge-driven motion state |
 | `threshold_number` | number | `Threshold` | Runtime probability threshold (0.0–1.0) |
-| `detector_select` | select | `Detector` | Runtime `classic` / `ml` selection |
+| `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
 | `calibrate_switch` | switch | `Calibrate` | Startup recalibration trigger |
 | `diagnostics_button` | button | `Refresh Diagnostics` | Publishes the latest cached diagnostic sample on demand |
 | `traffic_rate_sensor` | sensor | `Traffic TX Rate` | Diagnostic traffic rate |
@@ -260,7 +260,7 @@ For rate recommendations, airtime tradeoffs, and placement guidance, see [`TUNIN
 
 ## Startup Calibration
 
-In `classic` mode, keep the room quiet after boot so the runtime can complete the startup threshold bootstrap; `ml` skips the bootstrap and starts once CSI capture is ready and its feature window has filled. For the startup workflow and budget details, see [`TUNING.md`](../../../../docs/TUNING.md).
+In `lightweight` mode, keep the room quiet after boot so the runtime can complete the startup threshold bootstrap; `high_accuracy` skips the bootstrap and starts once CSI capture is ready and its feature window has filled. For the startup workflow and budget details, see [`TUNING.md`](../../../../docs/TUNING.md).
 
 Runtime recalibration is exposed as the `calibrate_switch` entity in Home Assistant.
 
@@ -345,7 +345,7 @@ The frontend itself does not require a custom partition table.
 
 1. Verify Wi-Fi is connected
 2. Verify traffic generation is active, or provide external traffic
-3. Wait for startup calibration to complete in `classic`
+3. Wait for startup calibration to complete in `lightweight`
 4. Lower the Threshold number entity if the detector is too conservative
 
 ### False positives

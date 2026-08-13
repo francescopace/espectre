@@ -31,6 +31,7 @@ ROUTE_SOURCES = {
     "/guides/setup/": (Path("docs/web/content/guides/setup.html"), STATIC_PAGE_BUILDER),
     "/guides/placement/": (Path("docs/web/content/guides/placement.html"), STATIC_PAGE_BUILDER),
     "/guides/detection/": (Path("docs/web/content/guides/detection.html"), STATIC_PAGE_BUILDER),
+    "/guides/detectors/": (Path("docs/web/content/guides/detectors.html"), STATIC_PAGE_BUILDER),
     "/guides/custom-firmware/": (Path("docs/web/content/guides/firmware.html"), STATIC_PAGE_BUILDER),
     "/docs/": (Path("docs/web/content/docs.html"), STATIC_PAGE_BUILDER),
     "/docs/api/": (Path("docs/web/content/docs/api.html"), STATIC_PAGE_BUILDER),

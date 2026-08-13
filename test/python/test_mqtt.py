@@ -90,7 +90,7 @@ class MockSegmentation:
 
 class MockDetector:
     """Mock IDetector implementation for testing"""
-    ALGORITHM = "classic"
+    ALGORITHM = "lightweight"
     
     def __init__(self):
         self._threshold = 1.0
@@ -100,7 +100,7 @@ class MockDetector:
         self._context = MockSegmentation()
     
     def get_name(self):
-        return "Classic"
+        return "Lightweight"
     
     def get_threshold(self):
         return self._threshold
@@ -232,7 +232,7 @@ class TestMQTTHandler:
         assert payload['motion_state'] == 'idle'
         assert payload['movement_score'] == 0.5
         assert payload['threshold'] == 1.0
-        assert payload['detector'] == 'Classic'
+        assert payload['detector'] == 'lightweight'
         assert payload['health']['uptime_s'] >= 0
         assert 'packets_processed' not in payload
         assert 'packets_dropped' not in payload
@@ -258,7 +258,7 @@ class TestMQTTHandler:
         assert payload['motion_state'] == 'motion'
         assert payload['movement_score'] == 5.0
         assert payload['threshold'] == 1.0
-        assert payload['detector'] == 'Classic'
+        assert payload['detector'] == 'lightweight'
    
     def test_publish_state_error_handling(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
         """Test error handling during publish"""
@@ -682,7 +682,7 @@ class TestMQTTCommands:
         assert 'device' not in payload
         assert 'mqtt' not in payload
         assert 'subcarriers' not in payload
-        assert payload['detection']['algorithm'] == 'Classic'
+        assert payload['detection']['algorithm'] == 'lightweight'
     
     def test_cmd_info_with_connected_wlan(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_global_state):
         """Test info command with connected WLAN"""
@@ -720,7 +720,7 @@ class TestMQTTCommands:
         assert payload['network']['ip_address'] == '192.168.1.100'
         assert payload['network']['mac_address'] == '12:34:56:78:9A:BC'
         assert payload['network']['channel']['primary'] == 6
-        assert payload['detection']['algorithm'] == 'Classic'
+        assert payload['detection']['algorithm'] == 'lightweight'
     
     def test_cmd_info_with_inactive_wlan(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_global_state):
         """Test info command with inactive WLAN"""
@@ -749,17 +749,17 @@ class TestMQTTCommands:
         assert payload['device_name'] == 'ESPectre C6 device'
         assert payload['network']['ip_address'] == ''
         assert payload['network']['mac_address'] == ''
-        assert payload['detection']['algorithm'] == 'Classic'
+        assert payload['detection']['algorithm'] == 'lightweight'
 
-    def test_cmd_info_uses_detector_name_label(self, mock_mqtt_client_instance, mock_config, mock_wlan, mock_global_state):
-        """Test info command reports the detector get_name() label."""
+    def test_cmd_info_uses_detector_algorithm_identifier(self, mock_mqtt_client_instance, mock_config, mock_wlan, mock_global_state):
+        """Test info commands publish the canonical detector identifier."""
         from mqtt.commands import MQTTCommands
 
         class MockNamedDetector(MockDetector):
-            ALGORITHM = "classic"
+            ALGORITHM = "lightweight"
 
             def get_name(self):
-                return "ClassicCustom"
+                return "A custom display name"
 
         commands = MQTTCommands(
             mock_mqtt_client_instance,
@@ -777,4 +777,4 @@ class TestMQTTCommands:
 
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
-        assert payload['detection']['algorithm'] == 'ClassicCustom'
+        assert payload['detection']['algorithm'] == 'lightweight'

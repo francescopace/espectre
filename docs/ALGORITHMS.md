@@ -17,10 +17,10 @@ Terms used throughout this document:
 
 ## Overview
 
-ESPectre detects motion from Wi-Fi CSI by extracting a small, fixed slice of subcarriers, deriving gain-robust scalar signals from those amplitudes, and feeding those signals into either:
+ESPectre detects motion from Wi-Fi CSI by extracting a small, fixed slice of subcarriers, deriving gain-robust scalar signals from those amplitudes, and feeding those signals into either production profile:
 
-- `ClassicDetector`, the default non-ML detector
-- `MLDetector`, the neural detector with a trained probability threshold
+- **Lightweight Detection** (`lightweight`), implemented by `LightweightDetector`, the default non-High-Accuracy detector
+- **High-Accuracy Detection** (`high_accuracy`), implemented by `HighAccuracyDetector`, the neural detector with a trained probability threshold
 
 Representative raw CSI amplitude windows for empty room, static presence, and motion:
 
@@ -30,18 +30,18 @@ The current production detector definition is:
 
 - AGC stays active
 - the shared fixed 12-subcarrier set feeds turbulence and L1 displacement, adjacent live bins feed aggregated turbulence, and channel-shape features read the full 56-bin live band
-- the classic path uses weighted `turb_autocorr + turb_iqr_over_mean_aggr` fusion
-- the classic runtime has no voting branch or legacy low-RSSI blend term
-- the ML path uses the compact seven-feature scale-invariant production set
+- the Lightweight path uses weighted `turb_autocorr + turb_iqr_over_mean_aggr` fusion
+- the Lightweight runtime has no voting branch or legacy low-RSSI blend term
+- the High-Accuracy path uses the compact seven-feature scale-invariant production set
 
-## Why Two Detectors
+## Why Two Detection Profiles
 
-Classic and ML are both production paths because they optimize different constraints.
+Lightweight and High Accuracy are both production paths because they optimize different constraints.
 
-- **Classic minimizes active detector cost.** It uses two scalar feature streams, does not allocate the ML-only L1 and trajectory state, and performs less per-packet work. This leaves more CPU time and working memory for constrained chips or products in which sensing is only one firmware feature. The trade-off is lower accuracy and weaker generalization than ML on the maintained corpus.
-- **ML prioritizes detection quality.** It maintains seven production features and runs a compact neural network, increasing memory and computation while improving accuracy and transfer across recorded environments. Its trained threshold also removes Classic's initial quiet-room calibration.
+- **Lightweight Detection minimizes active detector cost.** Its Lightweight implementation uses two scalar feature streams, does not allocate the ML-only L1 and trajectory state, and performs less per-packet work. This leaves more CPU time and working memory for constrained chips or products in which sensing is only one firmware feature. The trade-off is lower accuracy and weaker generalization than High Accuracy on the maintained corpus.
+- **High-Accuracy Detection prioritizes detection quality.** Its ML implementation maintains seven production features and runs a compact neural network, increasing memory and computation while improving accuracy and transfer across recorded environments. Its trained threshold also removes Lightweight's initial quiet-room calibration.
 
-Classic calibration can take up to about 10 seconds of clean equivalent CSI coverage. ML skips that calibration but still waits for CSI readiness and enough samples to fill its feature window. In images that support runtime detector switching, choosing Classic reduces active working state and per-packet detector work; it does not necessarily remove ML code or weights from flash.
+Lightweight calibration can take up to about 10 seconds of clean equivalent CSI coverage. High Accuracy skips that calibration but still waits for CSI readiness and enough samples to fill its feature window. In images that support runtime profile switching, choosing Lightweight reduces active working state and per-packet detector work; it does not necessarily remove ML code or weights from flash.
 
 ## Processing Pipeline
 
@@ -53,17 +53,17 @@ CSI packet
        -> CV turbulence (std / mean)
        -> optional Hampel / low-pass filtering
   -> 56-bin live complex profile
-       -> Classic aggregated turbulence or ML L1 and trajectory trackers
+       -> Lightweight aggregated turbulence or ML L1 and trajectory trackers
   -> detector-specific metric or feature extraction
   -> thresholded motion state
 ```
 
 At boot:
 
-- `classic` performs startup threshold calibration
-- `ml` starts from its trained default threshold once CSI capture is active and its feature window has filled
+- `lightweight` performs startup threshold calibration
+- `high_accuracy` starts from its trained default threshold once CSI capture is active and its feature window has filled
 
-With the default `1000 ms` detector window, the `classic` startup budget is ten seconds of clean equivalent coverage. At the nominal `100 pps`, that is 1000 packets; at `80 pps`, it is 800. This is a maximum, not a mandatory wait.
+With the default `1000 ms` detector window, the `lightweight` startup budget is ten seconds of clean equivalent coverage. At the nominal `100 pps`, that is 1000 packets; at `80 pps`, it is 800. This is a maximum, not a mandatory wait.
 
 ## Detector Timing
 
@@ -76,7 +76,7 @@ The deployed detector uses a time-relative evaluation cadence and fixed feature 
 | ML L1 profile-displacement lag | 10 packets | `100 ms` |
 | turbulence autocorrelation lag | 1 packet | `10 ms` |
 
-The runtime resolves the window duration from the measured clean CSI cadence, while v3 keeps the ML L1 lag at 10 packets and Classic's `autocorr_lag` at 1. Changing either feature offset requires the owning detector's normal training or refit validation. The supported floor is `80 pps`; below it, detection stays on hold until packet supply recovers. See the [detector-timing ADR](adr/2026-08-10-configure-detector-windows-in-milliseconds.md) for the physical-time window evidence and the fixed-offset decision.
+The runtime resolves the window duration from the measured clean CSI cadence, while v3 keeps the ML L1 lag at 10 packets and Lightweight's `autocorr_lag` at 1. Changing either feature offset requires the owning detector's normal training or refit validation. The supported floor is `80 pps`; below it, detection stays on hold until packet supply recovers. See the [detector-timing ADR](adr/2026-08-10-configure-detector-windows-in-milliseconds.md) for the physical-time window evidence and the fixed-offset decision.
 
 Calibration and steady-state detection share one cadence, so the interceptor that consumes packets during calibration evaluates on the same schedule the detection path does.
 
@@ -166,9 +166,9 @@ Default: disabled
 
 The low-pass stage is a first-order Butterworth IIR filter applied to the turbulence signal before detector evaluation. Use [`TUNING.md`](TUNING.md) for the operational trade-off between false-positive reduction and responsiveness.
 
-## Classic Detector
+## Lightweight Implementation: LightweightDetector
 
-`ClassicDetector` is the production non-ML path. It combines:
+`LightweightDetector` is the production non-ML path. It combines:
 
 - lag-1 autocorrelation of the gain-invariant turbulence stream
 - robust relative IQR of adjacent-bin aggregated turbulence
@@ -182,23 +182,23 @@ Per-packet turbulence is the spatial coefficient of variation:
 t_i = std(A_i) / mean(A_i)
 ```
 
-After Hampel filtering, Classic calculates lag-1 autocorrelation over the turbulence window. This input is invariant under ideal uniform scaling because the coefficient of variation is itself a ratio. The shared `hampel_enabled` setting still controls the turbulence filter in both runtimes, and the same filtered turbulence stream feeds the ML `turb_*` features.
+After Hampel filtering, Lightweight calculates lag-1 autocorrelation over the turbulence window. This input is invariant under ideal uniform scaling because the coefficient of variation is itself a ratio. The shared `hampel_enabled` setting still controls the turbulence filter in both runtimes, and the same filtered turbulence stream feeds the ML `turb_*` features.
 
-Classic does not allocate or update an L1-delta tracker. At the default C++ window, this removes two 90-float delta rings, one `10 x 12` profile ring, two 11-float Hampel buffers, their metadata, and the associated per-packet normalization, displacement, and filtering work. The tracker remains conditional on the exported feature ids in ML, where `l1_delta_lag_ratio` still consumes it.
+Lightweight does not allocate or update an L1-delta tracker. At the default C++ window, this removes two 90-float delta rings, one `10 x 12` profile ring, two 11-float Hampel buffers, their metadata, and the associated per-packet normalization, displacement, and filtering work. The tracker remains conditional on the exported feature ids in ML, where `l1_delta_lag_ratio` still consumes it.
 
 ### Channel Frequency-Coherence Curve Spread
 
-Classic's second input reuses the same `W=5` adjacent-magnitude aggregation as ML. Each selected tone is replaced by the mean amplitude of its five-bin live-band neighborhood, with the DC null skipped and edge windows clamped to bins 4–60. Spatial turbulence is then computed as `std/mean` and filtered into a dedicated ring.
+Lightweight's second input reuses the same `W=5` adjacent-magnitude aggregation as ML. Each selected tone is replaced by the mean amplitude of its five-bin live-band neighborhood, with the DC null skipped and edge windows clamped to bins 4–60. Spatial turbulence is then computed as `std/mean` and filtered into a dedicated ring.
 
 ```text
 turb_iqr_over_mean_aggr = (Q75(x_aggr) - Q25(x_aggr)) / max(abs(mean(x_aggr)), 1e-6)
 ```
 
-The robust spread is dimensionless and gain-invariant. Classic maintains one additional window-sized float ring plus its Hampel and low-pass state, but it no longer extracts complex full-band coherence. The packet magnitude frame is computed once and shared by the normal and aggregated turbulence paths.
+The robust spread is dimensionless and gain-invariant. Lightweight maintains one additional window-sized float ring plus its Hampel and low-pass state, but it no longer extracts complex full-band coherence. The packet magnitude frame is computed once and shared by the normal and aggregated turbulence paths.
 
 ### Weighted Fusion
 
-Classic standardizes `turb_autocorr` and `turb_iqr_over_mean_aggr` with fixed training statistics, applies a two-term linear model, and converts its logit to a probability:
+Lightweight standardizes `turb_autocorr` and `turb_iqr_over_mean_aggr` with fixed training statistics, applies a two-term linear model, and converts its logit to a probability:
 
 ```text
 logit = b + w_ac * z(turb_autocorr) + w_iqr * z(turb_iqr_over_mean_aggr)
@@ -212,7 +212,7 @@ Startup adaptation thresholds this fitted two-feature logit directly. The older 
 
 ### Startup Threshold Calibration
 
-At startup, Classic begins from the validated global probability threshold and shifts its logit using the session's startup `q95` relative to the training idle reference. The shift applies `50%` of the observed session-to-training offset:
+At startup, Lightweight begins from the validated global probability threshold and shifts its logit using the session's startup `q95` relative to the training idle reference. The shift applies `50%` of the observed session-to-training offset:
 
 ```text
 adapted_logit = logit(base_threshold) +
@@ -226,13 +226,13 @@ The settled-level rule cannot create a high threshold. It only ever lowers one a
 
 ### Known Limits
 
-Classic clears the aggregate normal-link recall target on every chip, but C5 and C6 retain the largest false-positive tails, including on long quiet recordings. Weak-link captures remain report-only stress diagnostics. See the generated [performance report](performance/README.md) for current metrics.
+Lightweight clears the aggregate normal-link recall target on every chip, but C5 and C6 retain the largest false-positive tails, including on long quiet recordings. Weak-link captures remain report-only stress diagnostics. See the generated [performance report](performance/README.md) for current metrics.
 
-Use ML where accuracy, quiet-room robustness, or held-out generalization matters more than the additional runtime cost. Use Classic when CPU and working-memory headroom are the stronger product constraint. The active Classic feature-selection record lives in `FEATURES.md`; no additional pair or triplet is approved for export on the current corpus.
+Use High-Accuracy Detection where accuracy, quiet-room robustness, or held-out generalization matters more than the additional runtime cost. Use Lightweight Detection when CPU and working-memory headroom are the stronger product constraint. The active Lightweight feature-selection record lives in `FEATURES.md`; no additional pair or triplet is approved for export on the current corpus.
 
 ### Settled-Level Threshold Recovery
 
-The runtime therefore revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `CLASSIC_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it.
+The runtime therefore revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it.
 
 Three properties make this safe rather than a drift toward the noise floor:
 
@@ -248,12 +248,12 @@ Its limit is the mirror of its safety. A room that grows genuinely noisier after
 
 Current aligned implementations:
 
-- `src/python/micro_espectre/classic_detector.py`
-- `src/cpp/core/classic_detector.*`
+- `src/python/micro_espectre/lightweight_detector.py`
+- `src/cpp/core/lightweight_detector.*`
 
-## ML Detector
+## High-Accuracy Implementation: HighAccuracyDetector
 
-`MLDetector` is the production neural detector. It treats motion detection as a binary classification problem over a sliding window and outputs a probability in the range `0.0-1.0`.
+`HighAccuracyDetector` is the production neural detector. It treats motion detection as a binary classification problem over a sliding window and outputs a probability in the range `0.0-1.0`.
 
 Current threshold:
 
@@ -261,7 +261,7 @@ Current threshold:
 motion if probability > 0.5
 ```
 
-Unlike Classic, ML does not need startup threshold calibration. It can begin detection as soon as CSI is ready and its feature window has filled, rather than spending up to about 10 seconds adapting a threshold to the initial room.
+Unlike Lightweight Detection, High-Accuracy Detection does not need startup threshold calibration. It can begin detection as soon as CSI is ready and its feature window has filled, rather than spending up to about 10 seconds adapting a threshold to the initial room.
 
 ### Current Runtime Topology
 
@@ -292,7 +292,7 @@ The production model consumes these seven scale-invariant inputs, in export orde
 
 Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in [FEATURES.md](FEATURES.md).
 
-The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists when the exported ML feature ids request it, and Classic independently uses the same compact primitive for its promoted second input. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. The final three inputs share one physical-time trajectory tracker: it reduces the live band to eight gain-normalized Hellinger subbands, takes component-wise medians in `80 ms` bins over a one-second path, discards exact consecutive CSI duplicates, and leaves missing bins absent. Subband spread is the participation ratio of motion energy accumulated from adjacent profile differences; coherent innovation measures positive low-order DCT energy after a constant-velocity prediction and high-order noise subtraction; and excess path measures positive two-step path length beyond its chord after the analogous high-order subtraction. Finalized bins retain their orthonormal DCT coefficients instead of their profiles, while the changing current bin is transformed once per extraction. Innovation and excess path remain in mode space because DCT linearity and Parseval's identity preserve their geometry. Subband spread reconstructs only each adjacent eight-component profile difference through the inverse DCT because its per-subband participation ratio is basis-dependent. The runtime feeds the shared tracker the packet arrival timestamp, so packet-rate changes and loss do not redefine the temporal scale. The exported ML model no longer requests the full-band shape-spread tracker, L1-delta autocorrelation, or frequency-coherence curve standard deviation.
+The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists when the exported ML feature ids request it, and Lightweight independently uses the same compact primitive for its promoted second input. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. The final three inputs share one physical-time trajectory tracker: it reduces the live band to eight gain-normalized Hellinger subbands, takes component-wise medians in `80 ms` bins over a one-second path, discards exact consecutive CSI duplicates, and leaves missing bins absent. Subband spread is the participation ratio of motion energy accumulated from adjacent profile differences; coherent innovation measures positive low-order DCT energy after a constant-velocity prediction and high-order noise subtraction; and excess path measures positive two-step path length beyond its chord after the analogous high-order subtraction. Finalized bins retain their orthonormal DCT coefficients instead of their profiles, while the changing current bin is transformed once per extraction. Innovation and excess path remain in mode space because DCT linearity and Parseval's identity preserve their geometry. Subband spread reconstructs only each adjacent eight-component profile difference through the inverse DCT because its per-subband participation ratio is basis-dependent. The runtime feeds the shared tracker the packet arrival timestamp, so packet-rate changes and loss do not redefine the temporal scale. The exported ML model no longer requests the full-band shape-spread tracker, L1-delta autocorrelation, or frequency-coherence curve standard deviation.
 
 ### Inference Flow
 
@@ -316,12 +316,12 @@ The same production feature set is used by:
 
 ## Calibration Summary
 
-| Detector | Threshold | Startup behavior |
+| Detection profile | Threshold | Startup behavior |
 |----------|-----------|------------------|
-| `classic` | automatic, session-adjustable | quiet-logit startup adaptation with motion-first completion and quiet-only fallback |
-| `ml` | trained default, session-adjustable | no threshold calibration; starts once CSI is active and its feature window has filled |
+| `lightweight` | automatic, session-adjustable | quiet-logit startup adaptation with motion-first completion and quiet-only fallback |
+| `high_accuracy` | trained default, session-adjustable | no threshold calibration; starts once CSI is active and its feature window has filled |
 
-Both detectors use the same fixed subcarrier set. Only the detector metric and threshold behavior differ.
+Both profiles use the same fixed subcarrier set. Only the detector metric and threshold behavior differ.
 
 ## References
 

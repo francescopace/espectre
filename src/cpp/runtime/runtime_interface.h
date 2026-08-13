@@ -46,7 +46,7 @@ enum class WifiBandPolicy : uint8_t {
  * Everything the runtime needs to know before `setup()`.
  *
  * Every member is default-constructed to a supported production value, so
- * `RuntimeConfig{}` is a working configuration for the Classic detector on
+ * `RuntimeConfig{}` is a working configuration for Lightweight Detection on
  * internally generated traffic. Override only what your product changes.
  *
  * Ranges are declared in `runtime_sensing_schema.h` as
@@ -68,14 +68,14 @@ struct RuntimeConfig {
    * default preserves the band covered by the production detector corpus.
    */
   WifiBandPolicy wifi_band_policy{WifiBandPolicy::BAND_2G};
-  /** Detector to run. Classic self-calibrates; ML uses the trained weights. */
-  DetectionAlgorithm detection_algorithm{DetectionAlgorithm::CLASSIC};
+  /** Detection profile to run. Lightweight self-calibrates; High Accuracy uses trained weights. */
+  DetectionAlgorithm detection_algorithm{DetectionAlgorithm::LIGHTWEIGHT};
   /**
    * Motion probability threshold, on the same 0..1 scale as
    * `RuntimeSnapshot::movement_metric`.
    *
-   * Classic overwrites this during startup calibration, so the configured
-   * value only governs the pre-calibration window. ML keeps it as given.
+   * Lightweight Detection overwrites this during startup calibration, so the
+   * configured value only governs the pre-calibration window. High-Accuracy Detection keeps it as given.
    */
   float segmentation_threshold{RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT};
   /**

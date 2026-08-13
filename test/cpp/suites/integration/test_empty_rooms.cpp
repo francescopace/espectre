@@ -1,7 +1,7 @@
 /*
  * ESPectre - Empty-Room Integration Test
  *
- * Validates that the production Classic path raises no alarm on recordings
+ * Validates that the production Lightweight path raises no alarm on recordings
  * made with nobody in the room.
  *
  * Empty rooms are the corpus ground truth for "nothing is moving". The
@@ -16,7 +16,7 @@
  */
 #include "test_harness.h"
 
-#include "classic_detector.h"
+#include "lightweight_detector.h"
 #include "csi_replay_metrics.h"
 #include "csi_test_data.h"
 #include "runtime_sensing_schema.h"
@@ -55,7 +55,7 @@ void test_classic_raises_no_alarm_on_empty_room(void) {
 
   const uint16_t window_size = espectre::test::replay::detector_window_packets(
       metadata, empty.num_packets);
-  ClassicDetector detector(window_size, CLASSIC_DEFAULT_THRESHOLD);
+  LightweightDetector detector(window_size, LIGHTWEIGHT_DEFAULT_THRESHOLD);
   detector.configure_lowpass(false);
   detector.configure_hampel(true);
 
@@ -64,7 +64,7 @@ void test_classic_raises_no_alarm_on_empty_room(void) {
       static_cast<int>(espectre::test::replay::calibration_packet_count(
           metadata, empty.num_packets)));
   float adaptive_threshold = 0.0f;
-  const bool calibrated = espectre::test::replay::calibrate_classic_detector(
+  const bool calibrated = espectre::test::replay::calibrate_lightweight_detector(
       detector, calibration_packets, packets, empty.num_packets, rssi, metadata,
       empty.packet_size, DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE,
       adaptive_threshold);
@@ -82,7 +82,7 @@ void test_classic_raises_no_alarm_on_empty_room(void) {
       metrics.static_presence_eval_count > 0
           ? 100.0f * metrics.fp / metrics.static_presence_eval_count
           : 0.0f;
-  printf("Empty room Classic: fp=%.2f%%, effective_alarms=%d, evaluations=%d\n",
+  printf("Empty room Lightweight: fp=%.2f%%, effective_alarms=%d, evaluations=%d\n",
          fp_rate, metrics.effective_alarms, metrics.static_presence_eval_count);
 
   TEST_ASSERT_TRUE(metrics.static_presence_eval_count > 0);
@@ -104,7 +104,7 @@ int process(void) {
   for (int empty_index = 0; empty_index < empty_count; empty_index++) {
     const csi_test_data::ChipType chip = csi_test_data::empty_room_chip(empty_index);
     printf("\n========================================\n");
-    printf("Running empty-room Classic with %s recording\n",
+    printf("Running empty-room Lightweight with %s recording\n",
            csi_test_data::chip_name(chip));
     printf("Recording: %s\n", csi_test_data::empty_room_label(empty_index));
     printf("========================================\n");

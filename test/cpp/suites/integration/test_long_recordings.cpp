@@ -2,7 +2,7 @@
  * ESPectre - C++ Long Recording Tests
  *
  * Runs the same long recordings used by Python validation and prints
- * native Classic and ML metrics for manual comparison.
+ * native Lightweight and High Accuracy metrics for manual comparison.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -18,8 +18,8 @@
 
 #include "csi_format.h"
 #include "utils.h"
-#include "classic_detector.h"
-#include "ml_detector.h"
+#include "lightweight_detector.h"
+#include "high_accuracy_detector.h"
 #include "runtime_sensing_schema.h"
 #include "threshold.h"
 #include "csi_replay_timing.h"
@@ -245,7 +245,7 @@ static LongRunMetrics evaluate_ml_long_recording() {
 
   const uint16_t window_size = replay::detector_window_packets(
       static_presence_metadata(), csi_test_data::num_static_presence());
-  MLDetector detector(window_size, ML_DEFAULT_THRESHOLD);
+  HighAccuracyDetector detector(window_size, HIGH_ACCURACY_DEFAULT_THRESHOLD);
   detector.configure_hampel(true);
   const replay::ReplayMetrics replay_metrics = replay::evaluate_detector(
       detector,
@@ -281,7 +281,7 @@ static LongRunMetrics evaluate_classic_long_recording() {
 
   const uint16_t window_size = replay::detector_window_packets(
       static_presence_metadata(), csi_test_data::num_static_presence());
-  ClassicDetector detector(window_size, CLASSIC_DEFAULT_THRESHOLD);
+  LightweightDetector detector(window_size, LIGHTWEIGHT_DEFAULT_THRESHOLD);
   detector.configure_lowpass(false);
   detector.configure_hampel(true);
 
@@ -289,8 +289,8 @@ static LongRunMetrics evaluate_classic_long_recording() {
                                            static_cast<int>(replay::calibration_packet_count(
                                                static_presence_metadata(),
                                                csi_test_data::num_static_presence())));
-  float calibrated_threshold = CLASSIC_DEFAULT_THRESHOLD;
-  replay::calibrate_classic_detector(
+  float calibrated_threshold = LIGHTWEIGHT_DEFAULT_THRESHOLD;
+  replay::calibrate_lightweight_detector(
       detector,
       calibration_packets,
       csi_test_data::static_presence_packets(),
@@ -391,7 +391,7 @@ void tearDown(void) {}
 void test_long_recording_classic(void) {
   assert_dataset_metadata_is_valid();
   LongRunMetrics actual = evaluate_classic_long_recording();
-  print_metrics("Classic actual", actual);
+  print_metrics("Lightweight actual", actual);
   assert_metrics_are_valid(actual);
   record_result("classic", actual);
 }

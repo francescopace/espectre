@@ -89,7 +89,7 @@ class IRuntimeListener {
   /**
    * Startup calibration began; detection results are not valid yet.
    *
-   * Classic only. ML ships a fixed threshold and completes immediately.
+   * Lightweight only. ML ships a fixed threshold and completes immediately.
    */
   virtual void on_calibration_started(const RuntimeSnapshot &snapshot) {}
   /**

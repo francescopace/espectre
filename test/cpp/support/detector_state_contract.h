@@ -28,7 +28,7 @@ namespace test_support {
  *
  * Regression guard for the divergence where ML kept its last probability here
  * and the runtime published that stale value until the ring refilled, while
- * Classic reported 0 through the very same code path.
+ * Lightweight reported 0 through the very same code path.
  */
 template <typename Detector>
 inline void assert_clear_buffer_drops_evaluation_state(Detector &detector) {

@@ -58,11 +58,11 @@ const char *traffic_mode_name(RuntimeTrafficMode mode) {
 
 const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
   switch (algorithm) {
-    case DetectionAlgorithm::ML:
-      return RUNTIME_DETECTION_ALGORITHM_ML_NAME;
-    case DetectionAlgorithm::CLASSIC:
+    case DetectionAlgorithm::HIGH_ACCURACY:
+      return RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME;
+    case DetectionAlgorithm::LIGHTWEIGHT:
     default:
-      return RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME;
+      return RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME;
   }
 }
 
@@ -81,9 +81,9 @@ RuntimeTrafficMode parse_traffic_mode(const char *mode) {
 }
 
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm) {
-  return (algorithm != nullptr && std::strcmp(algorithm, RUNTIME_DETECTION_ALGORITHM_ML_NAME) == 0)
-             ? DetectionAlgorithm::ML
-             : DetectionAlgorithm::CLASSIC;
+  return (algorithm != nullptr && std::strcmp(algorithm, RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME) == 0)
+             ? DetectionAlgorithm::HIGH_ACCURACY
+             : DetectionAlgorithm::LIGHTWEIGHT;
 }
 
 WifiBandPolicy parse_wifi_band_policy(const char *policy) {

@@ -108,7 +108,7 @@ Every `set*` method validates locally, throws `ESPectreValidationError` on a bad
 | Method | Command | Validation |
 |---|---|---|
 | `setThreshold(value)` | `SET_THRESHOLD` | number in `0.0-1.0` |
-| `setDetector(name)` | `SET_DETECTOR` | `classic` or `ml` |
+| `setDetector(name)` | `SET_DETECTOR` | `lightweight` or `high_accuracy` |
 | `setWifiConfig({ ssid, password, bssid, channel, bandPolicy })` | `SET_WIFI_CONFIG` | `ssid` required; credentials optional; `bandPolicy` is optional `2g`, `5g`, or `auto`; `channel` is 0 (auto) or a matching 20 MHz center; `bssid` is empty or a MAC |
 | `clearWifiConfig()` | `CLEAR_WIFI` | — |
 | `setMqttConfig({ host, port, username, password, topicPrefix })` | `SET_MQTT_CONFIG` | `host` required; `port` 1-65535; credentials optional |

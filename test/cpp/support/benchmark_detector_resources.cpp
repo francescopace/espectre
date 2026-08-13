@@ -3,7 +3,7 @@
 /*
  * ESPectre - Production Detector Resource Benchmark
  *
- * Measures the current C++ Classic and ML detector implementations on the
+ * Measures the current C++ Lightweight and High Accuracy detector implementations on the
  * host. The report generator compiles this support source once per revision,
  * then executes the cached binary for every report so timing is always fresh.
  */
@@ -24,10 +24,10 @@
 #include <string>
 #include <vector>
 
-#include "classic_detector.h"
+#include "lightweight_detector.h"
 #include "csi_format.h"
 #include "detector_limits.h"
-#include "ml_detector.h"
+#include "high_accuracy_detector.h"
 
 namespace allocation_tracker {
 
@@ -252,9 +252,9 @@ void print_detector(const DetectorSummary& summary) {
 int main() {
   const std::vector<Packet> packets = make_packets();
   const DetectorSummary classic =
-      benchmark_detector<espectre::ClassicDetector>("classic", packets);
+      benchmark_detector<espectre::LightweightDetector>("classic", packets);
   const DetectorSummary ml =
-      benchmark_detector<espectre::MLDetector>("ml", packets);
+      benchmark_detector<espectre::HighAccuracyDetector>("ml", packets);
 
   std::cout << std::fixed << std::setprecision(3)
             << "{\n"

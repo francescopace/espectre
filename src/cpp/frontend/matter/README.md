@@ -119,7 +119,7 @@ What is not currently exposed as a Matter configuration surface:
 - an end-user Matter-native workflow for every runtime knob
 - a separate frontend-owned tuning guide beyond the shared [`TUNING.md`](../../../../docs/TUNING.md)
 
-Matter supports both `classic` and `ml` as build-time detector choices. Choose Classic to leave more detector CPU and working memory for the Matter stack or other product work; choose ML for higher detection accuracy, stronger generalization, and startup without Classic's quiet calibration of up to about 10 seconds. ML still waits for CSI readiness and feature-window warmup. The published firmware selects Classic, while a local build can select ML through the shared ESP-IDF sensing configuration. Unlike ESPHome and Native, Matter does not expose runtime detector selection or persist an end-user detector choice.
+Matter supports both `lightweight` and `high_accuracy` as build-time detection profile choices. Choose Lightweight to leave more detector CPU and working memory for the Matter stack or other product work; choose High Accuracy for higher detection accuracy, stronger generalization, and startup without Lightweight's quiet calibration of up to about 10 seconds. High Accuracy still waits for CSI readiness and feature-window warmup. The published firmware selects Lightweight, while a local build can select High Accuracy through the shared ESP-IDF sensing configuration. Unlike ESPHome and Native, Matter does not expose runtime profile selection or persist an end-user choice.
 
 In practice, this frontend is best understood as:
 

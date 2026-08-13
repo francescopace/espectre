@@ -227,7 +227,7 @@ def _ml_feature_source_manifests() -> dict[str, Any]:
         "python_csi_features": python_src_dir() / "csi_features.py",
         "python_device_utils": python_src_dir() / "device_utils.py",
         "python_filters": python_src_dir() / "filters.py",
-        "python_ml_detector": python_src_dir() / "ml_detector.py",
+        "python_high_accuracy_detector": python_src_dir() / "high_accuracy_detector.py",
         "python_ml_feature_trackers": python_src_dir() / "ml_feature_trackers.py",
         "python_runtime_policy": python_src_dir() / "runtime_policy.py",
         "python_segmentation": python_src_dir() / "segmentation.py",
@@ -255,13 +255,13 @@ def _replay_policy_source_manifests() -> dict[str, Any]:
     return manifests
 
 
-def _classic_detector_source_manifests() -> dict[str, Any]:
-    """Return stable identities for the current Classic detector sources."""
+def _lightweight_detector_source_manifests() -> dict[str, Any]:
+    """Return stable identities for the current Lightweight detector sources."""
     manifests: dict[str, Any] = {}
     sources = {
-        "python_classic_detector": python_src_dir() / "classic_detector.py",
-        "cpp_classic_detector_header": cpp_core_dir() / "classic_detector.h",
-        "cpp_classic_detector_impl": cpp_core_dir() / "classic_detector.cpp",
+        "python_lightweight_detector": python_src_dir() / "lightweight_detector.py",
+        "cpp_lightweight_detector_header": cpp_core_dir() / "lightweight_detector.h",
+        "cpp_lightweight_detector_impl": cpp_core_dir() / "lightweight_detector.cpp",
     }
     for name, path in sources.items():
         if path.exists():
@@ -922,7 +922,7 @@ def classic_replay_row_parameters(
     secondary_source: Optional[str | Path] = None,
     replay_provenance: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Return the identity for one time-aware Classic feature-row replay."""
+    """Return the identity for one time-aware Lightweight feature-row replay."""
     parameters: dict[str, Any] = {
         "artifact_version": CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
         "replay_kind": str(replay_kind),
@@ -932,7 +932,7 @@ def classic_replay_row_parameters(
         "replay_interval_us": int(replay_interval_us),
         "warmup_packets": int(warmup_packets),
         "replay_policy_sources": _replay_policy_source_manifests(),
-        "classic_sources": _classic_detector_source_manifests(),
+        "classic_sources": _lightweight_detector_source_manifests(),
     }
     if secondary_source is not None:
         parameters["secondary_source"] = source_manifest(secondary_source)
@@ -1176,7 +1176,7 @@ def load_classic_replay_row_artifact(
     *,
     parameters: Mapping[str, Any],
 ) -> Optional[dict[str, Any]]:
-    """Load one persisted time-aware Classic replay-row artifact."""
+    """Load one persisted time-aware Lightweight replay-row artifact."""
     payload = load_npz_artifact(
         source_path,
         artifact_name="classic_replay_rows",
@@ -1217,7 +1217,7 @@ def save_classic_replay_row_artifact(
     parameters: Mapping[str, Any],
     rows: Mapping[str, Mapping[str, Any]],
 ) -> Path:
-    """Persist one canonical time-aware Classic replay-row artifact."""
+    """Persist one canonical time-aware Lightweight replay-row artifact."""
     payload: dict[str, np.ndarray] = {}
     for phase in ("calibration", "static", "motion"):
         phase_rows = rows.get(phase, {})

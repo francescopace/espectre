@@ -446,8 +446,8 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
     parsed.has_motion_hits = true;
   } else if (parsed.command == "set_detector") {
     parsed.detector = extract_json_string(payload, "detector");
-    if (parsed.detector != RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME &&
-        parsed.detector != RUNTIME_DETECTION_ALGORITHM_ML_NAME) {
+    if (parsed.detector != RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME &&
+        parsed.detector != RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME) {
       if (error != nullptr) {
         *error = "invalid detector";
       }

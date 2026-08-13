@@ -20,9 +20,9 @@
 #include "esp_err.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
-#include "classic_detector.h"
+#include "lightweight_detector.h"
 #include "csi_format.h"
-#include "ml_detector.h"
+#include "high_accuracy_detector.h"
 #include "runtime_config_utils.h"
 #include "runtime_detector_store.h"
 #include "runtime_motion_hits_store.h"
@@ -301,7 +301,7 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
   }
   ESP_LOGI(RUNTIME_TAG, "Detector changed to %s", detection_algorithm_name(algorithm));
 
-  if (algorithm == DetectionAlgorithm::CLASSIC && csi_pipeline_.is_enabled()) {
+  if (algorithm == DetectionAlgorithm::LIGHTWEIGHT && csi_pipeline_.is_enabled()) {
     return start_calibration_();
   }
   return true;
@@ -344,10 +344,10 @@ std::unique_ptr<BaseDetector> EspIdfRuntime::make_detector_(DetectionAlgorithm a
                                                             float threshold,
                                                             uint16_t window_packets) {
   std::unique_ptr<BaseDetector> detector;
-  if (algorithm == DetectionAlgorithm::ML) {
-    detector = std::make_unique<MLDetector>(window_packets, threshold);
-  } else if (algorithm == DetectionAlgorithm::CLASSIC) {
-    detector = std::make_unique<ClassicDetector>(window_packets, threshold);
+  if (algorithm == DetectionAlgorithm::HIGH_ACCURACY) {
+    detector = std::make_unique<HighAccuracyDetector>(window_packets, threshold);
+  } else if (algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
+    detector = std::make_unique<LightweightDetector>(window_packets, threshold);
   }
   if (detector != nullptr) {
     detector->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
@@ -494,8 +494,8 @@ void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t cu
 bool EspIdfRuntime::start_calibration_() {
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
 
-  if (config_.detection_algorithm == DetectionAlgorithm::ML) {
-    const float threshold = runtime_default_threshold(DetectionAlgorithm::ML);
+  if (config_.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY) {
+    const float threshold = runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY);
     if (detector_ != nullptr) {
       detector_->set_threshold(threshold);
     }

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-Micro-ESPectre - Classic Detector
+Micro-ESPectre - Lightweight Detector
 
 Vote-free, two-feature motion detector using turbulence autocorrelation and the
 robust spread of a five-bin aggregated turbulence stream.
@@ -26,10 +26,10 @@ except ImportError:
 _SETTLE_FLOOR = -1e9
 
 
-class ClassicDetector(IDetector):
+class LightweightDetector(IDetector):
     """Weighted ``turb_autocorr + turb_iqr_over_mean_aggr`` detector."""
 
-    ALGORITHM = "classic"
+    ALGORITHM = "lightweight"
     STARTUP_GATE = True
 
     # Grouped, de-overlapped OOF fit, balanced by class/chip/session.
@@ -113,7 +113,7 @@ class ClassicDetector(IDetector):
             return None
         ordered = list(values)
         ordered.sort()
-        return ClassicDetector._quantile_sorted(ordered, quantile)
+        return LightweightDetector._quantile_sorted(ordered, quantile)
 
     @staticmethod
     def _quantile_sorted(ordered, quantile):
@@ -129,7 +129,7 @@ class ClassicDetector(IDetector):
     def process_packet(self, csi_data, selected_subcarriers=None, rssi_dbm=None,
                        timestamp_us=None):
         """Process one CSI packet. ``rssi_dbm`` is accepted for interface parity
-        and ignored: both Classic features are already invariant to link gain."""
+        and ignored: both Lightweight features are already invariant to link gain."""
         self._packet_count += 1
         del timestamp_us
         if selected_subcarriers is None:
@@ -334,7 +334,7 @@ class ClassicDetector(IDetector):
         self._reset_settled_level()
 
     def get_name(self):
-        return "Classic"
+        return "Lightweight"
 
     def get_window_size(self):
         """Return the resolved detector window in samples."""

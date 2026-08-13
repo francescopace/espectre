@@ -47,8 +47,8 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/esp_idf/runtime_frontend_controller.h \
                          src/cpp/runtime/esp_idf/runtime_sensing_kconfig.h \
                          src/cpp/core/base_detector.h \
-                         src/cpp/core/classic_detector.h \
-                         src/cpp/core/ml_detector.h \
+                         src/cpp/core/lightweight_detector.h \
+                         src/cpp/core/high_accuracy_detector.h \
                          src/cpp/core/csi_format.h \
                          src/cpp/core/detector_limits.h \
                          src/cpp/core/filters.h \

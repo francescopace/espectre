@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "classic_detector.h"
+#include "lightweight_detector.h"
 #include "runtime_sensing_schema.h"
 #include "threshold.h"
 #include "csi_replay_timing.h"
@@ -196,8 +196,8 @@ inline void finalize_metrics(ReplayMetrics& metrics) {
                    : 0.0f;
 }
 
-inline bool calibrate_classic_detector(
-    ClassicDetector& detector,
+inline bool calibrate_lightweight_detector(
+    LightweightDetector& detector,
     int calibration_packets,
     const int8_t* const* baseline_packets,
     int num_baseline_packets,
@@ -261,7 +261,7 @@ inline bool calibrate_classic_detector(
   }
 
   if (!calibrator.is_successful()) {
-    out_threshold = CLASSIC_DEFAULT_THRESHOLD;
+    out_threshold = LIGHTWEIGHT_DEFAULT_THRESHOLD;
     return false;
   }
 

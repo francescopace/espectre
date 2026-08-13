@@ -214,9 +214,9 @@ jobs:
       - name: Compile
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            esphome -s git_ref "${{ github.sha }}" -s detection_algorithm classic compile "${{ steps.esphome-config.outputs.config_path }}"
+            esphome -s git_ref "${{ github.sha }}" -s detection_algorithm lightweight compile "${{ steps.esphome-config.outputs.config_path }}"
           else
-            esphome -s detection_algorithm classic compile "${{ steps.esphome-config.outputs.config_path }}"
+            esphome -s detection_algorithm lightweight compile "${{ steps.esphome-config.outputs.config_path }}"
           fi
 
       - name: Locate ESPHome factory image

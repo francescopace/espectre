@@ -3,7 +3,7 @@
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - Detection Methods Comparison
-Compares RSSI, Classic, and ML algorithms
+Compares RSSI, Lightweight, and High Accuracy algorithms
 
 Usage:
     python tools/compare_detection_methods.py              # Use C6 dataset
@@ -54,17 +54,17 @@ from config import (
 )
 from filters import HampelFilter, LowPassFilter
 from threshold import DEFAULT_ADAPTIVE_FACTOR, calculate_startup_threshold_from_max
-from classic_detector import ClassicDetector
+from lightweight_detector import LightweightDetector
 from csi_features import L1_DELTA_STARTUP_THRESHOLD_FACTOR
 
 # Check if ML model is available (production implementation).
 ML_AVAILABLE = False
 try:
-    from ml_detector import MLDetector as ProdMLDetector, ML_DEFAULT_THRESHOLD
+    from high_accuracy_detector import HighAccuracyDetector as ProdHighAccuracyDetector, HIGH_ACCURACY_DEFAULT_THRESHOLD
     ML_AVAILABLE = True
 except ImportError:
-    ProdMLDetector = None
-    ML_DEFAULT_THRESHOLD = None
+    ProdHighAccuracyDetector = None
+    HIGH_ACCURACY_DEFAULT_THRESHOLD = None
 
 # Configuration
 WINDOW_SIZE_MS = SEGMENTATION_WINDOW_SIZE_MS
@@ -222,8 +222,8 @@ def compute_method_results(methods, method_thresholds):
     return results
 
 
-class ClassicDetectorAdapter:
-    """Compatibility wrapper around the production ClassicDetector."""
+class LightweightDetectorAdapter:
+    """Compatibility wrapper around the production LightweightDetector."""
 
     def __init__(
         self,
@@ -233,7 +233,7 @@ class ClassicDetectorAdapter:
         track_data=False,
     ):
         window_size = detector_window_packets(packets, window_size_ms)
-        self._detector = ClassicDetector(
+        self._detector = LightweightDetector(
             window_size=window_size,
             threshold=threshold,
             enable_lowpass=ENABLE_LOWPASS_FILTER,
@@ -282,8 +282,8 @@ class ClassicDetectorAdapter:
         self.state_history = []
 
 
-class MLDetectorAdapter:
-    """Compatibility wrapper around production MLDetector."""
+class HighAccuracyDetectorAdapter:
+    """Compatibility wrapper around production HighAccuracyDetector."""
 
     def __init__(
         self,
@@ -292,9 +292,9 @@ class MLDetectorAdapter:
         track_data=False,
     ):
         window_size = detector_window_packets(packets, window_size_ms)
-        self._detector = ProdMLDetector(
+        self._detector = ProdHighAccuracyDetector(
             window_size=window_size,
-            threshold=ML_DEFAULT_THRESHOLD,
+            threshold=HIGH_ACCURACY_DEFAULT_THRESHOLD,
             enable_lowpass=ENABLE_LOWPASS_FILTER,
             lowpass_cutoff=LOWPASS_CUTOFF,
             enable_hampel=ENABLE_HAMPEL_FILTER,
@@ -352,18 +352,18 @@ def compare_detection_methods(
     """
     Compare different detection methods on same data.
 
-    ``threshold`` is the production-aligned Classic startup threshold
+    ``threshold`` is the production-aligned Lightweight startup threshold
     calibrated from the selected static capture. RSSI calibrates from the same
     static capture using its own adaptive-threshold path.
     Returns metrics for each method.
     """
     methods = {
         'RSSI': {'static_presence': [], 'motion': []},
-        'Classic': {'static_presence': [], 'motion': []},
+        'Lightweight': {'static_presence': [], 'motion': []},
     }
     
     if ML_AVAILABLE:
-        methods['ML'] = {'static_presence': [], 'motion': []}
+        methods['High Accuracy'] = {'static_presence': [], 'motion': []}
     
     timing = {}
     all_packets = list(static_presence_packets) + list(motion_packets)
@@ -381,22 +381,22 @@ def compare_detection_methods(
     
     methods['RSSI']['motion'] = np.array(methods['RSSI']['motion'])
 
-    # Classic static presence and motion (production detector)
+    # Lightweight static presence and motion (production detector)
     start = time.perf_counter()
-    classic_baseline = ClassicDetectorAdapter(
+    classic_baseline = LightweightDetectorAdapter(
         static_presence_packets, window_size, threshold, track_data=True
     )
     for pkt in static_presence_packets:
         classic_baseline.process_packet(pkt)
-    methods['Classic']['static_presence'] = np.array(classic_baseline.metric_history)
-    classic_movement = ClassicDetectorAdapter(
+    methods['Lightweight']['static_presence'] = np.array(classic_baseline.metric_history)
+    classic_movement = LightweightDetectorAdapter(
         motion_packets, window_size, threshold, track_data=True
     )
     for pkt in motion_packets:
         classic_movement.process_packet(pkt)
     classic_time = time.perf_counter() - start
-    timing['Classic'] = (classic_time / num_packets) * 1e6
-    methods['Classic']['motion'] = np.array(classic_movement.metric_history)
+    timing['Lightweight'] = (classic_time / num_packets) * 1e6
+    methods['Lightweight']['motion'] = np.array(classic_movement.metric_history)
     
     # Apply runtime filter chain to simple methods for fair comparison.
     for method_name in ('RSSI',):
@@ -409,38 +409,38 @@ def compare_detection_methods(
         calculate_rssi(pkt['csi_data'])
     timing['RSSI'] = ((time.perf_counter() - start) / num_packets) * 1e6
     
-    # ML detector (if available)
+    # High-Accuracy detector (if available)
     ml_baseline = None
     ml_movement = None
     
     if ML_AVAILABLE:
         start = time.perf_counter()
-        ml_baseline = MLDetectorAdapter(
+        ml_baseline = HighAccuracyDetectorAdapter(
             static_presence_packets, window_size, track_data=True
         )
         for pkt in static_presence_packets:
             ml_baseline.process_packet(pkt)
-        methods['ML']['static_presence'] = np.array(ml_baseline.probability_history)
-        ml_movement = MLDetectorAdapter(
+        methods['High Accuracy']['static_presence'] = np.array(ml_baseline.probability_history)
+        ml_movement = HighAccuracyDetectorAdapter(
             motion_packets, window_size, track_data=True
         )
         for pkt in motion_packets:
             ml_movement.process_packet(pkt)
-        methods['ML']['motion'] = np.array(ml_movement.probability_history)
+        methods['High Accuracy']['motion'] = np.array(ml_movement.probability_history)
         
         ml_time = time.perf_counter() - start
-        timing['ML'] = (ml_time / num_packets) * 1e6
+        timing['High Accuracy'] = (ml_time / num_packets) * 1e6
 
     # Method-specific thresholds.
     method_thresholds = {
         'RSSI': calculate_adaptive_threshold(methods['RSSI']['static_presence']),
-        'Classic': float(threshold) if threshold > 0 else calculate_adaptive_threshold(
-            methods['Classic']['static_presence'],
+        'Lightweight': float(threshold) if threshold > 0 else calculate_adaptive_threshold(
+            methods['Lightweight']['static_presence'],
             auto_factor=L1_DELTA_STARTUP_THRESHOLD_FACTOR,
         ),
     }
-    if ML_AVAILABLE and 'ML' in methods:
-        method_thresholds['ML'] = ML_DEFAULT_THRESHOLD
+    if ML_AVAILABLE and 'High Accuracy' in methods:
+        method_thresholds['High Accuracy'] = HIGH_ACCURACY_DEFAULT_THRESHOLD
 
     results = compute_method_results(methods, method_thresholds)
 
@@ -453,9 +453,9 @@ def plot_comparison(methods, classic_baseline, classic_movement,
                    method_thresholds=None, results=None):
     """Plot comparison of detection methods"""
     # Determine number of rows based on available methods
-    method_names = ['RSSI', 'Classic']
-    if ML_AVAILABLE and 'ML' in methods:
-        method_names.append('ML')
+    method_names = ['RSSI', 'Lightweight']
+    if ML_AVAILABLE and 'High Accuracy' in methods:
+        method_names.append('High Accuracy')
     
     method_thresholds = method_thresholds or {}
     results = results or []
@@ -487,9 +487,9 @@ def plot_comparison(methods, classic_baseline, classic_movement,
         motion_plot_data = motion_data
         ml_static_presence_offset = 0
         ml_motion_offset = 0
-        if method_name == 'ML' and ml_baseline is not None and ml_movement is not None:
-            full_static_presence_len = len(methods['Classic']['static_presence'])
-            full_motion_len = len(methods['Classic']['motion'])
+        if method_name == 'High Accuracy' and ml_baseline is not None and ml_movement is not None:
+            full_static_presence_len = len(methods['Lightweight']['static_presence'])
+            full_motion_len = len(methods['Lightweight']['motion'])
             ml_static_presence_offset = max(0, full_static_presence_len - len(static_presence_data))
             ml_motion_offset = max(0, full_motion_len - len(motion_data))
             static_presence_plot_data = np.concatenate([np.full(ml_static_presence_offset, np.nan), static_presence_data])
@@ -501,9 +501,9 @@ def plot_comparison(methods, classic_baseline, classic_movement,
         time_movement = np.arange(len(motion_plot_data)) / 100.0
         
         # Colors
-        if method_name == 'Classic':
+        if method_name == 'Lightweight':
             color, linewidth, linestyle = 'orange', 1.8, '-'
-        elif method_name == 'ML':
+        elif method_name == 'High Accuracy':
             color, linewidth, linestyle = 'blue', 1.5, '--'
         else:
             color, linewidth, linestyle = 'green', 1.0, '-'
@@ -519,7 +519,7 @@ def plot_comparison(methods, classic_baseline, classic_movement,
         fp = result_by_name.get(method_name, {}).get('fp', 0)
         for i, val in enumerate(static_presence_data):
             if val > method_threshold:
-                start_t = (i + ml_static_presence_offset) / 100.0 if method_name == 'ML' else i / 100.0
+                start_t = (i + ml_static_presence_offset) / 100.0 if method_name == 'High Accuracy' else i / 100.0
                 ax_baseline.axvspan(start_t, start_t + 1/100.0, alpha=0.3, color='red')
         
         # Title
@@ -533,7 +533,7 @@ def plot_comparison(methods, classic_baseline, classic_movement,
         ax_baseline.legend(fontsize=9)
         
         # Border for production detectors
-        if method_name in ('Classic', 'ML'):
+        if method_name in ('Lightweight', 'High Accuracy'):
             for spine in ax_baseline.spines.values():
                 spine.set_edgecolor('green')
                 spine.set_linewidth(3)
@@ -552,7 +552,7 @@ def plot_comparison(methods, classic_baseline, classic_movement,
         tp = result_by_name.get(method_name, {}).get('tp', 0)
         fn = result_by_name.get(method_name, {}).get('fn', len(motion_data))
         for i, val in enumerate(motion_data):
-            start_t = (i + ml_motion_offset) / 100.0 if method_name == 'ML' else i / 100.0
+            start_t = (i + ml_motion_offset) / 100.0 if method_name == 'High Accuracy' else i / 100.0
             if val > method_threshold:
                 ax_movement.axvspan(start_t, start_t + 1/100.0, alpha=0.3, color='green')
             else:
@@ -567,7 +567,7 @@ def plot_comparison(methods, classic_baseline, classic_movement,
         ax_movement.grid(True, alpha=0.3)
         ax_movement.legend(fontsize=9)
         
-        if method_name in ('Classic', 'ML'):
+        if method_name in ('Lightweight', 'High Accuracy'):
             for spine in ax_movement.spines.values():
                 spine.set_edgecolor('green')
                 spine.set_linewidth(3)
@@ -591,14 +591,14 @@ def print_comparison_summary(methods, classic_baseline, classic_movement,
     print("Configuration:")
     print(f"  Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
     print(f"  Window: {WINDOW_SIZE_MS} ms")
-    print(f"  Classic runtime threshold: {threshold}")
+    print(f"  Lightweight runtime threshold: {threshold}")
     if method_thresholds:
         print("  Method thresholds:")
-        for method_name in ['RSSI', 'Classic']:
+        for method_name in ['RSSI', 'Lightweight']:
             if method_name in method_thresholds:
                 print(f"    - {method_name}: {method_thresholds[method_name]:.4f}")
-        if 'ML' in method_thresholds:
-            print(f"    - ML: {method_thresholds['ML']:.4f} (fixed)")
+        if 'High Accuracy' in method_thresholds:
+            print(f"    - High Accuracy: {method_thresholds['High Accuracy']:.4f} (fixed)")
     if ML_AVAILABLE:
         print("  ML Model: Neural Network (9→32→16→1)")
     print()
@@ -623,8 +623,8 @@ def print_comparison_summary(methods, classic_baseline, classic_movement,
     print(f"   - Recall: {best_by_f1['recall']:.1f}%")
     print(f"   - Precision: {best_by_f1['precision']:.1f}%")
     
-    # Production detector comparison (Classic vs ML)
-    prod_results = [r for r in results if r['name'] in ('Classic', 'ML')]
+    # Production detector comparison (Lightweight vs High Accuracy)
+    prod_results = [r for r in results if r['name'] in ('Lightweight', 'High Accuracy')]
 
     print("\n" + "-"*80)
     if len(prod_results) > 1:
@@ -702,11 +702,11 @@ def run_all_chips():
         methods, classic_baseline, classic_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
         result_by_name = {r['name']: r for r in results}
         
-        # Calculate metrics for Classic and ML.
+        # Calculate metrics for Lightweight and High Accuracy.
         num_baseline = len(static_presence_packets)
         num_movement = len(motion_packets)
 
-        classic_res = result_by_name.get('Classic', {'fp': 0, 'tp': 0})
+        classic_res = result_by_name.get('Lightweight', {'fp': 0, 'tp': 0})
         classic_fp = classic_res['fp']
         classic_tp = classic_res['tp']
         classic_recall = classic_tp / num_movement * 100 if num_movement > 0 else 0
@@ -715,7 +715,7 @@ def run_all_chips():
         
         # ML metrics from the trained-default threshold evaluation path
         if ml_baseline and ml_movement:
-            ml_res = result_by_name.get('ML', {'fp': 0, 'tp': 0})
+            ml_res = result_by_name.get('High Accuracy', {'fp': 0, 'tp': 0})
             ml_fp = ml_res['fp']
             ml_tp = ml_res['tp']
             ml_recall = ml_tp / num_movement * 100 if num_movement > 0 else 0
@@ -746,7 +746,7 @@ def run_all_chips():
         num_baseline = r['num_baseline']
         print(f"Context source ({chip}): {r['context_source']}")
         
-        for detector, data in [('Classic', r['classic']), ('ML', r['ml'])]:
+        for detector, data in [('Lightweight', r['classic']), ('High Accuracy', r['ml'])]:
             fp_rate = data['fp'] / num_baseline * 100 if num_baseline > 0 else 0
             # Highlight best detector per chip
             best_f1 = max(r['classic']['f1'], r['ml']['f1'])
@@ -762,7 +762,7 @@ def run_all_chips():
 def main():
     raw_args = sys.argv[1:]
     chip_explicit = '--chip' in raw_args
-    parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, Classic, ML)')
+    parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, Lightweight, High Accuracy)')
     parser.add_argument('--chip', type=str, default='C6', help='Chip type: C6, S3, etc.')
     parser.add_argument('--dataset', type=str, default=None,
                         help='Dataset filename, stem, or dataset id; pair is resolved from metadata')
@@ -781,7 +781,7 @@ def main():
         return
     
     print("\n" + "="*60)
-    print("       Detection Methods Comparison (Classic vs ML)")
+    print("       Detection Methods Comparison (Lightweight vs High Accuracy)")
     print("="*60 + "\n")
     
     chip = args.chip.upper()
@@ -850,7 +850,7 @@ def main():
     print(f"   Static presence: {len(static_presence_packets)} packets")
     print(f"   Motion:          {len(motion_packets)} packets\n")
     print(f"   Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
-    print(f"   Classic runtime threshold: {threshold:.6f}")
+    print(f"   Lightweight runtime threshold: {threshold:.6f}")
     print(f"   Confidence factor: {confidence_factor:.1f}\n")
     
     result = compare_detection_methods(

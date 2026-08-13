@@ -6,7 +6,7 @@
 #
 # Usage:
 #   ./run_all_tests.sh
-#   ./run_all_tests.sh -R test_ml_detector
+#   ./run_all_tests.sh -R test_high_accuracy_detector
 #   ./run_all_tests.sh --build-dir build-debug -- -VV
 #   CTEST_PARALLEL_LEVEL=2 ./run_all_tests.sh
 

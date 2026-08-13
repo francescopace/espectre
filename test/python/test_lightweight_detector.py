@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
-"""Tests for the production weighted Classic detector."""
+"""Tests for the production Lightweight detector."""
 
 import math
 
 import pytest
 
-from classic_detector import ClassicDetector
+from lightweight_detector import LightweightDetector
 from detector_interface import (
     MotionState,
     detector_needs_startup_calibration,
@@ -15,17 +15,17 @@ from detector_interface import (
 )
 
 
-def test_registry_exposes_weighted_classic() -> None:
-    detector = ClassicDetector()
+def test_registry_exposes_lightweight_detector() -> None:
+    detector = LightweightDetector()
 
-    assert load_detector_class("classic") is ClassicDetector
-    assert detector_needs_startup_calibration("classic")
-    assert get_detector_algorithm(detector) == "classic"
-    assert detector.get_name() == "Classic"
+    assert load_detector_class("lightweight") is LightweightDetector
+    assert detector_needs_startup_calibration("lightweight")
+    assert get_detector_algorithm(detector) == "lightweight"
+    assert detector.get_name() == "Lightweight"
 
 
 def test_linear_fusion_uses_exported_center_scale_and_weights() -> None:
-    detector = ClassicDetector()
+    detector = LightweightDetector()
 
     assert detector._calculate_logit(
         detector.FEATURE_CENTER[0],
@@ -40,8 +40,8 @@ def test_linear_fusion_uses_exported_center_scale_and_weights() -> None:
 
 
 def test_hampel_master_switch_controls_turbulence_stream() -> None:
-    enabled = ClassicDetector(enable_hampel=True)
-    disabled = ClassicDetector(enable_hampel=False)
+    enabled = LightweightDetector(enable_hampel=True)
+    disabled = LightweightDetector(enable_hampel=False)
 
     assert enabled._context.hampel_filter is not None
     assert enabled._aggregated_context.hampel_filter is not None
@@ -49,15 +49,15 @@ def test_hampel_master_switch_controls_turbulence_stream() -> None:
     assert disabled._aggregated_context.hampel_filter is None
 
 
-def test_classic_allocates_aggregated_turbulence_state() -> None:
-    detector = ClassicDetector()
+def test_lightweight_allocates_aggregated_turbulence_state() -> None:
+    detector = LightweightDetector()
 
     assert len(detector._aggregated_context.turbulence_buffer) == 100
     assert detector._aggregated_context.buffer_count == 0
 
 
 def test_startup_q95_adapts_probability_threshold() -> None:
-    detector = ClassicDetector()
+    detector = LightweightDetector()
     detector._startup_logits = [-1.0, -0.8, -0.6, -0.4]
 
     detector.set_adaptive_threshold(0.01)
@@ -74,7 +74,7 @@ def test_startup_q95_adapts_probability_threshold() -> None:
 
 
 def test_noisy_startup_still_uses_the_shifted_logit_threshold() -> None:
-    detector = ClassicDetector()
+    detector = LightweightDetector()
     detector._startup_logits = [10.0] * 4
 
     detector.set_adaptive_threshold(0.01)
@@ -92,7 +92,7 @@ def test_noisy_startup_still_uses_the_shifted_logit_threshold() -> None:
 
 
 def test_manual_threshold_uses_probability_scale() -> None:
-    detector = ClassicDetector()
+    detector = LightweightDetector()
 
     assert detector.set_threshold(0.75)
     assert detector.get_threshold() == pytest.approx(0.75)
@@ -101,7 +101,7 @@ def test_manual_threshold_uses_probability_scale() -> None:
 
 
 def test_update_state_uses_weighted_probability(monkeypatch) -> None:
-    detector = ClassicDetector(window_size=20, threshold=0.5)
+    detector = LightweightDetector(window_size=20, threshold=0.5)
     monkeypatch.setattr(detector, "is_ready", lambda: True)
     monkeypatch.setattr(detector, "_turb_autocorr", lambda: detector.FEATURE_CENTER[0])
     monkeypatch.setattr(
@@ -126,7 +126,7 @@ def test_update_state_uses_weighted_probability(monkeypatch) -> None:
 
 
 def test_reset_preserves_threshold_and_clears_feature_state() -> None:
-    detector = ClassicDetector(threshold=0.7)
+    detector = LightweightDetector(threshold=0.7)
     detector._current_probability = 0.9
     detector._startup_logits = [1.0]
 

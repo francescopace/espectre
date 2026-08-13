@@ -13,7 +13,7 @@ import pytest
 
 from tools.lib.repo_paths import generated_data_dir
 
-from ml_detector import predict, ML_METRIC_SCALE
+from high_accuracy_detector import predict, HIGH_ACCURACY_METRIC_SCALE
 from tools.train_ml_model import (
     predict_probabilities_from_arrays,
     render_micropython_weights,
@@ -84,7 +84,7 @@ class TestMLInferenceAccuracy:
         
         for i in range(len(self.features)):
             features = self.features[i].tolist()
-            expected = self.expected_outputs[i] * ML_METRIC_SCALE
+            expected = self.expected_outputs[i] * HIGH_ACCURACY_METRIC_SCALE
             result = predict(features)
             errors.append(abs(result - expected))
         
@@ -106,6 +106,6 @@ class TestMLInferenceAccuracy:
             features = self.features[i].tolist()
             result = predict(features)
             
-            assert 0.0 <= result <= ML_METRIC_SCALE, (
-                f"Sample {i}: output {result} outside [0, {ML_METRIC_SCALE}] range"
+            assert 0.0 <= result <= HIGH_ACCURACY_METRIC_SCALE, (
+                f"Sample {i}: output {result} outside [0, {HIGH_ACCURACY_METRIC_SCALE}] range"
             )

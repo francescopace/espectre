@@ -26,9 +26,9 @@ RESOURCE_BENCHMARK_SOURCE = (
 RESOURCE_BENCHMARK_SOURCES = (
     RESOURCE_BENCHMARK_SOURCE,
     REPO_ROOT / "src" / "cpp" / "core" / "base_detector.cpp",
-    REPO_ROOT / "src" / "cpp" / "core" / "classic_detector.cpp",
+    REPO_ROOT / "src" / "cpp" / "core" / "lightweight_detector.cpp",
     REPO_ROOT / "src" / "cpp" / "core" / "filters.cpp",
-    REPO_ROOT / "src" / "cpp" / "core" / "ml_detector.cpp",
+    REPO_ROOT / "src" / "cpp" / "core" / "high_accuracy_detector.cpp",
 )
 def _compiler() -> str:
     compiler = os.environ.get("CXX") or shutil.which("c++")
@@ -127,9 +127,9 @@ def _metrics_from_counts(tp: int, fn: int, fp: int, tn: int) -> dict[str, float]
 
 
 def compute_reserved_augmentation_diagnostic() -> Optional[dict[str, Any]]:
-    """Evaluate Classic and ML on one shared two-seed reserved stress corpus."""
+    """Evaluate Lightweight and High Accuracy on one shared two-seed reserved stress corpus."""
     from config import DEFAULT_SUBCARRIERS
-    from ml_detector import FEATURE_NAMES
+    from high_accuracy_detector import FEATURE_NAMES
     from tools.lib.csi_io import load_npz_packet_view
     from tools.lib.performance_report import (
         _compute_ml_row_result,
@@ -255,9 +255,9 @@ def collect_extended_report_inputs(
         Path(__file__),
         REPO_ROOT / "tools" / "train_ml_model.py",
         REPO_ROOT / "tools" / "lib" / "performance_report.py",
-        REPO_ROOT / "src" / "python" / "micro_espectre" / "classic_detector.py",
+        REPO_ROOT / "src" / "python" / "micro_espectre" / "lightweight_detector.py",
         REPO_ROOT / "src" / "python" / "micro_espectre" / "csi_features.py",
-        REPO_ROOT / "src" / "python" / "micro_espectre" / "ml_detector.py",
+        REPO_ROOT / "src" / "python" / "micro_espectre" / "high_accuracy_detector.py",
     )
     augmentation_parameters = npz_cache.performance_report_result_parameters(
         kind="reserved_augmentation_diagnostic",

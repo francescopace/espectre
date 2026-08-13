@@ -65,9 +65,9 @@
 
     <h2>Step 4 — Let it calibrate, then test</h2>
     <ul class="checklist">
-      <li>Published firmware defaults to Classic. After joining Wi-Fi, it calibrates its quiet threshold for up to about ten seconds: keep the room still, then move normally. ML skips this threshold calibration but still waits for its feature window to fill.</li>
+      <li>Published firmware defaults to Lightweight Detection. After joining Wi-Fi, it calibrates its quiet threshold for up to about ten seconds: keep the room still, then move normally. High-Accuracy Detection skips this threshold calibration but still waits for its feature window to fill.</li>
       <li>Wave an arm a few meters from the board: the motion state should turn active within about a second and clear shortly after you stop.</li>
-      <li>If you later move a Classic device to another room or position, trigger a recalibration (Home Assistant switch, Configure page, or just power-cycle it).</li>
+      <li>If you later move a Lightweight device to another room or position, trigger a recalibration (Home Assistant switch, Configure page, or just power-cycle it).</li>
     </ul>
     <div class="note">The movement level is a 0.0–1.0 score specific to your room. If the sensor is too eager or too lazy, adjust the threshold slightly instead of expecting one universal value: the <a href="/guides/detection/">detection guide</a> explains what the numbers mean.</div>
 
@@ -78,7 +78,7 @@
       <article><h3>Device will not join Wi-Fi</h3><ul><li>Confirm that the selected band is available. Configure exposes 5&nbsp;GHz and automatic selection only on capable ESP32-C5 devices, and a band change requires a restart.</li><li>Re-enter the exact SSID and password: both are case-sensitive.</li><li>Move the board closer to the access point for the first join.</li></ul></article>
       <article><h3>Matter commissioning times out</h3><ul><li>Keep the phone within a meter of the board while pairing.</li><li>Make sure the phone's Bluetooth is on and the board is powered.</li><li>Power-cycle the board to reopen the commissioning window, then retry.</li></ul></article>
       <article><h3>Native MQTT or Home Assistant discovery is missing</h3><ul><li>Check broker host, port, and credentials in <a href="/#configure">Configure</a>.</li><li>Confirm Home Assistant and the device use the same broker.</li><li>Use the <a href="/#monitor">Monitor</a> to verify telemetry; discovery config should also appear as retained topics under <code>homeassistant/</code>.</li></ul></article>
-      <article><h3>Motion triggers with nobody there</h3><ul><li>With Classic, recalibrate with the room genuinely empty and still.</li><li>Raise the threshold a little.</li><li>Check for fans, curtains moving in airflow, or pets: the sensor sees them too.</li></ul></article>
+      <article><h3>Motion triggers with nobody there</h3><ul><li>With Lightweight, recalibrate with the room genuinely empty and still.</li><li>Raise the threshold a little.</li><li>Check for fans, curtains moving in airflow, or pets: the sensor sees them too.</li></ul></article>
     </div>
 
     <h2>CLI flashing (fallback)</h2>
@@ -89,6 +89,7 @@
 
     <h2>Next steps</h2>
     <ul class="checklist">
+      <li>Choose Lightweight or High Accuracy: <a href="/guides/detectors/">Detection profiles</a>.</li>
       <li>Understand and tune the score: <a href="/guides/detection/">How detection works</a>.</li>
       <li>Pick a better board or antenna: <a href="/guides/hardware/">Hardware guide</a>.</li>
       <li>Build your own firmware or embed the engine: <a href="/guides/custom-firmware/">Custom firmware</a>.</li>

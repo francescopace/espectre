@@ -28,7 +28,7 @@ The normal and aggregated streams share one packet-wide magnitude frame. Each st
 The reproducible export command is:
 
 ```bash
-.venv/bin/python tools/fit_classic_detector.py --fp-target 1.0 --centered-threshold-logit 1.8 --apply --quiet
+.venv/bin/python tools/fit_lightweight_detector.py --fp-target 1.0 --centered-threshold-logit 1.8 --apply --quiet
 ```
 
 The offset-4/12 coherence extractor, the normal-IQR alternative, ZCR, and other rejected candidates remain host-only under `tools/`. Production C++ and MicroPython contain only features consumed by Classic or ML.

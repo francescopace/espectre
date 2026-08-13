@@ -32,7 +32,7 @@ from tools.lib.dataset_metadata import (
     resolve_explicit_pair,
     select_dataset_interactively,
 )
-from classic_detector import ClassicDetector
+from lightweight_detector import LightweightDetector
 from config import (
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
@@ -105,14 +105,14 @@ def _evaluate_classic_configuration(
     window_size_ms,
 ):
     """
-    Evaluate one ClassicDetector configuration without resetting between phases.
+    Evaluate one LightweightDetector configuration without resetting between phases.
 
     This mirrors the runtime warm-buffer behavior: the quiet baseline fills the
     detector state, then the motion packets are evaluated immediately after.
     Scoring uses the production evaluation cadence.
     """
     window_size = detector_window_packets(static_presence_packets, window_size_ms)
-    detector = ClassicDetector(
+    detector = LightweightDetector(
         window_size=window_size,
         threshold=threshold,
         enable_lowpass=ENABLE_LOWPASS_FILTER,
@@ -164,7 +164,7 @@ def load_dataset(chip="C6", dataset=None, interactive=False):
 
 
 def test_parameter_grid(static_presence_packets, motion_packets, quick=False):
-    """Test Classic threshold/window-size combinations on fixed production subcarriers."""
+    """Test Lightweight threshold/window-size combinations on fixed production subcarriers."""
     thresholds = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8] if not quick else [0.4, 0.5, 0.6]
     window_sizes_ms = [1000, 1250, 1500, 2000] if not quick else [SEGMENTATION_WINDOW_SIZE_MS]
 
@@ -172,7 +172,7 @@ def test_parameter_grid(static_presence_packets, motion_packets, quick=False):
     total_tests = len(thresholds) * len(window_sizes_ms)
     test_count = 0
 
-    print(f"Testing {total_tests} Classic detector configurations...")
+    print(f"Testing {total_tests} Lightweight detector configurations...")
     print("Progress: ", end="", flush=True)
 
     for window_size_ms in window_sizes_ms:
@@ -329,7 +329,7 @@ def print_top_results(results, num_sc, top_n=20):
 def main():
     raw_args = __import__("sys").argv[1:]
     chip_explicit = "--chip" in raw_args
-    parser = argparse.ArgumentParser(description="Grid search for Classic detector parameters on the fixed production band")
+    parser = argparse.ArgumentParser(description="Grid search for Lightweight detector parameters on the fixed production band")
     parser.add_argument("--quick", action="store_true", help="Quick mode (fewer tests)")
     parser.add_argument("--chip", type=str, default="C6", help="Chip type to use: C6, S3, etc. (default: C6)")
     parser.add_argument("--dataset", type=str, default=None,
@@ -340,7 +340,7 @@ def main():
 
     print("")
     print("=" * 60)
-    print("        Classic Detector Parameter Grid Search")
+    print("        Lightweight Detector Parameter Grid Search")
     print("=" * 60)
     if args.quick:
         print("\nQUICK MODE: Testing reduced parameter space")

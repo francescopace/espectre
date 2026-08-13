@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <cstring>
 #include "lwip/inet.h"
-#include "classic_detector.h"
+#include "lightweight_detector.h"
 #include "csi_pipeline.h"
 #include "utils.h"
 #include "wifi_csi_interface.h"
@@ -87,7 +87,7 @@ static void fill_valid_csi_info_(wifi_csi_info_t* csi_info, int8_t* csi_buf, uin
   csi_info->buf = csi_buf;
   csi_info->len = 128;
   csi_info->rx_ctrl.channel = channel;
-  // HT20 sensing contract: Classic/ML drop non-HT20 frames in the pipeline.
+  // HT20 sensing contract: Lightweight/High Accuracy drop non-HT20 frames in the pipeline.
   csi_info->rx_ctrl.sig_mode = 1;
   csi_info->rx_ctrl.cwb = 0;
 }
@@ -157,7 +157,7 @@ void tearDown(void) {
 // ============================================================================
 
 void test_csi_pipeline_init(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
@@ -171,7 +171,7 @@ void test_csi_pipeline_init(void) {
 // ============================================================================
 
 void test_csi_pipeline_enable(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -183,7 +183,7 @@ void test_csi_pipeline_enable(void) {
 }
 
 void test_csi_pipeline_enable_twice_returns_ok(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -195,7 +195,7 @@ void test_csi_pipeline_enable_twice_returns_ok(void) {
 }
 
 void test_csi_pipeline_disable(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -241,7 +241,7 @@ void test_csi_pipeline_disable_preserves_stable_callbacks_for_reenable(void) {
 }
 
 void test_csi_pipeline_disable_when_not_enabled(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -256,7 +256,7 @@ void test_csi_pipeline_disable_when_not_enabled(void) {
 // ============================================================================
 
 void test_csi_pipeline_set_threshold(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -270,7 +270,7 @@ void test_csi_pipeline_set_threshold(void) {
 // ============================================================================
 
 void test_csi_pipeline_process_packet_null_data(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -280,7 +280,7 @@ void test_csi_pipeline_process_packet_null_data(void) {
 }
 
 void test_csi_pipeline_process_packet_short_data(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -295,7 +295,7 @@ void test_csi_pipeline_process_packet_short_data(void) {
 }
 
 void test_csi_pipeline_counts_valid_local_packets_for_traffic_feedback(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
 
@@ -312,7 +312,7 @@ void test_csi_pipeline_counts_valid_local_packets_for_traffic_feedback(void) {
 }
 
 void test_csi_pipeline_process_packet_valid_data(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -327,7 +327,7 @@ void test_csi_pipeline_process_packet_valid_data(void) {
 }
 
 void test_csi_pipeline_holds_detector_below_supported_packet_rate(void) {
-    ClassicDetector detector(80, 1.0f);
+    LightweightDetector detector(80, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
 
@@ -351,7 +351,7 @@ void test_csi_pipeline_holds_detector_below_supported_packet_rate(void) {
 }
 
 void test_csi_pipeline_filters_duplicate_and_stale_rx_timestamps(void) {
-    ClassicDetector detector(10, 1.0f);
+    LightweightDetector detector(10, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
 
@@ -375,7 +375,7 @@ void test_csi_pipeline_filters_duplicate_and_stale_rx_timestamps(void) {
 }
 
 void test_csi_pipeline_accepts_rx_timestamp_wrap(void) {
-    ClassicDetector detector(10, 1.0f);
+    LightweightDetector detector(10, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
 
@@ -395,7 +395,7 @@ void test_csi_pipeline_accepts_rx_timestamp_wrap(void) {
 }
 
 void test_csi_pipeline_filters_non_ht20_phy(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
 
@@ -781,7 +781,7 @@ void test_csi_pipeline_live_telemetry_callback_does_not_force_every_packet_evalu
 // ============================================================================
 
 void test_csi_pipeline_process_stbc_256_byte_packet(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -805,7 +805,7 @@ void test_csi_pipeline_process_stbc_256_byte_packet(void) {
 }
 
 void test_csi_pipeline_process_short_ht_114_byte_packet(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
 
@@ -828,7 +828,7 @@ void test_csi_pipeline_process_short_ht_114_byte_packet(void) {
 }
 
 void test_csi_pipeline_process_double_short_ht_228_byte_packet(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
 
@@ -852,7 +852,7 @@ void test_csi_pipeline_process_double_short_ht_228_byte_packet(void) {
 }
 
 void test_csi_pipeline_process_wrong_length_filtered(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -875,7 +875,7 @@ void test_csi_pipeline_process_wrong_length_filtered(void) {
 // ============================================================================
 
 void test_csi_pipeline_enable_config_error(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -888,7 +888,7 @@ void test_csi_pipeline_enable_config_error(void) {
 }
 
 void test_csi_pipeline_enable_callback_error(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -901,7 +901,7 @@ void test_csi_pipeline_enable_callback_error(void) {
 }
 
 void test_csi_pipeline_enable_csi_error(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -914,7 +914,7 @@ void test_csi_pipeline_enable_csi_error(void) {
 }
 
 void test_csi_pipeline_disable_error(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -932,7 +932,7 @@ void test_csi_pipeline_disable_error(void) {
 // ============================================================================
 
 void test_csi_pipeline_callback_wrapper_triggered(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -948,7 +948,7 @@ void test_csi_pipeline_callback_wrapper_triggered(void) {
 }
 
 void test_csi_pipeline_callback_wrapper_null_data(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -966,7 +966,7 @@ void test_csi_pipeline_callback_wrapper_null_data(void) {
 // ============================================================================
 
 void test_csi_pipeline_clear_detector_buffer(void) {
-    ClassicDetector detector(50, 1.0f);
+    LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     
@@ -987,7 +987,7 @@ void test_csi_pipeline_clear_detector_buffer(void) {
 }
 
 void test_csi_pipeline_aggregates_detection_timing_on_evaluation_ticks(void) {
-    ClassicDetector detector(10, 1.0f);
+    LightweightDetector detector(10, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
     manager.set_evaluation_interval_ms(TEST_EVALUATION_INTERVAL_MS);
@@ -1022,7 +1022,7 @@ void test_csi_pipeline_aggregates_detection_timing_on_evaluation_ticks(void) {
 // ============================================================================
 
 void test_csi_pipeline_filters_unicast_frames_for_other_device(void) {
-    ClassicDetector detector(10, 1.0f);
+    LightweightDetector detector(10, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
 

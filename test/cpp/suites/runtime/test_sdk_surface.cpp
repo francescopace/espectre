@@ -68,7 +68,7 @@ void test_default_runtime_config_is_a_working_sensing_config(void) {
   TEST_ASSERT_EQUAL(static_cast<int>(RuntimeProfile::SENSING), static_cast<int>(config.runtime_profile));
   TEST_ASSERT_EQUAL(static_cast<int>(WifiBandPolicy::BAND_2G),
                     static_cast<int>(config.wifi_band_policy));
-  TEST_ASSERT_EQUAL(static_cast<int>(DetectionAlgorithm::CLASSIC),
+  TEST_ASSERT_EQUAL(static_cast<int>(DetectionAlgorithm::LIGHTWEIGHT),
                     static_cast<int>(config.detection_algorithm));
   TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::INTERNAL), static_cast<int>(config.csi_traffic_mode));
   TEST_ASSERT_TRUE(runtime_detection_algorithm_valid(config.detection_algorithm));
@@ -117,9 +117,9 @@ void test_documented_defaults_sit_inside_documented_ranges(void) {
   // Per-detector defaults have to be acceptable to the per-detector validator,
   // or selecting a detector would immediately produce an invalid threshold.
   TEST_ASSERT_TRUE(validate_runtime_threshold_for_algorithm(
-      runtime_default_threshold(DetectionAlgorithm::CLASSIC), DetectionAlgorithm::CLASSIC));
+      runtime_default_threshold(DetectionAlgorithm::LIGHTWEIGHT), DetectionAlgorithm::LIGHTWEIGHT));
   TEST_ASSERT_TRUE(validate_runtime_threshold_for_algorithm(
-      runtime_default_threshold(DetectionAlgorithm::ML), DetectionAlgorithm::ML));
+      runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY), DetectionAlgorithm::HIGH_ACCURACY));
 }
 
 void test_default_snapshot_is_not_publishable(void) {
@@ -172,28 +172,28 @@ void test_listener_callbacks_default_to_no_ops(void) {
 void test_detector_names_round_trip_through_the_protocol_form(void) {
   // RuntimeSnapshot::detector_name is documented as the protocol name that
   // parse_detection_algorithm() understands, not BaseDetector::get_name().
-  for (const DetectionAlgorithm algorithm : {DetectionAlgorithm::CLASSIC, DetectionAlgorithm::ML}) {
+  for (const DetectionAlgorithm algorithm : {DetectionAlgorithm::LIGHTWEIGHT, DetectionAlgorithm::HIGH_ACCURACY}) {
     const char *name = detection_algorithm_name(algorithm);
     TEST_ASSERT_NOT_NULL(name);
     TEST_ASSERT_EQUAL(static_cast<int>(algorithm), static_cast<int>(parse_detection_algorithm(name)));
   }
 
-  TEST_ASSERT_EQUAL_STRING(RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME,
-                           detection_algorithm_name(DetectionAlgorithm::CLASSIC));
-  TEST_ASSERT_EQUAL_STRING(RUNTIME_DETECTION_ALGORITHM_ML_NAME,
-                           detection_algorithm_name(DetectionAlgorithm::ML));
+  TEST_ASSERT_EQUAL_STRING(RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME,
+                           detection_algorithm_name(DetectionAlgorithm::LIGHTWEIGHT));
+  TEST_ASSERT_EQUAL_STRING(RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME,
+                           detection_algorithm_name(DetectionAlgorithm::HIGH_ACCURACY));
 }
 
 void test_core_only_detector_path_is_reachable_from_the_facade(void) {
-  // The core-only integration path documented on ClassicDetector must be
+  // The core-only integration path documented on LightweightDetector must be
   // usable with nothing but the facade include.
-  ClassicDetector detector;
+  LightweightDetector detector;
 
   TEST_ASSERT_FALSE(detector.is_ready());
   TEST_ASSERT_EQUAL(static_cast<int>(MotionState::IDLE), static_cast<int>(detector.get_state()));
-  TEST_ASSERT_EQUAL_STRING("Classic", detector.get_name());
-  TEST_ASSERT_TRUE(detector.set_threshold(CLASSIC_DEFAULT_THRESHOLD));
-  TEST_ASSERT_EQUAL_FLOAT(CLASSIC_DEFAULT_THRESHOLD, detector.get_threshold());
+  TEST_ASSERT_EQUAL_STRING("Lightweight", detector.get_name());
+  TEST_ASSERT_TRUE(detector.set_threshold(LIGHTWEIGHT_DEFAULT_THRESHOLD));
+  TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, detector.get_threshold());
 
   // The documented call shape for a caller that already owns CSI capture.
   const uint8_t subcarrier_count = static_cast<uint8_t>(HT20_SELECTED_BAND_SIZE);

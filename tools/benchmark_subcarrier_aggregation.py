@@ -18,7 +18,7 @@ under aggregation, which every run re-checks in `features` mode.
 Modes:
     channel     per-tone noise, adjacent-bin coherence, and the predicted
                 signal-to-noise gain, using no detection metric
-    classic     Classic per-pair separability across group widths, with the
+    classic     Lightweight per-pair separability across group widths, with the
                 fusion coefficients refit per configuration
     features    per-feature effect across the production seven-feature set
     candidates  dispersion and order statistics of the turbulence series,
@@ -53,10 +53,10 @@ from tools.lib.bootstrap import setup_paths  # noqa: E402
 setup_paths()
 
 import config  # noqa: E402
-from classic_detector import ClassicDetector  # noqa: E402
-from ml_detector import MLDetector  # noqa: E402
+from lightweight_detector import LightweightDetector  # noqa: E402
+from high_accuracy_detector import HighAccuracyDetector  # noqa: E402
 from ml_weights import FEATURE_NAMES  # noqa: E402
-from tools.fit_classic_detector import (  # noqa: E402
+from tools.fit_lightweight_detector import (  # noqa: E402
     balanced_sample_weights,
     build_corpus,
     fit_coefficients,
@@ -291,10 +291,10 @@ def run_channel(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 # =============================================================================
-# Mode: Classic
+# Mode: Lightweight
 # =============================================================================
 def run_classic(args: argparse.Namespace) -> Dict[str, Any]:
-    """Score Classic per-pair separability across group widths.
+    """Score Lightweight per-pair separability across group widths.
 
     Coefficients are refit per configuration, because scoring a changed input
     under the baseline's coefficients measures the mismatch rather than the
@@ -367,7 +367,7 @@ def ml_feature_rows(packets: Sequence[Dict[str, Any]], band: Sequence[int]) -> n
     vector here, so the trackers, filters, and timing stay production behaviour.
     """
     timing = derive_detector_timing(measure_packet_interval_us(packets))
-    detector = MLDetector(
+    detector = HighAccuracyDetector(
         window_size=timing["window_packets"],
         lag=timing["lag"],
         autocorr_lag=timing["autocorr_lag"],
@@ -507,7 +507,7 @@ def candidate_rows(packets: Sequence[Dict[str, Any]], band: Sequence[int]) -> np
     """
     timing = derive_detector_timing(measure_packet_interval_us(packets))
     window = timing["window_packets"]
-    detector = ClassicDetector(
+    detector = LightweightDetector(
         window_size=window, autocorr_lag=timing["autocorr_lag"]
     )
     tracker, cadence = timing_cadence_for_window(

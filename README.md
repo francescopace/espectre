@@ -17,16 +17,16 @@ This page is for evaluating the project and choosing a first path. Use [SETUP.md
 
 Wi-Fi signals bounce around a room. When a person moves, those reflections change. ESPectre reads channel state information (CSI), a measurement of how the radio channel changes across Wi-Fi frequencies, and turns those variations into motion and movement-score signals.
 
-ESPectre includes two on-device detectors because deployments have different accuracy and resource budgets:
+ESPectre includes two on-device detection profiles because deployments have different accuracy and resource budgets:
 
-| Detector | Choose it when | Startup |
+| Detection profile | Choose it when | Startup |
 |---|---|---|
-| `classic` | CPU time and working memory matter more than maximum accuracy, such as on smaller chips or firmware that must reserve resources for other features | Adapts to the room during an initial quiet calibration of up to about 10 seconds |
-| `ml` | Higher accuracy and better generalization justify additional feature state, memory, and inference work | Uses its trained threshold and skips the 10-second calibration; it starts after CSI is ready and its feature window has filled |
+| **Lightweight Detection** (`lightweight`) | CPU time and working memory matter more than maximum accuracy, such as on smaller chips or firmware that must reserve resources for other features | Adapts to the room during an initial quiet calibration of up to about 10 seconds |
+| **High-Accuracy Detection** (`high_accuracy`) | Higher accuracy and better generalization justify additional feature state, memory, and inference work | Uses its trained threshold and skips quiet-room threshold calibration; it starts after CSI is ready and its feature window has filled |
 
-Classic is not a legacy fallback, and ML is not required for compatibility: ESPHome, Native, and Matter support both. They are two production choices for different deployment constraints. The ML model, weights, training data, and training pipeline are open.
+Lightweight is not a legacy fallback, and High Accuracy is not required for compatibility: ESPHome, Native, and Matter support both. They are two production choices for different deployment constraints. High Accuracy is implemented by the open ML model, weights, training data, and training pipeline.
 
-For the signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md). For the ML workflow, training pipeline, and model export path, see [ML_TRAINING.md](docs/ML_TRAINING.md). For benchmarks and performance notes, see [docs/performance](docs/performance/README.md).
+Use the [detection profile guide](https://espectre.dev/guides/detectors/) for the practical choice. For signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md). For the ML workflow, training pipeline, and model export path, see [ML_TRAINING.md](docs/ML_TRAINING.md). For benchmarks and performance notes, see [docs/performance](docs/performance/README.md).
 
 ## Why It Matters
 

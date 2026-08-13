@@ -20,21 +20,22 @@ choice ESPECTRE_WIFI_BAND_POLICY
 endchoice
 
 choice ESPECTRE_DETECTION_ALGORITHM
-    prompt "Detection algorithm"
-    default ESPECTRE_DETECTION_ALGORITHM_CLASSIC
+    prompt "Detection profile"
+    default ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT
     help
         Select the detector used by the shared ESPectre sensing runtime.
 
-    config ESPECTRE_DETECTION_ALGORITHM_CLASSIC
-        bool "CLASSIC"
+    config ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT
+        bool "Lightweight Detection"
         help
-            Weighted L1-delta and turbulence-autocorrelation detector with startup
+            Lower active CPU and working-memory cost, with quiet-room startup
             threshold calibration.
 
-    config ESPECTRE_DETECTION_ALGORITHM_ML
-        bool "ML"
+    config ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY
+        bool "High-Accuracy Detection"
         help
-            Neural-network detector with its trained startup threshold.
+            Stronger detection quality and generalization, with additional
+            feature state and neural-inference work. No threshold calibration.
 endchoice
 
 config ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS

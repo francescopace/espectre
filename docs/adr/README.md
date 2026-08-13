@@ -33,6 +33,7 @@ Use `FEATURES.md` for detector-feature evidence and baseline lineage, `LITERATUR
 - [`2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md`](2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md)
 - [`2026-07-15-adopt-persisted-runtime-detector-selection.md`](2026-07-15-adopt-persisted-runtime-detector-selection.md)
 - [`2026-07-15-persist-per-device-matter-onboarding-data.md`](2026-07-15-persist-per-device-matter-onboarding-data.md)
+- [`2026-08-13-adopt-goal-oriented-detector-profile-names.md`](2026-08-13-adopt-goal-oriented-detector-profile-names.md)
 
 ### Sensing And Detection
 

@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Commercial licensing available under separate agreement; see LICENSING.md.
 /*
- * ESPectre - Classic IQR Resource Benchmark
+ * ESPectre - Lightweight IQR Resource Benchmark
  *
  * Compare the C++ hot paths of the normal- and aggregated-turbulence IQR
- * Classic candidates. This is a host microbenchmark: it uses the production
+ * Lightweight candidates. This is a host microbenchmark: it uses the production
  * feature primitives and models the optimized aggregated path that builds one
  * packet-wide magnitude frame, then derives both turbulence streams from it.
  *
  * Build and run:
  *   c++ -O3 -DNDEBUG -std=c++17 -Isrc/cpp/core \
- *       test/cpp/support/benchmark_classic_iqr_resources.cpp \
+ *       test/cpp/support/benchmark_lightweight_iqr_resources.cpp \
  *       src/cpp/core/filters.cpp \
- *       -o /tmp/benchmark_classic_iqr_resources
- *   /tmp/benchmark_classic_iqr_resources
+ *       -o /tmp/benchmark_lightweight_iqr_resources
+ *   /tmp/benchmark_lightweight_iqr_resources
  */
 
 #include <algorithm>
@@ -324,7 +324,7 @@ int main() {
       (aggregated_packet.median_ns * kPacketRate +
        aggregated_evaluation.median_ns * kEvaluationRate) / 1000.0;
 
-  std::cout << "Classic IQR C++ host microbenchmark\n"
+  std::cout << "Lightweight IQR C++ host microbenchmark\n"
             << "window=" << kWindow << ", packet_rate=" << kPacketRate
             << " pps, evaluation_rate=" << kEvaluationRate << " Hz\n\n";
   print_summary("normal IQR packet path", normal_packet);

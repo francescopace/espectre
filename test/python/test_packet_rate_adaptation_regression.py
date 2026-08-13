@@ -10,7 +10,7 @@ supported operating region, and the test checks that:
 
 - the derived detector timing follows the measured cadence,
 - evaluation ticks stay time-based instead of packet-count based, and
-- both Classic and ML keep good replay quality on the slower streams.
+- both Lightweight and High Accuracy keep good replay quality on the slower streams.
 """
 
 from __future__ import annotations
@@ -244,7 +244,7 @@ def _rate_summary(pair_spec: PacketRateSourcePair, target_pps: int) -> dict[str,
         window_packets,
     )
     assert classic_packet_result is not None, (
-        f"Classic packet replay calibration failed at {target_pps} pps"
+        f"Lightweight packet replay calibration failed at {target_pps} pps"
     )
     classic_packet_threshold, classic_packet_metrics = classic_packet_result
 
@@ -261,7 +261,7 @@ def _rate_summary(pair_spec: PacketRateSourcePair, target_pps: int) -> dict[str,
         )
     )
     assert classic_result is not None, (
-        f"Classic row replay calibration failed at {target_pps} pps"
+        f"Lightweight row replay calibration failed at {target_pps} pps"
     )
     classic_threshold, classic_metrics = classic_result
 
@@ -309,7 +309,7 @@ def _format_compact_summary_table(summaries: list[dict[str, object]]) -> str:
         "src",
         "pps",
         "timing",
-        "Classic R/FP",
+        "Lightweight R/FP",
         "ML R/FP",
         "eval idle/motion",
     )
@@ -406,11 +406,11 @@ def test_packet_rate_adaptation_regression_matrix(pair_spec: PacketRateSourcePai
         classic = summary["classic"]
         ml = summary["ml"]
         assert classic["recall"] >= 95.0, (
-            f"Classic recall regressed at {target_pps} pps: {classic['recall']:.1f}%"
+            f"Lightweight recall regressed at {target_pps} pps: {classic['recall']:.1f}%"
         )
         classic_fp_limit = 1.2 if target_pps <= 80 else 1.0
         assert classic["fp_rate"] <= classic_fp_limit, (
-            f"Classic FP rate regressed at {target_pps} pps: {classic['fp_rate']:.1f}%"
+            f"Lightweight FP rate regressed at {target_pps} pps: {classic['fp_rate']:.1f}%"
         )
         assert ml["recall"] >= 95.0, (
             f"ML recall regressed at {target_pps} pps: {ml['recall']:.1f}%"

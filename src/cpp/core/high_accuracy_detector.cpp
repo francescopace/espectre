@@ -1,5 +1,5 @@
 /*
- * ESPectre - ML Detector Implementation
+ * ESPectre - High-Accuracy Detector Implementation
  *
  * Neural network-based motion detection algorithm.
  *
@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
-#include "ml_detector.h"
+#include "high_accuracy_detector.h"
 #include "ml_weights.h"
 #include "threshold.h"
 #include <cmath>
@@ -16,7 +16,7 @@
 
 namespace espectre {
 
-static const char *TAG = "MLDetector";
+static const char *TAG = "HighAccuracyDetector";
 static_assert(ML_MODEL_INPUT_SIZE == ML_NUM_FEATURES,
               "Exported model input size must match extracted ML feature count");
 static_assert(DETECTOR_MIN_WINDOW_SIZE >= HT20_NUM_SUBCARRIERS,
@@ -26,7 +26,7 @@ static_assert(DETECTOR_MIN_WINDOW_SIZE >= HT20_NUM_SUBCARRIERS,
 // CONSTRUCTOR
 // ============================================================================
 
-MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
+HighAccuracyDetector::HighAccuracyDetector(uint16_t window_size, float threshold, uint16_t lag)
     : BaseDetector(window_size)
     , threshold_(threshold)
     , uses_l1_tracker_(false)
@@ -37,7 +37,7 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
     , aggregated_turbulence_buffer_(nullptr)
     , aggregated_turbulence_index_(0U)
     , aggregated_turbulence_count_(0U) {
-    threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
+    threshold_ = clamp_threshold(threshold_, HIGH_ACCURACY_MIN_THRESHOLD, HIGH_ACCURACY_MAX_THRESHOLD);
     // Maintain the L1-delta rings only when the exported model needs them, and
     // reserve the rebuilt series only for the features that read it.
     for (uint8_t i = 0; i < ML_MODEL_INPUT_SIZE; i++) {
@@ -79,12 +79,12 @@ MLDetector::MLDetector(uint16_t window_size, float threshold, uint16_t lag)
              uses_aggregated_turbulence_ ? 1 : 0);
 }
 
-MLDetector::~MLDetector() {
+HighAccuracyDetector::~HighAccuracyDetector() {
     delete[] feature_scratch_;
     delete[] aggregated_turbulence_buffer_;
 }
 
-MLDetector::MLDetector(MLDetector&& other) noexcept
+HighAccuracyDetector::HighAccuracyDetector(HighAccuracyDetector&& other) noexcept
     : BaseDetector(std::move(other))
     , threshold_(other.threshold_)
     , uses_l1_tracker_(other.uses_l1_tracker_)
@@ -103,7 +103,7 @@ MLDetector::MLDetector(MLDetector&& other) noexcept
     other.aggregated_turbulence_buffer_ = nullptr;
 }
 
-MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
+HighAccuracyDetector& HighAccuracyDetector::operator=(HighAccuracyDetector&& other) noexcept {
     if (this != &other) {
         BaseDetector::operator=(std::move(other));
         threshold_ = other.threshold_;
@@ -127,18 +127,18 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
     return *this;
 }
 
-uint16_t MLDetector::feature_scratch_size_() const {
+uint16_t HighAccuracyDetector::feature_scratch_size_() const {
     return window_size_;
 }
 
-MLSeriesScratch MLDetector::series_scratch_() const {
+MLSeriesScratch HighAccuracyDetector::series_scratch_() const {
     if (feature_scratch_ == nullptr) {
         return MLSeriesScratch{};
     }
     return MLSeriesScratch{feature_scratch_, window_size_};
 }
 
-void MLDetector::configure_hampel(bool enabled, uint8_t window_size,
+void HighAccuracyDetector::configure_hampel(bool enabled, uint8_t window_size,
                                   float threshold) {
     BaseDetector::configure_hampel(enabled, window_size, threshold);
     hampel_turbulence_init(
@@ -146,7 +146,7 @@ void MLDetector::configure_hampel(bool enabled, uint8_t window_size,
     l1_tracker_.configure_hampel(enabled, window_size, threshold);
 }
 
-void MLDetector::configure_lowpass(bool enabled, float cutoff_hz) {
+void HighAccuracyDetector::configure_lowpass(bool enabled, float cutoff_hz) {
     BaseDetector::configure_lowpass(enabled, cutoff_hz);
     lowpass_filter_init(
         &aggregated_lowpass_state_, cutoff_hz, LOWPASS_SAMPLE_RATE, enabled);
@@ -156,7 +156,7 @@ void MLDetector::configure_lowpass(bool enabled, float cutoff_hz) {
 // DETECTION LOGIC
 // ============================================================================
 
-void MLDetector::update_state() {
+void HighAccuracyDetector::update_state() {
     if (!is_ready()) {
         clear_evaluation_state_();
         return;
@@ -175,10 +175,10 @@ void MLDetector::update_state() {
                                                : MotionState::IDLE;
 }
 
-bool MLDetector::set_threshold(float threshold) {
-    if (!is_valid_threshold(threshold, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD)) {
+bool HighAccuracyDetector::set_threshold(float threshold) {
+    if (!is_valid_threshold(threshold, HIGH_ACCURACY_MIN_THRESHOLD, HIGH_ACCURACY_MAX_THRESHOLD)) {
         ESP_LOGE(TAG, "Invalid threshold: %.6f (must be %.1f-%.1f)",
-                 threshold, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
+                 threshold, HIGH_ACCURACY_MIN_THRESHOLD, HIGH_ACCURACY_MAX_THRESHOLD);
         return false;
     }
     
@@ -191,7 +191,7 @@ bool MLDetector::set_threshold(float threshold) {
 // FEATURE EXTRACTION
 // ============================================================================
 
-void MLDetector::extract_features(float* features_out) {
+void HighAccuracyDetector::extract_features(float* features_out) {
     uint16_t turb_count = 0U;
     const float* turb_series = ordered_turbulence(turb_count);
     if (turb_series == nullptr) {
@@ -225,14 +225,14 @@ void MLDetector::extract_features(float* features_out) {
 // L1-DELTA PROFILE PIPELINE
 // ============================================================================
 
-uint16_t MLDetector::l1_delta_capacity_() const {
+uint16_t HighAccuracyDetector::l1_delta_capacity_() const {
     // window_size profiles yield window_size - lag deltas. Use the configured
     // lag rather than the nominal constant so replay experiments cannot make
     // the ring and its readiness gate disagree.
     return window_size_ > lag_ ? static_cast<uint16_t>(window_size_ - lag_) : 0;
 }
 
-bool MLDetector::is_ready() const {
+bool HighAccuracyDetector::is_ready() const {
     if (!BaseDetector::is_ready()) {
         return false;
     }
@@ -246,7 +246,7 @@ bool MLDetector::is_ready() const {
             aggregated_turbulence_count_ >= window_size_);
 }
 
-void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
+void HighAccuracyDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                 const uint8_t* selected_subcarriers,
                                 uint8_t num_subcarriers,
                                 int8_t rssi_dbm) {
@@ -304,7 +304,7 @@ void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
     l1_tracker_.process(amplitudes, amplitude_count);
 }
 
-void MLDetector::clear_buffer() {
+void HighAccuracyDetector::clear_buffer() {
     BaseDetector::clear_buffer();
     l1_tracker_.clear();
     shape_trajectory_tracker_.clear();
@@ -321,7 +321,7 @@ void MLDetector::clear_buffer() {
     lowpass_filter_reset(&aggregated_lowpass_state_);
 }
 
-void MLDetector::add_aggregated_turbulence_(float turbulence) {
+void HighAccuracyDetector::add_aggregated_turbulence_(float turbulence) {
     if (aggregated_turbulence_buffer_ == nullptr) return;
     const float hampel_filtered = hampel_filter_turbulence(
         &aggregated_hampel_state_, turbulence);
@@ -337,7 +337,7 @@ void MLDetector::add_aggregated_turbulence_(float turbulence) {
     }
 }
 
-const float* MLDetector::ordered_aggregated_turbulence_(uint16_t& count) const {
+const float* HighAccuracyDetector::ordered_aggregated_turbulence_(uint16_t& count) const {
     count = 0U;
     if (aggregated_turbulence_buffer_ == nullptr ||
         aggregated_turbulence_count_ == 0U) {
@@ -374,7 +374,7 @@ const float* MLDetector::ordered_aggregated_turbulence_(uint16_t& count) const {
 // threshold, so on recordings whose probabilities sit near `0.5` it flips whole
 // decisions: with contraction on, ten of the twenty-eight paired replays moved,
 // the worst by `3.2` points of recall, and the report parity gate failed on ML
-// while Classic stayed clean. Contraction also made the result depend on the
+// while Lightweight stayed clean. Contraction also made the result depend on the
 // compiler and the surrounding code rather than on the model.
 //
 // Both runtimes must decide the same way, so contraction is disabled here
@@ -385,7 +385,7 @@ const float* MLDetector::ordered_aggregated_turbulence_(uint16_t& count) const {
 #pragma GCC optimize("fp-contract=off")
 #endif
 
-float MLDetector::predict(const float* features) {
+float HighAccuracyDetector::predict(const float* features) {
 #if defined(__clang__)
 #pragma clang fp contract(off)
 #endif
@@ -430,8 +430,8 @@ float MLDetector::predict(const float* features) {
 
     // Sigmoid with overflow protection on the direct 0-1 probability scale
     if (out < -20.0f) return 0.0f;
-    if (out > 20.0f) return ML_METRIC_SCALE;
-    return (1.0f / (1.0f + std::exp(-out))) * ML_METRIC_SCALE;
+    if (out > 20.0f) return HIGH_ACCURACY_METRIC_SCALE;
+    return (1.0f / (1.0f + std::exp(-out))) * HIGH_ACCURACY_METRIC_SCALE;
 }
 
 #if defined(__GNUC__) && !defined(__clang__)

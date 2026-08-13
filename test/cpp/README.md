@@ -24,7 +24,7 @@ CTEST_PARALLEL_LEVEL=2 ./test/cpp/run_all_tests.sh
 
 The registered targets are grouped by the layer they exercise:
 
-- Core: `test_utils`, `test_core_helpers`, `test_hampel_filter`, `test_classic_detector`, and `test_ml_detector`
+- Core: `test_utils`, `test_core_helpers`, `test_hampel_filter`, `test_lightweight_detector`, and `test_high_accuracy_detector`
 - Runtime: `test_traffic_generator`, `test_runtime_helpers`, `test_runtime_frontend_controller`, `test_sdk_surface`, `test_runtime_detector_switch`, `test_wifi_lifecycle`, `test_wifi_lifecycle_dual_band`, `test_pending_event`, `test_wifi_provisioning_service`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_pipeline`, `test_csi_frame_identity`, `test_csi_traffic_service`, and `test_udp_listener`
 - Integration with real CSI: `test_motion_detection`, `test_long_recordings`, `test_low_rssi`, `test_empty_rooms`, and `test_packet_rate_adaptation`
 - Frontend: `test_sensor_publisher`, `test_frontend_controls`, `test_native_frontend`, and `test_matter_frontend`
@@ -45,8 +45,8 @@ Each contract has one primary unit-test owner. Integration and parity suites con
 |---|---|---|
 | `src/cpp/core/utils.*`, feature helpers, and CSI format helpers | `test_utils`, `test_core_helpers` | `test_motion_detection` only for replay metrics |
 | `src/cpp/core/hampel_filter.*` | `test_hampel_filter` | Detector replay suites run it without duplicating filter expectations |
-| `src/cpp/core/classic_detector.*` | `test_classic_detector` | `test_motion_detection`, `test_long_recordings`, `test_low_rssi`, and `test_empty_rooms` |
-| `src/cpp/core/ml_detector.*` and generated weights | `test_ml_detector` | `test_motion_detection` and `test_long_recordings` |
+| `src/cpp/core/lightweight_detector.*` | `test_lightweight_detector` | `test_motion_detection`, `test_long_recordings`, `test_low_rssi`, and `test_empty_rooms` |
+| `src/cpp/core/high_accuracy_detector.*` and generated weights | `test_high_accuracy_detector` | `test_motion_detection` and `test_long_recordings` |
 | Shared runtime contracts, policies, configuration, CSI pipeline, and protocol | The matching `test_runtime_*`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_*`, or service suite | `test_packet_rate_adaptation` for quantified cadence behavior |
 | Published SDK facade | `test_sdk_surface` | Python `test_sdk_surface_invariants.py` checks facade and documentation registration |
 | ESPHome, Native, and Matter adapters | The matching frontend suite; shared controls stay in `test_frontend_controls` | Full firmware builds validate SDK-specific integration |

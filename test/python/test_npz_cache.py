@@ -794,9 +794,9 @@ def test_classic_replay_row_parameters_change_when_detector_changes(
     cpp_dir = tmp_path / "src" / "cpp" / "core"
     python_dir.mkdir(parents=True)
     cpp_dir.mkdir(parents=True)
-    python_detector = python_dir / "classic_detector.py"
-    cpp_header = cpp_dir / "classic_detector.h"
-    cpp_impl = cpp_dir / "classic_detector.cpp"
+    python_detector = python_dir / "lightweight_detector.py"
+    cpp_header = cpp_dir / "lightweight_detector.h"
+    cpp_impl = cpp_dir / "lightweight_detector.cpp"
     python_detector.write_text("BASE_THRESHOLD = 0.8\n")
     cpp_header.write_text("// classic v1\n")
     cpp_impl.write_text("// classic impl v1\n")

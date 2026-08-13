@@ -4,7 +4,7 @@
 Micro-ESPectre - Detector Interface
 
 Base class for motion detection algorithms.
-Provides polymorphic interface for Classic and ML detectors.
+Provides a polymorphic interface for the Lightweight and High Accuracy profiles.
 
 Note: MicroPython doesn't have abc module, so we use a simple base class.
 
@@ -23,13 +23,21 @@ def normalize_detector_algorithm(name):
     Normalize detector identifiers to the shared config/protocol names.
 
     Examples:
-    - "classic" -> "classic"
-    - "ML" -> "ml"
+    - "lightweight" -> "lightweight"
+    - "HIGH-ACCURACY" -> "high_accuracy"
     """
-    normalized = str(name or "classic").strip().lower().replace("-", "_")
+    normalized = (
+        str(name or "lightweight")
+        .strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
     canonical = {
-        "classic": "classic",
-        "ml": "ml",
+        "lightweight": "lightweight",
+        "lightweight_detection": "lightweight",
+        "high_accuracy": "high_accuracy",
+        "high_accuracy_detection": "high_accuracy",
     }
     return canonical.get(normalized, normalized)
 
@@ -45,8 +53,18 @@ def get_detector_algorithm(detector):
 # Single source of truth for the available detector algorithms:
 # canonical key -> (module name, class name, needs startup calibration, label).
 DETECTOR_REGISTRY = {
-    "classic": ("classic_detector", "ClassicDetector", True, "Classic (autocorrelation + aggregated IQR)"),
-    "ml": ("ml_detector", "MLDetector", False, "ML (Neural Network)"),
+    "lightweight": (
+        "lightweight_detector",
+        "LightweightDetector",
+        True,
+        "Lightweight Detection",
+    ),
+    "high_accuracy": (
+        "high_accuracy_detector",
+        "HighAccuracyDetector",
+        False,
+        "High-Accuracy Detection",
+    ),
 }
 
 
@@ -91,8 +109,8 @@ class IDetector:
     Interface for motion detection algorithms.
     
     Implementations:
-    - ClassicDetector: autocorrelation and frequency-coherence fusion (default non-ML)
-    - MLDetector: Neural Network classifier
+    - LightweightDetector: the implementation behind Lightweight Detection
+    - HighAccuracyDetector: the neural implementation behind High-Accuracy Detection
     
     Subclasses must implement all methods.
     """
@@ -176,7 +194,8 @@ class IDetector:
         Get detector algorithm name.
         
         Returns:
-            str: Human-friendly detector label, for example "Classic" or "ML"
+            str: Human-friendly detector label, for example "Lightweight Detection"
+                or "High-Accuracy Detection"
         """
         raise NotImplementedError
     

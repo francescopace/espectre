@@ -65,7 +65,7 @@ struct RuntimeSnapshot {
   /**
    * Current motion metric, on a 0..1 probability scale for both detectors.
    *
-   * Comparable to `threshold`, but not comparable across detectors: Classic
+   * Comparable to `threshold`, but not comparable across detectors: Lightweight
    * and ML produce the number differently even though the scale matches.
    */
   float movement_metric{0.0f};
@@ -90,7 +90,7 @@ struct RuntimeSnapshot {
   /** Threshold startup calibration settled on. Zero before it completes. */
   float startup_threshold{0.0f};
   /**
-   * Active detector label: `"classic"`, `"ml"`, or `"stream"` under
+   * Active detector label: `"lightweight"`, `"high_accuracy"`, or `"stream"` under
    * `RuntimeProfile::STREAM`.
    *
    * Always a static string literal, so it stays valid for the process, but the

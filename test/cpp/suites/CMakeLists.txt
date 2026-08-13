@@ -32,13 +32,13 @@ add_espectre_test(test_hampel_filter
     LIBRARIES espectre_core_testlib
 )
 
-add_espectre_test(test_classic_detector
-    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_classic_detector.cpp"
+add_espectre_test(test_lightweight_detector
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_lightweight_detector.cpp"
     LIBRARIES espectre_core_testlib
 )
 
-add_espectre_test(test_ml_detector
-    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_ml_detector.cpp"
+add_espectre_test(test_high_accuracy_detector
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_high_accuracy_detector.cpp"
     LIBRARIES espectre_core_testlib
 )
 

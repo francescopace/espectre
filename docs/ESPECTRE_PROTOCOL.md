@@ -87,7 +87,7 @@ espectre/v1/devices/{device_id}/telemetry
   "motion_state": "idle",
   "movement_score": 0.18,
   "threshold": 0.45,
-  "detector": "classic",
+  "detector": "lightweight",
   "health": {
     "uptime_s": 3821
   }
@@ -144,7 +144,7 @@ espectre/v1/devices/{device_id}/info
     }
   },
   "detection": {
-    "algorithm": "classic"
+    "algorithm": "lightweight"
   }
 }
 ```
@@ -197,18 +197,18 @@ Set threshold:
 }
 ```
 
-Select and persist the active detector on frontends that advertise runtime detector control:
+Select and persist the active detection profile on frontends that advertise runtime detector control:
 
 ```json
 {
   "protocol_version": "1.0",
   "command_id": "cmd-002",
   "command": "set_detector",
-  "detector": "ml"
+  "detector": "high_accuracy"
 }
 ```
 
-Accepted detector values are `classic` and `ml`. Switching to `classic` starts calibration automatically; switching to `ml` cancels any active calibration and follows the normal CSI-readiness and feature-window warmup path without threshold calibration.
+Accepted detector values are `lightweight` and `high_accuracy`. Switching to `lightweight` starts calibration automatically; switching to `high_accuracy` cancels any active calibration and follows the normal CSI-readiness and feature-window warmup path without threshold calibration.
 
 Update the motion debounce thresholds on frontends that advertise runtime motion-hit control:
 
@@ -289,7 +289,7 @@ The current BLE firmware still carries setup commands as ASCII control writes:
 REQ_SYSINFO
 SET_THRESHOLD:0.35
 SET_MOTION_HITS:on=4&off=3
-SET_DETECTOR:ml
+SET_DETECTOR:high_accuracy
 OTA_STATUS
 OTA_CHECK
 OTA_START
@@ -387,7 +387,7 @@ Capability-oriented `sysinfo` keys may include:
 | `supports_device_config` | Whether BLE clients can edit device identity settings |
 | `supports_runtime_threshold` | Whether BLE clients can change the live motion threshold |
 | `supports_runtime_motion_hits` | Whether BLE clients can change the persisted motion-on/off hit thresholds |
-| `supports_runtime_detector` | Whether BLE clients can select and persist `classic` or `ml` |
+| `supports_runtime_detector` | Whether BLE clients can select and persist `lightweight` or `high_accuracy` |
 | `supports_live_telemetry` | Whether BLE telemetry notifications are exposed |
 | `supports_extended_diagnostics` | Whether implementation-specific runtime diagnostics are exposed |
 | `supports_ota` | Whether BLE clients can expose OTA-related controls |
@@ -399,7 +399,7 @@ Current BLE `sysinfo` diagnostic keys may include:
 |-----|---------|
 | `chip` | Target chip reported by the firmware, such as `esp32c3` |
 | `firmware_version` | Running firmware version |
-| `detector` | Active detector name: `classic`, or `ml` |
+| `detector` | Active detection profile: `lightweight`, or `high_accuracy` |
 | `window_ms` | Configured detection window duration in milliseconds |
 | `lowpass` | Whether the low-pass stage is enabled |
 | `lowpass_cutoff` | Low-pass cutoff in Hz |

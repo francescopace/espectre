@@ -5,7 +5,7 @@ Micro-ESPectre - Shared Turbulence Context
 
 Pure Python implementation compatible with both MicroPython and standard Python.
 Provides the shared turbulence buffer, amplitude scratch, and filters used by
-ClassicDetector and ML feature extraction.
+LightweightDetector and ML feature extraction.
 Uses two-pass variance helpers for numerical stability (matches C++).
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -20,7 +20,7 @@ except ImportError:
 
 class SegmentationContext:
     """
-    Shared turbulence context for Classic/ML feature streams.
+    Shared turbulence context for Lightweight/High Accuracy feature streams.
 
     Production detectors use this for spatial turbulence, filtering, and the
     circular turbulence/amplitude buffers.

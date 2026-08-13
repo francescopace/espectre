@@ -1522,7 +1522,7 @@ def test_send_mqtt_command_and_wait_waits_for_suback(monkeypatch) -> None:
             username="",
             password="",
         ),
-        {"command": "set_detector", "detector": "ml"},
+        {"command": "set_detector", "detector": "high_accuracy"},
         timeout_s=0.5,
     )
 
@@ -1659,7 +1659,7 @@ def test_send_mqtt_command_and_wait_reports_request_echo_on_timeout(monkeypatch)
                 username="",
                 password="",
             ),
-            {"command": "set_detector", "detector": "ml"},
+            {"command": "set_detector", "detector": "high_accuracy"},
             timeout_s=0.1,
             observe_request_echo=True,
         )

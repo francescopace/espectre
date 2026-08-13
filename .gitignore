@@ -78,6 +78,7 @@ tools/benchmark_firmware.local.env
 
 # Documentation
 .papers/
+.ga/
 
 # Generated SDK API reference (doxygen docs/Doxyfile)
 output/api/

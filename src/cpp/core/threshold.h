@@ -7,7 +7,7 @@
  * Startup threshold calibration is automatic. Detectors may apply their own
  * session adaptation to the shared calibration metric.
  *
- * The default Classic path is motion-first with an internal quiet-first
+ * The default Lightweight path is motion-first with an internal quiet-first
  * fallback. Successful motion-first calibration can finish before the nominal
  * budget; otherwise the calibrator falls back to the quiet-first gate on the
  * same observed metrics and still completes within the configured packet

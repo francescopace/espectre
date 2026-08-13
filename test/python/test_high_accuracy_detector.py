@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-ESPectre - ML Detector Tests
+ESPectre - High-Accuracy Detector Tests
 
 Tests for the ML motion detector module.
 
@@ -17,10 +17,10 @@ from tools.lib.host_feature_trackers import (
 )
 
 from config import DEFAULT_SUBCARRIERS
-import ml_detector as ml_detector_module
-from ml_detector import (
+import high_accuracy_detector as high_accuracy_detector_module
+from high_accuracy_detector import (
     relu, sigmoid, predict, is_motion,
-    MLDetector, ML_DEFAULT_THRESHOLD, ML_METRIC_SCALE
+    HighAccuracyDetector, HIGH_ACCURACY_DEFAULT_THRESHOLD, HIGH_ACCURACY_METRIC_SCALE
 )
 from detector_interface import MotionState
 from ml_feature_trackers import (
@@ -207,7 +207,7 @@ class TestPredict:
         ]
         for features in test_cases:
             result = predict(features)
-            assert 0.0 <= result <= ML_METRIC_SCALE
+            assert 0.0 <= result <= HIGH_ACCURACY_METRIC_SCALE
     
     def test_predict_different_inputs_different_outputs(self):
         """Different inputs produce different outputs."""
@@ -250,7 +250,7 @@ class TestIsMotion:
         """Default threshold is 0.5."""
         features = [5.0] * MODEL_INPUT_SIZE
         prob = predict(features)
-        expected = prob > ML_DEFAULT_THRESHOLD
+        expected = prob > HIGH_ACCURACY_DEFAULT_THRESHOLD
         assert is_motion(features) == expected
     
     def test_is_motion_custom_threshold(self):
@@ -265,93 +265,93 @@ class TestIsMotion:
             assert is_motion(features, threshold=prob - 0.01) == True
 
 
-class TestMLDetector:
-    """Test MLDetector class."""
+class TestHighAccuracyDetector:
+    """Test HighAccuracyDetector class."""
     
     def test_initialization_defaults(self):
         """Test default initialization."""
-        detector = MLDetector()
-        assert detector.ALGORITHM == "ml"
-        assert detector._threshold == ML_DEFAULT_THRESHOLD
+        detector = HighAccuracyDetector()
+        assert detector.ALGORITHM == "high_accuracy"
+        assert detector._threshold == HIGH_ACCURACY_DEFAULT_THRESHOLD
         assert detector._state == MotionState.IDLE
         assert detector._packet_count == 0
         assert detector.track_data == False
     
     def test_hampel_enabled_by_default(self):
         """Hampel filter is enabled by default (matches training pipeline)."""
-        detector = MLDetector()
+        detector = HighAccuracyDetector()
         assert detector._context.hampel_filter is not None
 
     def test_lowpass_disabled_by_default(self):
         """Low-pass filter is disabled by default."""
-        detector = MLDetector()
+        detector = HighAccuracyDetector()
         assert detector._context.lowpass_filter is None
     
     def test_hampel_disabled_explicitly(self):
         """Hampel filter can be disabled explicitly."""
-        detector = MLDetector(enable_hampel=False)
+        detector = HighAccuracyDetector(enable_hampel=False)
         assert detector._context.hampel_filter is None
     
     def test_initialization_custom_params(self):
         """Test initialization with custom parameters."""
-        detector = MLDetector(window_size=100, threshold=0.7)
+        detector = HighAccuracyDetector(window_size=100, threshold=0.7)
         assert detector._threshold == 0.7
         assert detector._context.window_size == 100
 
     def test_l1_history_uses_streaming_delta_window(self):
-        detector = MLDetector(window_size=100)
+        detector = HighAccuracyDetector(window_size=100)
 
         assert detector._l1_tracker is not None
         assert len(detector._l1_tracker._profile_ring) == 10
         assert len(detector._l1_tracker._delta_ring) == 90
     
     def test_get_name(self):
-        """Test get_name returns 'ML'."""
-        detector = MLDetector()
-        assert detector.get_name() == "ML"
+        """Test get_name returns the product-facing detector name."""
+        detector = HighAccuracyDetector()
+        assert detector.get_name() == "High Accuracy"
     
     def test_get_state_initial(self):
         """Initial state is IDLE."""
-        detector = MLDetector()
+        detector = HighAccuracyDetector()
         assert detector.get_state() == MotionState.IDLE
     
     def test_get_threshold(self):
         """Test get_threshold."""
-        detector = MLDetector(threshold=0.6)
+        detector = HighAccuracyDetector(threshold=0.6)
         assert detector.get_threshold() == 0.6
     
     def test_set_threshold_valid(self):
         """Test setting valid threshold."""
-        detector = MLDetector()
+        detector = HighAccuracyDetector()
         assert detector.set_threshold(0.7) == True
         assert detector._threshold == 0.7
     
     def test_set_threshold_invalid(self):
         """Test setting invalid threshold."""
-        detector = MLDetector()
+        detector = HighAccuracyDetector()
         original = detector._threshold
         assert detector.set_threshold(1.1) == False
         assert detector.set_threshold(-0.1) == False
         assert detector._threshold == original
 
     def test_detector_initializes_segmentation_context(self):
-        """ML detector initializes its segmentation context."""
-        detector = MLDetector()
+        """High-Accuracy detector initializes its segmentation context."""
+        detector = HighAccuracyDetector()
         assert detector._context is not None
     
     def test_is_ready_empty(self):
         """Detector is not ready before filling buffer."""
-        detector = MLDetector(window_size=50)
+        detector = HighAccuracyDetector(window_size=50)
         assert detector.is_ready() == False
     
     def test_get_motion_metric_initial(self):
         """Initial motion metric is 0."""
-        detector = MLDetector()
+        detector = HighAccuracyDetector()
         assert detector.get_motion_metric() == 0.0
 
     def test_update_state_exposes_common_motion_metric(self):
         """Update state returns the common motion_metric alias."""
-        detector = MLDetector(window_size=5)
+        detector = HighAccuracyDetector(window_size=5)
         csi_data = [10, 10] * 64
 
         for _ in range(6):
@@ -363,12 +363,12 @@ class TestMLDetector:
     
     def test_total_packets_initial(self):
         """Initial packet count is 0."""
-        detector = MLDetector()
+        detector = HighAccuracyDetector()
         assert detector.total_packets == 0
     
     def test_reset(self):
         """Test reset clears state."""
-        detector = MLDetector()
+        detector = HighAccuracyDetector()
         detector._packet_count = 100
         detector._state = MotionState.MOTION
         detector._current_probability = 0.8
@@ -386,13 +386,13 @@ class TestMLDetector:
         assert detector.total_packets == 0
 
 
-class TestMLDetectorProcessing:
-    """Test MLDetector packet processing with synthetic data."""
+class TestHighAccuracyDetectorProcessing:
+    """Test HighAccuracyDetector packet processing with synthetic data."""
     
     @pytest.fixture
     def detector(self):
         """Create a detector with small window for testing."""
-        return MLDetector(window_size=10, threshold=ML_DEFAULT_THRESHOLD)
+        return HighAccuracyDetector(window_size=10, threshold=HIGH_ACCURACY_DEFAULT_THRESHOLD)
     
     @pytest.fixture
     def sample_csi_data(self):
@@ -427,7 +427,7 @@ class TestMLDetectorProcessing:
         
         assert metrics['state'] == MotionState.IDLE
         assert metrics['probability'] == 0.0
-        assert metrics['threshold'] == ML_DEFAULT_THRESHOLD
+        assert metrics['threshold'] == HIGH_ACCURACY_DEFAULT_THRESHOLD
     
     def test_update_state_after_ready(self, detector, sample_csi_data):
         """Update state after buffer is full runs inference."""
@@ -440,7 +440,7 @@ class TestMLDetectorProcessing:
         assert 'state' in metrics
         assert 'probability' in metrics
         assert 'threshold' in metrics
-        assert 0.0 <= metrics['probability'] <= ML_METRIC_SCALE
+        assert 0.0 <= metrics['probability'] <= HIGH_ACCURACY_METRIC_SCALE
 
     def test_tracking_enabled(self, detector, sample_csi_data):
         """Test that tracking records data when enabled."""
@@ -474,7 +474,7 @@ class TestExtractFeaturesIntegration:
     
     def test_extract_features_returns_model_feature_count(self):
         """_extract_features matches the exported feature count."""
-        detector = MLDetector(window_size=10)
+        detector = HighAccuracyDetector(window_size=10)
         
         # Fill buffer with synthetic data
         csi_data = [20] * 128  # 64 subcarriers * 2
@@ -489,13 +489,13 @@ class TestExtractFeaturesIntegration:
         assert all(isinstance(f, (int, float)) for f in features)
 
     def test_extract_features_supports_l1_delta_lag_ratio(self, monkeypatch):
-        """MLDetector forwards the tracker's floor-invariant lag ratio."""
+        """HighAccuracyDetector forwards the tracker's floor-invariant lag ratio."""
         monkeypatch.setattr(
-            ml_detector_module,
+            high_accuracy_detector_module,
             "FEATURE_NAMES",
             ["l1_delta_lag_ratio"],
         )
-        detector = MLDetector(window_size=20)
+        detector = HighAccuracyDetector(window_size=20)
         monkeypatch.setattr(detector._l1_tracker, "delta_lag_ratio", lambda: 1.75)
 
         quiet = _make_csi_payload(_make_band_profile(offset=0))
@@ -506,10 +506,10 @@ class TestExtractFeaturesIntegration:
 
     def test_hampel_configuration_covers_l1_feature_stream(self, monkeypatch):
         """The ML Hampel flag configures both turbulence and L1 streams."""
-        monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta_lag_ratio"])
+        monkeypatch.setattr(high_accuracy_detector_module, "FEATURE_NAMES", ["l1_delta_lag_ratio"])
 
-        enabled = MLDetector(window_size=20, enable_hampel=True)
-        disabled = MLDetector(window_size=20, enable_hampel=False)
+        enabled = HighAccuracyDetector(window_size=20, enable_hampel=True)
+        disabled = HighAccuracyDetector(window_size=20, enable_hampel=False)
 
         assert enabled._context.hampel_filter is not None
         assert enabled._l1_tracker._hampel_filter is not None
@@ -517,12 +517,12 @@ class TestExtractFeaturesIntegration:
         assert disabled._l1_tracker._hampel_filter is None
 
 
-class TestMLDetectorMotionTracking:
+class TestHighAccuracyDetectorMotionTracking:
     """Test motion tracking with data that triggers MOTION state."""
     
     def test_motion_count_increments_on_motion(self):
         """Motion count increments when MOTION is detected."""
-        detector = MLDetector(window_size=10, threshold=0.0)  # Very low threshold
+        detector = HighAccuracyDetector(window_size=10, threshold=0.0)  # Very low threshold
         detector.track_data = True
         
         # Create varying CSI data to trigger motion
@@ -541,7 +541,7 @@ class TestMLDetectorMotionTracking:
     
     def test_get_motion_count(self):
         """Test get_motion_count method."""
-        detector = MLDetector(window_size=10, threshold=0.0)
+        detector = HighAccuracyDetector(window_size=10, threshold=0.0)
         detector.track_data = True
         
         subcarriers = DEFAULT_SUBCARRIERS
@@ -558,7 +558,7 @@ class TestMLDetectorMotionTracking:
     
     def test_state_changes_to_motion(self):
         """Test that state changes to MOTION with low threshold."""
-        detector = MLDetector(window_size=10, threshold=0.0)
+        detector = HighAccuracyDetector(window_size=10, threshold=0.0)
         
         subcarriers = DEFAULT_SUBCARRIERS
         for i in range(10):

@@ -16,7 +16,7 @@
 
     const NAV_GROUPS = {
         tools: ['flash', 'configure', 'monitor', 'theremin', 'game'],
-        guides: ['guide-hardware', 'guide-setup', 'guide-placement', 'guide-detection', 'guide-firmware'],
+        guides: ['guide-hardware', 'guide-setup', 'guide-placement', 'guide-detection', 'guide-detectors', 'guide-firmware'],
         docs: ['docs-api', 'docs-examples', 'docs-architecture']
     };
     const ROUTES = ['home', 'tools', 'guides', 'docs', 'media', 'roadmap', 'privacy']
@@ -115,6 +115,10 @@
     let pendingConfigVerification = null;
 
     const sysinfoBoolean = (value) => value === true || value === 'true' || value === '1';
+    const detectionProfileLabel = (value) => ({
+        lightweight: 'Lightweight Detection',
+        high_accuracy: 'High-Accuracy Detection'
+    })[value] || value;
 
     function applyConfigureCapabilities(snapshot) {
         $$('[data-capability]').forEach((element) => {
@@ -167,7 +171,7 @@
     }
 
     /*
-     * Classic and ML both emit a probability on an absolute 0..1 scale, so
+     * Both detection profiles emit a probability on an absolute 0..1 scale, so
      * the display maps the value directly. Scaling against the threshold
      * would saturate well before 1 and hide how far past it a reading is.
      */
@@ -365,7 +369,7 @@
         set('diag-protocol', proto || '—');
         set('diag-firmware', snapshot.firmware_version || snapshot.version || '—');
         set('diag-chip', chip || '—');
-        set('diag-detector', snapshot.detector);
+        set('diag-detector', detectionProfileLabel(snapshot.detector));
         set('diag-threshold', snapshot.threshold);
         set('diag-window', snapshot.window_ms ? snapshot.window_ms + ' ms' : undefined);
         set('diag-lowpass', snapshot.lowpass
@@ -436,7 +440,7 @@
                 supports_extended_diagnostics: 'true',
                 supports_ota: 'true',
                 supports_wifi_5ghz: 'true',
-                detector: 'classic',
+                detector: 'lightweight',
                 threshold: '0.500000',
                 window: '100',
                 lowpass: 'off',
@@ -678,6 +682,7 @@
         '/guides/setup/': 'guide-setup',
         '/guides/placement/': 'guide-placement',
         '/guides/detection/': 'guide-detection',
+        '/guides/detectors/': 'guide-detectors',
         '/guides/custom-firmware/': 'guide-firmware',
         '/docs/': 'docs',
         '/docs/api/': 'docs-api',

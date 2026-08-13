@@ -53,8 +53,8 @@ Current capabilities:
 - request a fresh sysinfo block with `REQ_SYSINFO`
 - adjust the runtime threshold with `SET_THRESHOLD:X.XX`
 - persist the runtime motion debounce thresholds with `SET_MOTION_HITS:on=4&off=3`
-- select and persist the runtime detector with `SET_DETECTOR:classic` or `SET_DETECTOR:ml`
-- select the same detector over MQTT with `{"command":"set_detector","detector":"ml"}`
+- select and persist the runtime detector with `SET_DETECTOR:lightweight` or `SET_DETECTOR:high_accuracy`
+- select the same detector over MQTT with `{"command":"set_detector","detector":"high_accuracy"}`
 - show a firmware-generated read-only `device_id`
 - inspect the immutable firmware-derived `device_name`
 - edit the human-facing `device_label`
@@ -65,7 +65,7 @@ Current capabilities:
 - provision or clear MQTT configuration over BLE
 - request OTA status, check for updates, and start HTTPS OTA over BLE
 
-Use Classic when the Native firmware must preserve more CPU time and working memory for MQTT, BLE, OTA, or product-specific services. Use ML when higher detection accuracy and calibration-free startup justify its additional feature state and inference work. Classic may spend up to about 10 seconds calibrating in a quiet room; ML skips that calibration but still waits for CSI readiness and feature-window warmup. The selected detector persists across reboot.
+Use Lightweight Detection when the Native firmware must preserve more CPU time and working memory for MQTT, BLE, OTA, or product-specific services. Use High-Accuracy Detection when higher detection quality and calibration-free startup justify its additional feature state and inference work. Lightweight may spend up to about 10 seconds calibrating in a quiet room; High Accuracy skips that calibration but still waits for CSI readiness and feature-window warmup. The selected profile persists across reboot.
 
 Requirements:
 
@@ -199,7 +199,7 @@ Check these first:
 1. the client writes exact ASCII commands
 2. the value passed to `SET_THRESHOLD` is finite and inside the shared detector range (`0.0-1.0`)
 3. the values passed to `SET_MOTION_HITS:on=...&off=...` are integers inside the shared `1-20` range
-4. the value passed to `SET_DETECTOR` is exactly `classic` or `ml`; accepted selections persist across reboot
+4. the value passed to `SET_DETECTOR` is exactly `lightweight` or `high_accuracy`; accepted selections persist across reboot
 5. the client does not depend on sysinfo ordering
 
 ### The firmware starts but never joins Wi-Fi

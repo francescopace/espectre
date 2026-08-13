@@ -74,17 +74,17 @@ FRONTEND_LABELS = {
     "streamer": "Streamer",
 }
 DETECTOR_LABELS = {
-    "classic": "Classic",
+    "lightweight": "Lightweight",
     "collect": "Collect",
     "default": "Default",
-    "ml": "ML",
+    "high_accuracy": "High Accuracy",
 }
 REPORT_SNAPSHOT_SCOPE = (
     "Snapshot scope: Results apply to the Git revision and run time above; "
     "they do not certify newer source revisions."
 )
 REPORT_DETECTOR_SCOPE = (
-    "Detector coverage: ESPHome, Native, and Matter support Classic and ML. "
+    "Detector coverage: ESPHome, Native, and Matter support Lightweight and High Accuracy. "
     "ESPHome and Native support runtime switching; Matter selects the detector "
     "at build time. The matrix below samples representative cases rather than "
     "every supported combination."
@@ -149,11 +149,6 @@ class BenchmarkCase:
     @property
     def label(self) -> str:
         return f"{FRONTEND_LABELS[self.frontend]} {DETECTOR_LABELS[self.detector]}"
-
-    @property
-    def legacy_label(self) -> str:
-        return f"{self.frontend.capitalize()} {self.detector.capitalize()}"
-
 
 @dataclass
 class CommandResult:
@@ -247,9 +242,9 @@ class RuntimeTelemetrySample:
 
 CASES = tuple(
     [
-        BenchmarkCase("native", "classic"),
-        BenchmarkCase("native", "ml"),
-        BenchmarkCase("esphome", "classic"),
+        BenchmarkCase("native", "lightweight"),
+        BenchmarkCase("native", "high_accuracy"),
+        BenchmarkCase("esphome", "lightweight"),
         BenchmarkCase("matter", "default", benchmark_mode="smoke"),
         BenchmarkCase("streamer", "collect", benchmark_mode="stream"),
     ]
@@ -706,7 +701,7 @@ def _parse_collect_output(text: str) -> RuntimeMetrics:
         match = COLLECT_DETAIL_RE.search(line)
         if match is None:
             continue
-        detector = (match.group("detector") or "classic").strip().lower()
+        detector = (match.group("detector") or "lightweight").strip().lower()
         state = match.group("state")
         pps = int(match.group("pps"))
         detector_states.setdefault(detector, []).append(state)
@@ -720,8 +715,8 @@ def _parse_collect_output(text: str) -> RuntimeMetrics:
         metrics.pps_min = min(pps_values)
         metrics.pps_max = max(pps_values)
         metrics.pps_stddev = statistics.pstdev(pps_values)
-    primary_states = detector_states.get("classic") or detector_states.get("ml") or []
-    secondary_states = detector_states.get("ml") if primary_states is detector_states.get("classic") else []
+    primary_states = detector_states.get("lightweight") or detector_states.get("high_accuracy") or []
+    secondary_states = detector_states.get("high_accuracy") if primary_states is detector_states.get("lightweight") else []
     _apply_state_series(metrics, primary_states)
     _apply_state_series(metrics, secondary_states, secondary=True)
     return metrics
@@ -1029,7 +1024,7 @@ def esphome_case_config(chip: str, detector: str) -> Iterator[Path]:
     source_path = Path(ESPHOME_CONFIGS[chip]["dev"])
     content = source_path.read_text(encoding="utf-8")
     updated, replacements = re.subn(
-        r"^(\s*detection_algorithm:\s*)(?:classic|ml)(\s*(?:#.*)?)$",
+        r"^(\s*detection_algorithm:\s*)(?:lightweight|high_accuracy)(\s*(?:#.*)?)$",
         rf"\g<1>{detector}\g<2>",
         content,
         count=1,
@@ -1076,7 +1071,7 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
     if target_defaults.is_file():
         defaults.append(target_defaults)
 
-    classic_enabled = detector == "classic"
+    lightweight_enabled = detector == "lightweight"
     override_lines = [
         "# Generated temporary firmware benchmark overrides.",
         "CONFIG_LOG_DEFAULT_LEVEL_INFO=y",
@@ -1088,14 +1083,14 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
         override_lines.extend(
             [
                 (
-                    "CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC=y"
-                    if classic_enabled
-                    else "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC is not set"
+                    "CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT=y"
+                    if lightweight_enabled
+                    else "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT is not set"
                 ),
                 (
-                    "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML is not set"
-                    if classic_enabled
-                    else "CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML=y"
+                    "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY is not set"
+                    if lightweight_enabled
+                    else "CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY=y"
                 ),
             ]
         )
@@ -1365,7 +1360,7 @@ def run_streamer_case(
                     "--target",
                     str(device_ip),
                     "--detector",
-                    "classic,ml",
+                    "lightweight,high_accuracy",
                 ]
                 result.collect = run_command(collect_command)
             finally:
@@ -1413,11 +1408,11 @@ def run_streamer_case(
                 result.reasons.append("host collect did not observe any streamer device")
             if result.runtime_metrics.status_samples < MIN_STREAMER_COLLECT_SAMPLES:
                 result.reasons.append(
-                    f"only {result.runtime_metrics.status_samples} classic host collect samples were logged"
+                    f"only {result.runtime_metrics.status_samples} Lightweight host collect samples were logged"
                 )
             if result.runtime_metrics.secondary_status_samples < MIN_STREAMER_COLLECT_SAMPLES:
                 result.reasons.append(
-                    f"only {result.runtime_metrics.secondary_status_samples} ml host collect samples were logged"
+                    f"only {result.runtime_metrics.secondary_status_samples} High Accuracy host collect samples were logged"
                 )
             if result.runtime_metrics.pps_mean is None or not EXPECTED_PPS_MIN <= result.runtime_metrics.pps_mean <= EXPECTED_PPS_MAX:
                 result.reasons.append(
@@ -1483,7 +1478,7 @@ def run_case(
                     chip,
                     port,
                     clean=False,
-                    output_prefix="[ML build] ",
+                    output_prefix="[High Accuracy build] ",
                 )
             try:
                 if before_monitor is not None:
@@ -1624,19 +1619,18 @@ def render_report(
         "",
         "## Summary",
         "",
-        "| Frontend | Detector | Result | Binary size | Partition free | CPU load | Min free heap |",
+        "| Frontend | Detection profile | Result | Binary size | Partition free | CPU load | Min free heap |",
         "|---|---|---:|---:|---:|---:|---:|",
     ]
     for result in results:
         build = result.build_metrics
         runtime = result.runtime_metrics
-        frontend_label, detector_label = result.case.label.rsplit(" ", 1)
         lines.append(
             "| "
             + " | ".join(
                 [
-                    frontend_label,
-                    detector_label,
+                    FRONTEND_LABELS[result.case.frontend],
+                    DETECTOR_LABELS[result.case.detector],
                     f"**{result.status}**",
                     format_summary_bytes(build.firmware_size_bytes),
                     format_summary_partition_free(build.partition_free_bytes, build.partition_free_percent),
@@ -1768,19 +1762,19 @@ def render_report(
             "## Pass Criteria",
             "",
             "- all builds and flashes complete successfully",
-            "- Native Classic, Native ML, and ESPHome Classic runtime benchmarks log shared debug telemetry "
+            "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks log shared debug telemetry "
             "throughout the runtime window",
             f"- non-runtime benchmarks log at least {MIN_TELEMETRY_SAMPLES} shared debug telemetry samples",
             "- free heap does not decline by more than 5% during monitoring",
-            "- Native Classic, Native ML, and ESPHome Classic runtime benchmarks log detector status "
+            "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks log detector status "
             "once per second after the first detector status line",
-            "- Native Classic, Native ML, and ESPHome Classic runtime benchmarks report non-zero "
+            "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks report non-zero "
             "packet rates on all but the first detector status line",
-            f"- Native Classic, Native ML, and ESPHome Classic mean packet rate remains between {EXPECTED_PPS_MIN} and {EXPECTED_PPS_MAX} pps",
-            "- Native Classic, Native ML, and ESPHome Classic detector timing is present",
+            f"- Native Lightweight, Native High Accuracy, and ESPHome Lightweight mean packet rate remains between {EXPECTED_PPS_MIN} and {EXPECTED_PPS_MAX} pps",
+            "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight detector timing is present",
             "- Matter smoke benchmarks log a boot marker and the commissioning startup state",
             "- Streamer benchmarks log the device IP, reach STREAMING, and sustain host collect around the target packet rate",
-            f"- Streamer host collect logs at least {MIN_STREAMER_COLLECT_SAMPLES} classic and ML samples",
+            f"- Streamer host collect logs at least {MIN_STREAMER_COLLECT_SAMPLES} Lightweight and High Accuracy samples",
             "- no fatal firmware log is observed",
             "",
         ]
@@ -1824,8 +1818,6 @@ def parse_report_metric_value(text: str) -> int | float | None:
 
 def parse_report_results(text: str) -> list[BenchmarkResult]:
     case_by_label = {case.label: case for case in CASES}
-    case_by_label.update({case.legacy_label: case for case in CASES})
-    case_by_label["Matter Classic"] = BenchmarkCase("matter", "default", benchmark_mode="smoke")
     results: list[BenchmarkResult] = []
     lines = text.splitlines()
     index = 0
@@ -2027,7 +2019,10 @@ def write_report(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build, flash, and benchmark Native Classic/ML, ESPHome Classic, Matter smoke, and Streamer host collect for one chip.",
+        description=(
+            "Build, flash, and benchmark Native Lightweight/High Accuracy, ESPHome "
+            "Lightweight, Matter smoke, and Streamer host collect for one chip."
+        ),
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
     parser.add_argument(
@@ -2037,7 +2032,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--detector",
-        choices=("classic", "ml", "default", "collect"),
+        choices=("lightweight", "high_accuracy", "default", "collect"),
         help="Run only cases for one detector or the streamer collect workflow",
     )
     parser.add_argument(
@@ -2077,44 +2072,44 @@ def main() -> int:
     try:
         require_benchmark_prerequisites()
 
-        native_classic_case = BenchmarkCase("native", "classic")
-        native_ml_case = BenchmarkCase("native", "ml")
-        if native_classic_case in selected_cases:
-            classic_result, _unused = run_case(
-                native_classic_case,
+        native_lightweight_case = BenchmarkCase("native", "lightweight")
+        native_high_accuracy_case = BenchmarkCase("native", "high_accuracy")
+        if native_lightweight_case in selected_cases:
+            lightweight_result, _unused = run_case(
+                native_lightweight_case,
                 args.chip,
                 port,
                 clean=True,
                 overlap_build=None,
             )
-            results.append(classic_result)
+            results.append(lightweight_result)
             write_current_report()
 
-            if native_ml_case in selected_cases:
-                classic_firmware_ready = (
-                    classic_result.build is not None
-                    and classic_result.build.returncode == 0
-                    and classic_result.flash is not None
-                    and classic_result.flash.returncode == 0
+            if native_high_accuracy_case in selected_cases:
+                lightweight_firmware_ready = (
+                    lightweight_result.build is not None
+                    and lightweight_result.build.returncode == 0
+                    and lightweight_result.flash is not None
+                    and lightweight_result.flash.returncode == 0
                 )
-                if classic_firmware_ready:
-                    ml_result = run_native_monitor_only_case(
-                        native_ml_case,
+                if lightweight_firmware_ready:
+                    high_accuracy_result = run_native_monitor_only_case(
+                        native_high_accuracy_case,
                         port,
-                        prebuilt=clone_prebuilt_result(native_ml_case, classic_result),
+                        prebuilt=clone_prebuilt_result(native_high_accuracy_case, lightweight_result),
                         before_monitor=lambda: set_native_detector_via_mqtt(
-                            "ml",
-                            classic_result.monitor.output if classic_result.monitor is not None else "",
+                            "high_accuracy",
+                            lightweight_result.monitor.output if lightweight_result.monitor is not None else "",
                         ),
                     )
                 else:
                     raise RuntimeError(
-                        "native ML benchmark requires a successful native classic build and flash before runtime detector switching"
+                        "Native High Accuracy benchmark requires a successful Native Lightweight build and flash before runtime detector switching"
                     )
-                results.append(ml_result)
+                results.append(high_accuracy_result)
                 write_current_report()
-        elif native_ml_case in selected_cases:
-            bootstrap_case = BenchmarkCase("native", "classic")
+        elif native_high_accuracy_case in selected_cases:
+            bootstrap_case = BenchmarkCase("native", "lightweight")
             bootstrap_result, _unused = run_case(
                 bootstrap_case,
                 args.chip,
@@ -2123,35 +2118,35 @@ def main() -> int:
                 overlap_build=None,
             )
             if bootstrap_result.build is None or bootstrap_result.build.returncode != 0:
-                results.append(BenchmarkResult(case=native_ml_case, status="FAIL", reasons=["native classic bootstrap build failed"]))
+                results.append(BenchmarkResult(case=native_high_accuracy_case, status="FAIL", reasons=["Native Lightweight bootstrap build failed"]))
                 write_current_report()
                 destination = write_current_report()
                 print(f"\nWrote {destination}")
                 print("Overall result: FAIL")
                 return 1
             if bootstrap_result.flash is None or bootstrap_result.flash.returncode != 0:
-                results.append(BenchmarkResult(case=native_ml_case, status="FAIL", reasons=["native classic bootstrap flash failed"]))
+                results.append(BenchmarkResult(case=native_high_accuracy_case, status="FAIL", reasons=["Native Lightweight bootstrap flash failed"]))
                 write_current_report()
                 destination = write_current_report()
                 print(f"\nWrote {destination}")
                 print("Overall result: FAIL")
                 return 1
-            ml_result = run_native_monitor_only_case(
-                native_ml_case,
+            high_accuracy_result = run_native_monitor_only_case(
+                native_high_accuracy_case,
                 port,
-                prebuilt=clone_prebuilt_result(native_ml_case, bootstrap_result),
+                prebuilt=clone_prebuilt_result(native_high_accuracy_case, bootstrap_result),
                 before_monitor=lambda: set_native_detector_via_mqtt(
-                    "ml",
+                    "high_accuracy",
                     bootstrap_result.monitor.output if bootstrap_result.monitor is not None else "",
                 ),
             )
-            results.append(ml_result)
+            results.append(high_accuracy_result)
             write_current_report()
 
-        esphome_classic_case = BenchmarkCase("esphome", "classic")
-        if esphome_classic_case in selected_cases:
+        esphome_lightweight_case = BenchmarkCase("esphome", "lightweight")
+        if esphome_lightweight_case in selected_cases:
             esphome_result, _unused = run_case(
-                esphome_classic_case,
+                esphome_lightweight_case,
                 args.chip,
                 port,
                 clean=True,

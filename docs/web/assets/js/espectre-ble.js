@@ -54,7 +54,7 @@
     ]);
 
     const BSSID_PATTERN = /^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/;
-    const DETECTORS = Object.freeze(['classic', 'ml']);
+    const DETECTORS = Object.freeze(['lightweight', 'high_accuracy']);
     const WIFI_BAND_POLICIES = Object.freeze(['2g', '5g', 'auto']);
     const DEFAULT_TOPIC_PREFIX = 'espectre/v1/devices';
 
@@ -183,7 +183,7 @@
         }
 
         /**
-         * @param {string} detector - `classic` or `ml`.
+         * @param {string} detector - `lightweight` or `high_accuracy`.
          * @returns {string}
          */
         static buildDetectorCommand(detector) {

@@ -38,7 +38,7 @@ RuntimeSnapshot make_ready_snapshot() {
   snapshot.movement_metric = 2.75f;
   snapshot.threshold = 1.5f;
   snapshot.startup_threshold = 0.42f;
-  snapshot.detector_name = "classic";
+  snapshot.detector_name = "lightweight";
   return snapshot;
 }
 
@@ -505,15 +505,16 @@ void test_native_frontend_ble_and_mqtt_detector_commands_update_runtime(void) {
   frontend.set_runtime_config(runtime_config);
   TEST_ASSERT_TRUE(frontend.setup());
 
-  TEST_ASSERT_TRUE(frontend.handle_control_command_("SET_DETECTOR:ml"));
+  TEST_ASSERT_TRUE(frontend.handle_control_command_("SET_DETECTOR:high_accuracy"));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::ML);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::HIGH_ACCURACY);
   TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_DETECTOR:pca"));
 
   mqtt_transport_mock::state.publishes.clear();
-  mqtt.emit_command("{\"command_id\":\"det-1\",\"command\":\"set_detector\",\"detector\":\"classic\"}");
+  mqtt.emit_command(
+      "{\"command_id\":\"det-1\",\"command\":\"set_detector\",\"detector\":\"lightweight\"}");
   TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_detector_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::CLASSIC);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::LIGHTWEIGHT);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.back().payload.find("\"accepted\":true") !=
                    std::string::npos);

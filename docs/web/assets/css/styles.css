@@ -937,6 +937,8 @@ a.hero-badge:hover {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 16px;
 }
+.home-profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.home-path.home-profile { min-height: 330px; }
 .home-path {
   display: flex;
   flex-direction: column;
@@ -2070,6 +2072,9 @@ esp-web-install-button { display: inline-block; }
 .mini-cards h3 { font-size: 14.5px; margin: 0 0 8px; }
 .mini-cards ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--dim); }
 .mini-cards li { margin-bottom: 4px; }
+.profile-choice-cards article { display: flex; flex-direction: column; gap: 10px; }
+.profile-choice-cards h2 { margin: 0; font-size: 20px; }
+.profile-choice-cards p { margin: 0; color: var(--dim); font-size: 13.5px; }
 
 .pipeline {
   display: flex;
@@ -2296,7 +2301,7 @@ esp-web-install-button { display: inline-block; }
   .scrolly-cue { font-size: 9px; right: 22px; bottom: 18px; }
 
   .home-section-inner { padding: 64px 18px; }
-  .home-path-grid { grid-template-columns: 1fr; }
+  .home-path-grid, .home-profile-grid { grid-template-columns: 1fr; }
   .home-privacy-grid { gap: 34px; }
   .home-path { min-height: 0; padding: 24px; }
   .home-path-top { margin-bottom: 32px; }

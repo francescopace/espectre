@@ -165,10 +165,10 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
   component.set_traffic_generator_mode("ping");
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::PING);
-  component.set_detection_algorithm("ml");
-  TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::ML);
-  component.set_detection_algorithm("classic");
-  TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::CLASSIC);
+  component.set_detection_algorithm("high_accuracy");
+  TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
+  component.set_detection_algorithm("lightweight");
+  TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT);
   component.set_publish_interval_ms(2000);
   component.set_evaluation_interval_ms(500);
   component.set_motion_on_hits(4);
@@ -184,14 +184,14 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_calibrate_switch(&calibrate_switch);
 
   component.set_traffic_generator_mode("dns");
-  component.set_detection_algorithm("ml");
+  component.set_detection_algorithm("high_accuracy");
 
   TEST_ASSERT_EQUAL_FLOAT(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT,
                           component.runtime_.config().segmentation_threshold);
   TEST_ASSERT_EQUAL(1500U, component.runtime_.config().segmentation_window_size_ms);
   TEST_ASSERT_EQUAL(0, component.runtime_.config().traffic_generator_rate);
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
-  TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::ML);
+  TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
   TEST_ASSERT_EQUAL(2000, component.runtime_.config().publish_interval_ms);
   TEST_ASSERT_EQUAL(500, component.runtime_.config().evaluation_interval_ms);
   TEST_ASSERT_EQUAL(4, component.runtime_.config().motion_on_hits);
@@ -257,7 +257,7 @@ void test_calibrate_switch_behaviors_cover_all_user_paths(void) {
 
 void test_detector_select_switches_and_republishes_runtime_state(void) {
   ESpectreComponentProbe component;
-  component.set_detection_algorithm("classic");
+  component.set_detection_algorithm("lightweight");
   component.setup();
   DetectorSelectProbe detector_select;
   ThresholdNumberProbe threshold_number;
@@ -265,18 +265,18 @@ void test_detector_select_switches_and_republishes_runtime_state(void) {
   component.set_detector_select(&detector_select);
   component.set_threshold_number(&threshold_number);
 
-  detector_select.control("ml");
+  detector_select.control("high_accuracy");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::ML);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::HIGH_ACCURACY);
   detector_select.republish_state();
-  TEST_ASSERT_EQUAL_STRING("ml", detector_select.get_state().c_str());
+  TEST_ASSERT_EQUAL_STRING("high_accuracy", detector_select.get_state().c_str());
 
   RuntimeSnapshot snapshot = component.runtime_.snapshot();
-  snapshot.detector_name = "classic";
+  snapshot.detector_name = "lightweight";
   snapshot.threshold = SEGMENTATION_DEFAULT_THRESHOLD;
   component.on_detector_changed(snapshot);
-  TEST_ASSERT_EQUAL_STRING("classic", detector_select.get_state().c_str());
-  TEST_ASSERT_EQUAL_FLOAT(CLASSIC_MAX_THRESHOLD, threshold_number.traits.get_max_value());
+  TEST_ASSERT_EQUAL_STRING("lightweight", detector_select.get_state().c_str());
+  TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_MAX_THRESHOLD, threshold_number.traits.get_max_value());
 }
 
 void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void) {

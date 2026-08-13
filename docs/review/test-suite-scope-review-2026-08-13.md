@@ -32,7 +32,7 @@ Research benchmarks and secondary analysis tools should normally use their ownin
 
 ### TEST-001 — High — C++ coverage-only tests pass unconditionally
 
-Locations: [test_ml_detector.cpp](../../test/cpp/suites/core/test_ml_detector.cpp) `test_ml_inference_performance` at line 431; [test_frontend_controls.cpp](../../test/cpp/suites/frontend/test_frontend_controls.cpp) `test_runtime_fault_callback_handles_null_and_message_paths` at line 339 and `test_dump_config_covers_configuration_branches` at line 349; [test_sensor_publisher.cpp](../../test/cpp/suites/frontend/test_sensor_publisher.cpp) `test_sensor_publisher_log_status_handles_runtime_snapshot` at line 64 and `test_sensor_publisher_log_status_ignores_null_tag` at line 79.
+Locations: [test_high_accuracy_detector.cpp](../../test/cpp/suites/core/test_high_accuracy_detector.cpp) `test_ml_inference_performance` at line 431; [test_frontend_controls.cpp](../../test/cpp/suites/frontend/test_frontend_controls.cpp) `test_runtime_fault_callback_handles_null_and_message_paths` at line 339 and `test_dump_config_covers_configuration_branches` at line 349; [test_sensor_publisher.cpp](../../test/cpp/suites/frontend/test_sensor_publisher.cpp) `test_sensor_publisher_log_status_handles_runtime_snapshot` at line 64 and `test_sensor_publisher_log_status_ignores_null_tag` at line 79.
 
 These tests end with `TEST_PASS()` or `TEST_ASSERT_TRUE(true)` after exercising code. They cannot detect an incorrect result. The host inference loop also does not measure ESP32 or MicroPython performance.
 
@@ -74,7 +74,7 @@ Resolution: remove retired feature implementations and their tests after confirm
 
 Locations: [test_ml_inference.py](../../test/python/test_ml_inference.py) the `WEIGHTS` absence assertion at line 45, `test_inference_matches_reference` at line 84, `test_inference_speed` at line 151, and the three `TestMLDetectorIntegration` cases beginning at line 183.
 
-The CPython speed test is not a device performance gate. The first-100-sample reference test is a subset of `test_all_samples_match`. Import, initialization, and threshold-bound checks duplicate `test_ml_detector.py`. Requiring the former `WEIGHTS` symbol to be absent preserves an implementation migration rather than the current export contract.
+The CPython speed test is not a device performance gate. The first-100-sample reference test is a subset of `test_all_samples_match`. Import, initialization, and threshold-bound checks duplicate `test_high_accuracy_detector.py`. Requiring the former `WEIGHTS` symbol to be absent preserves an implementation migration rather than the current export contract.
 
 Resolution: retain the positive `WEIGHTS_T` layout assertion, array saturation contract, all-sample exported-reference comparison, and output-range check. Remove the speed test, the first-100-sample duplicate, the three integration duplicates, and the negative `WEIGHTS` assertion. Device performance should be measured by the owning firmware benchmark workflow.
 
@@ -136,7 +136,7 @@ Resolution: preserve both suites. Clarify in names or documentation that they ar
 
 ### TEST-014 — High — Duplicated ownership gives small production changes an excessive test-change blast radius
 
-Locations: suite-wide, with representative overlap across [test_csi_features.py](../../test/python/test_csi_features.py), [test_ml_detector.py](../../test/python/test_ml_detector.py), [test_ml_inference.py](../../test/python/test_ml_inference.py), [test_train_ml_model_augmentation.py](../../test/python/test_train_ml_model_augmentation.py), [test_validation_real_data.py](../../test/python/test_validation_real_data.py), [test_core_helpers.cpp](../../test/cpp/suites/core/test_core_helpers.cpp), and [test_ml_detector.cpp](../../test/cpp/suites/core/test_ml_detector.cpp).
+Locations: suite-wide, with representative overlap across [test_csi_features.py](../../test/python/test_csi_features.py), [test_high_accuracy_detector.py](../../test/python/test_high_accuracy_detector.py), [test_ml_inference.py](../../test/python/test_ml_inference.py), [test_train_ml_model_augmentation.py](../../test/python/test_train_ml_model_augmentation.py), [test_validation_real_data.py](../../test/python/test_validation_real_data.py), [test_core_helpers.cpp](../../test/cpp/suites/core/test_core_helpers.cpp), and [test_high_accuracy_detector.cpp](../../test/cpp/suites/core/test_high_accuracy_detector.cpp).
 
 The main cause of broad test diffs is not the number of test files by itself. Multiple suites frequently restate the same feature registry, defaults, layout, implementation detail, or historical migration fact. A correct production change then requires synchronized edits across unit, integration, training, and validation files even when only one public contract changed. Additional `*_additional.py`, `*_regressions.py`, and one-bug test modules also create new owners instead of extending the existing owner.
 

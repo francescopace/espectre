@@ -332,13 +332,13 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_FALSE(validate_runtime_threshold(1.1f));
     TEST_ASSERT_EQUAL_STRING("ping", traffic_mode_name(RuntimeTrafficMode::PING));
     TEST_ASSERT_EQUAL_STRING("dns", traffic_mode_name(RuntimeTrafficMode::DNS));
-    TEST_ASSERT_EQUAL_STRING("ml", detection_algorithm_name(DetectionAlgorithm::ML));
-    TEST_ASSERT_EQUAL_STRING("classic", detection_algorithm_name(DetectionAlgorithm::CLASSIC));
+    TEST_ASSERT_EQUAL_STRING("high_accuracy", detection_algorithm_name(DetectionAlgorithm::HIGH_ACCURACY));
+    TEST_ASSERT_EQUAL_STRING("lightweight", detection_algorithm_name(DetectionAlgorithm::LIGHTWEIGHT));
     TEST_ASSERT_EQUAL_STRING("fixed", subcarrier_source_name(RuntimeSubcarrierSource::FIXED_DEFAULT));
     TEST_ASSERT_TRUE(parse_traffic_mode("ping") == RuntimeTrafficMode::PING);
     TEST_ASSERT_TRUE(parse_traffic_mode("dns") == RuntimeTrafficMode::DNS);
-    TEST_ASSERT_TRUE(parse_detection_algorithm("ml") == DetectionAlgorithm::ML);
-    TEST_ASSERT_TRUE(parse_detection_algorithm("classic") == DetectionAlgorithm::CLASSIC);
+    TEST_ASSERT_TRUE(parse_detection_algorithm("high_accuracy") == DetectionAlgorithm::HIGH_ACCURACY);
+    TEST_ASSERT_TRUE(parse_detection_algorithm("lightweight") == DetectionAlgorithm::LIGHTWEIGHT);
     TEST_ASSERT_EQUAL_STRING("2g", wifi_band_policy_name(WifiBandPolicy::BAND_2G));
     TEST_ASSERT_EQUAL_STRING("5g", wifi_band_policy_name(WifiBandPolicy::BAND_5G));
     TEST_ASSERT_EQUAL_STRING("auto", wifi_band_policy_name(WifiBandPolicy::AUTO));
@@ -353,7 +353,7 @@ void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {
     RuntimeSnapshot snapshot;
     config.lowpass_enabled = true;
     snapshot.threshold = 2.5f;
-    snapshot.detector_name = "classic";
+    snapshot.detector_name = "lightweight";
     snapshot.startup_threshold = 0.125f;
 
     std::vector<std::string> lines;
@@ -363,7 +363,7 @@ void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {
 
     TEST_ASSERT_TRUE(!lines.empty());
     TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "threshold=2.500000") != lines.end());
-    TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "detector=classic") != lines.end());
+    TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "detector=lightweight") != lines.end());
     TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "lowpass=on") != lines.end());
     TEST_ASSERT_TRUE(std::none_of(lines.begin(), lines.end(), [](const std::string &line) {
         return line.rfind("subcarriers=", 0U) == 0U || line.rfind("startup_threshold=", 0U) == 0U;

@@ -41,7 +41,7 @@ from tools.lib.performance_report import (
 )
 from tools.lib.csi_io import load_npz_packet_view
 from tools.lib.dataset_metadata import (
-    build_calibrated_classic_detector,
+    build_calibrated_lightweight_detector,
     detector_window_packets,
     derive_detector_timing,
 )
@@ -64,7 +64,7 @@ from config import (
     HAMPEL_THRESHOLD,
     LOWPASS_CUTOFF,
 )
-from classic_detector import ClassicDetector
+from lightweight_detector import LightweightDetector
 from conftest import get_classic_fp_rate_target, get_classic_recall_target, record_performance
 from threshold import StartupThresholdCalibrator, get_detector_auto_factor, get_detector_startup_gate
 
@@ -186,7 +186,7 @@ def dataset_config(request):
 
 @pytest.fixture(params=get_end_to_end_datasets())
 def end_to_end_dataset_config(request):
-    """Representative paired replay used for end-to-end Classic wiring checks."""
+    """Representative paired replay used for end-to-end Lightweight wiring checks."""
     return request.param
 
 
@@ -205,7 +205,7 @@ def real_data(dataset_config):
 
 @pytest.fixture
 def end_to_end_real_data(end_to_end_dataset_config):
-    """Load one representative paired replay for the end-to-end Classic path."""
+    """Load one representative paired replay for the end-to-end Lightweight path."""
     static_presence_path, motion_path, _num_sc, _chip, _dataset_id = end_to_end_dataset_config
     return _load_real_data_cached(static_presence_path, motion_path)
 
@@ -270,7 +270,7 @@ def enable_hampel(chip_type):
 
 def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, hint_band=None, window_size_override=None):
     """
-    Run fixed-subcarrier Classic startup calibration exactly as in production.
+    Run fixed-subcarrier Lightweight startup calibration exactly as in production.
 
     Calibration starts from packet 0 and covers the configured calibration
     duration, matching live startup behavior.
@@ -342,7 +342,7 @@ def run_calibration(static_presence_packets, num_subcarriers, algorithm="fixed_d
 
 def run_classic_calibration(static_presence_packets, selected_band, window_size):
     """Run startup calibration for the classic detector."""
-    detector = ClassicDetector(
+    detector = LightweightDetector(
         window_size=window_size,
         threshold=1.0,
         enable_lowpass=ENABLE_LOWPASS_FILTER,
@@ -444,7 +444,7 @@ class TestPerformanceMetrics:
                                         default_subcarriers, dataset_id, link_stress,
                                         dataset_role):
         """
-        Test Classic motion detection accuracy with fixed production subcarriers.
+        Test Lightweight motion detection accuracy with fixed production subcarriers.
 
         This per-recording replay is diagnostic. The production gate for the
         sole non-ML runtime detector lives in the chip aggregate test below,
@@ -461,7 +461,7 @@ class TestPerformanceMetrics:
             tuple(default_subcarriers),
             None,
         )
-        assert cached_result is not None, "Classic startup calibration failed"
+        assert cached_result is not None, "Lightweight startup calibration failed"
         adaptive_threshold, metrics = cached_result
 
         print("\n")
@@ -506,18 +506,18 @@ class TestPerformanceMetrics:
         assert 0.0 <= metrics["f1"] <= 100.0
 
         if link_stress:
-            print("Link class: weak (low_rssi) -> Classic stress replay, report-only")
+            print("Link class: weak (low_rssi) -> Lightweight stress replay, report-only")
             return
         if dataset_role in {"selection", "holdout"}:
-            print(f"Provenance role: {dataset_role} -> Classic replay is aggregate-gated below")
+            print(f"Provenance role: {dataset_role} -> Lightweight replay is aggregate-gated below")
             return
         assert metrics["recall"] > CLASSIC_TRAIN_REPLAY_RECALL_GUARD, (
-            f"Classic Recall too low: {metrics['recall']:.1f}% "
+            f"Lightweight Recall too low: {metrics['recall']:.1f}% "
             f"(guard: >{CLASSIC_TRAIN_REPLAY_RECALL_GUARD}%)"
         )
         if metrics["num_baseline"] > 0:
             assert metrics["fp_rate"] < CLASSIC_PER_RECORDING_FP_GUARD, (
-                f"Classic FP Rate too high: {metrics['fp_rate']:.1f}% "
+                f"Lightweight FP Rate too high: {metrics['fp_rate']:.1f}% "
                 f"(guard: <{CLASSIC_PER_RECORDING_FP_GUARD}%)"
             )
 
@@ -550,7 +550,7 @@ class TestPerformanceMetrics:
         # ML model uses fixed subcarriers (must match training)
         ml_subcarriers = DEFAULT_SUBCARRIERS
         # ========================================
-        # Initialize ML Detector (no calibration needed)
+        # Initialize High-Accuracy Detector (no calibration needed)
         # ========================================
         cached_metrics, _feature_payload = _compute_ml_dataset_result(
             static_presence_path,
@@ -560,7 +560,7 @@ class TestPerformanceMetrics:
             threshold=0.5,
         )
 
-        print("\nML Detector initialized")
+        print("\nHigh-Accuracy Detector initialized")
         print("  Threshold: 0.5")
         print(f"  Window duration: {SEGMENTATION_WINDOW_SIZE_MS} ms")
         print(f"  Subcarriers: {ml_subcarriers} (fixed for ML)")
@@ -652,7 +652,7 @@ class TestPerformanceMetrics:
 
     @pytest.mark.parametrize("empty_dataset_path", get_available_empty_datasets())
     def test_classic_empty_false_positive_rate(self, empty_dataset_path):
-        """Validate that empty-room recordings raise no Classic alarm.
+        """Validate that empty-room recordings raise no Lightweight alarm.
 
         Empty rooms are the corpus ground truth for "nothing is moving", so this
         is the assertion that has to hold exactly. Static-presence recordings
@@ -665,17 +665,17 @@ class TestPerformanceMetrics:
             empty_dataset_path,
             tuple(DEFAULT_SUBCARRIERS),
         )
-        assert result, f"Classic startup calibration failed for {empty_dataset_path.name}"
+        assert result, f"Lightweight startup calibration failed for {empty_dataset_path.name}"
         assert result["eval_count"] > 0
         assert result["effective_alarms"] == 0, (
-            f"Classic raised an empty-room alarm for {empty_dataset_path.name}: "
+            f"Lightweight raised an empty-room alarm for {empty_dataset_path.name}: "
             f"{result['effective_alarms']}"
         )
         # Secondary regression guard on the raw per-evaluation rate. The corpus
         # maximum is 5.14%, so this bounds drift without tracking noise.
         fp_rate_target = 6.0
         assert result["fp_rate"] < fp_rate_target, (
-            f"Classic empty-room FP Rate too high for {empty_dataset_path.name}: "
+            f"Lightweight empty-room FP Rate too high for {empty_dataset_path.name}: "
             f"{result['fp_rate']:.1f}% (target: <{fp_rate_target}%)"
         )
 
@@ -810,12 +810,12 @@ class TestFloat32Stability:
 
 class TestEndToEndWithCalibration:
     """
-    Test complete pipeline: fixed-band bootstrap -> calibrated Classic detector replay.
+    Test complete pipeline: fixed-band bootstrap -> calibrated Lightweight detector replay.
     
     These tests verify that the system works end-to-end with:
-    - Fixed default subcarriers shared by Classic and ML
+    - Fixed default subcarriers shared by Lightweight and High Accuracy
     - Adaptive threshold calibration from startup data
-    - Production-aligned Classic detector replay achieving target performance
+    - Production-aligned Lightweight detector replay achieving target performance
     """
     
     def test_band_calibration_produces_valid_band(self, dataset_config, num_subcarriers, calibration_algorithm, chip_type, default_subcarriers):
@@ -865,12 +865,12 @@ class TestEndToEndWithCalibration:
         end_to_end_real_data,
     ):
         """
-        Test complete end-to-end flow: startup calibration -> Classic replay.
+        Test complete end-to-end flow: startup calibration -> Lightweight replay.
 
         This validates the actual production runtime path after startup
         calibration.
 
-        Per-dataset promotion gates live in the aggregate Classic target test.
+        Per-dataset promotion gates live in the aggregate Lightweight target test.
         This integration check only verifies that the calibrated pipeline
         produces meaningful class separation on each paired replay.
         """
@@ -887,7 +887,7 @@ class TestEndToEndWithCalibration:
         # ========================================
         print("\n" + "=" * 70)
         print(
-            f"  END-TO-END TEST: Startup Calibration + Classic path "
+            f"  END-TO-END TEST: Startup Calibration + Lightweight path "
             f"({dataset_id}, {num_subcarriers} SC, {calibration_algorithm.upper()})"
         )
         print("=" * 70)
@@ -903,25 +903,25 @@ class TestEndToEndWithCalibration:
         print(f"  Selected band: {selected_band}")
 
         assert selected_band is not None, f"[{calibration_algorithm}] Startup calibration failed for {num_subcarriers} SC"
-        print(f"  Classic startup threshold: {adaptive_threshold:.4f}")
+        print(f"  Lightweight startup threshold: {adaptive_threshold:.4f}")
         
         # ========================================
-        # Step 2: Build the production Classic detector with calibration state
+        # Step 2: Build the production Lightweight detector with calibration state
         # ========================================
-        print(f"\nStep 2: Build calibrated Classic detector (Hampel: {enable_hampel})...")
-        calibrated = build_calibrated_classic_detector(
+        print(f"\nStep 2: Build calibrated Lightweight detector (Hampel: {enable_hampel})...")
+        calibrated = build_calibrated_lightweight_detector(
             static_presence_packets,
             selected_subcarriers=tuple(selected_band),
             enable_hampel=enable_hampel,
         )
-        assert calibrated is not None, "Classic startup calibration failed"
+        assert calibrated is not None, "Lightweight startup calibration failed"
         detector, calibrated_threshold = calibrated
-        print(f"  Classic threshold: {calibrated_threshold:.4f}")
+        print(f"  Lightweight threshold: {calibrated_threshold:.4f}")
 
         # ========================================
         # Step 3: Replay baseline and movement through the detector
         # ========================================
-        print("\nStep 3: Replay baseline and movement through Classic detector...")
+        print("\nStep 3: Replay baseline and movement through Lightweight detector...")
         metrics = evaluate_detector_packets(
             detector,
             static_presence_packets,
@@ -931,7 +931,7 @@ class TestEndToEndWithCalibration:
         
         print()
         print("=" * 70)
-        print("  END-TO-END RESULTS (Startup Calibration + Classic detector)")
+        print("  END-TO-END RESULTS (Startup Calibration + Lightweight detector)")
         print("=" * 70)
         print()
         print(f"CONFUSION MATRIX ({metrics['num_baseline']} baseline + {metrics['num_movement']} movement packets):")
@@ -973,7 +973,7 @@ class TestEndToEndWithCalibration:
 
 @pytest.mark.parametrize("chip", get_available_chip_types())
 def test_classic_chip_aggregate_targets(chip):
-    """Gate Classic on the aggregate normal-link metrics published in PERFORMANCE.md."""
+    """Gate Lightweight on the aggregate normal-link metrics published in PERFORMANCE.md."""
     fp_rate_target = get_classic_fp_rate_target(chip)
     recall_target = get_classic_recall_target(chip)
     chip_pairs = []
@@ -982,7 +982,7 @@ def test_classic_chip_aggregate_targets(chip):
     ):
         if str(dataset_chip).upper() != str(chip).upper():
             continue
-        # Real weak-link pairs are stress diagnostics; the Classic promotion
+        # Real weak-link pairs are stress diagnostics; the Lightweight promotion
         # aggregate covers normal-link sessions only.
         if _is_low_rssi_paired_dataset(static_path):
             continue
@@ -998,7 +998,7 @@ def test_classic_chip_aggregate_targets(chip):
             tuple(DEFAULT_SUBCARRIERS),
             None,
         )
-        assert cached_result is not None, f"Classic startup calibration failed for {static_path.name}"
+        assert cached_result is not None, f"Lightweight startup calibration failed for {static_path.name}"
         _adaptive_threshold, metrics = cached_result
         total_tp += metrics["tp"]
         total_fn += metrics["fn"]
@@ -1027,10 +1027,10 @@ def test_classic_chip_aggregate_targets(chip):
     print("=" * 70)
 
     assert recall > recall_target, (
-        f"Classic aggregate recall too low for {chip}: {recall:.1f}% (target: >{recall_target}%)"
+        f"Lightweight aggregate recall too low for {chip}: {recall:.1f}% (target: >{recall_target}%)"
     )
     assert fp_rate < fp_rate_target, (
-        f"Classic aggregate FP Rate too high for {chip}: {fp_rate:.1f}% (target: <{fp_rate_target}%)"
+        f"Lightweight aggregate FP Rate too high for {chip}: {fp_rate:.1f}% (target: <{fp_rate_target}%)"
     )
 
 
@@ -1153,7 +1153,7 @@ def test_ml_cached_paired_gate_matches_packet_replay():
 
 
 def test_classic_cached_paired_gate_matches_packet_replay():
-    """Cached Classic rows must match packet replay on one reserved pair."""
+    """Cached Lightweight rows must match packet replay on one reserved pair."""
     static_path, motion_path = _get_first_reserved_normal_pair()
     static_packets, motion_packets = _load_real_data_cached(
         static_path,
@@ -1215,13 +1215,13 @@ def test_ml_cached_quiet_gate_matches_packet_replay():
 
 
 def test_classic_cached_quiet_gate_matches_packet_replay():
-    """Cached Classic quiet rows must match packet replay on one empty capture."""
+    """Cached Lightweight quiet rows must match packet replay on one empty capture."""
     empty_datasets = _shared_get_available_empty_datasets()
     if not empty_datasets:
         pytest.skip("No reserved empty datasets available for quiet gate parity")
     empty_path = empty_datasets[0]
     packets = _load_npz_packets_cached(empty_path)
-    calibrated = build_calibrated_classic_detector(
+    calibrated = build_calibrated_lightweight_detector(
         packets,
         selected_subcarriers=DEFAULT_SUBCARRIERS,
     )

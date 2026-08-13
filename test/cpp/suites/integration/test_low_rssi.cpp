@@ -1,7 +1,7 @@
 /*
  * ESPectre - Low-RSSI Integration Test
  *
- * Validates the production Classic startup and replay path on every real
+ * Validates the production Lightweight startup and replay path on every real
  * low-RSSI pair exposed by dataset metadata.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -10,7 +10,7 @@
  */
 #include "test_harness.h"
 
-#include "classic_detector.h"
+#include "lightweight_detector.h"
 #include "csi_replay_metrics.h"
 #include "csi_test_data.h"
 #include "runtime_sensing_schema.h"
@@ -56,15 +56,15 @@ void test_classic_handles_loaded_low_rssi_pair(void) {
       packet_metadata(motion);
   const uint16_t window_size = espectre::test::replay::detector_window_packets(
       baseline_metadata, baseline.num_packets);
-  ClassicDetector detector(window_size, CLASSIC_DEFAULT_THRESHOLD);
+  LightweightDetector detector(window_size, LIGHTWEIGHT_DEFAULT_THRESHOLD);
   detector.configure_lowpass(false);
   detector.configure_hampel(true);
   const int calibration_packets = std::min(
       baseline.num_packets,
       static_cast<int>(espectre::test::replay::calibration_packet_count(
           baseline_metadata, baseline.num_packets)));
-  float adaptive_threshold = CLASSIC_DEFAULT_THRESHOLD;
-  TEST_ASSERT_TRUE(espectre::test::replay::calibrate_classic_detector(
+  float adaptive_threshold = LIGHTWEIGHT_DEFAULT_THRESHOLD;
+  TEST_ASSERT_TRUE(espectre::test::replay::calibrate_lightweight_detector(
       detector, calibration_packets, baseline_rows.data(), baseline.num_packets,
       baseline.rssi_dbm.empty() ? nullptr : baseline.rssi_dbm.data(),
       baseline_metadata, baseline.packet_size, DEFAULT_SUBCARRIERS,
@@ -78,11 +78,11 @@ void test_classic_handles_loaded_low_rssi_pair(void) {
           motion.rssi_dbm.empty() ? nullptr : motion.rssi_dbm.data(),
           motion_metadata, baseline.packet_size, DEFAULT_SUBCARRIERS,
           HT20_SELECTED_BAND_SIZE);
-  printf("Low-RSSI Classic: recall=%.2f%%, fp=%.2f%%, effective_alarms=%d\n",
+  printf("Low-RSSI Lightweight: recall=%.2f%%, fp=%.2f%%, effective_alarms=%d\n",
          metrics.recall, metrics.fp_rate, metrics.effective_alarms);
   // Every weak-link pair clears this recall floor, but the margin on the
   // weakest C3 pair is under a point, so 85 is the level the corpus actually
-  // supports today. Raise it to 90 only once the Classic feature work lands,
+  // supports today. Raise it to 90 only once the Lightweight feature work lands,
   // and never lower it to accommodate a regression.
   TEST_ASSERT_TRUE(metrics.recall >= 85.0f);
   // Sanity bound, not a false-positive gate. These baselines hold a stationary
@@ -104,7 +104,7 @@ int process(void) {
   for (int pair_index = 0; pair_index < pair_count; pair_index++) {
     const csi_test_data::ChipType chip = csi_test_data::low_rssi_pair_chip(pair_index);
     printf("\n========================================\n");
-    printf("Running low-RSSI Classic with %s dataset pair\n",
+    printf("Running low-RSSI Lightweight with %s dataset pair\n",
            csi_test_data::chip_name(chip));
     printf("Pair: %s\n", csi_test_data::low_rssi_pair_label(pair_index));
     printf("========================================\n");

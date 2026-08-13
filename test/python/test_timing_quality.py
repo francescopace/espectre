@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 import tools.train_ml_model as trainer
-from tools import replay_classic_candidates
+from tools import replay_lightweight_candidates
 from tools.lib import performance_report
 from tools.lib.timing_quality import merge_timing_summaries, summarize_capture_timing
 
@@ -630,22 +630,22 @@ def test_classic_candidate_replay_reuses_time_aware_runtime_rows(monkeypatch):
         }
 
     monkeypatch.setattr(
-        replay_classic_candidates,
+        replay_lightweight_candidates,
         "load_or_compute_ml_replay_rows",
         fake_load_rows,
     )
     monkeypatch.setattr(
-        replay_classic_candidates,
+        replay_lightweight_candidates,
         "load_npz_as_packets",
         lambda _path: [],
     )
     monkeypatch.setattr(
-        replay_classic_candidates,
+        replay_lightweight_candidates,
         "detector_window_packets",
         lambda _packets: 100,
     )
 
-    cache = replay_classic_candidates.build_replay_cache(
+    cache = replay_lightweight_candidates.build_replay_cache(
         [trainer.Path("runtime.npz")],
         [trainer.EXPORTED_FEATURE_NAMES[0]],
         quiet=True,
@@ -674,27 +674,27 @@ def test_classic_candidate_replay_persists_host_feature_rows(monkeypatch):
         }
 
     monkeypatch.setattr(
-        replay_classic_candidates.train_ml_model,
+        replay_lightweight_candidates.train_ml_model,
         "load_or_compute_host_feature_rows",
         fake_load_rows,
     )
     monkeypatch.setattr(
-        replay_classic_candidates.train_ml_model,
+        replay_lightweight_candidates.train_ml_model,
         "_host_feature_stream_provenance",
         lambda names, **_kwargs: {"features": list(names)},
     )
     monkeypatch.setattr(
-        replay_classic_candidates,
+        replay_lightweight_candidates,
         "load_npz_as_packets",
         lambda _path: [],
     )
     monkeypatch.setattr(
-        replay_classic_candidates,
+        replay_lightweight_candidates,
         "detector_window_packets",
         lambda _packets: 100,
     )
 
-    cache = replay_classic_candidates.build_replay_cache(
+    cache = replay_lightweight_candidates.build_replay_cache(
         [trainer.Path("host.npz")],
         ["chan_freq_coh_curve_std"],
         quiet=True,
@@ -713,7 +713,7 @@ def test_classic_candidate_packet_stress_has_distinct_cache_provenance(monkeypat
     packets = [{"csi_data": np.asarray([1, 2], dtype=np.int8)}]
 
     monkeypatch.setattr(
-        replay_classic_candidates,
+        replay_lightweight_candidates,
         "load_npz_as_packets",
         lambda _path: packets,
     )
@@ -723,12 +723,12 @@ def test_classic_candidate_packet_stress_has_distinct_cache_provenance(monkeypat
         return packets
 
     monkeypatch.setattr(
-        replay_classic_candidates.train_ml_model,
+        replay_lightweight_candidates.train_ml_model,
         "_prepare_feature_packets_for_record",
         fake_prepare_packets,
     )
     monkeypatch.setattr(
-        replay_classic_candidates.train_ml_model,
+        replay_lightweight_candidates.train_ml_model,
         "_packet_augmentation_stream_provenance",
         lambda config, seed: {"config": dict(config), "seed": seed},
     )
@@ -743,12 +743,12 @@ def test_classic_candidate_packet_stress_has_distinct_cache_provenance(monkeypat
         }
 
     monkeypatch.setattr(
-        replay_classic_candidates,
+        replay_lightweight_candidates,
         "load_or_compute_ml_replay_rows",
         fake_load_rows,
     )
 
-    replay_classic_candidates.build_replay_cache(
+    replay_lightweight_candidates.build_replay_cache(
         [trainer.Path("runtime.npz")],
         [trainer.EXPORTED_FEATURE_NAMES[0]],
         quiet=True,

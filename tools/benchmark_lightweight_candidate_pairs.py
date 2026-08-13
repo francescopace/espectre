@@ -2,25 +2,25 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-ESPectre - Candidate Classic Combination Benchmark
+ESPectre - Candidate Lightweight Combination Benchmark
 
-Compare hand-picked Classic detector candidates from the current ML feature
+Compare hand-picked Lightweight detector candidates from the current ML feature
 surface without coupling the ranking to a threshold sweep. The projection fits
 on `train`, the primary ranking uses `train` plus `selection`, and `holdout` and
 `exclude` are reported separately without influencing candidate order.
 
 Usage:
-    python tools/benchmark_classic_candidate_pairs.py
-    python tools/benchmark_classic_candidate_pairs.py --json
-    python tools/benchmark_classic_candidate_pairs.py \
+    python tools/benchmark_lightweight_candidate_pairs.py
+    python tools/benchmark_lightweight_candidate_pairs.py --json
+    python tools/benchmark_lightweight_candidate_pairs.py \
         --feature turb_autocorr
-    python tools/benchmark_classic_candidate_pairs.py \
+    python tools/benchmark_lightweight_candidate_pairs.py \
         --pair l1_delta_lag_ratio,chan_coh_gap \
         --pair l1_delta_lag_ratio,chan_shape_spread_subband
-    python tools/benchmark_classic_candidate_pairs.py \
+    python tools/benchmark_lightweight_candidate_pairs.py \
         --triple turb_autocorr,chan_freq_coh_curve_std,chan_coh_gap
-    python tools/benchmark_classic_candidate_pairs.py --all-runtime-triplets
-    python tools/benchmark_classic_candidate_pairs.py --all-host-triplets
+    python tools/benchmark_lightweight_candidate_pairs.py --all-runtime-triplets
+    python tools/benchmark_lightweight_candidate_pairs.py --all-host-triplets
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
@@ -49,7 +49,7 @@ from tools.lib.bootstrap import setup_paths  # noqa: E402
 setup_paths()
 
 import tools.train_ml_model as train_ml_model  # noqa: E402
-from tools import replay_classic_candidates as candidate_replay  # noqa: E402
+from tools import replay_lightweight_candidates as candidate_replay  # noqa: E402
 from ml_weights import FEATURE_NAMES  # noqa: E402
 from tools.lib.candidate_features import CANDIDATE_FEATURES  # noqa: E402
 from tools.lib.dataset_metadata import load_dataset_info  # noqa: E402
@@ -126,7 +126,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-baseline",
         action="store_true",
-        help="skip the current Classic pair baseline section",
+        help="skip the current Lightweight pair baseline section",
     )
     return parser.parse_args()
 
@@ -630,14 +630,14 @@ def main() -> int:
         print(json.dumps(payload, indent=2))
         return 0
 
-    print("Threshold-free benchmark for candidate Classic combinations")
+    print("Threshold-free benchmark for candidate Lightweight combinations")
     print("Primary ranking: admitted real paired datasets (train/selection)")
     print("Sealed diagnostic: real paired holdout datasets only")
     print("Secondary diagnostic: real paired exclude datasets only")
     print(f"Training sample contract: {matrix.get('training_sample_contract')}")
     print()
     if baseline is not None:
-        print("Baseline: current Classic combination")
+        print("Baseline: current Lightweight combination")
         print(f"  {' + '.join(baseline['combination'])}")
         print_summary("  Primary:", baseline["primary"])
         print_summary("  Holdout:", baseline["holdout"])

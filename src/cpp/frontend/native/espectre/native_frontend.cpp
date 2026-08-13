@@ -402,8 +402,8 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
   }
   if (command.rfind("SET_DETECTOR:", 0) == 0) {
     const std::string detector = command.substr(13U);
-    if (detector != RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME &&
-        detector != RUNTIME_DETECTION_ALGORITHM_ML_NAME) {
+    if (detector != RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME &&
+        detector != RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME) {
       ESP_LOGW(TAG, "Invalid BLE detector command: %s", command.c_str());
       return false;
     }
@@ -592,8 +592,8 @@ void NativeFrontend::setup_ha_mqtt_() {
     (void) mqtt_transport_->subscribe(ha_settings_.detector_command_topic,
                                       [this](const std::string &, const std::string &payload) {
                                         const std::string detector = normalize_text_token(payload);
-                                        if (detector == RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME ||
-                                            detector == RUNTIME_DETECTION_ALGORITHM_ML_NAME) {
+                                        if (detector == RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME ||
+                                            detector == RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME) {
                                           (void) this->handle_detector_write_(parse_detection_algorithm(detector.c_str()));
                                         }
                                       });

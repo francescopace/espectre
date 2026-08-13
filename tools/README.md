@@ -29,8 +29,8 @@ The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3
 | Tool | Use it when you need to |
 |---|---|
 | `analyze_raw_data.py` | inspect registered CSI pairs and basic signal quality |
-| `analyze_system_tuning.py` | grid-search Classic parameters on the fixed production band |
-| `compare_detection_methods.py` | compare RSSI, Classic, and ML behavior on recorded data |
+| `analyze_system_tuning.py` | grid-search Lightweight parameters on the fixed production band |
+| `compare_detection_methods.py` | compare RSSI, Lightweight, and ML behavior on recorded data |
 | `compare_chips.py` | compare CSI characteristics across available chip datasets |
 | `plot_constellation.py` | visualize I/Q samples by subcarrier |
 | `plot_heatmap.py` | render time-by-subcarrier CSI amplitude heatmaps |
@@ -41,11 +41,11 @@ The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3
 | `analyze_seed_dispersion.py` | measure replay-metric variation across training seeds |
 | `compare_reserved_selection.py` | compare one candidate on reserved selection roles with an explicit seed |
 | `benchmark_subcarrier_aggregation.py` | evaluate adjacent-subcarrier aggregation as a host-side experiment |
-| `benchmark_classic_candidate_pairs.py` | screen Classic features and combinations without threshold coupling |
-| `test/cpp/support/benchmark_classic_iqr_resources.cpp` | compare host C++ RAM and hot-path cost for the normal- and aggregated-IQR Classic finalists |
-| `test/cpp/support/benchmark_detector_resources.cpp` | measure current production Classic and ML host memory, packet cost, inference latency, and nominal CPU load |
-| `replay_classic_candidates.py` | fit and replay research-only Classic candidates end to end |
-| `fit_classic_detector.py` | fit production Classic coefficients and optionally apply an approved result |
+| `benchmark_lightweight_candidate_pairs.py` | screen Lightweight features and combinations without threshold coupling |
+| `test/cpp/support/benchmark_lightweight_iqr_resources.cpp` | compare host C++ RAM and hot-path cost for the normal- and aggregated-IQR Lightweight finalists |
+| `test/cpp/support/benchmark_detector_resources.cpp` | measure current production Lightweight and High Accuracy host memory, packet cost, inference latency, and nominal CPU load |
+| `replay_lightweight_candidates.py` | fit and replay research-only Lightweight candidates end to end |
+| `fit_lightweight_detector.py` | fit production Lightweight coefficients and optionally apply an approved result |
 | `prune_npz_cache.py` | remove cached analysis artifacts whose sources or implementation dependencies are no longer current |
 | `espectre_traffic_generator.py` | run the standalone laboratory traffic-generator service |
 
@@ -88,7 +88,7 @@ Use an explicit seed and the same corpus, roles, preprocessing, features, and au
 
 ## Generated Performance Report
 
-`generate_performance_report.py` publishes Classic and ML replay tables only for the combined `selection + holdout` corpus, executes the current production C++ resource microbenchmark, and runs the host-side C++/Python parity checks before writing the report. Training-role recordings remain covered by the validation suites but are neither replayed nor summarized by the report generator. Detector replay summaries, augmented rows, and training matrices use the shared `.npz_cache`; a warm generation reuses them instead of replaying the corpus. Its augmentation diagnostic applies the production two-seed packet recipe to the same reserved pairs and compares Classic and ML on matching alternating replay positions; it never reads augmented training rows.
+`generate_performance_report.py` publishes Lightweight and High Accuracy replay tables only for the combined `selection + holdout` corpus, executes the current production C++ resource microbenchmark, and runs the host-side C++/Python parity checks before writing the report. Training-role recordings remain covered by the validation suites but are neither replayed nor summarized by the report generator. Detector replay summaries, augmented rows, and training matrices use the shared `.npz_cache`; a warm generation reuses them instead of replaying the corpus. Its augmentation diagnostic applies the production two-seed packet recipe to the same reserved pairs and compares Lightweight and High Accuracy on matching alternating replay positions; it never reads augmented training rows.
 
 ```bash
 python tools/generate_performance_report.py
@@ -102,13 +102,13 @@ Do not edit `docs/performance/README.md` manually. `--check-current` is a lightw
 
 `benchmark_firmware.py` operates on one connected chip and writes its generated report under `docs/performance/`. The representative matrix is:
 
-1. Native Classic
+1. Native Lightweight
 2. Native ML by runtime switching of the same Native firmware
-3. ESPHome Classic
+3. ESPHome Lightweight
 4. Matter with its build-time default detector
 5. Streamer collection
 
-This matrix is not a capability table. ESPHome, Native, and Matter support Classic and ML; ESPHome and Native can switch at runtime, while Matter selects the detector at build time.
+This matrix is not a capability table. ESPHome, Native, and Matter support Lightweight and High Accuracy; ESPHome and Native can switch at runtime, while Matter selects the detector at build time.
 
 The benchmark requires local ESPHome and Native Wi-Fi credentials plus MQTT for the Native runtime switch. Copy `tools/benchmark_firmware.local.env.example` to `tools/benchmark_firmware.local.env`, fill in the laboratory values, connect the target board, and run:
 
@@ -124,15 +124,15 @@ The candidate tools answer different questions:
 
 | Question | Tool |
 |---|---|
-| Does one feature or combination separate paired states before threshold tuning? | `benchmark_classic_candidate_pairs.py` |
-| Does a candidate survive causal calibration, clean replay, and packet stress? | `replay_classic_candidates.py` |
+| Does one feature or combination separate paired states before threshold tuning? | `benchmark_lightweight_candidate_pairs.py` |
+| Does a candidate survive causal calibration, clean replay, and packet stress? | `replay_lightweight_candidates.py` |
 | Does adjacent-bin aggregation change channel statistics or detector behavior? | `benchmark_subcarrier_aggregation.py` |
 | How much does a metric move across training seeds? | `analyze_seed_dispersion.py` |
 | Does a selected ML candidate survive the reserved selection roles? | `compare_reserved_selection.py` |
 
 These tools are diagnostic by default and must not write production runtime artifacts. Their durable conclusions belong in [FEATURES.md](../docs/FEATURES.md); detector formulas belong in [ALGORITHMS.md](../docs/ALGORITHMS.md). Use an ADR only for a durable architectural or project-level decision.
 
-`fit_classic_detector.py --apply` and ML export are deliberate promotion actions. Run the required real-data, long-recording, packet-rate, and C++/Python parity gates before applying their output.
+`fit_lightweight_detector.py --apply` and ML export are deliberate promotion actions. Run the required real-data, long-recording, packet-rate, and C++/Python parity gates before applying their output.
 
 ## Visual Analysis
 

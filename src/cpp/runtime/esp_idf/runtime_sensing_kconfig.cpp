@@ -16,8 +16,8 @@
 #include "runtime_config_utils.h"
 #include "sdkconfig.h"
 
-#ifndef CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC
-#define CONFIG_ESPECTRE_DETECTION_ALGORITHM_CLASSIC 1
+#ifndef CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT
+#define CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT 1
 #endif
 #ifndef CONFIG_ESPECTRE_WIFI_BAND_2G
 #define CONFIG_ESPECTRE_WIFI_BAND_2G 1
@@ -28,8 +28,8 @@
 #ifndef CONFIG_ESPECTRE_WIFI_BAND_AUTO
 #define CONFIG_ESPECTRE_WIFI_BAND_AUTO 0
 #endif
-#ifndef CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML
-#define CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML 0
+#ifndef CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY
+#define CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY 0
 #endif
 #ifndef CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS
 #define CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS 1000
@@ -138,10 +138,10 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
   config.wifi_band_policy = WifiBandPolicy::BAND_2G;
 #endif
 
-#if CONFIG_ESPECTRE_DETECTION_ALGORITHM_ML
-  config.detection_algorithm = DetectionAlgorithm::ML;
+#if CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY
+  config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
 #else
-  config.detection_algorithm = DetectionAlgorithm::CLASSIC;
+  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
 #endif
 
   config.segmentation_threshold = runtime_default_threshold(config.detection_algorithm);

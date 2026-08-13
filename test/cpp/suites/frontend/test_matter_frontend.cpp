@@ -31,7 +31,7 @@ RuntimeSnapshot make_ready_snapshot(bool motion) {
   snapshot.movement_metric = 2.75f;
   snapshot.threshold = 1.5f;
   snapshot.startup_threshold = 0.42f;
-  snapshot.detector_name = "classic";
+  snapshot.detector_name = "lightweight";
   return snapshot;
 }
 

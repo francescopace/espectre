@@ -57,7 +57,7 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
         "target_port": 9999,
         "pps": 100,
         "adaptive": True,
-        "detector": "classic",
+        "detector": "lightweight",
         "contributor": None,
         "description": None,
     }
@@ -105,8 +105,8 @@ def _attach_runtime_policy_primitives(module: ModuleType) -> None:
 def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collector_cls=object, config_overrides=None) -> None:
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
-    fake_ml_detector = ModuleType("ml_detector")
-    fake_classic_detector = ModuleType("classic_detector")
+    fake_high_accuracy_detector = ModuleType("high_accuracy_detector")
+    fake_lightweight_detector = ModuleType("lightweight_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
     fake_threshold = ModuleType("threshold")
 
@@ -133,7 +133,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
         buffer_index = 0
         turbulence_buffer = []
 
-    class FakeMLDetector:
+    class FakeHighAccuracyDetector:
         def __init__(self, **kwargs):
             self._context = FakeContext()
             self._threshold = kwargs.get("threshold", 0.5)
@@ -163,7 +163,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
         def _extract_features(self):
             return []
 
-    class FakeClassicBaseDetector(FakeMLDetector):
+    class FakeLightweightBaseDetector(FakeHighAccuracyDetector):
         def update_state(self):
             return {"moving_variance": 0.0, "threshold": self._threshold, "state": 0}
 
@@ -174,14 +174,14 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
             self._threshold = threshold
 
         def get_name(self):
-            return "Classic"
+            return "Lightweight"
 
-    class FakeClassicDetector(FakeClassicBaseDetector):
-        ALGORITHM = "classic"
+    class FakeLightweightDetector(FakeLightweightBaseDetector):
+        ALGORITHM = "lightweight"
         BASE_THRESHOLD = 1.0
 
         def get_name(self):
-            return "Classic"
+            return "Lightweight"
 
     class FakeRuntimeMotionPolicy:
         def __init__(self, **kwargs):
@@ -233,11 +233,11 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
     fake_csi_utils.UdpPacingSender = pacing_cls
     fake_csi_utils.AdaptivePacingController = AdaptivePacingController
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
-    fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
-    fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
-    fake_ml_detector.ML_METRIC_SCALE = 1.0
-    fake_ml_detector.MLDetector = FakeMLDetector
-    fake_classic_detector.ClassicDetector = FakeClassicDetector
+    fake_high_accuracy_detector.FEATURE_NAMES = ["f1", "f2"]
+    fake_high_accuracy_detector.HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
+    fake_high_accuracy_detector.HIGH_ACCURACY_METRIC_SCALE = 1.0
+    fake_high_accuracy_detector.HighAccuracyDetector = FakeHighAccuracyDetector
+    fake_lightweight_detector.LightweightDetector = FakeLightweightDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
     _attach_runtime_policy_primitives(fake_runtime_policy)
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
@@ -246,8 +246,8 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
-    monkeypatch.setitem(sys.modules, "classic_detector", fake_classic_detector)
+    monkeypatch.setitem(sys.modules, "high_accuracy_detector", fake_high_accuracy_detector)
+    monkeypatch.setitem(sys.modules, "lightweight_detector", fake_lightweight_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
     monkeypatch.setitem(sys.modules, "threshold", fake_threshold)
 
@@ -321,7 +321,7 @@ def test_collect_parser_accepts_live_options() -> None:
     )
 
     assert args.namespace == "collect"
-    assert args.detector == "classic"
+    assert args.detector == "lightweight"
     assert args.label == "empty"
     assert args.duration == 45.0
     assert args.pps == 100
@@ -485,12 +485,12 @@ def test_collect_parser_accepts_detector_choice() -> None:
             "--target",
             "192.168.1.15",
             "--detector",
-            "classic",
+            "lightweight",
         ]
     )
 
     assert args.namespace == "collect"
-    assert args.detector == "classic"
+    assert args.detector == "lightweight"
     assert args.label is None
     assert args.duration is None
 
@@ -504,12 +504,12 @@ def test_collect_parser_accepts_comma_separated_detectors() -> None:
             "--target",
             "192.168.1.15",
             "--detector",
-            "classic,ml",
+            "lightweight,high_accuracy",
         ]
     )
 
     assert args.namespace == "collect"
-    assert args.detector == "classic,ml"
+    assert args.detector == "lightweight,high_accuracy"
 
 
 def test_collect_live_rejects_unknown_detector(monkeypatch, capsys) -> None:
@@ -524,7 +524,7 @@ def test_collect_live_rejects_unknown_detector(monkeypatch, capsys) -> None:
     _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
 
     with pytest.raises(SystemExit):
-        host.collect_csi_data(_make_live_collect_args(detector="classic,bogus", label=None))
+        host.collect_csi_data(_make_live_collect_args(detector="lightweight,bogus", label=None))
 
     output = capsys.readouterr().out
     assert "Unsupported detector(s): bogus" in output
@@ -1129,7 +1129,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     clock = {"now": 0.0}
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
-    fake_ml_detector = ModuleType("ml_detector")
+    fake_high_accuracy_detector = ModuleType("high_accuracy_detector")
     fake_quality = ModuleType("tools.validate_dataset_quality")
     fake_runtime_policy = ModuleType("runtime_policy")
 
@@ -1213,7 +1213,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     class FakeContext:
         last_turbulence = 0.0
 
-    class FakeMLDetector:
+    class FakeHighAccuracyDetector:
         def __init__(self, **kwargs):
             self._context = FakeContext()
 
@@ -1250,10 +1250,10 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_csi_utils.AdaptivePacingController = AdaptivePacingController
-    fake_ml_detector.FEATURE_NAMES = ["a", "b"]
-    fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
-    fake_ml_detector.ML_METRIC_SCALE = 1.0
-    fake_ml_detector.MLDetector = FakeMLDetector
+    fake_high_accuracy_detector.FEATURE_NAMES = ["a", "b"]
+    fake_high_accuracy_detector.HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
+    fake_high_accuracy_detector.HIGH_ACCURACY_METRIC_SCALE = 1.0
+    fake_high_accuracy_detector.HighAccuracyDetector = FakeHighAccuracyDetector
     fake_quality.validate_file_integrity = lambda path: (
         [FakeResult("file_load", "PASS", "File loads successfully")],
         FakeData({"csi_data": object()}),
@@ -1271,7 +1271,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
+    monkeypatch.setitem(sys.modules, "high_accuracy_detector", fake_high_accuracy_detector)
     monkeypatch.setitem(sys.modules, "tools.validate_dataset_quality", fake_quality)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
@@ -1281,7 +1281,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
             target="192.168.1.29",
             label="empty",
             description="live collect ML, idle-motion-idle",
-            detector="ml",
+            detector="high_accuracy",
         )
     )
 
@@ -1385,7 +1385,7 @@ def test_collect_live_filters_off_target_packets_for_multi_unicast(monkeypatch, 
         _make_live_collect_args(
             target="192.168.1.29,192.168.1.35",
             label="motion",
-            detector="ml",
+            detector="high_accuracy",
             ready_stable_seconds=0.0,
         )
     )
@@ -1486,7 +1486,7 @@ def test_collect_live_accepts_all_sources_for_multicast_targets(monkeypatch, cap
         _make_live_collect_args(
             target="239.1.1.1",
             label="motion",
-            detector="ml",
+            detector="high_accuracy",
             ready_stable_seconds=0.0,
         )
     )
@@ -1504,7 +1504,7 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
     clock = {"now": 0.0}
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
-    fake_ml_detector = ModuleType("ml_detector")
+    fake_high_accuracy_detector = ModuleType("high_accuracy_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
@@ -1576,7 +1576,7 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
     class FakeContext:
         last_turbulence = 0.0
 
-    class FakeMLDetector:
+    class FakeHighAccuracyDetector:
         def __init__(self, **kwargs):
             self._context = FakeContext()
 
@@ -1613,17 +1613,17 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_csi_utils.AdaptivePacingController = AdaptivePacingController
-    fake_ml_detector.FEATURE_NAMES = ["a", "b"]
-    fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
-    fake_ml_detector.ML_METRIC_SCALE = 1.0
-    fake_ml_detector.MLDetector = FakeMLDetector
+    fake_high_accuracy_detector.FEATURE_NAMES = ["a", "b"]
+    fake_high_accuracy_detector.HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
+    fake_high_accuracy_detector.HIGH_ACCURACY_METRIC_SCALE = 1.0
+    fake_high_accuracy_detector.HighAccuracyDetector = FakeHighAccuracyDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
 
     _attach_runtime_policy_primitives(fake_runtime_policy)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
+    monkeypatch.setitem(sys.modules, "high_accuracy_detector", fake_high_accuracy_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
@@ -1631,7 +1631,7 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
         _make_live_collect_args(
             target="192.168.1.29",
             label="empty",
-            detector="ml",
+            detector="high_accuracy",
             ready_stable_seconds=0.0,
         )
     )
@@ -1646,7 +1646,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
     clock = {"now": 0.0}
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
-    fake_ml_detector = ModuleType("ml_detector")
+    fake_high_accuracy_detector = ModuleType("high_accuracy_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
@@ -1718,7 +1718,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
     class FakeContext:
         last_turbulence = 0.0
 
-    class FakeMLDetector:
+    class FakeHighAccuracyDetector:
         def __init__(self, **kwargs):
             self._context = FakeContext()
 
@@ -1755,17 +1755,17 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_csi_utils.AdaptivePacingController = AdaptivePacingController
-    fake_ml_detector.FEATURE_NAMES = ["a", "b"]
-    fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
-    fake_ml_detector.ML_METRIC_SCALE = 1.0
-    fake_ml_detector.MLDetector = FakeMLDetector
+    fake_high_accuracy_detector.FEATURE_NAMES = ["a", "b"]
+    fake_high_accuracy_detector.HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
+    fake_high_accuracy_detector.HIGH_ACCURACY_METRIC_SCALE = 1.0
+    fake_high_accuracy_detector.HighAccuracyDetector = FakeHighAccuracyDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
 
     _attach_runtime_policy_primitives(fake_runtime_policy)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
+    monkeypatch.setitem(sys.modules, "high_accuracy_detector", fake_high_accuracy_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
@@ -1775,7 +1775,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
             label="empty",
             duration=10,
             description="interrupted run",
-            detector="ml",
+            detector="high_accuracy",
         )
     )
 
@@ -1824,13 +1824,13 @@ def test_collect_live_handles_import_failure(monkeypatch) -> None:
         blocked = {
             "tools.lib.csi_io",
             "config",
-            "classic_detector",
-            "ml_detector",
+            "lightweight_detector",
+            "high_accuracy_detector",
             "runtime_policy",
             "threshold",
             "src.config",
-            "src.classic_detector",
-            "src.ml_detector",
+            "src.lightweight_detector",
+            "src.high_accuracy_detector",
             "src.runtime_policy",
             "src.threshold",
         }
@@ -1847,7 +1847,7 @@ def test_collect_live_handles_import_failure(monkeypatch) -> None:
 def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
-    fake_ml_detector = ModuleType("ml_detector")
+    fake_high_accuracy_detector = ModuleType("high_accuracy_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
@@ -1914,7 +1914,7 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
         def _compute_spatial_turbulence_in_buffer(self, iq_raw, subcarriers):
             return 0.75
 
-    class FakeMLDetector:
+    class FakeHighAccuracyDetector:
         def __init__(self, **kwargs):
             self._context = FakeContext()
 
@@ -1951,23 +1951,23 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_csi_utils.AdaptivePacingController = AdaptivePacingController
-    fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
-    fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
-    fake_ml_detector.ML_METRIC_SCALE = 1.0
-    fake_ml_detector.MLDetector = FakeMLDetector
+    fake_high_accuracy_detector.FEATURE_NAMES = ["f1", "f2"]
+    fake_high_accuracy_detector.HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
+    fake_high_accuracy_detector.HIGH_ACCURACY_METRIC_SCALE = 1.0
+    fake_high_accuracy_detector.HighAccuracyDetector = FakeHighAccuracyDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
 
     _attach_runtime_policy_primitives(fake_runtime_policy)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
+    monkeypatch.setitem(sys.modules, "high_accuracy_detector", fake_high_accuracy_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
 
     host.collect_csi_data(
         _make_live_collect_args(
             target="192.168.1.29",
-            detector="ml",
+            detector="high_accuracy",
             description="feature run",
         )
     )
@@ -2044,7 +2044,7 @@ def test_collect_live_keeps_fixed_pacing_with_fixed_flag(monkeypatch, capsys) ->
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.29", detector="ml", label=None, adaptive=False)
+        _make_live_collect_args(target="192.168.1.29", detector="high_accuracy", label=None, adaptive=False)
     )
 
     output = capsys.readouterr().out
@@ -2119,7 +2119,7 @@ def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, caps
     )
     monkeypatch.setattr(host.time, "monotonic", lambda: clock["now"])
 
-    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="ml", label=None))
+    host.collect_csi_data(_make_live_collect_args(target="192.168.1.29", detector="high_accuracy", label=None))
 
     output = capsys.readouterr().out
     assert FakePacingSender.last_instance is not None
@@ -2173,12 +2173,12 @@ def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None
         FakePacingSender,
         config_overrides={"SEGMENTATION_WINDOW_SIZE_MS": 20},
     )
-    classic_module = sys.modules["classic_detector"]
-    base_detector = classic_module.ClassicDetector
+    classic_module = sys.modules["lightweight_detector"]
+    base_detector = classic_module.LightweightDetector
     runtime_policy_module = sys.modules["runtime_policy"]
     base_runtime_policy = runtime_policy_module.RuntimeMotionPolicy
 
-    class CapturingClassicDetector(base_detector):
+    class CapturingLightweightDetector(base_detector):
         windows = []
 
         def __init__(self, **kwargs):
@@ -2192,15 +2192,15 @@ def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None
             self.__class__.evaluation_intervals.append(int(kwargs["evaluation_interval_ms"]))
             super().__init__(**kwargs)
 
-    classic_module.ClassicDetector = CapturingClassicDetector
+    classic_module.LightweightDetector = CapturingLightweightDetector
     runtime_policy_module.RuntimeMotionPolicy = CapturingRuntimeMotionPolicy
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.29", detector="classic", label=None, pps=42)
+        _make_live_collect_args(target="192.168.1.29", detector="lightweight", label=None, pps=42)
     )
 
     capsys.readouterr()
-    assert CapturingClassicDetector.windows == [80, 80]
+    assert CapturingLightweightDetector.windows == [80, 80]
     assert CapturingRuntimeMotionPolicy.evaluation_intervals == [10, 10]
 
 
@@ -2264,36 +2264,36 @@ def test_collect_live_adapts_detector_window_to_measured_device_rate(
     runtime_policy_module.derive_detector_timing = derive_detector_timing
     runtime_policy_module.nominal_packet_interval_us = nominal_packet_interval_us
 
-    classic_module = sys.modules["classic_detector"]
-    base_detector = classic_module.ClassicDetector
+    classic_module = sys.modules["lightweight_detector"]
+    base_detector = classic_module.LightweightDetector
 
-    class CapturingClassicDetector(base_detector):
+    class CapturingLightweightDetector(base_detector):
         windows = []
 
         def __init__(self, **kwargs):
             self.__class__.windows.append(int(kwargs["window_size"]))
             super().__init__(**kwargs)
 
-    classic_module.ClassicDetector = CapturingClassicDetector
+    classic_module.LightweightDetector = CapturingLightweightDetector
 
     host.collect_csi_data(
         _make_live_collect_args(
             target="192.168.1.29",
-            detector="classic",
+            detector="lightweight",
             label=None,
             pps=100,
         )
     )
 
     capsys.readouterr()
-    assert CapturingClassicDetector.windows[:2] == [100, 100]
-    assert CapturingClassicDetector.windows[-2:] == [80, 80]
+    assert CapturingLightweightDetector.windows[:2] == [100, 100]
+    assert CapturingLightweightDetector.windows[-2:] == [80, 80]
 
 
 def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, capsys) -> None:
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
-    fake_ml_detector = ModuleType("ml_detector")
+    fake_high_accuracy_detector = ModuleType("high_accuracy_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
@@ -2360,7 +2360,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
             self.buffer_index = 0
             self.turbulence_buffer = []
 
-    class FakeMLDetector:
+    class FakeHighAccuracyDetector:
         instances = []
 
         def __init__(self, **kwargs):
@@ -2403,25 +2403,25 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_csi_utils.AdaptivePacingController = AdaptivePacingController
-    fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
-    fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
-    fake_ml_detector.ML_METRIC_SCALE = 1.0
-    fake_ml_detector.MLDetector = FakeMLDetector
+    fake_high_accuracy_detector.FEATURE_NAMES = ["f1", "f2"]
+    fake_high_accuracy_detector.HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
+    fake_high_accuracy_detector.HIGH_ACCURACY_METRIC_SCALE = 1.0
+    fake_high_accuracy_detector.HighAccuracyDetector = FakeHighAccuracyDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
 
     _attach_runtime_policy_primitives(fake_runtime_policy)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
+    monkeypatch.setitem(sys.modules, "high_accuracy_detector", fake_high_accuracy_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="ml", label=None)
+        _make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="high_accuracy", label=None)
     )
 
     output = capsys.readouterr().out
-    assert len(FakeMLDetector.instances) == 2
+    assert len(FakeHighAccuracyDetector.instances) == 2
     assert "STATUS: COLLECTING 2/2" in output
     assert "collecting until Ctrl+C" in output
     assert "ip=192.168.1.17 chip=C6 ch=08 rssi=-47" in output
@@ -2434,8 +2434,8 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
 def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None:
     fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
-    fake_classic_detector = ModuleType("classic_detector")
-    fake_ml_detector = ModuleType("ml_detector")
+    fake_lightweight_detector = ModuleType("lightweight_detector")
+    fake_high_accuracy_detector = ModuleType("high_accuracy_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
     fake_threshold = ModuleType("threshold")
 
@@ -2500,7 +2500,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
         def stop(self):
             pass
 
-    class FakeMLDetector:
+    class FakeHighAccuracyDetector:
         def __init__(self, **kwargs):
             self._threshold = kwargs.get("threshold", 0.5)
             self._context = type("Ctx", (), {"last_turbulence": 0.0, "buffer_count": 0, "window_size": 2, "buffer_index": 0, "turbulence_buffer": []})()
@@ -2527,7 +2527,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
         def is_ready(self):
             return False
 
-    class FakeClassicBaseDetector:
+    class FakeLightweightBaseDetector:
         adaptive_thresholds = []
 
         def __init__(self, **kwargs):
@@ -2569,14 +2569,14 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
         def is_ready(self):
             return len(self._seen) >= 2
 
-    class FakeClassicDetector(FakeClassicBaseDetector):
-        ALGORITHM = "classic"
+    class FakeLightweightDetector(FakeLightweightBaseDetector):
+        ALGORITHM = "lightweight"
         BASE_THRESHOLD = 1.0
         STARTUP_THRESHOLD_FACTOR = 1.1
         STARTUP_GATE = True
 
         def get_name(self):
-            return "Classic"
+            return "Lightweight"
 
     class FakeRuntimeMotionPolicy:
         def __init__(self, **kwargs):
@@ -2631,11 +2631,11 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     fake_csi_utils.UdpPacingSender = FakePacingSender
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_csi_utils.AdaptivePacingController = AdaptivePacingController
-    fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
-    fake_ml_detector.ML_DEFAULT_THRESHOLD = 0.5
-    fake_ml_detector.ML_METRIC_SCALE = 1.0
-    fake_ml_detector.MLDetector = FakeMLDetector
-    fake_classic_detector.ClassicDetector = FakeClassicDetector
+    fake_high_accuracy_detector.FEATURE_NAMES = ["f1", "f2"]
+    fake_high_accuracy_detector.HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
+    fake_high_accuracy_detector.HIGH_ACCURACY_METRIC_SCALE = 1.0
+    fake_high_accuracy_detector.HighAccuracyDetector = FakeHighAccuracyDetector
+    fake_lightweight_detector.LightweightDetector = FakeLightweightDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
     _attach_runtime_policy_primitives(fake_runtime_policy)
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
@@ -2644,20 +2644,20 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
-    monkeypatch.setitem(sys.modules, "classic_detector", fake_classic_detector)
+    monkeypatch.setitem(sys.modules, "high_accuracy_detector", fake_high_accuracy_detector)
+    monkeypatch.setitem(sys.modules, "lightweight_detector", fake_lightweight_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
     monkeypatch.setitem(sys.modules, "threshold", fake_threshold)
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="classic", label=None, pps=4)
+        _make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="lightweight", label=None, pps=4)
     )
 
     output = capsys.readouterr().out
-    assert "Detector:" in output and "CLASSIC" in output
+    assert "Detector:" in output and "Lightweight Detection" in output
     assert "STATUS: CALIBRATING" in output
     assert calibration_calls == [7.0, 7.0]
-    assert FakeClassicDetector.adaptive_thresholds == [8.0, 8.0]
+    assert FakeLightweightDetector.adaptive_thresholds == [8.0, 8.0]
     assert "thr:8.000000 | IDLE | 0 pkt/s | drop 0.0% | bp:--" in output
     assert "STATUS: COLLECTING 2/2" in output
 
@@ -2709,16 +2709,16 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
     )
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.24", detector="classic,ml", label=None, pps=4)
+        _make_live_collect_args(target="192.168.1.24", detector="lightweight,high_accuracy", label=None, pps=4)
     )
 
     output = capsys.readouterr().out
-    assert "Detector:" in output and "CLASSIC, ML" in output
+    assert "Detector:" in output and "Lightweight Detection, High-Accuracy Detection" in output
     assert "STATUS: CALIBRATING 1/1" in output
     assert "STATUS: COLLECTING 1/1" in output
     # One live line per (device, detector) pair.
-    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [classic]" in output
-    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [ml     ]" in output
+    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [lightweight  ]" in output
+    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [high_accuracy]" in output
 
 
 def test_collect_live_shows_drop_rate_during_calibration(monkeypatch, capsys) -> None:
@@ -2768,7 +2768,7 @@ def test_collect_live_shows_drop_rate_during_calibration(monkeypatch, capsys) ->
     )
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.24", detector="classic", label=None)
+        _make_live_collect_args(target="192.168.1.24", detector="lightweight", label=None)
     )
 
     output = capsys.readouterr().out
@@ -2849,7 +2849,7 @@ def test_collect_live_displays_device_drop_rate(monkeypatch, capsys) -> None:
     _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
 
     host.collect_csi_data(
-        _make_live_collect_args(target="192.168.1.34", detector="ml", label=None)
+        _make_live_collect_args(target="192.168.1.34", detector="high_accuracy", label=None)
     )
 
     output = capsys.readouterr().out

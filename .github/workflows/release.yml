@@ -97,7 +97,7 @@ jobs:
           pip install -r requirements.txt
       
       - name: Compile
-        run: esphome -s git_ref "${GITHUB_REF_NAME}" -s detection_algorithm classic compile "${{ matrix.config }}"
+        run: esphome -s git_ref "${GITHUB_REF_NAME}" -s detection_algorithm lightweight compile "${{ matrix.config }}"
       
       - name: Rename firmware files
         run: |

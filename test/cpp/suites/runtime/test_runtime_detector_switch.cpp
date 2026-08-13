@@ -60,28 +60,28 @@ void tearDown(void) {}
 void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(void) {
   RuntimeConfig config;
   config.runtime_detector_selection_enabled = true;
-  config.detection_algorithm = DetectionAlgorithm::CLASSIC;
+  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
   EspIdfRuntime runtime(config);
   DetectorListener listener;
   runtime.set_listener(&listener);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
   runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
 
-  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::ML));
-  TEST_ASSERT_EQUAL_STRING("ml", runtime.get_snapshot().detector_name);
-  TEST_ASSERT_EQUAL_FLOAT(ML_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_EQUAL_STRING("high_accuracy", runtime.get_snapshot().detector_name);
+  TEST_ASSERT_EQUAL_FLOAT(HIGH_ACCURACY_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
   TEST_ASSERT_FALSE(runtime.is_calibrating());
   TEST_ASSERT_EQUAL(1, listener.detector_changes);
   TEST_ASSERT_EQUAL(1, listener.threshold_changes);
 
   runtime.csi_pipeline_.enabled_ = true;
-  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::CLASSIC));
-  TEST_ASSERT_EQUAL_STRING("classic", runtime.get_snapshot().detector_name);
-  TEST_ASSERT_EQUAL_FLOAT(CLASSIC_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::LIGHTWEIGHT));
+  TEST_ASSERT_EQUAL_STRING("lightweight", runtime.get_snapshot().detector_name);
+  TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
   TEST_ASSERT_TRUE(runtime.is_calibrating());
   TEST_ASSERT_EQUAL(1, listener.calibration_starts);
 
-  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::ML));
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::HIGH_ACCURACY));
   TEST_ASSERT_FALSE(runtime.is_calibrating());
   TEST_ASSERT_EQUAL(1, listener.calibration_finishes);
   TEST_ASSERT_FALSE(listener.last_calibration_success);
@@ -89,13 +89,13 @@ void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(voi
   TEST_ASSERT_TRUE(runtime.set_threshold_runtime(0.75f));
   TEST_ASSERT_EQUAL_FLOAT(0.75f, runtime.get_snapshot().threshold);
   TEST_ASSERT_TRUE(runtime.trigger_recalibration());
-  TEST_ASSERT_EQUAL_FLOAT(ML_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
+  TEST_ASSERT_EQUAL_FLOAT(HIGH_ACCURACY_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
   TEST_ASSERT_TRUE(listener.last_calibration_success);
 }
 
 void test_runtime_motion_hits_runtime_updates_pipeline_and_persists(void) {
   RuntimeConfig config;
-  config.detection_algorithm = DetectionAlgorithm::CLASSIC;
+  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
   EspIdfRuntime runtime(config);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
   runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
@@ -126,7 +126,7 @@ void test_runtime_diagnostics_read_current_wifi_association(void) {
 
 void test_runtime_channel_change_rearms_csi_and_restarts_calibration(void) {
   RuntimeConfig config;
-  config.detection_algorithm = DetectionAlgorithm::CLASSIC;
+  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
   config.csi_traffic_mode = CsiTrafficMode::DISABLED;
   EspIdfRuntime runtime(config);
   DetectorListener listener;
@@ -150,7 +150,7 @@ void test_runtime_channel_change_rearms_csi_and_restarts_calibration(void) {
 
 void test_runtime_channel_change_cold_resets_ml_without_calibration(void) {
   RuntimeConfig config;
-  config.detection_algorithm = DetectionAlgorithm::ML;
+  config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
   config.csi_traffic_mode = CsiTrafficMode::DISABLED;
   EspIdfRuntime runtime(config);
   TEST_ASSERT_TRUE(runtime.configure_detector_());

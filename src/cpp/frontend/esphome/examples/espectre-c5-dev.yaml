@@ -33,7 +33,7 @@ espectre:
   traffic_generator_rate: 100   # Target CSI packets/sec (0-100000; practical rates are much lower)
   traffic_generator_mode: ping   # ping (default) or dns
   # Detection Algorithm
-  detection_algorithm: classic  # classic (default) or ml (neural network)
+  detection_algorithm: lightweight  # lightweight (default) or high_accuracy (neural network)
   # Segmentation parameters
   segmentation_window_size_ms: 1000  # Analysis window duration in milliseconds (1000-2000)
   # Filters

@@ -167,17 +167,17 @@ void test_runtime_frontend_controller_switches_detector_and_resets_threshold(voi
   config.segmentation_threshold = 0.4f;
   controller.set_config(config);
 
-  TEST_ASSERT_TRUE(controller.set_detection_algorithm_runtime(DetectionAlgorithm::ML));
-  TEST_ASSERT_TRUE(controller.config().detection_algorithm == DetectionAlgorithm::ML);
-  TEST_ASSERT_EQUAL_FLOAT(ML_DEFAULT_THRESHOLD, controller.snapshot().threshold);
+  TEST_ASSERT_TRUE(controller.set_detection_algorithm_runtime(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_TRUE(controller.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
+  TEST_ASSERT_EQUAL_FLOAT(HIGH_ACCURACY_DEFAULT_THRESHOLD, controller.snapshot().threshold);
 
   frontend_runtime_shim::state.capabilities.supports_runtime_detector_selection = true;
   DummyRuntimeListener listener;
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.set_detection_algorithm_runtime(DetectionAlgorithm::CLASSIC));
+  TEST_ASSERT_TRUE(controller.set_detection_algorithm_runtime(DetectionAlgorithm::LIGHTWEIGHT));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::CLASSIC);
-  TEST_ASSERT_EQUAL_FLOAT(CLASSIC_DEFAULT_THRESHOLD, controller.snapshot().threshold);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::LIGHTWEIGHT);
+  TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, controller.snapshot().threshold);
 }
 
 void test_runtime_frontend_controller_can_select_stream_runtime_profile(void) {

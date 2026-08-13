@@ -379,11 +379,12 @@ def _run_live_collect(args) -> None:
         from console_output import format_calibration_status_line, format_detection_publish_line
         from detector_interface import (
             detector_needs_startup_calibration,
+            get_detector_label,
             load_detector_class,
             normalize_detector_algorithm,
             supported_detector_algorithms,
         )
-        from ml_detector import ML_DEFAULT_THRESHOLD
+        from high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
         from runtime_policy import (
             PacketTimingTracker,
             RuntimeMotionPolicy,
@@ -409,11 +410,12 @@ def _run_live_collect(args) -> None:
             from src.console_output import format_calibration_status_line, format_detection_publish_line
             from src.detector_interface import (
                 detector_needs_startup_calibration,
+                get_detector_label,
                 load_detector_class,
                 normalize_detector_algorithm,
                 supported_detector_algorithms,
             )
-            from src.ml_detector import ML_DEFAULT_THRESHOLD
+            from src.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
             from src.runtime_policy import (
                 PacketTimingTracker,
                 RuntimeMotionPolicy,
@@ -433,11 +435,11 @@ def _run_live_collect(args) -> None:
     supported_detectors = supported_detector_algorithms()
     detector_kinds = list(dict.fromkeys(
         normalize_detector_algorithm(kind.strip().lower())
-        for kind in str(getattr(args, "detector", "classic")).split(",")
+        for kind in str(getattr(args, "detector", "lightweight")).split(",")
         if kind.strip()
     ))
     if not detector_kinds:
-        detector_kinds = ["classic"]
+        detector_kinds = ["lightweight"]
     unsupported = [kind for kind in detector_kinds if kind not in supported_detectors]
     if unsupported:
         print(f"{Fore.RED}❌ Unsupported detector(s): {', '.join(unsupported)}{Style.RESET_ALL}")
@@ -498,8 +500,8 @@ def _run_live_collect(args) -> None:
     gap_reset_min_us = int(getattr(config, "STREAM_GAP_RESET_MIN_US", 250_000) or 250_000)
 
     def get_initial_threshold(kind):
-        if kind == "ml":
-            return ML_DEFAULT_THRESHOLD
+        if kind == "high_accuracy":
+            return HIGH_ACCURACY_DEFAULT_THRESHOLD
         return load_detector_class(kind).BASE_THRESHOLD
 
     def get_detector_threshold(detector, fallback=1.0):
@@ -1394,10 +1396,16 @@ def _run_live_collect(args) -> None:
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}:{args.udp_port}")
     if start_delay > 0:
         print(f"  {Fore.CYAN}Start delay:{Style.RESET_ALL} {start_delay:.1f}s")
-    print(f"  {Fore.CYAN}Detector:{Style.RESET_ALL}  {', '.join(kind.upper() for kind in detector_kinds)}")
-    if "ml" in detector_kinds:
-        ml_suffix = " (ml, fixed)" if len(detector_kinds) > 1 else ""
-        print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {get_initial_threshold('ml'):.2f}{ml_suffix}")
+    print(
+        f"  {Fore.CYAN}Detector:{Style.RESET_ALL}  "
+        f"{', '.join(get_detector_label(kind) for kind in detector_kinds)}"
+    )
+    if "high_accuracy" in detector_kinds:
+        high_accuracy_suffix = " (high accuracy, fixed)" if len(detector_kinds) > 1 else ""
+        print(
+            f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} "
+            f"{get_initial_threshold('high_accuracy'):.2f}{high_accuracy_suffix}"
+        )
     if calibrated_kinds:
         print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} automatic (after startup calibration)")
     print(

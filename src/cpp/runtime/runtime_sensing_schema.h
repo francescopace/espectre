@@ -12,10 +12,10 @@
 #include <cstdint>
 
 #include "base_detector.h"
-#include "classic_detector.h"
+#include "lightweight_detector.h"
 #include "csi_traffic_types.h"
 #include "filters.h"
-#include "ml_detector.h"
+#include "high_accuracy_detector.h"
 #include "threshold.h"
 
 /**
@@ -37,10 +37,10 @@ namespace espectre {
 
 /** Which detector runs. See `docs/ALGORITHMS.md` for how they differ. */
 enum class DetectionAlgorithm {
-  /** Self-calibrating feature fusion. No training data needed. Default. */
-  CLASSIC,
-  /** Neural detector using the trained weights in `core/ml_weights.h`. */
-  ML,
+  /** Lightweight feature fusion. Self-calibrates, and needs no training data. Default. */
+  LIGHTWEIGHT,
+  /** High-accuracy neural detector using the trained weights in `core/ml_weights.h`. */
+  HIGH_ACCURACY,
 };
 
 /** Which runtime backend the controller builds. */
@@ -68,13 +68,13 @@ constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME = "dns";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME = "ping";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME = "ping";
 
-constexpr const char *const RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME = "classic";
-constexpr const char *const RUNTIME_DETECTION_ALGORITHM_ML_NAME = "ml";
-constexpr const char *const RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME = "classic";
+constexpr const char *const RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME = "lightweight";
+constexpr const char *const RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME = "high_accuracy";
+constexpr const char *const RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME = "lightweight";
 
 constexpr float RUNTIME_THRESHOLD_MIN = 0.0f;
 constexpr float RUNTIME_THRESHOLD_MAX = 1.0f;
-constexpr float RUNTIME_ML_THRESHOLD_MAX = 1.0f;
+constexpr float RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT = 1.0f;
 
 constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN = 1000U;
@@ -121,22 +121,26 @@ constexpr uint8_t RUNTIME_STREAM_TX_BATCH_RECORDS_DEFAULT = 4;
 constexpr uint16_t RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT = 5555;
 
 constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
-  return algorithm == DetectionAlgorithm::CLASSIC ? CLASSIC_MAX_THRESHOLD
-                                                   : RUNTIME_ML_THRESHOLD_MAX;
+  return algorithm == DetectionAlgorithm::LIGHTWEIGHT ? LIGHTWEIGHT_MAX_THRESHOLD
+                                                      : RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX;
 }
 
 constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
-  return algorithm == DetectionAlgorithm::CLASSIC || algorithm == DetectionAlgorithm::ML;
+  return algorithm == DetectionAlgorithm::LIGHTWEIGHT ||
+         algorithm == DetectionAlgorithm::HIGH_ACCURACY;
 }
 
 constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {
-  return algorithm == DetectionAlgorithm::ML ? ML_DEFAULT_THRESHOLD : CLASSIC_DEFAULT_THRESHOLD;
+  return algorithm == DetectionAlgorithm::HIGH_ACCURACY
+             ? HIGH_ACCURACY_DEFAULT_THRESHOLD
+             : LIGHTWEIGHT_DEFAULT_THRESHOLD;
 }
 
 static_assert(RUNTIME_THRESHOLD_MIN == 0.0f, "Runtime threshold min must stay at zero");
-static_assert(RUNTIME_ML_THRESHOLD_MAX == ML_MAX_THRESHOLD, "Runtime ML threshold max drifted from ml_detector.h");
-static_assert(RUNTIME_ML_THRESHOLD_MAX == CLASSIC_MAX_THRESHOLD,
-              "Classic and ML probability scales must stay aligned");
+static_assert(RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX == HIGH_ACCURACY_MAX_THRESHOLD,
+              "Runtime High Accuracy threshold max drifted from high_accuracy_detector.h");
+static_assert(RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX == LIGHTWEIGHT_MAX_THRESHOLD,
+              "Lightweight and High Accuracy probability scales must stay aligned");
 static_assert(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT == SEGMENTATION_DEFAULT_THRESHOLD,
               "Runtime segmentation threshold default drifted from threshold.h");
 static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN == DETECTOR_WINDOW_SIZE_MS_MIN,

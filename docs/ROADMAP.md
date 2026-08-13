@@ -27,11 +27,18 @@ Completed implementation, detector experiments, and dated reviews live in [CHANG
 
 **Exit criteria**:
 
-- [ ] Rename classic and ml in low and high consumption or similar
+Before deploy:
+
+- [ ] Refresh the remaining docs/web images and guides
 - [ ] Capture a current Home Assistant visualization for the project overview and docs
-- [ ] Refresh the docs/web images and guides, and add a detector-choices guide
 - [ ] Re-enable the `CLA Signature Check` as required on `develop`, and test the GitHub issue and pull request templates end to end
+- [ ] Configure GitHub Pages to deploy from GitHub Actions rather than "Deploy from a branch" before merging to `main`
+
+After deploy:
+
+- [ ] Confirm `/documentation/setup/` falls through 404→home and `/guides/setup/` serves the static setup guide
 - [ ] Verify the GA4 property-side settings and live events
+- [ ] Update the GitHub Discussion covering the High-Accuracy detector rename and features
 
 ## v3.0.0-rc2 - Second Release Candidate
 

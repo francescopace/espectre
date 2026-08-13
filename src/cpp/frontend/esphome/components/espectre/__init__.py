@@ -133,7 +133,7 @@ def _load_runtime_schema(schema_path: Path):
 _RUNTIME_SCHEMA = _load_runtime_schema(_SCHEMA_HEADER)
 
 THRESHOLD_MIN = _RUNTIME_SCHEMA["RUNTIME_THRESHOLD_MIN"]
-THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_ML_THRESHOLD_MAX"]
+THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX"]
 SEGMENTATION_WINDOW_SIZE_MS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT"]
 SEGMENTATION_WINDOW_SIZE_MS_MIN = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN"]
 SEGMENTATION_WINDOW_SIZE_MS_MAX = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX"]
@@ -184,10 +184,12 @@ CONFIG_SCHEMA = cv.Schema({
         "dns", "ping", lower=True
     ),
     
-    # Detection algorithm: classic (default) or ml
-    # CLASSIC: autocorrelation + frequency-coherence fusion - adaptive threshold
-    # ML: Machine Learning (MLP neural network) - higher accuracy, fixed subcarriers
-    cv.Optional(CONF_DETECTION_ALGORITHM, default=DETECTION_ALGORITHM_DEFAULT): cv.one_of("classic", "ml", lower=True),
+    # Detection profile: Lightweight (default) or High Accuracy.
+    # Lightweight uses feature fusion and an adaptive startup threshold.
+    # High Accuracy uses the trained MLP for stronger detection quality and generalization.
+    cv.Optional(CONF_DETECTION_ALGORITHM, default=DETECTION_ALGORITHM_DEFAULT): cv.one_of(
+        "lightweight", "high_accuracy", lower=True
+    ),
     # Internal benchmark switch for shared runtime debug telemetry.
     cv.Optional(CONF_DEBUG_TELEMETRY, default=False): cv.boolean,
     cv.Optional(CONF_EVALUATION_INTERVAL_MS, default=EVALUATION_INTERVAL_MS_DEFAULT): cv.int_range(
@@ -291,7 +293,7 @@ CONFIG_SCHEMA = cv.Schema({
         icon=ICON_PULSE,
     ),
 
-    cv.Optional(CONF_DETECTOR_SELECT, default={"name": "Detector"}): select.select_schema(
+    cv.Optional(CONF_DETECTOR_SELECT, default={"name": "Detection Profile"}): select.select_schema(
         ESpectreDetectorSelect,
         entity_category=ENTITY_CATEGORY_CONFIG,
     ),
@@ -405,7 +407,7 @@ async def to_code(config):
 
     detector = await select.new_select(
         config[CONF_DETECTOR_SELECT],
-        options=["classic", "ml"],
+        options=["lightweight", "high_accuracy"],
     )
     cg.add(detector.set_parent(var))
     cg.add(var.set_detector_select(detector))

@@ -17,7 +17,7 @@
 
 substitutions:
   git_ref: main # branch, tag, or commit
-  detection_algorithm: classic # classic (default) or ml
+  detection_algorithm: lightweight # lightweight (default) or high_accuracy
 
 esphome:
   name: espectre

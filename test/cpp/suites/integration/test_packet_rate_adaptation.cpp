@@ -2,7 +2,7 @@
  * ESPectre - Packet-rate adaptation regression test
  *
  * Replays 60-second prefixes of explicit high-rate pairs after synthetic
- * decimation and checks that the C++ Classic and ML implementations stay
+ * decimation and checks that the C++ Lightweight and High Accuracy implementations stay
  * robust across the supported 80-120 pps operating region.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -21,10 +21,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include "classic_detector.h"
+#include "lightweight_detector.h"
 #include "detector_limits.h"
 #include "detector_timing.h"
-#include "ml_detector.h"
+#include "high_accuracy_detector.h"
 #include "csi_test_data.h"
 #include "csi_replay_metrics.h"
 
@@ -311,14 +311,14 @@ RateResult run_rate_case(const PacketRateSourceSelection& selection, int target_
   const uint32_t measured_interval_us = measure_packet_interval_us(static_capture);
   const DetectorTiming timing = derive_detector_timing(measured_interval_us);
 
-  ClassicDetector classic(
+  LightweightDetector classic(
       timing.window_packets,
-      CLASSIC_DEFAULT_THRESHOLD,
+      LIGHTWEIGHT_DEFAULT_THRESHOLD,
       timing.autocorr_lag);
   classic.configure_hampel(true);
-  float classic_threshold = CLASSIC_DEFAULT_THRESHOLD;
+  float classic_threshold = LIGHTWEIGHT_DEFAULT_THRESHOLD;
   TEST_ASSERT_TRUE_MESSAGE(
-      replay::calibrate_classic_detector(
+      replay::calibrate_lightweight_detector(
           classic,
           replay::calibration_packet_count(
               baseline_metadata, static_capture.num_packets),
@@ -330,7 +330,7 @@ RateResult run_rate_case(const PacketRateSourceSelection& selection, int target_
           DEFAULT_SUBCARRIERS,
           12,
           classic_threshold),
-      "Classic startup calibration failed");
+      "Lightweight startup calibration failed");
   const replay::ReplayMetrics classic_replay = replay::evaluate_detector(
       classic,
       static_ptrs.data(),
@@ -354,7 +354,7 @@ RateResult run_rate_case(const PacketRateSourceSelection& selection, int target_
   classic_metrics.baseline_eval = classic_replay.static_presence_eval_count;
   classic_metrics.motion_eval = classic_replay.motion_eval_count;
 
-  MLDetector ml(timing.window_packets, ML_DEFAULT_THRESHOLD);
+  HighAccuracyDetector ml(timing.window_packets, HIGH_ACCURACY_DEFAULT_THRESHOLD);
   ml.configure_hampel(true);
   const replay::ReplayMetrics ml_replay = replay::evaluate_detector(
       ml,
@@ -371,7 +371,7 @@ RateResult run_rate_case(const PacketRateSourceSelection& selection, int target_
       12);
   ReplayMetrics ml_metrics{};
   ml_metrics.timing = timing;
-  ml_metrics.threshold = ML_DEFAULT_THRESHOLD;
+  ml_metrics.threshold = HIGH_ACCURACY_DEFAULT_THRESHOLD;
   ml_metrics.recall = ml_replay.recall;
   ml_metrics.fp_rate = ml_replay.fp_rate;
   ml_metrics.precision = ml_replay.precision;
@@ -397,7 +397,7 @@ void print_summary_table(const PacketRateSourceSelection& selection,
   printf("Replay prefix: %d seconds per phase\n", kReplayDurationSeconds);
   printf("                         PACKET-RATE ADAPTATION SUMMARY (C++)\n");
   printf("---------------------------------------------------------------------------------------------------------\n");
-  printf("pps | timing      | Classic R/FP  | ML R/FP       | eval idle/motion\n");
+  printf("pps | timing      | Lightweight R/FP  | ML R/FP       | eval idle/motion\n");
   printf("----+-------------+---------------+---------------+-----------------\n");
   for (const RateResult& result : results) {
     printf("%-3d | w%-3u l%-2u a%-1u | %5.1f%% / %4.1f%% | %5.1f%% / %4.1f%% | %3d / %-3d\n",

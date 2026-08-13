@@ -86,7 +86,7 @@ def pytest_xdist_auto_num_workers(config):
 
 
 def get_classic_fp_rate_target(chip_type=None):
-    """Bound the Classic motion share on static-presence baselines.
+    """Bound the Lightweight motion share on static-presence baselines.
 
     This is a sanity bound, not a false-positive gate. Static-presence
     recordings hold a stationary person, whose breathing and small shifts are
@@ -98,7 +98,7 @@ def get_classic_fp_rate_target(chip_type=None):
 
 
 def get_classic_recall_target(chip_type=None):
-    """Match the shared Classic recall target."""
+    """Match the shared Lightweight recall target."""
     return 95.0
 
 
@@ -116,20 +116,20 @@ def format_targets_summary_line():
     """Build summary line from target getter functions."""
     return (
         "Targets: "
-        f"Classic >{get_classic_recall_target():.0f}% R, <{get_classic_fp_rate_target():.1f}% FP | "
+        f"Lightweight >{get_classic_recall_target():.0f}% R, <{get_classic_fp_rate_target():.1f}% FP | "
         f"ML >{get_ml_recall_target():.0f}% R, <{get_ml_fp_rate_target():.1f}% FP"
     )
 
 
 @pytest.fixture
 def fp_rate_target(chip_type):
-    """Classic FP-rate target fixture shared across test modules."""
+    """Lightweight FP-rate target fixture shared across test modules."""
     return get_classic_fp_rate_target(chip_type)
 
 
 @pytest.fixture
 def recall_target(chip_type):
-    """Classic recall target fixture shared across test modules."""
+    """Lightweight recall target fixture shared across test modules."""
     return get_classic_recall_target(chip_type)
 
 
@@ -575,7 +575,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         terminalreporter.write_line("                              PERFORMANCE SUMMARY TABLE (Python)")
         terminalreporter.write_line("=" * 105)
         terminalreporter.write_line("")
-        terminalreporter.write_line("| Chip   | Datasets | Classic                 | ML                      |")
+        terminalreporter.write_line("| Chip   | Datasets | Lightweight                 | High Accuracy           |")
         terminalreporter.write_line("|--------|----------|-------------------------|-------------------------|")
 
         # Sort chips for consistent output

@@ -47,7 +47,7 @@ Three rules cover most integration mistakes:
 | Layer | Contents | Dependencies |
 |-------|----------|--------------|
 | `src/cpp/espectre_sdk.h` | The SDK facade: the supported surface in one include | Header only |
-| `src/cpp/core/` | Classic and ML detectors, feature extraction, filters, CSI format | C++17 standard library only |
+| `src/cpp/core/` | Lightweight and High-Accuracy detectors, feature extraction, filters, CSI format | C++17 standard library only |
 | `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol model, adaptive traffic pacing | Portable, host-testable |
 | `src/cpp/runtime/esp_idf/` | CSI capture, Wi-Fi lifecycle, sensing pipeline, traffic generation, NVS persistence | ESP-IDF `>= 5.1` |
 | `src/cpp/frontend/` | ESPHome, native BLE/MQTT, Matter, and streamer reference integrations | Frontend-specific stacks |
@@ -69,11 +69,11 @@ ESP32, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, using standard single-antenna
 
 Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. `BAND_2G` is the default and is supported by every target; `BAND_5G` and `AUTO` require dual-band silicon, currently ESP32-C5 among the published targets. The runtime applies that choice and pins an 802.11n protocol ceiling plus HT20 on the selected band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the HT20 contract are dropped and counted.
 
-## Choosing A Detector
+## Choosing A Detection Profile
 
-Choose Classic when sensing must leave more CPU time and working memory for the rest of the product. It runs fewer feature trackers and less per-packet computation, but gives up accuracy and cross-environment robustness relative to ML. Choose ML when detection quality is the priority and the product can afford its additional feature state and neural inference.
+Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. It runs fewer feature trackers and less per-packet computation, but gives up accuracy and cross-environment robustness relative to High-Accuracy Detection. Choose High Accuracy when detection quality is the priority and the product can afford its additional feature state and neural inference.
 
-Classic adapts its threshold during up to about 10 seconds of quiet startup coverage. ML uses a trained threshold and skips that calibration, although it still needs CSI readiness and one feature window of warmup. A runtime-switching build may contain both detector implementations and ML weights in flash even while Classic is active; budget flash separately from active detector CPU and working memory.
+Lightweight adapts its threshold during up to about 10 seconds of quiet startup coverage. High Accuracy uses a trained threshold and skips that calibration, although it still needs CSI readiness and one feature window of warmup. A runtime-switching build may contain both detector implementations and ML weights in flash even while Lightweight is active; budget flash separately from active detector CPU and working memory.
 
 ## Integration paths
 
@@ -111,12 +111,12 @@ If your firmware already owns Wi-Fi and CSI capture, you can consume the detecto
 | `runtime/ble_bindings.h` | Implement to reach your own BLE stack |
 | `runtime/ota_service.h` | Implement to reach your own update channel |
 | `runtime/firmware_version.h` | The application version reported on the wire |
-| `core/classic_detector.h`, `core/ml_detector.h` | The core-only detector path |
+| `core/lightweight_detector.h`, `core/high_accuracy_detector.h` | The core-only detector path |
 | `core/base_detector.h` | The shared detector lifecycle both detectors inherit |
 | `core/csi_format.h` | CSI layout, and the subcarrier band the detectors measure on |
 | `core/detector_limits.h`, `core/filters.h`, `core/utils.h` | Detector limits, filter state, and numeric helpers used by the public detector definitions |
 | `core/csi_features.h`, `core/ml_feature_trackers.h`, `core/l1_delta_tracker.h` | Feature extraction and tracker types embedded in the public detector definitions |
-| `core/ml_weights.h` | Generated ML model metadata and weights reachable through the ML detector |
+| `core/ml_weights.h` | Generated ML model metadata and weights reachable through `HighAccuracyDetector` |
 | `core/threshold.h` | Detector threshold validation and algorithm-name helpers reachable through the runtime contract |
 
 ## Runtime contract
@@ -216,10 +216,10 @@ Each SDK bundle includes:
 
 The published bundle is not a chip-specific binary library. It is a versioned source package with stamped packaging metadata, suitable for vendoring or unpacking into your own firmware tree. Its `.tar.gz` and `.zip` archives are generated deterministically from the source commit timestamp, and the accompanying SDK manifest records a SHA-256 digest for each archive so consumers can verify downloaded bytes.
 
-## Detector behavior
+## Detection profile behavior
 
-- **Classic** requires no training data: it self-calibrates at startup from the ambient channel and adapts its probability threshold to the session.
-- **ML** ships a trained model (`core/ml_weights.h`) and a fixed default threshold, with the training and export pipeline documented in [ML_TRAINING.md](ML_TRAINING.md).
+- **Lightweight Detection** (`DetectionAlgorithm::LIGHTWEIGHT`) uses `LightweightDetector`, requires no training data, and adapts its probability threshold to the session.
+- **High-Accuracy Detection** (`DetectionAlgorithm::HIGH_ACCURACY`) uses `HighAccuracyDetector` with a trained model (`core/ml_weights.h`) and a fixed default threshold. The training and export pipeline is documented in [ML_TRAINING.md](ML_TRAINING.md).
 - Shared defaults, ranges, and validation live in `runtime/runtime_sensing_schema.h` and are documented in [SETUP.md](SETUP.md).
 
 ## Validation assets

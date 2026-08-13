@@ -38,7 +38,7 @@ MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -
 # CSI Configuration
 CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
 
-# Fixed subcarriers shared by Classic and ML detectors.
+# Fixed subcarriers shared by Lightweight and High Accuracy detectors.
 # Subcarriers +/-4, +/-9, +/-14, +/-19, +/-24, +/-28. Spans the full usable range
 # because the motion perturbation stays coherent over ~10 subcarriers (3.1 MHz)
 # while quiet noise is nearly per-tone independent, so span is what buys
@@ -46,10 +46,10 @@ CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until pro
 # See docs/adr/2026-07-25-select-the-classic-band-from-channel-coherence.md.
 DEFAULT_SUBCARRIERS = (4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60)
 
-# Detection Algorithm
-# "classic" (default): turbulence-autocorrelation and frequency-coherence fusion
-# "ml": Neural Network - learned patterns, trained default threshold
-DETECTION_ALGORITHM = "classic"
+# Detection profile
+# "lightweight" (default): lower CPU and working-memory cost, with startup calibration
+# "high_accuracy": stronger generalization, with trained weights and no threshold calibration
+DETECTION_ALGORITHM = "lightweight"
 
 # Threshold bootstrap configuration (fixed subcarriers, no disk I/O)
 CALIBRATION_NUM_WINDOWS = 10

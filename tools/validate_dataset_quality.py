@@ -67,7 +67,7 @@ from tools.lib.atomic_io import atomic_write_text  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
     DATASET_ROLES,
     admitted_dataset_role,
-    build_calibrated_classic_detector,
+    build_calibrated_lightweight_detector,
     dataset_role,
 )
 from tools.lib.csi_analysis import extract_amplitudes_matrix  # noqa: E402
@@ -132,7 +132,7 @@ def _report_input_paths():
     return tuple(sorted(paths))
 
 # Quality thresholds
-# Admission gates are detector-independent. Classic diagnostic thresholds mirror
+# Admission gates are detector-independent. Lightweight diagnostic thresholds mirror
 # production promotion targets but never veto dataset admission.
 MIN_PACKETS = 5000
 MAX_ZERO_PACKET_RATIO = 0.005
@@ -198,7 +198,7 @@ CLASSIC_SCORE_TAIL_ZERO = FEATURE_SCORE_TAIL_ZERO
 # recording: do the two halves look different at all?
 #
 # It replaced `p95(motion) / threshold`, which was circular. Motion saturates the
-# Classic probability on every pair in the corpus, `p95(motion)` measured between
+# Lightweight probability on every pair in the corpus, `p95(motion)` measured between
 # 0.9920 and 0.9999, so that ratio reduced to `1 / threshold` and reported the
 # detector's own calibration as a property of the recording. Two captures were
 # marked as weakly separated at `1.03x` and `1.16x` while separating at `0.9922`
@@ -2050,7 +2050,7 @@ def _load_npz_materialized(filepath):
 
 
 def _sensing_view_npz(data):
-    """Return the sensing view used by continuity and Classic/ML quality."""
+    """Return the sensing view used by continuity and Lightweight/High Accuracy quality."""
     filtered = filter_npz_arrays_sensing(dict(data))
     if filtered is data or (
         len(filtered) == len(data)
@@ -2501,7 +2501,7 @@ def validate_pair(
     calibration_cache=None,
     cache_key=None,
 ):
-    """Classic indicative replay for a static-presence/motion pair.
+    """Lightweight indicative replay for a static-presence/motion pair.
 
     Results are non-blocking: soft misses become WARN and never veto admission.
 
@@ -2561,7 +2561,7 @@ def validate_pair(
         results.append(ValidationResult(
             "classic_pair_activation",
             "WARN",
-            "Insufficient full-window Classic samples for pair diagnostic",
+            "Insufficient full-window Lightweight samples for pair diagnostic",
         ))
         return results, 0.0, 0.0, threshold, 0.0, 0.0, 0.0
 
@@ -2585,7 +2585,7 @@ def validate_pair(
         and active_ratio_delta >= MIN_ACTIVE_RATIO_MARGIN
     )
     message = (
-        "Classic diagnostic probability activation: "
+        "Lightweight diagnostic probability activation: "
         f"static_above={static_active_ratio:.1%}, "
         f"motion_above={motion_active_ratio:.1%}, "
         f"delta={active_ratio_delta:+.1%}, "
@@ -3057,7 +3057,7 @@ def _call_classic_self_baseline_stats(csi_data, packet_rate_pps, **kwargs):
 
 
 def _call_replay_classic_metrics(csi_data, detector, **kwargs):
-    """Call the Classic replay helper with compatibility for older test doubles."""
+    """Call the Lightweight replay helper with compatibility for older test doubles."""
     try:
         return _replay_classic_metrics(csi_data, detector, **kwargs)
     except TypeError:
@@ -3104,7 +3104,7 @@ def _replay_classic_metrics(
     device_ticks_us=None,
     wifi_rx_ts_us=None,
 ):
-    """Replay one capture through ClassicDetector at evaluation cadence.
+    """Replay one capture through LightweightDetector at evaluation cadence.
 
     The detector is reset first so every replay starts from a clean window,
     matching a production boot instead of inheriting the previous stream.
@@ -3185,7 +3185,7 @@ def _calibrated_classic_for(
             return None
         return deepcopy(calibrated)
 
-    calibrated = build_calibrated_classic_detector(
+    calibrated = build_calibrated_lightweight_detector(
         _calibration_packets(
             csi_data,
             rssi_dbm=rssi_dbm,
@@ -3386,7 +3386,7 @@ def _classic_self_baseline_stats(
 
 
 def _idle_quality_verdict(baseline, *, motion_verdict, gate_on_burst):
-    """Classify one idle capture from its self-calibrated Classic baseline."""
+    """Classify one idle capture from its self-calibrated Lightweight baseline."""
     motion_like = baseline["margin_q95"] > BASELINE_TAIL_FAIL_LOGITS or (
         gate_on_burst
         and baseline["longest_burst_seconds"] > BASELINE_LONGEST_BURST_ZERO_SECONDS
@@ -3402,14 +3402,14 @@ def _idle_quality_verdict(baseline, *, motion_verdict, gate_on_burst):
 
 
 def _empty_quality_verdict(baseline):
-    """Classify one empty capture from its self-calibrated Classic baseline."""
+    """Classify one empty capture from its self-calibrated Lightweight baseline."""
     return _idle_quality_verdict(
         baseline, motion_verdict="motion-like", gate_on_burst=True
     )
 
 
 def _presence_quality_verdict(baseline):
-    """Classify one static-presence capture from its Classic idle baseline."""
+    """Classify one static-presence capture from its Lightweight idle baseline."""
     return _idle_quality_verdict(
         baseline, motion_verdict="motion-contaminated", gate_on_burst=False
     )
@@ -3523,7 +3523,7 @@ def _evaluate_idle_evidence_files(
 
 
 def validate_empty_sanity(dataset_info, chip_filter=None, use_cache=True):
-    """Score empty and static-presence captures from Classic idle baselines.
+    """Score empty and static-presence captures from Lightweight idle baselines.
 
     Returns:
         tuple: (results, empty_score_rows, presence_score_rows)
@@ -3594,7 +3594,7 @@ def validate_empty_sanity(dataset_info, chip_filter=None, use_cache=True):
 
 
 def validate_quiet_test_recordings(dataset_info, chip_filter=None, use_cache=True):
-    """Validate long-recording coverage and score idle-only Classic baselines."""
+    """Validate long-recording coverage and score idle-only Lightweight baselines."""
     results = []
     idle_candidates = []
     mixed_candidates = []

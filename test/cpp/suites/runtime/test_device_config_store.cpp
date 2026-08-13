@@ -26,17 +26,17 @@ void setUp(void) { nvs_mock_reset(); }
 void tearDown(void) {}
 
 void test_runtime_detector_store_round_trips_and_validates_values(void) {
-  DetectionAlgorithm algorithm = DetectionAlgorithm::CLASSIC;
+  DetectionAlgorithm algorithm = DetectionAlgorithm::LIGHTWEIGHT;
   bool has_saved_value = true;
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_detection_algorithm(&algorithm, &has_saved_value));
   TEST_ASSERT_FALSE(has_saved_value);
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_runtime_detection_algorithm(nullptr, &has_saved_value));
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_detection_algorithm(static_cast<DetectionAlgorithm>(99)));
 
-  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::ML));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_detection_algorithm(&algorithm, &has_saved_value));
   TEST_ASSERT_TRUE(has_saved_value);
-  TEST_ASSERT_TRUE(algorithm == DetectionAlgorithm::ML);
+  TEST_ASSERT_TRUE(algorithm == DetectionAlgorithm::HIGH_ACCURACY);
 
   nvs_mock_put_str("detector", "pca");
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_runtime_detection_algorithm(&algorithm, &has_saved_value));

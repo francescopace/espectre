@@ -104,16 +104,16 @@ std::string build_movement_discovery_payload(const FrontendHaMqttSettings &setti
 
 std::string build_detector_discovery_payload(const FrontendHaMqttSettings &settings, const EspectreDeviceInfo &info) {
   std::string out = "{";
-  append_json_pair(&out, "name", "Detector", true);
+  append_json_pair(&out, "name", "Detection Profile", true);
   append_json_pair(&out, "unique_id", settings.detector_object_id.c_str());
   append_json_pair(&out, "object_id", settings.detector_object_id.c_str());
   append_json_pair(&out, "state_topic", settings.detector_state_topic.c_str());
   append_json_pair(&out, "command_topic", settings.detector_command_topic.c_str());
   append_discovery_availability(&out, settings);
   out.append(",\"options\":[");
-  append_json_string(&out, "classic");
+  append_json_string(&out, "lightweight");
   out.push_back(',');
-  append_json_string(&out, "ml");
+  append_json_string(&out, "high_accuracy");
   out.push_back(']');
   append_discovery_device(&out, settings, info);
   out.push_back('}');

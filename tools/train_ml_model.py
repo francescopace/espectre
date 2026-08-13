@@ -37,7 +37,7 @@ Configuration:
 Note: turbulence normalization now follows the shared production path:
 CV-normalized turbulence (`std/mean`) for every stream.
 
-To compare ML with Classic and RSSI baselines, use:
+To compare ML with Lightweight and RSSI baselines, use:
     python tools/compare_detection_methods.py
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -427,7 +427,7 @@ from tools.lib.host_feature_trackers import (
     ChannelShapeTracker,
     PhaseResidualTracker,
 )
-from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES, MLDetector  # noqa: F401 (re-exported for tests)
+from high_accuracy_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES, HighAccuracyDetector  # noqa: F401 (re-exported for tests)
 
 
 def _needs_l1_tracker(feature_names):
@@ -503,7 +503,7 @@ DEFAULT_FP_WEIGHT = 1.75
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
-# All chips included: MLDetector keeps the legacy variance-baseline CV normalization disabled, then
+# All chips included: HighAccuracyDetector keeps the legacy variance-baseline CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
 DEFAULT_EXCLUDED_CHIPS = ()
 DEFAULT_ARCHITECTURE_SWEEP = (
@@ -2797,7 +2797,7 @@ def exported_weight_matrices(weights_module):
 
 
 def predict_exported_probabilities_from_weights(weights_module, X_raw):
-    """Vectorized inference matching src/python/micro_espectre/ml_detector.py for exported weights."""
+    """Vectorized inference matching src/python/micro_espectre/high_accuracy_detector.py for exported weights."""
     center = np.asarray(weights_module.FEATURE_MEAN, dtype=np.float32)
     scale = np.asarray(weights_module.FEATURE_SCALE, dtype=np.float32)
     scale[scale < 1e-6] = 1.0
@@ -4191,7 +4191,7 @@ def export_micropython(model, scaler, output_path, seed=None,
     Export model weights to MicroPython code.
 
     Generates ml_weights.py with inference-ready transposed network weights.
-    The inference functions are in ml_detector.py (not auto-generated).
+    The inference functions are in high_accuracy_detector.py (not auto-generated).
     """
     weights = extract_model_weights(model)
     center, scale = get_preprocessor_arrays(scaler)

@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-ESPectre - Classic Detector Coefficient Fit
+ESPectre - Lightweight Detector Coefficient Fit
 
-Refits the Classic detector's weighted `turb_autocorr +
+Refits the Lightweight detector's weighted `turb_autocorr +
 turb_iqr_over_mean_aggr` fusion and
 exports the constants consumed by both runtimes.
 
@@ -22,9 +22,9 @@ Only `train` datasets are fitted. `holdout` stays sealed, `selection` is left fo
 operating-point work, and `exclude` is dropped.
 
 Usage:
-    python tools/fit_classic_detector.py
-    python tools/fit_classic_detector.py --apply
-    python tools/fit_classic_detector.py --centered-threshold-logit 1.73 --apply
+    python tools/fit_lightweight_detector.py
+    python tools/fit_lightweight_detector.py --apply
+    python tools/fit_lightweight_detector.py --centered-threshold-logit 1.73 --apply
 
 The optional centered-logit override makes a sequential-replay operating point
 reproducible. The OOF sweep still reports its diagnostic point, but dense-window
@@ -50,7 +50,7 @@ from tools.lib.bootstrap import setup_paths  # noqa: E402
 setup_paths()
 
 import config  # noqa: E402
-from classic_detector import ClassicDetector  # noqa: E402
+from lightweight_detector import LightweightDetector  # noqa: E402
 from tools.lib.csi_io import load_npz_as_packets  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
     derive_detector_timing,
@@ -65,8 +65,8 @@ from tools.lib.performance_report import (  # noqa: E402
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PYTHON_SOURCE = REPO_ROOT / "src" / "python" / "micro_espectre" / "classic_detector.py"
-CPP_SOURCE = REPO_ROOT / "src" / "cpp" / "core" / "classic_detector.h"
+PYTHON_SOURCE = REPO_ROOT / "src" / "python" / "micro_espectre" / "lightweight_detector.py"
+CPP_SOURCE = REPO_ROOT / "src" / "cpp" / "core" / "lightweight_detector.h"
 
 FITTED_ROLES = ("train",)
 IDLE_LABEL = 0
@@ -131,7 +131,7 @@ def extract_window_features(
     coefficients for a feature the runtime never computes.
     """
     timing = derive_detector_timing(measure_packet_interval_us(packets))
-    detector = ClassicDetector(
+    detector = LightweightDetector(
         window_size=timing["window_packets"],
         autocorr_lag=timing["autocorr_lag"],
     )
@@ -328,15 +328,15 @@ def session_centered_scores(
         if idle_scores.size == 0:
             continue
         session_q95 = float(
-            np.quantile(idle_scores, ClassicDetector.STARTUP_QUANTILE)
+            np.quantile(idle_scores, LightweightDetector.STARTUP_QUANTILE)
         )
-        centered[in_session] -= ClassicDetector.STARTUP_STRENGTH * session_q95
+        centered[in_session] -= LightweightDetector.STARTUP_STRENGTH * session_q95
     return centered
 
 
 def base_threshold_from_centered(centered_threshold: float, idle_q95: float) -> float:
     """Convert a session-centered operating point back to BASE_THRESHOLD."""
-    base_logit = centered_threshold + ClassicDetector.STARTUP_STRENGTH * idle_q95
+    base_logit = centered_threshold + LightweightDetector.STARTUP_STRENGTH * idle_q95
     return float(1.0 / (1.0 + np.exp(-base_logit)))
 
 
@@ -492,15 +492,15 @@ def render_cpp(coefficients: Dict[str, Any], base_threshold: float, idle_q95: fl
     weight, intercept = coefficients["weight"], coefficients["intercept"]
     text = CPP_SOURCE.read_text()
     for name, value in (
-        ("CLASSIC_AUTOCORR_CENTER", center[0]),
-        ("CLASSIC_AUTOCORR_SCALE", scale[0]),
-        ("CLASSIC_AUTOCORR_WEIGHT", weight[0]),
-        ("CLASSIC_TURB_IQR_OVER_MEAN_AGGR_CENTER", center[1]),
-        ("CLASSIC_TURB_IQR_OVER_MEAN_AGGR_SCALE", scale[1]),
-        ("CLASSIC_TURB_IQR_OVER_MEAN_AGGR_WEIGHT", weight[1]),
-        ("CLASSIC_INTERCEPT", intercept),
-        ("CLASSIC_DEFAULT_THRESHOLD", base_threshold),
-        ("CLASSIC_TRAIN_IDLE_Q95_LOGIT", idle_q95),
+        ("LIGHTWEIGHT_AUTOCORR_CENTER", center[0]),
+        ("LIGHTWEIGHT_AUTOCORR_SCALE", scale[0]),
+        ("LIGHTWEIGHT_AUTOCORR_WEIGHT", weight[0]),
+        ("LIGHTWEIGHT_TURB_IQR_OVER_MEAN_AGGR_CENTER", center[1]),
+        ("LIGHTWEIGHT_TURB_IQR_OVER_MEAN_AGGR_SCALE", scale[1]),
+        ("LIGHTWEIGHT_TURB_IQR_OVER_MEAN_AGGR_WEIGHT", weight[1]),
+        ("LIGHTWEIGHT_INTERCEPT", intercept),
+        ("LIGHTWEIGHT_DEFAULT_THRESHOLD", base_threshold),
+        ("LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT", idle_q95),
     ):
         text = replace_assignment(
             text,
@@ -535,7 +535,7 @@ def main() -> int:
     selected_band = tuple(config.DEFAULT_SUBCARRIERS)
     pairs = iter_training_pairs()
     print(
-        f"Fitting Classic on {len(pairs)} train pairs "
+        f"Fitting Lightweight on {len(pairs)} train pairs "
         f"(band={selected_band}, window={config.SEGMENTATION_WINDOW_SIZE_MS} ms)"
     )
     corpus = build_corpus(pairs, selected_band, progress=not args.quiet)
@@ -574,7 +574,7 @@ def main() -> int:
     else:
         source = f"grouped OOF ({args.splits} folds)"
     idle_logits = logits(fit_x[fit_y == IDLE_LABEL], coefficients)
-    idle_q95 = float(np.quantile(idle_logits, ClassicDetector.STARTUP_QUANTILE))
+    idle_q95 = float(np.quantile(idle_logits, LightweightDetector.STARTUP_QUANTILE))
 
     # Sweep the quantity the runtime compares, then convert the chosen point
     # back into the constant the runtime stores.

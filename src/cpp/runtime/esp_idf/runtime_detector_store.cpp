@@ -52,8 +52,8 @@ esp_err_t load_runtime_detection_algorithm(DetectionAlgorithm *algorithm, bool *
   if (err != ESP_OK) {
     return err;
   }
-  if (std::strcmp(value, RUNTIME_DETECTION_ALGORITHM_CLASSIC_NAME) != 0 &&
-      std::strcmp(value, RUNTIME_DETECTION_ALGORITHM_ML_NAME) != 0) {
+  if (std::strcmp(value, RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME) != 0 &&
+      std::strcmp(value, RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME) != 0) {
     return ESP_ERR_INVALID_STATE;
   }
   *algorithm = parse_detection_algorithm(value);

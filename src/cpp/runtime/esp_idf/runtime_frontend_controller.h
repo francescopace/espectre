@@ -31,7 +31,7 @@ namespace espectre {
  *  public:
  *   bool setup() {
  *     espectre::RuntimeConfig config;
- *     config.detection_algorithm = espectre::DetectionAlgorithm::CLASSIC;
+ *     config.detection_algorithm = espectre::DetectionAlgorithm::LIGHTWEIGHT;
  *     runtime_.set_config(config);
  *     return runtime_.setup(this);
  *   }

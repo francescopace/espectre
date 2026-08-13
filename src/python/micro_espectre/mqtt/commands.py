@@ -13,6 +13,11 @@ import time
 import gc
 import sys
 
+try:
+    from src.detector_interface import get_detector_algorithm
+except ImportError:
+    from detector_interface import get_detector_algorithm
+
 # Threshold limits shared by the runtime detectors
 THRESHOLD_MIN = 0.0
 THRESHOLD_MAX = 1.0
@@ -100,8 +105,7 @@ class MQTTCommands:
         
     def _get_detection_info(self):
         """Build detection info dict based on detector type."""
-        # Wire format matches the C++ runtime: get_name() labels ("Classic", "ML").
-        return {"algorithm": self.detector.get_name()}
+        return {"algorithm": get_detector_algorithm(self.detector)}
         
     def send_response(self, message, accepted=True, command_id="", command=""):
         """Send response message to MQTT"""

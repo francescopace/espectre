@@ -94,6 +94,18 @@ PAGES = (
         "active_nav": "guides",
     },
     {
+        "source": "content/guides/detectors.html",
+        "output": "guides/detectors",
+        "title": "Choose a detection profile | ESPectre",
+        "description": (
+            "Compare ESPectre Lightweight and High-Accuracy Detection by CPU, "
+            "memory, startup behavior, detection quality, and product fit."
+        ),
+        "parent_href": "/guides/",
+        "parent_label": "Guides",
+        "active_nav": "guides",
+    },
+    {
         "source": "content/guides/firmware.html",
         "output": "guides/custom-firmware",
         "title": "Build custom firmware | ESPectre",

@@ -126,7 +126,7 @@ Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 - the firmware channel
 - your target chip
 
-Use `Latest Release` for official firmware or `Release Preview` for the latest build from `main`. Published ESPHome firmware starts with Classic and supports persisted runtime switching to ML. Published Matter firmware starts with Classic; ML is available in local Matter builds and is selected at build time. Streamer is source-built because it needs build-time Wi-Fi configuration.
+Use `Latest Release` for official firmware or `Release Preview` for the latest build from `main`. Published ESPHome firmware starts with Lightweight Detection and supports persisted runtime switching to High Accuracy. Published Matter firmware starts with Lightweight; High Accuracy is available in local Matter builds and is selected at build time. Streamer is source-built because it needs build-time Wi-Fi configuration.
 
 To flash:
 
@@ -174,7 +174,7 @@ Support in this phase:
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
 | `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5; Native can persist the policy over BLE and applies a changed policy after restart; ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
-| `detection_algorithm` | `classic` or `ml` | `classic`, including Matter | Classic uses less detector CPU and working memory; ML is more accurate and skips startup calibration |
+| `detection_algorithm` | `lightweight` or `high_accuracy` | `lightweight`, including Matter | Lightweight uses less detector CPU and working memory; High Accuracy improves detection quality and skips quiet-room threshold calibration |
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable where the frontend exposes a writable control. Matter currently exposes no writable sensing controls |
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; resolved to samples from measured CSI cadence |
 | `traffic_generator_rate` | int | `100` | Arithmetic validation range `0-100000`; `0` disables internal traffic generation. Supported ESP32 targets sustain much lower practical CSI rates, normally around the `100` target |
@@ -198,13 +198,13 @@ Use the frontend README for the exact syntax and local workflow:
 - [`README.md` (native)](../src/cpp/frontend/native/README.md)
 - [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
 
-### Detection Algorithms And Startup
+### Detection Profiles And Startup
 
-ESPectre keeps two production detectors because no single choice optimizes both accuracy and resource use. Classic runs fewer feature trackers and is the leaner choice when the chip or surrounding firmware needs more CPU time and working memory for other work. ML uses a larger feature state and neural inference to provide higher accuracy and stronger generalization on the maintained corpus.
+ESPectre keeps two production detection profiles because no single choice optimizes both accuracy and resource use. Lightweight runs fewer feature trackers and is the leaner choice when the chip or surrounding firmware needs more CPU time and working memory for other work. High Accuracy uses a larger feature state and neural inference to provide higher accuracy and stronger generalization on the maintained corpus.
 
-At boot, Classic adapts its threshold to the room during an initial quiet calibration that can take up to about 10 seconds. ML uses its trained threshold and skips that calibration; it becomes active after CSI capture is ready and the feature window has filled.
+At boot, Lightweight adapts its threshold to the room during an initial quiet calibration that can take up to about 10 seconds. High Accuracy uses its trained threshold and skips that calibration; it becomes active after CSI capture is ready and the feature window has filled.
 
-ESPHome, Native, and Matter support both `classic` and `ml`. ESPHome and Native can switch detectors at runtime and persist the selection; the switch resets the threshold to the selected detector's default, and `ml -> classic` starts calibration automatically. Matter selects the detector at build time, exposes no runtime detector control, and uses `classic` in published firmware while the frontend remains preview. Streamer has no detector.
+ESPHome, Native, and Matter support both `lightweight` and `high_accuracy`. ESPHome and Native can switch profiles at runtime and persist the selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. Matter selects the profile at build time, exposes no runtime detector control, and uses `lightweight` in published firmware while the frontend remains preview. Streamer has no detector.
 
 See:
 

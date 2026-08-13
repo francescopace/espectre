@@ -13,9 +13,11 @@ import time
 from umqtt.simple import MQTTClient
 
 try:
+    from src.detector_interface import get_detector_algorithm
     from src.mqtt.commands import MQTTCommands
     from src.mqtt.home_assistant import HomeAssistantMqttAdapter
 except ImportError:
+    from detector_interface import get_detector_algorithm
     from mqtt.commands import MQTTCommands
     from mqtt.home_assistant import HomeAssistantMqttAdapter
 
@@ -205,7 +207,7 @@ class MQTTHandler:
         Publish current state to MQTT
         
         Args:
-            current_variance: Current motion metric (probability for Classic/ML)
+            current_variance: Current motion metric on the shared probability scale
             current_state: Current state (0=IDLE, 1=MOTION)
             current_threshold: Current threshold
         """
@@ -229,7 +231,7 @@ class MQTTHandler:
             'motion_state': state_str,
             'movement_score': round(current_variance, 4),
             'threshold': round(current_threshold, 4),
-            'detector': self.detector.get_name(),
+            'detector': get_detector_algorithm(self.detector),
             'health': health
         }
         

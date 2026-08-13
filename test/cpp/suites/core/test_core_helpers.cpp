@@ -13,8 +13,8 @@
 #include <utility>
 #include <vector>
 
-#include "classic_detector.h"
-#include "ml_detector.h"
+#include "lightweight_detector.h"
+#include "high_accuracy_detector.h"
 #include "csi_features.h"
 #include "ml_feature_trackers.h"
 #include "threshold.h"
@@ -400,8 +400,8 @@ void test_motion_first_accepts_after_a_long_quiet_prefix(void) {
 }
 
 void test_detector_startup_gate_traits(void) {
-    ClassicDetector classic;
-    MLDetector ml;
+    LightweightDetector classic;
+    HighAccuracyDetector ml;
     TEST_ASSERT_TRUE(classic.startup_gate_enabled());
     TEST_ASSERT_FALSE(ml.startup_gate_enabled());
 }
@@ -429,10 +429,10 @@ void test_ml_feature_helpers_cover_guard_paths(void) {
     TEST_ASSERT_EQUAL_FLOAT(1.0f / 3.0f, stats.zcr);
 }
 
-void test_classic_detector_move_semantics_and_base_accessors(void) {
+void test_lightweight_detector_move_semantics_and_base_accessors(void) {
     auto packet = make_constant_packet(3, 4);
 
-    ClassicDetector source(5, 0.75f);
+    LightweightDetector source(5, 0.75f);
     source.configure_lowpass(true, 2.0f);
     source.configure_hampel(true, 5, 2.5f);
     source.process_packet(nullptr, packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
@@ -441,7 +441,7 @@ void test_classic_detector_move_semantics_and_base_accessors(void) {
     TEST_ASSERT_NOT_NULL(source.get_turbulence_buffer());
     TEST_ASSERT_EQUAL(1, source.get_buffer_count());
 
-    ClassicDetector moved(std::move(source));
+    LightweightDetector moved(std::move(source));
     TEST_ASSERT_NULL(source.get_turbulence_buffer());
     TEST_ASSERT_TRUE(moved.is_lowpass_enabled());
     TEST_ASSERT_TRUE(moved.is_hampel_enabled());
@@ -458,7 +458,7 @@ void test_classic_detector_move_semantics_and_base_accessors(void) {
     TEST_ASSERT_TRUE(moved.is_ready());
     TEST_ASSERT_FALSE(std::isnan(moved.get_motion_metric()));
 
-    ClassicDetector assigned(7, 4.0f);
+    LightweightDetector assigned(7, 4.0f);
     assigned = std::move(moved);
     TEST_ASSERT_NULL(moved.get_turbulence_buffer());
     TEST_ASSERT_TRUE(assigned.is_lowpass_enabled());
@@ -471,13 +471,13 @@ void test_classic_detector_move_semantics_and_base_accessors(void) {
     TEST_ASSERT_FALSE(std::isnan(assigned.get_motion_metric()));
 }
 
-void test_ml_detector_move_semantics_and_cv_state(void) {
+void test_high_accuracy_detector_move_semantics_and_cv_state(void) {
     auto packet = make_constant_packet(3, 4);
 
-    MLDetector source(6, 6.0f);
+    HighAccuracyDetector source(6, 6.0f);
     source.process_packet(packet.data(), packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
 
-    MLDetector moved(std::move(source));
+    HighAccuracyDetector moved(std::move(source));
     TEST_ASSERT_NULL(source.get_turbulence_buffer());
     TEST_ASSERT_EQUAL_FLOAT(1.0f, moved.get_threshold());
     TEST_ASSERT_EQUAL_FLOAT(0.0f, moved.get_motion_metric());
@@ -490,7 +490,7 @@ void test_ml_detector_move_semantics_and_cv_state(void) {
     TEST_ASSERT_EQUAL(window, moved.get_buffer_count());
     TEST_ASSERT_FALSE(std::isnan(moved.get_motion_metric()));
 
-    MLDetector assigned(10, 7.0f);
+    HighAccuracyDetector assigned(10, 7.0f);
     assigned = std::move(moved);
     TEST_ASSERT_NULL(moved.get_turbulence_buffer());
     TEST_ASSERT_EQUAL_FLOAT(1.0f, assigned.get_threshold());
@@ -520,8 +520,8 @@ int process(void) {
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
     RUN_TEST(test_channel_shape_trajectory_is_gain_and_stutter_invariant);
     RUN_TEST(test_shared_packet_frame_matches_direct_trajectory_tracker);
-    RUN_TEST(test_classic_detector_move_semantics_and_base_accessors);
-    RUN_TEST(test_ml_detector_move_semantics_and_cv_state);
+    RUN_TEST(test_lightweight_detector_move_semantics_and_base_accessors);
+    RUN_TEST(test_high_accuracy_detector_move_semantics_and_cv_state);
     return UNITY_END();
 }
 

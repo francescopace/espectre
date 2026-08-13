@@ -12,17 +12,20 @@ from detector_interface import get_detector_algorithm, normalize_detector_algori
 
 
 def test_normalize_detector_algorithm_supports_runtime_and_label_names():
-    assert normalize_detector_algorithm("classic") == "classic"
-    assert normalize_detector_algorithm("ML") == "ml"
-    assert normalize_detector_algorithm("Classic") == "classic"
+    assert normalize_detector_algorithm("lightweight") == "lightweight"
+    assert normalize_detector_algorithm("HIGH-ACCURACY") == "high_accuracy"
+    assert normalize_detector_algorithm("Lightweight") == "lightweight"
+    assert normalize_detector_algorithm("Lightweight Detection") == "lightweight"
+    assert normalize_detector_algorithm("High Accuracy") == "high_accuracy"
+    assert normalize_detector_algorithm("High-Accuracy Detection") == "high_accuracy"
     assert normalize_detector_algorithm("bogus") == "bogus"
 
 
 def test_get_detector_algorithm_prefers_canonical_algorithm_attr():
     class FakeDetector:
-        ALGORITHM = "classic"
+        ALGORITHM = "lightweight"
 
         def get_name(self):
-            return "Classic"
+            return "Display Name"
 
-    assert get_detector_algorithm(FakeDetector()) == "classic"
+    assert get_detector_algorithm(FakeDetector()) == "lightweight"

@@ -1,7 +1,7 @@
 /*
  * ESPectre - Summary table helpers for replay-based C++ tests
  *
- * Shared formatting for chip-level Classic/ML summary tables emitted by native
+ * Shared formatting for chip-level Lightweight/High Accuracy summary tables emitted by native
  * integration suites.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -47,7 +47,7 @@ inline void print_dual_detector_summary_table(
   std::printf("================================================================================\n");
   std::printf("%s\n", title);
   std::printf("================================================================================\n");
-  std::printf("| Chip   | Datasets | Classic                 | ML                      |\n");
+  std::printf("| Chip   | Datasets | Lightweight                 | High Accuracy           |\n");
   std::printf("|--------|----------|-------------------------|-------------------------|\n");
 
   for (const DualDetectorSummaryRow& row : rows) {

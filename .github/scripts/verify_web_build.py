@@ -27,6 +27,7 @@ EXPECTED_SITEMAP_PATHS = {
     "/guides/setup/",
     "/guides/placement/",
     "/guides/detection/",
+    "/guides/detectors/",
     "/guides/custom-firmware/",
     "/docs/",
     "/docs/api/",

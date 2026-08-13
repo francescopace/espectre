@@ -27,8 +27,8 @@ from conftest import (
 
 
 def _assert_classic_replays_match(cached_metrics, packet_metrics) -> None:
-    assert packet_metrics is not None, "Classic packet calibration failed"
-    assert cached_metrics is not None, "Classic startup calibration failed"
+    assert packet_metrics is not None, "Lightweight packet calibration failed"
+    assert cached_metrics is not None, "Lightweight startup calibration failed"
     for key in (
         "baseline_eval_count",
         "movement_eval_count",
@@ -128,7 +128,7 @@ class TestLongRecordings:
 
     @pytest.mark.parametrize("long_dataset", build_long_test_params(), indirect=False)
     def test_long_recording_replays(self, long_dataset):
-        """Validate split metadata plus ML and Classic replays once per recording."""
+        """Validate split metadata plus ML and Lightweight replays once per recording."""
         if long_dataset is None:
             pytest.skip("No long-recording replays available in dataset_info.json")
 
@@ -168,7 +168,7 @@ class TestLongRecordings:
             source_path=test_path,
             motion_start_packet=motion_start_packet,
         )
-        assert classic_metrics is not None, "Classic startup calibration failed"
+        assert classic_metrics is not None, "Lightweight startup calibration failed"
         self.__class__._classic_rows.append(
             {
                 "chip": chip,

@@ -53,7 +53,7 @@ struct State {
   uint8_t last_motion_on_hits{RUNTIME_MOTION_ON_HITS_DEFAULT};
   uint8_t last_motion_off_hits{RUNTIME_MOTION_OFF_HITS_DEFAULT};
   int set_detector_calls{0};
-  DetectionAlgorithm last_detector{DetectionAlgorithm::CLASSIC};
+  DetectionAlgorithm last_detector{DetectionAlgorithm::LIGHTWEIGHT};
   int trigger_recalibration_calls{0};
   bool calibrating{false};
   bool services_armed{true};

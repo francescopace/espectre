@@ -97,8 +97,8 @@ describe('command builders: wire format', () => {
     });
 
     it('builds detector commands', () => {
-        assert.equal(Client.buildDetectorCommand('classic'), 'SET_DETECTOR:classic');
-        assert.equal(Client.buildDetectorCommand('ml'), 'SET_DETECTOR:ml');
+        assert.equal(Client.buildDetectorCommand('lightweight'), 'SET_DETECTOR:lightweight');
+        assert.equal(Client.buildDetectorCommand('high_accuracy'), 'SET_DETECTOR:high_accuracy');
     });
 });
 

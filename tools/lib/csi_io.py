@@ -64,7 +64,7 @@ try:
         load_detector_class,
         normalize_detector_algorithm,
     )
-    from ml_detector import ML_DEFAULT_THRESHOLD
+    from high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
     from runtime_policy import (
         PacketTimingTracker,
         derive_detector_timing,
@@ -83,7 +83,7 @@ except ImportError:
         load_detector_class,
         normalize_detector_algorithm,
     )
-    from src.ml_detector import ML_DEFAULT_THRESHOLD
+    from src.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
     from src.runtime_policy import (
         PacketTimingTracker,
         derive_detector_timing,
@@ -1072,7 +1072,7 @@ class CollectionDetectorGate:
 
     @staticmethod
     def initial_threshold(algorithm: str) -> float:
-        return 1.0 if detector_needs_startup_calibration(algorithm) else ML_DEFAULT_THRESHOLD
+        return 1.0 if detector_needs_startup_calibration(algorithm) else HIGH_ACCURACY_DEFAULT_THRESHOLD
 
     def __init__(self, algorithm: str):
         self.algorithm = normalize_detector_algorithm(algorithm)

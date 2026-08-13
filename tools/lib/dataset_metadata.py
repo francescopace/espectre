@@ -40,7 +40,7 @@ except ImportError:
     import src.config as config
 
 try:
-    from classic_detector import ClassicDetector
+    from lightweight_detector import LightweightDetector
     from runtime_policy import (
         PacketTimingTracker,
         RuntimeMotionPolicy,
@@ -53,7 +53,7 @@ try:
         get_detector_startup_gate,
     )
 except ImportError:  # pragma: no cover
-    from src.classic_detector import ClassicDetector
+    from src.lightweight_detector import LightweightDetector
     from src.runtime_policy import (
         PacketTimingTracker,
         RuntimeMotionPolicy,
@@ -393,13 +393,13 @@ def detector_window_packets(
     )
 
 
-def build_classic_detector(
+def build_lightweight_detector(
     *,
     threshold: float = 1.0,
     enable_hampel: Optional[bool] = None,
     timing: Optional[Dict[str, int]] = None,
-) -> ClassicDetector:
-    """Build a ClassicDetector with the production runtime configuration."""
+) -> LightweightDetector:
+    """Build a LightweightDetector with the production runtime configuration."""
     hampel_enabled = (
         config.ENABLE_HAMPEL_FILTER
         if enable_hampel is None
@@ -409,7 +409,7 @@ def build_classic_detector(
         nominal_packet_interval_us(100),
         config.SEGMENTATION_WINDOW_SIZE_MS,
     )
-    return ClassicDetector(
+    return LightweightDetector(
         window_size=resolved["window_packets"],
         threshold=threshold,
         enable_lowpass=config.ENABLE_LOWPASS_FILTER,
@@ -452,7 +452,7 @@ def estimate_runtime_threshold(
     selected_subcarriers: Optional[Iterable[int]] = None,
 ) -> Optional[float]:
     """Replay the classic startup calibration and return a production-aligned threshold."""
-    calibrated = build_calibrated_classic_detector(
+    calibrated = build_calibrated_lightweight_detector(
         packets,
         selected_subcarriers=selected_subcarriers,
     )
@@ -461,15 +461,15 @@ def estimate_runtime_threshold(
     return calibrated[1]
 
 
-def build_calibrated_classic_detector(
+def build_calibrated_lightweight_detector(
     packets: Iterable[Dict[str, Any]],
     *,
     selected_subcarriers: Optional[Iterable[int]] = None,
     threshold: float = 1.0,
     enable_hampel: Optional[bool] = None,
-) -> Optional[Tuple[ClassicDetector, float]]:
+) -> Optional[Tuple[LightweightDetector, float]]:
     """
-    Return a ClassicDetector calibrated exactly like the production startup flow.
+    Return a LightweightDetector calibrated exactly like the production startup flow.
 
     The returned detector has its detector-specific startup threshold applied.
     ``enable_hampel`` defaults to the runtime configuration and is exposed so
@@ -480,7 +480,7 @@ def build_calibrated_classic_detector(
         measure_packet_interval_us(packets),
         config.SEGMENTATION_WINDOW_SIZE_MS,
     )
-    detector = build_classic_detector(
+    detector = build_lightweight_detector(
         threshold=threshold, enable_hampel=enable_hampel, timing=timing
     )
     band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)

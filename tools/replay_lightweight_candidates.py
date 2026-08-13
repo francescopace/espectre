@@ -2,17 +2,17 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-ESPectre - Classic Candidate Replay
+ESPectre - Lightweight Candidate Replay
 
-Research-only fitter and replay harness for one-, two-, and three-feature Classic detector
+Research-only fitter and replay harness for one-, two-, and three-feature Lightweight detector
 candidates. It mirrors the grouped logistic fit and startup-threshold workflow
-of `fit_classic_detector.py`, but never writes runtime artifacts.
+of `fit_lightweight_detector.py`, but never writes runtime artifacts.
 
 Usage:
-    python tools/replay_classic_candidates.py --features turb_autocorr
-    python tools/replay_classic_candidates.py --stress-augment \\
+    python tools/replay_lightweight_candidates.py --features turb_autocorr
+    python tools/replay_lightweight_candidates.py --stress-augment \\
         --features turb_iqr_over_mean_aggr,l1_delta_lag_ratio
-    python tools/replay_classic_candidates.py --calibration robust_logit \\
+    python tools/replay_lightweight_candidates.py --calibration robust_logit \\
         --features turb_autocorr,turb_iqr_over_mean_aggr
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -41,9 +41,9 @@ setup_paths()
 
 import config  # noqa: E402
 import tools.train_ml_model as train_ml_model  # noqa: E402
-from classic_detector import ClassicDetector  # noqa: E402
+from lightweight_detector import LightweightDetector  # noqa: E402
 from ml_weights import FEATURE_NAMES  # noqa: E402
-from tools.fit_classic_detector import (  # noqa: E402
+from tools.fit_lightweight_detector import (  # noqa: E402
     IDLE_LABEL,
     MOTION_LABEL,
     balanced_sample_weights,
@@ -133,7 +133,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-baseline",
         action="store_true",
-        help="skip the current Classic pair baseline and its replay rows",
+        help="skip the current Lightweight pair baseline and its replay rows",
     )
     parser.add_argument(
         "--splits",
@@ -170,7 +170,7 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help=(
             "startup calibration strength to replay; repeat for a grid "
-            f"(default: {ClassicDetector.STARTUP_STRENGTH})"
+            f"(default: {LightweightDetector.STARTUP_STRENGTH})"
         ),
     )
     parser.add_argument(
@@ -230,7 +230,7 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help=(
             "settled-level margin in logits; repeat for a grid "
-            f"(default: {ClassicDetector.SETTLE_MARGIN_LOGITS})"
+            f"(default: {LightweightDetector.SETTLE_MARGIN_LOGITS})"
         ),
     )
     parser.add_argument(
@@ -655,7 +655,7 @@ def calibration_references(
     idle_logits = logits(idle_x, coefficients)
     references: Dict[str, Any] = {
         "idle_q95_logit": float(
-            np.quantile(idle_logits, ClassicDetector.STARTUP_QUANTILE)
+            np.quantile(idle_logits, LightweightDetector.STARTUP_QUANTILE)
         )
     }
     mode = str(policy["mode"])
@@ -770,7 +770,7 @@ def session_centered_replay_scores(
         if idle_scores.size == 0:
             continue
         session_q95 = float(
-            np.quantile(idle_scores, ClassicDetector.STARTUP_QUANTILE)
+            np.quantile(idle_scores, LightweightDetector.STARTUP_QUANTILE)
         )
         centered[session_mask] -= float(startup_strength) * session_q95
     return centered
@@ -895,7 +895,7 @@ def startup_threshold(
     if prefix_count <= 0:
         return float(base_threshold)
     startup_q95 = float(
-        np.quantile(series_logits[:prefix_count], ClassicDetector.STARTUP_QUANTILE)
+        np.quantile(series_logits[:prefix_count], LightweightDetector.STARTUP_QUANTILE)
     )
     base_logit = float(np.log(base_threshold / (1.0 - base_threshold)))
     adapted_logit = base_logit + float(startup_strength) * (
@@ -1020,14 +1020,14 @@ def replay_one_stream(
         if was_positive:
             block_positive_count += 1
         block_count += 1
-        if block_count >= ClassicDetector.SETTLE_BLOCK_EVALUATIONS:
+        if block_count >= LightweightDetector.SETTLE_BLOCK_EVALUATIONS:
             completed_block_count = block_count
             settle_blocks.append(block_max)
-            if len(settle_blocks) > ClassicDetector.SETTLE_BLOCKS:
+            if len(settle_blocks) > LightweightDetector.SETTLE_BLOCKS:
                 settle_blocks.pop(0)
             block_max = -1e9
             block_count = 0
-            if len(settle_blocks) >= ClassicDetector.SETTLE_BLOCKS:
+            if len(settle_blocks) >= LightweightDetector.SETTLE_BLOCKS:
                 settled_logit = sorted(settle_blocks)[len(settle_blocks) // 2]
                 settled_threshold = probability(
                     settled_logit + float(settle_margin_logits)
@@ -1295,7 +1295,7 @@ def evaluate_candidate(
         config.CALIBRATION_DURATION_MS,
         config.SEGMENTATION_WINDOW_SIZE_MS,
         config.EVALUATION_INTERVAL_MS,
-        ClassicDetector.STARTUP_SAMPLE_LIMIT,
+        LightweightDetector.STARTUP_SAMPLE_LIMIT,
     )
     centered = calibrated_replay_scores(
         oof,
@@ -1754,12 +1754,12 @@ def main() -> int:
     startup_strengths = (
         args.startup_strength
         if args.startup_strength
-        else [ClassicDetector.STARTUP_STRENGTH]
+        else [LightweightDetector.STARTUP_STRENGTH]
     )
     settle_margins = (
         args.settle_margin_logits
         if args.settle_margin_logits
-        else [ClassicDetector.SETTLE_MARGIN_LOGITS]
+        else [LightweightDetector.SETTLE_MARGIN_LOGITS]
     )
     if any(value < 0.0 or value > 1.0 for value in startup_strengths):
         raise ReplayError("--startup-strength must be between 0 and 1")

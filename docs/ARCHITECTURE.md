@@ -40,7 +40,7 @@ ESPHome / Native / Matter / Streamer frontends
 
 `core` contains reusable sensing logic and domain primitives:
 
-- `ClassicDetector` and `MLDetector`
+- `LightweightDetector` and `HighAccuracyDetector`
 - feature extraction and detector math
 - filters and helper utilities
 - exported ML artifacts and related constants
@@ -151,13 +151,13 @@ Normalized runtime events include:
 
 Frontends should use this surface instead of reaching directly into low-level Wi-Fi or CSI pipeline services.
 
-Runtime detector selection is capability-gated. ESPHome and Native enable the shared ESP-IDF detector store, which persists `classic` or `ml` in NVS and restores it at boot. Matter can be built with either detector but has no writable runtime detector surface; published Matter firmware selects `classic`. Streamer remains detector-free.
+Runtime detector selection is capability-gated. ESPHome and Native enable the shared ESP-IDF detector store, which persists `lightweight` or `high_accuracy` in NVS and restores it at boot. Matter can be built with either detector but has no writable runtime detector surface; published Matter firmware selects `lightweight`. Streamer remains detector-free.
 
 ### Shared Runtime Debug Telemetry
 
 ESP-IDF runtime implementations reuse `RuntimeDebugTelemetry` for one `[telemetry]` log line approximately every 10 seconds at `DEBUG` level. It reports current, minimum, and largest-block heap values; configured CPU frequency; runtime-loop load and timing; and sampled detector evaluation timing.
 
-`runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks and frontend services may run in other tasks. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For ML, it covers feature extraction, inference, and state update.
+`runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks and frontend services may run in other tasks. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 
 This debug log is an implementation diagnostic, not part of ESPectre Protocol. Streamer also retains its separate live transport telemetry for pacing, CSI, and uplink health during collection.
 

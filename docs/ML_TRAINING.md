@@ -1,6 +1,6 @@
 # ML Training Guide
 
-Train, evaluate, and promote the production ML detector after collecting labeled CSI datasets.
+Train, evaluate, and promote the production High-Accuracy detector after collecting labeled CSI datasets.
 
 Use [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) to collect and validate `empty`, `static_presence`, and `motion` recordings. This guide covers the training workflow, dataset roles, model-selection gates, exported artifacts, and required validation. Use `python tools/train_ml_model.py --help` for the complete option reference, [FEATURES.md](FEATURES.md) for feature evidence, and [performance/README.md](performance/README.md) for current detector results.
 
@@ -125,7 +125,7 @@ Bare `--augment` enables the promoted `base,drift,burst-loss` recipe:
 
 Production training builds two deterministic packet views with seeds `20260807` and `20260808`, then keeps alternating row positions from the two views within each source recording. This produces approximately one augmented row set rather than doubling the synthetic sample count, while exposing the model to the complementary false-positive and weak-recall stress tails of both seeds. The seed order and per-file modulo assignment are fixed; model seeds do not alter packet augmentation.
 
-Augmentation is train-only for fitting and promotion gates. Cross-validation scoring, selection, holdout, and runtime inference use clean replay features. The generated performance report additionally labels a non-gating robustness diagnostic that applies the same two-seed packet recipe to the combined `selection + holdout` corpus and compares the exported ML and Classic detectors on matching alternating replay positions.
+Augmentation is train-only for fitting and promotion gates. Cross-validation scoring, selection, holdout, and runtime inference use clean replay features. The generated performance report additionally labels a non-gating robustness diagnostic that applies the same two-seed packet recipe to the combined `selection + holdout` corpus and compares the exported ML and Lightweight detectors on matching alternating replay positions.
 
 Stable rate scaling is not packet loss. It selects samples across the source interval, rewrites timestamps and sequence numbers to the lower clean cadence, and lets the shared `1000 ms` detector window resolve to fewer samples. Loss and burst-loss augmentations retain gaps and contamination semantics.
 

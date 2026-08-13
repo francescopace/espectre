@@ -24,8 +24,8 @@ from .bootstrap import setup_paths
 from .atomic_io import atomic_write_text
 from .dataset_metadata import (
     admitted_dataset_role,
-    build_calibrated_classic_detector,
-    build_classic_detector,
+    build_calibrated_lightweight_detector,
+    build_lightweight_detector,
     dataset_info_revision,
     derive_detector_timing,
     load_dataset_info,
@@ -65,7 +65,7 @@ REPORT_DATASET_ROLES = frozenset(("selection", "holdout"))
 # Link-class policy: real weak-link (`low_rssi: true`) recordings are stress
 # diagnostics, not standard promotion material. Normal-link sessions keep the
 # strict production targets; stress replays use these relaxed ML targets and
-# stay report-only for the Classic detector.
+# stay report-only for the Lightweight detector.
 STRESS_TARGET_RECALL = 90.0
 STRESS_TARGET_FP_RATE = 10.0
 
@@ -454,7 +454,7 @@ def _resolve_ml_replay_feature_names(feature_names: Sequence[str] = ()) -> tuple
     requested = tuple(str(name) for name in (feature_names or tuple(RUNTIME_FEATURE_NAMES)))
     supported = set(RUNTIME_FEATURE_NAMES)
     try:
-        from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
+        from high_accuracy_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
         supported.update(str(name) for name in EXPORTED_FEATURE_NAMES)
     except (ImportError, AttributeError):
         pass
@@ -578,7 +578,7 @@ def build_ml_replay_rows(
     row_offset: int = 0,
 ) -> Dict[str, Any]:
     """Build reset-aware ML rows and project them onto one sampling contract."""
-    from ml_detector import MLDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES
+    from high_accuracy_detector import HighAccuracyDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES
 
     requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
     missing = [
@@ -587,7 +587,7 @@ def build_ml_replay_rows(
     ]
     if missing:
         raise ValueError(
-            "The currently exported ML detector cannot produce replay rows for: "
+            "The currently exported High-Accuracy detector cannot produce replay rows for: "
             + ", ".join(missing)
         )
     normalized_contract = _normalize_ml_sample_contract(sample_contract)
@@ -603,7 +603,7 @@ def build_ml_replay_rows(
             interval_us,
             SEGMENTATION_WINDOW_SIZE_MS,
         )["window_packets"]
-    detector = MLDetector(window_size=window_size, threshold=0.5)
+    detector = HighAccuracyDetector(window_size=window_size, threshold=0.5)
     feature_indices = [EXPORTED_FEATURE_NAMES.index(name) for name in requested_feature_names]
     timing_tracker, cadence = timing_cadence_for_window(window_size, interval_us)
     packets_since_reset = 0
@@ -693,7 +693,7 @@ def load_or_compute_ml_replay_rows(
         raise ValueError("dense row selection requires sample_contract='stream_dense'")
     if stride is not None and use_cache and cache_write:
         raise ValueError("selected rows cannot be written under a full-row cache key")
-    from ml_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
+    from high_accuracy_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
     cached_feature_names = tuple(EXPORTED_FEATURE_NAMES)
     packet_stream: Optional[Sequence[dict[str, Any]]] = None
     resolved_window_size = window_size
@@ -793,7 +793,7 @@ def load_or_compute_ml_replay_rows(
 
 
 def _empty_classic_replay_phase_rows() -> Dict[str, np.ndarray]:
-    """Return one empty phase in the canonical Classic replay-row schema."""
+    """Return one empty phase in the canonical Lightweight replay-row schema."""
     return {
         "X": np.empty((0, 2), dtype=np.float64),
         "ready": np.empty(0, dtype=bool),
@@ -811,7 +811,7 @@ def _collect_classic_replay_phase_rows(
     warmup_packets: int,
     detector: Any,
 ) -> Dict[str, np.ndarray]:
-    """Collect every production evaluation tick for one Classic replay phase."""
+    """Collect every production evaluation tick for one Lightweight replay phase."""
     if not packets:
         return _empty_classic_replay_phase_rows()
 
@@ -881,7 +881,7 @@ def build_classic_replay_rows(
     replay_interval_us: Optional[int] = None,
     warmup_packets: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Build time-aware Classic feature rows for one paired replay."""
+    """Build time-aware Lightweight feature rows for one paired replay."""
     measured_interval_us = (
         measure_packet_interval_us(static_presence_packets)
         if replay_interval_us is None
@@ -895,7 +895,7 @@ def build_classic_replay_rows(
         if warmup_packets is None
         else max(0, int(warmup_packets))
     )
-    calibration_detector = build_classic_detector(
+    calibration_detector = build_lightweight_detector(
         threshold=1.0,
         timing=resolved_timing,
     )
@@ -906,12 +906,12 @@ def build_classic_replay_rows(
         resolved_warmup_packets,
         calibration_detector,
     )
-    calibrated = build_calibrated_classic_detector(
+    calibrated = build_calibrated_lightweight_detector(
         static_presence_packets,
         selected_subcarriers=selected_subcarriers,
     )
     detector = (
-        build_classic_detector(threshold=1.0, timing=resolved_timing)
+        build_lightweight_detector(threshold=1.0, timing=resolved_timing)
         if calibrated is None
         else calibrated[0]
     )
@@ -954,7 +954,7 @@ def load_or_compute_classic_replay_rows(
     replay_provenance: Optional[Mapping[str, Any]] = None,
     use_cache: bool = True,
 ) -> Dict[str, Any]:
-    """Load or build one persisted time-aware Classic replay-row artifact."""
+    """Load or build one persisted time-aware Lightweight replay-row artifact."""
     static_packets = (
         static_presence_packets
         if static_presence_packets is not None
@@ -1048,15 +1048,15 @@ def _calibrate_classic_replay_rows(
     rows: Mapping[str, Any],
     timing: Mapping[str, int],
 ) -> Optional[float]:
-    """Reproduce Classic startup calibration from cached evaluation rows."""
-    from classic_detector import ClassicDetector
+    """Reproduce Lightweight startup calibration from cached evaluation rows."""
+    from lightweight_detector import LightweightDetector
     from threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
         get_detector_startup_gate,
     )
 
-    detector = build_classic_detector(threshold=1.0, timing=dict(timing))
+    detector = build_lightweight_detector(threshold=1.0, timing=dict(timing))
     calibration_target_packets = max(
         1,
         int(round(CALIBRATION_DURATION_MS * 1000.0 / timing["interval_us"])),
@@ -1090,7 +1090,7 @@ def _calibrate_classic_replay_rows(
         if adapter.ready:
             logit = detector._calculate_logit(float(values[0]), float(values[1]))
             adapter.motion_metric = detector._sigmoid(logit)
-            if len(startup_logits) < ClassicDetector.STARTUP_SAMPLE_LIMIT:
+            if len(startup_logits) < LightweightDetector.STARTUP_SAMPLE_LIMIT:
                 startup_logits.append(float(logit))
         else:
             adapter.motion_metric = 0.0
@@ -1118,7 +1118,7 @@ def _score_classic_replay_phase_rows(
     row_stride: Optional[int] = None,
     row_offset: int = 0,
 ) -> list[bool]:
-    """Advance Classic decision state over one cached replay phase."""
+    """Advance Lightweight decision state over one cached replay phase."""
     stride, offset = _normalize_replay_row_selection(row_stride, row_offset)
     states: list[bool] = []
     eligible_position = 0
@@ -1168,14 +1168,14 @@ def compute_classic_row_result(
     row_stride: Optional[int] = None,
     row_offset: int = 0,
 ) -> Optional[tuple[float, Dict[str, float]]]:
-    """Evaluate one paired Classic replay from canonical time-aware rows."""
+    """Evaluate one paired Lightweight replay from canonical time-aware rows."""
     timing = dict(rows["timing"])
     adaptive_threshold = _calibrate_classic_replay_rows(
         rows["calibration"], timing
     )
     if adaptive_threshold is None:
         return None
-    detector = build_classic_detector(
+    detector = build_lightweight_detector(
         threshold=adaptive_threshold,
         timing=timing,
     )
@@ -1351,8 +1351,8 @@ def compute_classic_packet_result(
     selected_band: Sequence[int],
     window_size: Optional[int],
 ) -> Optional[tuple[float, Dict[str, float]]]:
-    """Replay the Classic detector on explicit packet streams."""
-    calibrated = build_calibrated_classic_detector(
+    """Replay the Lightweight detector on explicit packet streams."""
+    calibrated = build_calibrated_lightweight_detector(
         static_presence_packets,
         selected_subcarriers=selected_band,
     )
@@ -1379,7 +1379,7 @@ def compute_classic_dataset_result(
     selected_band: tuple[int, ...],
     window_size: Optional[int],
 ) -> Optional[tuple[float, Dict[str, float]]]:
-    """Run Classic inference over canonical time-aware replay rows."""
+    """Run Lightweight inference over canonical time-aware replay rows."""
     rows = load_or_compute_classic_replay_rows(
         replay_kind="classic_dataset",
         static_presence_path=static_presence_path,
@@ -1398,7 +1398,7 @@ def compute_ml_packet_result(
     threshold: float,
     feature_names: Sequence[str] = (),
 ) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
-    """Replay the ML detector on explicit packet streams."""
+    """Replay the High-Accuracy detector on explicit packet streams."""
     runtime_feature_names = tuple(RUNTIME_FEATURE_NAMES)
     static_rows = build_ml_replay_rows(
         static_presence_packets,
@@ -1427,7 +1427,7 @@ def _compute_ml_row_result(
     feature_names: Sequence[str] = (),
 ) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
     """Evaluate canonical runtime-tick rows with the exported inference path."""
-    from ml_detector import predict as predict_runtime_probability
+    from high_accuracy_detector import predict as predict_runtime_probability
 
     runtime_feature_names = tuple(RUNTIME_FEATURE_NAMES)
     requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
@@ -1607,7 +1607,7 @@ def compute_classic_empty_fp_result(
     empty_dataset_path: str | Path,
     selected_subcarriers: tuple[int, ...],
 ) -> Dict[str, float]:
-    """Run empty-room Classic inference over canonical time-aware rows."""
+    """Run empty-room Lightweight inference over canonical time-aware rows."""
     rows = load_or_compute_classic_replay_rows(
         empty_dataset_path,
         replay_kind="classic_empty_fp",
@@ -1917,7 +1917,7 @@ def compute_classic_long_recording_result(
     *,
     selected_subcarriers: Sequence[int] = DEFAULT_SUBCARRIERS,
 ) -> Optional[Dict[str, float]]:
-    """Replay one long recording through cached time-aware Classic rows."""
+    """Replay one long recording through cached time-aware Lightweight rows."""
     packets = _load_long_test_packets_cached(str(source_path))
     baseline_packets = packets[:motion_start_packet]
     movement_packets = packets[motion_start_packet:]
@@ -1958,18 +1958,18 @@ def evaluate_ml_long_recording(
     source_path: Optional[str | Path] = None,
     motion_start_packet: Optional[int] = None,
 ) -> Dict[str, float]:
-    """Run MLDetector at the production evaluation cadence."""
+    """Run HighAccuracyDetector at the production evaluation cadence."""
     if source_path is not None and motion_start_packet is not None:
         return _evaluate_ml_long_cached_rows(source_path, motion_start_packet)
 
-    from ml_detector import MLDetector
+    from high_accuracy_detector import HighAccuracyDetector
 
     interval_us = measure_packet_interval_us(baseline_packets)
     warmup = derive_detector_timing(
         interval_us,
         SEGMENTATION_WINDOW_SIZE_MS,
     )["window_packets"]
-    detector = MLDetector(threshold=0.5, window_size=warmup)
+    detector = HighAccuracyDetector(threshold=0.5, window_size=warmup)
 
     baseline_eval_count = 0
     movement_eval_count = 0
@@ -2084,7 +2084,7 @@ def evaluate_classic_long_recording(
     source_path: Optional[str | Path] = None,
     motion_start_packet: Optional[int] = None,
 ) -> Optional[Dict[str, float]]:
-    """Run startup-calibrated ClassicDetector at the production cadence."""
+    """Run startup-calibrated LightweightDetector at the production cadence."""
     if source_path is not None and motion_start_packet is not None:
         return compute_classic_long_recording_result(
             source_path,
@@ -2092,7 +2092,7 @@ def evaluate_classic_long_recording(
             selected_subcarriers=DEFAULT_SUBCARRIERS,
         )
 
-    calibrated = build_calibrated_classic_detector(
+    calibrated = build_calibrated_lightweight_detector(
         baseline_packets,
         selected_subcarriers=DEFAULT_SUBCARRIERS,
     )
@@ -2449,13 +2449,13 @@ def render_performance_report_markdown(
         ),
         "",
         (
-            "- **Classic Detector**: Analyzes changes in the Wi-Fi signal and calibrates "
-            "itself for each recording. It is not trained on recorded data."
+            "- **Lightweight Detection**: Uses the Lightweight feature-fusion implementation, "
+            "calibrates itself for each recording, and is not trained on recorded data."
         ),
         (
-            "- **ML Detector**: Uses a neural network trained on recordings marked as "
-            "motion or no motion. Published replay results use only recordings outside "
-            "its training corpus."
+            "- **High-Accuracy Detection**: Uses the ML neural implementation trained on "
+            "recordings marked as motion or no motion. Published replay results use only "
+            "recordings outside its training corpus."
         ),
         "",
         "See [ALGORITHMS.md](../ALGORITHMS.md) for the full detector design.",
@@ -2485,10 +2485,10 @@ def render_performance_report_markdown(
                 f"window `{int(resources.get('window_packets', 100))}` packets."
             ),
             "",
-            "| Detector | Persistent memory | Packet median / p90 | Inference median / p90 | Modeled detector CPU | Transient heap |",
+            "| Detection profile | Persistent memory | Packet median / p90 | Inference median / p90 | Modeled detector CPU | Transient heap |",
             "| --- | ---: | ---: | ---: | ---: | ---: |",
         ])
-        for detector_name, label in (("classic", "Classic"), ("ml", "ML")):
+        for detector_name, label in (("classic", "Lightweight"), ("ml", "High Accuracy")):
             metrics = resource_detectors.get(detector_name)
             if not metrics:
                 continue
@@ -2540,7 +2540,7 @@ def render_performance_report_markdown(
             "only on the combined `selection + holdout` corpus."
         ),
         "",
-        "### Classic Detector",
+        "### Lightweight Detection",
         "",
     ])
 
@@ -2578,7 +2578,7 @@ def render_performance_report_markdown(
 
     lines.extend([
         "",
-        "### ML Detector",
+        "### High-Accuracy Detection",
         "",
     ])
     _append_paired_table(paired_normal, "ml")
@@ -2594,7 +2594,7 @@ def render_performance_report_markdown(
     if augmentation:
         lines.extend([
             (
-                "Classic and ML are evaluated on the same reserved `selection + holdout` "
+                "Lightweight and High Accuracy are evaluated on the same reserved `selection + holdout` "
                 "pairs after deterministic "
                 f"`{augmentation.get('recipe', 'unknown')}` packet augmentation. "
                 "As in production ML training, the fixed views "
@@ -2603,12 +2603,12 @@ def render_performance_report_markdown(
                 "diagnostic, not an uncontaminated promotion gate."
             ),
             "",
-            "| Detector | Corpus | Recall | FP Rate | F1 |",
+            "| Detection profile | Corpus | Recall | FP Rate | F1 |",
             "| --- | --- | ---: | ---: | ---: |",
         ])
         for row in augmentation.get("rows", []):
             detector_name = str(row["detector"]).lower()
-            detector = "ML" if detector_name == "ml" else detector_name.title()
+            detector = "High Accuracy" if detector_name == "ml" else "Lightweight"
             lines.append(
                 f"| {detector} | Reserved, mixed two-seed augmentation "
                 f"({int(augmentation.get('pair_count', 0))} pairs) | "
@@ -2628,19 +2628,19 @@ def render_performance_report_markdown(
         "",
         (
             "These reserved `selection + holdout` recordings show detector behavior "
-            "when the Wi-Fi signal is weak. The ML requirements for this test are recall "
+            "when the Wi-Fi signal is weak. The High Accuracy requirements for this test are recall "
             f">{STRESS_TARGET_RECALL:.0f}% and FP <{STRESS_TARGET_FP_RATE:.0f}%; "
-            "Classic results are included for information only."
+            "Lightweight results are included for information only."
         ),
         "",
-        "### Classic Detector",
+        "### Lightweight Detection",
         "",
     ])
     _append_paired_table({"classic": paired_stress_real.get("classic", {})}, "classic")
 
     lines.extend([
         "",
-        "### ML Detector",
+        "### High-Accuracy Detection",
         "",
     ])
     _append_paired_table(paired_stress_real, "ml")
@@ -2656,7 +2656,7 @@ def render_performance_report_markdown(
             "often each detector reports motion during quiet periods."
         ),
         "",
-        "### Classic Detector",
+        "### Lightweight Detection",
         "",
     ])
 
@@ -2684,7 +2684,7 @@ def render_performance_report_markdown(
 
     lines.extend([
         "",
-        "### ML Detector",
+        "### High-Accuracy Detection",
         "",
     ])
     _append_long_quiet_table("ml")

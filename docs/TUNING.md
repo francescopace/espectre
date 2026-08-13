@@ -8,7 +8,7 @@ Inline snippets use ESPHome YAML as a concrete example. CSI means channel state 
 
 ### 1. Boot In A Quiet Room
 
-For the default `classic` detector, startup quality matters.
+For the default `lightweight` detector, startup quality matters.
 
 Current startup behavior:
 
@@ -22,10 +22,10 @@ With the default `segmentation_window_size_ms: 1000`, the startup budget is ten 
 Practical rule:
 
 - stay quiet immediately after boot
-- after the first quiet phase, one short motion can help `classic` converge faster, but it is optional
+- after the first quiet phase, one short motion can help `lightweight` converge faster, but it is optional
 - repeated movement during startup still hurts calibration quality
 
-`ml` does not use startup threshold calibration and becomes active as soon as CSI capture is ready and its feature window has filled.
+`high_accuracy` does not use startup threshold calibration and becomes active as soon as CSI capture is ready and its feature window has filled.
 
 ### 2. Watch The Runtime Surface
 
@@ -52,7 +52,7 @@ Start with threshold. If needed, then adjust window size or filters.
 
 ### Threshold
 
-The threshold is selected automatically at startup. Classic adapts it from the observed quiet room, while ML uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session; recalibration restores the automatic value. Matter currently exposes no writable sensing controls.
+The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, while High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session; recalibration restores the automatic value. Matter currently exposes no writable sensing controls.
 
 Both detectors expose a `0.0-1.0` probability threshold.
 
@@ -61,21 +61,21 @@ Rules of thumb:
 - too many false positives: raise the threshold
 - missed movement: lower the threshold
 
-Runtime threshold changes are session-only and are recalculated at boot. ESPHome and Native can switch between `classic` and `ml` at runtime and persist the selection. Matter supports either detector as a build-time choice but exposes no runtime detector control; published Matter firmware uses `classic`. Streamer does not run a detector.
+Runtime threshold changes are session-only and are recalculated at boot. ESPHome and Native can switch between `lightweight` and `high_accuracy` at runtime and persist the selection. Matter supports either detector as a build-time choice but exposes no runtime detector control; published Matter firmware uses `lightweight`. Streamer does not run a detector.
 
-### Detection Algorithm
+### Detection Profile
 
 ```yaml
 espectre:
-  detection_algorithm: classic  # or ml
+  detection_algorithm: lightweight  # or high_accuracy
 ```
 
-| Algorithm | Accuracy and cost | Startup behavior |
+| Profile | Accuracy and cost | Startup behavior |
 |-----------|-------------------|------------------|
-| `classic` | Lower detector CPU and working-memory cost, with lower accuracy and robustness than ML | Quiet-room threshold calibration, up to about 10 seconds |
-| `ml` | Higher accuracy and generalization, with additional feature state and neural-inference work | No threshold calibration; waits only for CSI readiness and feature-window warmup |
+| **Lightweight Detection** (`lightweight`) | Lower detector CPU and working-memory cost, with lower accuracy and robustness than High Accuracy | Quiet-room threshold calibration, up to about 10 seconds |
+| **High-Accuracy Detection** (`high_accuracy`) | Higher accuracy and generalization, with additional feature state and neural-inference work | No threshold calibration; waits for CSI readiness and feature-window warmup |
 
-Choose `classic` when the device must reserve resources for other firmware features or when its compute and memory budget is tight. Choose `ml` when detection quality is the priority and the additional runtime cost fits the product budget. On ESPHome and Native you can compare them at runtime; on Matter the choice is made at build time. Current measurements and known limits are documented in [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](performance/README.md).
+Choose `lightweight` when the device must reserve resources for other firmware features or when its compute and memory budget is tight. Choose `high_accuracy` when detection quality is the priority and the additional runtime cost fits the product budget. On ESPHome and Native you can compare them at runtime; on Matter the choice is made at build time. Current measurements and known limits are documented in [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](performance/README.md).
 
 ### Window Size
 
@@ -168,7 +168,7 @@ espectre:
   hampel_threshold: 5.0
 ```
 
-Use it to suppress short outlier spikes. It applies to both `classic` and `ml`.
+Use it to suppress short outlier spikes. It applies to both `lightweight` and `high_accuracy`.
 
 Disable it only if:
 
@@ -279,7 +279,7 @@ If your AP changes channel often:
 
 ## Recalibration
 
-`classic` can recompute its threshold without changing firmware.
+`lightweight` can recompute its threshold without changing firmware.
 
 Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, and Native exposes the shared control through its command surfaces. Matter currently exposes no writable sensing controls.
 
@@ -303,7 +303,7 @@ Whatever frontend you use, keep an eye on:
 
 Use a `DEBUG` build when comparing firmware variants. Record the binary size and free application-partition space from the build summary, then monitor the device for several minutes after startup has settled.
 
-For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It samples Native Classic and ML, ESPHome Classic, Matter's build-time default, and Streamer collection. This is representative benchmark coverage, not a capability matrix: ESPHome, Native, and Matter support both detectors, while only ESPHome and Native switch at runtime. See [tools/README.md](../tools/README.md#firmware-benchmark) for prerequisites and report behavior.
+For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It samples Native Lightweight and High Accuracy, ESPHome Lightweight, Matter's build-time default, and Streamer collection. This is representative benchmark coverage, not a capability matrix: ESPHome, Native, and Matter support both profiles, while only ESPHome and Native switch at runtime. See [tools/README.md](../tools/README.md#firmware-benchmark) for prerequisites and report behavior.
 
 The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10 seconds at `DEBUG` level. Check that:
 
@@ -313,11 +313,11 @@ The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10 sec
 - `runtime_load`, `loop_avg_us`, and `loop_max_us` remain reasonably stable
 - `detection_avg_us`, `detection_min_us`, and `detection_max_us` remain stable when comparing detector variants
 
-For `ml`, detector timing includes feature extraction, inference, and state update. `runtime_load` measures the ESPectre runtime loop only; it is not whole-system CPU utilization. Compare results on the same target, Wi-Fi setup, traffic rate, and log level.
+For `high_accuracy`, detector timing includes feature extraction, inference, and state update. `runtime_load` measures the ESPectre runtime loop only; it is not whole-system CPU utilization. Compare results on the same target, Wi-Fi setup, traffic rate, and log level.
 
 ## Short Version
 
-1. start with `classic`, `segmentation_window_size_ms: 1000`, and no low-pass filter
+1. start with `lightweight`, `segmentation_window_size_ms: 1000`, and no low-pass filter
 2. boot in a quiet room
 3. tune threshold first
 4. touch filters only when threshold alone is not enough

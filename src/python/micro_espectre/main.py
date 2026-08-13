@@ -36,7 +36,7 @@ from src.detector_interface import (
 )
 from src.traffic_rate_controller import CsiPacingHealthMonitor
 
-ML_DEFAULT_THRESHOLD = 0.5
+HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
 
 # Global state for calibration mode and performance metrics
 class GlobalState:
@@ -69,7 +69,7 @@ def create_detector(detection_algorithm, window_packets):
     except ValueError:
         raise ValueError(f"Unsupported DETECTION_ALGORITHM: {detection_algorithm}")
 
-    threshold = 1.0 if detector_needs_startup_calibration(detection_algorithm) else ML_DEFAULT_THRESHOLD
+    threshold = 1.0 if detector_needs_startup_calibration(detection_algorithm) else HIGH_ACCURACY_DEFAULT_THRESHOLD
 
     print(f'Detection algorithm: {get_detector_label(detection_algorithm)}')
     return detector_class(
@@ -217,17 +217,17 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
     detector_name = detector.get_name()
     if not detector_uses_startup_calibration(detector):
         g_state.calibration_mode = True
-        detector.set_threshold(ML_DEFAULT_THRESHOLD)
+        detector.set_threshold(HIGH_ACCURACY_DEFAULT_THRESHOLD)
 
         print('')
         print('='*60)
-        print('ML Quick Boot')
+        print('High Accuracy Quick Boot')
         print('='*60)
         print(f'Free memory: {gc.mem_free()} bytes')
         
         print('')
         print('='*60)
-        print('ML Quick Boot Complete!')
+        print('High Accuracy Quick Boot Complete!')
         print(f'   Subcarriers: {list(config.DEFAULT_SUBCARRIERS)}')
         print(f'   Threshold: {detector.get_threshold():.2f} (0-1 probability score)')
         print('   Startup path: AGC-active normalized pipeline')
@@ -523,7 +523,7 @@ def main():
     # initial CSI flow check below replaces this estimate with measured packet
     # timing before constructing the detector.
     detection_algorithm = normalize_detector_algorithm(
-        getattr(config, 'DETECTION_ALGORITHM', 'classic')
+        getattr(config, 'DETECTION_ALGORITHM', 'lightweight')
     )
     from src.runtime_policy import derive_detector_timing, nominal_packet_interval_us
     nominal_rate = max(1, int(getattr(config, 'TRAFFIC_GENERATOR_RATE', 100) or 100))

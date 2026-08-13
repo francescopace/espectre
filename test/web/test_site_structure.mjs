@@ -178,6 +178,17 @@ describe('website UX and content contracts', () => {
         }
     });
 
+    it('publishes the detection profile guide through SPA and static routes', () => {
+        const guide = read('docs/web/content/guides/detectors.html');
+        assert.match(guide, /<h1>Choose your detection profile<\/h1>/);
+        assert.match(guide, /Lightweight Detection/);
+        assert.match(guide, /High-Accuracy Detection/);
+        assert.match(index, /data-page="guide-detectors"/);
+        assert.match(app, /'\/guides\/detectors\/': 'guide-detectors'/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/detectors\.html"/);
+        assert.match(read('docs/web/sitemap.xml'), /https:\/\/espectre\.dev\/guides\/detectors\//);
+    });
+
     it('loads generated firmware and SDK output from the shared artifacts tree', () => {
         assert.match(app, /\/artifacts\/firmware\//);
         assert.doesNotMatch(app, /\/flash\/firmware\//);
