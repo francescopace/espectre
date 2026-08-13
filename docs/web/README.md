@@ -45,14 +45,14 @@ The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs and
 
 | Journey | Events and required parameters | Intended use |
 |---|---|---|
-| Navigation | `page_view` (`page_path`, `page_title`, `content_group`), `select_tool`, `select_guide`, `select_documentation` | Content and entry-point performance |
+| Navigation | `page_view` (`page_path`, `page_title`, `content_group`), `select_tool`, `select_guide`, `select_documentation`, `sdk_download` | Content, SDK downloads, and entry-point performance |
 | Browser support | `tool_capability` (`tool_name`, `capability`, `result`) | Separate unsupported browsers from product failures |
 | Firmware | `firmware_catalog`, `firmware_selection`, `firmware_install_start`, `firmware_install_result`, `firmware_download` | Measure catalog availability and the complete install funnel |
-| Device tools | `tool_connection`, `tool_disconnect`, `tool_demo_start`, `device_profile` | Connection quality and supported platform adoption |
-| Configuration | `configure_change`, `matter_qr_read` | Outcome and normalized error category only |
-| Experiences | `theremin_configuration`, `game_start`, `game_over` | Optional tool engagement |
+| Device tools | `tool_connection`, `tool_ready`, `tool_disconnect`, `tool_demo_start`, `device_profile` | Separate transport connection from the first valid data, measure duration, and report supported platform adoption |
+| Configuration | `configure_change`, `ota_update_result`, `matter_qr_read` | Distinguish an accepted BLE write from a verified sysinfo value and the final OTA state |
+| Experiences | `theremin_configuration`, `game_start`, `game_over`, `game_abandon` | Optional tool engagement and completion |
 
-Outcome events use `result` values such as `success`, `failure`, `cancelled`, `unsupported`, or `validation_failure`. Failures use a normalized `error_type`; never add raw exception messages. `frontend`, `chip`, `channel`, `transport`, `entry_point`, and `tool_name` are candidate event-scoped custom dimensions. Property-side configuration, retention, internal-traffic filters, key events, and funnel explorations must be verified in GA4 after deployment.
+Outcome events use `result` values such as `accepted`, `success`, `failure`, `unconfirmed`, `cancelled`, `unsupported`, or `validation_failure`. `configure_change=accepted` means the BLE write completed; `success` is emitted only after a matching sysinfo snapshot. `tool_connection=success` means the transport connected, while `tool_ready` is emitted once after the first valid sysinfo, telemetry, or diagnostic payload. OTA success requires the device to report `reboot_scheduled`; a disconnect or status timeout is `unconfirmed`. Failures use a normalized `error_type`; never add raw exception messages. `frontend`, `chip`, `channel`, `format`, `transport`, `entry_point`, `tool_name`, `readiness`, and `ota_state` are candidate event-scoped custom dimensions. `latency_ms`, `duration_ms`, and `duration_seconds` are candidate custom metrics. Property-side configuration, retention, internal-traffic filters, key events, and funnel explorations must be verified in GA4 after deployment.
 
 ## Generated artifacts
 

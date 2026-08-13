@@ -48,6 +48,7 @@ const CAPABILITY_BY_ROUTE = {
 };
 
 const GUIDE_NAME_BY_PATH = {
+    '/guides/': 'overview',
     '/guides/hardware/': 'hardware',
     '/guides/setup/': 'setup',
     '/guides/placement/': 'placement',
@@ -56,9 +57,13 @@ const GUIDE_NAME_BY_PATH = {
 };
 
 const DOCUMENT_NAME_BY_PATH = {
+    '/docs/': 'overview',
     '/docs/api/': 'api',
     '/docs/examples/': 'examples',
-    '/docs/architecture/': 'architecture'
+    '/docs/architecture/': 'architecture',
+    '/artifacts/sdk/stable/': 'sdk_stable',
+    '/artifacts/sdk/main/': 'sdk_main',
+    '/artifacts/sdk/api/': 'api_reference'
 };
 
 const reportedCapabilities = new Set();
@@ -124,9 +129,20 @@ function loadGoogleTag() {
     document.head.appendChild(script);
 }
 
+function updatePageConfig(pageLocation, pageTitle, contentGroup) {
+    window.gtag('config', GA_MEASUREMENT_ID, {
+        update: true,
+        page_location: pageLocation,
+        page_title: pageTitle,
+        content_group: contentGroup
+    });
+}
+
 function sendStaticPageView() {
+    const pageLocation = window.location.origin + window.location.pathname;
+    updatePageConfig(pageLocation, document.title, STATIC_PAGE_SECTION);
     window.gtag('event', 'page_view', {
-        page_location: window.location.origin + window.location.pathname,
+        page_location: pageLocation,
         page_path: window.location.pathname,
         page_title: document.title,
         content_group: STATIC_PAGE_SECTION
@@ -135,11 +151,15 @@ function sendStaticPageView() {
 
 function sendRoutePageView(route = currentRoute()) {
     const path = routePath(route);
+    const pageLocation = window.location.origin + path;
+    const pageTitle = getRouteTitle(route);
+    const contentGroup = getSiteSection(route);
+    updatePageConfig(pageLocation, pageTitle, contentGroup);
     window.gtag('event', 'page_view', {
-        page_location: window.location.origin + path,
+        page_location: pageLocation,
         page_path: path,
-        page_title: getRouteTitle(route),
-        content_group: getSiteSection(route)
+        page_title: pageTitle,
+        content_group: contentGroup
     });
 }
 
@@ -156,12 +176,16 @@ function enableAnalytics({ sendPageView = true } = {}) {
             ad_personalization: 'denied',
             wait_for_update: 500
         });
-        window.gtag('consent', 'update', {
-            analytics_storage: 'granted',
-            ad_storage: 'denied',
-            ad_user_data: 'denied',
-            ad_personalization: 'denied'
-        });
+    }
+
+    window.gtag('consent', 'update', {
+        analytics_storage: 'granted',
+        ad_storage: 'denied',
+        ad_user_data: 'denied',
+        ad_personalization: 'denied'
+    });
+
+    if (!analyticsConfigured) {
         window.gtag('js', new Date());
         window.gtag('config', GA_MEASUREMENT_ID, {
             send_page_view: false,
@@ -173,11 +197,11 @@ function enableAnalytics({ sendPageView = true } = {}) {
     }
 
     analyticsEnabled = true;
-    if (!wasEnabled) document.dispatchEvent(new CustomEvent('espectre:analytics-enabled'));
-    if (sendPageView) {
+    if (sendPageView && !wasEnabled) {
         if (IS_STATIC_PAGE) sendStaticPageView();
         else sendRoutePageView();
     }
+    if (!wasEnabled) document.dispatchEvent(new CustomEvent('espectre:analytics-enabled'));
 }
 
 function clearAnalyticsCookies() {
@@ -211,9 +235,9 @@ function trackEvent(eventName, params = {}) {
     return true;
 }
 
-function trackRouteView(route = currentRoute()) {
+function trackRouteView(route = currentRoute(), { sendPageView = true } = {}) {
     if (!analyticsEnabled) return;
-    sendRoutePageView(route);
+    if (sendPageView) sendRoutePageView(route);
 
     const capability = CAPABILITY_BY_ROUTE[route];
     if (!capability || reportedCapabilities.has(route)) return;
@@ -297,12 +321,23 @@ function initializeAutoTracking() {
             return;
         }
 
+        if (link.dataset.sdkChannel && link.dataset.sdkFormat) {
+            trackEvent('sdk_download', {
+                channel: link.dataset.sdkChannel,
+                format: link.dataset.sdkFormat,
+                link_text: linkText(link)
+            });
+            return;
+        }
+
         const route = url.origin === window.location.origin ? url.hash.replace(/^#/, '') : '';
         if (TOOL_ROUTES.includes(route)) {
             trackEvent('select_tool', { tool_name: route, link_text: linkText(link) });
-        } else if (route.startsWith('docs-')) {
+        } else if (route === 'guides') {
+            trackEvent('select_guide', { guide_name: 'overview', link_text: linkText(link) });
+        } else if (route === 'docs' || route.startsWith('docs-')) {
             trackEvent('select_documentation', {
-                document_name: route.replace(/^docs-/, ''),
+                document_name: route === 'docs' ? 'overview' : route.replace(/^docs-/, ''),
                 link_text: linkText(link)
             });
         }

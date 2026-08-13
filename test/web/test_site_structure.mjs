@@ -45,6 +45,41 @@ describe('website security and asset policy', () => {
     });
 });
 
+describe('website analytics contracts', () => {
+    it('separates connection, readiness, verified outcomes, and disconnects', () => {
+        assert.match(app, /track\('tool_ready'/);
+        assert.match(app, /readiness,/);
+        assert.match(app, /latency_ms:/);
+        assert.match(app, /track\('configure_change', \{ action, result: 'accepted' \}\)/);
+        assert.match(app, /finishConfigVerification\('success'\)/);
+        assert.match(app, /track\('ota_update_result'/);
+        assert.match(app, /state === 'reboot_scheduled'/);
+        assert.match(app, /state === 'error'/);
+        assert.match(app, /entry_point: monitor\.entryPoint/);
+        assert.match(app, /monitorStopAll\('route_change'\)/);
+        assert.match(app, /\.\.\.connectionParams\(\)/);
+    });
+
+    it('tracks abandonment and only reports valid download targets', () => {
+        assert.match(app, /track\('game_abandon'/);
+        assert.match(app, /reportGameAbandon\('restart'\)/);
+        assert.match(app, /reportGameAbandon\('route_change'\)/);
+        assert.match(app, /reportGameAbandon\('page_exit'\)/);
+        assert.match(app, /if \(flash\.downloadReady\)/);
+        const sdkBuilder = read('.github/scripts/stage_web_sdk.py');
+        assert.match(sdkBuilder, /data-sdk-channel=/);
+        assert.match(sdkBuilder, /data-sdk-format=/);
+    });
+
+    it('keeps sensitive browser-tool values out of analytics calls', () => {
+        const analyticsCalls = [...app.matchAll(/track\([^;]+\);/gs)].map((match) => match[0]).join('\n');
+        assert.doesNotMatch(
+            analyticsCalls,
+            /ssid|bssid|password|mqtt_host|mqtt_username|topic_prefix|device_id|payload/
+        );
+    });
+});
+
 describe('website accessibility and navigation', () => {
     it('has a responsive navigation control and a live status region', () => {
         assert.match(index, /class="nav-toggle"[^>]+aria-controls="main-navigation"/);

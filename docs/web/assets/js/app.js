@@ -85,7 +85,13 @@
         deviceName: '',
         deviceBannerSub: '—',
         deviceMenuSub: '—',
-        connectedAt: 0
+        connectedAt: 0,
+        startedAt: 0,
+        toolName: '',
+        entryPoint: '',
+        readyState: '',
+        readyAt: 0,
+        readyTracked: false
     };
 
     let bleClient = null;
@@ -104,6 +110,9 @@
     let otaBusy = false;
     let otaActionPending = false;
     let otaModalReturnFocus = null;
+    let otaPollTimer = null;
+    let otaTracking = null;
+    let pendingConfigVerification = null;
 
     const sysinfoBoolean = (value) => value === true || value === 'true' || value === '1';
 
@@ -171,11 +180,42 @@
         renderConnection();
     }
 
+    function rememberConnectionOrigin() {
+        conn.toolName = activeToolName();
+        conn.entryPoint = route;
+        conn.startedAt = Date.now();
+        conn.readyState = '';
+        conn.readyAt = 0;
+        conn.readyTracked = false;
+    }
+
+    function connectionParams() {
+        return {
+            tool_name: conn.toolName || activeToolName(),
+            entry_point: conn.entryPoint || route
+        };
+    }
+
+    function markToolReady(readiness) {
+        if (!conn.mode) return;
+        if (!conn.readyState) conn.readyAt = Date.now();
+        conn.readyState = readiness;
+        if (conn.readyTracked) return;
+        conn.readyTracked = track('tool_ready', {
+            ...connectionParams(),
+            transport: conn.mode === 'ble' ? 'bluetooth' : 'simulation',
+            input_mode: conn.mode === 'demo' ? 'demo' : 'bluetooth',
+            readiness,
+            latency_ms: Math.max(0, conn.readyAt - (conn.startedAt || conn.connectedAt))
+        });
+    }
+
     /* ------------------------------------------------------------ BLE mode */
 
     function makeBleClient() {
         const client = new window.ESPectreBleClient();
         client.on('telemetry', (t) => {
+            markToolReady('telemetry');
             conn.movement = t.movement;
             const threshold = Number(t.threshold);
             if (!thresholdEditing && Number.isFinite(threshold) && threshold >= 0 && threshold <= 1) {
@@ -209,9 +249,10 @@
             connectDemo();
             return;
         }
+        rememberConnectionOrigin();
         setStatus('connecting');
         track('tool_connection', {
-            tool_name: activeToolName(), entry_point: route,
+            ...connectionParams(),
             transport: 'bluetooth', result: 'attempt'
         });
         try {
@@ -224,7 +265,7 @@
             conn.connectedAt = Date.now();
             setStatus('connected');
             track('tool_connection', {
-                tool_name: activeToolName(), entry_point: route,
+                ...connectionParams(),
                 transport: 'bluetooth', result: 'success'
             });
             try {
@@ -238,18 +279,24 @@
             // The chooser being dismissed is a user choice, not a failure.
             const cancelled = error && error.name === 'NotFoundError';
             track('tool_connection', {
-                tool_name: activeToolName(),
-                entry_point: route,
+                ...connectionParams(),
                 transport: 'bluetooth',
                 result: cancelled ? 'cancelled' : 'failure',
                 error_type: errorType(error)
             });
+            conn.startedAt = 0;
+            conn.toolName = '';
+            conn.entryPoint = '';
             if (cancelled) return;
             toast(error && error.message ? error.message : 'Bluetooth connection failed.');
         }
     }
 
     function applySysinfo(snapshot) {
+        if (conn.mode === 'ble' && conn.toolName === 'configure'
+                && (snapshot.frontend || snapshot.chip || snapshot.proto_version)) {
+            markToolReady('sysinfo');
+        }
         applyConfigureCapabilities(snapshot);
         applyWifiBandOptions(snapshot);
         const chip = (snapshot.chip || '').toUpperCase();
@@ -312,6 +359,8 @@
         if (snapshot.ota_busy !== undefined) otaBusy = sysinfoBoolean(snapshot.ota_busy);
         set('cfg-ota-target', snapshot.ota_target_version || '—');
         set('cfg-ota-message', snapshot.ota_message || '—');
+        evaluateConfigVerification(snapshot);
+        evaluateOtaTracking(snapshot);
         syncOtaUpdateButton();
         set('diag-protocol', proto || '—');
         set('diag-firmware', snapshot.firmware_version || snapshot.version || '—');
@@ -341,16 +390,15 @@
         if (conn.mode === 'ble' && snapshot.frontend && snapshot.chip) {
             const profile = snapshot.frontend + ':' + snapshot.chip;
             if (profile !== lastTrackedProfile) {
-                lastTrackedProfile = profile;
-                track('device_profile', {
-                    tool_name: activeToolName(),
-                    entry_point: route,
+                const reported = track('device_profile', {
+                    ...connectionParams(),
                     frontend: snapshot.frontend.toLowerCase(),
                     chip: snapshot.chip.toLowerCase(),
                     detector: String(snapshot.detector || 'unknown').toLowerCase(),
                     protocol_version: String(proto || 'unknown'),
                     firmware_version: String(snapshot.firmware_version || snapshot.version || 'unknown')
                 });
+                if (reported) lastTrackedProfile = profile;
             }
         }
         renderConnection();
@@ -360,7 +408,8 @@
 
     function connectDemo() {
         if (conn.status !== 'disconnected') return;
-        track('tool_demo_start', { tool_name: activeToolName(), entry_point: route });
+        rememberConnectionOrigin();
+        track('tool_demo_start', connectionParams());
         setStatus('connecting');
         setTimeout(() => {
             conn.mode = 'demo';
@@ -371,6 +420,7 @@
             conn.movement = 0.04;
             conn.connectedAt = Date.now();
             setStatus('connected');
+            markToolReady(conn.toolName === 'configure' ? 'sysinfo' : 'telemetry');
             applySysinfo({
                 chip: 'esp32-c5',
                 frontend: 'native',
@@ -471,14 +521,19 @@
     }
 
     function teardownConnection(reason = 'route_change') {
+        if (otaTracking) finishOtaTracking('unconfirmed', 'ClientDisconnected');
+        if (pendingConfigVerification) {
+            finishConfigVerification('unconfirmed', 'ClientDisconnected');
+        }
+        reportGameAbandon('disconnect');
         const previousMode = conn.mode;
         const durationSeconds = conn.connectedAt
             ? Math.max(0, Math.round((Date.now() - conn.connectedAt) / 1000))
             : 0;
         if (previousMode) {
             track('tool_disconnect', {
-                tool_name: activeToolName(),
-                entry_point: route,
+                ...connectionParams(),
+                transport: previousMode === 'demo' ? 'simulation' : 'bluetooth',
                 input_mode: previousMode === 'demo' ? 'demo' : 'bluetooth',
                 reason,
                 duration_seconds: durationSeconds
@@ -497,6 +552,13 @@
         conn.deviceBannerSub = '—';
         conn.deviceMenuSub = '—';
         conn.connectedAt = 0;
+        conn.startedAt = 0;
+        conn.toolName = '';
+        conn.entryPoint = '';
+        conn.readyState = '';
+        conn.readyAt = 0;
+        conn.readyTracked = false;
+        lastTrackedProfile = null;
         gameReset();
         thereminStop();
         otaClose(false);
@@ -589,6 +651,9 @@
     function setRoute(next, { force = false } = {}) {
         const target = ROUTES.includes(next) ? next : 'home';
         if (!force && target === route) return;
+        const previousRoute = route;
+        if (previousRoute === 'game' && target !== 'game') reportGameAbandon('route_change');
+        if (previousRoute === 'monitor' && target !== 'monitor') monitorStopAll('route_change');
         route = target;
         dropdownOpen = false;
         applyRoute();
@@ -759,7 +824,8 @@
 
     const flash = {
         manifests: {}, installUrl: null, badgeChecked: false,
-        installerObserver: null, watchedDialogs: new WeakSet(), catalogReports: new Set()
+        installerObserver: null, watchedDialogs: new WeakSet(), catalogReports: new Set(),
+        downloadReady: false
     };
 
     /*
@@ -812,6 +878,7 @@
         const summary = $('.js-flash-summary');
         const download = $('.js-flash-download');
         const installButton = $('.js-flash-install');
+        flash.downloadReady = false;
 
         try {
             const manifest = await flashLoadManifest(channelSel.value);
@@ -892,6 +959,7 @@
             summary.append(model, document.createElement('br'), detail, channel);
             download.href = flashResolveUrl(artifact.url);
             download.textContent = 'Download binary';
+            flash.downloadReady = true;
 
             if (!('serial' in navigator)) {
                 flashStatus('This browser does not expose Web Serial. Download the binary and flash manually.', 'is-error');
@@ -1102,7 +1170,9 @@
             track('firmware_install_start', flashParams());
         });
         $('.js-flash-download').addEventListener('click', () => {
-            track('firmware_download', flashParams());
+            if (flash.downloadReady) {
+                track('firmware_download', { ...flashParams(), result: 'started' });
+            }
         });
         $('.js-matter-read').addEventListener('click', matterReadQr);
         observeFirmwareInstaller();
@@ -1117,7 +1187,14 @@
         demoT: 0,
         demoMove: 0.05,
         points: [],
-        maxPoints: 120
+        maxPoints: 120,
+        startedAt: 0,
+        connectedAt: 0,
+        entryPoint: '',
+        inputMode: null,
+        readyState: '',
+        readyAt: 0,
+        readyTracked: false
     };
 
     function monitorStatus(message) {
@@ -1202,14 +1279,47 @@
         }
     }
 
-    function monitorStopAll() {
-        if (monitor.client) {
-            monitor.client.end(true);
-            monitor.client = null;
+    function markMonitorReady(readiness) {
+        if (!monitor.inputMode) return;
+        if (!monitor.readyState) monitor.readyAt = Date.now();
+        monitor.readyState = readiness;
+        if (monitor.readyTracked) return;
+        monitor.readyTracked = track('tool_ready', {
+            tool_name: 'monitor',
+            entry_point: monitor.entryPoint || 'monitor',
+            transport: monitor.inputMode === 'mqtt' ? 'mqtt_websocket' : 'simulation',
+            input_mode: monitor.inputMode,
+            readiness,
+            latency_ms: Math.max(0, monitor.readyAt - (monitor.startedAt || monitor.connectedAt))
+        });
+    }
+
+    function monitorStopAll(reason = 'replaced') {
+        if (monitor.inputMode && monitor.connectedAt) {
+            track('tool_disconnect', {
+                tool_name: 'monitor',
+                entry_point: monitor.entryPoint || 'monitor',
+                transport: monitor.inputMode === 'mqtt' ? 'mqtt_websocket' : 'simulation',
+                input_mode: monitor.inputMode,
+                reason,
+                duration_seconds: Math.max(0, Math.round((Date.now() - monitor.connectedAt) / 1000))
+            });
+        }
+        const client = monitor.client;
+        monitor.client = null;
+        if (client) {
+            client.end(true);
         }
         monitor.baseTopic = null;
         clearInterval(monitor.demoTimer);
         monitor.demoTimer = null;
+        monitor.startedAt = 0;
+        monitor.connectedAt = 0;
+        monitor.entryPoint = '';
+        monitor.inputMode = null;
+        monitor.readyState = '';
+        monitor.readyAt = 0;
+        monitor.readyTracked = false;
     }
 
     async function monitorConnect() {
@@ -1240,9 +1350,14 @@
             });
             return;
         }
-        monitorStopAll();
+        monitorStopAll('replaced');
         monitor.points = [];
         monitor.baseTopic = base;
+        monitor.startedAt = Date.now();
+        monitor.entryPoint = route;
+        monitor.readyState = '';
+        monitor.readyAt = 0;
+        monitor.readyTracked = false;
         const url = (tls ? 'wss://' : 'ws://') + host + ':' + port + path;
         monitorStatus('Connecting to ' + url + ' …');
         // The URL is not tracked: it would carry the user's broker address.
@@ -1259,31 +1374,45 @@
         });
         monitor.client = client;
         client.on('connect', () => {
+            if (monitor.client !== client) return;
+            monitor.connectedAt = Date.now();
+            monitor.inputMode = 'mqtt';
             client.subscribe([base + '/telemetry', base + '/stats'], (error) => {
+                if (monitor.client !== client) return;
                 monitorStatus(error
                     ? 'Subscribe failed: ' + error.message
                     : 'Live — subscribed to telemetry and on-demand stats.');
                 track('tool_connection', {
                     tool_name: 'monitor',
-                    entry_point: route,
+                    entry_point: monitor.entryPoint,
                     transport: 'mqtt_websocket',
                     result: error ? 'subscription_failure' : 'success',
                     ...(error ? { error_type: errorType(error) } : {})
                 });
+                if (error) monitorStopAll('subscription_failure');
             });
         });
         client.on('message', (topic, payload) => {
+            if (monitor.client !== client) return;
             try {
                 const data = JSON.parse(payload.toString());
                 if (topic === base + '/stats') {
+                    if (!data || typeof data !== 'object'
+                            || !['traffic_tx_pps', 'csi_callback_pps', 'free_memory_kb']
+                                .some((key) => data[key] !== undefined)) return;
+                    markMonitorReady('diagnostics');
                     monitorStats(data);
                     monitorStatus(data.traffic_tx_pps === undefined
                         ? 'Diagnostics received — this firmware does not expose the extended fields.'
                         : 'Diagnostics updated from the latest periodic status sample.');
                 } else {
+                    const movement = Number(data.movement_score ?? data.movement);
+                    const threshold = Number(data.threshold);
+                    if (!Number.isFinite(movement) || !Number.isFinite(threshold)) return;
+                    markMonitorReady('telemetry');
                     monitorFeed(
-                        Number(data.movement_score ?? data.movement) || 0,
-                        Number(data.threshold) || 0,
+                        movement,
+                        threshold,
                         data.motion_state || data.state,
                         data.device_id
                     );
@@ -1291,32 +1420,43 @@
             } catch (error) { /* ignore malformed payloads */ }
         });
         client.on('error', (error) => {
+            if (monitor.client !== client) return;
             monitorStatus('Connection failed: ' + error.message);
             track('tool_connection', {
                 tool_name: 'monitor',
-                entry_point: route,
+                entry_point: monitor.entryPoint,
                 transport: 'mqtt_websocket',
                 result: 'failure',
                 error_type: errorType(error)
             });
-            monitorStopAll();
+            monitorStopAll('error');
         });
         client.on('close', () => {
-            if (monitor.client === client) monitorStatus('Disconnected from broker.');
+            if (monitor.client !== client) return;
+            monitorStatus('Disconnected from broker.');
+            monitorStopAll('unexpected');
         });
     }
 
     function monitorDemo() {
-        monitorStopAll();
+        monitorStopAll('replaced');
         monitor.points = [];
         track('tool_demo_start', { tool_name: 'monitor', entry_point: route });
         monitorStatus('Demo feed — simulated node, no broker involved.');
+        monitor.startedAt = Date.now();
+        monitor.connectedAt = monitor.startedAt;
+        monitor.entryPoint = route;
+        monitor.inputMode = 'demo';
+        monitor.readyState = '';
+        monitor.readyAt = 0;
+        monitor.readyTracked = false;
         monitor.demoTimer = setInterval(() => {
             monitor.demoT += 0.5;
             let m = monitor.demoMove + (Math.random() - 0.5) * 0.04;
             if (Math.random() < 0.05) m += 0.5 + Math.random() * 0.35;
             m += Math.sin(monitor.demoT * 0.4) * 0.01;
             monitor.demoMove = Math.max(0.01, Math.min(1, m * 0.85));
+            markMonitorReady('telemetry');
             monitorFeed(
                 monitor.demoMove,
                 0.5,
@@ -1438,7 +1578,55 @@
      * device; nothing is written and nothing is tracked in demo, because
      * no device is involved.
      */
-    async function cfgApply(action, successMessage, buildCommand) {
+    function finishConfigVerification(result, errorType) {
+        if (!pendingConfigVerification) return;
+        clearTimeout(pendingConfigVerification.timer);
+        const action = pendingConfigVerification.action;
+        pendingConfigVerification = null;
+        track('configure_change', {
+            action,
+            result,
+            ...(errorType ? { error_type: errorType } : {})
+        });
+    }
+
+    function requestConfigVerification() {
+        const pending = pendingConfigVerification;
+        if (!pending || !bleClient) {
+            finishConfigVerification('unconfirmed', 'VerificationUnavailable');
+            return;
+        }
+        pending.attempts += 1;
+        bleClient.requestSysinfo().catch(() => {
+            finishConfigVerification('unconfirmed', 'VerificationRequestFailed');
+        });
+        pending.timer = setTimeout(() => {
+            if (pendingConfigVerification !== pending) return;
+            if (pending.attempts >= 3) finishConfigVerification('unconfirmed', 'VerificationTimeout');
+            else requestConfigVerification();
+        }, 700);
+    }
+
+    function beginConfigVerification(action, verify) {
+        if (pendingConfigVerification) finishConfigVerification('unconfirmed', 'Superseded');
+        pendingConfigVerification = { action, verify, attempts: 0, timer: null };
+        pendingConfigVerification.timer = setTimeout(requestConfigVerification, 180);
+    }
+
+    function evaluateConfigVerification(snapshot) {
+        const pending = pendingConfigVerification;
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        if (pending.verify(snapshot)) {
+            finishConfigVerification('success');
+        } else if (pending.attempts >= 3) {
+            finishConfigVerification('unconfirmed', 'VerificationMismatch');
+        } else {
+            pending.timer = setTimeout(requestConfigVerification, 250);
+        }
+    }
+
+    async function cfgApply(action, successMessage, buildCommand, verify) {
         let command;
         try {
             command = buildCommand();
@@ -1461,7 +1649,8 @@
         try {
             await bleClient.writeControl(command);
             toast(successMessage);
-            track('configure_change', { action, result: 'success' });
+            track('configure_change', { action, result: 'accepted' });
+            if (verify) beginConfigVerification(action, verify);
             return true;
         } catch (error) {
             toast('Write failed: ' + (error.message || error));
@@ -1503,7 +1692,9 @@
                 bssid: cfgValue('cfg-bssid').trim(),
                 channel: Number(cfgValue('cfg-channel') || 0),
                 ...(wifiBandPolicyAvailable ? { bandPolicy } : {})
-            }));
+            }),
+            (snapshot) => snapshot.wifi_ssid === ssid
+                && (!wifiBandPolicyAvailable || snapshot.wifi_band_policy === bandPolicy));
         if (ok) {
             document.getElementById('cfg-wifi-pass').value = '';
             if (bandChanged) {
@@ -1515,7 +1706,9 @@
     }
 
     async function cfgClearWifi() {
-        const ok = await cfgApply('clear_wifi', 'Wi-Fi credentials cleared.', () => 'CLEAR_WIFI');
+        const ok = await cfgApply(
+            'clear_wifi', 'Wi-Fi credentials cleared.', () => 'CLEAR_WIFI',
+            (snapshot) => !snapshot.wifi_ssid);
         if (ok) {
             ['cfg-ssid', 'cfg-wifi-pass', 'cfg-bssid', 'cfg-channel'].forEach((id) => {
                 document.getElementById(id).value = '';
@@ -1531,35 +1724,42 @@
             cfgValidationFailed('set_mqtt', 'MQTT needs a host and port.');
             return;
         }
+        const port = Number(cfgValue('cfg-mqtt-port'));
         const ok = await cfgApply('set_mqtt', 'MQTT settings saved.',
             () => window.ESPectreBleClient.buildMqttConfigCommand({
                 host,
-                port: Number(cfgValue('cfg-mqtt-port')),
+                port,
                 username,
                 password,
                 topicPrefix: cfgValue('cfg-topic-prefix').trim() || undefined
-            }));
+            }),
+            (snapshot) => snapshot.mqtt_host === host && Number(snapshot.mqtt_port) === port);
         if (ok) document.getElementById('cfg-mqtt-pass').value = '';
     }
 
     async function cfgClearMqtt() {
-        const ok = await cfgApply('clear_mqtt', 'MQTT settings cleared.', () => 'CLEAR_MQTT_CONFIG');
+        const ok = await cfgApply(
+            'clear_mqtt', 'MQTT settings cleared.', () => 'CLEAR_MQTT_CONFIG',
+            (snapshot) => !snapshot.mqtt_host);
         if (ok) document.getElementById('cfg-mqtt-pass').value = '';
     }
 
     async function cfgSaveDevice() {
-        const ok = await cfgApply('set_device', 'Device label saved.',
-            () => window.ESPectreBleClient.buildDeviceLabelCommand(cfgValue('cfg-label').trim()));
-        if (ok) cfgRefreshSysinfo();
+        const label = cfgValue('cfg-label').trim();
+        await cfgApply('set_device', 'Device label saved.',
+            () => window.ESPectreBleClient.buildDeviceLabelCommand(label),
+            (snapshot) => (snapshot.device_label || '') === label);
     }
 
     async function cfgSaveMotionHits() {
-        const ok = await cfgApply('set_motion_hits', 'Motion hit thresholds saved.',
+        const motionOnHits = Number(cfgValue('cfg-motion-on'));
+        const motionOffHits = Number(cfgValue('cfg-motion-off'));
+        await cfgApply('set_motion_hits', 'Motion hit thresholds saved.',
             () => window.ESPectreBleClient.buildMotionHitsCommand({
-                motionOnHits: Number(cfgValue('cfg-motion-on')),
-                motionOffHits: Number(cfgValue('cfg-motion-off'))
-            }));
-        if (ok) cfgRefreshSysinfo();
+                motionOnHits,
+                motionOffHits
+            }),
+            (snapshot) => snapshot.motion_hits === `${motionOnHits}/${motionOffHits}`);
     }
 
     async function cfgSaveThreshold(threshold) {
@@ -1567,7 +1767,8 @@
         thresholdWritePending = true;
         syncThresholdControl();
         const ok = await cfgApply('set_threshold', 'Runtime threshold updated.',
-            () => window.ESPectreBleClient.buildThresholdCommand(threshold));
+            () => window.ESPectreBleClient.buildThresholdCommand(threshold),
+            (snapshot) => Math.abs(Number(snapshot.threshold) - threshold) < 0.000001);
         if (ok) {
             conn.threshold = threshold;
             confirmedThreshold = threshold;
@@ -1578,13 +1779,62 @@
         thresholdWritePending = false;
         syncThresholdControl();
         renderTelemetry();
-        if (ok) cfgRefreshSysinfo();
     }
 
     async function cfgSaveDetector() {
-        const ok = await cfgApply('set_detector', 'Runtime detector updated.',
-            () => window.ESPectreBleClient.buildDetectorCommand(cfgValue('cfg-detector')));
-        if (ok) cfgRefreshSysinfo();
+        const detector = cfgValue('cfg-detector');
+        await cfgApply('set_detector', 'Runtime detector updated.',
+            () => window.ESPectreBleClient.buildDetectorCommand(detector),
+            (snapshot) => snapshot.detector === detector);
+    }
+
+    function finishOtaTracking(result, errorType, state) {
+        if (!otaTracking) return;
+        clearTimeout(otaPollTimer);
+        const startedAt = otaTracking.startedAt;
+        otaTracking = null;
+        otaPollTimer = null;
+        track('ota_update_result', {
+            result,
+            ota_state: state || 'unknown',
+            duration_ms: Math.max(0, Date.now() - startedAt),
+            ...(errorType ? { error_type: errorType } : {})
+        });
+    }
+
+    function pollOtaStatus() {
+        if (!otaTracking) return;
+        if (!bleClient) {
+            finishOtaTracking('unconfirmed', 'StatusUnavailable', otaTracking.lastState);
+            return;
+        }
+        otaTracking.attempts += 1;
+        if (otaTracking.attempts > 120) {
+            finishOtaTracking('unconfirmed', 'StatusTimeout', otaTracking.lastState);
+            return;
+        }
+        bleClient.requestSysinfo().catch(() => {
+            finishOtaTracking('unconfirmed', 'StatusRequestFailed', otaTracking?.lastState);
+        });
+        otaPollTimer = setTimeout(pollOtaStatus, 1000);
+    }
+
+    function beginOtaTracking() {
+        if (otaTracking) finishOtaTracking('unconfirmed', 'Superseded', otaTracking.lastState);
+        otaTracking = { startedAt: Date.now(), attempts: 0, lastState: 'starting' };
+        clearTimeout(otaPollTimer);
+        otaPollTimer = setTimeout(pollOtaStatus, 250);
+    }
+
+    function evaluateOtaTracking(snapshot) {
+        if (!otaTracking || !snapshot.ota_state) return;
+        const state = String(snapshot.ota_state).toLowerCase();
+        otaTracking.lastState = state;
+        if (state === 'reboot_scheduled') {
+            finishOtaTracking('success', null, state);
+        } else if (state === 'error') {
+            finishOtaTracking('failure', 'DeviceReportedError', state);
+        }
     }
 
     function syncOtaUpdateButton() {
@@ -1641,7 +1891,7 @@
         otaActionPending = false;
         if (ok) {
             otaBusy = true;
-            await cfgRefreshSysinfo();
+            if (conn.mode === 'ble') beginOtaTracking();
         }
         syncOtaUpdateButton();
     }
@@ -1707,6 +1957,16 @@
 
     function gameMsg(message) {
         gameSet('.js-game-msg', message);
+    }
+
+    function reportGameAbandon(reason) {
+        if (game.phase === 'idle' || game.phase === 'done') return;
+        track('game_abandon', {
+            input_mode: conn.mode === 'demo' ? 'demo' : 'bluetooth',
+            rounds: game.round,
+            reason
+        });
+        gameReset();
     }
 
     function gameReset() {
@@ -1808,6 +2068,7 @@
 
     function gameInit() {
         $('.js-game-start').addEventListener('click', () => {
+            reportGameAbandon('restart');
             clearTimeout(game.holdTimer);
             clearTimeout(game.cooldownTimer);
             clearTimeout(game.strikeTimeout);
@@ -1853,7 +2114,16 @@
     }
 
     document.addEventListener('espectre:analytics-enabled', () => {
+        if (window.trackRouteView) window.trackRouteView(route, { sendPageView: false });
+        if (conn.readyState) markToolReady(conn.readyState);
+        if (monitor.readyState) markMonitorReady(monitor.readyState);
+        if (conn.mode === 'ble' && bleClient) cfgRefreshSysinfo();
         if (route === 'flash') flashRefresh();
+    });
+    window.addEventListener('pagehide', (event) => {
+        if (event.persisted) return;
+        reportGameAbandon('page_exit');
+        monitorStopAll('page_exit');
     });
     document.addEventListener('DOMContentLoaded', init);
 })();

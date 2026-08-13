@@ -55,6 +55,7 @@ This is the first release candidate for the v3 platform. It brings the productio
 - **Host-side feature caching is now column-granular**: replay coordinates are stored once, each feature owns an independently versioned column, and adding a variant no longer invalidates sibling columns used by seed searches or model comparisons. Cold cache producers use per-key process locks, and augmented host views reuse the same granular artifacts.
 - **Dataset validation is detector-independent** and evaluates shared scale-invariant feature evidence. Detector-specific promotion results remain in the performance report.
 - **The documentation and website now follow the modular platform structure**, with task-oriented setup, detection, hardware, embedded integration, and use case guides.
+- **Website analytics now separates intent, transport connection, first valid data, and verified outcomes**. SPA routes update the Google tag state before manual page views, configuration writes are confirmed through sysinfo before reporting success, OTA and SDK outcomes have dedicated events, MQTT and BLE durations preserve their original entry point, and interrupted game sessions are explicit.
 
 ### Fixed
 

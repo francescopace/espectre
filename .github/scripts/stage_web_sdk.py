@@ -65,7 +65,8 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
     title, description = channel_copy(manifest, channel)
     commit = manifest.get("commit") or "n/a"
     artifact_links = "\n".join(
-        f'      <li><a href="{artifact["url"]}"><code>{artifact["filename"]}</code></a> '
+        f'      <li><a href="{artifact["url"]}" data-sdk-channel="{channel}" '
+        f'data-sdk-format="{artifact["format"]}"><code>{artifact["filename"]}</code></a> '
         f'(<span>{artifact["format"]}</span>)</li>'
         for artifact in manifest["artifacts"]
     )
