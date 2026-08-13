@@ -18,6 +18,7 @@ from tools.lib.host_feature_trackers import AmplitudeProfileTracker
 def test_host_candidates_stay_out_of_the_runtime_surface() -> None:
     assert set(CANDIDATE_FEATURES).isdisjoint(ALL_FEATURES)
     for feature_name in (
+        "chan_shape_coherent_innovation_contrast",
         "chan_shape_scale_curvature",
         "chan_freq_coh_curve_std",
     ):

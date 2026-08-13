@@ -31,8 +31,6 @@ Before deploy:
 
 - [ ] Review docs/web content, imagery, UX, and UI for release readiness
 - [ ] Capture a current Home Assistant visualization for the project overview and docs
-- [ ] Re-enable the `CLA Signature Check` as required on `develop`
-
 
 After deploy:
 

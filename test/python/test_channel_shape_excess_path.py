@@ -59,6 +59,26 @@ def test_independent_packet_gain_cancels() -> None:
         baseline_tracker.coherent_innovation_energy(),
         abs=1e-12,
     )
+    assert gained_tracker.coherent_innovation_contrast() == pytest.approx(
+        baseline_tracker.coherent_innovation_contrast(),
+        abs=1e-12,
+    )
+
+
+def test_coherent_innovation_contrast_uses_high_modes_as_noise_reference() -> None:
+    coherent_path = [np.zeros(8), np.zeros(8), np.zeros(8)]
+    coherent_path[1][1] = 1.0
+    coherent_path[2][1] = 3.0
+    noisy_path = [modes.copy() for modes in coherent_path]
+    noisy_path[2][4] = 1.0
+
+    coherent = ChannelShapeExcessPathTracker()
+    coherent._binned_path = lambda: list(enumerate(coherent_path))
+    noisy = ChannelShapeExcessPathTracker()
+    noisy._binned_path = lambda: list(enumerate(noisy_path))
+
+    assert coherent.coherent_innovation_contrast() == pytest.approx(1.0)
+    assert noisy.coherent_innovation_contrast() == pytest.approx(0.0)
 
 
 def test_exact_stutter_duplicates_do_not_change_the_path() -> None:

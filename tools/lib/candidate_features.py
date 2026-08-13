@@ -463,6 +463,14 @@ def candidate_values(
             values[name] = (
                 shape_trajectory_tracker.coherent_innovation_energy()
             )
+        elif name == 'chan_shape_coherent_innovation_contrast':
+            if shape_trajectory_tracker is None:
+                raise ValueError(
+                    f"{name} needs the time-binned channel-shape tracker"
+                )
+            values[name] = (
+                shape_trajectory_tracker.coherent_innovation_contrast()
+            )
         elif name == 'chan_shape_lag_ratio':
             if shape_tracker is None:
                 raise ValueError(f"{name} needs the channel-shape tracker")

@@ -121,6 +121,7 @@ CHANNEL_SHAPE_FEATURES = (
 L1_SERIES_FEATURES: Tuple[str, ...] = ()
 CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
     'chan_shape_scale_curvature',
+    'chan_shape_coherent_innovation_contrast',
     'chan_shape_spread_subband',
     'chan_shape_coherent_innovation_energy',
     'chan_shape_excess_path',
@@ -588,6 +589,43 @@ class ChannelShapeTrajectoryTracker:
 
     def coherent_innovation_energy(self) -> float:
         return self.trajectory_features_with_spread()[0]
+
+    def coherent_innovation_contrast(self, epsilon: float = 1e-12) -> float:
+        """Return coherent residual energy relative to high-order noise.
+
+        Low DCT modes represent broad channel-shape motion, while high modes
+        provide a causal within-window noise reference. The bounded contrast
+        stays at zero when high-order residual energy matches or exceeds the
+        coherent residual, and approaches one when the residual is dominated
+        by broad channel-shape motion.
+        """
+        path = self._binned_path()
+        samples = []
+        floor = max(float(epsilon), 1e-18)
+        for (first_bin, first_modes), (middle_bin, middle_modes), (
+            last_bin,
+            last_modes,
+        ) in zip(path, path[1:], path[2:]):
+            previous_dt = middle_bin - first_bin
+            current_dt = last_bin - middle_bin
+            if previous_dt <= 0 or current_dt <= 0:
+                continue
+            prediction_modes = middle_modes + (
+                float(current_dt) / float(previous_dt)
+            ) * (middle_modes - first_modes)
+            residual_modes = last_modes - prediction_modes
+            low_energy = float(
+                np.dot(residual_modes[1:4], residual_modes[1:4])
+            )
+            high_energy = float(
+                np.dot(residual_modes[4:], residual_modes[4:])
+            )
+            total_energy = low_energy + high_energy
+            samples.append(
+                max(0.0, low_energy - high_energy)
+                / max(total_energy, floor)
+            )
+        return float(np.median(samples)) if samples else 0.0
 
     def excess_path(self) -> float:
         return self.trajectory_features_with_spread()[1]
