@@ -37,7 +37,7 @@ jobs:
           python3 .github/scripts/validate_release.py --tag "${RELEASE_TAG}"
 
       - name: Require a successful main CI run for this commit
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const response = await github.rest.actions.listWorkflowRuns({
@@ -360,7 +360,7 @@ jobs:
           cat release_notes.md
       
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
           tag_name: ${{ github.ref_name }}
           name: "v${{ github.ref_name }} - ${{ steps.changelog.outputs.title }}"
