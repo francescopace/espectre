@@ -42,7 +42,7 @@ Use `FEATURES.md` for detector-feature evidence and baseline lineage, `LITERATUR
 - [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](2026-07-25-select-the-classic-band-from-channel-coherence.md)
 - [`2026-07-26-recover-the-startup-threshold-once-a-session-settles.md`](2026-07-26-recover-the-startup-threshold-once-a-session-settles.md)
 - [`2026-08-10-configure-detector-windows-in-milliseconds.md`](2026-08-10-configure-detector-windows-in-milliseconds.md)
-- [`2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md`](2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md)
+- [`2026-08-13-use-aggregated-turbulence-iqr-for-classic.md`](2026-08-13-use-aggregated-turbulence-iqr-for-classic.md)
 
 ### ML And Validation
 

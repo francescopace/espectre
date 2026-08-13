@@ -18,33 +18,32 @@ namespace espectre {
 static const char* TAG = "ClassicDetector";
 
 ClassicDetector::ClassicDetector(uint16_t window_size, float threshold,
-                                 uint16_t lag, uint16_t autocorr_lag)
+                                 uint16_t autocorr_lag)
     : BaseDetector(window_size),
       threshold_(clamp_threshold(threshold, CLASSIC_MIN_THRESHOLD, CLASSIC_MAX_THRESHOLD)),
       current_logit_(0.0f),
       current_turb_autocorr_(0.0f),
-      current_chan_freq_coh_curve_std_(0.0f),
+      current_turb_iqr_over_mean_aggr_(0.0f),
       startup_logit_count_(0U),
       adapted_threshold_(CLASSIC_DEFAULT_THRESHOLD),
       adapted_threshold_ready_(false),
-      // Clamped here because the detector derives its curve-ring capacity and
-      // readiness gate from this value, so an unclamped copy would configure
-      // one lag while applying the readiness gate for another.
-      lag_(std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX)),
       autocorr_lag_(autocorr_lag > 0U ? autocorr_lag : 1U),
       settle_block_max_(0.0f),
       settle_block_evaluations_(0U),
       settle_block_count_(0U),
-      settle_block_index_(0U) {
+      settle_block_index_(0U),
+      aggregated_turbulence_buffer_(window_size_, 0.0f),
+      aggregated_turbulence_index_(0U),
+      aggregated_turbulence_count_(0U) {
   reset_settled_level_();
-  frequency_tracker_.configure(frequency_tracker_capacity_());
-  ESP_LOGI(TAG, "Initialized weighted fusion (window=%u, threshold=%.3f, lag=%u, ac_lag=%u)",
+  hampel_turbulence_init(&aggregated_hampel_state_,
+                         HAMPEL_TURBULENCE_WINDOW_DEFAULT,
+                         HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
+  lowpass_filter_init(&aggregated_lowpass_state_, LOWPASS_CUTOFF_DEFAULT,
+                      LOWPASS_SAMPLE_RATE, false);
+  ESP_LOGI(TAG, "Initialized weighted fusion (window=%u, threshold=%.3f, ac_lag=%u)",
            static_cast<unsigned>(window_size_), threshold_,
-           static_cast<unsigned>(lag_), static_cast<unsigned>(autocorr_lag_));
-}
-
-uint16_t ClassicDetector::frequency_tracker_capacity_() const {
-  return window_size_ > lag_ ? static_cast<uint16_t>(window_size_ - lag_) : 0U;
+           static_cast<unsigned>(autocorr_lag_));
 }
 
 void ClassicDetector::process_packet(const int8_t* csi_data, size_t csi_len,
@@ -57,17 +56,33 @@ void ClassicDetector::process_packet(const int8_t* csi_data, size_t csi_len,
   }
   (void) rssi_dbm;
 
-  float amplitudes[HT20_SELECTED_BAND_SIZE];
-  const uint8_t amplitude_count = extract_subcarrier_amplitudes(
-      csi_data, csi_len, selected_subcarriers, num_subcarriers,
+  const uint8_t* resolved_subcarriers = selected_subcarriers;
+  uint8_t resolved_count = num_subcarriers;
+  if (resolved_subcarriers == nullptr || resolved_count == 0U) {
+    resolved_subcarriers = DEFAULT_SUBCARRIERS;
+    resolved_count = HT20_SELECTED_BAND_SIZE;
+  }
+  float packet_amplitudes[HT20_NUM_SUBCARRIERS]{};
+  const uint8_t packet_count = extract_packet_subcarrier_amplitudes(
+      csi_data, csi_len, packet_amplitudes, HT20_NUM_SUBCARRIERS);
+  float amplitudes[HT20_SELECTED_BAND_SIZE]{};
+  const uint8_t amplitude_count = select_subcarrier_amplitudes(
+      packet_amplitudes, packet_count, resolved_subcarriers, resolved_count,
       amplitudes, HT20_SELECTED_BAND_SIZE);
   process_amplitudes(amplitudes, amplitude_count);
-  frequency_tracker_.process_packet(csi_data, csi_len);
+  float aggregated_amplitudes[HT20_SELECTED_BAND_SIZE]{};
+  const uint8_t aggregated_count =
+      select_adjacent_aggregated_subcarrier_amplitudes(
+          packet_amplitudes, packet_count, resolved_subcarriers, resolved_count,
+          TURB_IQR_AGGREGATION_WIDTH, aggregated_amplitudes,
+          HT20_SELECTED_BAND_SIZE);
+  add_aggregated_turbulence_(calculate_spatial_turbulence_from_amplitudes(
+      aggregated_amplitudes, aggregated_count));
 }
 
 bool ClassicDetector::is_ready() const {
   return buffer_count_ >= window_size_ &&
-         frequency_tracker_.count() >= frequency_tracker_capacity_();
+         aggregated_turbulence_count_ >= window_size_;
 }
 
 float ClassicDetector::calculate_turb_autocorr_() const {
@@ -81,15 +96,34 @@ float ClassicDetector::calculate_turb_autocorr_() const {
   return calc_autocorrelation(ordered, count, stats.mean, stats.variance, autocorr_lag_);
 }
 
+float ClassicDetector::calculate_turb_iqr_over_mean_aggr_() const {
+  if (aggregated_turbulence_count_ < window_size_ ||
+      ordered_turbulence_ == nullptr) return 0.0f;
+  const uint16_t tail = static_cast<uint16_t>(
+      window_size_ - aggregated_turbulence_index_);
+  std::copy(aggregated_turbulence_buffer_.begin() + aggregated_turbulence_index_,
+            aggregated_turbulence_buffer_.end(), ordered_turbulence_);
+  std::copy(aggregated_turbulence_buffer_.begin(),
+            aggregated_turbulence_buffer_.begin() + aggregated_turbulence_index_,
+            ordered_turbulence_ + tail);
+  const MeanVariance stats = calculate_mean_variance_two_pass(
+      ordered_turbulence_, window_size_);
+  std::sort(ordered_turbulence_, ordered_turbulence_ + window_size_);
+  const float iqr = percentile_from_sorted(
+      ordered_turbulence_, window_size_, 0.75f) - percentile_from_sorted(
+      ordered_turbulence_, window_size_, 0.25f);
+  return iqr / std::max(std::fabs(stats.mean), 1e-6f);
+}
+
 float ClassicDetector::calculate_logit_(float turb_autocorr,
-                                        float chan_freq_coh_curve_std) const {
+                                        float turb_iqr_over_mean_aggr) const {
   const float normalized_autocorr =
       (turb_autocorr - CLASSIC_AUTOCORR_CENTER) / CLASSIC_AUTOCORR_SCALE;
-  const float normalized_curve_std =
-      (chan_freq_coh_curve_std - CLASSIC_FREQ_COH_CURVE_STD_CENTER) /
-      CLASSIC_FREQ_COH_CURVE_STD_SCALE;
+  const float normalized_iqr =
+      (turb_iqr_over_mean_aggr - CLASSIC_TURB_IQR_OVER_MEAN_AGGR_CENTER) /
+      CLASSIC_TURB_IQR_OVER_MEAN_AGGR_SCALE;
   return CLASSIC_INTERCEPT + CLASSIC_AUTOCORR_WEIGHT * normalized_autocorr +
-         CLASSIC_FREQ_COH_CURVE_STD_WEIGHT * normalized_curve_std;
+         CLASSIC_TURB_IQR_OVER_MEAN_AGGR_WEIGHT * normalized_iqr;
 }
 
 float ClassicDetector::sigmoid_(float value) {
@@ -105,10 +139,9 @@ void ClassicDetector::update_state() {
   }
 
   current_turb_autocorr_ = calculate_turb_autocorr_();
-  current_chan_freq_coh_curve_std_ =
-      frequency_tracker_.frequency_coherence_curve_std();
+  current_turb_iqr_over_mean_aggr_ = calculate_turb_iqr_over_mean_aggr_();
   current_logit_ = calculate_logit_(current_turb_autocorr_,
-                                    current_chan_freq_coh_curve_std_);
+                                    current_turb_iqr_over_mean_aggr_);
   current_metric_ = sigmoid_(current_logit_);
   if (!adapted_threshold_ready_ && startup_logit_count_ < CLASSIC_STARTUP_SAMPLE_LIMIT) {
     startup_logits_[startup_logit_count_] = current_logit_;
@@ -236,14 +269,45 @@ void ClassicDetector::reset() {
 void ClassicDetector::clear_buffer() {
   BaseDetector::clear_buffer();
   reset_settled_level_();
-  frequency_tracker_.clear();
+  std::fill(aggregated_turbulence_buffer_.begin(),
+            aggregated_turbulence_buffer_.end(), 0.0f);
+  aggregated_turbulence_index_ = 0U;
+  aggregated_turbulence_count_ = 0U;
+  hampel_turbulence_init(&aggregated_hampel_state_,
+                         aggregated_hampel_state_.window_size,
+                         aggregated_hampel_state_.threshold,
+                         aggregated_hampel_state_.enabled);
+  lowpass_filter_reset(&aggregated_lowpass_state_);
   clear_fusion_inputs_();
+}
+
+void ClassicDetector::configure_hampel(bool enabled, uint8_t window_size,
+                                       float threshold) {
+  BaseDetector::configure_hampel(enabled, window_size, threshold);
+  hampel_turbulence_init(&aggregated_hampel_state_, window_size, threshold,
+                         enabled);
+}
+
+void ClassicDetector::configure_lowpass(bool enabled, float cutoff_hz) {
+  BaseDetector::configure_lowpass(enabled, cutoff_hz);
+  lowpass_filter_init(&aggregated_lowpass_state_, cutoff_hz,
+                      LOWPASS_SAMPLE_RATE, enabled);
+}
+
+void ClassicDetector::add_aggregated_turbulence_(float turbulence) {
+  const float hampel = hampel_filter_turbulence(
+      &aggregated_hampel_state_, turbulence);
+  const float filtered = lowpass_filter_apply(&aggregated_lowpass_state_, hampel);
+  aggregated_turbulence_buffer_[aggregated_turbulence_index_] = filtered;
+  aggregated_turbulence_index_++;
+  if (aggregated_turbulence_index_ >= window_size_) aggregated_turbulence_index_ = 0U;
+  if (aggregated_turbulence_count_ < window_size_) aggregated_turbulence_count_++;
 }
 
 void ClassicDetector::clear_fusion_inputs_() {
   current_logit_ = 0.0f;
   current_turb_autocorr_ = 0.0f;
-  current_chan_freq_coh_curve_std_ = 0.0f;
+  current_turb_iqr_over_mean_aggr_ = 0.0f;
 }
 
 }  // namespace espectre

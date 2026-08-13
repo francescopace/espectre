@@ -409,6 +409,7 @@ struct ChipDatasetSelection {
     std::string static_presence_path;
     std::string motion_path;
     std::string environment;
+    std::string dataset_role;
     bool synthetic = false;
     bool valid = false;
 };
@@ -653,6 +654,7 @@ inline bool load_tuning_cache() {
         std::string path;
         std::string environment;
         std::string optimal_pair_motion_file;
+        std::string dataset_role;
         bool synthetic = false;
         bool valid = false;
     };
@@ -689,6 +691,7 @@ inline bool load_tuning_cache() {
             candidate.path = std::string("../../data/static_presence/") + filename;
             candidate.environment = environment;
             candidate.optimal_pair_motion_file = optimal_pair_motion_file;
+            candidate.dataset_role = dataset_role;
             candidate.synthetic = entry["synthetic"] | false;
             candidate.valid = true;
             static_presence_candidates[idx].push_back(candidate);
@@ -714,6 +717,7 @@ inline bool load_tuning_cache() {
                     candidate.filename = filename;
                     candidate.path = std::string("../../data/motion/") + filename;
                     candidate.environment = entry["environment"] | "";
+                    candidate.dataset_role = dataset_role;
                     candidate.synthetic = entry["synthetic"] | false;
                     candidate.valid = true;
                     motion_by_filename[candidate.filename] = candidate;
@@ -745,6 +749,9 @@ inline bool load_tuning_cache() {
             if (static_presence.synthetic != motion.synthetic) {
                 continue;
             }
+            if (static_presence.dataset_role != motion.dataset_role) {
+                continue;
+            }
             ChipDatasetSelection selected{};
             selected.chip = chip;
             selected.static_presence_filename = static_presence.filename;
@@ -752,6 +759,7 @@ inline bool load_tuning_cache() {
             selected.static_presence_path = static_presence.path;
             selected.motion_path = motion.path;
             selected.environment = static_presence.environment;
+            selected.dataset_role = static_presence.dataset_role;
             selected.synthetic = static_presence.synthetic;
             selected.valid = true;
             g_pair_selections.push_back(selected);
@@ -1519,6 +1527,15 @@ inline bool current_pair_is_synthetic() {
         return false;
     }
     return g_pair_selections[g_current_pair_index].synthetic;
+}
+
+inline bool current_pair_is_report_reserved() {
+    if (!load_tuning_cache() || g_current_pair_index < 0 ||
+        g_current_pair_index >= static_cast<int>(g_pair_selections.size())) {
+        return false;
+    }
+    const std::string& role = g_pair_selections[g_current_pair_index].dataset_role;
+    return role == "selection" || role == "holdout";
 }
 
 // ============================================================================

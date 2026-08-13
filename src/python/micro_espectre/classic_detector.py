@@ -3,10 +3,8 @@
 """
 Micro-ESPectre - Classic Detector
 
-Vote-free, two-feature motion detector using a weighted fusion of turbulence
-autocorrelation and channel frequency-coherence curve spread. Hampel filtering
-applies to the turbulence stream; the channel-shape tracker reads the full-band
-CSI profile directly.
+Vote-free, two-feature motion detector using turbulence autocorrelation and the
+robust spread of a five-bin aggregated turbulence stream.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
@@ -14,13 +12,13 @@ import math
 
 try:
     from src.detector_interface import IDetector, MotionState
-    from src.csi_features import L1_DELTA_LAG, calc_autocorrelation
-    from src.ml_feature_trackers import FrequencyCoherenceTracker
+    from src.csi_features import TURB_IQR_AGGREGATION_WIDTH, calc_autocorrelation
+    from src.config import DEFAULT_SUBCARRIERS
     from src.segmentation import SegmentationContext
 except ImportError:
     from detector_interface import IDetector, MotionState
-    from csi_features import L1_DELTA_LAG, calc_autocorrelation
-    from ml_feature_trackers import FrequencyCoherenceTracker
+    from csi_features import TURB_IQR_AGGREGATION_WIDTH, calc_autocorrelation
+    from config import DEFAULT_SUBCARRIERS
     from segmentation import SegmentationContext
 
 
@@ -29,19 +27,19 @@ _SETTLE_FLOOR = -1e9
 
 
 class ClassicDetector(IDetector):
-    """Weighted ``turb_autocorr + chan_freq_coh_curve_std`` detector."""
+    """Weighted ``turb_autocorr + turb_iqr_over_mean_aggr`` detector."""
 
     ALGORITHM = "classic"
     STARTUP_GATE = True
 
     # Grouped, de-overlapped OOF fit, balanced by class/chip/session.
-    FEATURE_CENTER = (0.3919344866784947, 0.013575200279723799)
-    FEATURE_SCALE = (0.3798648330757351, 0.024553458697880108)
-    FEATURE_WEIGHT = (5.845075208173481, 4.024431218680639)
-    INTERCEPT = 0.8062511770638983
+    FEATURE_CENTER = (0.3919344866784947, 0.24612139211074338)
+    FEATURE_SCALE = (0.3798648330757351, 0.20056599613462603)
+    FEATURE_WEIGHT = (5.083034533668216, 4.997501915217463)
+    INTERCEPT = 1.0776769868761
 
-    BASE_THRESHOLD = 0.7274768634167298
-    TRAIN_IDLE_Q95_LOGIT = -1.4962826394309852
+    BASE_THRESHOLD = 0.6621854538596202
+    TRAIN_IDLE_Q95_LOGIT = -2.253902812716911
     STARTUP_QUANTILE = 0.95
     STARTUP_STRENGTH = 0.5
     STARTUP_SAMPLE_LIMIT = 64
@@ -63,16 +61,7 @@ class ClassicDetector(IDetector):
     def __init__(self, window_size=100, threshold=BASE_THRESHOLD,
                  enable_lowpass=False, lowpass_cutoff=11.0,
                  enable_hampel=True, hampel_window=7, hampel_threshold=5.0,
-                 lag=None, autocorr_lag=1,
-                 **_unused):
-        # ``lag`` is the profile-displacement distance in packets and
-        # ``autocorr_lag`` the turbulence autocorrelation distance. Both default
-        # to the nominal-rate constants; callers that know the measured cadence
-        # pass the counts spanning L1_DELTA_LAG_US and TURB_AUTOCORR_LAG_US
-        # instead, because both quantities are functions of the elapsed interval
-        # rather than of how many packets happen to fall inside it.
-        lag = L1_DELTA_LAG if lag is None else max(1, int(lag))
-        self._lag = lag
+                 autocorr_lag=1):
         self._autocorr_lag = max(1, int(autocorr_lag))
         self._context = SegmentationContext(
             window_size=window_size,
@@ -82,9 +71,16 @@ class ClassicDetector(IDetector):
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
         )
-        self._frequency_tracker = FrequencyCoherenceTracker(
-            window_size=max(2, window_size - lag),
+        self._aggregated_context = SegmentationContext(
+            window_size=window_size,
+            enable_lowpass=enable_lowpass,
+            lowpass_cutoff=lowpass_cutoff,
+            enable_hampel=enable_hampel,
+            hampel_window=hampel_window,
+            hampel_threshold=hampel_threshold,
+            adjacent_aggregation_width=TURB_IQR_AGGREGATION_WIDTH,
         )
+        self._packet_subcarrier_values = [0.0] * 64
         self._ordered_turbulence = [0.0] * window_size
         self._threshold = self._clamp_probability(threshold)
         self._state = MotionState.IDLE
@@ -92,7 +88,7 @@ class ClassicDetector(IDetector):
         self._current_probability = 0.0
         self._current_logit = 0.0
         self._current_turb_autocorr = 0.0
-        self._current_chan_freq_coh_curve_std = 0.0
+        self._current_turb_iqr_over_mean_aggr = 0.0
         self._startup_logits = []
         self._adapted_threshold_ready = False
         self._settle_blocks = []
@@ -117,6 +113,11 @@ class ClassicDetector(IDetector):
             return None
         ordered = list(values)
         ordered.sort()
+        return ClassicDetector._quantile_sorted(ordered, quantile)
+
+    @staticmethod
+    def _quantile_sorted(ordered, quantile):
+        """Interpolate a quantile from an already sorted non-empty sequence."""
         if len(ordered) == 1:
             return ordered[0]
         position = (len(ordered) - 1) * quantile
@@ -131,11 +132,23 @@ class ClassicDetector(IDetector):
         and ignored: both Classic features are already invariant to link gain."""
         self._packet_count += 1
         del timestamp_us
-        turbulence = self._context.calculate_spatial_turbulence(
-            csi_data, selected_subcarriers
+        if selected_subcarriers is None:
+            selected_subcarriers = DEFAULT_SUBCARRIERS
+        packet_values = self._packet_subcarrier_values
+        packet_count = SegmentationContext.fill_subcarrier_energy_buffer(
+            csi_data, packet_values
         )
-        self._frequency_tracker.process_packet(csi_data)
+        SegmentationContext.energies_to_amplitudes_in_place(
+            packet_values, packet_count
+        )
+        turbulence = self._context.calculate_spatial_turbulence_from_subcarrier_amplitudes(
+            packet_values, packet_count, selected_subcarriers
+        )
         self._context.add_turbulence(turbulence)
+        aggregated = self._aggregated_context.calculate_spatial_turbulence_from_subcarrier_amplitudes(
+            packet_values, packet_count, selected_subcarriers
+        )
+        self._aggregated_context.add_turbulence(aggregated)
 
     def _turb_autocorr(self):
         ctx = self._context
@@ -161,18 +174,35 @@ class ClassicDetector(IDetector):
             values, count, mean=mean, variance=variance, lag=self._autocorr_lag
         )
 
-    def _calculate_logit(self, turb_autocorr, chan_freq_coh_curve_std):
+    def _turb_iqr_over_mean_aggr(self):
+        ctx = self._aggregated_context
+        count = ctx.buffer_count
+        values = self._ordered_turbulence
+        start = ctx.buffer_index if count >= ctx.window_size else 0
+        tail = count - start
+        for i in range(tail):
+            values[i] = ctx.turbulence_buffer[start + i]
+        for i in range(start):
+            values[tail + i] = ctx.turbulence_buffer[i]
+        mean = sum(values[:count]) / count if count else 0.0
+        ordered = values[:count]
+        ordered.sort()
+        q25 = self._quantile_sorted(ordered, 0.25)
+        q75 = self._quantile_sorted(ordered, 0.75)
+        return (q75 - q25) / max(abs(mean), 1e-6)
+
+    def _calculate_logit(self, turb_autocorr, turb_iqr_over_mean_aggr):
         autocorr_norm = (
             (turb_autocorr - self.FEATURE_CENTER[0]) / self.FEATURE_SCALE[0]
         )
-        curve_std_norm = (
-            (chan_freq_coh_curve_std - self.FEATURE_CENTER[1])
+        iqr_norm = (
+            (turb_iqr_over_mean_aggr - self.FEATURE_CENTER[1])
             / self.FEATURE_SCALE[1]
         )
         return (
             self.INTERCEPT
             + self.FEATURE_WEIGHT[0] * autocorr_norm
-            + self.FEATURE_WEIGHT[1] * curve_std_norm
+            + self.FEATURE_WEIGHT[1] * iqr_norm
         )
 
     def update_state(self):
@@ -181,12 +211,10 @@ class ClassicDetector(IDetector):
             self._state = MotionState.IDLE
         else:
             self._current_turb_autocorr = self._turb_autocorr()
-            self._current_chan_freq_coh_curve_std = (
-                self._frequency_tracker.frequency_coherence_curve_std()
-            )
+            self._current_turb_iqr_over_mean_aggr = self._turb_iqr_over_mean_aggr()
             self._current_logit = self._calculate_logit(
                 self._current_turb_autocorr,
-                self._current_chan_freq_coh_curve_std,
+                self._current_turb_iqr_over_mean_aggr,
             )
             self._current_probability = self._sigmoid(self._current_logit)
             if len(self._startup_logits) < self.STARTUP_SAMPLE_LIMIT:
@@ -203,7 +231,7 @@ class ClassicDetector(IDetector):
             "motion_metric": self._current_probability,
             "probability": self._current_probability,
             "turb_autocorr": self._current_turb_autocorr,
-            "chan_freq_coh_curve_std": self._current_chan_freq_coh_curve_std,
+            "turb_iqr_over_mean_aggr": self._current_turb_iqr_over_mean_aggr,
             "threshold": self._threshold,
         }
 
@@ -289,19 +317,19 @@ class ClassicDetector(IDetector):
     def is_ready(self):
         return (
             self._context.buffer_count >= self._context.window_size
-            and self._frequency_tracker.count()
-            >= self._context.window_size - self._lag
+            and self._aggregated_context.buffer_count
+            >= self._aggregated_context.window_size
         )
 
     def reset(self):
         self._context.reset(full=True)
-        self._frequency_tracker.reset()
+        self._aggregated_context.reset(full=True)
         self._state = MotionState.IDLE
         self._packet_count = 0
         self._current_probability = 0.0
         self._current_logit = 0.0
         self._current_turb_autocorr = 0.0
-        self._current_chan_freq_coh_curve_std = 0.0
+        self._current_turb_iqr_over_mean_aggr = 0.0
         self._startup_logits = []
         self._reset_settled_level()
 

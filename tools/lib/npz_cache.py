@@ -27,12 +27,13 @@ import numpy as np
 from .repo_paths import cpp_core_dir, python_src_dir, repo_root
 
 CACHE_LAYOUT_VERSION = 2
-CLASSIC_REPLAY_ROW_ARTIFACT_VERSION = 1
+CLASSIC_REPLAY_ROW_ARTIFACT_VERSION = 2
 ML_REPLAY_ROW_ARTIFACT_VERSION = 3
 ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION = 1
 ML_TRAINING_SOURCE_METADATA_ARTIFACT_VERSION = 1
 HOST_FEATURE_ROW_SPINE_ARTIFACT_VERSION = 1
 HOST_FEATURE_COLUMN_ARTIFACT_VERSION = 1
+PERFORMANCE_REPORT_RESULT_ARTIFACT_VERSION = 1
 
 CURRENT_ARTIFACT_VERSIONS = {
     "classic_replay_rows": CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
@@ -41,6 +42,7 @@ CURRENT_ARTIFACT_VERSIONS = {
     "ml_training_source_metadata": ML_TRAINING_SOURCE_METADATA_ARTIFACT_VERSION,
     "host_feature_row_spines": HOST_FEATURE_ROW_SPINE_ARTIFACT_VERSION,
     "host_feature_columns": HOST_FEATURE_COLUMN_ARTIFACT_VERSION,
+    "performance_report_results": PERFORMANCE_REPORT_RESULT_ARTIFACT_VERSION,
 }
 OBSOLETE_ARTIFACT_NAMES = {
     "feature_matrix",
@@ -52,6 +54,57 @@ FEATURE_INDEXED_ARTIFACT_NAMES = {
     "ml_replay_rows",
     "ml_training_augmentation_rows",
 }
+
+
+def performance_report_result_parameters(
+    *, kind: str, inputs: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return the stable identity for one report-level cached result."""
+    return {
+        "artifact_version": PERFORMANCE_REPORT_RESULT_ARTIFACT_VERSION,
+        "kind": str(kind),
+        "inputs": _json_safe(dict(inputs)),
+    }
+
+
+def load_performance_report_result(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Load one JSON report result from the shared NPZ cache."""
+    payload = load_npz_artifact(
+        source_path,
+        artifact_name="performance_report_results",
+        artifact_version=PERFORMANCE_REPORT_RESULT_ARTIFACT_VERSION,
+        parameters=parameters,
+    )
+    if payload is None:
+        return None
+    try:
+        return json.loads(str(np.asarray(payload["payload_json"]).item()))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def save_performance_report_result(
+    source_path: str | Path,
+    *,
+    parameters: Mapping[str, Any],
+    payload: Mapping[str, Any],
+) -> Path:
+    """Persist one JSON report result in the shared NPZ cache."""
+    return save_npz_artifact(
+        source_path,
+        artifact_name="performance_report_results",
+        artifact_version=PERFORMANCE_REPORT_RESULT_ARTIFACT_VERSION,
+        parameters=parameters,
+        payload={
+            "payload_json": np.asarray(
+                json.dumps(_json_safe(dict(payload)), sort_keys=True)
+            )
+        },
+    )
 
 RUNTIME_CACHE_MAX_ENTRIES = 64
 
@@ -874,7 +927,7 @@ def classic_replay_row_parameters(
         "artifact_version": CLASSIC_REPLAY_ROW_ARTIFACT_VERSION,
         "replay_kind": str(replay_kind),
         "selected_subcarriers": [int(sc) for sc in selected_subcarriers],
-        "feature_names": ["turb_autocorr", "chan_freq_coh_curve_std"],
+        "feature_names": ["turb_autocorr", "turb_iqr_over_mean_aggr"],
         "timing": {str(key): int(value) for key, value in timing.items()},
         "replay_interval_us": int(replay_interval_us),
         "warmup_packets": int(warmup_packets),

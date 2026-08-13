@@ -47,7 +47,7 @@ See [docs/performance](../../docs/performance/README.md) for detailed targets pe
 ### Performance Report Parity Gate
 
 - `tools/generate_performance_report.py` now depends on the host-side C++ integration suites staying aligned with the published Python replay metrics.
-- The report command configures and builds `test/cpp/build` as `RelWithDebInfo`, runs `test_motion_detection` and `test_long_recordings`, and compares their structured aggregate outputs against the Python report data before writing `docs/performance/README.md`.
+- The report command configures and builds `test/cpp/build` as `RelWithDebInfo`, runs `test_motion_detection` and `test_long_recordings`, and compares their structured `selection + holdout` aggregate outputs against the Python report data before writing `docs/performance/README.md`. The suites still execute training-role recordings for regression coverage, but omit them from the report parity payload.
 - If the paired or long-recording aggregates drift, the report generation fails and prints the mismatched chip/algorithm/metric entries instead of publishing stale documentation.
 
 ---

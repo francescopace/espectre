@@ -82,6 +82,7 @@ struct DatasetResults {
     std::string dataset_name;
     const char* chip_name;
     bool synthetic;
+    bool report_reserved;
     PerformanceResult classic;
     PerformanceResult ml;
 };
@@ -103,6 +104,7 @@ static void record_result(const char* algorithm, float recall, float fp_rate, fl
         row.dataset_name = current_label;
         row.chip_name = csi_test_data::chip_name(csi_test_data::current_chip());
         row.synthetic = csi_test_data::current_pair_is_synthetic();
+        row.report_reserved = csi_test_data::current_pair_is_report_reserved();
         row.classic = {0, 0, 0, 0, 0, 0, 0, false};
         row.ml = {0, 0, 0, 0, 0, 0, 0, false};
         g_results.push_back(row);
@@ -116,11 +118,13 @@ static void record_result(const char* algorithm, float recall, float fp_rate, fl
     }
 }
 
-static PerformanceResult mean_result_for_chip(const char* chip_name, const char* algorithm, bool synthetic) {
+static PerformanceResult mean_result_for_chip(const char* chip_name, const char* algorithm,
+                                              bool synthetic, bool report_only = false) {
     PerformanceResult mean{0, 0, 0, 0, 0, 0, 0, false};
     int count = 0;
     for (const auto& r : g_results) {
-        if (strcmp(r.chip_name, chip_name) != 0 || r.synthetic != synthetic) {
+        if (strcmp(r.chip_name, chip_name) != 0 || r.synthetic != synthetic ||
+            (report_only && !r.report_reserved)) {
             continue;
         }
         const PerformanceResult& value =
@@ -160,10 +164,12 @@ static int dataset_count_for_chip(const char* chip_name, bool synthetic) {
     return count;
 }
 
-static int valid_result_count_for_chip(const char* chip_name, const char* algorithm, bool synthetic) {
+static int valid_result_count_for_chip(const char* chip_name, const char* algorithm,
+                                       bool synthetic, bool report_only = false) {
     int count = 0;
     for (const auto& r : g_results) {
-        if (strcmp(r.chip_name, chip_name) != 0 || r.synthetic != synthetic) {
+        if (strcmp(r.chip_name, chip_name) != 0 || r.synthetic != synthetic ||
+            (report_only && !r.report_reserved)) {
             continue;
         }
         const PerformanceResult& value =
@@ -248,8 +254,10 @@ static void write_algorithm_json(FILE* handle, const char* algorithm, bool synth
     bool first_chip = true;
     for (auto chip : csi_test_data::get_supported_chips()) {
         const char* chip_name = csi_test_data::chip_name(chip);
-        const PerformanceResult metrics = mean_result_for_chip(chip_name, algorithm, synthetic);
-        const int count = valid_result_count_for_chip(chip_name, algorithm, synthetic);
+        const PerformanceResult metrics = mean_result_for_chip(
+            chip_name, algorithm, synthetic, true);
+        const int count = valid_result_count_for_chip(
+            chip_name, algorithm, synthetic, true);
         if (!metrics.valid || count == 0) {
             continue;
         }

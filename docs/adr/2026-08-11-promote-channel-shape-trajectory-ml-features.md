@@ -30,7 +30,7 @@ The committed production artifact uses topology `7 -> 24 -> 12 -> 1`, seed `1584
 
 The trajectory tracker uses a gain-normalized eight-subband energy profile, `80 ms` physical-time median bins, a one-second window, exact duplicate suppression, and missing-bin skipping. Coherent innovation measures positive low-order DCT energy left after a constant-velocity prediction and high-order noise subtraction. Excess path measures positive two-step path length beyond its chord after subtracting high-order DCT path excess. Subband spread measures the participation of adjacent trajectory-profile differences.
 
-Remove `chan_shape_spread`, its feature ID, source routing, and its standalone tracker from the C++ and MicroPython production surfaces. Retain the implementation in host tooling as a non-exportable candidate so historical comparisons and rollback experiments remain reproducible. Classic keeps its independent coherence feature through a dedicated frequency-only tracker rather than a shape tracker with disabled modes.
+Remove `chan_shape_spread`, its feature ID, source routing, and its standalone tracker from the C++ and MicroPython production surfaces. Retain the implementation in host tooling as a non-exportable candidate so historical comparisons and rollback experiments remain reproducible. Classic does not activate the ML channel-shape tracker; its current aggregated-turbulence decision is recorded separately.
 
 ## Decision History
 
@@ -53,6 +53,8 @@ The initial Trajectory-7 promotion passed all paired selection and holdout repla
 
 The promoted Subband-7 seed reached blocked OOF F1 `99.187%`, CV worst-session recall / FP `88.764%` / `1.163%`, selection minimum recall `96.264%`, selection maximum paired FP `0.284%`, holdout minimum recall `97.971%`, holdout maximum paired FP `0%`, and zero effective selection or holdout alarms. On `exclude`, it improved worst recall from `5.556%` to `7.639%` and reduced motion misses from `163` to `146`, with `0%` FP and zero alarms. Leave-one-environment-out macro recall / FP / F1 was `98.609%` / `0.213%` / `99.055%`.
 
+The only ablation to pass the initial robust CV comparison removed `chan_shape_excess_path`, but a fresh search produced no selection-safe seed (`0/10` versus `4/10` for Subband-7), and every seed caused a quiet selection alarm. The selected six-feature seed also caused two holdout quiet alarms and one `exclude` quiet alarm, while cross-environment macro FP increased from `0.213%` to `0.296%`. The production schema therefore retains `chan_shape_excess_path` despite its low marginal importance.
+
 ## Consequences
 
 - ML obtains all three channel-shape inputs from one DCT-backed physical-time tracker.
@@ -67,6 +69,5 @@ The promoted Subband-7 seed reached blocked OOF F1 `99.187%`, CV worst-session r
 - [FEATURES.md](../FEATURES.md)
 - [ALGORITHMS.md](../ALGORITHMS.md)
 - [ML_TRAINING.md](../ML_TRAINING.md)
-- [subband-shape-spread-study-2026-08-12.md](../review/subband-shape-spread-study-2026-08-12.md)
 - [2026-07-23-separate-ml-training-data-from-promotion-replays.md](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 - [2026-03-08-use-host-side-validation-gates-for-detector-promotion.md](2026-03-08-use-host-side-validation-gates-for-detector-promotion.md)

@@ -11,6 +11,8 @@ The project accumulated a multi-state detector, moving-variance variants, thresh
 
 The durable decision is the production role of `ClassicDetector`, not any intermediate feature pair. The current feature definition is owned by the frequency-coherence ADR, while current calibration behavior is documented in `ALGORITHMS.md` and the settled-session recovery ADR.
 
+An inert startup variance-floor sampling path was also removed from the shared C++ and Python calibration implementations. It never influenced detector output: replay metrics remained bit-for-bit identical, while `sizeof(StartupThresholdCalibrator)` fell from `4,636` to `328` bytes, saving `4,308` bytes during calibration. This removed path was distinct from the motion-level floor still used by the current threshold metric.
+
 ## Decision
 
 Use `ClassicDetector` as the only production non-ML detector and remove legacy detector baselines from the active runtime surface.
@@ -34,6 +36,7 @@ Historical MVS, moving-variance, L1-primary, recovery-vote, threshold-mode, and 
 | 2026-07-08 | Promote L1-primary Classic and retire legacy baselines | Preserved as the product-direction decision |
 | 2026-07-16 | Add a guarded MVS recovery vote | Replaced by direct weighted two-feature fusion |
 | 2026-07-22 | Blend to a session-centered L1 excursion at low RSSI | Retired when Classic stopped consuming L1 features |
+| 2026-07-28 | Remove inert startup variance-floor sampling | Accepted after bit-for-bit replay validation and a measured `4,308`-byte calibration-memory reduction |
 
 ## Alternatives Considered
 
@@ -66,6 +69,6 @@ Trade-offs:
 
 - [`2026-03-08-use-host-side-validation-gates-for-detector-promotion.md`](2026-03-08-use-host-side-validation-gates-for-detector-promotion.md)
 - [`2026-07-26-recover-the-startup-threshold-once-a-session-settles.md`](2026-07-26-recover-the-startup-threshold-once-a-session-settles.md)
-- [`2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md`](2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md)
+- [`2026-08-13-use-aggregated-turbulence-iqr-for-classic.md`](2026-08-13-use-aggregated-turbulence-iqr-for-classic.md)
 - [`../ALGORITHMS.md`](../ALGORITHMS.md)
 - git commits: `dc0658ed`, `5b871159`, `dbbe21dd`, `b2e0de00`, `8641425d`, `acec4a2c`, `a593edb1`

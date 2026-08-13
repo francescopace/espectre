@@ -417,7 +417,6 @@ def build_classic_detector(
         enable_hampel=hampel_enabled,
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
-        lag=resolved["lag"],
         autocorr_lag=resolved["autocorr_lag"],
     )
 

@@ -33,32 +33,33 @@ void test_classic_detector_uses_probability_scale(void) {
 void test_classic_detector_logit_matches_exported_linear_fusion(void) {
   ClassicDetector detector;
   const float logit = detector.calculate_logit_(CLASSIC_AUTOCORR_CENTER,
-                                                 CLASSIC_FREQ_COH_CURVE_STD_CENTER);
+      CLASSIC_TURB_IQR_OVER_MEAN_AGGR_CENTER);
   TEST_ASSERT_FLOAT_WITHIN(1e-6f, CLASSIC_INTERCEPT, logit);
   TEST_ASSERT_FLOAT_WITHIN(
       1e-6f,
       CLASSIC_INTERCEPT + CLASSIC_AUTOCORR_WEIGHT +
-          CLASSIC_FREQ_COH_CURVE_STD_WEIGHT,
+          CLASSIC_TURB_IQR_OVER_MEAN_AGGR_WEIGHT,
       detector.calculate_logit_(CLASSIC_AUTOCORR_CENTER + CLASSIC_AUTOCORR_SCALE,
-                                CLASSIC_FREQ_COH_CURVE_STD_CENTER +
-                                    CLASSIC_FREQ_COH_CURVE_STD_SCALE));
+          CLASSIC_TURB_IQR_OVER_MEAN_AGGR_CENTER +
+              CLASSIC_TURB_IQR_OVER_MEAN_AGGR_SCALE));
 }
 
 void test_classic_detector_hampel_master_switch_controls_turbulence(void) {
   ClassicDetector detector;
   detector.configure_hampel(true, 5U, 3.0f);
   TEST_ASSERT_TRUE(detector.hampel_state_.enabled);
+  TEST_ASSERT_TRUE(detector.aggregated_hampel_state_.enabled);
 
   detector.configure_hampel(false, 5U, 3.0f);
   TEST_ASSERT_FALSE(detector.hampel_state_.enabled);
+  TEST_ASSERT_FALSE(detector.aggregated_hampel_state_.enabled);
 }
 
-void test_classic_detector_uses_frequency_only_tracker(void) {
+void test_classic_detector_owns_aggregated_turbulence_ring(void) {
   ClassicDetector detector;
-  TEST_ASSERT_EQUAL(
-      detector.frequency_tracker_capacity_(),
-      detector.frequency_tracker_.frequency_curve_ring_.size());
-  TEST_ASSERT_EQUAL(0, detector.frequency_tracker_.count());
+  TEST_ASSERT_EQUAL(detector.get_window_size(),
+                    detector.aggregated_turbulence_buffer_.size());
+  TEST_ASSERT_EQUAL(0, detector.aggregated_turbulence_count_);
 }
 
 void test_classic_detector_startup_q95_adapts_threshold(void) {
@@ -93,14 +94,14 @@ void test_classic_detector_clear_buffer_resets_feature_state(void) {
   ClassicDetector detector(10U);
   detector.current_metric_ = 0.9f;
   detector.current_turb_autocorr_ = 0.2f;
-  detector.current_chan_freq_coh_curve_std_ = 0.5f;
+  detector.current_turb_iqr_over_mean_aggr_ = 0.5f;
   detector.startup_logit_count_ = 3U;
 
   detector.clear_buffer();
 
   TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_motion_metric());
   TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_turb_autocorr());
-  TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_chan_freq_coh_curve_std());
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_turb_iqr_over_mean_aggr());
   TEST_ASSERT_EQUAL(3, detector.startup_logit_count_);
   TEST_ASSERT_TRUE(detector.get_state() == MotionState::IDLE);
 
@@ -127,7 +128,7 @@ int process(void) {
   RUN_TEST(test_classic_detector_uses_probability_scale);
   RUN_TEST(test_classic_detector_logit_matches_exported_linear_fusion);
   RUN_TEST(test_classic_detector_hampel_master_switch_controls_turbulence);
-  RUN_TEST(test_classic_detector_uses_frequency_only_tracker);
+  RUN_TEST(test_classic_detector_owns_aggregated_turbulence_ring);
   RUN_TEST(test_classic_detector_startup_q95_adapts_threshold);
   RUN_TEST(test_classic_detector_noisy_startup_still_uses_shifted_logit_threshold);
   RUN_TEST(test_classic_detector_clear_buffer_resets_feature_state);

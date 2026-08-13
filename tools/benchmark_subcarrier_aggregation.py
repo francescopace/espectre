@@ -509,7 +509,7 @@ def candidate_rows(packets: Sequence[Dict[str, Any]], band: Sequence[int]) -> np
     timing = derive_detector_timing(measure_packet_interval_us(packets))
     window = timing["window_packets"]
     detector = ClassicDetector(
-        window_size=window, lag=timing["lag"], autocorr_lag=timing["autocorr_lag"]
+        window_size=window, autocorr_lag=timing["autocorr_lag"]
     )
     tracker, cadence = timing_cadence_for_window(
         window, measure_packet_interval_us(packets)

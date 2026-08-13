@@ -13,7 +13,7 @@ Usage:
     python tools/replay_classic_candidates.py --stress-augment \\
         --features turb_iqr_over_mean_aggr,l1_delta_lag_ratio
     python tools/replay_classic_candidates.py --calibration robust_logit \\
-        --features turb_autocorr,chan_freq_coh_curve_std
+        --features turb_autocorr,turb_iqr_over_mean_aggr
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
@@ -71,7 +71,7 @@ HOLDOUT_ROLE = "holdout"
 PRIMARY_ROLES = DISCOVERY_ROLES + (HOLDOUT_ROLE,)
 EXCLUDE_ROLE = "exclude"
 REPLAY_ROLES = PRIMARY_ROLES + (EXCLUDE_ROLE,)
-CURRENT_CLASSIC_COMBINATION = ("turb_autocorr", "chan_freq_coh_curve_std")
+CURRENT_CLASSIC_COMBINATION = ("turb_autocorr", "turb_iqr_over_mean_aggr")
 STRESS_SCENARIOS = {
     "base": ("base",),
     "drift": ("drift",),

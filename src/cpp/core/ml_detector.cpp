@@ -22,94 +22,6 @@ static_assert(ML_MODEL_INPUT_SIZE == ML_NUM_FEATURES,
 static_assert(DETECTOR_MIN_WINDOW_SIZE >= HT20_NUM_SUBCARRIERS,
               "ML scratch must hold one packet-wide HT20 feature frame");
 
-namespace {
-
-uint8_t fill_packet_energies(const int8_t* csi_data, size_t csi_len,
-                             float* out) {
-    if (csi_data == nullptr || out == nullptr) return 0U;
-    const uint8_t count = static_cast<uint8_t>(std::min<size_t>(
-        HT20_NUM_SUBCARRIERS, csi_len / 2U));
-    for (uint8_t subcarrier = 0U; subcarrier < count; subcarrier++) {
-        const float imag = static_cast<float>(csi_data[subcarrier * 2U]);
-        const float real = static_cast<float>(csi_data[subcarrier * 2U + 1U]);
-        out[subcarrier] = real * real + imag * imag;
-    }
-    return count;
-}
-
-void energies_to_amplitudes(float* values, uint8_t count) {
-    if (values == nullptr) return;
-    for (uint8_t i = 0U; i < count; i++) {
-        values[i] = std::sqrt(values[i]);
-    }
-}
-
-uint8_t select_amplitudes(const float* packet_amplitudes,
-                          uint8_t packet_count,
-                          const uint8_t* selected_subcarriers,
-                          uint8_t selected_count,
-                          float* out) {
-    if (packet_amplitudes == nullptr || selected_subcarriers == nullptr ||
-        out == nullptr) {
-        return 0U;
-    }
-    uint8_t written = 0U;
-    for (uint8_t i = 0U;
-         i < selected_count && written < HT20_SELECTED_BAND_SIZE; i++) {
-        const uint8_t subcarrier = selected_subcarriers[i];
-        if (subcarrier < packet_count) {
-            out[written++] = packet_amplitudes[subcarrier];
-        }
-    }
-    return written;
-}
-
-uint8_t select_aggregated_amplitudes(
-        const float* packet_amplitudes,
-        uint8_t packet_count,
-        const uint8_t* selected_subcarriers,
-        uint8_t selected_count,
-        uint8_t width,
-        float* out) {
-    if (packet_amplitudes == nullptr || selected_subcarriers == nullptr ||
-        width == 0U || out == nullptr) {
-        return 0U;
-    }
-    const int half = static_cast<int>((width - 1U) / 2U);
-    uint8_t written = 0U;
-    for (uint8_t i = 0U;
-         i < selected_count && written < HT20_SELECTED_BAND_SIZE; i++) {
-        int low = static_cast<int>(selected_subcarriers[i]) - half;
-        int high = static_cast<int>(selected_subcarriers[i]) +
-                   static_cast<int>(width - 1U) - half;
-        if (low < HT20_GUARD_BAND_LOW) {
-            low = HT20_GUARD_BAND_LOW;
-            high = HT20_GUARD_BAND_LOW + width - 1U;
-        }
-        if (high > HT20_GUARD_BAND_HIGH) {
-            low = HT20_GUARD_BAND_HIGH - width + 1U;
-            high = HT20_GUARD_BAND_HIGH;
-        }
-
-        float total = 0.0f;
-        uint8_t count = 0U;
-        for (int bin = low; bin <= high; bin++) {
-            if (bin == HT20_DC_SUBCARRIER || bin < 0 ||
-                bin >= packet_count) {
-                continue;
-            }
-            total += packet_amplitudes[bin];
-            count++;
-        }
-        if (count > 0U) {
-            out[written++] = total / static_cast<float>(count);
-        }
-    }
-    return written;
-}
-
-}  // namespace
-
 // ============================================================================
 // CONSTRUCTOR
 // ============================================================================
@@ -354,8 +266,8 @@ void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
     float local_packet_values[HT20_NUM_SUBCARRIERS]{};
     float* packet_values = feature_scratch_ != nullptr
         ? feature_scratch_ : local_packet_values;
-    const uint8_t packet_value_count =
-        fill_packet_energies(csi_data, csi_len, packet_values);
+    const uint8_t packet_value_count = fill_packet_subcarrier_energies(
+        csi_data, csi_len, packet_values, HT20_NUM_SUBCARRIERS);
 
     if (uses_shape_trajectory_tracker_) {
         const uint64_t fallback_timestamp =
@@ -365,20 +277,22 @@ void MLDetector::process_packet(const int8_t* csi_data, size_t csi_len,
             packet_values, packet_value_count);
     }
 
-    energies_to_amplitudes(packet_values, packet_value_count);
+    energies_to_amplitudes_in_place(packet_values, packet_value_count);
+
     float amplitudes[HT20_SELECTED_BAND_SIZE]{};
-    const uint8_t amplitude_count = select_amplitudes(
+    const uint8_t amplitude_count = select_subcarrier_amplitudes(
         packet_values, packet_value_count, resolved_subcarriers,
-        resolved_count, amplitudes);
+        resolved_count, amplitudes, HT20_SELECTED_BAND_SIZE);
     process_amplitudes(amplitudes, amplitude_count);
 
     if (uses_aggregated_turbulence_) {
         float aggregated_amplitudes[HT20_SELECTED_BAND_SIZE]{};
         const uint8_t aggregated_count =
-            select_aggregated_amplitudes(
+            select_adjacent_aggregated_subcarrier_amplitudes(
                 packet_values, packet_value_count,
                 resolved_subcarriers, resolved_count,
-                TURB_IQR_AGGREGATION_WIDTH, aggregated_amplitudes);
+                TURB_IQR_AGGREGATION_WIDTH, aggregated_amplitudes,
+                HT20_SELECTED_BAND_SIZE);
         add_aggregated_turbulence_(
             calculate_spatial_turbulence_from_amplitudes(
                 aggregated_amplitudes, aggregated_count));

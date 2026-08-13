@@ -21,7 +21,6 @@ except ImportError:
 HT20_CSI_LEN = 128
 HT20_LIVE_BINS = tuple(range(4, 32)) + tuple(range(33, 61))
 HT20_LIVE_WIDTH = len(HT20_LIVE_BINS)
-FREQUENCY_COHERENCE_OFFSETS = (4, 12)
 CHANNEL_SHAPE_SUBBAND_COUNT = 8
 CHANNEL_SHAPE_SUBBAND_WIDTH = HT20_LIVE_WIDTH // CHANNEL_SHAPE_SUBBAND_COUNT
 CHANNEL_SHAPE_BIN_US = 80_000
@@ -37,39 +36,6 @@ _CHANNEL_SHAPE_DCT = (
     (0.3535533906, -0.4157348062, 0.1913417162, 0.0975451610, -0.3535533906, 0.4903926402, -0.4619397663, 0.2777851165),
     (0.3535533906, -0.4903926402, 0.4619397663, -0.4157348062, 0.3535533906, -0.2777851165, 0.1913417162, -0.0975451610),
 )
-# The DC null splits the live band into two runs that are contiguous in both
-# bin number and profile index, so a pair separated by `offset` bins is always
-# `left + offset` inside one run. Deriving the split from the bin table keeps
-# that equivalence honest if the layout ever changes.
-_LIVE_BAND_SPLIT = HT20_LIVE_WIDTH
-for _i in range(1, HT20_LIVE_WIDTH):
-    if HT20_LIVE_BINS[_i] - HT20_LIVE_BINS[_i - 1] != 1:
-        _LIVE_BAND_SPLIT = _i
-        break
-_FREQUENCY_COHERENCE_SPANS = (
-    (0, _LIVE_BAND_SPLIT),
-    (_LIVE_BAND_SPLIT, HT20_LIVE_WIDTH),
-)
-
-
-def complex_profile(csi_data, out=None):
-    """Return the centered HT20 complex profile over the live band."""
-    if csi_data is None or len(csi_data) < HT20_CSI_LEN:
-        if out is None:
-            return [0j] * HT20_LIVE_WIDTH
-        for i in range(HT20_LIVE_WIDTH):
-            out[i] = 0j
-        return out
-    profile = out if out is not None else [0j] * HT20_LIVE_WIDTH
-    for i, sc_idx in enumerate(HT20_LIVE_BINS):
-        imag = csi_data[sc_idx * 2]
-        real = csi_data[sc_idx * 2 + 1]
-        imag = float(imag if imag < 128 else imag - 256)
-        real = float(real if real < 128 else real - 256)
-        profile[i] = complex(real, imag)
-    return profile
-
-
 def motion_participation(energy):
     """Normalized participation ratio of motion energy across subcarriers."""
     total = 0.0
@@ -83,118 +49,6 @@ def motion_participation(energy):
     if total <= 0.0 or squared <= 0.0:
         return 0.0
     return (total * total) / (count * squared)
-
-
-def new_frequency_coherence_squares():
-    """Return the reusable per-packet squared-magnitude buffer."""
-    return [0.0] * HT20_LIVE_WIDTH
-
-
-def _fill_frequency_coherence_squares(profile, squares):
-    """Cache the squared magnitude of every live subcarrier once per packet.
-
-    Every offset reads the same magnitudes, so computing them here replaces the
-    repeated `abs(value) * abs(value)` that each pair used to redo.
-    """
-    for i in range(HT20_LIVE_WIDTH):
-        value = profile[i]
-        real = value.real
-        imag = value.imag
-        squares[i] = real * real + imag * imag
-
-
-def _frequency_coherence_from_squares(profile, squares, offset):
-    """Coherence at one offset, reusing the cached squared magnitudes.
-
-    Pairs are visited in ascending left index, exactly as the original pair
-    table listed them, so the numerator accumulates in an unchanged order.
-    """
-    numerator = 0j
-    left_norm = 0.0
-    right_norm = 0.0
-    for start, stop in _FREQUENCY_COHERENCE_SPANS:
-        for left in range(start, stop - offset):
-            right = left + offset
-            numerator += profile[left].conjugate() * profile[right]
-            left_norm += squares[left]
-            right_norm += squares[right]
-    denominator = math.sqrt(left_norm) * math.sqrt(right_norm)
-    if denominator <= 0.0:
-        return 0.0
-    return abs(numerator) / denominator
-
-
-def frequency_coherences(profile, out=None, squares=None):
-    """Return the offset 4 and 12 coherences used by Classic.
-
-    Passing the caller's `out` and `squares` buffers keeps the per-packet path
-    free of allocations.
-    """
-    if out is None:
-        out = [0.0] * len(FREQUENCY_COHERENCE_OFFSETS)
-    if squares is None:
-        squares = new_frequency_coherence_squares()
-    _fill_frequency_coherence_squares(profile, squares)
-    for i in range(len(FREQUENCY_COHERENCE_OFFSETS)):
-        out[i] = _frequency_coherence_from_squares(
-            profile, squares, FREQUENCY_COHERENCE_OFFSETS[i]
-        )
-    return out
-
-
-def frequency_coherences_from_csi(csi_data, out, squares):
-    """Compute both Classic coherences directly from raw I/Q bytes."""
-    if csi_data is None or len(csi_data) < HT20_CSI_LEN:
-        for i in range(len(FREQUENCY_COHERENCE_OFFSETS)):
-            out[i] = 0.0
-        return out
-    for i, subcarrier in enumerate(HT20_LIVE_BINS):
-        imag = int(csi_data[subcarrier * 2])
-        real = int(csi_data[subcarrier * 2 + 1])
-        imag = imag if imag < 128 else imag - 256
-        real = real if real < 128 else real - 256
-        squares[i] = real * real + imag * imag
-
-    for output_index, offset in enumerate(FREQUENCY_COHERENCE_OFFSETS):
-        numerator_real = 0.0
-        numerator_imag = 0.0
-        left_norm = 0.0
-        right_norm = 0.0
-        for start, stop in _FREQUENCY_COHERENCE_SPANS:
-            for left in range(start, stop - offset):
-                right = left + offset
-                left_subcarrier = HT20_LIVE_BINS[left]
-                right_subcarrier = HT20_LIVE_BINS[right]
-                left_imag = int(csi_data[left_subcarrier * 2])
-                left_real = int(csi_data[left_subcarrier * 2 + 1])
-                right_imag = int(csi_data[right_subcarrier * 2])
-                right_real = int(csi_data[right_subcarrier * 2 + 1])
-                left_imag = left_imag if left_imag < 128 else left_imag - 256
-                left_real = left_real if left_real < 128 else left_real - 256
-                right_imag = right_imag if right_imag < 128 else right_imag - 256
-                right_real = right_real if right_real < 128 else right_real - 256
-                numerator_real += left_real * right_real + left_imag * right_imag
-                numerator_imag += left_real * right_imag - left_imag * right_real
-                left_norm += squares[left]
-                right_norm += squares[right]
-        denominator = math.sqrt(left_norm) * math.sqrt(right_norm)
-        out[output_index] = (
-            math.sqrt(
-                numerator_real * numerator_real
-                + numerator_imag * numerator_imag
-            ) / denominator
-            if denominator > 0.0 else 0.0
-        )
-    return out
-
-
-def frequency_coherence(profile, offset=4):
-    """Normalized within-packet coherence at a fixed subcarrier separation."""
-    if int(offset) not in FREQUENCY_COHERENCE_OFFSETS:
-        return 0.0
-    squares = new_frequency_coherence_squares()
-    _fill_frequency_coherence_squares(profile, squares)
-    return _frequency_coherence_from_squares(profile, squares, int(offset))
 
 
 def _median_prefix_in_place(values, count):
@@ -502,61 +356,3 @@ class ChannelShapeTrajectoryTracker:
         self._current_bin = None
         self._current_profile_count = 0
         self._has_previous_raw = False
-
-
-class FrequencyCoherenceTracker:
-    """Track the Classic detector's frequency-coherence curve."""
-
-    def __init__(self, window_size=90):
-        self.window_size = max(2, int(window_size))
-        self._frequency_curve_ring = [0.0] * self.window_size
-        self._frequency_curve_slot = 0
-        self._frequency_curve_count = 0
-        self._frequency_curve_sum = 0.0
-        self._frequency_curve_square_sum = 0.0
-        self._coherence_squares = new_frequency_coherence_squares()
-        self._coherence_values = [0.0] * len(FREQUENCY_COHERENCE_OFFSETS)
-
-    def _push_frequency_curve(self, value):
-        if self._frequency_curve_count < self.window_size:
-            self._frequency_curve_count += 1
-        else:
-            old = self._frequency_curve_ring[self._frequency_curve_slot]
-            self._frequency_curve_sum -= old
-            self._frequency_curve_square_sum -= old * old
-        self._frequency_curve_ring[self._frequency_curve_slot] = value
-        self._frequency_curve_sum += value
-        self._frequency_curve_square_sum += value * value
-        self._frequency_curve_slot += 1
-        if self._frequency_curve_slot >= self.window_size:
-            self._frequency_curve_slot = 0
-
-    def process_packet(self, csi_data):
-        short_coherence, long_coherence = frequency_coherences_from_csi(
-            csi_data, self._coherence_values, self._coherence_squares
-        )
-        coherence_sum = short_coherence + long_coherence
-        self._push_frequency_curve(
-            (short_coherence - long_coherence) / coherence_sum
-            if coherence_sum > 0.0 else 0.0
-        )
-
-    def count(self):
-        return self._frequency_curve_count
-
-    def frequency_coherence_curve_std(self):
-        if self._frequency_curve_count == 0:
-            return 0.0
-        mean = self._frequency_curve_sum / self._frequency_curve_count
-        variance = max(
-            0.0,
-            self._frequency_curve_square_sum / self._frequency_curve_count
-            - mean * mean,
-        )
-        return math.sqrt(variance)
-
-    def reset(self):
-        self._frequency_curve_slot = 0
-        self._frequency_curve_count = 0
-        self._frequency_curve_sum = 0.0
-        self._frequency_curve_square_sum = 0.0

@@ -314,7 +314,6 @@ RateResult run_rate_case(const PacketRateSourceSelection& selection, int target_
   ClassicDetector classic(
       timing.window_packets,
       CLASSIC_DEFAULT_THRESHOLD,
-      timing.lag,
       timing.autocorr_lag);
   classic.configure_hampel(true);
   float classic_threshold = CLASSIC_DEFAULT_THRESHOLD;

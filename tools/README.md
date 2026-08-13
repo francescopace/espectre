@@ -42,6 +42,8 @@ The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3
 | `compare_reserved_selection.py` | compare one candidate on reserved selection roles with an explicit seed |
 | `benchmark_subcarrier_aggregation.py` | evaluate adjacent-subcarrier aggregation as a host-side experiment |
 | `benchmark_classic_candidate_pairs.py` | screen Classic features and combinations without threshold coupling |
+| `test/cpp/support/benchmark_classic_iqr_resources.cpp` | compare host C++ RAM and hot-path cost for the normal- and aggregated-IQR Classic finalists |
+| `test/cpp/support/benchmark_detector_resources.cpp` | measure current production Classic and ML host memory, packet cost, inference latency, and nominal CPU load |
 | `replay_classic_candidates.py` | fit and replay research-only Classic candidates end to end |
 | `fit_classic_detector.py` | fit production Classic coefficients and optionally apply an approved result |
 | `prune_npz_cache.py` | remove cached analysis artifacts whose sources or implementation dependencies are no longer current |
@@ -86,7 +88,7 @@ Use an explicit seed and the same corpus, roles, preprocessing, features, and au
 
 ## Generated Performance Report
 
-`generate_performance_report.py` recomputes the published Classic and ML tables from current recordings and runs the host-side C++/Python parity checks before writing the report.
+`generate_performance_report.py` publishes Classic and ML replay tables only for the combined `selection + holdout` corpus, executes the current production C++ resource microbenchmark, and runs the host-side C++/Python parity checks before writing the report. Training-role recordings remain covered by the validation suites but are neither replayed nor summarized by the report generator. Detector replay summaries, augmented rows, and training matrices use the shared `.npz_cache`; a warm generation reuses them instead of replaying the corpus. Its augmentation diagnostic applies the production two-seed packet recipe to the same reserved pairs and compares Classic and ML on matching alternating replay positions; it never reads augmented training rows.
 
 ```bash
 python tools/generate_performance_report.py
@@ -94,7 +96,7 @@ python tools/generate_performance_report.py --check-current
 python tools/generate_performance_report.py --stdout
 ```
 
-Do not edit `docs/performance/README.md` manually. `--check-current` is a lightweight dataset-revision check; a full regeneration performs the replay and parity work.
+Do not edit `docs/performance/README.md` manually. `--check-current` is a lightweight input-revision check; a normal warm regeneration measures resources again, loads the cached replay summary and robustness artifacts, runs parity, and renders the report. A replay-summary miss rebuilds only from the lower-level row cache and never starts ML training.
 
 ## Firmware Benchmark
 

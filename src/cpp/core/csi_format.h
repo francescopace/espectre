@@ -212,6 +212,87 @@ inline uint8_t extract_subcarrier_amplitudes(const int8_t* csi_data,
     return valid_count;
 }
 
+/** Extract one packet-wide amplitude frame for reuse by multiple feature paths. */
+inline uint8_t extract_packet_subcarrier_amplitudes(const int8_t* csi_data,
+                                                    size_t csi_len,
+                                                    float* out,
+                                                    uint8_t out_capacity) {
+    if (csi_data == nullptr || out == nullptr) return 0U;
+    const uint8_t count = static_cast<uint8_t>(std::min<size_t>(
+        HT20_NUM_SUBCARRIERS, std::min<size_t>(out_capacity, csi_len / 2U)));
+    for (uint8_t i = 0U; i < count; ++i) {
+        out[i] = calculate_magnitude(csi_data[i * 2U + 1U], csi_data[i * 2U]);
+    }
+    return count;
+}
+
+/** Fill one packet-wide squared-magnitude frame for energy-domain consumers. */
+inline uint8_t fill_packet_subcarrier_energies(const int8_t* csi_data,
+                                               size_t csi_len,
+                                               float* out,
+                                               uint8_t out_capacity) {
+    if (csi_data == nullptr || out == nullptr) return 0U;
+    const uint8_t count = static_cast<uint8_t>(std::min<size_t>(
+        HT20_NUM_SUBCARRIERS, std::min<size_t>(out_capacity, csi_len / 2U)));
+    for (uint8_t i = 0U; i < count; ++i) {
+        const float imag = static_cast<float>(csi_data[i * 2U]);
+        const float real = static_cast<float>(csi_data[i * 2U + 1U]);
+        out[i] = real * real + imag * imag;
+    }
+    return count;
+}
+
+inline void energies_to_amplitudes_in_place(float* values, uint8_t count) {
+    if (values == nullptr) return;
+    for (uint8_t i = 0U; i < count; ++i) values[i] = std::sqrt(values[i]);
+}
+
+/** Select the configured tones from a packet-wide amplitude frame. */
+inline uint8_t select_subcarrier_amplitudes(const float* packet_amplitudes,
+                                            uint8_t packet_count,
+                                            const uint8_t* subcarriers,
+                                            uint8_t num_subcarriers,
+                                            float* out,
+                                            uint8_t out_capacity) {
+    if (packet_amplitudes == nullptr || subcarriers == nullptr || out == nullptr) return 0U;
+    uint8_t written = 0U;
+    for (uint8_t i = 0U; i < num_subcarriers && written < out_capacity; ++i) {
+        if (subcarriers[i] < packet_count) out[written++] = packet_amplitudes[subcarriers[i]];
+    }
+    return written;
+}
+
+/** Select adjacent-bin mean amplitudes from a packet-wide amplitude frame. */
+inline uint8_t select_adjacent_aggregated_subcarrier_amplitudes(
+        const float* packet_amplitudes, uint8_t packet_count,
+        const uint8_t* subcarriers, uint8_t num_subcarriers, uint8_t width,
+        float* out, uint8_t out_capacity) {
+    if (packet_amplitudes == nullptr || subcarriers == nullptr || width == 0U || out == nullptr) return 0U;
+    const int half = static_cast<int>((width - 1U) / 2U);
+    uint8_t written = 0U;
+    for (uint8_t i = 0U; i < num_subcarriers && written < out_capacity; ++i) {
+        int low = static_cast<int>(subcarriers[i]) - half;
+        int high = static_cast<int>(subcarriers[i]) + static_cast<int>(width - 1U) - half;
+        if (low < HT20_GUARD_BAND_LOW) {
+            low = HT20_GUARD_BAND_LOW;
+            high = HT20_GUARD_BAND_LOW + width - 1U;
+        }
+        if (high > HT20_GUARD_BAND_HIGH) {
+            low = HT20_GUARD_BAND_HIGH - width + 1U;
+            high = HT20_GUARD_BAND_HIGH;
+        }
+        float total = 0.0f;
+        uint8_t count = 0U;
+        for (int bin = low; bin <= high; ++bin) {
+            if (bin == HT20_DC_SUBCARRIER || bin < 0 || bin >= packet_count) continue;
+            total += packet_amplitudes[bin];
+            ++count;
+        }
+        if (count > 0U) out[written++] = total / static_cast<float>(count);
+    }
+    return written;
+}
+
 /**
  * Extract one mean magnitude per selected tone from adjacent live HT20 bins.
  *

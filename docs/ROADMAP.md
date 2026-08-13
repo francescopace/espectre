@@ -27,8 +27,9 @@ Completed implementation, detector experiments, and dated reviews live in [CHANG
 
 **Exit criteria**:
 
+- [ ] Rename classic and ml in low and high consumption or similar
 - [ ] Capture a current Home Assistant visualization for the project overview and docs
-- [ ] Close the remaining documentation, security, and first-party code reviews
+- [ ] Refresh the docs/web images and guides, and add a detector-choices guide
 - [ ] Re-enable the `CLA Signature Check` as required on `develop`, and test the GitHub issue and pull request templates end to end
 - [ ] Verify the GA4 property-side settings and live events
 

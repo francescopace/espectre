@@ -90,12 +90,15 @@ def _wait_for_subscription_ready(
     ready_event = threading.Event()
     subscribed_mids: set[int] = set()
     expected_mids: set[int] = set()
+    subscription_lock = threading.Lock()
+    registration_complete = False
 
     def on_subscribe(_client, _userdata, mid, granted_qos, properties=None):
         del granted_qos, properties
-        subscribed_mids.add(int(mid))
-        if subscribed_mids >= expected_mids:
-            ready_event.set()
+        with subscription_lock:
+            subscribed_mids.add(int(mid))
+            if registration_complete and subscribed_mids >= expected_mids:
+                ready_event.set()
 
     client.on_subscribe = on_subscribe
     for topic in topics:
@@ -108,12 +111,15 @@ def _wait_for_subscription_ready(
                 ready_event.set()
                 continue
             if mid is not None:
-                expected_mids.add(mid)
+                with subscription_lock:
+                    expected_mids.add(mid)
         else:
             # Fallback for clients that do not expose Paho's subscribe tuple.
             ready_event.set()
-    if not expected_mids and "subscribe" not in error_holder:
-        ready_event.set()
+    with subscription_lock:
+        registration_complete = True
+        if subscribed_mids >= expected_mids and "subscribe" not in error_holder:
+            ready_event.set()
     return ready_event
 
 

@@ -70,7 +70,7 @@ DEFAULT_TRIPLETS = (
     ("turb_autocorr", "chan_freq_coh_curve_std", "l1_delta_lag_ratio"),
     ("turb_mad_over_mean", "turb_autocorr", "chan_freq_coh_curve_std"),
 )
-CURRENT_CLASSIC_COMBINATION = ("turb_autocorr", "chan_freq_coh_curve_std")
+CURRENT_CLASSIC_COMBINATION = ("turb_autocorr", "turb_iqr_over_mean_aggr")
 RUNTIME_READY_FEATURES = tuple(FEATURE_NAMES)
 HOST_ONLY_FEATURES = tuple(
     name for name in train_ml_model.selectable_features() if name not in FEATURE_NAMES

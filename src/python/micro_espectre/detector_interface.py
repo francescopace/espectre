@@ -45,7 +45,7 @@ def get_detector_algorithm(detector):
 # Single source of truth for the available detector algorithms:
 # canonical key -> (module name, class name, needs startup calibration, label).
 DETECTOR_REGISTRY = {
-    "classic": ("classic_detector", "ClassicDetector", True, "Classic (autocorrelation + frequency coherence)"),
+    "classic": ("classic_detector", "ClassicDetector", True, "Classic (autocorrelation + aggregated IQR)"),
     "ml": ("ml_detector", "MLDetector", False, "ML (Neural Network)"),
 }
 

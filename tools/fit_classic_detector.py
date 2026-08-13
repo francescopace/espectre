@@ -5,7 +5,7 @@
 ESPectre - Classic Detector Coefficient Fit
 
 Refits the Classic detector's weighted `turb_autocorr +
-chan_freq_coh_curve_std` fusion and
+turb_iqr_over_mean_aggr` fusion and
 exports the constants consumed by both runtimes.
 
 The fit follows the recipe recorded alongside the previous coefficients: a
@@ -133,7 +133,6 @@ def extract_window_features(
     timing = derive_detector_timing(measure_packet_interval_us(packets))
     detector = ClassicDetector(
         window_size=timing["window_packets"],
-        lag=timing["lag"],
         autocorr_lag=timing["autocorr_lag"],
     )
     window = timing["window_packets"]
@@ -168,7 +167,7 @@ def extract_window_features(
         rows.append(
             (
                 metrics["turb_autocorr"],
-                metrics["chan_freq_coh_curve_std"],
+                metrics["turb_iqr_over_mean_aggr"],
             )
         )
         deoverlapped.append(since_window >= window)
@@ -267,24 +266,32 @@ def logits(x: np.ndarray, coefficients: Dict[str, Any]) -> np.ndarray:
 
 
 def out_of_fold_logits(
-    x: np.ndarray,
-    y: np.ndarray,
-    weights: np.ndarray,
-    session: np.ndarray,
+    fit_x: np.ndarray,
+    fit_y: np.ndarray,
+    fit_weights: np.ndarray,
+    fit_session: np.ndarray,
+    dense_x: np.ndarray,
+    dense_session: np.ndarray,
     splits: int,
 ) -> Optional[np.ndarray]:
-    """Compute grouped out-of-fold logits so the operating point is not in-sample."""
+    """Fit de-overlapped folds and score every held-out runtime tick."""
     from sklearn.model_selection import StratifiedGroupKFold
 
-    groups = np.unique(session)
+    groups = np.unique(fit_session)
     if len(groups) < splits:
         return None
 
-    oof = np.full(len(y), np.nan, dtype=np.float64)
+    oof = np.full(len(dense_x), np.nan, dtype=np.float64)
     splitter = StratifiedGroupKFold(n_splits=splits, shuffle=True, random_state=0)
-    for train_index, test_index in splitter.split(x, y, groups=session):
-        fold = fit_coefficients(x[train_index], y[train_index], weights[train_index])
-        oof[test_index] = logits(x[test_index], fold)
+    for train_index, test_index in splitter.split(
+        fit_x, fit_y, groups=fit_session
+    ):
+        fold = fit_coefficients(
+            fit_x[train_index], fit_y[train_index], fit_weights[train_index]
+        )
+        held_out = np.unique(fit_session[test_index])
+        dense_test = np.isin(dense_session, held_out)
+        oof[dense_test] = logits(dense_x[dense_test], fold)
     return oof if not np.isnan(oof).any() else None
 
 
@@ -488,9 +495,9 @@ def render_cpp(coefficients: Dict[str, Any], base_threshold: float, idle_q95: fl
         ("CLASSIC_AUTOCORR_CENTER", center[0]),
         ("CLASSIC_AUTOCORR_SCALE", scale[0]),
         ("CLASSIC_AUTOCORR_WEIGHT", weight[0]),
-        ("CLASSIC_FREQ_COH_CURVE_STD_CENTER", center[1]),
-        ("CLASSIC_FREQ_COH_CURVE_STD_SCALE", scale[1]),
-        ("CLASSIC_FREQ_COH_CURVE_STD_WEIGHT", weight[1]),
+        ("CLASSIC_TURB_IQR_OVER_MEAN_AGGR_CENTER", center[1]),
+        ("CLASSIC_TURB_IQR_OVER_MEAN_AGGR_SCALE", scale[1]),
+        ("CLASSIC_TURB_IQR_OVER_MEAN_AGGR_WEIGHT", weight[1]),
         ("CLASSIC_INTERCEPT", intercept),
         ("CLASSIC_DEFAULT_THRESHOLD", base_threshold),
         ("CLASSIC_TRAIN_IDLE_Q95_LOGIT", idle_q95),
@@ -551,7 +558,15 @@ def main() -> int:
     )
     coefficients = fit_coefficients(fit_x, fit_y, fit_weights)
 
-    oof = out_of_fold_logits(x, y, weights, corpus["session"], args.splits)
+    oof = out_of_fold_logits(
+        fit_x,
+        fit_y,
+        fit_weights,
+        corpus["session"][deoverlapped],
+        x,
+        corpus["session"],
+        args.splits,
+    )
     if oof is None:
         print("WARNING: grouped OOF unavailable; operating point is in-sample", file=sys.stderr)
         oof = logits(x, coefficients)

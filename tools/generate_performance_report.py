@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from typing import Any, Mapping, Optional
 from datetime import datetime
 from pathlib import Path
 
@@ -26,18 +27,35 @@ from tools.lib.bootstrap import setup_paths  # noqa: F401
 
 from tools.lib.performance_report import (
     PERFORMANCE_DOC_PATH,
+    PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION,
+    REPORT_DATASET_ROLES,
     compute_performance_report_data,
     get_available_long_test_datasets,
+    get_available_long_test_dataset_specs,
     get_available_paired_datasets,
     render_performance_report_markdown,
     write_performance_report,
 )
+from tools.lib import npz_cache
 from tools.lib.cpp_parity import verify_cpp_report_parity
 from tools.lib.dataset_metadata import (
     dataset_info_revision,
     generated_input_revision,
     generated_report_is_current,
 )
+from tools.lib.performance_report_inputs import collect_extended_report_inputs
+
+
+def _report_dataset_paths() -> tuple[Path, ...]:
+    """Return only capture files whose roles are published by the report."""
+    paths = {
+        path
+        for static_path, motion_path, _num_sc, _chip, _dataset_id
+        in get_available_paired_datasets(roles=REPORT_DATASET_ROLES)
+        for path in (static_path, motion_path)
+    }
+    paths.update(spec[0] for spec in get_available_long_test_dataset_specs())
+    return tuple(sorted(paths))
 
 
 def _report_input_paths() -> tuple[Path, ...]:
@@ -55,9 +73,70 @@ def _report_input_paths() -> tuple[Path, ...]:
         if path.is_file()
     }
     paths.add(Path(__file__).resolve())
+    paths.add(
+        REPO_ROOT / "test" / "cpp" / "support" / "benchmark_detector_resources.cpp"
+    )
     paths.add(REPO_ROOT / "tools" / "train_ml_model.py")
-    paths.update((REPO_ROOT / "data").glob("*/*.npz"))
+    paths.update(_report_dataset_paths())
     return tuple(sorted(paths))
+
+
+def _replay_input_paths() -> tuple[Path, ...]:
+    """Return inputs to detector replay, excluding report-only rendering."""
+    roots = (
+        REPO_ROOT / "src" / "python" / "micro_espectre",
+        REPO_ROOT / "src" / "cpp" / "core",
+    )
+    paths = {
+        path
+        for root in roots
+        for pattern in ("*.py", "*.h", "*.cpp")
+        for path in root.glob(pattern)
+        if path.is_file()
+    }
+    paths.update(_report_dataset_paths())
+    paths.add(REPO_ROOT / "data" / "dataset_info.json")
+    paths.add(REPO_ROOT / "tools" / "lib" / "dataset_metadata.py")
+    paths.add(REPO_ROOT / "tools" / "lib" / "npz_cache.py")
+    return tuple(sorted(paths))
+
+
+def _load_cached_report_data() -> Optional[dict]:
+    """Load the expensive detector replay summary for the current inputs."""
+    parameters = npz_cache.performance_report_result_parameters(
+        kind="detector_replay_summary",
+        inputs={
+            "dataset_revision": dataset_info_revision(),
+            "input_revision": generated_input_revision(_replay_input_paths()),
+            "implementation_version": PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION,
+        },
+    )
+    payload = npz_cache.load_performance_report_result(
+        REPO_ROOT / "data" / "dataset_info.json",
+        parameters=parameters,
+    )
+    return payload
+
+
+def _save_cached_report_data(report_data: Mapping[str, Any]) -> None:
+    parameters = npz_cache.performance_report_result_parameters(
+        kind="detector_replay_summary",
+        inputs={
+            "dataset_revision": dataset_info_revision(),
+            "input_revision": generated_input_revision(_replay_input_paths()),
+            "implementation_version": PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION,
+        },
+    )
+    expensive = {
+        key: value
+        for key, value in report_data.items()
+        if key not in {"resources", "transfer"}
+    }
+    npz_cache.save_performance_report_result(
+        REPO_ROOT / "data" / "dataset_info.json",
+        parameters=parameters,
+        payload=expensive,
+    )
 
 
 def _format_duration(seconds: float) -> str:
@@ -142,7 +221,18 @@ def main() -> int:
     progress, get_elapsed = _build_progress_logger(enabled=not args.quiet)
     started_at = datetime.now().astimezone()
     progress("starting report generation")
-    report_data = compute_performance_report_data(progress=progress)
+    resource_metrics, augmentation_metrics = collect_extended_report_inputs(
+        progress=progress,
+    )
+    report_data = _load_cached_report_data()
+    if report_data is None:
+        progress("report-level replay cache miss; rebuilding from row caches")
+        report_data = compute_performance_report_data(progress=progress)
+        _save_cached_report_data(report_data)
+    else:
+        progress("loaded detector replay summary from the report-level cache")
+    report_data["resources"] = resource_metrics
+    report_data["augmentation"] = augmentation_metrics
     if args.skip_cpp_parity_check:
         progress("skipping C++ parity verification")
     else:
@@ -158,10 +248,16 @@ def main() -> int:
         "run_started": started_at.isoformat(timespec="seconds"),
         "run_duration": _format_duration(get_elapsed()),
         "real_paired_dataset_count": len(
-            get_available_paired_datasets(synthetic=False)
+            get_available_paired_datasets(
+                synthetic=False,
+                roles=REPORT_DATASET_ROLES,
+            )
         ),
         "synthetic_paired_dataset_count": len(
-            get_available_paired_datasets(synthetic=True)
+            get_available_paired_datasets(
+                synthetic=True,
+                roles=REPORT_DATASET_ROLES,
+            )
         ),
         "long_quiet_dataset_count": len(get_available_long_test_datasets()),
     }

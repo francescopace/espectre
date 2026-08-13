@@ -1,8 +1,7 @@
 /*
  * ESPectre - Production ML Feature Trackers
  *
- * Minimal shared trackers for the promoted production ML features that rely on
- * HT20 live-band coherence and normalized amplitude-shape dynamics.
+ * Minimal shared tracker for promoted normalized amplitude-shape dynamics.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -13,10 +12,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <complex>
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 
 #include "csi_format.h"
 #include "detector_limits.h"
@@ -28,14 +25,6 @@ constexpr std::array<uint8_t, HT20_LIVE_BAND_SIZE> HT20_LIVE_BINS = {
     4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
     24, 25, 26, 27, 28, 29, 30, 31, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
     43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
-};
-// The DC null splits the live band into two runs that are contiguous in both
-// bin number and profile index, so a pair separated by `offset` bins is always
-// `left + offset` inside one run.
-constexpr uint8_t HT20_LIVE_HALF_SIZE = HT20_LIVE_BAND_SIZE / 2U;
-constexpr uint8_t FREQUENCY_COHERENCE_COUNT = 2U;
-constexpr std::array<uint8_t, FREQUENCY_COHERENCE_COUNT> FREQUENCY_COHERENCE_OFFSETS = {
-    4U, 12U,
 };
 constexpr uint8_t CHANNEL_SHAPE_SUBBAND_COUNT = 8U;
 constexpr uint8_t CHANNEL_SHAPE_SUBBAND_SIZE =
@@ -59,26 +48,6 @@ constexpr std::array<std::array<float, CHANNEL_SHAPE_SUBBAND_COUNT>,
         {{0.3535533906f, -0.4903926402f, 0.4619397663f, -0.4157348062f, 0.3535533906f, -0.2777851165f, 0.1913417162f, -0.0975451610f}},
     }};
 
-inline void extract_ht20_live_complex_profile(const int8_t* csi_data, size_t csi_len,
-                                              std::complex<float>* out) {
-    if (out == nullptr) {
-        return;
-    }
-    if (csi_data == nullptr || csi_len < HT20_CSI_LEN) {
-        for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-            out[i] = std::complex<float>(0.0f, 0.0f);
-        }
-        return;
-    }
-    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        const uint8_t sc_idx = HT20_LIVE_BINS[i];
-        const float imag = static_cast<float>(csi_data[sc_idx * 2U]);
-        const float real = static_cast<float>(csi_data[sc_idx * 2U + 1U]);
-        out[i] = std::complex<float>(real, imag);
-    }
-}
-
-
 inline float motion_participation(const float* energy, uint8_t count) {
     if (energy == nullptr || count == 0U) {
         return 0.0f;
@@ -93,76 +62,6 @@ inline float motion_participation(const float* energy, uint8_t count) {
         return 0.0f;
     }
     return (total * total) / (static_cast<float>(count) * squared);
-}
-
-// Cache the squared magnitude of every live subcarrier once per packet. Every
-// offset reads the same magnitudes, so this replaces the repeated per-pair work.
-inline void fill_frequency_coherence_squares(const std::complex<float>* profile,
-                                             float* squares) {
-    for (uint8_t i = 0; i < HT20_LIVE_BAND_SIZE; i++) {
-        squares[i] = std::norm(profile[i]);
-    }
-}
-
-// Coherence at one offset, reusing the cached squared magnitudes. Walking the
-// two halves visits pairs in ascending left index, exactly the order the full
-// 56x56 scan produced, so the numerator accumulates identically.
-inline float frequency_coherence_from_squares(const std::complex<float>* profile,
-                                              const float* squares, uint8_t offset) {
-    const int span = static_cast<int>(HT20_LIVE_HALF_SIZE) - static_cast<int>(offset);
-    if (span <= 0) {
-        return 0.0f;
-    }
-    std::complex<float> numerator(0.0f, 0.0f);
-    float left_norm = 0.0f;
-    float right_norm = 0.0f;
-    for (uint8_t start = 0U; start < HT20_LIVE_BAND_SIZE;
-         start = static_cast<uint8_t>(start + HT20_LIVE_HALF_SIZE)) {
-        const uint8_t stop = static_cast<uint8_t>(start + span);
-        for (uint8_t left = start; left < stop; left++) {
-            const uint8_t right = static_cast<uint8_t>(left + offset);
-            numerator += std::conj(profile[left]) * profile[right];
-            left_norm += squares[left];
-            right_norm += squares[right];
-        }
-    }
-    const float denominator = std::sqrt(left_norm) * std::sqrt(right_norm);
-    if (denominator <= 0.0f) {
-        return 0.0f;
-    }
-    return std::abs(numerator) / denominator;
-}
-
-inline float frequency_coherence(const std::complex<float>* profile, uint8_t offset = 4U) {
-    if (profile == nullptr ||
-        (offset != FREQUENCY_COHERENCE_OFFSETS[0] &&
-         offset != FREQUENCY_COHERENCE_OFFSETS[1])) {
-        return 0.0f;
-    }
-    float squares[HT20_LIVE_BAND_SIZE]{};
-    fill_frequency_coherence_squares(profile, squares);
-    return frequency_coherence_from_squares(profile, squares, offset);
-}
-
-// Fill `out` with the FREQUENCY_COHERENCE_OFFSETS coherences of one packet,
-// sharing the squared magnitudes across the two offsets Classic consumes.
-// per-packet path stays allocation free.
-inline void frequency_coherences(const std::complex<float>* profile, float* out) {
-    if (out == nullptr) {
-        return;
-    }
-    if (profile == nullptr) {
-        for (uint8_t i = 0; i < FREQUENCY_COHERENCE_COUNT; i++) {
-            out[i] = 0.0f;
-        }
-        return;
-    }
-    float squares[HT20_LIVE_BAND_SIZE]{};
-    fill_frequency_coherence_squares(profile, squares);
-    for (uint8_t i = 0; i < FREQUENCY_COHERENCE_COUNT; i++) {
-        out[i] = frequency_coherence_from_squares(profile, squares,
-                                                  FREQUENCY_COHERENCE_OFFSETS[i]);
-    }
 }
 
 class ChannelShapeTrajectoryTracker {
@@ -465,84 +364,5 @@ class ChannelShapeTrajectoryTracker {
   std::array<int8_t, HT20_CSI_LEN> previous_raw_{};
   bool has_previous_raw_{false};
 };
-
-class FrequencyCoherenceTracker {
- public:
-  FrequencyCoherenceTracker() = default;
-
-  void configure(uint16_t capacity) {
-    capacity_ = std::min<uint16_t>(capacity, DETECTOR_MAX_WINDOW_SIZE);
-    frequency_curve_ring_.assign(capacity_, 0.0f);
-    clear();
-  }
-
-  void clear() {
-    frequency_curve_slot_ = 0U;
-    frequency_curve_count_ = 0U;
-    frequency_curve_sum_ = 0.0f;
-    frequency_curve_square_sum_ = 0.0f;
-    std::fill(frequency_curve_ring_.begin(), frequency_curve_ring_.end(), 0.0f);
-  }
-
-  void process_packet(const int8_t* csi_data, size_t csi_len) {
-    if (capacity_ == 0U) {
-      return;
-    }
-    std::complex<float> complex_values[HT20_LIVE_BAND_SIZE]{};
-    extract_ht20_live_complex_profile(csi_data, csi_len, complex_values);
-    static_assert(FREQUENCY_COHERENCE_OFFSETS[0] == 4U &&
-                      FREQUENCY_COHERENCE_OFFSETS[1] == 12U,
-                  "short and long coherence are read by index below");
-    float coherences[FREQUENCY_COHERENCE_COUNT]{};
-    frequency_coherences(complex_values, coherences);
-    const float coherence_sum = coherences[0] + coherences[1];
-    push_(coherence_sum > 0.0f
-              ? (coherences[0] - coherences[1]) / coherence_sum
-              : 0.0f);
-  }
-
-  uint16_t count() const { return frequency_curve_count_; }
-
-  float frequency_coherence_curve_std() const {
-    if (frequency_curve_count_ == 0U) {
-        return 0.0f;
-    }
-    const double mean = frequency_curve_sum_ / static_cast<double>(frequency_curve_count_);
-    const double variance = std::max(
-        0.0,
-        frequency_curve_square_sum_ / static_cast<double>(frequency_curve_count_) -
-            mean * mean);
-    return static_cast<float>(std::sqrt(variance));
-  }
-
- private:
-  void push_(float value) {
-    if (frequency_curve_ring_.empty()) {
-        return;
-    }
-    if (frequency_curve_count_ < capacity_) {
-        frequency_curve_count_++;
-    } else {
-        const float old = frequency_curve_ring_[frequency_curve_slot_];
-        frequency_curve_sum_ -= old;
-        frequency_curve_square_sum_ -= old * old;
-    }
-    frequency_curve_ring_[frequency_curve_slot_] = value;
-    frequency_curve_sum_ += value;
-    frequency_curve_square_sum_ += value * value;
-    frequency_curve_slot_++;
-    if (frequency_curve_slot_ >= capacity_) {
-      frequency_curve_slot_ = 0U;
-    }
-  }
-
-  uint16_t capacity_{0U};
-  std::vector<float> frequency_curve_ring_{};
-  uint16_t frequency_curve_slot_{0U};
-  uint16_t frequency_curve_count_{0U};
-  double frequency_curve_sum_{0.0};
-  double frequency_curve_square_sum_{0.0};
-};
-
 
 }  // namespace espectre

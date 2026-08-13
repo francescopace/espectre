@@ -59,6 +59,8 @@ from tools.lib.csi_io import load_npz_packet_view, load_npz_sensing_arrays
 
 DATA_DIR = data_dir()
 PERFORMANCE_DOC_PATH = repo_root() / "docs" / "performance" / "README.md"
+PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION = 2
+REPORT_DATASET_ROLES = frozenset(("selection", "holdout"))
 
 # Link-class policy: real weak-link (`low_rssi: true`) recordings are stress
 # diagnostics, not standard promotion material. Normal-link sessions keep the
@@ -301,7 +303,7 @@ def _load_dataset_info() -> Dict[str, Any]:
 @lru_cache(maxsize=1)
 def _get_available_paired_dataset_specs_cached(
     dataset_revision: str,
-) -> tuple[tuple[Path, Path, int, str, str, bool, str], ...]:
+) -> tuple[tuple[Path, Path, int, str, str, bool, str, bool, str], ...]:
     """Return explicit static-presence/motion pairs (HT20: 64 SC only)."""
     del dataset_revision
     dataset_info = _load_dataset_info()
@@ -340,7 +342,7 @@ def _get_available_paired_dataset_specs_cached(
         low_rssi = bool(static_entry.get("low_rssi")) or bool(motion_entry.get("low_rssi"))
         pair_entries.append(
             (static_path, motion_path, 64, str(chip).upper(), dataset_id, synthetic,
-             dataset_role, low_rssi)
+             dataset_role, low_rssi, str(environment))
         )
 
     pair_entries.sort(key=lambda item: (item[3], item[4]))
@@ -366,14 +368,20 @@ def get_paired_dataset_role(static_presence_path: str | Path) -> Optional[str]:
 
 
 def get_available_paired_datasets(
-    *, synthetic: Optional[bool] = None
+    *,
+    synthetic: Optional[bool] = None,
+    roles: Optional[Iterable[str]] = None,
 ) -> list[tuple[Path, Path, int, str, str]]:
-    """Return paired datasets, optionally restricted by provenance."""
+    """Return paired datasets, optionally restricted by provenance and role."""
+    requested_roles = (
+        None if roles is None else {str(role).strip().lower() for role in roles}
+    )
     return [
         (static_path, motion_path, num_sc, chip, dataset_id)
-        for static_path, motion_path, num_sc, chip, dataset_id, is_synthetic, _role, _low_rssi
+        for static_path, motion_path, num_sc, chip, dataset_id, is_synthetic, role, _low_rssi, _environment
         in _get_available_paired_dataset_specs_cached(dataset_info_revision())
         if synthetic is None or is_synthetic == synthetic
+        if requested_roles is None or role in requested_roles
     ]
 
 
@@ -480,7 +488,7 @@ def _empty_ml_replay_rows(feature_names: Sequence[str]) -> Dict[str, Any]:
     }
 
 
-def _normalize_ml_row_selection(
+def _normalize_replay_row_selection(
     row_stride: Optional[int],
     row_offset: int,
 ) -> tuple[Optional[int], int]:
@@ -503,7 +511,7 @@ def _select_ml_replay_rows(
     row_offset: int,
 ) -> Dict[str, Any]:
     """Select dense replay rows by position without changing their metadata."""
-    stride, offset = _normalize_ml_row_selection(row_stride, row_offset)
+    stride, offset = _normalize_replay_row_selection(row_stride, row_offset)
     if stride is None:
         return dict(rows)
     row_count = len(np.asarray(rows.get("packet_index", ())))
@@ -583,7 +591,7 @@ def build_ml_replay_rows(
             + ", ".join(missing)
         )
     normalized_contract = _normalize_ml_sample_contract(sample_contract)
-    stride, offset = _normalize_ml_row_selection(row_stride, row_offset)
+    stride, offset = _normalize_replay_row_selection(row_stride, row_offset)
     if stride is not None and normalized_contract != "stream_dense":
         raise ValueError("dense row selection requires sample_contract='stream_dense'")
     if not packets:
@@ -680,7 +688,7 @@ def load_or_compute_ml_replay_rows(
         raise ValueError("pass packets or packets_factory, not both")
     requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
     normalized_contract = _normalize_ml_sample_contract(sample_contract)
-    stride, offset = _normalize_ml_row_selection(row_stride, row_offset)
+    stride, offset = _normalize_replay_row_selection(row_stride, row_offset)
     if stride is not None and normalized_contract != "stream_dense":
         raise ValueError("dense row selection requires sample_contract='stream_dense'")
     if stride is not None and use_cache and cache_write:
@@ -845,7 +853,7 @@ def _collect_classic_replay_phase_rows(
         features.append(
             (
                 float(values.get("turb_autocorr", 0.0)),
-                float(values.get("chan_freq_coh_curve_std", 0.0)),
+                float(values.get("turb_iqr_over_mean_aggr", 0.0)),
             )
         )
         ready_values.append(ready)
@@ -1106,9 +1114,14 @@ def _calibrate_classic_replay_rows(
 def _score_classic_replay_phase_rows(
     rows: Mapping[str, Any],
     detector: Any,
+    *,
+    row_stride: Optional[int] = None,
+    row_offset: int = 0,
 ) -> list[bool]:
     """Advance Classic decision state over one cached replay phase."""
+    stride, offset = _normalize_replay_row_selection(row_stride, row_offset)
     states: list[bool] = []
+    eligible_position = 0
     X = np.asarray(rows.get("X", np.empty((0, 2))), dtype=np.float64)
     ready = np.asarray(rows.get("ready", np.empty(0)), dtype=bool)
     eligible = np.asarray(rows.get("eligible", np.empty(0)), dtype=bool)
@@ -1125,13 +1138,15 @@ def _score_classic_replay_phase_rows(
             detector._current_probability = 0.0
             detector._state = MotionState.IDLE
             if row_eligible:
-                states.append(False)
+                if stride is None or eligible_position % stride == offset:
+                    states.append(False)
+                eligible_position += 1
             continue
         detector._current_turb_autocorr = float(values[0])
-        detector._current_chan_freq_coh_curve_std = float(values[1])
+        detector._current_turb_iqr_over_mean_aggr = float(values[1])
         detector._current_logit = detector._calculate_logit(
             detector._current_turb_autocorr,
-            detector._current_chan_freq_coh_curve_std,
+            detector._current_turb_iqr_over_mean_aggr,
         )
         detector._current_probability = detector._sigmoid(detector._current_logit)
         detector._observe_settled_level()
@@ -1141,12 +1156,17 @@ def _score_classic_replay_phase_rows(
             else MotionState.IDLE
         )
         if row_eligible:
-            states.append(detector._state == MotionState.MOTION)
+            if stride is None or eligible_position % stride == offset:
+                states.append(detector._state == MotionState.MOTION)
+            eligible_position += 1
     return states
 
 
 def compute_classic_row_result(
     rows: Mapping[str, Any],
+    *,
+    row_stride: Optional[int] = None,
+    row_offset: int = 0,
 ) -> Optional[tuple[float, Dict[str, float]]]:
     """Evaluate one paired Classic replay from canonical time-aware rows."""
     timing = dict(rows["timing"])
@@ -1160,8 +1180,18 @@ def compute_classic_row_result(
         timing=timing,
     )
     detector._adapted_threshold_ready = True
-    baseline_states = _score_classic_replay_phase_rows(rows["static"], detector)
-    motion_states = _score_classic_replay_phase_rows(rows["motion"], detector)
+    baseline_states = _score_classic_replay_phase_rows(
+        rows["static"],
+        detector,
+        row_stride=row_stride,
+        row_offset=row_offset,
+    )
+    motion_states = _score_classic_replay_phase_rows(
+        rows["motion"],
+        detector,
+        row_stride=row_stride,
+        row_offset=row_offset,
+    )
     tp = sum(1 for state in motion_states if state)
     fn = len(motion_states) - tp
     fp = sum(1 for state in baseline_states if state)
@@ -2201,24 +2231,24 @@ def compute_performance_report_data(
     paired_results: dict[
         str, dict[str, dict[str, list[Dict[str, float]]]]
     ] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    # Real pairs are split by whether the exported ML model used them for
-    # training. Weak-link pairs remain stress diagnostics for both detectors.
-    ml_role_results: dict[str, dict[str, list[Dict[str, float]]]] = {
-        "reserved": defaultdict(list),
-        "train": defaultdict(list),
+    # Published detector metrics use only reserved selection and holdout pairs.
+    # Training pairs remain covered by the validation suites but are not replayed
+    # or summarized by this report generator.
+    normal_results: dict[str, dict[str, list[Dict[str, float]]]] = {
+        "classic": defaultdict(list),
+        "ml": defaultdict(list),
     }
     stress_results: dict[str, dict[str, list[Dict[str, float]]]] = {
         "classic": defaultdict(list),
         "ml": defaultdict(list),
     }
-    stress_ml_role_results: dict[str, dict[str, list[Dict[str, float]]]] = {
-        "reserved": defaultdict(list),
-        "train": defaultdict(list),
-    }
-    classic_normal_results: dict[str, list[Dict[str, float]]] = defaultdict(list)
     long_results: dict[str, dict[str, list[Dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
 
-    paired_datasets = _get_available_paired_dataset_specs_cached(dataset_info_revision())
+    paired_datasets = tuple(
+        spec
+        for spec in _get_available_paired_dataset_specs_cached(dataset_info_revision())
+        if spec[6] in REPORT_DATASET_ROLES
+    )
     real_count = sum(not item[5] for item in paired_datasets)
     synthetic_count = sum(item[5] for item in paired_datasets)
     _emit_progress(
@@ -2227,7 +2257,7 @@ def compute_performance_report_data(
     )
     paired_phase_started = time.perf_counter()
     for index, (static_path, motion_path, _num_sc, chip, dataset_id, synthetic,
-                dataset_role, low_rssi) in enumerate(paired_datasets, start=1):
+                _dataset_role, low_rssi, _environment) in enumerate(paired_datasets, start=1):
         dataset_started = time.perf_counter()
         section = "paired_synthetic" if synthetic else "paired"
         static_presence_packets, motion_packets = load_real_data_cached(
@@ -2254,16 +2284,14 @@ def compute_performance_report_data(
         )
         paired_results[section]["ml"][chip].append(ml_metrics)
         if not synthetic:
-            role_bucket = "train" if dataset_role == "train" else "reserved"
             if low_rssi:
                 if classic_metrics is not None:
                     stress_results["classic"][chip].append(classic_metrics)
                 stress_results["ml"][chip].append(ml_metrics)
-                stress_ml_role_results[role_bucket][chip].append(ml_metrics)
             else:
                 if classic_metrics is not None:
-                    classic_normal_results[chip].append(classic_metrics)
-                ml_role_results[role_bucket][chip].append(ml_metrics)
+                    normal_results["classic"][chip].append(classic_metrics)
+                normal_results["ml"][chip].append(ml_metrics)
         _emit_progress(
             progress,
             (
@@ -2330,15 +2358,15 @@ def compute_performance_report_data(
                     section_summary[algorithm][chip] = averaged
         paired_summaries[section] = section_summary
 
-    ml_role_summary: Dict[str, Dict[str, Dict[str, float]]] = {
-        "reserved": {},
-        "train": {},
+    normal_summary: Dict[str, Dict[str, Dict[str, float]]] = {
+        "classic": {},
+        "ml": {},
     }
-    for role_bucket, by_chip in ml_role_results.items():
+    for algorithm, by_chip in normal_results.items():
         for chip, entries in by_chip.items():
             averaged = _average_detector_metrics(entries)
             if averaged is not None:
-                ml_role_summary[role_bucket][chip] = averaged
+                normal_summary[algorithm][chip] = averaged
 
     stress_summary: Dict[str, Dict[str, Dict[str, float]]] = {"classic": {}, "ml": {}}
     for algorithm, by_chip in stress_results.items():
@@ -2346,22 +2374,6 @@ def compute_performance_report_data(
             averaged = _average_detector_metrics(entries)
             if averaged is not None:
                 stress_summary[algorithm][chip] = averaged
-
-    stress_ml_role_summary: Dict[str, Dict[str, Dict[str, float]]] = {
-        "reserved": {},
-        "train": {},
-    }
-    for role_bucket, by_chip in stress_ml_role_results.items():
-        for chip, entries in by_chip.items():
-            averaged = _average_detector_metrics(entries)
-            if averaged is not None:
-                stress_ml_role_summary[role_bucket][chip] = averaged
-
-    classic_normal_summary: Dict[str, Dict[str, float]] = {}
-    for chip, entries in classic_normal_results.items():
-        averaged = _average_detector_metrics(entries)
-        if averaged is not None:
-            classic_normal_summary[chip] = averaged
 
     long_summary: Dict[str, Dict[str, Dict[str, float]]] = {"classic": {}, "ml": {}}
     for algorithm, by_chip in long_results.items():
@@ -2385,10 +2397,8 @@ def compute_performance_report_data(
     _emit_progress(progress, "render data ready")
     return {
         "paired": paired_summaries["paired"],
-        "paired_classic_normal": classic_normal_summary,
-        "paired_ml_roles": ml_role_summary,
+        "paired_normal": normal_summary,
         "paired_stress_real": stress_summary,
-        "paired_stress_ml_roles": stress_ml_role_summary,
         "paired_synthetic": paired_summaries["paired_synthetic"],
         "long_quiet": long_summary,
     }
@@ -2433,10 +2443,6 @@ def render_performance_report_markdown(
         "This report shows how ESPectre's motion detectors perform on recorded data.",
         "",
         (
-            "Per-chip live firmware reports in this directory are generated by "
-            "`tools/benchmark_firmware.py`."
-        ),
-        (
             "`tools/generate_performance_report.py` also verifies that the host-side "
             "C++ and Python implementations produce matching results when they replay "
             "the same recordings."
@@ -2448,11 +2454,57 @@ def render_performance_report_markdown(
         ),
         (
             "- **ML Detector**: Uses a neural network trained on recordings marked as "
-            "motion or no motion. Its results are separated below by whether the recordings "
-            "were used for training."
+            "motion or no motion. Published replay results use only recordings outside "
+            "its training corpus."
         ),
         "",
         "See [ALGORITHMS.md](../ALGORITHMS.md) for the full detector design.",
+        "",
+        "---",
+        "",
+        "## Current Host Resource Benchmark",
+        "",
+        (
+            "The generator compiles the current production C++ sources once per source "
+            "revision and executes the benchmark on every report run. Timings and CPU "
+            "estimates therefore describe the report host, not an ESP device. Persistent "
+            "memory is the detector object's `sizeof` plus live heap allocations after "
+            "construction; allocator metadata is not included."
+        ),
+        "",
+    ])
+
+    resources = report_data.get("resources", {})
+    resource_detectors = resources.get("detectors", {})
+    if resource_detectors:
+        lines.extend([
+            (
+                "Nominal load: "
+                f"`{resources.get('packet_rate_hz', 100):g}` packets/s and "
+                f"`{resources.get('inference_rate_hz', 4):g}` inferences/s; "
+                f"window `{int(resources.get('window_packets', 100))}` packets."
+            ),
+            "",
+            "| Detector | Persistent memory | Packet median / p90 | Inference median / p90 | Modeled detector CPU | Transient heap |",
+            "| --- | ---: | ---: | ---: | ---: | ---: |",
+        ])
+        for detector_name, label in (("classic", "Classic"), ("ml", "ML")):
+            metrics = resource_detectors.get(detector_name)
+            if not metrics:
+                continue
+            lines.append(
+                f"| {label} | {int(metrics['persistent_bytes']):,} B | "
+                f"{metrics['packet_median_ns'] / 1000.0:.2f} / "
+                f"{metrics['packet_p90_ns'] / 1000.0:.2f} us | "
+                f"{metrics['inference_median_ns'] / 1000.0:.2f} / "
+                f"{metrics['inference_p90_ns'] / 1000.0:.2f} us | "
+                f"{metrics['cpu_us_per_second']:.2f} us/s | "
+                f"{int(metrics['transient_heap_bytes']):,} B |"
+            )
+    else:
+        lines.append("Resource benchmark unavailable.")
+
+    lines.extend([
         "",
         "---",
         "",
@@ -2484,28 +2536,20 @@ def render_performance_report_markdown(
         "",
         (
             "These recordings contain periods without motion followed by periods with "
-            "motion, captured with a normal Wi-Fi signal. The Classic detector does not "
-            "use training data. The ML results are split into recordings that were and "
-            "were not used for training."
+            "motion, captured with a normal Wi-Fi signal. Both detectors are reported "
+            "only on the combined `selection + holdout` corpus."
         ),
         "",
-        "### Classic Detector — No Training Data",
+        "### Classic Detector",
         "",
     ])
 
     paired = report_data["paired"]
-    paired_classic_normal = report_data.get(
-        "paired_classic_normal", paired.get("classic", {})
-    )
-    paired_ml_roles = report_data.get(
-        "paired_ml_roles", {"reserved": {}, "train": {}}
+    paired_normal = report_data.get(
+        "paired_normal", paired
     )
     paired_stress_real = report_data.get(
         "paired_stress_real", {"classic": {}, "ml": {}}
-    )
-    paired_stress_ml_roles = report_data.get(
-        "paired_stress_ml_roles",
-        {"reserved": paired_stress_real.get("ml", {}), "train": {}},
     )
     paired_header = "| Metric | " + " | ".join(PAIRED_CHIP_LABELS[chip] for chip in CHIP_ORDER) + " |"
     paired_divider = "|--------|" + "|".join("----------" for _ in CHIP_ORDER) + "|"
@@ -2530,33 +2574,52 @@ def render_performance_report_markdown(
                 values.append(formatter(value) if value is not None else "N/A")
             lines.append(f"| {label} | " + " | ".join(values) + " |")
 
-    _append_paired_table({"classic": paired_classic_normal}, "classic")
+    _append_paired_table(paired_normal, "classic")
 
     lines.extend([
         "",
-        "### ML Detector — Recordings Not Used for Training",
-        "",
-        (
-            "These recordings were not used to train the model. Use these results to "
-            "understand how the model performs on new data. Chips without matching "
-            "recordings show N/A."
-        ),
+        "### ML Detector",
         "",
     ])
-    _append_paired_table({"ml": paired_ml_roles.get("reserved", {})}, "ml")
+    _append_paired_table(paired_normal, "ml")
 
     lines.extend([
         "",
-        "### ML Detector — Recordings Used for Training",
+        "---",
         "",
-        (
-            "These recordings were used to train the model. Results may be higher and "
-            "do not show how the model performs on new data."
-        ),
+        "## Reserved Augmentation Diagnostic",
         "",
     ])
-    _append_paired_table({"ml": paired_ml_roles.get("train", {})}, "ml")
-
+    augmentation = report_data.get("augmentation")
+    if augmentation:
+        lines.extend([
+            (
+                "Classic and ML are evaluated on the same reserved `selection + holdout` "
+                "pairs after deterministic "
+                f"`{augmentation.get('recipe', 'unknown')}` packet augmentation. "
+                "As in production ML training, the fixed views "
+                f"`{', '.join(str(seed) for seed in augmentation.get('seeds', []))}` "
+                "contribute alternating row positions. These combined reserved results are "
+                "diagnostic, not an uncontaminated promotion gate."
+            ),
+            "",
+            "| Detector | Corpus | Recall | FP Rate | F1 |",
+            "| --- | --- | ---: | ---: | ---: |",
+        ])
+        for row in augmentation.get("rows", []):
+            detector_name = str(row["detector"]).lower()
+            detector = "ML" if detector_name == "ml" else detector_name.title()
+            lines.append(
+                f"| {detector} | Reserved, mixed two-seed augmentation "
+                f"({int(augmentation.get('pair_count', 0))} pairs) | "
+                f"{float(row['recall']):.1f}% | "
+                f"{float(row['fp_rate']):.1f}% | {float(row['f1']):.1f}% |"
+            )
+    else:
+        lines.append(
+            "Cached augmentation diagnostic unavailable; report generation will not "
+            "start a training run to create it."
+        )
     lines.extend([
         "",
         "---",
@@ -2564,53 +2627,36 @@ def render_performance_report_markdown(
         "## Weak Wi-Fi Signal",
         "",
         (
-            "These recordings show detector behavior when the Wi-Fi signal is weak. "
-            "The ML requirements for this test are recall "
+            "These reserved `selection + holdout` recordings show detector behavior "
+            "when the Wi-Fi signal is weak. The ML requirements for this test are recall "
             f">{STRESS_TARGET_RECALL:.0f}% and FP <{STRESS_TARGET_FP_RATE:.0f}%; "
             "Classic results are included for information only."
         ),
         "",
-        "### Classic Detector — No Training Data",
+        "### Classic Detector",
         "",
     ])
     _append_paired_table({"classic": paired_stress_real.get("classic", {})}, "classic")
 
     lines.extend([
         "",
-        "### ML Detector — Recordings Not Used for Training",
-        "",
-        (
-            "These recordings were not used to train the model. Use these results to "
-            "understand how the model handles new data with a weak Wi-Fi signal."
-        ),
+        "### ML Detector",
         "",
     ])
-    _append_paired_table({"ml": paired_stress_ml_roles.get("reserved", {})}, "ml")
-
-    lines.extend([
-        "",
-        "### ML Detector — Recordings Used for Training",
-        "",
-        (
-            "These recordings were used to train the model. Results may be higher and "
-            "do not show how the model handles new data with a weak Wi-Fi signal."
-        ),
-        "",
-    ])
-    _append_paired_table({"ml": paired_stress_ml_roles.get("train", {})}, "ml")
+    _append_paired_table(paired_stress_real, "ml")
 
     lines.extend([
         "",
         "---",
         "",
-        "## Long Quiet Recordings Not Used for Training",
+        "## Long Quiet Reserved Recordings",
         "",
         (
-            "These long recordings contain no motion and were not used to train the ML "
-            "model. They show how often each detector reports motion during quiet periods."
+            "These `selection + holdout` recordings contain no motion. They show how "
+            "often each detector reports motion during quiet periods."
         ),
         "",
-        "### Classic Detector — No Training Data",
+        "### Classic Detector",
         "",
     ])
 
@@ -2638,7 +2684,7 @@ def render_performance_report_markdown(
 
     lines.extend([
         "",
-        "### ML Detector — Recordings Not Used for Training",
+        "### ML Detector",
         "",
     ])
     _append_long_quiet_table("ml")

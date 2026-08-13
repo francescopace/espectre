@@ -44,14 +44,16 @@ def test_hampel_master_switch_controls_turbulence_stream() -> None:
     disabled = ClassicDetector(enable_hampel=False)
 
     assert enabled._context.hampel_filter is not None
+    assert enabled._aggregated_context.hampel_filter is not None
     assert disabled._context.hampel_filter is None
+    assert disabled._aggregated_context.hampel_filter is None
 
 
-def test_classic_allocates_only_frequency_curve_state() -> None:
+def test_classic_allocates_aggregated_turbulence_state() -> None:
     detector = ClassicDetector()
 
-    assert len(detector._frequency_tracker._frequency_curve_ring) == 90
-    assert detector._frequency_tracker.count() == 0
+    assert len(detector._aggregated_context.turbulence_buffer) == 100
+    assert detector._aggregated_context.buffer_count == 0
 
 
 def test_startup_q95_adapts_probability_threshold() -> None:
@@ -103,8 +105,8 @@ def test_update_state_uses_weighted_probability(monkeypatch) -> None:
     monkeypatch.setattr(detector, "is_ready", lambda: True)
     monkeypatch.setattr(detector, "_turb_autocorr", lambda: detector.FEATURE_CENTER[0])
     monkeypatch.setattr(
-        detector._frequency_tracker,
-        "frequency_coherence_curve_std",
+        detector,
+        "_turb_iqr_over_mean_aggr",
         lambda: detector.FEATURE_CENTER[1],
     )
 
@@ -113,7 +115,7 @@ def test_update_state_uses_weighted_probability(monkeypatch) -> None:
     expected = detector._sigmoid(detector.INTERCEPT)
     assert metrics["probability"] == pytest.approx(expected)
     assert metrics["turb_autocorr"] == pytest.approx(detector.FEATURE_CENTER[0])
-    assert metrics["chan_freq_coh_curve_std"] == pytest.approx(
+    assert metrics["turb_iqr_over_mean_aggr"] == pytest.approx(
         detector.FEATURE_CENTER[1]
     )
     # Derived from the probability rather than pinned, so a refit that moves the

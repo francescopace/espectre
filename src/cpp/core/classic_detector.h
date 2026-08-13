@@ -1,8 +1,8 @@
 /*
  * ESPectre - Classic Detector
  *
- * Vote-free weighted fusion of turbulence autocorrelation and channel
- * frequency-coherence curve spread. Mirrors
+ * Vote-free weighted fusion of turbulence autocorrelation and aggregated
+ * turbulence IQR. Mirrors
  * src/python/micro_espectre/classic_detector.py.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -14,27 +14,27 @@
 #include "base_detector.h"
 #include "csi_format.h"
 #include "csi_features.h"
-#include "ml_feature_trackers.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace espectre {
 
-constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.7274768634167298f;
+constexpr float CLASSIC_DEFAULT_THRESHOLD = 0.6621854538596202f;
 constexpr float CLASSIC_MIN_THRESHOLD = 0.0f;
 constexpr float CLASSIC_MAX_THRESHOLD = 1.0f;
 constexpr float CLASSIC_STARTUP_THRESHOLD_FACTOR = 1.0f;
 
 constexpr float CLASSIC_AUTOCORR_CENTER = 0.3919344866784947f;
 constexpr float CLASSIC_AUTOCORR_SCALE = 0.3798648330757351f;
-constexpr float CLASSIC_AUTOCORR_WEIGHT = 5.845075208173481f;
-constexpr float CLASSIC_FREQ_COH_CURVE_STD_CENTER = 0.013575200279723799f;
-constexpr float CLASSIC_FREQ_COH_CURVE_STD_SCALE = 0.024553458697880108f;
-constexpr float CLASSIC_FREQ_COH_CURVE_STD_WEIGHT = 4.024431218680639f;
-constexpr float CLASSIC_INTERCEPT = 0.8062511770638983f;
+constexpr float CLASSIC_AUTOCORR_WEIGHT = 5.083034533668216f;
+constexpr float CLASSIC_TURB_IQR_OVER_MEAN_AGGR_CENTER = 0.24612139211074338f;
+constexpr float CLASSIC_TURB_IQR_OVER_MEAN_AGGR_SCALE = 0.20056599613462603f;
+constexpr float CLASSIC_TURB_IQR_OVER_MEAN_AGGR_WEIGHT = 4.997501915217463f;
+constexpr float CLASSIC_INTERCEPT = 1.0776769868761f;
 
-constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -1.4962826394309852f;
+constexpr float CLASSIC_TRAIN_IDLE_Q95_LOGIT = -2.253902812716911f;
 constexpr float CLASSIC_STARTUP_QUANTILE = 0.95f;
 constexpr float CLASSIC_STARTUP_STRENGTH = 0.5f;
 constexpr uint8_t CLASSIC_STARTUP_SAMPLE_LIMIT = 64U;
@@ -52,8 +52,8 @@ constexpr float CLASSIC_SETTLE_MARGIN_LOGITS = 2.7f;
 /**
  * The default detector: self-calibrating, no training data required.
  *
- * Fuses turbulence autocorrelation with channel frequency-coherence curve
- * spread into a motion probability, and adapts its threshold to the room
+ * Fuses turbulence autocorrelation with robust spread from a five-bin
+ * aggregated turbulence stream, and adapts its threshold to the room
  * during startup calibration. Prefer it unless you have a reason to run
  * `MLDetector`.
  *
@@ -85,16 +85,14 @@ class ClassicDetector : public BaseDetector {
   /**
    * @param window_size Detector window in packets
    * @param threshold Motion probability threshold
-   * @param lag Temporal offset in packets for the curve-spread tracker
    * @param autocorr_lag Turbulence autocorrelation distance in packets
    *
-   * Production uses the nominal-rate defaults. Alternate lags are exposed for
-   * replay experiments only: changing either feature offset requires validating
+   * Production uses the nominal-rate default. Alternate lags are exposed for
+   * replay experiments only: changing the feature offset requires validating
    * the fitted coefficients before deployment. See detector_timing.h.
    */
   ClassicDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE,
                   float threshold = CLASSIC_DEFAULT_THRESHOLD,
-                  uint16_t lag = L1_DELTA_LAG,
                   uint16_t autocorr_lag = 1U);
 
   ~ClassicDetector() override = default;
@@ -110,6 +108,11 @@ class ClassicDetector : public BaseDetector {
   void update_state() override;
   void reset() override;
   void clear_buffer() override;
+  void configure_hampel(bool enabled,
+                        uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
+                        float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT) override;
+  void configure_lowpass(bool enabled,
+                         float cutoff_hz = LOWPASS_CUTOFF_DEFAULT) override;
   bool is_ready() const override;
   bool set_threshold(float threshold) override;
   bool set_adaptive_threshold(float threshold) override;
@@ -123,16 +126,14 @@ class ClassicDetector : public BaseDetector {
   void on_startup_calibration_complete() override;
 
   float get_turb_autocorr() const { return current_turb_autocorr_; }
-  float get_chan_freq_coh_curve_std() const {
-    return current_chan_freq_coh_curve_std_;
-  }
+  float get_turb_iqr_over_mean_aggr() const { return current_turb_iqr_over_mean_aggr_; }
   float get_logit() const { return current_logit_; }
 
  private:
-  uint16_t frequency_tracker_capacity_() const;
   float calculate_turb_autocorr_() const;
-  float calculate_logit_(float turb_autocorr,
-                         float chan_freq_coh_curve_std) const;
+  float calculate_turb_iqr_over_mean_aggr_() const;
+  float calculate_logit_(float turb_autocorr, float turb_iqr_over_mean_aggr) const;
+  void add_aggregated_turbulence_(float turbulence);
   static float sigmoid_(float value);
   static float quantile_(const float* values, uint8_t count, float quantile);
   float startup_quantile_() const;
@@ -143,19 +144,22 @@ class ClassicDetector : public BaseDetector {
   float threshold_;
   float current_logit_;
   float current_turb_autocorr_;
-  float current_chan_freq_coh_curve_std_;
+  float current_turb_iqr_over_mean_aggr_;
   float startup_logits_[CLASSIC_STARTUP_SAMPLE_LIMIT]{};
   uint8_t startup_logit_count_;
   float adapted_threshold_;
   bool adapted_threshold_ready_;
-  uint16_t lag_;
   uint16_t autocorr_lag_;
   float settle_blocks_[CLASSIC_SETTLE_BLOCKS]{};
   float settle_block_max_;
   uint8_t settle_block_evaluations_;
   uint8_t settle_block_count_;
   uint8_t settle_block_index_;
-  FrequencyCoherenceTracker frequency_tracker_;
+  std::vector<float> aggregated_turbulence_buffer_;
+  uint16_t aggregated_turbulence_index_;
+  uint16_t aggregated_turbulence_count_;
+  hampel_filter_state_t aggregated_hampel_state_;
+  lowpass_filter_state_t aggregated_lowpass_state_;
 };
 
 }  // namespace espectre

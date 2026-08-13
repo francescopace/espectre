@@ -55,6 +55,6 @@ Rejected. Detector behavior is a shared Python/C++ contract.
 ## Related
 
 - [`2026-07-23-separate-ml-training-data-from-promotion-replays.md`](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
-- [`2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md`](2026-08-12-use-offset-4-12-frequency-coherence-for-classic.md)
+- [`2026-08-13-use-aggregated-turbulence-iqr-for-classic.md`](2026-08-13-use-aggregated-turbulence-iqr-for-classic.md)
 - [`2026-08-11-promote-channel-shape-trajectory-ml-features.md`](2026-08-11-promote-channel-shape-trajectory-ml-features.md)
 - versioned changelog snapshot: `2.6.0:CHANGELOG.md`

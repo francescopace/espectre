@@ -29,8 +29,8 @@ Representative raw CSI amplitude windows for empty room, static presence, and mo
 The current production detector definition is:
 
 - AGC stays active
-- the shared fixed 12-subcarrier set feeds the turbulence and L1-displacement features, while the coherence and channel-shape features read the full 56-bin live band
-- the classic path uses weighted `turb_autocorr + chan_freq_coh_curve_std` fusion
+- the shared fixed 12-subcarrier set feeds turbulence and L1 displacement, adjacent live bins feed aggregated turbulence, and channel-shape features read the full 56-bin live band
+- the classic path uses weighted `turb_autocorr + turb_iqr_over_mean_aggr` fusion
 - the classic runtime has no voting branch or legacy low-RSSI blend term
 - the ML path uses the compact seven-feature scale-invariant production set
 
@@ -53,7 +53,7 @@ CSI packet
        -> CV turbulence (std / mean)
        -> optional Hampel / low-pass filtering
   -> 56-bin live complex profile
-       -> Classic frequency coherence or ML L1 and trajectory trackers
+       -> Classic aggregated turbulence or ML L1 and trajectory trackers
   -> detector-specific metric or feature extraction
   -> thresholded motion state
 ```
@@ -119,18 +119,19 @@ These bins are subcarriers `+/-4, +/-9, +/-14, +/-19, +/-24, +/-28`, and they as
 
 The active runtime no longer performs per-session runtime subcarrier selection. This set is part of the detector definition for the current project surface. The indices come from measured channel coherence rather than from a detection-metric search: the motion perturbation stays coherent over about 10 subcarriers while quiet noise is nearly per-tone independent, so span is what buys independent looks. For the full rationale behind the band and the count, see [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md).
 
-### Live Band For Frequency-Domain Features
+### Bands For Frequency-Domain Features
 
-The 12-tone set is a sampling of the spectrum, and it serves the features that build a time series out of it. The channel-shape and coherence features instead measure structure across frequency inside a single packet, so they read the full HT20 live band: bins `4..31` and `33..60`, that is the 56 subcarriers left after the guard bands and the DC null.
+The 12-tone set is a sampling of the spectrum, and it serves the features that build a time series out of it. Aggregated turbulence averages a five-bin live-band neighborhood around each selected tone. Channel-shape features instead measure structure across frequency inside a single packet, so they read the full HT20 live band: bins `4..31` and `33..60`, the 56 subcarriers left after the guard bands and the DC null.
 
 | Feature family | Band | Why |
 | --- | --- | --- |
-| `turb_*`, `l1_delta_*` | 12 selected tones | builds a time series, where span buys independent looks |
-| `chan_shape_*`, `chan_freq_coh_*`, `chan_coh_*` | 56 live bins | measures shape across frequency, which decimation would remove |
+| Normal `turb_*`, `l1_delta_*` | 12 selected tones | builds a time series, where span buys independent looks |
+| `turb_iqr_over_mean_aggr` | five-bin neighborhoods around the 12 selected tones | suppresses per-tone noise before building the turbulence series |
+| `chan_shape_*` | 56 live bins | measures shape across frequency, which decimation would remove |
 
-The split follows from what each family measures, rather than from two independent band choices. Within-packet frequency coherence is evaluated on bin pairs at fixed separations of `2`, `4`, and `12` bins, and the 12-tone set has a minimum spacing of 4, so it contains no pair at all at separations `2` and `12`. Those features are undefined on the sampled band, not merely degraded by it.
+The split follows from what each family measures rather than from independent band choices. Historical frequency-coherence candidates remain host-only because they need live-bin pairs at fixed separations; production no longer pays that complex full-band cost.
 
-Both runtimes define the live band identically, as `HT20_LIVE_BINS` in [`ml_feature_trackers.h`](../src/cpp/core/ml_feature_trackers.h) and [`ml_feature_trackers.py`](../src/python/micro_espectre/ml_feature_trackers.py).
+Both runtimes use the same guard-band, DC-null, and adjacent-bin aggregation rules in [`csi_format.h`](../src/cpp/core/csi_format.h) and [`segmentation.py`](../src/python/micro_espectre/segmentation.py). The ML channel-shape live band remains defined identically in [`ml_feature_trackers.h`](../src/cpp/core/ml_feature_trackers.h) and [`ml_feature_trackers.py`](../src/python/micro_espectre/ml_feature_trackers.py).
 
 HT20 is the enforced detector input contract on both supported bands, while the current detection corpus validates only 2.4 GHz operation. VHT20, HE20, and wider layouts are not accepted by the production detectors. Band-selection behavior lives in [SETUP.md](SETUP.md), and the PHY rationale lives in the [HT20 ADR](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
 
@@ -170,7 +171,7 @@ The low-pass stage is a first-order Butterworth IIR filter applied to the turbul
 `ClassicDetector` is the production non-ML path. It combines:
 
 - lag-1 autocorrelation of the gain-invariant turbulence stream
-- temporal standard deviation of the short-versus-long frequency-coherence contrast
+- robust relative IQR of adjacent-bin aggregated turbulence
 - a fixed, weighted logistic fusion with no voting branches
 
 ### Turbulence Autocorrelation
@@ -187,33 +188,20 @@ Classic does not allocate or update an L1-delta tracker. At the default C++ wind
 
 ### Channel Frequency-Coherence Curve Spread
 
-Classic's second input comes from the complex CSI profile over the 56-bin HT20 live band, not over the sampled 12-tone set: at separations `4` and `12` the sampled set contains no bin pair at all. For a fixed subcarrier separation `d`, within-packet frequency coherence is:
+Classic's second input reuses the same `W=5` adjacent-magnitude aggregation as ML. Each selected tone is replaced by the mean amplitude of its five-bin live-band neighborhood, with the DC null skipped and edge windows clamped to bins 4–60. Spatial turbulence is then computed as `std/mean` and filtered into a dedicated ring.
 
 ```text
-coh_d = |sum_k conj(H[k]) H[k + d]| /
-        (sqrt(sum_k |H[k]|^2) sqrt(sum_k |H[k + d]|^2))
+turb_iqr_over_mean_aggr = (Q75(x_aggr) - Q25(x_aggr)) / max(abs(mean(x_aggr)), 1e-6)
 ```
 
-Pairs that would cross the DC subcarrier are excluded. Classic evaluates this coherence at offsets `4` and `12`, forms a bounded contrast per packet,
-
-```text
-curve_t = (coh_4 - coh_12) / (coh_4 + coh_12)
-```
-
-and reports the temporal standard deviation over the live window:
-
-```text
-chan_freq_coh_curve_std = std_t(curve_t)
-```
-
-Normalized coherence cancels common packet gain, and the short-versus-long contrast keeps the result dimensionless and bounded. The runtime uses a dedicated frequency-only tracker, so Python and C++ evaluate the same per-packet contrast and the same window statistic without exposing or allocating the retired full-band shape-spread path. At the default 100 packets per second, Classic preserves only the 90-float coherence-curve ring.
+The robust spread is dimensionless and gain-invariant. Classic maintains one additional window-sized float ring plus its Hampel and low-pass state, but it no longer extracts complex full-band coherence. The packet magnitude frame is computed once and shared by the normal and aggregated turbulence paths.
 
 ### Weighted Fusion
 
-Classic standardizes `turb_autocorr` and `chan_freq_coh_curve_std` with fixed training statistics, applies a two-term linear model, and converts its logit to a probability:
+Classic standardizes `turb_autocorr` and `turb_iqr_over_mean_aggr` with fixed training statistics, applies a two-term linear model, and converts its logit to a probability:
 
 ```text
-logit = b + w_ac * z(turb_autocorr) + w_curve * z(chan_freq_coh_curve_std)
+logit = b + w_ac * z(turb_autocorr) + w_iqr * z(turb_iqr_over_mean_aggr)
 probability = 1 / (1 + exp(-logit))
 motion = probability > threshold
 ```
@@ -304,7 +292,7 @@ The production model consumes these seven scale-invariant inputs, in export orde
 
 Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in [FEATURES.md](FEATURES.md).
 
-The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists only when the exported ML feature ids request it. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series, so the amplitude path is not silently changed for those features or for Classic. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. The final three inputs share one physical-time trajectory tracker: it reduces the live band to eight gain-normalized Hellinger subbands, takes component-wise medians in `80 ms` bins over a one-second path, discards exact consecutive CSI duplicates, and leaves missing bins absent. Subband spread is the participation ratio of motion energy accumulated from adjacent profile differences; coherent innovation measures positive low-order DCT energy after a constant-velocity prediction and high-order noise subtraction; and excess path measures positive two-step path length beyond its chord after the analogous high-order subtraction. Finalized bins retain their orthonormal DCT coefficients instead of their profiles, while the changing current bin is transformed once per extraction. Innovation and excess path remain in mode space because DCT linearity and Parseval's identity preserve their geometry. Subband spread reconstructs only each adjacent eight-component profile difference through the inverse DCT because its per-subband participation ratio is basis-dependent. The runtime feeds the shared tracker the packet arrival timestamp, so packet-rate changes and loss do not redefine the temporal scale. The exported ML model no longer requests the full-band shape-spread tracker, L1-delta autocorrelation, or frequency-coherence curve standard deviation; Classic continues to own and use the latter independently.
+The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists when the exported ML feature ids request it, and Classic independently uses the same compact primitive for its promoted second input. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. The final three inputs share one physical-time trajectory tracker: it reduces the live band to eight gain-normalized Hellinger subbands, takes component-wise medians in `80 ms` bins over a one-second path, discards exact consecutive CSI duplicates, and leaves missing bins absent. Subband spread is the participation ratio of motion energy accumulated from adjacent profile differences; coherent innovation measures positive low-order DCT energy after a constant-velocity prediction and high-order noise subtraction; and excess path measures positive two-step path length beyond its chord after the analogous high-order subtraction. Finalized bins retain their orthonormal DCT coefficients instead of their profiles, while the changing current bin is transformed once per extraction. Innovation and excess path remain in mode space because DCT linearity and Parseval's identity preserve their geometry. Subband spread reconstructs only each adjacent eight-component profile difference through the inverse DCT because its per-subband participation ratio is basis-dependent. The runtime feeds the shared tracker the packet arrival timestamp, so packet-rate changes and loss do not redefine the temporal scale. The exported ML model no longer requests the full-band shape-spread tracker, L1-delta autocorrelation, or frequency-coherence curve standard deviation.
 
 ### Inference Flow
 
