@@ -67,11 +67,19 @@ function analyticsContext({
 
 describe('analytics privacy boundary', () => {
     it('does not enable or load GA outside production', () => {
-        const { api, appendedScripts, window } = analyticsContext({ hostname: 'localhost' });
+        const { api, appendedScripts, window } = analyticsContext({ hostname: 'example.test' });
         api.enableAnalytics();
         assert.equal(api.enabled(), false);
         assert.equal(appendedScripts.length, 0);
         assert.equal(window.dataLayer, undefined);
+    });
+
+    it('always enables debug collection on localhost after consent', () => {
+        const enabled = analyticsContext({ hostname: 'localhost' });
+        enabled.api.enableAnalytics({ sendPageView: false });
+        assert.equal(enabled.api.enabled(), true);
+        const config = enabled.window.dataLayer.find((entry) => entry[0] === 'config');
+        assert.equal(config[2].debug_mode, true);
     });
 
     it('uses denied-by-default consent and disables advertising signals', () => {

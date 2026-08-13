@@ -39,7 +39,7 @@ npm --prefix docs/web run stage:vendor
 
 ## Analytics and consent
 
-`assets/js/analytics.js` enables GA4 only on `espectre.dev` and only after explicit consent. Local previews never load the Google tag. The site stores the choice under `espectre.analytics.consent.v1`, disables advertising storage and Google Signals, and exposes Cookie settings in every generated footer. The public policy is owned by `content/privacy.html`.
+`assets/js/analytics.js` enables GA4 on `espectre.dev` and on loopback hosts only after explicit consent. Local previews always set GA4 `debug_mode`, so their events remain identifiable as developer traffic and available in DebugView. The site stores the choice under `espectre.analytics.consent.v1`, disables advertising storage and Google Signals, and exposes Cookie settings in every generated footer. The public policy is owned by `content/privacy.html`.
 
 The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs and passwords, broker addresses and credentials, device identifiers, Bluetooth identifiers, Matter pairing codes, raw CSI, and MQTT payloads.
 

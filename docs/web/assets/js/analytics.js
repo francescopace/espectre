@@ -13,6 +13,7 @@
 const GA_MEASUREMENT_ID = 'G-S0NQNG0V11';
 const ANALYTICS_CONSENT_KEY = 'espectre.analytics.consent.v1';
 const PRODUCTION_HOSTS = new Set(['espectre.dev', 'www.espectre.dev']);
+const LOCAL_ANALYTICS_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 const TOOL_ROUTES = ['flash', 'configure', 'monitor', 'theremin', 'game'];
 const IS_STATIC_PAGE = document.documentElement.hasAttribute('data-static-page');
 const STATIC_PAGE_SECTION = document.documentElement.dataset.siteSection || 'documentation';
@@ -96,7 +97,11 @@ function routePath(route) {
 }
 
 function analyticsAllowedHere() {
-    return PRODUCTION_HOSTS.has(window.location.hostname);
+    return PRODUCTION_HOSTS.has(window.location.hostname) || localAnalyticsDebugEnabled();
+}
+
+function localAnalyticsDebugEnabled() {
+    return LOCAL_ANALYTICS_HOSTS.has(window.location.hostname);
 }
 
 function storedConsent() {
@@ -187,11 +192,13 @@ function enableAnalytics({ sendPageView = true } = {}) {
 
     if (!analyticsConfigured) {
         window.gtag('js', new Date());
-        window.gtag('config', GA_MEASUREMENT_ID, {
+        const config = {
             send_page_view: false,
             allow_google_signals: false,
             allow_ad_personalization_signals: false
-        });
+        };
+        if (localAnalyticsDebugEnabled()) config.debug_mode = true;
+        window.gtag('config', GA_MEASUREMENT_ID, config);
         loadGoogleTag();
         analyticsConfigured = true;
     }
