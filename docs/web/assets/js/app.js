@@ -14,13 +14,8 @@
 (function () {
     'use strict';
 
-    const NAV_GROUPS = {
-        tools: ['flash', 'configure', 'monitor', 'theremin', 'game'],
-        guides: ['guide-hardware', 'guide-setup', 'guide-placement', 'guide-detection', 'guide-detectors', 'guide-firmware'],
-        docs: ['docs-api', 'docs-examples', 'docs-architecture']
-    };
-    const ROUTES = ['home', 'tools', 'guides', 'docs', 'media', 'roadmap', 'privacy']
-        .concat(NAV_GROUPS.tools, NAV_GROUPS.guides, NAV_GROUPS.docs);
+    const routeRegistry = window.ESPectreRoutes;
+    if (!routeRegistry) throw new Error('ESPectre route registry is unavailable');
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -28,7 +23,7 @@
     // analytics.js is optional: the app must work with it blocked or absent.
     const track = (name, params) => window.trackEvent ? window.trackEvent(name, params) : false;
     const errorType = (error) => (error && error.name) || 'Error';
-    const activeToolName = () => NAV_GROUPS.tools.includes(route) ? route : 'device';
+    const activeToolName = () => routeRegistry.groupOf(route) === 'tools' ? route : 'device';
     const LOCAL_DEVELOPMENT_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
     const dependencyPromises = new Map();
@@ -623,7 +618,7 @@
         $$('[data-route-link]').forEach((link) => {
             const target = link.dataset.routeLink;
             const active = target === route
-                || (NAV_GROUPS[target] || []).includes(route);
+                || routeRegistry.groupOf(route) === target;
             link.classList.toggle('active', active);
         });
         document.title = window.getRouteTitle
@@ -653,7 +648,7 @@
      * reports two page views.
      */
     function setRoute(next, { force = false } = {}) {
-        const target = ROUTES.includes(next) ? next : 'home';
+        const target = routeRegistry.has(next) ? next : 'home';
         if (!force && target === route) return;
         const previousRoute = route;
         if (previousRoute === 'game' && target !== 'game') reportGameAbandon('route_change');
@@ -676,22 +671,6 @@
      * fragment on first visit so text is not duplicated and the device
      * connection survives.
      */
-    const STATIC_PAGE_ROUTES = {
-        '/guides/': 'guides',
-        '/guides/hardware/': 'guide-hardware',
-        '/guides/setup/': 'guide-setup',
-        '/guides/placement/': 'guide-placement',
-        '/guides/detection/': 'guide-detection',
-        '/guides/detectors/': 'guide-detectors',
-        '/guides/custom-firmware/': 'guide-firmware',
-        '/docs/': 'docs',
-        '/docs/api/': 'docs-api',
-        '/docs/examples/': 'docs-examples',
-        '/docs/architecture/': 'docs-architecture',
-        '/media/': 'media',
-        '/roadmap/': 'roadmap',
-        '/privacy/': 'privacy'
-    };
     const staticContentCache = new Map();
 
     async function loadStaticContent(route) {
@@ -726,9 +705,10 @@
         const link = event.target.closest('a[href]');
         if (!link) return;
         const href = link.getAttribute('href');
-        if (STATIC_PAGE_ROUTES[href]) {
+        const staticRoute = routeRegistry.routeForPath(href);
+        if (staticRoute) {
             event.preventDefault();
-            location.hash = '#' + STATIC_PAGE_ROUTES[href];
+            location.hash = '#' + staticRoute;
         } else if (href.startsWith('/#')) {
             event.preventDefault();
             location.hash = href.slice(1);

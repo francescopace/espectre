@@ -232,6 +232,7 @@ def verify(args: argparse.Namespace) -> None:
         "index.html",
         "404.html",
         "assets/js/app.js",
+        "assets/js/route-registry.js",
         "assets/js/espectre-ble.js",
         "assets/js/LICENSES/Apache-2.0.txt",
         "assets/css/styles.css",

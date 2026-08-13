@@ -14,57 +14,14 @@ const GA_MEASUREMENT_ID = 'G-S0NQNG0V11';
 const ANALYTICS_CONSENT_KEY = 'espectre.analytics.consent.v1';
 const PRODUCTION_HOSTS = new Set(['espectre.dev', 'www.espectre.dev']);
 const LOCAL_ANALYTICS_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
-const TOOL_ROUTES = ['flash', 'configure', 'monitor', 'theremin', 'game'];
 const IS_STATIC_PAGE = document.documentElement.hasAttribute('data-static-page');
 const STATIC_PAGE_SECTION = document.documentElement.dataset.siteSection || 'documentation';
-
-const ROUTE_TITLES = {
-    home: 'ESPectre — Wi-Fi motion sensing',
-    tools: 'Browser tools | ESPectre',
-    flash: 'Flash firmware | ESPectre',
-    configure: 'Configure device | ESPectre',
-    monitor: 'MQTT monitor | ESPectre',
-    theremin: 'Motion theremin | ESPectre',
-    game: 'Motion game | ESPectre',
-    guides: 'Guides | ESPectre',
-    'guide-hardware': 'Choosing an ESP32 board | ESPectre',
-    'guide-setup': 'Flash & Wi-Fi setup | ESPectre',
-    'guide-placement': 'Sensor placement guide | ESPectre',
-    'guide-detection': 'How detection works | ESPectre',
-    'guide-firmware': 'Build custom firmware | ESPectre',
-    docs: 'ESPectre SDK quick guide | ESPectre',
-    'docs-api': 'API orientation | ESPectre',
-    'docs-examples': 'Examples | ESPectre',
-    'docs-architecture': 'Architecture | ESPectre',
-    media: 'Media | ESPectre',
-    roadmap: 'Roadmap | ESPectre',
-    privacy: 'Website privacy and analytics | ESPectre'
-};
 
 const CAPABILITY_BY_ROUTE = {
     configure: ['web_bluetooth', 'bluetooth'],
     theremin: ['web_bluetooth', 'bluetooth'],
     game: ['web_bluetooth', 'bluetooth'],
     flash: ['web_serial', 'serial']
-};
-
-const GUIDE_NAME_BY_PATH = {
-    '/guides/': 'overview',
-    '/guides/hardware/': 'hardware',
-    '/guides/setup/': 'setup',
-    '/guides/placement/': 'placement',
-    '/guides/detection/': 'detection',
-    '/guides/custom-firmware/': 'firmware'
-};
-
-const DOCUMENT_NAME_BY_PATH = {
-    '/docs/': 'overview',
-    '/docs/api/': 'api',
-    '/docs/examples/': 'examples',
-    '/docs/architecture/': 'architecture',
-    '/artifacts/sdk/stable/': 'sdk_stable',
-    '/artifacts/sdk/main/': 'sdk_main',
-    '/artifacts/sdk/api/': 'api_reference'
 };
 
 const reportedCapabilities = new Set();
@@ -76,20 +33,20 @@ function currentRoute() {
 }
 
 function getRouteTitle(route = currentRoute()) {
-    return ROUTE_TITLES[route] || ROUTE_TITLES.home;
+    const registeredTitle = window.ESPectreRoutes?.title(route);
+    if (registeredTitle) return registeredTitle;
+    const conventionalPrefix = ['guide-', 'docs-'].find((prefix) => route.startsWith(prefix));
+    if (conventionalPrefix) {
+        const slug = route.slice(conventionalPrefix.length);
+        const label = slug.replace(/[-_]+/g, ' ').trim();
+        if (label) return `${label.charAt(0).toUpperCase()}${label.slice(1)} | ESPectre`;
+    }
+    return 'ESPectre — Wi-Fi motion sensing';
 }
 
 function getSiteSection(route = currentRoute()) {
     if (IS_STATIC_PAGE) return STATIC_PAGE_SECTION;
-    if (route === 'home') return 'home';
-    if (route === 'tools') return 'tools';
-    if (TOOL_ROUTES.includes(route)) return route;
-    if (route === 'guides' || route.startsWith('guide-')) return 'documentation';
-    if (route === 'docs' || route.startsWith('docs-')) return 'documentation';
-    if (route === 'media') return 'media';
-    if (route === 'roadmap') return 'documentation';
-    if (route === 'privacy') return 'privacy';
-    return 'other';
+    return window.ESPectreRoutes?.contentGroup(route) || 'other';
 }
 
 function routePath(route) {
@@ -312,17 +269,23 @@ function initializeAutoTracking() {
             return;
         }
 
-        if (url.origin === window.location.origin && GUIDE_NAME_BY_PATH[url.pathname]) {
+        const guideName = url.origin === window.location.origin
+            ? window.ESPectreRoutes?.guideNameForPath(url.pathname)
+            : '';
+        if (guideName) {
             trackEvent('select_guide', {
-                guide_name: GUIDE_NAME_BY_PATH[url.pathname],
+                guide_name: guideName,
                 link_text: linkText(link)
             });
             return;
         }
 
-        if (url.origin === window.location.origin && DOCUMENT_NAME_BY_PATH[url.pathname]) {
+        const documentName = url.origin === window.location.origin
+            ? window.ESPectreRoutes?.documentNameForPath(url.pathname)
+            : '';
+        if (documentName) {
             trackEvent('select_documentation', {
-                document_name: DOCUMENT_NAME_BY_PATH[url.pathname],
+                document_name: documentName,
                 link_text: linkText(link)
             });
             return;
@@ -338,7 +301,7 @@ function initializeAutoTracking() {
         }
 
         const route = url.origin === window.location.origin ? url.hash.replace(/^#/, '') : '';
-        if (TOOL_ROUTES.includes(route)) {
+        if (window.ESPectreRoutes?.groupOf(route) === 'tools') {
             trackEvent('select_tool', { tool_name: route, link_text: linkText(link) });
         } else if (route === 'guides') {
             trackEvent('select_guide', { guide_name: 'overview', link_text: linkText(link) });

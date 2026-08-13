@@ -14,6 +14,9 @@ import vm from 'node:vm';
 const analyticsSource = readFileSync(
     new URL('../../docs/web/assets/js/analytics.js', import.meta.url), 'utf8'
 );
+const routeRegistrySource = readFileSync(
+    new URL('../../docs/web/assets/js/route-registry.js', import.meta.url), 'utf8'
+);
 const testExports = `
 globalThis.__analyticsTest = {
     analyticsAllowedHere, disableAnalytics, enableAnalytics, getRouteTitle, getSiteSection,
@@ -61,7 +64,7 @@ function analyticsContext({
         window, globalThis: null
     });
     context.globalThis = context;
-    vm.runInContext(analyticsSource + testExports, context);
+    vm.runInContext(routeRegistrySource + analyticsSource + testExports, context);
     return { api: context.__analyticsTest, window, appendedScripts, listeners };
 }
 
@@ -140,11 +143,22 @@ describe('analytics privacy boundary', () => {
 
 describe('analytics route metadata', () => {
     it('uses stable route titles and content groups', () => {
-        const { api } = analyticsContext({ hash: '#monitor' });
+        const { api, window } = analyticsContext({ hash: '#monitor' });
         assert.equal(api.getRouteTitle('monitor'), 'MQTT monitor | ESPectre');
+        assert.equal(api.getRouteTitle('guide-detectors'), 'Detection profiles | ESPectre');
+        assert.equal(api.getRouteTitle('guide-new-topic'), 'New topic | ESPectre');
+        assert.equal(api.getRouteTitle('docs-new-reference'), 'New reference | ESPectre');
         assert.equal(api.getRouteTitle('privacy'), 'Website privacy and analytics | ESPectre');
         assert.equal(api.getSiteSection('monitor'), 'monitor');
         assert.equal(api.getSiteSection('guide-setup'), 'documentation');
+        assert.equal(api.getSiteSection('docs-api'), 'documentation');
+        assert.equal(window.ESPectreRoutes.guideNameForPath('/guides/detectors/'), 'detectors');
+        assert.equal(window.ESPectreRoutes.guideNameForPath('/guides/custom-firmware/'), 'firmware');
+        assert.equal(window.ESPectreRoutes.guideNameForPath('/docs/api/'), '');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/docs/api/'), 'api');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/docs/'), 'overview');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/stable/'), 'sdk_stable');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/guides/detection/'), '');
         assert.equal(api.getSiteSection('privacy'), 'privacy');
         assert.equal(api.routePath('home'), '/');
         assert.equal(api.routePath('flash'), '/#flash');

@@ -41,6 +41,10 @@ npm --prefix docs/web run stage:vendor
 
 `assets/js/analytics.js` enables GA4 on `espectre.dev` and on loopback hosts only after explicit consent. Local previews always set GA4 `debug_mode`, so their events remain identifiable as developer traffic and available in DebugView. The site stores the choice under `espectre.analytics.consent.v1`, disables advertising storage and Google Signals, and exposes Cookie settings in every generated footer. The public policy is owned by `content/privacy.html`.
 
+Guide and documentation analytics are convention-based: same-origin `/guides/<slug>/` and `/docs/<slug>/` links report their registered route name as `guide_name` and `document_name`, while otherwise unmapped `guide-<slug>` and `docs-<slug>` SPA routes receive human-readable page titles automatically. Route-registry metadata preserves established titles, historical parameter values, the documentation root, and SDK artifact names; `analytics.js` contains no path maps. Tool analytics remain explicit because each tool owns distinct capabilities, events, and funnels.
+
+`assets/js/route-registry.js` is the single source of truth for SPA route membership, navigation groups, page titles, canonical static paths, analytics content groups, and content-event names. Register a new SPA page there once; `app.js` uses it for routing and active navigation, while `analytics.js` uses the same metadata. The registry is also loaded by generated static pages, and structural tests require it to match every `main[data-page]` and `data-static-url` entry in `index.html`.
+
 The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs and passwords, broker addresses and credentials, device identifiers, Bluetooth identifiers, Matter pairing codes, raw CSI, and MQTT payloads.
 
 | Journey | Events and required parameters | Intended use |

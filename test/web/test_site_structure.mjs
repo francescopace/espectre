@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 const index = read('docs/web/index.html');
 const app = read('docs/web/assets/js/app.js');
+const routeRegistry = read('docs/web/assets/js/route-registry.js');
 const styles = read('docs/web/assets/css/styles.css');
 const GPL_HTML_HEADER = `<!--
   SPDX-License-Identifier: GPL-3.0-only
@@ -28,6 +29,9 @@ describe('website security and asset policy', () => {
         assert.doesNotMatch(index, /unpkg\.com|jsdelivr\.net/);
         assert.match(index, /\/assets\/css\/styles\.css/);
         assert.match(index, /\/assets\/js\/app\.js/);
+        assert.match(index, /\/assets\/js\/route-registry\.js/);
+        assert.ok(index.indexOf('/assets/js/route-registry.js') < index.indexOf('/assets/js/analytics.js'));
+        assert.ok(index.indexOf('/assets/js/route-registry.js') < index.indexOf('/assets/js/app.js'));
         assert.match(app, /\/vendor\/esp-web-tools-10\.4\.0\/install-button\.js/);
         assert.match(app, /\/vendor\/mqtt-5\.3\.0\/mqtt\.min\.js/);
         assert.match(app, /\/vendor\/qrcodejs-1\.0\.0\/qrcode\.min\.js/);
@@ -81,6 +85,28 @@ describe('website analytics contracts', () => {
 });
 
 describe('website accessibility and navigation', () => {
+    it('keeps one route registry aligned with the SPA pages and static paths', () => {
+        const registeredRoutes = [...routeRegistry.matchAll(/\{ name: '([^']+)'/g)]
+            .map((match) => match[1])
+            .sort();
+        const pageRoutes = [...index.matchAll(/<main\b[^>]*\bdata-page="([^"]+)"/g)]
+            .map((match) => match[1])
+            .sort();
+        assert.deepEqual(registeredRoutes, pageRoutes);
+
+        const registeredStaticPaths = [...routeRegistry.matchAll(/staticPath: '([^']+)'/g)]
+            .map((match) => match[1])
+            .sort();
+        const pageStaticPaths = [...index.matchAll(/\bdata-static-url="([^"]+)"/g)]
+            .map((match) => match[1])
+            .sort();
+        assert.deepEqual(registeredStaticPaths, pageStaticPaths);
+        assert.doesNotMatch(app, /const (?:NAV_GROUPS|ROUTES|STATIC_PAGE_ROUTES)\b/);
+        assert.doesNotMatch(read('docs/web/assets/js/analytics.js'), /_OVERRIDES|_BY_PATH/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /route-registry\.js/);
+        assert.match(read('.github/scripts/stage_web_sdk.py'), /route-registry\.js/);
+    });
+
     it('has a responsive navigation control and a live status region', () => {
         assert.match(index, /class="nav-toggle"[^>]+aria-controls="main-navigation"/);
         assert.match(index, /id="main-navigation"/);
@@ -113,8 +139,7 @@ describe('website UX and content contracts', () => {
         assert.match(index, /data-page="privacy"/);
         assert.match(index, /data-content-url="content\/privacy\.html"/);
         assert.match(index, /<div class="footer-links">\s*<a href="#privacy">Privacy<\/a>/);
-        assert.match(app, /'roadmap', 'privacy'/);
-        assert.match(app, /'\/privacy\/': 'privacy'/);
+        assert.match(routeRegistry, /name: 'privacy'.*staticPath: '\/privacy\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/#privacy">Privacy<\/a>/);
         assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/#privacy">Privacy<\/a>/);
         const sitemap = read('docs/web/sitemap.xml');
@@ -184,7 +209,7 @@ describe('website UX and content contracts', () => {
         assert.match(guide, /Lightweight Detection/);
         assert.match(guide, /High-Accuracy Detection/);
         assert.match(index, /data-page="guide-detectors"/);
-        assert.match(app, /'\/guides\/detectors\/': 'guide-detectors'/);
+        assert.match(routeRegistry, /name: 'guide-detectors'.*staticPath: '\/guides\/detectors\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/detectors\.html"/);
         assert.match(read('docs/web/sitemap.xml'), /https:\/\/espectre\.dev\/guides\/detectors\//);
     });
