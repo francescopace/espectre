@@ -66,7 +66,7 @@ The committed `sitemap.xml` is the canonical URL inventory and intentionally con
 
 `assets/js/espectre-ble.js` is a dependency-free client for the ESPectre BLE surface defined in `docs/ESPECTRE_PROTOCOL.md`. It exposes two globals: `ESPectreBleClient` and `ESPectreValidationError`. Web Bluetooth needs a Chromium-based browser and a secure context (HTTPS or `localhost`); check `ESPectreBleClient.supported` before connecting.
 
-Unlike the rest of the site, the client is **Apache-2.0** licensed (see `LICENSING.md`), so any web application, including proprietary ones, can embed it.
+Unlike the rest of the site, the client is **Apache-2.0** licensed (see [Apache-2.0.txt](assets/js/LICENSES/Apache-2.0.txt)), so any web application, including proprietary ones, can embed it.
 
 ```js
 const client = new ESPectreBleClient();

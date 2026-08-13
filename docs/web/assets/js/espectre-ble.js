@@ -11,7 +11,8 @@
  * README.md.
  *
  * This file is Apache-2.0 licensed so it can be embedded in any web application,
- * including proprietary ones.
+ * including proprietary ones. The complete license text is distributed alongside
+ * this file in LICENSES/Apache-2.0.txt.
  *
  * Copyright 2026 Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: Apache-2.0

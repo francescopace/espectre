@@ -18,7 +18,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LICENSE_BASENAMES = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "COPYRIGHT")
-ESP_MATTER_NOTICE = REPO_ROOT / "third_party" / "notices" / "esp-matter-NOTICE.txt"
+ESP_MATTER_NOTICE = (
+    REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "third_party" / "esp_matter" / "NOTICE"
+)
 
 
 @dataclass

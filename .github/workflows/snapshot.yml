@@ -179,7 +179,6 @@ jobs:
             sdk/*.zip
             sdk/*.json
             LICENSE
-            LICENSES/Apache-2.0.txt
             LICENSING.md
             THIRD_PARTY_NOTICES.md
           draft: false

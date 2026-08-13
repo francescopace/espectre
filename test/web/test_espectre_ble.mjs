@@ -8,11 +8,9 @@
  *
  * Run with: node --test 'test/web/*.mjs'
  *
- * Apache-2.0 like the library itself, so client and tests can travel
- * together into other projects.
- *
  * Copyright 2026 Francesco Pace <francesco.pace@gmail.com>
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
 import { describe, it } from 'node:test';

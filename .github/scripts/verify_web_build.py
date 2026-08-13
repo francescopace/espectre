@@ -232,6 +232,7 @@ def verify(args: argparse.Namespace) -> None:
         "404.html",
         "assets/js/app.js",
         "assets/js/espectre-ble.js",
+        "assets/js/LICENSES/Apache-2.0.txt",
         "assets/css/styles.css",
         "vendor/qrcodejs-1.0.0/qrcode.min.js",
         "vendor/esp-web-tools-10.4.0/install-button.js",

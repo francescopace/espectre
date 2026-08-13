@@ -115,11 +115,11 @@ def test_repository_license_policy_covers_exceptions_and_release_artifacts():
     release_workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     snapshot_workflow = (REPO_ROOT / ".github" / "workflows" / "snapshot.yml").read_text(encoding="utf-8")
 
-    assert "SPDX-License-Identifier: Apache-2.0" in licensing
-    assert "docs/web/assets/js/espectre-ble.js" not in licensing
-    assert "test/web/test_espectre_ble.mjs" not in licensing
+    assert "docs/web/assets/js/espectre-ble.js" in licensing
+    assert "docs/web/assets/js/LICENSES/Apache-2.0.txt" in licensing
     assert "SPDX-License-Identifier: Apache-2.0" in ble_client
-    assert "SPDX-License-Identifier: Apache-2.0" in ble_tests
+    assert GPL_SPDX_HEADER in ble_tests
+    assert COMMERCIAL_LICENSE_NOTICE in ble_tests
     assert "ESPHome C++ runtime" in licensing
     assert "test/cpp/support/LICENSE.cnpy" in licensing
     assert "build-specific SPDX SBOMs" in notices
@@ -127,12 +127,18 @@ def test_repository_license_policy_covers_exceptions_and_release_artifacts():
     assert "firmware/*" in snapshot_workflow
     assert "THIRD_PARTY_NOTICES.md" in release_workflow
     assert "THIRD_PARTY_NOTICES.md" in snapshot_workflow
-    assert "LICENSES/Apache-2.0.txt" in release_workflow
-    assert "LICENSES/Apache-2.0.txt" in snapshot_workflow
+    assert "LICENSES/Apache-2.0.txt" not in release_workflow
+    assert "LICENSES/Apache-2.0.txt" not in snapshot_workflow
     assert "build_firmware_compliance" in ci_workflow
-    apache_license = (REPO_ROOT / "LICENSES" / "Apache-2.0.txt").read_text(encoding="utf-8")
+    apache_license = (
+        REPO_ROOT / "docs" / "web" / "assets" / "js" / "LICENSES" / "Apache-2.0.txt"
+    ).read_text(encoding="utf-8")
     assert "Apache License" in apache_license
     assert "Version 2.0" in apache_license
+    assert not (REPO_ROOT / "LICENSES" / "Apache-2.0.txt").exists()
+    assert (
+        REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "third_party" / "esp_matter" / "NOTICE"
+    ).is_file()
 
 
 def test_firmware_manifest_links_available_compliance_artifacts(tmp_path):
@@ -262,7 +268,6 @@ def test_source_files_have_consistent_license_headers():
         "docs/web/assets/js/espectre-ble.js": "Apache-2.0",
         "test/cpp/support/cnpy.cpp": "MIT",
         "test/cpp/support/cnpy.h": "MIT",
-        "test/web/test_espectre_ble.mjs": "Apache-2.0",
     }
     missing = []
     for relative_path in sorted(relative_paths):

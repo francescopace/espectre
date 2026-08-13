@@ -10,6 +10,7 @@ import importlib.util
 import json
 import re
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -60,6 +61,12 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     manifest_path = next(outputs[0].glob("sdk-manifest-*.json"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["generated_at"] == "2027-01-15T08:00:00+00:00"
+    assert "LICENSES/Apache-2.0.txt" not in manifest["bundle"]["top_level_files"]
+    zip_path = next(outputs[0].glob("*.zip"))
+    with zipfile.ZipFile(zip_path) as archive:
+        archived = set(archive.namelist())
+    assert not any(path.endswith("/LICENSES/Apache-2.0.txt") for path in archived)
+    assert any(path.endswith("/THIRD_PARTY_NOTICES.md") for path in archived)
     for artifact in manifest["artifacts"]:
         assert artifact["sha256"] == file_sha256(outputs[0] / artifact["filename"])
 

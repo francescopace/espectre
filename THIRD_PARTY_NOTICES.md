@@ -2,8 +2,6 @@
 
 This file records third-party material distributed directly by the ESPectre repository. It does not replace the upstream license text. Published firmware releases include build-specific SPDX SBOMs and license archives generated from the components actually linked into each image.
 
-The full Apache License 2.0 text used by repository-level Apache-licensed files is stored in `LICENSES/Apache-2.0.txt`.
-
 ## Firmware frameworks
 
 ESPectre firmware can be built with the following frameworks and components. They are downloaded by their owning build systems rather than copied into the ESPectre SDK source bundle.
@@ -14,6 +12,8 @@ ESPectre firmware can be built with the following frameworks and components. The
 | esp-matter and Matter SDK | Matter frontend | Apache-2.0 | Compatible; preserve `NOTICE`, and do not imply Matter certification or trademark rights |
 | ESPHome C++ runtime | ESPHome frontend | GPL-3.0-only | Not included in the commercial track; ESPHome firmware is GPLv3-only |
 | ESPHome Python tooling | ESPHome code generation and build tooling | MIT | Build-time only |
+
+The upstream Matter [NOTICE](src/cpp/frontend/matter/third_party/esp_matter/NOTICE) is preserved with the Matter frontend and included in every Matter firmware license archive.
 
 ESP-IDF and esp-matter contain additional permissively licensed components. Each per-build `*-third-party-licenses.zip` contains the license files collected from the linked component set, while the adjacent `*-sbom.spdx.json` records the firmware checksum and package and component inventory.
 

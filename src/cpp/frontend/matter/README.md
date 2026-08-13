@@ -162,6 +162,7 @@ This map is for frontend maintainers; it is not required for commissioning an ex
 - firmware app: [`app/`](app/)
 - dependency manager: ESP-IDF Component Manager
 - declared external dependency: `espressif/esp_matter`
+- upstream notice preserved for firmware compliance archives: [`NOTICE`](third_party/esp_matter/NOTICE)
 - Matter device type: occupancy sensor (`0x0107`)
 - development VID/PID: `0xFFF1` / `0x8000`
 - partition layout: [`partitions.csv`](app/partitions.csv)

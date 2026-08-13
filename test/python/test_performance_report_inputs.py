@@ -1,3 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
+"""
+ESPectre - Performance Report Inputs Tests
+
+Tests for performance report input collection.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+"""
+
 import numpy as np
 
 from tools.lib import performance_report, performance_report_inputs

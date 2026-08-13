@@ -4,7 +4,7 @@ ESPectre first-party code is available under the open-source GPLv3 license, and 
 
 ## GPLv3 (open source)
 
-Unless a file carries a different SPDX license identifier or third-party notice, ESPectre first-party source code is released under the [GNU General Public License v3.0](LICENSE). You are free to use, study, modify, and redistribute that code, provided that firmware and applications that include it comply with GPLv3, including making the corresponding source available. Files marked `SPDX-License-Identifier: Apache-2.0` are instead licensed under the [Apache License 2.0](LICENSES/Apache-2.0.txt), which is compatible with GPLv3 and permits use in proprietary applications.
+Unless a file carries a different SPDX license identifier or third-party notice, ESPectre first-party source code is released under the [GNU General Public License v3.0](LICENSE). You are free to use, study, modify, and redistribute that code, provided that firmware and applications that include it comply with GPLv3, including making the corresponding source available. The reusable BLE client at `docs/web/assets/js/espectre-ble.js` is instead licensed under the [Apache License 2.0](docs/web/assets/js/LICENSES/Apache-2.0.txt), which is compatible with GPLv3 and permits use in proprietary applications.
 
 ## Commercial license
 
