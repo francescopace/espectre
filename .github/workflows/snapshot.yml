@@ -29,7 +29,7 @@ jobs:
     steps:
       - name: Verify source commit is still the branch head
         id: current
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const branch = context.payload.workflow_run.head_branch;
@@ -120,7 +120,7 @@ jobs:
             --require-complete-matrix
 
       - name: Recheck source commit before publishing
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const branch = context.payload.workflow_run.head_branch;
@@ -135,7 +135,7 @@ jobs:
             }
 
       - name: Move snapshot tag atomically
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           SNAPSHOT_TAG: ${{ steps.snapshot.outputs.tag }}
         with:
@@ -161,7 +161,7 @@ jobs:
             }
       
       - name: Create snapshot release
-        uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
           tag_name: ${{ steps.snapshot.outputs.tag }}
           target_commitish: ${{ github.event.workflow_run.head_sha }}
