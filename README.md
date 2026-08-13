@@ -1,6 +1,4 @@
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
-[![ESPHome](https://img.shields.io/badge/ESPHome-Component-blue.svg)](https://esphome.io/)
-[![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://www.espressif.com/en/products/socs)
 [![Release](https://img.shields.io/github/v/release/francescopace/espectre)](https://github.com/francescopace/espectre/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
@@ -9,34 +7,13 @@
 
 **ESPectre** is an open-source Wi-Fi sensing platform for ESP32 devices.
 
-It detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or radar hardware. It integrates directly with Home Assistant through ESPHome or Native MQTT Discovery and offers a standards-based Matter occupancy-sensor path whose controller coverage is still being validated. It can also connect over BLE, MQTT, or custom integrations.
-
-This page is for evaluating the project and choosing a first path. Use [SETUP.md](docs/SETUP.md) when you are ready to install firmware, or [EMBEDDING.md](docs/EMBEDDING.md) when you want to integrate the sensing engine into another product.
+It detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or radar hardware. It integrates directly with Home Assistant through ESPHome or Native MQTT Discovery and offers a standards-based Matter occupancy-sensor path. It can also connect over BLE or custom integrations.
 
 ## How It Works
 
 Wi-Fi signals bounce around a room. When a person moves, those reflections change. ESPectre reads channel state information (CSI), a measurement of how the radio channel changes across Wi-Fi frequencies, and turns those variations into motion and movement-score signals.
 
-ESPectre includes two on-device detection profiles because deployments have different accuracy and resource budgets:
-
-| Detection profile | Choose it when | Startup |
-|---|---|---|
-| **Lightweight Detection** (`lightweight`) | CPU time and working memory matter more than maximum accuracy, such as on smaller chips or firmware that must reserve resources for other features | Adapts to the room during an initial quiet calibration of up to about 10 seconds |
-| **High-Accuracy Detection** (`high_accuracy`) | Higher accuracy and better generalization justify additional feature state, memory, and inference work | Uses its trained threshold and skips quiet-room threshold calibration; it starts after CSI is ready and its feature window has filled |
-
-Lightweight is not a legacy fallback, and High Accuracy is not required for compatibility: ESPHome, Native, and Matter support both. They are two production choices for different deployment constraints. High Accuracy is implemented by the open ML model, weights, training data, and training pipeline.
-
-Use the [detection profile guide](https://espectre.dev/guides/detectors/) for the practical choice. For signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md). For the ML workflow, training pipeline, and model export path, see [ML_TRAINING.md](docs/ML_TRAINING.md). For benchmarks and performance notes, see [docs/performance](docs/performance/README.md).
-
-## Why It Matters
-
-ESPectre needs just one device to work, but you can put one in every room to build a room-level detection mesh:
-
-- **Smart home ready**: ESPHome provides the most complete Home Assistant surface, while Native supports broker-based setups through MQTT Discovery.
-- **Matter path**: Matter firmware exposes a standard occupancy sensor. Controller validation is still limited; see the [Matter frontend](src/cpp/frontend/matter/README.md) for the current matrix.
-- **Native firmware**: standalone BLE, MQTT, OTA, and Home Assistant MQTT Discovery firmware works with or without Home Assistant and can be driven by web clients or custom integrations.
-- **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed in custom ESP32 firmware and OEM products.
-- **Research and ML tooling**: streamer firmware, collection tools, and training docs support CSI dataset creation and future sensing models.
+ESPectre needs just one device to work, but you can put one in every room to build a room-level detection mesh.
 
 With ESPectre, ordinary Wi-Fi smart devices can double as ambient sensing nodes. Lights, switches, HVAC devices, appliances, and custom ESP32 products can add motion or occupancy awareness without cameras or dedicated sensors.
 
@@ -62,50 +39,23 @@ Supported hardware:
 - ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, and classic ESP32
 - a normal Wi-Fi network; 2.4 GHz on every board, plus 5 GHz on the ESP32-C5
 
-![ESP32 boards with internal and external antennas](docs/web/assets/images/guides/esp32-boards.jpg)
+ESPectre includes two on-device detection profiles because deployments have different accuracy and resource budgets:
 
-*ESP32-S3 DevKit boards with external antennas*
+| Detection profile | Choose it when | Startup |
+|---|---|---|
+| `lightweight` | CPU time and working memory matter more than maximum accuracy, such as on smaller chips or firmware that must reserve resources for other features | Adapts to the room during an initial quiet calibration of up to about 10 seconds |
+| `high_accuracy` | Higher accuracy and better generalization justify additional feature state, memory, and inference work | Uses its trained threshold and skips quiet-room threshold calibration; it starts after CSI is ready and its feature window has filled |
 
 ## Build Your Own Path
 
-| Path                   | Best for                                                                    | Start here                                                   |
-| ---------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| **ESPHome**            | Home Assistant users who want the most polished production path             | [ESPHome frontend](src/cpp/frontend/esphome/README.md)       |
-| **Matter**             | Controllers with Matter occupancy-sensor support; validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md)         |
-| **Native BLE/MQTT**    | Standalone devices, Home Assistant MQTT Discovery, web clients, and custom apps | [Native frontend](src/cpp/frontend/native/README.md)         |
-| **Streamer**           | CSI data capture, dataset collection, live experiments, and ML workflows    | [Streamer frontend](src/cpp/frontend/streamer/README.md)     |
-| **Micro-ESPectre**     | Python/MicroPython prototyping and optional Home Assistant MQTT Discovery   | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
-| **SDK-oriented reuse** | Custom firmware, smart-device makers, and OEM exploration                   | [ARCHITECTURE.md](docs/ARCHITECTURE.md)                      |
-
-For shared prerequisites and supported targets, use [SETUP.md](docs/SETUP.md). For the repository CLI surface, use [CLI.md](docs/CLI.md).
-
-![ESPectre Home Assistant dashboard](docs/web/assets/images/guides/home-assistant-dashboard.png)
-
-*ESPHome dashboard with motion state, movement score, detector selection, threshold control, and recalibration*
-
-## Platform And Reuse
-
-ESPectre separates its user-facing frontends from the shared sensing runtime and detector core. Users can choose ESPHome, Native, Matter, or Streamer without changing the detector implementation, while firmware teams can embed the same runtime in another ESP32 product.
-
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the internal layers.
-- [EMBEDDING.md](docs/EMBEDDING.md) is the integration guide for firmware teams.
-- [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) defines the shared BLE/MQTT message model.
-
-## Roadmap
-
-ESPectre v3 turns the original motion detector into a reusable multi-frontend platform. The next direction is privacy-first orchestration for multiple sensing nodes. See [ROADMAP.md](docs/ROADMAP.md) for outcomes, gates, and sequencing.
-
-## Community
-
-ESPectre is already useful, but the next jump depends on broader real-world coverage. Helpful contributions include:
-
-- testing v3 firmware on different ESP32 boards and routers
-- reporting Matter, native BLE/MQTT, and ESPHome behavior
-- collecting `empty`, `static_presence`, and `motion` datasets
-- improving setup and tuning docs for real homes and labs
-- exploring custom firmware or OEM-style integrations on top of the shared platform
-
-Start with [CONTRIBUTING.md](CONTRIBUTING.md), dataset collection in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), and design discussions in [GitHub Discussions](https://github.com/francescopace/espectre/discussions).
+| Path | Best for | Start here |
+| ---- | -------- | ---------- |
+| **ESPHome** | Home Assistant users who want the most polished production path | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
+| **Matter** | Controllers with Matter occupancy-sensor support; validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
+| **Native BLE/MQTT** | Standalone devices, Home Assistant MQTT Discovery, web clients, and custom apps | [Native frontend](src/cpp/frontend/native/README.md) |
+| **Streamer** | CSI data capture, dataset collection, live experiments, and ML workflows | [Streamer frontend](src/cpp/frontend/streamer/README.md) |
+| **Micro-ESPectre** | MicroPython prototyping and optional Home Assistant MQTT Discovery | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
+| **SDK** | Custom firmware, smart-device makers, and OEM exploration | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 
 ## Responsible Use
 
@@ -118,6 +68,7 @@ ESPectre does not use cameras, microphones, or wearables. It works with derived 
 - **Collect and train:** [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), [ML_TRAINING.md](docs/ML_TRAINING.md), [FEATURES.md](docs/FEATURES.md), and the generated [performance report](docs/performance/README.md)
 - **Research and direction:** [LITERATURE.md](docs/LITERATURE.md), [ROADMAP.md](docs/ROADMAP.md), the [ADR index](docs/adr/README.md), and [CHANGELOG.md](docs/CHANGELOG.md)
 - **Frontend reference:** [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), and [Streamer](src/cpp/frontend/streamer/README.md)
+- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md) and [GitHub Discussions](https://github.com/francescopace/espectre/discussions)
 
 ## Related Projects
 
@@ -137,6 +88,4 @@ ESPectre is dual-licensed:
 - **GPLv3** for open-source use: see [LICENSE](LICENSE).
 - **Commercial licenses** for embedding ESPectre into proprietary firmware: see [LICENSING.md](LICENSING.md).
 
-Third-party terms and build-specific compliance artifacts are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Published firmware releases include an SPDX SBOM, a notice summary, and the corresponding upstream license files.
-
-Contributions require a DCO `Signed-off-by` trailer on each commit (`git commit -s`) and a one-time [CLA](CLA.md) signature, so contributed code can be distributed under both licensing tracks.
+Third-party terms and build-specific compliance artifacts are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

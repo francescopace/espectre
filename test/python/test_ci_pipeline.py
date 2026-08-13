@@ -369,7 +369,7 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         source = (SCRIPTS_DIR / script_name).read_text(encoding="utf-8")
         assert IDF_DOCKER_IMAGE in source
         assert ".espectre-requirements-\\${REQUIREMENTS_HASH}" in source
-        assert "--backend local --clean" in source
+        assert "--backend local" in source
 
 
 def test_website_sources_use_the_generated_sdk_api_path() -> None:

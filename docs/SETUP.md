@@ -61,6 +61,32 @@ When the local environment is absent and Docker is running, a cached image is us
 
 Docker currently covers builds only. Flashing through the repository CLI still uses local serial tooling and ESP-IDF. If neither build backend is available, either install Docker or install ESP-IDF `5.5.5` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow.
 
+#### Optional Compiler Cache
+
+`ccache` is optional but strongly recommended for local ESP-IDF builds, especially Matter. It reuses unchanged compiler output across rebuilds and clean build directories. Repository Docker builds enable a persistent cache automatically, so no host installation is needed for the Docker backend.
+
+Install `ccache` for the local backend:
+
+- macOS with Homebrew: `brew install ccache`
+- Debian or Ubuntu Linux: `sudo apt update && sudo apt install ccache`; on other distributions, install the `ccache` package with the system package manager
+- Windows: the official ESP-IDF Tools installation includes `ccache`; verify it from an ESP-IDF PowerShell with `ccache --version`. For a manually managed toolchain, install the [official Windows release](https://ccache.dev/download.html) or run `choco install ccache` when Chocolatey is available
+
+Enable it in the current macOS or Linux shell before building:
+
+```bash
+export IDF_CCACHE_ENABLE=1
+ccache --version
+```
+
+Use the equivalent PowerShell environment variable on Windows:
+
+```powershell
+$env:IDF_CCACHE_ENABLE = "1"
+ccache --version
+```
+
+Add the environment variable to the shell profile or user environment to enable it in future terminals. ESP-IDF also accepts `idf.py --ccache` for an individual raw ESP-IDF invocation.
+
 Build cleanup, chip-matched flash selection, and namespace-specific flags are documented in [CLI.md](CLI.md#frontend-workflow-commands).
 
 ## Local CLI Workflows

@@ -149,16 +149,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # These paths contain dependencies, not target build outputs, so the matrix
-      # shares one cache entry across all supported chips.
-      - name: Cache Matter toolchain and components
+      # Keep dependencies and compiled objects per target. The target suffix
+      # prevents parallel matrix jobs from competing to populate one cache.
+      - name: Cache Matter toolchain, components, and compiler objects
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             .github/.cache/matter-home
             src/cpp/frontend/matter/app/managed_components
-          key: matter-${{ runner.os }}-idf-v5.5-deps-v2-${{ hashFiles('requirements.txt', 'src/cpp/frontend/matter/app/main/idf_component.yml') }}
+          key: matter-${{ runner.os }}-idf-v5.5-build-v3-${{ matrix.target }}-${{ hashFiles('requirements.txt', 'src/cpp/frontend/matter/app/main/idf_component.yml', 'src/cpp/frontend/matter/app/sdkconfig.defaults*') }}
           restore-keys: |
+            matter-${{ runner.os }}-idf-v5.5-build-v3-${{ matrix.target }}-
             matter-${{ runner.os }}-idf-v5.5-deps-v2-
 
       - name: Build Matter firmware

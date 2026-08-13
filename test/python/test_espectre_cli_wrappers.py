@@ -520,8 +520,12 @@ def test_build_docker_command_mounts_repository_and_uses_separate_build_dir(tmp_
     assert command[:3] == ["/usr/bin/docker", "run", "--rm"]
     assert f"{repo_root.resolve()}:/work" in command
     assert "/work/src/cpp/frontend/native/app" in command
+    assert "IDF_CCACHE_ENABLE=1" in command
+    assert "CCACHE_DIR=/work/.github/.cache/native-home/ccache" in command
+    assert "CCACHE_MAXSIZE=2G" in command
     assert "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi" in command
     assert command[-1] == "idf.py -B build-esp32c3-docker build"
+    assert (repo_root / ".github" / ".cache" / "native-home" / "ccache").is_dir()
 
 
 def test_sdkconfig_matches_target_rejects_a_different_target(tmp_path: Path) -> None:

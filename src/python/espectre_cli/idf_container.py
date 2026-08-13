@@ -145,8 +145,10 @@ def build_docker_command(
     container_home_relative = Path(".github") / ".cache" / f"{frontend}-home"
     container_home = resolved_root / container_home_relative
     root_managed_components = container_home / "root_managed_components"
+    ccache_dir = container_home / "ccache"
     container_home.mkdir(parents=True, exist_ok=True)
     root_managed_components.mkdir(parents=True, exist_ok=True)
+    ccache_dir.mkdir(parents=True, exist_ok=True)
 
     command = [docker, "run", "--rm"]
     if hasattr(os, "getuid") and hasattr(os, "getgid"):
@@ -155,6 +157,12 @@ def build_docker_command(
         [
             "-e",
             f"HOME=/work/{container_home_relative.as_posix()}",
+            "-e",
+            "IDF_CCACHE_ENABLE=1",
+            "-e",
+            f"CCACHE_DIR=/work/{container_home_relative.as_posix()}/ccache",
+            "-e",
+            "CCACHE_MAXSIZE=2G",
             "-e",
             f"SDKCONFIG_DEFAULTS={sdkconfig_defaults}",
             "-v",

@@ -19,6 +19,11 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/../../../runtime/esp_idf/espectre_config"
 )
 
+# Compile only main and its transitive component dependencies. Matter declares
+# a large component graph, so processing every available ESP-IDF component
+# adds substantial clean-build work without contributing to the firmware.
+idf_build_set_property(MINIMAL_BUILD ON)
+
 project(espectre-matter)
 
 idf_build_set_property(CXX_COMPILE_OPTIONS "-std=gnu++17;-DCHIP_HAVE_CONFIG_H" APPEND)

@@ -40,7 +40,7 @@ Before building locally, complete the shared [`Local Build Prerequisites`](../..
 Repository CLI:
 
 ```bash
-./espectre matter build --chip c3 --clean
+./espectre matter build --chip c3
 ./espectre matter flash --port /dev/cu.usbmodemXXXX
 ./espectre matter qr --port /dev/cu.usbmodemXXXX
 ./espectre monitor --port /dev/cu.usbmodemXXXX
@@ -51,7 +51,9 @@ Notes:
 - On Windows, use `.\espectre.cmd matter ...` and `.\espectre.cmd monitor --port COM5`.
 - Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
 - Shared sensing options are selected through the shared ESPectre sensing `sdkconfig` menu.
-- the first build downloads managed components and compiles `esp_matter`, so it is significantly slower than incremental builds
+- The first build downloads managed components and compiles `esp_matter`, so it is significantly slower than incremental builds.
+- Subsequent builds reuse the target-specific build directory; use `--clean` only when changing an incompatible toolchain or recovering from stale build state.
+- Docker builds enable a persistent compiler cache automatically. For local builds, follow the shared [`ccache` setup](../../../../docs/SETUP.md#optional-compiler-cache) to retain compiled objects even after a clean build.
 
 <details>
 <summary>Advanced raw ESP-IDF flow</summary>

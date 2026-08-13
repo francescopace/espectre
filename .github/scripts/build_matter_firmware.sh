@@ -10,15 +10,19 @@ BUILD_DIR="build-${MATTER_TARGET}"
 DOCKER_IMAGE="${MATTER_DOCKER_IMAGE:-espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2}"
 MATTER_HOME="${REPO_ROOT}/.github/.cache/matter-home"
 MATTER_ROOT_MANAGED_COMPONENTS="${MATTER_HOME}/root_managed_components"
+MATTER_CCACHE="${MATTER_HOME}/ccache-${MATTER_TARGET}"
 OUTPUT_DIR="$(dirname "${MATTER_OUTPUT}")"
 MATTER_OUTPUT_IN_WORK="/work/${MATTER_OUTPUT#"${REPO_ROOT}"/}"
 MATTER_SDKCONFIG_DEFAULTS="${MATTER_SDKCONFIG_DEFAULTS:-}"
 
-mkdir -p "${MATTER_HOME}" "${MATTER_ROOT_MANAGED_COMPONENTS}" "${OUTPUT_DIR}"
+mkdir -p "${MATTER_HOME}" "${MATTER_ROOT_MANAGED_COMPONENTS}" "${MATTER_CCACHE}" "${OUTPUT_DIR}"
 
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -e HOME="/work/.github/.cache/matter-home" \
+  -e IDF_CCACHE_ENABLE=1 \
+  -e CCACHE_DIR="/work/.github/.cache/matter-home/ccache-${MATTER_TARGET}" \
+  -e CCACHE_MAXSIZE=750M \
   -e SDKCONFIG_DEFAULTS="${MATTER_SDKCONFIG_DEFAULTS}" \
   -e MATTER_OUTPUT="${MATTER_OUTPUT_IN_WORK}" \
   -v "${MATTER_ROOT_MANAGED_COMPONENTS}:/opt/esp/root_managed_components" \
@@ -52,7 +56,7 @@ docker run --rm \
     fi
     export ESPECTRE_IDF_BUILD_DIR=${BUILD_DIR}
     cd /work
-    python /work/espectre matter build --chip \"\${MATTER_CHIP}\" --backend local --clean
+    python /work/espectre matter build --chip \"\${MATTER_CHIP}\" --backend local
     cd /work/src/cpp/frontend/matter/app/${BUILD_DIR}
     if python -m esptool merge-bin -h >/dev/null 2>&1; then
       python -m esptool --chip ${MATTER_TARGET} merge-bin --pad-to-size 4MB -o \"\${MATTER_OUTPUT}\" @flash_args
