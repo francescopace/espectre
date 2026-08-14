@@ -86,8 +86,8 @@ Each saved capture emits one `.npz` per `device_id`. Mixed-device files are not 
 When saving captures:
 
 - collection starts only after the ready gate is satisfied
-- for `classic`, that happens after startup calibration
-- `ml` uses its production feature window and does not run startup calibration
+- for `lightweight`, that happens after startup calibration
+- `high_accuracy` uses its production feature window and does not run startup calibration
 - `--detector` chooses the production detection profile for the ready gate in both live and timed collection; timed collection accepts one profile, while live inspection can compare `lightweight,high_accuracy`
 - `Ctrl+C` before a requested `--duration` finishes aborts the partial live capture
 - without `--duration`, `Ctrl+C` saves the packets already accepted

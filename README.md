@@ -55,7 +55,7 @@ ESPectre includes two on-device detection profiles because deployments have diff
 | **Native BLE/MQTT** | Standalone devices, Home Assistant MQTT Discovery, web clients, and custom apps | [Native frontend](src/cpp/frontend/native/README.md) |
 | **Streamer** | CSI data capture, dataset collection, live experiments, and ML workflows | [Streamer frontend](src/cpp/frontend/streamer/README.md) |
 | **Micro-ESPectre** | MicroPython prototyping and optional Home Assistant MQTT Discovery | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
-| **SDK** | Custom firmware, smart-device makers, and OEM exploration | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| **SDK** | Custom firmware, smart-device makers, and OEM exploration | [EMBEDDING.md](docs/EMBEDDING.md) |
 
 ## Responsible Use
 

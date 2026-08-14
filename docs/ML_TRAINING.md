@@ -246,7 +246,7 @@ Do not claim a promotion is complete until the generated reports are current and
 
 - [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md): collection and labeling workflow
 - [FEATURES.md](FEATURES.md): production feature set, research ledger, and retained evidence
-- [ALGORITHMS.md](ALGORITHMS.md#ml-detector): runtime detector behavior
+- [ALGORITHMS.md](ALGORITHMS.md#high-accuracy-implementation-highaccuracydetector): runtime detector behavior
 - [performance/README.md](performance/README.md): generated current performance
 - [tools/README.md](../tools/README.md): complete tool reference and cache operations
 - [2026-07-23-separate-ml-training-data-from-promotion-replays.md](adr/2026-07-23-separate-ml-training-data-from-promotion-replays.md): split and promotion rationale

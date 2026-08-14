@@ -52,7 +52,7 @@ Start with threshold. If needed, then adjust window size or filters.
 
 ### Threshold
 
-The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, while High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session; recalibration restores the automatic value. Matter currently exposes no writable sensing controls.
+The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, while High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session. Recalibration recomputes the quiet-room threshold for Lightweight; for High Accuracy, it immediately restores the trained default without collecting a quiet-room window. Matter currently exposes no writable sensing controls.
 
 Both detectors expose a `0.0-1.0` probability threshold.
 
@@ -222,7 +222,7 @@ Try in this order:
 3. keep Hampel enabled
 4. increase the window size slightly
 5. inspect interference sources such as fans, curtains, pets, Bluetooth, or microwave activity
-6. rerun calibration in a quiet room
+6. when using Lightweight, rerun calibration in a quiet room
 
 ### Missing Movements
 
@@ -279,15 +279,15 @@ If your AP changes channel often:
 
 ## Recalibration
 
-`lightweight` can recompute its threshold without changing firmware.
+`lightweight` can recompute its threshold without changing firmware. For `high_accuracy`, the same control restores the trained default immediately and does not start a quiet-room calibration window.
 
 Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, and Native exposes the shared control through its command surfaces. Matter currently exposes no writable sensing controls.
 
 When recalibrating:
 
-- keep the room quiet
 - expect the control surface to be briefly busy
-- treat it like a fresh startup calibration
+- with Lightweight, keep the room quiet and treat it like a fresh startup calibration
+- with High Accuracy, expect the trained default threshold to be restored without a collection phase
 
 ## Monitoring Checklist
 

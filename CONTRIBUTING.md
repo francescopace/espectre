@@ -208,7 +208,8 @@ git push --force-with-lease
  * [Brief description]
  *
  * Author: [your name] <[your email]>
- * License: GPLv3
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 ```
 
@@ -221,13 +222,14 @@ git push --force-with-lease
 
 **File Header** (`src/python/micro_espectre/`):
 ```python
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 Micro-ESPectre - [Module Name]
 
 [Brief description]
 
 Author: [your name] <[your email]>
-License: GPLv3
 """
 ```
 
@@ -238,17 +240,19 @@ License: GPLv3
 
 **File Header:**
 ```python
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
 """
 ESPectre - [Module Name]
 
 [Brief description]
 
 Author: [your name] <[your email]>
-License: GPLv3
 """
 ```
 
 Executable tool scripts may keep a `#!/usr/bin/env python3` shebang above the header.
+Third-party files retain their upstream license notices; do not replace them with the ESPectre header.
 
 ### Pull Request Guidelines
 
@@ -304,8 +308,10 @@ Gesture recognition, HAR, and people counting are useful future research tracks,
 
 ### Data Privacy
 
-- CSI data is **anonymous** - contains only radio channel characteristics
-- No personal information, images, or audio
+- CSI captures do not contain images or audio, but they are not inherently anonymous: persistent device identifiers, timestamps, contributor names, environment labels, packet-level radio metadata, and inferred presence or activity can still be identifying or sensitive
+- Collect data only in spaces where you have the right to do so, inform affected people, and follow applicable privacy laws
+- Before opening a pull request, inspect the `.npz` metadata and `data/dataset_info.json`, remove unnecessary identifying details, and use a pseudonymous contributor value when attribution does not require your real name
+- Do not include Wi-Fi credentials, SSIDs, BSSIDs, local IP addresses, serial logs, or unrelated personal information
 - You retain ownership of your contributions
 - All contributions will be credited
 

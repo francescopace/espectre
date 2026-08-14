@@ -12,7 +12,7 @@ The native frontend is intentionally separate from the ESPHome frontend:
 
 The native frontend now also supports HTTPS OTA triggered from its MQTT command plane.
 
-The current native frontend preserves the protocol already used by `docs/web/game/`, but it is not tied to that specific client.
+The current native frontend preserves the protocol used by the Configure client in `docs/web/index.html`, but it is not tied to that specific client.
 
 ## Getting Started
 

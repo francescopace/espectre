@@ -94,7 +94,7 @@ Both Python and C++ tests use the same NPZ files, eliminating duplication.
 Run the host-side suite with coverage instrumentation:
 
 ```bash
-./run_coverage.sh
+./test/cpp/run_coverage.sh
 ```
 
 The coverage script prints both the aggregate report and the per-layer breakdown used during development (`core`, `runtime`, `frontend`).
@@ -111,7 +111,7 @@ Recent local snapshot (2026-05-30):
 ## Project Structure
 
 ```
-test/
+test/cpp/
 ├── cmake/              # Shared CMake modules for the host-side suite
 ├── mocks/              # ESP-IDF / ESPHome host-side fakes
 ├── suites/             # Test suites grouped by layer
@@ -125,18 +125,18 @@ test/
 └── run_coverage.sh     # Coverage script
 ```
 
-Production code under test lives outside `test/`:
+Production code under test lives outside `test/cpp/`:
 
-- `../src/cpp/core/` for reusable detection logic
-- `../src/cpp/runtime/` for the shared runtime contract and `../src/cpp/runtime/esp_idf/` for the current runtime orchestration
-- `../src/cpp/frontend/esphome/components/espectre/` for the ESPHome component manifest and adapter layer
-- `../src/cpp/frontend/matter/espectre/` for the Matter adapter and surface mapping
+- `src/cpp/core/` for reusable detection logic
+- `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current runtime orchestration
+- `src/cpp/frontend/esphome/components/espectre/` for the ESPHome component manifest and adapter layer
+- `src/cpp/frontend/matter/espectre/` for the Matter adapter and surface mapping
 
 ---
 
 ## Adding New Tests
 
-Create `test/suites/core/test_my_feature.cpp`:
+Create `test/cpp/suites/core/test_my_feature.cpp`:
 
 ```cpp
 #include "test_harness.h"
@@ -161,4 +161,4 @@ int main(int argc, char **argv) { return process(); }
 #endif
 ```
 
-Register the file in `test/suites/CMakeLists.txt` and run it with `ctest -R test_my_feature`.
+Register the file in `test/cpp/suites/CMakeLists.txt` and run it with `ctest --test-dir test/cpp/build -R test_my_feature`.

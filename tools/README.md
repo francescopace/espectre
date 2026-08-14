@@ -103,7 +103,7 @@ Do not edit `docs/performance/README.md` manually. `--check-current` is a lightw
 `benchmark_firmware.py` operates on one connected chip and writes its generated report under `docs/performance/`. The representative matrix is:
 
 1. Native Lightweight
-2. Native ML by runtime switching of the same Native firmware
+2. Native High Accuracy by runtime switching of the same Native firmware
 3. ESPHome Lightweight
 4. Matter with its build-time default detector
 5. Streamer collection

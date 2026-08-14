@@ -27,7 +27,7 @@ Current BLE responsibilities:
 - advertise device availability
 - expose protocol and sysinfo notifications
 - publish live movement, threshold, and motion-state telemetry to subscribed nearby clients
-- provision device identity (`device_id`, `device_label`)
+- expose the firmware-generated, read-only `device_id` and provision the mutable `device_label`
 - provision Wi-Fi credentials
 - provision MQTT endpoint settings
 - allow local threshold updates
@@ -310,7 +310,7 @@ Identity/config semantics for the current BLE control surface:
 - `device_label` is the optional user-facing human-readable device label
 - `SET_MQTT_CONFIG:...` replaces the full persisted MQTT broker block in one write
 - `CLEAR_MQTT_CONFIG` clears only broker-related MQTT settings and disables the active MQTT transport
-- `CLEAR_DEVICE_CONFIG` resets device-facing naming and MQTT settings while keeping the firmware-generated `device_id`
+- `CLEAR_DEVICE_CONFIG` resets `device_label` to its build default, clears MQTT settings, disables the active MQTT transport, and keeps the firmware-generated `device_id`
 - `SET_WIFI_CONFIG:...` replaces the full persisted Wi-Fi station block in one write; credentials, BSSID, and channel changes apply immediately, while a changed `band_policy` applies after restart so the Wi-Fi and CSI runtimes restart together
 - `band_policy` accepts `2g`, `5g`, or `auto`; firmware rejects `5g` and `auto` unless the target reports `supports_wifi_5ghz=true`
 - `CLEAR_WIFI` clears only persisted Wi-Fi station settings
@@ -423,7 +423,7 @@ These diagnostic keys are intentionally more implementation-oriented than the id
 
 Wi-Fi provisioning values are persisted in NVS by ESP-IDF firmware targets that use the shared provisioning service. `SET_WIFI_CONFIG:...` saves the full Wi-Fi block. Credential, BSSID, and channel changes update the station configuration and reconnect Wi-Fi without restarting the BLE transport. A changed `band_policy` is saved but takes effect after restart, because Wi-Fi association and the CSI runtime must start with the same policy. `CLEAR_WIFI` erases provisioned values and disconnects the station without rebooting unless it also restores a different build-default band policy, which likewise takes effect after restart. The standalone BLE firmware uses this surface for its full runtime frontend.
 
-MQTT settings are also persisted in NVS as one block. `SET_MQTT_CONFIG:...` replaces the saved MQTT broker settings and reinitializes the active MQTT transport. `CLEAR_MQTT_CONFIG` erases only the saved MQTT broker settings, stops any active MQTT client, and preserves the current device identity. `CLEAR_DEVICE_CONFIG` resets the persisted `device_label` and MQTT settings and returns the live BLE session to the generated/default device identity state until it is reprovisioned or rebooted.
+MQTT settings are also persisted in NVS as one block. `SET_MQTT_CONFIG:...` replaces the saved MQTT broker settings and reinitializes the active MQTT transport. `CLEAR_MQTT_CONFIG` erases only the saved MQTT broker settings, stops any active MQTT client, and preserves the current device identity. `CLEAR_DEVICE_CONFIG` resets the persisted `device_label` to its build default, clears MQTT settings, stops the active MQTT client, and keeps the firmware-generated `device_id`; a later `SET_DEVICE_CONFIG` command can change only the label.
 
 ## Deployment Profiles
 

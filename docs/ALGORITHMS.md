@@ -135,7 +135,7 @@ Both runtimes use the same guard-band, DC-null, and adjacent-bin aggregation rul
 
 HT20 is the enforced detector input contract on both supported bands, while the current detection corpus validates only 2.4 GHz operation. VHT20, HE20, and wider layouts are not accepted by the production detectors. Band-selection behavior lives in [SETUP.md](SETUP.md), and the PHY rationale lives in the [HT20 ADR](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
 
-Non-HT20 payloads are normalized onto the same internal 64-subcarrier HT20 index grid before fixed-subcarrier extraction. Short layouts are centered so the HT20 midpoint remains aligned.
+Supported HT20 payload variants are normalized onto the same internal 64-subcarrier index grid before fixed-subcarrier extraction. Short estimates are centered so the HT20 midpoint remains aligned, and doubled payloads are collapsed to one HT20 half.
 
 | Input case | Raw layout | Mapping to HT20 | Output |
 |------------|------------|-----------------|--------|
@@ -186,7 +186,7 @@ After Hampel filtering, Lightweight calculates lag-1 autocorrelation over the tu
 
 Lightweight does not allocate or update an L1-delta tracker. At the default C++ window, this removes two 90-float delta rings, one `10 x 12` profile ring, two 11-float Hampel buffers, their metadata, and the associated per-packet normalization, displacement, and filtering work. The tracker remains conditional on the exported feature ids in ML, where `l1_delta_lag_ratio` still consumes it.
 
-### Channel Frequency-Coherence Curve Spread
+### Aggregated Turbulence IQR
 
 Lightweight's second input reuses the same `W=5` adjacent-magnitude aggregation as ML. Each selected tone is replaced by the mean amplitude of its five-bin live-band neighborhood, with the DC null skipped and edge windows clamped to bins 4–60. Spatial turbulence is then computed as `std/mean` and filtered into a dedicated ring.
 

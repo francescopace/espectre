@@ -31,6 +31,7 @@ Before deploy:
 
 - [ ] Review docs/web content, imagery, UX, and UI for release readiness
 - [ ] Capture a current Home Assistant visualization for the project overview and docs
+- [ ] Update devices performance report 
 
 After deploy:
 

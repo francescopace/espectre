@@ -136,7 +136,9 @@ Key knobs in the frontend surface:
 - `ESPECTRE_WIFI_SSID`
 - `ESPECTRE_WIFI_PASSWORD`
 - `ESPECTRE_WIFI_BSSID`
-- `ESPECTRE_WIFI_CHANNEL` Shared runtime traffic ingress:
+- `ESPECTRE_WIFI_CHANNEL`
+
+Shared runtime traffic ingress:
 
 - `ESPECTRE_TRAFFIC_RX_PORT`
 - `ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP`
