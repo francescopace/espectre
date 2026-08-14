@@ -66,9 +66,11 @@ python tools/validate_dataset_quality.py
 python tools/validate_dataset_quality.py --chip C6
 python tools/validate_dataset_quality.py --no-report
 python tools/validate_dataset_quality.py --check-current
+python tools/validate_dataset_quality.py --data-dir data/untracked/example --preserve-pairs
+python tools/validate_dataset_quality.py --data-dir data/untracked/example --diagnostic-all-phy
 ```
 
-The validator checks catalog metadata, NPZ integrity, CSI shape, packet timing, stream continuity, explicit pair consistency, quiet recordings, and ML readiness. It refreshes derived pair metadata and normally regenerates `data/auto_generated/DATASET_QUALITY_CHECK.md`.
+The validator checks catalog metadata, NPZ integrity, CSI shape, packet timing, stream continuity, explicit pair consistency, quiet recordings, and ML readiness. It refreshes derived pair metadata and normally regenerates `data/auto_generated/DATASET_QUALITY_CHECK.md`. Use `--data-dir` for a standalone ESPectre-format corpus; its report defaults to `<data-dir>/auto_generated/DATASET_QUALITY_CHECK.md`. Add `--preserve-pairs` when the external catalog already contains deliberate reciprocal pairs and its timestamps must not drive automatic re-pairing. `--report-output` overrides the generated report path when needed. `--diagnostic-all-phy` evaluates all explicitly tagged PHY rows while retaining the supported HT20/HT-LTF contract failure in the report; it is for external holdouts and never admits those rows into production training.
 
 `dataset_role` remains a manual curation decision. The validator never promotes a recording to `train`, `selection`, or `holdout`; entries without an explicit role remain excluded. Review scores are diagnostic and do not replace admission gates. The generated report owns the detailed tables and definitions.
 
@@ -94,9 +96,11 @@ Use an explicit seed and the same corpus, roles, preprocessing, features, and au
 python tools/generate_performance_report.py
 python tools/generate_performance_report.py --check-current
 python tools/generate_performance_report.py --stdout
+python tools/generate_performance_report.py --data-dir data/untracked/example
+python tools/generate_performance_report.py --data-dir data/untracked/example --diagnostic-all-phy
 ```
 
-Do not edit `docs/performance/README.md` manually. `--check-current` is a lightweight input-revision check; a normal warm regeneration measures resources again, loads the cached replay summary and robustness artifacts, runs parity, and renders the report. A replay-summary miss rebuilds only from the lower-level row cache and never starts ML training.
+Do not edit `docs/performance/README.md` manually. `--check-current` is a lightweight input-revision check; a normal warm regeneration measures resources again, loads the cached replay summary and robustness artifacts, runs parity, and renders the report. A replay-summary miss rebuilds only from the lower-level row cache and never starts ML training. `--data-dir` writes an external holdout report to `<data-dir>/auto_generated/PERFORMANCE_REPORT.md` by default and skips primary-corpus resource, augmentation, and C++ parity sections. Add `--diagnostic-all-phy` only for explicitly tagged external views such as LLTF or HT40; the report records that non-production evaluation view.
 
 ## Firmware Benchmark
 

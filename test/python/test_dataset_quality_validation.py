@@ -3,9 +3,11 @@
 """Tests for dataset-quality primitives called by the supported collect CLI."""
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 
 VALIDATOR_PATH = Path(__file__).resolve().parents[2] / "tools" / "validate_dataset_quality.py"
@@ -32,6 +34,207 @@ class _Capture:
 
 def _by_name(results):
     return {result.name: result for result in results}
+
+
+def test_configure_dataset_paths_updates_shared_roots(tmp_path, monkeypatch) -> None:
+    module = _load_validator_module()
+    dataset_root = tmp_path / "external_dataset"
+    monkeypatch.setattr(
+        module.dataset_metadata, "DATA_DIR", module.dataset_metadata.DATA_DIR
+    )
+    monkeypatch.setattr(
+        module.dataset_metadata,
+        "DATASET_INFO_FILE",
+        module.dataset_metadata.DATASET_INFO_FILE,
+    )
+    monkeypatch.setattr(
+        module.performance_report, "DATA_DIR", module.performance_report.DATA_DIR
+    )
+
+    module.configure_dataset_paths(dataset_root)
+
+    assert module.DATA_DIR == dataset_root
+    assert module.DATASET_INFO == dataset_root / "dataset_info.json"
+    assert module.REPORT_OUTPUT == (
+        dataset_root / "auto_generated" / "DATASET_QUALITY_CHECK.md"
+    )
+    assert module.dataset_metadata.DATA_DIR == dataset_root
+    assert module.performance_report.DATA_DIR == dataset_root
+    assert module._dataset_file_href("motion", "sample.npz") == (
+        "../motion/sample.npz"
+    )
+    assert module._report_source_path() == str(dataset_root / "dataset_info.json")
+
+
+def test_configure_dataset_paths_accepts_custom_report_output(
+    tmp_path, monkeypatch
+) -> None:
+    module = _load_validator_module()
+    dataset_root = tmp_path / "external_dataset"
+    report_output = tmp_path / "reports" / "quality.md"
+    monkeypatch.setattr(
+        module.dataset_metadata, "DATA_DIR", module.dataset_metadata.DATA_DIR
+    )
+    monkeypatch.setattr(
+        module.dataset_metadata,
+        "DATASET_INFO_FILE",
+        module.dataset_metadata.DATASET_INFO_FILE,
+    )
+    monkeypatch.setattr(
+        module.performance_report, "DATA_DIR", module.performance_report.DATA_DIR
+    )
+
+    module.configure_dataset_paths(dataset_root, report_output)
+
+    assert module.REPORT_OUTPUT == report_output
+    assert module._dataset_file_href("empty", "quiet.npz") == (
+        "../external_dataset/empty/quiet.npz"
+    )
+
+
+def test_dataset_file_href_uses_catalog_relative_path(tmp_path, monkeypatch) -> None:
+    module = _load_validator_module()
+    dataset_root = tmp_path / "external_dataset"
+    report_output = dataset_root / "auto_generated" / "quality.md"
+    dataset_root.mkdir()
+    (dataset_root / "dataset_info.json").write_text(
+        '{"files":{"motion":[{"filename":"logical.npz",'
+        '"relative_path":"jump/canonical.npz"}]}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        module.dataset_metadata, "DATA_DIR", module.dataset_metadata.DATA_DIR
+    )
+    monkeypatch.setattr(
+        module.dataset_metadata,
+        "DATASET_INFO_FILE",
+        module.dataset_metadata.DATASET_INFO_FILE,
+    )
+    monkeypatch.setattr(
+        module.performance_report, "DATA_DIR", module.performance_report.DATA_DIR
+    )
+
+    module.configure_dataset_paths(dataset_root, report_output)
+
+    assert module._dataset_file_href("motion", "logical.npz") == (
+        "../jump/canonical.npz"
+    )
+
+
+def test_relative_path_catalog_does_not_scan_source_directory_for_orphans(
+    tmp_path, monkeypatch
+) -> None:
+    module = _load_validator_module()
+    dataset_root = tmp_path / "external_dataset"
+    source_dir = dataset_root / "empty"
+    source_dir.mkdir(parents=True)
+    (source_dir / "canonical.npz").touch()
+    (source_dir / "uncatalogued_other_view.npz").touch()
+    entry = {
+        "filename": "logical.npz",
+        "relative_path": "empty/canonical.npz",
+        "chip": "ESP32",
+        "subcarriers": 64,
+        "num_packets": 1,
+        "collected_at": "2026-08-14T00:00:00+00:00",
+        "environment": "external",
+        "dataset_role": "holdout",
+    }
+    monkeypatch.setattr(module, "DATA_DIR", dataset_root)
+    monkeypatch.setattr(module.dataset_metadata, "DATA_DIR", dataset_root)
+
+    results = module.validate_metadata_completeness(
+        {"files": {"empty": [entry], "static_presence": [], "motion": []}}
+    )
+
+    assert not any(result.name.startswith("metadata_orphan/") for result in results)
+
+
+def test_logical_pair_aliases_are_deduplicated_for_per_file_evidence(
+    tmp_path, monkeypatch
+) -> None:
+    module = _load_validator_module()
+    dataset_root = tmp_path / "external_dataset"
+    monkeypatch.setattr(module.dataset_metadata, "DATA_DIR", dataset_root)
+    entries = [
+        {"filename": "idle_for_jump.npz", "relative_path": "idle/canonical.npz"},
+        {"filename": "idle_for_walk.npz", "relative_path": "idle/canonical.npz"},
+    ]
+
+    unique = module._unique_entries_by_resolved_path("static_presence", entries)
+
+    assert unique == entries[:1]
+
+
+def test_report_current_check_includes_evaluation_view(tmp_path, monkeypatch) -> None:
+    module = _load_validator_module()
+    report = tmp_path / "quality.md"
+    monkeypatch.setattr(module, "DATA_DIR", module.DATA_DIR)
+    monkeypatch.setattr(module, "DATASET_INFO", module.DATASET_INFO)
+    monkeypatch.setattr(module, "REPORT_OUTPUT", module.REPORT_OUTPUT)
+    monkeypatch.setattr(module, "DIAGNOSTIC_ALL_PHY", module.DIAGNOSTIC_ALL_PHY)
+    monkeypatch.setattr(module.dataset_metadata, "DATA_DIR", module.dataset_metadata.DATA_DIR)
+    monkeypatch.setattr(
+        module.dataset_metadata,
+        "DATASET_INFO_FILE",
+        module.dataset_metadata.DATASET_INFO_FILE,
+    )
+    monkeypatch.setattr(module.performance_report, "DATA_DIR", module.performance_report.DATA_DIR)
+    module.configure_dataset_paths(tmp_path / "dataset", report)
+    report.write_text("Evaluation view: `HT20/HT-LTF`\n", encoding="utf-8")
+
+    assert module._report_evaluation_view_is_current()
+
+    module.configure_validation_mode(diagnostic_all_phy=True)
+    assert not module._report_evaluation_view_is_current()
+
+
+def test_main_forwards_external_dataset_options(tmp_path, monkeypatch) -> None:
+    module = _load_validator_module()
+    dataset_root = tmp_path / "external_dataset"
+    captured = {}
+    monkeypatch.setattr(
+        module.dataset_metadata, "DATA_DIR", module.dataset_metadata.DATA_DIR
+    )
+    monkeypatch.setattr(
+        module.dataset_metadata,
+        "DATASET_INFO_FILE",
+        module.dataset_metadata.DATASET_INFO_FILE,
+    )
+    monkeypatch.setattr(
+        module.performance_report, "DATA_DIR", module.performance_report.DATA_DIR
+    )
+    monkeypatch.setattr(
+        module,
+        "run_validation",
+        lambda **kwargs: captured.update(kwargs) or 0,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "validate_dataset_quality.py",
+            "--data-dir",
+            str(dataset_root),
+            "--chip",
+            "ESP32",
+            "--preserve-pairs",
+            "--diagnostic-all-phy",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        module.main()
+
+    assert exit_info.value.code == 0
+    assert module.DATA_DIR == dataset_root
+    assert captured == {
+        "chip_filter": "ESP32",
+        "generate_report": True,
+        "use_cache": True,
+        "refresh_pair_metadata": False,
+        "diagnostic_all_phy": True,
+    }
 
 
 def test_validate_file_integrity_rejects_object_arrays(tmp_path) -> None:
@@ -93,6 +296,28 @@ def test_file_integrity_returns_ht20_sensing_view(tmp_path) -> None:
         data["stream_seq_num"],
         np.array([1, 3, 5], dtype=np.uint32),
     )
+
+
+def test_file_integrity_diagnostic_mode_keeps_nonstandard_phy(tmp_path) -> None:
+    module = _load_validator_module()
+    path = tmp_path / "lltf_ht40.npz"
+    np.savez(
+        path,
+        csi_data=np.zeros((5, 128), dtype=np.int8),
+        num_subcarriers=np.array(64),
+        label=np.array("motion"),
+        phy_mode=np.array(["ht"] * 5),
+        ltf_type=np.array(["lltf"] * 5),
+        channel_width=np.array(["40"] * 5),
+    )
+    module.configure_validation_mode(diagnostic_all_phy=True)
+
+    results, data = module.validate_file_integrity(path)
+
+    assert _by_name(results)["sensing_contract"].status == "FAIL"
+    assert data is not None
+    assert data["csi_data"].shape[0] == 5
+    assert module._report_evaluation_view() == "all explicit PHY rows (diagnostic)"
 
 
 def test_signal_quality_checks_packet_count_zero_packets_and_amplitude() -> None:

@@ -31,8 +31,9 @@ from .dataset_metadata import (
     load_dataset_info,
     measure_packet_interval_us,
     paired_dataset_role,
+    resolve_entry_path,
 )
-from . import npz_cache
+from . import dataset_metadata, npz_cache
 from .repo_paths import data_dir, repo_root
 
 setup_paths()
@@ -55,12 +56,13 @@ from runtime_policy import (
     make_evaluation_cadence as _make_evaluation_cadence,
     nominal_packet_interval_us,
 )
-from tools.lib.csi_io import load_npz_packet_view, load_npz_sensing_arrays
+from tools.lib.csi_io import load_npz_arrays, load_npz_packet_view, load_npz_sensing_arrays
 
 DATA_DIR = data_dir()
 PERFORMANCE_DOC_PATH = repo_root() / "docs" / "performance" / "README.md"
 PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION = 2
 REPORT_DATASET_ROLES = frozenset(("selection", "holdout"))
+DIAGNOSTIC_ALL_PHY = False
 
 # Link-class policy: real weak-link (`low_rssi: true`) recordings are stress
 # diagnostics, not standard promotion material. Normal-link sessions keep the
@@ -150,6 +152,51 @@ PAIRED_CHIP_LABELS = {
 
 ProgressCallback = Callable[[str], None]
 ExecutionInfo = Dict[str, Any]
+
+
+def configure_dataset_root(
+    data_root: str | Path,
+    *,
+    diagnostic_all_phy: bool = False,
+) -> None:
+    """Point report discovery and replay at one ESPectre dataset root."""
+    global DATA_DIR, DIAGNOSTIC_ALL_PHY
+
+    DATA_DIR = Path(data_root).resolve()
+    DIAGNOSTIC_ALL_PHY = bool(diagnostic_all_phy)
+    dataset_metadata.DATA_DIR = DATA_DIR
+    dataset_metadata.DATASET_INFO_FILE = DATA_DIR / "dataset_info.json"
+    _get_available_paired_dataset_specs_cached.cache_clear()
+    _get_available_empty_datasets_cached.cache_clear()
+    _get_available_long_test_dataset_specs_cached.cache_clear()
+    _load_long_test_packets_cached.cache_clear()
+    compute_classic_dataset_result.cache_clear()
+    compute_classic_empty_fp_result.cache_clear()
+
+
+def report_evaluation_view() -> str:
+    """Return the stable label for the packet view used by detector replay."""
+    return (
+        "all explicit PHY rows (diagnostic)"
+        if DIAGNOSTIC_ALL_PHY
+        else "HT20/HT-LTF"
+    )
+
+
+def _load_report_packet_view(path: str | Path) -> tuple[dict[str, Any], ...]:
+    """Load packets under the report's selected PHY policy."""
+    return load_npz_packet_view(Path(path), keep_all_phy=DIAGNOSTIC_ALL_PHY)
+
+
+def _report_replay_provenance(
+    provenance: Optional[Mapping[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """Separate diagnostic all-PHY rows from production sensing-row caches."""
+    if not DIAGNOSTIC_ALL_PHY:
+        return None if provenance is None else dict(provenance)
+    resolved = dict(provenance or {})
+    resolved["packet_view"] = "all_explicit_phy"
+    return resolved
 
 
 class _CsiRowView(Sequence[Any]):
@@ -324,13 +371,16 @@ def _get_available_paired_dataset_specs_cached(
             continue
 
         chip = static_entry.get("chip")
-        static_path = DATA_DIR / "static_presence" / static_entry["filename"]
-        motion_path = DATA_DIR / "motion" / motion_filename
+        static_path = resolve_entry_path("static_presence", static_entry)
+        motion_path = resolve_entry_path("motion", motion_entry)
         if not chip or not static_path.exists() or not motion_path.exists():
             continue
 
         environment = static_entry.get("environment") or "unknown"
-        dataset_id = f"{str(chip).lower()}_{environment}_{static_path.stem}"
+        dataset_id = (
+            f"{str(chip).lower()}_{environment}_"
+            f"{Path(str(static_entry['filename'])).stem}"
+        )
         synthetic = bool(static_entry.get("synthetic"))
         if synthetic != bool(motion_entry.get("synthetic")):
             continue
@@ -388,7 +438,6 @@ def get_available_paired_datasets(
 @lru_cache(maxsize=1)
 def _get_available_empty_datasets_cached(dataset_revision: str) -> tuple[Path, ...]:
     del dataset_revision
-    empty_dir = DATA_DIR / "empty"
     dataset_info = _load_dataset_info()
     empty_paths = []
     for entry in dataset_info.get("files", {}).get("empty", []):
@@ -400,7 +449,7 @@ def _get_available_empty_datasets_cached(dataset_revision: str) -> tuple[Path, .
         filename = entry.get("filename")
         if not filename:
             continue
-        path = empty_dir / str(filename)
+        path = resolve_entry_path("empty", entry)
         if path.exists():
             empty_paths.append(path)
     return tuple(sorted(empty_paths))
@@ -444,8 +493,8 @@ def get_available_chip_types() -> list[str]:
 def load_real_data_cached(static_presence_path: str | Path, motion_path: str | Path) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
     """Load paired packet streams through the shared in-process NPZ runtime cache."""
     return (
-        load_npz_packet_view(Path(static_presence_path)),
-        load_npz_packet_view(Path(motion_path)),
+        _load_report_packet_view(static_presence_path),
+        _load_report_packet_view(motion_path),
     )
 
 
@@ -687,6 +736,7 @@ def load_or_compute_ml_replay_rows(
     if packets is not None and packets_factory is not None:
         raise ValueError("pass packets or packets_factory, not both")
     requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
+    resolved_stream_provenance = _report_replay_provenance(stream_provenance)
     normalized_contract = _normalize_ml_sample_contract(sample_contract)
     stride, offset = _normalize_replay_row_selection(row_stride, row_offset)
     if stride is not None and normalized_contract != "stream_dense":
@@ -703,7 +753,7 @@ def load_or_compute_ml_replay_rows(
         elif packets_factory is not None:
             packet_stream = packets_factory()
         else:
-            packet_stream = load_npz_packet_view(Path(source_path))
+            packet_stream = _load_report_packet_view(source_path)
         resolved_window_size = derive_detector_timing(
             measure_packet_interval_us(packet_stream),
             SEGMENTATION_WINDOW_SIZE_MS,
@@ -712,7 +762,7 @@ def load_or_compute_ml_replay_rows(
         selected_subcarriers=selected_subcarriers,
         window_size=resolved_window_size,
         feature_names=cached_feature_names,
-        stream_provenance=stream_provenance,
+        stream_provenance=resolved_stream_provenance,
     )
     if use_cache:
         cached = npz_cache.load_ml_replay_row_artifact(
@@ -763,7 +813,7 @@ def load_or_compute_ml_replay_rows(
             elif packets_factory is not None:
                 packet_stream = packets_factory()
             else:
-                packet_stream = load_npz_packet_view(Path(source_path))
+                packet_stream = _load_report_packet_view(source_path)
         rows = build_ml_replay_rows(
             packet_stream,
             selected_subcarriers,
@@ -955,10 +1005,11 @@ def load_or_compute_classic_replay_rows(
     use_cache: bool = True,
 ) -> Dict[str, Any]:
     """Load or build one persisted time-aware Lightweight replay-row artifact."""
+    resolved_replay_provenance = _report_replay_provenance(replay_provenance)
     static_packets = (
         static_presence_packets
         if static_presence_packets is not None
-        else load_npz_packet_view(Path(static_presence_path))
+        else _load_report_packet_view(static_presence_path)
     )
     replay_interval_us = measure_packet_interval_us(static_packets)
     timing = derive_detector_timing(replay_interval_us)
@@ -974,7 +1025,7 @@ def load_or_compute_classic_replay_rows(
         replay_interval_us=replay_interval_us,
         warmup_packets=resolved_warmup,
         secondary_source=motion_path,
-        replay_provenance=replay_provenance,
+        replay_provenance=resolved_replay_provenance,
     )
     if use_cache:
         cached = npz_cache.load_classic_replay_row_artifact(
@@ -1010,7 +1061,7 @@ def load_or_compute_classic_replay_rows(
         resolved_motion_packets = motion_packets
         if resolved_motion_packets is None:
             resolved_motion_packets = (
-                () if motion_path is None else load_npz_packet_view(Path(motion_path))
+                () if motion_path is None else _load_report_packet_view(motion_path)
             )
         rows = build_classic_replay_rows(
             static_packets,
@@ -1514,7 +1565,7 @@ def compute_ml_dataset_result(
     runtime_feature_names = tuple(RUNTIME_FEATURE_NAMES)
     resolved_window_size = window_size
     if resolved_window_size is None:
-        static_packets = load_npz_packet_view(Path(static_presence_path))
+        static_packets = _load_report_packet_view(static_presence_path)
         resolved_window_size = derive_detector_timing(
             measure_packet_interval_us(static_packets),
             SEGMENTATION_WINDOW_SIZE_MS,
@@ -1703,7 +1754,7 @@ def _get_available_long_test_dataset_specs_cached(
         if not filename:
             continue
 
-        test_path = DATA_DIR / label_group / str(filename)
+        test_path = resolve_entry_path(label_group, entry)
         if not test_path.exists():
             continue
 
@@ -1747,7 +1798,11 @@ def get_available_long_test_dataset_specs(
 @lru_cache(maxsize=None)
 def _load_long_test_packets_cached(path_value: str) -> _LongTestPacketView:
     """Load one long-recording packet stream as a zero-copy packet+metadata view."""
-    arrays = load_npz_sensing_arrays(Path(path_value))
+    arrays = (
+        load_npz_arrays(Path(path_value))
+        if DIAGNOSTIC_ALL_PHY
+        else load_npz_sensing_arrays(Path(path_value))
+    )
     if "csi_data" in arrays:
         csi_key = "csi_data"
     elif "csi" in arrays:
@@ -2420,6 +2475,7 @@ def render_performance_report_markdown(
         lines.extend([
             f"Last update: {execution_info['last_update']}",
             f"Source: `{execution_info['source']}`",
+            f"Evaluation view: `{execution_info.get('evaluation_view', 'HT20/HT-LTF')}`",
             f"Dataset revision: `sha256:{execution_info['dataset_revision']}`",
         ])
         if execution_info.get('input_revision'):
@@ -2439,14 +2495,27 @@ def render_performance_report_markdown(
             "",
         ])
 
+    parity_checked = (
+        True
+        if execution_info is None
+        else bool(execution_info.get("cpp_parity_checked", True))
+    )
+    algorithms_link = (
+        "../ALGORITHMS.md"
+        if execution_info is None
+        else str(execution_info.get("algorithms_link", "../ALGORITHMS.md"))
+    )
+    parity_note = (
+        "`tools/generate_performance_report.py` also verifies that the host-side "
+        "C++ and Python implementations produce matching results when they replay "
+        "the same recordings."
+        if parity_checked
+        else "C++/Python replay parity was not run for this external diagnostic report."
+    )
     lines.extend([
         "This report shows how ESPectre's motion detectors perform on recorded data.",
         "",
-        (
-            "`tools/generate_performance_report.py` also verifies that the host-side "
-            "C++ and Python implementations produce matching results when they replay "
-            "the same recordings."
-        ),
+        parity_note,
         "",
         (
             "- **Lightweight Detection**: Uses the Lightweight feature-fusion implementation, "
@@ -2458,7 +2527,7 @@ def render_performance_report_markdown(
             "recordings outside its training corpus."
         ),
         "",
-        "See [ALGORITHMS.md](../ALGORITHMS.md) for the full detector design.",
+        f"See [ALGORITHMS.md]({algorithms_link}) for the full detector design.",
         "",
         "---",
         "",
@@ -2582,6 +2651,33 @@ def render_performance_report_markdown(
         "",
     ])
     _append_paired_table(paired_normal, "ml")
+
+    paired_synthetic = report_data.get(
+        "paired_synthetic", {"classic": {}, "ml": {}}
+    )
+    if any(paired_synthetic.get(algorithm) for algorithm in ("classic", "ml")):
+        lines.extend([
+            "",
+            "---",
+            "",
+            "## Reconstructed or Synthetic Holdout",
+            "",
+            (
+                "These results are diagnostic because at least one signal view was "
+                "reconstructed or otherwise marked synthetic. They are not production "
+                "training or PHY-validation evidence."
+            ),
+            "",
+            "### Lightweight Detection",
+            "",
+        ])
+        _append_paired_table(paired_synthetic, "classic")
+        lines.extend([
+            "",
+            "### High-Accuracy Detection",
+            "",
+        ])
+        _append_paired_table(paired_synthetic, "ml")
 
     lines.extend([
         "",

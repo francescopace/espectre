@@ -4,7 +4,7 @@ This document is the durable literature index for ESPectre sensing research. It 
 
 This index is for sensing researchers and feature contributors. It is intentionally detailed and does not explain the operational detector; start with [ALGORITHMS.md](ALGORITHMS.md) for current behavior or [TUNING.md](TUNING.md) for device settings. In the notes, HT20 means a 20 MHz Wi-Fi channel, CIR means channel impulse response, and a transfer limit explains why a published result may not apply directly to ESP32 hardware or ESPectre data.
 
-The index covers every external publication reviewed from the local `.papers` collection and the additional online sources reviewed through 2026-07-28. Internally authored ESPectre research is excluded; the historical NBVI work is retained in the decision history of the [fixed-band ADR](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md). Primary publisher, DOI, institutional, or arXiv links are preferred so the local PDF collection is not required. Release dates refer to the first public version or online publication date, not the date on which ESPectre reviewed the source.
+The index covers every external publication reviewed from the local `.papers` collection and the additional online sources reviewed through 2026-08-14. Internally authored ESPectre research is excluded; the historical NBVI work is retained in the decision history of the [fixed-band ADR](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md). Primary publisher, DOI, institutional, or arXiv links are preferred so the local PDF collection is not required. Release dates refer to the first public version or online publication date, not the date on which ESPectre reviewed the source.
 
 This is not evidence that an algorithm works on ESPectre data. Published accuracy values are rarely comparable because tasks, labels, radio hardware, packet rates, environments, splits, and leakage controls differ. Use [FEATURES.md](FEATURES.md) for ESPectre measurements and verdicts, and use ADRs for durable production decisions.
 
@@ -164,6 +164,22 @@ The most actionable scale-invariant experiments remain:
 - **Setup and method:** Intel 5300, one transmit and three receive antennas, 30 reported subcarriers, 20 MHz, and 320 packets/s; PCA, Hampel filtering, Gaussian smoothing, segmentation, handcrafted time/frequency features, and SVM classification.
 - **Results:** 91.27% average six-activity accuracy over 20 subjects in office and hallway environments; a harder cross-environment scenario reports 88.82%.
 - **ESPectre:** **Adapt**. It supports grouped environment evaluation and robust filtering. The selected handcrafted amplitude features are not automatically scale invariant, and the radio topology is richer than one ESP32 link.
+
+### ROCKET: Exceptionally Fast and Accurate Time Series Classification Using Random Convolutional Kernels
+
+- **Source:** [arXiv](https://arxiv.org/abs/1910.13051), later published in Data Mining and Knowledge Discovery
+- **Released:** 2019-10-29; journal version 2020
+- **Method:** transforms univariate time series with 10,000 random convolution kernels by default, varying kernel length, weights, bias, dilation, and padding; each response contributes its maximum and proportion of positive values before ridge regression or logistic classification.
+- **Results:** ranks competitively with HIVE-COTE, TS-CHIEF, and InceptionTime across 85 UCR datasets without a statistically significant accuracy difference among those leading methods. The 10,000-kernel variant trains on one million synthetic time series in about 1 hour 15 minutes, while a 100-kernel variant takes under one minute at lower accuracy.
+- **ESPectre:** **Context** and the algorithmic basis for LiteHAR, not Wi-Fi sensing evidence. Random multiscale filters and the dimensionless proportion-positive summary are useful host-side research leads, but 10,000 kernels and up to 20,000 output features are not a compact firmware design. The maximum response is gain-sensitive, and proportion positive is not scale invariant when the random bias is nonzero unless the input normalization contract is preserved.
+
+### LiteHAR: Lightweight Human Activity Recognition From WiFi Signals With Random Convolution Kernels
+
+- **Source:** [arXiv](https://arxiv.org/abs/2201.09310); IEEE ICASSP 2022
+- **Released:** 2022-01-23
+- **Setup and method:** public indoor activity CSI with three receive antennas, 30 subcarriers per antenna, 1 kHz capture, and 20-second samples; downsamples amplitude to 500 Hz, subtracts its mean, divides by its L2 norm, applies 10,000 ROCKET-style random kernels independently per subcarrier, fits ridge classifiers, and votes across subcarriers.
+- **Results:** ten-fold cross-validation reports 93% average accuracy over six activities and 91% over all seven. Six-class training takes 157.8 seconds, about 82 times less than the compared ABLSTM, while per-sample inference takes 0.013 seconds; restricting voting to the two stronger antennas improves the reported accuracy by about one percentage point.
+- **ESPectre:** **Adapt** for lightweight host-side sequence classification and evidence that carrier contributions are unequal. The three-antenna topology, 500 Hz input, 20-second windows, 10,000 kernels per carrier, and ten-fold cross-validation without reported grouped device, subject, or environment holdouts do not match ESPectre's single-link runtime or grouped deployment gates. Mean and L2 normalization removes offset and scale within each signal, but the resulting representation should be tested only as a host candidate with device-, room-, and replay-group isolation before any compact distillation is considered.
 
 ### CSI-F: Human Motion Recognition Through CSI Feature Fusion
 

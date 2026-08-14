@@ -74,6 +74,7 @@ from tools.lib.dataset_metadata import (
     dataset_role,
     measure_packet_interval_us,
     paired_dataset_role,
+    resolve_entry_path,
 )
 
 from tools.lib.repo_paths import (
@@ -6452,8 +6453,8 @@ def _iter_paired_chip_replays(chips=None, roles=('selection',),
             )
             if role is None:
                 continue
-            static_path = DATA_DIR / 'static_presence' / str(static_entry['filename'])
-            motion_path = DATA_DIR / 'motion' / motion_name
+            static_path = resolve_entry_path('static_presence', static_entry)
+            motion_path = resolve_entry_path('motion', motion_entry)
             if static_path.exists() and motion_path.exists():
                 low_rssi = bool(static_entry.get('low_rssi')) or bool(motion_entry.get('low_rssi'))
                 role_pairs.append((role, static_path, motion_path, low_rssi))
@@ -6487,8 +6488,8 @@ def _iter_paired_chip_replays(chips=None, roles=('selection',),
                 admitted_roles=('train',),
             ) != 'train':
                 continue
-            static_path = DATA_DIR / 'static_presence' / str(static_entry.get('filename', ''))
-            motion_path = DATA_DIR / 'motion' / motion_name
+            static_path = resolve_entry_path('static_presence', static_entry)
+            motion_path = resolve_entry_path('motion', motion_entry)
             if static_path.exists() and motion_path.exists():
                 sort_key = (
                     str(static_entry.get('collected_at', '')),
@@ -6656,7 +6657,7 @@ def _iter_quiet_gate_replays(roles=('selection', 'holdout')):
         role = admitted_dataset_role(entry, admitted_roles=roles)
         if role is None or bool(entry.get('synthetic')):
             continue
-        path = DATA_DIR / 'empty' / str(entry.get('filename', ''))
+        path = resolve_entry_path('empty', entry)
         if path.exists():
             chip = str(entry.get('chip', 'unknown')).upper()
             yield f"{chip}:{role}:{path.name}", path

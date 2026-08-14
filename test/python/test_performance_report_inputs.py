@@ -8,9 +8,128 @@ Tests for performance report input collection.
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
+import json
+
 import numpy as np
 
 from tools.lib import performance_report, performance_report_inputs
+
+
+def test_external_dataset_root_can_replay_explicit_nonstandard_phy(tmp_path):
+    original_root = performance_report.DATA_DIR
+    static_dir = tmp_path / "idle"
+    motion_dir = tmp_path / "jump"
+    static_dir.mkdir()
+    motion_dir.mkdir()
+    arrays = {
+        "csi_data": np.zeros((4, 128), dtype=np.int8),
+        "num_subcarriers": np.array(64),
+        "label": np.array("static_presence"),
+        "phy_mode": np.array(["ht"] * 4),
+        "ltf_type": np.array(["lltf"] * 4),
+        "channel_width": np.array(["40"] * 4),
+    }
+    np.savez(static_dir / "static.npz", **arrays)
+    arrays["label"] = np.array("motion")
+    np.savez(motion_dir / "motion.npz", **arrays)
+    (tmp_path / "dataset_info.json").write_text(
+        json.dumps(
+            {
+                "files": {
+                    "static_presence": [
+                        {
+                            "filename": "static.npz",
+                            "relative_path": "idle/static.npz",
+                            "chip": "ESP32",
+                            "subcarriers": 64,
+                            "dataset_role": "holdout",
+                            "optimal_pair_motion_file": "motion.npz",
+                        }
+                    ],
+                    "motion": [
+                        {
+                            "filename": "motion.npz",
+                            "relative_path": "jump/motion.npz",
+                            "chip": "ESP32",
+                            "subcarriers": 64,
+                            "dataset_role": "holdout",
+                            "optimal_pair_static_presence_file": "static.npz",
+                        }
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        performance_report.configure_dataset_root(
+            tmp_path,
+            diagnostic_all_phy=True,
+        )
+        pairs = performance_report.get_available_paired_datasets(
+            roles=performance_report.REPORT_DATASET_ROLES
+        )
+        static_packets, motion_packets = performance_report.load_real_data_cached(
+            pairs[0][0], pairs[0][1]
+        )
+
+        assert len(pairs) == 1
+        assert len(static_packets) == len(motion_packets) == 4
+        assert performance_report.report_evaluation_view() == (
+            "all explicit PHY rows (diagnostic)"
+        )
+    finally:
+        performance_report.configure_dataset_root(original_root)
+
+
+def test_render_includes_synthetic_holdout_and_external_parity_note():
+    metrics = {
+        "count": 1,
+        "recall": 98.0,
+        "min_recall": 98.0,
+        "precision": 97.0,
+        "fp_rate": 2.0,
+        "max_fp_rate": 2.0,
+        "f1": 97.5,
+        "effective_alarms": 1,
+    }
+    empty = {"classic": {}, "ml": {}}
+    report_data = {
+        "paired": empty,
+        "paired_normal": empty,
+        "paired_stress_real": empty,
+        "paired_synthetic": {
+            "classic": {"ESP32": metrics},
+            "ml": {"ESP32": metrics},
+        },
+        "long_quiet": empty,
+        "resources": {},
+        "augmentation": None,
+    }
+    execution_info = {
+        "last_update": "2026-08-14",
+        "source": "data/untracked/example/dataset_info.json",
+        "evaluation_view": "HT20/HT-LTF",
+        "dataset_revision": "dataset",
+        "input_revision": "inputs",
+        "generated_by": "tools/generate_performance_report.py",
+        "run_started": "2026-08-14T00:00:00+02:00",
+        "run_duration": "1.00s",
+        "real_paired_dataset_count": 0,
+        "synthetic_paired_dataset_count": 1,
+        "long_quiet_dataset_count": 0,
+        "cpp_parity_checked": False,
+    }
+
+    markdown = performance_report.render_performance_report_markdown(
+        report_data,
+        execution_info=execution_info,
+    )
+
+    assert "Evaluation view: `HT20/HT-LTF`" in markdown
+    assert "## Reconstructed or Synthetic Holdout" in markdown
+    assert "C++/Python replay parity was not run" in markdown
 
 
 def test_resource_benchmark_executes_cached_binary_each_time(monkeypatch, tmp_path):

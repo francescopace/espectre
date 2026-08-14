@@ -24,6 +24,9 @@ htmlcov/
 # Shared NPZ cache
 .npz_cache/
 
+# Local external datasets that cannot be redistributed
+data/untracked/
+
 # Training run reports: per-run evidence, kept out of the tree so the numbers
 # quoted in docs and ADRs stay the reviewed ones
 data/auto_generated/mlp_seed_search.json

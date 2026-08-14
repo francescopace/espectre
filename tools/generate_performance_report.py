@@ -12,6 +12,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from typing import Any, Mapping, Optional
@@ -25,6 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.lib.bootstrap import setup_paths  # noqa: F401
 
+from tools.lib import performance_report
 from tools.lib.performance_report import (
     PERFORMANCE_DOC_PATH,
     PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION,
@@ -44,6 +46,30 @@ from tools.lib.dataset_metadata import (
     generated_report_is_current,
 )
 from tools.lib.performance_report_inputs import collect_extended_report_inputs
+
+
+DEFAULT_DATA_DIR = REPO_ROOT / "data"
+
+
+def _dataset_info_path() -> Path:
+    """Return the catalog selected for this report run."""
+    return performance_report.DATA_DIR / "dataset_info.json"
+
+
+def _report_source_path() -> str:
+    """Return a stable repository-relative catalog path when possible."""
+    try:
+        return _dataset_info_path().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return _dataset_info_path().as_posix()
+
+
+def _report_mode_is_current(output_path: Path) -> bool:
+    """Return whether a report names the selected detector packet view."""
+    if not output_path.exists():
+        return False
+    expected = f"Evaluation view: `{performance_report.report_evaluation_view()}`"
+    return expected in output_path.read_text(encoding="utf-8").splitlines()
 
 
 def _report_dataset_paths() -> tuple[Path, ...]:
@@ -95,7 +121,7 @@ def _replay_input_paths() -> tuple[Path, ...]:
         if path.is_file()
     }
     paths.update(_report_dataset_paths())
-    paths.add(REPO_ROOT / "data" / "dataset_info.json")
+    paths.add(_dataset_info_path())
     paths.add(REPO_ROOT / "tools" / "lib" / "dataset_metadata.py")
     paths.add(REPO_ROOT / "tools" / "lib" / "npz_cache.py")
     return tuple(sorted(paths))
@@ -106,13 +132,18 @@ def _load_cached_report_data() -> Optional[dict]:
     parameters = npz_cache.performance_report_result_parameters(
         kind="detector_replay_summary",
         inputs={
-            "dataset_revision": dataset_info_revision(),
+            "dataset_revision": dataset_info_revision(_dataset_info_path()),
             "input_revision": generated_input_revision(_replay_input_paths()),
             "implementation_version": PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION,
+            **(
+                {"evaluation_view": performance_report.report_evaluation_view()}
+                if performance_report.DIAGNOSTIC_ALL_PHY
+                else {}
+            ),
         },
     )
     payload = npz_cache.load_performance_report_result(
-        REPO_ROOT / "data" / "dataset_info.json",
+        _dataset_info_path(),
         parameters=parameters,
     )
     return payload
@@ -122,9 +153,14 @@ def _save_cached_report_data(report_data: Mapping[str, Any]) -> None:
     parameters = npz_cache.performance_report_result_parameters(
         kind="detector_replay_summary",
         inputs={
-            "dataset_revision": dataset_info_revision(),
+            "dataset_revision": dataset_info_revision(_dataset_info_path()),
             "input_revision": generated_input_revision(_replay_input_paths()),
             "implementation_version": PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION,
+            **(
+                {"evaluation_view": performance_report.report_evaluation_view()}
+                if performance_report.DIAGNOSTIC_ALL_PHY
+                else {}
+            ),
         },
     )
     expensive = {
@@ -133,7 +169,7 @@ def _save_cached_report_data(report_data: Mapping[str, Any]) -> None:
         if key not in {"resources", "transfer"}
     }
     npz_cache.save_performance_report_result(
-        REPO_ROOT / "data" / "dataset_info.json",
+        _dataset_info_path(),
         parameters=parameters,
         payload=expensive,
     )
@@ -180,8 +216,25 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=Path,
-        default=PERFORMANCE_DOC_PATH,
-        help="Write the report to this path (default: docs/performance/README.md).",
+        default=None,
+        help=(
+            "Write the report to this path (default: docs/performance/README.md for "
+            "the primary corpus or <data-dir>/auto_generated/PERFORMANCE_REPORT.md)"
+        ),
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DEFAULT_DATA_DIR,
+        help="Dataset root containing dataset_info.json and label directories.",
+    )
+    parser.add_argument(
+        "--diagnostic-all-phy",
+        action="store_true",
+        help=(
+            "Replay all explicit PHY rows instead of only the supported "
+            "HT20/HT-LTF sensing view"
+        ),
     )
     parser.add_argument(
         "--stdout",
@@ -204,16 +257,32 @@ def main() -> int:
         help="Exit successfully only when the report matches its current inputs.",
     )
     args = parser.parse_args()
+    data_root = args.data_dir.resolve()
+    external_dataset = data_root != DEFAULT_DATA_DIR.resolve()
+    performance_report.configure_dataset_root(
+        data_root,
+        diagnostic_all_phy=args.diagnostic_all_phy,
+    )
+    output_path = (
+        args.output.resolve()
+        if args.output is not None
+        else (
+            data_root / "auto_generated" / "PERFORMANCE_REPORT.md"
+            if external_dataset
+            else PERFORMANCE_DOC_PATH
+        )
+    )
 
     if args.check_current:
         if generated_report_is_current(
-            args.output,
+            output_path,
+            _dataset_info_path(),
             input_paths=_report_input_paths(),
-        ):
-            print(f"Current: {args.output}")
+        ) and _report_mode_is_current(output_path):
+            print(f"Current: {output_path}")
             return 0
         print(
-            f"Stale or missing: {args.output}; regenerate it from current inputs",
+            f"Stale or missing: {output_path}; regenerate it from current inputs",
             file=sys.stderr,
         )
         return 1
@@ -221,9 +290,13 @@ def main() -> int:
     progress, get_elapsed = _build_progress_logger(enabled=not args.quiet)
     started_at = datetime.now().astimezone()
     progress("starting report generation")
-    resource_metrics, augmentation_metrics = collect_extended_report_inputs(
-        progress=progress,
-    )
+    if external_dataset:
+        progress("skipping primary-corpus resource and augmentation diagnostics")
+        resource_metrics, augmentation_metrics = {}, None
+    else:
+        resource_metrics, augmentation_metrics = collect_extended_report_inputs(
+            progress=progress,
+        )
     report_data = _load_cached_report_data()
     if report_data is None:
         progress("report-level replay cache miss; rebuilding from row caches")
@@ -233,7 +306,8 @@ def main() -> int:
         progress("loaded detector replay summary from the report-level cache")
     report_data["resources"] = resource_metrics
     report_data["augmentation"] = augmentation_metrics
-    if args.skip_cpp_parity_check:
+    skip_cpp_parity = args.skip_cpp_parity_check or external_dataset
+    if skip_cpp_parity:
         progress("skipping C++ parity verification")
     else:
         progress("starting C++ parity verification")
@@ -241,12 +315,18 @@ def main() -> int:
     progress("collecting execution metadata")
     execution_info = {
         "last_update": datetime.now().astimezone().date().isoformat(),
-        "source": "data/dataset_info.json",
-        "dataset_revision": dataset_info_revision(),
+        "source": _report_source_path(),
+        "evaluation_view": performance_report.report_evaluation_view(),
+        "dataset_revision": dataset_info_revision(_dataset_info_path()),
         "input_revision": generated_input_revision(_report_input_paths()),
         "generated_by": "tools/generate_performance_report.py",
         "run_started": started_at.isoformat(timespec="seconds"),
         "run_duration": _format_duration(get_elapsed()),
+        "cpp_parity_checked": not skip_cpp_parity,
+        "external_dataset": external_dataset,
+        "algorithms_link": Path(
+            os.path.relpath(REPO_ROOT / "docs" / "ALGORITHMS.md", output_path.parent)
+        ).as_posix(),
         "real_paired_dataset_count": len(
             get_available_paired_datasets(
                 synthetic=False,
@@ -273,7 +353,7 @@ def main() -> int:
         return 0
 
     output_path = write_performance_report(
-        args.output,
+        output_path,
         report_data=report_data,
         progress=progress,
         execution_info=execution_info,

@@ -32,6 +32,7 @@ from tools.lib.csi_io import load_npz_as_packets, load_static_presence_and_motio
 from tools.lib.dataset_metadata import (
     DATA_DIR,
     load_dataset_info,
+    resolve_entry_path,
     resolve_explicit_pair,
     select_dataset_interactively,
 )
@@ -169,8 +170,8 @@ def analyze_all_pairs_from_dataset_info() -> list:
         if motion_name not in motion_by_name:
             continue
 
-        static_presence_path = DATA_DIR / 'static_presence' / static_presence_name
-        motion_path = DATA_DIR / 'motion' / motion_name
+        static_presence_path = resolve_entry_path('static_presence', baseline)
+        motion_path = resolve_entry_path('motion', motion_by_name[motion_name])
         if not static_presence_path.exists() or not motion_path.exists():
             continue
 

@@ -46,6 +46,7 @@ Revised by: Francesco Pace <francesco.pace@gmail.com>
 import sys
 import argparse
 import datetime
+import os
 import re
 from copy import deepcopy
 from pathlib import Path
@@ -62,7 +63,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.lib.bootstrap import setup_paths  # noqa: F401
 from tools.lib.repo_paths import generated_data_dir  # noqa: E402
-from tools.lib import dataset_metadata  # noqa: E402
+from tools.lib import dataset_metadata, performance_report  # noqa: E402
 from tools.lib.atomic_io import atomic_write_text  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
     DATASET_ROLES,
@@ -112,6 +113,39 @@ DATA_DIR = SCRIPT_DIR.parent / "data"
 DATASET_INFO = DATA_DIR / "dataset_info.json"
 REPORT_OUTPUT = generated_data_dir() / "DATASET_QUALITY_CHECK.md"
 PAIR_MAX_DELTA_SECONDS = 30 * 60
+DIAGNOSTIC_ALL_PHY = False
+
+
+def configure_dataset_paths(data_dir, report_output=None):
+    """Point the validator and shared report helpers at one dataset root."""
+    global DATA_DIR, DATASET_INFO, REPORT_OUTPUT
+
+    DATA_DIR = Path(data_dir).resolve()
+    DATASET_INFO = DATA_DIR / "dataset_info.json"
+    REPORT_OUTPUT = (
+        DATA_DIR / "auto_generated" / "DATASET_QUALITY_CHECK.md"
+        if report_output is None
+        else Path(report_output).resolve()
+    )
+    dataset_metadata.DATA_DIR = DATA_DIR
+    dataset_metadata.DATASET_INFO_FILE = DATASET_INFO
+    performance_report.DATA_DIR = DATA_DIR
+
+
+def configure_validation_mode(*, diagnostic_all_phy=False):
+    """Select the packet view used after the supported-contract check."""
+    global DIAGNOSTIC_ALL_PHY
+
+    DIAGNOSTIC_ALL_PHY = bool(diagnostic_all_phy)
+
+
+def _report_evaluation_view():
+    """Return the stable report label for the selected packet view."""
+    return (
+        "all explicit PHY rows (diagnostic)"
+        if DIAGNOSTIC_ALL_PHY
+        else "HT20/HT-LTF"
+    )
 
 
 def _report_input_paths():
@@ -719,6 +753,11 @@ def _feature_matrix_packets(packets, *, feature_names=None):
 def _load_or_compute_validation_feature_matrix(filepath, *, feature_names=None, use_cache=True):
     """Return the shared time-aware dense feature stream for validation."""
     requested_feature_names = tuple(feature_names or VALIDATION_FEATURE_NAMES)
+    if DIAGNOSTIC_ALL_PHY:
+        return _feature_matrix_packets(
+            load_npz_packet_view(filepath, keep_all_phy=True),
+            feature_names=requested_feature_names,
+        )
     rows = load_or_compute_ml_replay_rows(
         filepath,
         selected_subcarriers=DEFAULT_SUBCARRIERS,
@@ -828,11 +867,28 @@ def _idle_reference_stratum(entry):
     return link_class, rate_class
 
 
+def _unique_entries_by_resolved_path(label, entries):
+    """Keep one logical catalog entry for each canonical NPZ path."""
+    unique = []
+    seen_paths = set()
+    for entry in entries:
+        path = dataset_metadata.resolve_entry_path(label, entry).resolve()
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
+        unique.append(entry)
+    return unique
+
+
 def _build_idle_reference_records(dataset_info, *, chip_filter=None, use_cache=True):
     """Build admitted, non-long idle references for cross-capture review."""
     records = []
     for label in ("empty", "static_presence"):
-        for entry in dataset_info.get("files", {}).get(label, []):
+        entries = _unique_entries_by_resolved_path(
+            label,
+            dataset_info.get("files", {}).get(label, []),
+        )
+        for entry in entries:
             if _is_excluded_entry(entry) or not _entry_matches_chip(entry, chip_filter):
                 continue
             if label == "empty" and _is_long_recording_entry(entry):
@@ -1457,8 +1513,29 @@ def _entry_environment(entry):
 
 
 def _dataset_file_href(label, filename):
-    """Return a report-relative href for one dataset NPZ under its label folder."""
-    return f"../{label}/{filename}"
+    """Return a report-relative href for one catalogued dataset NPZ."""
+    target = DATA_DIR / label / filename
+    for entry in load_dataset_info().get("files", {}).get(label, []):
+        if str(entry.get("filename", "")) == str(filename):
+            target = dataset_metadata.resolve_entry_path(label, entry)
+            break
+    return Path(os.path.relpath(target, REPORT_OUTPUT.parent)).as_posix()
+
+
+def _report_source_path():
+    """Return a stable repository-relative catalog path when possible."""
+    try:
+        return DATASET_INFO.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return DATASET_INFO.as_posix()
+
+
+def _report_evaluation_view_is_current():
+    """Return whether the report was generated for the selected packet view."""
+    if not REPORT_OUTPUT.exists():
+        return False
+    expected = f"Evaluation view: `{_report_evaluation_view()}`"
+    return expected in REPORT_OUTPUT.read_text(encoding="utf-8").splitlines()
 
 
 def _md_file_link(text, label, filename):
@@ -1990,12 +2067,20 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
         ))
 
     for label, entries in filtered_entries.items():
-        metadata_names = {
-            str(entry.get('filename')) for entry in entries if entry.get('filename')
+        all_label_entries = files_by_label.get(label, [])
+        if any(entry.get("relative_path") for entry in all_label_entries):
+            # A source-native directory can contain additional views that are
+            # intentionally outside this catalog. Orphan discovery is only
+            # unambiguous for the conventional <label>/<filename> layout.
+            continue
+        metadata_paths = {
+            dataset_metadata.resolve_entry_path(label, entry).resolve()
+            for entry in entries
+            if entry.get('filename')
         }
-        excluded_metadata_names = {
-            str(entry.get('filename'))
-            for entry in files_by_label.get(label, [])
+        excluded_metadata_paths = {
+            dataset_metadata.resolve_entry_path(label, entry).resolve()
+            for entry in all_label_entries
             if entry.get('filename')
             and _entry_matches_chip(entry, chip_filter)
             and _is_excluded_entry(entry)
@@ -2003,13 +2088,16 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
         label_dir = DATA_DIR / label
         if not label_dir.exists():
             continue
-        disk_names = {
-            path.name for path in label_dir.glob('*.npz')
+        disk_paths = {
+            path.resolve() for path in label_dir.glob('*.npz')
             if _entry_matches_chip({'filename': path.name}, chip_filter)
         }
-        for orphan_name in sorted(disk_names - metadata_names - excluded_metadata_names):
+        for orphan_path in sorted(
+            disk_paths - metadata_paths - excluded_metadata_paths,
+            key=str,
+        ):
             results.append(ValidationResult(
-                f"metadata_orphan/{label}/{orphan_name}",
+                f"metadata_orphan/{label}/{orphan_path.name}",
                 "FAIL",
                 "Capture exists on disk but is absent from dataset_info.json",
             ))
@@ -2073,9 +2161,10 @@ def _get_csi_key(data):
 def validate_file_integrity(filepath):
     """Check file can be loaded and has expected structure.
 
-    Structural checks use the on-disk arrays. The returned mapping is the HT20
-    sensing view (non-HT20 packets dropped) so continuity and later quality
-    phases see the same filtered stream as training and host tooling.
+    Structural checks use the on-disk arrays. The returned mapping normally is
+    the HT20 sensing view so later phases match training and host tooling. The
+    explicit diagnostic mode returns all rows after retaining the supported
+    sensing-contract result.
     """
     results = []
 
@@ -2196,7 +2285,12 @@ def validate_file_integrity(filepath):
             f"Sensing view keeps {sensing_rows} HT20/HT-LTF/64-SC packet(s)",
         ))
 
-    return results, sensing_view
+    return results, raw_data if DIAGNOSTIC_ALL_PHY else sensing_view
+
+
+def _load_validation_packet_view(filepath):
+    """Load the packet view selected for report diagnostics."""
+    return load_npz_packet_view(filepath, keep_all_phy=DIAGNOSTIC_ALL_PHY)
 
 
 def validate_signal_quality(csi_data):
@@ -2621,8 +2715,8 @@ def _evaluate_pair_capture(
     mv_file = dataset_metadata.resolve_entry_path("motion", motion_entry)
 
     try:
-        static_packets = load_npz_packet_view(bl_file)
-        motion_packets = load_npz_packet_view(mv_file)
+        static_packets = _load_validation_packet_view(bl_file)
+        motion_packets = _load_validation_packet_view(mv_file)
     except Exception as exc:
         return (
             [ValidationResult("pair_load", "FAIL", f"Cannot load pair: {exc}")],
@@ -2820,7 +2914,7 @@ def _collect_excluded_idle_rows(
                     filepath,
                     use_cache=use_cache,
                 )
-                packets = load_npz_packet_view(filepath)
+                packets = _load_validation_packet_view(filepath)
             except Exception:
                 continue
             reference_cleanliness = _reference_idle_stats(
@@ -3435,7 +3529,7 @@ def _compute_idle_evidence_for_entry(entry, label, *, use_cache=True):
         if packet_rate_pps is None:
             return None, None, "insufficient timing metadata"
         feature_names = tuple(VALIDATION_FEATURE_NAMES)
-        packets = load_npz_packet_view(filepath)
+        packets = _load_validation_packet_view(filepath)
         feature_matrix, feature_names = _load_or_compute_validation_feature_matrix(
             filepath,
             feature_names=feature_names,
@@ -3530,19 +3624,19 @@ def validate_empty_sanity(dataset_info, chip_filter=None, use_cache=True):
     """
     results = []
 
-    empty_files = [
+    empty_files = _unique_entries_by_resolved_path("empty", [
         entry for entry in dataset_info.get('files', {}).get('empty', [])
         if _entry_matches_chip(entry, chip_filter)
         and not _is_excluded_entry(entry)
         and not bool(entry.get('synthetic'))
         and not _is_long_recording_entry(entry)
-    ]
-    static_presence_files = [
+    ])
+    static_presence_files = _unique_entries_by_resolved_path("static_presence", [
         entry for entry in dataset_info.get('files', {}).get('static_presence', [])
         if _entry_matches_chip(entry, chip_filter)
         and not _is_excluded_entry(entry)
         and not bool(entry.get('synthetic'))
-    ]
+    ])
 
     if not empty_files:
         results.append(ValidationResult(
@@ -3710,11 +3804,16 @@ def run_validation(
     chip_filter=None,
     generate_report=True,
     use_cache=True,
+    refresh_pair_metadata=True,
+    diagnostic_all_phy=False,
 ):
     """Run full dataset validation."""
 
+    configure_validation_mode(diagnostic_all_phy=diagnostic_all_phy)
+
     print("ESPectre Dataset Quality Validation")
     print(f"Data: {DATA_DIR}")
+    print(f"Evaluation view: {_report_evaluation_view()}")
     print(f"Time-aware ML row cache: {'enabled' if use_cache else 'disabled'}")
     if chip_filter:
         print(f"Chip filter: {chip_filter}")
@@ -3727,7 +3826,7 @@ def run_validation(
         print("⚠️  dataset_info.json not found, scanning files directly")
         dataset_info = {'files': {'empty': [], 'static_presence': [], 'motion': []}}
 
-    if DATASET_INFO.exists():
+    if DATASET_INFO.exists() and refresh_pair_metadata:
         refreshed_info, refreshed_pairs = refresh_metadata(dataset_info, chip_filter=chip_filter)
         summarize_pair_rows(refreshed_pairs)
         if refreshed_info != dataset_info:
@@ -3739,6 +3838,8 @@ def run_validation(
         else:
             print("Metadata unchanged")
         dataset_info = refreshed_info
+    elif DATASET_INFO.exists():
+        print("Metadata refresh disabled; preserving explicit pair references")
 
     all_results = []
     pair_results = []
@@ -3779,34 +3880,20 @@ def run_validation(
     # ------------------------------------------------------------------
     # Shared NPZ loaders keep the materialized arrays and packet streams warm
     # across later validation phases.
-    excluded_filenames_by_label = {
-        label: {
-            str(entry.get("filename"))
-            for entry in dataset_info.get("files", {}).get(label, [])
-            if entry.get("filename") and _is_excluded_entry(entry)
-        }
-        for label in PER_FILE_QUALITY_LABELS
-    }
-    entries_by_label_and_filename = {
-        label: {
-            str(entry.get("filename")): entry
-            for entry in dataset_info.get("files", {}).get(label, [])
-            if entry.get("filename")
-        }
-        for label in PER_FILE_QUALITY_LABELS
-    }
-
+    validated_paths = set()
     for label in PER_FILE_QUALITY_LABELS:
-        label_dir = DATA_DIR / label
-        if not label_dir.exists():
-            print(f"⚠️  Directory not found: {label_dir}")
-            continue
-
-        for npz_file in sorted(label_dir.glob("*.npz")):
-            if not _entry_matches_chip({'filename': npz_file.name}, chip_filter):
+        entries = sorted(
+            dataset_info.get("files", {}).get(label, []),
+            key=lambda entry: str(entry.get("filename", "")),
+        )
+        for entry in entries:
+            if _is_excluded_entry(entry) or not _entry_matches_chip(entry, chip_filter):
                 continue
-            if npz_file.name in excluded_filenames_by_label.get(label, set()):
+            npz_file = dataset_metadata.resolve_entry_path(label, entry)
+            resolved_path = npz_file.resolve()
+            if resolved_path in validated_paths:
                 continue
+            validated_paths.add(resolved_path)
 
             file_results = []
             integrity_results, data = validate_file_integrity(npz_file)
@@ -3819,7 +3906,6 @@ def run_validation(
                 _tag_results(quality_results, 'integrity')
                 file_results.extend(quality_results)
 
-                entry = entries_by_label_and_filename.get(label, {}).get(npz_file.name, {})
                 continuity_results = validate_capture_continuity(
                     data,
                     data[csi_key],
@@ -3830,26 +3916,23 @@ def run_validation(
 
             _emit_issues(
                 file_results,
-                heading=f"{label}/{npz_file.name}",
+                heading=str(npz_file.relative_to(DATA_DIR)),
             )
 
     # ------------------------------------------------------------------
     # Phase 3: Pair validation (static presence <-> motion)
     # ------------------------------------------------------------------
-    static_presence_dir = DATA_DIR / "static_presence"
-    motion_dir = DATA_DIR / "motion"
-
-    if static_presence_dir.exists() and motion_dir.exists():
-        static_entries = [
-            entry
-            for entry in dataset_info.get("files", {}).get("static_presence", [])
-            if not _is_excluded_entry(entry)
-        ]
-        motion_entries_by_name = {
-            str(item.get("filename", "")): item
-            for item in dataset_info.get("files", {}).get("motion", [])
-            if not _is_excluded_entry(item)
-        }
+    static_entries = [
+        entry
+        for entry in dataset_info.get("files", {}).get("static_presence", [])
+        if not _is_excluded_entry(entry)
+    ]
+    motion_entries_by_name = {
+        str(item.get("filename", "")): item
+        for item in dataset_info.get("files", {}).get("motion", [])
+        if not _is_excluded_entry(item)
+    }
+    if static_entries and motion_entries_by_name:
         for entry in static_entries:
             if not _entry_matches_chip(entry, chip_filter):
                 continue
@@ -4074,7 +4157,8 @@ def _generate_report(
     lines = []
     lines.append("# Dataset Quality Check\n")
     lines.append(f"Last update: {datetime.date.today().isoformat()}")
-    lines.append("Source: `data/dataset_info.json`")
+    lines.append(f"Source: `{_report_source_path()}`")
+    lines.append(f"Evaluation view: `{_report_evaluation_view()}`")
     lines.append(
         f"Dataset revision: `sha256:{dataset_metadata.dataset_info_revision(DATASET_INFO)}`"
     )
@@ -4310,12 +4394,39 @@ def main():
 Examples:
   python validate_dataset_quality.py              # Full validation (auto report + metadata refresh)
   python validate_dataset_quality.py --chip C6    # Validate C6 only
+  python validate_dataset_quality.py --data-dir data/untracked/example --preserve-pairs
+  python validate_dataset_quality.py --data-dir data/untracked/example --diagnostic-all-phy
   python validate_dataset_quality.py --no-cache   # Bypass persisted validation artifacts
   python validate_dataset_quality.py --no-report  # Skip markdown report
         """
     )
     parser.add_argument('--chip', type=str, default=None,
                        help='Filter by chip type (e.g., C6, S3, C3, ESP32)')
+    parser.add_argument(
+        '--data-dir',
+        type=Path,
+        default=DATA_DIR,
+        help='Dataset root containing dataset_info.json and label directories',
+    )
+    parser.add_argument(
+        '--report-output',
+        type=Path,
+        default=None,
+        help='Report path (default: <data-dir>/auto_generated/DATASET_QUALITY_CHECK.md)',
+    )
+    parser.add_argument(
+        '--preserve-pairs',
+        action='store_true',
+        help='Keep explicit catalog pairs instead of refreshing them by timestamp',
+    )
+    parser.add_argument(
+        '--diagnostic-all-phy',
+        action='store_true',
+        help=(
+            'Evaluate all explicit PHY rows after still reporting violations of '
+            'the supported HT20/HT-LTF sensing contract'
+        ),
+    )
     parser.add_argument('--no-report', action='store_true',
                        help='Skip writing DATASET_QUALITY_CHECK.md')
     parser.add_argument(
@@ -4330,13 +4441,15 @@ Examples:
     )
 
     args = parser.parse_args()
+    configure_dataset_paths(args.data_dir, args.report_output)
+    configure_validation_mode(diagnostic_all_phy=args.diagnostic_all_phy)
 
     if args.check_current:
         if dataset_metadata.generated_report_is_current(
             REPORT_OUTPUT,
             DATASET_INFO,
             input_paths=_report_input_paths(),
-        ):
+        ) and _report_evaluation_view_is_current():
             print(f"Current: {REPORT_OUTPUT}")
             sys.exit(0)
         print(
@@ -4349,6 +4462,8 @@ Examples:
         chip_filter=args.chip,
         generate_report=not args.no_report,
         use_cache=not args.no_cache,
+        refresh_pair_metadata=not args.preserve_pairs,
+        diagnostic_all_phy=args.diagnostic_all_phy,
     )
     sys.exit(exit_code)
 
