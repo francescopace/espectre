@@ -107,6 +107,52 @@ def test_cache_provenance_memoization_returns_isolated_values():
     assert trainer._packet_augmentation_stream_provenance_cached.cache_info().hits == 1
 
 
+def test_trajectory_bin_experiment_has_distinct_host_cache_identity(monkeypatch):
+    monkeypatch.setattr(
+        trainer,
+        "ACTIVE_TRAJECTORY_BIN_US",
+        trainer.CHANNEL_SHAPE_BIN_US,
+    )
+    trainer.set_active_trajectory_bin_ms(40)
+    forty_ms = trainer._host_feature_stream_provenance(
+        ["turb_autocorr", "chan_shape_excess_path"],
+    )
+    extractor = trainer.StreamingFeatureExtractor(
+        ["chan_shape_excess_path"],
+    )
+
+    trainer.set_active_trajectory_bin_ms(80)
+    eighty_ms = trainer._host_feature_stream_provenance(
+        ["turb_autocorr", "chan_shape_excess_path"],
+    )
+
+    assert extractor.shape_trajectory_tracker.bin_us == 40_000
+    assert (
+        forty_ms["feature_identities"]["turb_autocorr"]
+        == eighty_ms["feature_identities"]["turb_autocorr"]
+    )
+    assert (
+        forty_ms["feature_identities"]["chan_shape_excess_path"]
+        != eighty_ms["feature_identities"]["chan_shape_excess_path"]
+    )
+
+
+def test_non_default_trajectory_bin_cannot_export(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["train_ml_model.py", "--trajectory-bin-ms", "50", "--seed", "7"],
+    )
+    monkeypatch.setattr(
+        trainer,
+        "train_all",
+        lambda **kwargs: pytest.fail("experimental bin must not reach export"),
+    )
+
+    assert trainer.main() == 1
+    assert "requires a read-only flow" in capsys.readouterr().out
+
+
 def test_promoted_packet_augmentation_uses_two_fixed_views():
     assert trainer.training_packet_augmentation_seeds({"packet_loss": 0.05}) == (
         20260807,

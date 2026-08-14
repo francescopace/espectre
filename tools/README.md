@@ -136,6 +136,17 @@ The candidate tools answer different questions:
 
 These tools are diagnostic by default and must not write production runtime artifacts. Their durable conclusions belong in [FEATURES.md](../docs/FEATURES.md); detector formulas belong in [ALGORITHMS.md](../docs/ALGORITHMS.md). Use an ADR only for a durable architectural or project-level decision.
 
+Replay independent catalogs only after fitting and primary-corpus ranking. Repeat `--external-data-dir` for multiple sealed holdouts; add `--external-diagnostic-all-phy` only for a matching external catalog whose explicit non-production PHY rows are intentionally being evaluated as diagnostics:
+
+```bash
+python tools/replay_lightweight_candidates.py \
+  --features turb_autocorr,turb_iqr_over_mean_aggr,chan_shape_excess_path \
+  --stress-augment \
+  --external-data-dir data/untracked/csi_sense_zero \
+  --external-data-dir data/untracked/wisdom_lab \
+  --external-diagnostic-all-phy data/untracked/wisdom_lab
+```
+
 `fit_lightweight_detector.py --apply` and ML export are deliberate promotion actions. Run the required real-data, long-recording, packet-rate, and C++/Python parity gates before applying their output.
 
 ## Visual Analysis

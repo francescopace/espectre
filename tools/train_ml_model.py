@@ -423,6 +423,7 @@ from tools.lib.candidate_features import (
 )
 from tools.lib.host_feature_trackers import (
     AmplitudeProfileTracker,
+    CHANNEL_SHAPE_BIN_US,
     ChannelCoherenceTracker,
     ChannelShapeTrajectoryTracker,
     ChannelShapeTracker,
@@ -476,6 +477,7 @@ def _production_tracker_feature_kwargs(
 # ============================================================================
 
 TRAINING_FEATURES = DEFAULT_FEATURES
+ACTIVE_TRAJECTORY_BIN_US = CHANNEL_SHAPE_BIN_US
 DEFAULT_AGGREGATED_CANDIDATE_WIDTH = TURB_IQR_AGGREGATION_WIDTH
 FIXED_PACKET_AUGMENTATION_SEEDS = (20260807, 20260808)
 # Single-view diagnostics retain the first promoted seed. Production training
@@ -492,6 +494,27 @@ def selectable_features():
     substitute the production surface.
     """
     return tuple(ALL_FEATURES) + tuple(CANDIDATE_FEATURES)
+
+
+def set_active_trajectory_bin_ms(value):
+    """Select the host-side trajectory bin used by read-only experiments."""
+    global ACTIVE_TRAJECTORY_BIN_US
+    milliseconds = int(value)
+    if milliseconds < 1:
+        raise ValueError("trajectory bin must be at least 1 ms")
+    ACTIVE_TRAJECTORY_BIN_US = milliseconds * 1000
+
+
+@contextmanager
+def canonical_trajectory_bin():
+    """Temporarily restore the production bin for exported-model baselines."""
+    global ACTIVE_TRAJECTORY_BIN_US
+    previous = ACTIVE_TRAJECTORY_BIN_US
+    ACTIVE_TRAJECTORY_BIN_US = CHANNEL_SHAPE_BIN_US
+    try:
+        yield
+    finally:
+        ACTIVE_TRAJECTORY_BIN_US = previous
 BINARY_TRAINING_LABELS = ('empty', 'static_presence', 'motion')
 # Directories
 GENERATED_DATA_DIR = generated_data_dir()
@@ -1508,8 +1531,15 @@ def _packet_augmentation_stream_provenance(packet_augmentation, augmentation_see
 
 
 @lru_cache(maxsize=64)
-def _host_feature_base_stream_provenance(feature_names):
+def _host_feature_base_stream_provenance(feature_names, trajectory_bin_us):
     """Build shared host provenance once per ordered feature schema."""
+    feature_identities = {
+        name: _host_feature_cache_identity(name)
+        for name in feature_names
+    }
+    for identity in feature_identities.values():
+        if identity.get('provider') == 'channel_shape_trajectory':
+            identity['trajectory_bin_us'] = int(trajectory_bin_us)
     return {
         'transform': 'host_feature_rows_v3',
         'feature_names': list(feature_names),
@@ -1529,10 +1559,7 @@ def _host_feature_base_stream_provenance(feature_names):
                 ),
             },
         },
-        'feature_identities': {
-            name: _host_feature_cache_identity(name)
-            for name in feature_names
-        },
+        'feature_identities': feature_identities,
     }
 
 
@@ -1541,7 +1568,10 @@ def _host_feature_stream_provenance(feature_names, *,
                                     augmentation_seed=None):
     """Return an isolated copy of memoized granular host provenance."""
     names = tuple(str(name) for name in feature_names)
-    provenance = copy.deepcopy(_host_feature_base_stream_provenance(names))
+    provenance = copy.deepcopy(_host_feature_base_stream_provenance(
+        names,
+        int(ACTIVE_TRAJECTORY_BIN_US),
+    ))
     packet_provenance = _packet_augmentation_stream_provenance(
         packet_augmentation,
         augmentation_seed,
@@ -5636,6 +5666,7 @@ class StreamingFeatureExtractor:
         self.shape_trajectory_tracker = (
             ChannelShapeTrajectoryTracker(
                 window_duration_us=SEGMENTATION_WINDOW_SIZE_MS * 1000,
+                bin_us=ACTIVE_TRAJECTORY_BIN_US,
             )
             if needs_channel_shape_trajectory(self.feature_names) else None
         )
@@ -5830,7 +5861,10 @@ def _normalize_feature_row_contract(sample_contract):
 
 def _feature_rows_use_runtime_cache(feature_names):
     """Return True when canonical runtime replay rows can serve this request."""
-    return _feature_names_support_replay_rows(feature_names)
+    return (
+        ACTIVE_TRAJECTORY_BIN_US == CHANNEL_SHAPE_BIN_US
+        and _feature_names_support_replay_rows(feature_names)
+    )
 
 
 def _empty_feature_rows(feature_names):
@@ -6604,11 +6638,9 @@ def _load_exported_model_arrays():
     return list(module.FEATURE_NAMES), center, scale, layers
 
 
-def evaluate_exported_paired_gate(threshold=0.5, chips=None,
-                                  roles=('selection', 'holdout'),
-                                  allow_legacy_fallback=True,
-                                  use_cached_features=True,
-                                  use_cache=True):
+def _evaluate_exported_paired_gate_at_active_bin(
+        threshold=0.5, chips=None, roles=('selection', 'holdout'),
+        allow_legacy_fallback=True, use_cached_features=True, use_cache=True):
     """Evaluate exported runtime arrays on the paired validation datasets."""
     feature_names, center, scale, layers = _load_exported_model_arrays()
     by_chip = {}
@@ -6647,6 +6679,23 @@ def evaluate_exported_paired_gate(threshold=0.5, chips=None,
         row['low_rssi'] = low_rssi
         by_chip[chip] = row
     return summarize_gate(by_chip)
+
+
+def evaluate_exported_paired_gate(threshold=0.5, chips=None,
+                                  roles=('selection', 'holdout'),
+                                  allow_legacy_fallback=True,
+                                  use_cached_features=True,
+                                  use_cache=True):
+    """Evaluate exported arrays with their canonical production trajectory bin."""
+    with canonical_trajectory_bin():
+        return _evaluate_exported_paired_gate_at_active_bin(
+            threshold=threshold,
+            chips=chips,
+            roles=roles,
+            allow_legacy_fallback=allow_legacy_fallback,
+            use_cached_features=use_cached_features,
+            use_cache=use_cache,
+        )
 
 
 def _iter_quiet_gate_replays(roles=('selection', 'holdout')):
@@ -6770,8 +6819,9 @@ def evaluate_quiet_gate(model, scaler, feature_names, threshold=0.5,
     return summary
 
 
-def evaluate_exported_quiet_gate(threshold=0.5, roles=('selection', 'holdout'),
-                                 use_cached_features=True, use_cache=True):
+def _evaluate_exported_quiet_gate_at_active_bin(
+        threshold=0.5, roles=('selection', 'holdout'),
+        use_cached_features=True, use_cache=True):
     """Evaluate exported arrays on reserved real empty recordings."""
     feature_names, center, scale, layers = _load_exported_model_arrays()
     by_dataset = {}
@@ -6799,6 +6849,18 @@ def evaluate_exported_quiet_gate(threshold=0.5, roles=('selection', 'holdout'),
                 threshold=threshold,
             )
     return summarize_quiet_gate(by_dataset)
+
+
+def evaluate_exported_quiet_gate(threshold=0.5, roles=('selection', 'holdout'),
+                                 use_cached_features=True, use_cache=True):
+    """Evaluate exported arrays with their canonical production trajectory bin."""
+    with canonical_trajectory_bin():
+        return _evaluate_exported_quiet_gate_at_active_bin(
+            threshold=threshold,
+            roles=roles,
+            use_cached_features=use_cached_features,
+            use_cache=use_cache,
+        )
 
 
 @dataclass
@@ -8572,6 +8634,12 @@ def main():
                             'selectable too; they have no C++ extractor id, so they '
                             'require --no-export or an evaluation-only flow until '
                             'they are promoted and added to CPP_FEATURE_IDS')
+    parser.add_argument('--trajectory-bin-ms', type=int,
+                       default=CHANNEL_SHAPE_BIN_US // 1000,
+                       metavar='MS',
+                       help='Host-side trajectory-bin experiment in milliseconds '
+                            f'(default: {CHANNEL_SHAPE_BIN_US // 1000}; '
+                            'non-default values cannot export runtime artifacts)')
     parser.add_argument('--evaluate-gates', action='store_true',
                        help='Run the deployment replay gates and report them without '
                             'exporting runtime artifacts. This is how a host-side '
@@ -8625,6 +8693,11 @@ def main():
                             'and evaluate on the held-out chip. '
                             'Diagnostic only; does not train a promotable model or export artifacts')
     args = parser.parse_args()
+    try:
+        set_active_trajectory_bin_ms(args.trajectory_bin_ms)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return 1
     if args.timing_warn_weight <= 0.0 or args.timing_warn_weight > 1.0:
         print("Error: --timing-warn-weight must be in the range (0.0, 1.0]")
         return 1
@@ -8698,6 +8771,31 @@ def main():
     if args.info:
         show_info()
         return 0
+
+    if (
+        ACTIVE_TRAJECTORY_BIN_US != CHANNEL_SHAPE_BIN_US
+        and not (
+            args.no_export
+            or args.evaluate_gates
+            or args.shap is not None
+            or args.ablation_feature
+            or args.correlation
+            or args.cross_environment
+            or args.cross_chip
+            or args.experiment
+            or args.experiment_fp_weights is not None
+        )
+    ):
+        print(
+            "Error: a non-default --trajectory-bin-ms is experimental and "
+            "requires a read-only flow such as --no-export or --evaluate-gates"
+        )
+        return 1
+    if ACTIVE_TRAJECTORY_BIN_US != CHANNEL_SHAPE_BIN_US:
+        print(
+            "Trajectory bin experiment: "
+            f"{ACTIVE_TRAJECTORY_BIN_US / 1000:g} ms (runtime artifacts unchanged)"
+        )
 
     experiment_count = sum((
         bool(args.experiment),

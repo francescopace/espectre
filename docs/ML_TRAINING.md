@@ -175,6 +175,14 @@ python tools/train_ml_model.py --augment --ablation-feature FEATURE_OR_JOINT_REM
 
 Candidate features live in `tools/lib/candidate_features.py`. They may be selected with `--features`, but they cannot be exported until they have matching Python and C++ runtime implementations and a published feature ID. Retired candidate evidence remains in `docs/FEATURES.md`; retired implementations are not kept executable solely for historical comparisons. Use `--evaluate-gates` or `--no-export` while evaluating current candidates.
 
+Trajectory-bin experiments use the same host streaming path and keep the production `80 ms` default unless explicitly overridden:
+
+```bash
+python tools/train_ml_model.py --augment --seed SEED --trajectory-bin-ms 50 --evaluate-gates
+```
+
+Non-default bins are read-only and cannot export runtime artifacts. Their host feature columns use a bin-specific cache identity, while exported-baseline comparisons always retain the canonical production bin.
+
 Use leave-one-group-out diagnostics to estimate transfer to unseen rooms or chips:
 
 ```bash

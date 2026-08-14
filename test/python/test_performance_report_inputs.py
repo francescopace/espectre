@@ -156,6 +156,18 @@ def test_resource_benchmark_executes_cached_binary_each_time(monkeypatch, tmp_pa
     assert all(call[0] == [str(binary)] for call in calls)
 
 
+def test_resource_benchmark_cache_tracks_core_headers():
+    core_headers = set(performance_report_inputs.CORE_SOURCE_DIR.glob("*.h"))
+
+    assert core_headers
+    assert core_headers.issubset(
+        set(performance_report_inputs.RESOURCE_BENCHMARK_DEPENDENCIES)
+    )
+    assert core_headers.isdisjoint(
+        set(performance_report_inputs.RESOURCE_BENCHMARK_SOURCES)
+    )
+
+
 def test_report_pair_filter_keeps_only_selection_and_holdout():
     all_pairs = performance_report.get_available_paired_datasets(synthetic=False)
     reserved_pairs = performance_report.get_available_paired_datasets(

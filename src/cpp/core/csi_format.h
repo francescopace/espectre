@@ -169,8 +169,8 @@ inline float calculate_spatial_turbulence(const float* magnitudes,
         return 0.0f;
     }
 
-    float variance = calculate_variance_two_pass(valid_mags, valid_count);
-    return calculate_turbulence_from_variance(variance, valid_mags, valid_count);
+    const MeanVariance stats = calculate_mean_variance_two_pass(valid_mags, valid_count);
+    return apply_cv_normalization(std::sqrt(stats.variance), stats.mean);
 }
 
 /**
@@ -352,8 +352,8 @@ inline float calculate_spatial_turbulence_from_amplitudes(const float* amplitude
     if (amplitudes == nullptr || count == 0) {
         return 0.0f;
     }
-    const float variance = calculate_variance_two_pass(amplitudes, count);
-    return calculate_turbulence_from_variance(variance, amplitudes, count);
+    const MeanVariance stats = calculate_mean_variance_two_pass(amplitudes, count);
+    return apply_cv_normalization(std::sqrt(stats.variance), stats.mean);
 }
 
 /**

@@ -76,6 +76,7 @@ class SegmentationContext:
             else None
         )
         self._amplitude_count = 0
+        self._amplitude_mean = 0.0
 
         # Initialize low-pass filter if enabled
         self.lowpass_filter = None
@@ -297,15 +298,16 @@ class SegmentationContext:
         return n
 
     @staticmethod
-    def _turbulence_from_amplitude_buffer(amplitude_buffer, count):
+    def _turbulence_from_amplitude_buffer(amplitude_buffer, count, mean=None):
         """Compute gain-invariant spatial turbulence from amplitudes."""
         if count < 2:
             return 0.0
 
-        total = 0.0
-        for i in range(count):
-            total += amplitude_buffer[i]
-        mean = total / count
+        if mean is None:
+            total = 0.0
+            for i in range(count):
+                total += amplitude_buffer[i]
+            mean = total / count
 
         var_sum = 0.0
         for i in range(count):
@@ -426,9 +428,16 @@ class SegmentationContext:
                 )
             )
         self.last_amplitudes = None
+        total = 0.0
+        for i in range(self._amplitude_count):
+            total += self._amplitude_buffer[i]
+        self._amplitude_mean = (
+            total / self._amplitude_count if self._amplitude_count else 0.0
+        )
         return self._turbulence_from_amplitude_buffer(
             self._amplitude_buffer,
             self._amplitude_count,
+            self._amplitude_mean,
         )
 
     def add_turbulence(self, turbulence):

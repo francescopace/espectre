@@ -28,6 +28,7 @@ from ml_feature_trackers import (
     ChannelShapeTrajectoryTracker,
 )
 from segmentation import SegmentationContext
+from csi_features import L1DeltaTracker
 
 from ml_weights import FEATURE_MEAN, FEATURE_NAMES
 
@@ -130,6 +131,26 @@ def test_trajectory_duplicate_detection_accepts_signed_payloads():
     tracker.process_packet(list(payload), CHANNEL_SHAPE_BIN_US // 2)
 
     assert tracker._current_profile_count == profile_count
+
+
+def test_l1_precomputed_mean_matches_default_normalization():
+    direct = L1DeltaTracker(window_size=32, enable_hampel=False)
+    shared_mean = L1DeltaTracker(window_size=32, enable_hampel=False)
+
+    for packet in range(24):
+        amplitudes = [
+            1.0 + ((packet + 3 * tone) % 11)
+            for tone in range(SegmentationContext.AMPLITUDE_BUFFER_SIZE)
+        ]
+        direct.process_amplitudes(amplitudes, len(amplitudes))
+        shared_mean.process_amplitudes(
+            amplitudes,
+            len(amplitudes),
+            sum(amplitudes) / len(amplitudes),
+        )
+
+    assert shared_mean.delta_lag_ratio() == direct.delta_lag_ratio()
+    assert shared_mean._delta_ring == direct._delta_ring
 
 
 class TestRelu:

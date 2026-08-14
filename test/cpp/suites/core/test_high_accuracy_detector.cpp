@@ -403,6 +403,37 @@ void test_w5_aggregation_averages_live_bin_magnitudes(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 58.0f, amplitudes[3]);
 }
 
+void test_l1_precomputed_mean_matches_default_normalization(void) {
+    L1DeltaTracker direct;
+    L1DeltaTracker shared_mean;
+    direct.configure(32U);
+    shared_mean.configure(32U);
+
+    for (uint8_t packet = 0U; packet < 24U; ++packet) {
+        float amplitudes[HT20_SELECTED_BAND_SIZE];
+        for (uint8_t tone = 0U; tone < HT20_SELECTED_BAND_SIZE; ++tone) {
+            amplitudes[tone] =
+                1.0f + static_cast<float>((packet + 3U * tone) % 11U);
+        }
+        direct.process(amplitudes, HT20_SELECTED_BAND_SIZE);
+        const MeanVariance stats = calculate_mean_variance_two_pass(
+            amplitudes, HT20_SELECTED_BAND_SIZE);
+        shared_mean.process(
+            amplitudes, HT20_SELECTED_BAND_SIZE, stats.mean);
+    }
+
+    float direct_series[32]{};
+    float shared_series[32]{};
+    const uint16_t direct_count = direct.build_series(direct_series);
+    const uint16_t shared_count = shared_mean.build_series(shared_series);
+    TEST_ASSERT_EQUAL(direct_count, shared_count);
+    for (uint16_t i = 0U; i < direct_count; ++i) {
+        TEST_ASSERT_EQUAL_FLOAT(direct_series[i], shared_series[i]);
+    }
+    TEST_ASSERT_EQUAL_FLOAT(
+        direct.delta_lag_ratio(), shared_mean.delta_lag_ratio());
+}
+
 // ============================================================================
 // ML SUBCARRIERS TESTS
 // ============================================================================
@@ -474,6 +505,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ml_feature_source_separates_tracker_from_series);
     RUN_TEST(test_aggregated_iqr_feature_matches_python_percentiles);
     RUN_TEST(test_w5_aggregation_averages_live_bin_magnitudes);
+    RUN_TEST(test_l1_precomputed_mean_matches_default_normalization);
     
     // Subcarriers tests
     RUN_TEST(test_ml_subcarriers_count);

@@ -194,7 +194,7 @@ class L1DeltaTracker:
         )
         self.process_amplitudes(self._amplitude_buffer, self._amplitude_count)
 
-    def process_amplitudes(self, amplitudes, amplitude_count):
+    def process_amplitudes(self, amplitudes, amplitude_count, amplitude_mean=None):
         """Update the L1 stream from an already extracted amplitude profile."""
         self._packet_count += 1
         profile = self._current_profile
@@ -208,11 +208,13 @@ class L1DeltaTracker:
         previous_len = self._profile_len[prev_slot]
         profile_len = 0
         if amplitudes is not None and 2 <= amplitude_count <= len(profile):
-            total = 0.0
-            for i in range(amplitude_count):
-                total += amplitudes[i]
-            if total > 0.0:
+            mean = amplitude_mean
+            if mean is None:
+                total = 0.0
+                for i in range(amplitude_count):
+                    total += amplitudes[i]
                 mean = total / amplitude_count
+            if mean > 0.0:
                 profile_len = amplitude_count
                 lagged = reference_len == profile_len
                 adjacent = previous_len == profile_len

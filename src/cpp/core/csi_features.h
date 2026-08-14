@@ -111,6 +111,25 @@ inline float percentile_from_sorted(const float* sorted_values, uint16_t count,
            sorted_values[lower + 1U] * fraction;
 }
 
+inline float order_statistic_in_place(float* values, uint16_t count,
+                                      uint16_t index) {
+    std::nth_element(values, values + index, values + count);
+    return values[index];
+}
+
+inline float percentile_in_place(float* values, uint16_t count,
+                                 float quantile) {
+    if (values == nullptr || count == 0U) return 0.0f;
+    const float position = static_cast<float>(count - 1U) * quantile;
+    const uint16_t lower = static_cast<uint16_t>(position);
+    const float lower_value = order_statistic_in_place(values, count, lower);
+    if (lower >= count - 1U) return lower_value;
+    const float upper_value = order_statistic_in_place(
+        values, count, static_cast<uint16_t>(lower + 1U));
+    const float fraction = position - static_cast<float>(lower);
+    return lower_value * (1.0f - fraction) + upper_value * fraction;
+}
+
 inline float calc_autocorrelation(const float* values, uint16_t count, float mean,
                                   float variance, uint16_t lag = 1) {
     if (count < lag + 2 || variance < 1e-10f) return 0.0f;
@@ -231,21 +250,24 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
         out->mean_denom = std::max(std::fabs(out->mean), 1e-6f);
     }
 
-    // Sort once; IQR and the zcr center share the sorted view.
+    // Select only the order statistics each feature consumes. A full sort
+    // produces the same values but orders the other window elements needlessly.
     if (needs.sorted && scratch.holds(count)) {
         for (uint16_t i = 0; i < count; i++) {
             scratch.sorted_values[i] = values[i];
         }
-        std::sort(scratch.sorted_values, scratch.sorted_values + count);
         if (needs.iqr) {
-            out->iqr = percentile_from_sorted(
+            out->iqr = percentile_in_place(
                 scratch.sorted_values, count, 0.75f) -
-                percentile_from_sorted(scratch.sorted_values, count, 0.25f);
+                percentile_in_place(scratch.sorted_values, count, 0.25f);
         }
         if (needs.zcr) {
             // Python zcr centers on the upper median (sorted[count // 2]).
+            const float center = order_statistic_in_place(
+                scratch.sorted_values, count,
+                static_cast<uint16_t>(count / 2U));
             out->zcr = calc_zero_crossing_rate(
-                values, count, scratch.sorted_values[count / 2]);
+                values, count, center);
         }
     }
     if (needs.autocorr) {

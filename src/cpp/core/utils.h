@@ -163,27 +163,34 @@ inline float calculate_magnitude(int8_t i, int8_t q) {
  *
  * @param amplitudes Input amplitude values
  * @param count Number of input values
+ * @param mean Precomputed arithmetic mean of the input values
  * @param out Output buffer (at least `count` elements)
  * @return Number of values written (0 when the profile is invalid)
  */
+inline uint8_t normalize_amplitude_profile(const float* amplitudes,
+                                           uint8_t count,
+                                           float mean,
+                                           float* out) {
+    if (!amplitudes || !out || count < 2) {
+        return 0;
+    }
+    if (mean <= 0.0f) {
+        return 0;
+    }
+    for (uint8_t i = 0; i < count; i++) {
+        out[i] = amplitudes[i] / mean;
+    }
+    return count;
+}
+
 inline uint8_t normalize_amplitude_profile(const float* amplitudes,
                                            uint8_t count,
                                            float* out) {
     if (!amplitudes || !out || count < 2) {
         return 0;
     }
-    float total = 0.0f;
-    for (uint8_t i = 0; i < count; i++) {
-        total += amplitudes[i];
-    }
-    if (total <= 0.0f) {
-        return 0;
-    }
-    float mean = total / count;
-    for (uint8_t i = 0; i < count; i++) {
-        out[i] = amplitudes[i] / mean;
-    }
-    return count;
+    return normalize_amplitude_profile(
+        amplitudes, count, calculate_mean(amplitudes, count), out);
 }
 
 }  // namespace espectre

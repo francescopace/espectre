@@ -283,7 +283,10 @@ void HighAccuracyDetector::process_packet(const int8_t* csi_data, size_t csi_len
     const uint8_t amplitude_count = select_subcarrier_amplitudes(
         packet_values, packet_value_count, resolved_subcarriers,
         resolved_count, amplitudes, HT20_SELECTED_BAND_SIZE);
-    process_amplitudes(amplitudes, amplitude_count);
+    const MeanVariance amplitude_stats =
+        calculate_mean_variance_two_pass(amplitudes, amplitude_count);
+    add_turbulence_to_buffer(apply_cv_normalization(
+        std::sqrt(amplitude_stats.variance), amplitude_stats.mean));
 
     if (uses_aggregated_turbulence_) {
         float aggregated_amplitudes[HT20_SELECTED_BAND_SIZE]{};
@@ -301,7 +304,7 @@ void HighAccuracyDetector::process_packet(const int8_t* csi_data, size_t csi_len
     if (!uses_l1_tracker_) {
         return;
     }
-    l1_tracker_.process(amplitudes, amplitude_count);
+    l1_tracker_.process(amplitudes, amplitude_count, amplitude_stats.mean);
 }
 
 void HighAccuracyDetector::clear_buffer() {

@@ -427,6 +427,17 @@ void test_ml_feature_helpers_cover_guard_paths(void) {
     const MLSeriesScratch scratch{sort_scratch, 4U};
     compute_ml_series_stats(sample, 4, &stats, needs, scratch);
     TEST_ASSERT_EQUAL_FLOAT(1.0f / 3.0f, stats.zcr);
+
+    float duplicate_sample[] = {4.0f, 1.0f, 4.0f, 2.0f,
+                                2.0f, 8.0f, 4.0f, 2.0f};
+    float duplicate_scratch[8];
+    needs.mean = true;
+    needs.iqr = true;
+    compute_ml_series_stats(
+        duplicate_sample, 8, &stats, needs,
+        MLSeriesScratch{duplicate_scratch, 8U});
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, stats.iqr);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f / 7.0f, stats.zcr);
 }
 
 void test_lightweight_detector_move_semantics_and_base_accessors(void) {

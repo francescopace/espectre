@@ -319,6 +319,7 @@ class HighAccuracyDetector(IDetector):
             self._l1_tracker.process_amplitudes(
                 self._context._amplitude_buffer,
                 self._context._amplitude_count,
+                self._context._amplitude_mean,
             )
         # Add to buffer
         self._context.add_turbulence(turbulence)

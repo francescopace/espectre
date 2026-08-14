@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
+import json
+
 import numpy as np
 import pytest
 import tools.train_ml_model as trainer
@@ -657,6 +659,109 @@ def test_classic_candidate_replay_reuses_time_aware_runtime_rows(monkeypatch):
         False,
         True,
         True,
+    ]
+
+
+def test_classic_candidate_replay_can_retain_external_diagnostic_phy(monkeypatch):
+    seen = {}
+    packets = [{"csi_data": np.asarray([1, 2], dtype=np.int8)}]
+
+    def fake_load_packets(path, *, keep_all_phy=False):
+        seen["packet_path"] = path
+        seen["keep_all_phy"] = keep_all_phy
+        return packets
+
+    def fake_load_rows(path, **kwargs):
+        seen["row_path"] = path
+        seen["stream_provenance"] = kwargs["stream_provenance"]
+        assert kwargs["packets_factory"]() is packets
+        return {
+            "X": np.asarray([[1.0]], dtype=np.float32),
+            "packet_index": np.asarray([99], dtype=np.int32),
+            "reset_index": np.asarray([0], dtype=np.int32),
+        }
+
+    monkeypatch.setattr(
+        replay_lightweight_candidates,
+        "load_npz_as_packets",
+        fake_load_packets,
+    )
+    monkeypatch.setattr(
+        replay_lightweight_candidates,
+        "load_or_compute_ml_replay_rows",
+        fake_load_rows,
+    )
+    monkeypatch.setattr(
+        replay_lightweight_candidates,
+        "detector_window_packets",
+        lambda _packets: 100,
+    )
+
+    replay_lightweight_candidates.build_replay_cache(
+        [trainer.Path("diagnostic.npz")],
+        [trainer.EXPORTED_FEATURE_NAMES[0]],
+        quiet=True,
+        keep_all_phy=True,
+    )
+
+    assert seen["packet_path"] == trainer.Path("diagnostic.npz")
+    assert seen["keep_all_phy"] is True
+    assert seen["stream_provenance"] == {"packet_view": "all_explicit_phy"}
+
+
+def test_classic_candidate_replay_resolves_external_holdout_catalog(tmp_path):
+    catalog = {
+        "files": {
+            "static_presence": [
+                {
+                    "filename": "static-logical.npz",
+                    "relative_path": "idle/static.npz",
+                    "dataset_role": "holdout",
+                    "chip": "ESP32",
+                    "optimal_pair_motion_file": "motion-logical.npz",
+                }
+            ],
+            "motion": [
+                {
+                    "filename": "motion-logical.npz",
+                    "relative_path": "walk/motion.npz",
+                    "dataset_role": "holdout",
+                    "chip": "ESP32",
+                }
+            ],
+            "empty": [
+                {
+                    "filename": "empty-logical.npz",
+                    "relative_path": "empty/quiet.npz",
+                    "dataset_role": "holdout",
+                    "chip": "ESP32",
+                }
+            ],
+        }
+    }
+    dataset_info_path = tmp_path / "dataset_info.json"
+    dataset_info_path.write_text(json.dumps(catalog), encoding="utf-8")
+
+    pairs = replay_lightweight_candidates.iter_replay_pairs(
+        dataset_info_path=dataset_info_path,
+        dataset_root=tmp_path,
+    )
+    empties = replay_lightweight_candidates.iter_empty_replays(
+        dataset_info_path=dataset_info_path,
+        dataset_root=tmp_path,
+    )
+
+    assert len(pairs) == 1
+    assert pairs[0]["role"] == "holdout"
+    assert pairs[0]["static_path"] == tmp_path / "idle/static.npz"
+    assert pairs[0]["motion_path"] == tmp_path / "walk/motion.npz"
+    assert empties == [
+        {
+            "session": "empty-logical.npz",
+            "chip": "ESP32",
+            "role": "holdout",
+            "path": tmp_path / "empty/quiet.npz",
+        }
     ]
 
 

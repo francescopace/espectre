@@ -14,6 +14,11 @@ Usage:
         --features turb_iqr_over_mean_aggr,l1_delta_lag_ratio
     python tools/replay_lightweight_candidates.py --calibration robust_logit \\
         --features turb_autocorr,turb_iqr_over_mean_aggr
+    python tools/replay_lightweight_candidates.py \\
+        --features turb_autocorr,turb_iqr_over_mean_aggr,chan_shape_excess_path \\
+        --external-data-dir data/untracked/csi_sense_zero \\
+        --external-data-dir data/untracked/wisdom_lab \\
+        --external-diagnostic-all-phy data/untracked/wisdom_lab
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
@@ -134,6 +139,26 @@ def parse_args() -> argparse.Namespace:
         "--no-baseline",
         action="store_true",
         help="skip the current Lightweight pair baseline and its replay rows",
+    )
+    parser.add_argument(
+        "--external-data-dir",
+        action="append",
+        type=Path,
+        default=[],
+        help=(
+            "independent dataset catalog to replay only after fitting and "
+            "ranking; repeat for multiple holdouts"
+        ),
+    )
+    parser.add_argument(
+        "--external-diagnostic-all-phy",
+        action="append",
+        type=Path,
+        default=[],
+        help=(
+            "external data directory whose explicit non-production PHY rows "
+            "should be retained for diagnostic replay"
+        ),
     )
     parser.add_argument(
         "--splits",
@@ -310,8 +335,28 @@ def transform_fusion_rows(rows: np.ndarray, mode: str) -> np.ndarray:
     )
 
 
-def iter_replay_pairs() -> List[Dict[str, Any]]:
-    files = load_dataset_info()["files"]
+def resolve_catalog_entry_path(
+    label: str,
+    entry: Mapping[str, Any],
+    dataset_root: Optional[Path] = None,
+) -> Path:
+    """Resolve a primary or explicitly external catalog entry."""
+    if dataset_root is None:
+        return resolve_entry_path(label, dict(entry))
+    relative_path = entry.get("relative_path")
+    if relative_path:
+        return dataset_root / str(relative_path)
+    filename = entry.get("filename")
+    if not filename:
+        raise ReplayError(f"Catalog entry for {label!r} has no filename")
+    return dataset_root / label / str(filename)
+
+
+def iter_replay_pairs(
+    dataset_info_path: Optional[Path] = None,
+    dataset_root: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    files = load_dataset_info(dataset_info_path)["files"]
     motion_by_name = {entry["filename"]: entry for entry in files["motion"]}
     pairs: List[Dict[str, Any]] = []
     for static_entry in files["static_presence"]:
@@ -335,8 +380,12 @@ def iter_replay_pairs() -> List[Dict[str, Any]]:
                 "role": role,
                 "low_rssi": bool(static_entry.get("low_rssi"))
                 or bool(motion_entry.get("low_rssi")),
-                "static_path": resolve_entry_path("static_presence", static_entry),
-                "motion_path": resolve_entry_path("motion", motion_entry),
+                "static_path": resolve_catalog_entry_path(
+                    "static_presence", static_entry, dataset_root
+                ),
+                "motion_path": resolve_catalog_entry_path(
+                    "motion", motion_entry, dataset_root
+                ),
             }
         )
     if not pairs:
@@ -344,8 +393,11 @@ def iter_replay_pairs() -> List[Dict[str, Any]]:
     return pairs
 
 
-def iter_empty_replays() -> List[Dict[str, Any]]:
-    files = load_dataset_info()["files"]
+def iter_empty_replays(
+    dataset_info_path: Optional[Path] = None,
+    dataset_root: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    files = load_dataset_info(dataset_info_path)["files"]
     empties: List[Dict[str, Any]] = []
     for entry in files["empty"]:
         if bool(entry.get("synthetic")):
@@ -358,7 +410,7 @@ def iter_empty_replays() -> List[Dict[str, Any]]:
                 "session": entry["filename"],
                 "chip": str(entry.get("chip", "unknown")).upper(),
                 "role": role,
-                "path": resolve_entry_path("empty", entry),
+                "path": resolve_catalog_entry_path("empty", entry, dataset_root),
             }
         )
     return empties
@@ -423,6 +475,7 @@ def build_replay_cache(
     quiet: bool,
     packet_augmentation: Optional[Mapping[str, Any]] = None,
     augmentation_seed: Optional[int] = None,
+    keep_all_phy: bool = False,
 ) -> Dict[str, Dict[str, np.ndarray]]:
     unique_paths = sorted({str(path) for path in paths})
     cache: Dict[str, Dict[str, np.ndarray]] = {}
@@ -433,7 +486,9 @@ def build_replay_cache(
         if not quiet:
             print(f"  [{index}/{len(unique_paths)}] {path.name}", flush=True)
         packets_factory = None
-        packet_stream_provenance = None
+        packet_stream_provenance = (
+            {"packet_view": "all_explicit_phy"} if keep_all_phy else None
+        )
         if packet_augmentation:
             prepared_packets = None
 
@@ -443,7 +498,11 @@ def build_replay_cache(
                     return prepared_packets
                 record = {
                     "path": source_path,
-                    "packets": load_npz_as_packets(source_path),
+                    "packets": (
+                        load_npz_as_packets(source_path, keep_all_phy=True)
+                        if keep_all_phy
+                        else load_npz_as_packets(source_path)
+                    ),
                 }
                 prepared_packets = train_ml_model._prepare_feature_packets_for_record(
                     record,
@@ -456,6 +515,20 @@ def build_replay_cache(
                 packet_augmentation,
                 augmentation_seed,
             )
+            if keep_all_phy:
+                packet_stream_provenance = dict(packet_stream_provenance)
+                packet_stream_provenance["packet_view"] = "all_explicit_phy"
+        elif keep_all_phy:
+            prepared_packets = None
+
+            def packets_factory(source_path: Path = path):
+                nonlocal prepared_packets
+                if prepared_packets is None:
+                    prepared_packets = load_npz_as_packets(
+                        source_path,
+                        keep_all_phy=True,
+                    )
+                return prepared_packets
         if runtime_ready:
             replay_rows = load_or_compute_ml_replay_rows(
                 path,
@@ -467,16 +540,20 @@ def build_replay_cache(
                 stream_provenance=packet_stream_provenance,
             )
         else:
+            host_stream_provenance = train_ml_model._host_feature_stream_provenance(
+                feature_names,
+                packet_augmentation=packet_augmentation,
+                augmentation_seed=augmentation_seed,
+            )
+            if keep_all_phy:
+                host_stream_provenance = dict(host_stream_provenance)
+                host_stream_provenance["packet_view"] = "all_explicit_phy"
             replay_rows = train_ml_model.load_or_compute_host_feature_rows(
                 path,
                 packets_factory=packets_factory,
                 feature_names=feature_names,
                 sample_contract="replay_tick",
-                stream_provenance=train_ml_model._host_feature_stream_provenance(
-                    feature_names,
-                    packet_augmentation=packet_augmentation,
-                    augmentation_seed=augmentation_seed,
-                ),
+                stream_provenance=host_stream_provenance,
             )
 
         rows = np.asarray(replay_rows["X"], dtype=np.float64)
@@ -485,7 +562,11 @@ def build_replay_cache(
         packets_for_window = (
             packets_factory()
             if packets_factory is not None
-            else load_npz_as_packets(path)
+            else (
+                load_npz_as_packets(path, keep_all_phy=True)
+                if keep_all_phy
+                else load_npz_as_packets(path)
+            )
         )
         window_packets = detector_window_packets(packets_for_window)
         deoverlapped = np.zeros(len(rows), dtype=bool)
@@ -1685,6 +1766,22 @@ def print_summary(result: Mapping[str, Any]) -> None:
             f"{stress_exclude_pairs['weighted_fp_rate']:.2f}%/"
             f"{stress_exclude_idle['max_fp_rate']:.2f}%"
         )
+    for data_dir, external in result.get("external_holdouts", {}).items():
+        holdout_pairs = external["holdout"]["paired"]
+        holdout_idle = external["holdout"]["idle"]
+        exclude_pairs = external["exclude"]["paired"]
+        exclude_idle = external["exclude"]["idle"]
+        print(
+            "  "
+            f"external {Path(data_dir).name}: "
+            f"holdout recall weighted/worst={holdout_pairs['weighted_recall']:.2f}%/"
+            f"{holdout_pairs['worst_recall']:.2f}%  "
+            f"paired/empty max fp={holdout_pairs['max_fp_rate']:.2f}%/"
+            f"{holdout_idle['max_fp_rate']:.2f}%  "
+            f"exclude recall/fp/empty={exclude_pairs['weighted_recall']:.2f}%/"
+            f"{exclude_pairs['weighted_fp_rate']:.2f}%/"
+            f"{exclude_idle['max_fp_rate']:.2f}%"
+        )
 
 
 def iter_calibration_policies(
@@ -1749,6 +1846,22 @@ def iter_calibration_policies(
 
 def main() -> int:
     args = parse_args()
+    external_data_dirs = {path.resolve() for path in args.external_data_dir}
+    diagnostic_all_phy_dirs = {
+        path.resolve() for path in args.external_diagnostic_all_phy
+    }
+    unknown_diagnostic_dirs = diagnostic_all_phy_dirs.difference(
+        external_data_dirs
+    )
+    if unknown_diagnostic_dirs:
+        raise ReplayError(
+            "--external-diagnostic-all-phy requires a matching "
+            "--external-data-dir: "
+            + ", ".join(
+                str(path)
+                for path in sorted(unknown_diagnostic_dirs, key=str)
+            )
+        )
     if args.top_k < 1:
         raise ReplayError("--top-k must be at least 1")
     startup_strengths = (
@@ -1954,9 +2067,80 @@ def main() -> int:
             float(row["score"]),
         ),
     )
-    baseline_rows = []
     for rank, row in enumerate(ranked, start=1):
         row["rank"] = rank
+
+    external_catalogs = []
+    for raw_data_dir in args.external_data_dir:
+        external_data_dir = raw_data_dir.resolve()
+        diagnostic_all_phy = external_data_dir in diagnostic_all_phy_dirs
+        dataset_info_path = external_data_dir / "dataset_info.json"
+        if not dataset_info_path.is_file():
+            raise ReplayError(
+                f"External data directory has no dataset_info.json: "
+                f"{external_data_dir}"
+            )
+        external_pairs = iter_replay_pairs(
+            dataset_info_path=dataset_info_path,
+            dataset_root=external_data_dir,
+        )
+        external_empties = iter_empty_replays(
+            dataset_info_path=dataset_info_path,
+            dataset_root=external_data_dir,
+        )
+        external_paths = [pair["static_path"] for pair in external_pairs]
+        external_paths.extend(pair["motion_path"] for pair in external_pairs)
+        external_paths.extend(entry["path"] for entry in external_empties)
+        print(
+            f"Extracting sealed external holdout {external_data_dir.name}: "
+            f"{len(external_pairs)} pair(s), {len(external_empties)} empty stream(s)",
+            file=status_file,
+            flush=True,
+        )
+        external_runtime_cache: Dict[str, Dict[str, np.ndarray]] = {}
+        if runtime_surface:
+            external_runtime_cache = build_replay_cache(
+                external_paths,
+                runtime_surface,
+                quiet=args.quiet,
+                keep_all_phy=diagnostic_all_phy,
+            )
+        external_host_cache: Dict[str, Dict[str, np.ndarray]] = {}
+        if host_surface:
+            external_host_cache = build_replay_cache(
+                external_paths,
+                host_surface,
+                quiet=args.quiet,
+                keep_all_phy=diagnostic_all_phy,
+            )
+        for row in ranked:
+            candidate = tuple(row["combination"])
+            if candidate in runtime_candidates:
+                candidate_cache = external_runtime_cache
+                candidate_index = runtime_index
+            else:
+                candidate_cache = external_host_cache
+                candidate_index = host_index
+            row.setdefault("external_holdouts", {})[
+                str(external_data_dir)
+            ] = evaluate_fixed_candidate(
+                row,
+                external_pairs,
+                external_empties,
+                candidate_cache,
+                candidate_index,
+            )
+        external_catalogs.append(
+            {
+                "data_dir": str(external_data_dir),
+                "pair_count": len(external_pairs),
+                "empty_count": len(external_empties),
+                "diagnostic_all_phy": diagnostic_all_phy,
+            }
+        )
+
+    baseline_rows = []
+    for row in ranked:
         if tuple(row["combination"]) == CURRENT_CLASSIC_COMBINATION:
             baseline_rows.append(row)
     payload = {
@@ -1967,6 +2151,7 @@ def main() -> int:
         "baseline": baseline_rows,
         "discovery_roles": list(DISCOVERY_ROLES),
         "holdout_role": HOLDOUT_ROLE,
+        "external_holdouts": external_catalogs,
         "train_empty_hard_negatives": bool(args.include_train_empty),
         "stress_packet_augmentations": {
             name: dict(config) for name, config in stress_scenarios.items()

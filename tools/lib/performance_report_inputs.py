@@ -23,13 +23,20 @@ REPO_ROOT = repo_root()
 RESOURCE_BENCHMARK_SOURCE = (
     REPO_ROOT / "test" / "cpp" / "support" / "benchmark_detector_resources.cpp"
 )
+CORE_SOURCE_DIR = REPO_ROOT / "src" / "cpp" / "core"
 RESOURCE_BENCHMARK_SOURCES = (
     RESOURCE_BENCHMARK_SOURCE,
-    REPO_ROOT / "src" / "cpp" / "core" / "base_detector.cpp",
-    REPO_ROOT / "src" / "cpp" / "core" / "lightweight_detector.cpp",
-    REPO_ROOT / "src" / "cpp" / "core" / "filters.cpp",
-    REPO_ROOT / "src" / "cpp" / "core" / "high_accuracy_detector.cpp",
+    CORE_SOURCE_DIR / "base_detector.cpp",
+    CORE_SOURCE_DIR / "lightweight_detector.cpp",
+    CORE_SOURCE_DIR / "filters.cpp",
+    CORE_SOURCE_DIR / "high_accuracy_detector.cpp",
 )
+RESOURCE_BENCHMARK_DEPENDENCIES = (
+    *RESOURCE_BENCHMARK_SOURCES,
+    *sorted(CORE_SOURCE_DIR.glob("*.h")),
+)
+
+
 def _compiler() -> str:
     compiler = os.environ.get("CXX") or shutil.which("c++")
     if not compiler:
@@ -40,7 +47,7 @@ def _compiler() -> str:
 def _resource_binary() -> Path:
     compiler = _compiler()
     digest = hashlib.sha256()
-    for source in RESOURCE_BENCHMARK_SOURCES:
+    for source in RESOURCE_BENCHMARK_DEPENDENCIES:
         digest.update(str(source.relative_to(REPO_ROOT)).encode("utf-8"))
         digest.update(b"\0")
         digest.update(source.read_bytes())

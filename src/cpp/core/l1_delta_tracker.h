@@ -145,6 +145,15 @@ class L1DeltaTracker {
   }
 
   void process(const float *amplitudes, uint8_t amplitude_count) {
+    const float mean =
+        amplitudes != nullptr && amplitude_count >= 2U
+            ? calculate_mean(amplitudes, amplitude_count)
+            : 0.0f;
+    process(amplitudes, amplitude_count, mean);
+  }
+
+  void process(const float *amplitudes, uint8_t amplitude_count,
+               float amplitude_mean) {
     if (capacity_ == 0U) {
       return;
     }
@@ -163,7 +172,8 @@ class L1DeltaTracker {
 
     if (amplitudes != nullptr && amplitude_count >= 2U &&
         amplitude_count <= HT20_SELECTED_BAND_SIZE) {
-      profile_len = normalize_amplitude_profile(amplitudes, amplitude_count, profile);
+      profile_len = normalize_amplitude_profile(
+          amplitudes, amplitude_count, amplitude_mean, profile);
       const bool lagged = profile_len > 0U && reference_len == profile_len;
       const bool adjacent = profile_len > 0U && previous_len == profile_len;
       if (lagged || adjacent) {
