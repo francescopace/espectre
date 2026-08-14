@@ -24,7 +24,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
 FACADE = CPP_ROOT / "espectre_sdk.h"
-DOXYFILE = REPO_ROOT / "docs" / "Doxyfile"
+DOXYFILE = CPP_ROOT / "Doxyfile"
 EMBEDDING_GUIDE = REPO_ROOT / "docs" / "EMBEDDING.md"
 
 FACADE_INCLUDE_PATTERN = re.compile(r'^\s*#include\s+"([^"]+)"', re.MULTILINE)

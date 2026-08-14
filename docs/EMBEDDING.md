@@ -212,6 +212,7 @@ Each SDK bundle includes:
 - `src/cpp/CMakeLists.txt`
 - `src/cpp/idf_component.yml`
 - `src/cpp/Kconfig.projbuild`
+- `src/cpp/Doxyfile`
 - generated `src/cpp/core/ml_weights.h`
 
 The published bundle is not a chip-specific binary library. It is a versioned source package with stamped packaging metadata, suitable for vendoring or unpacking into your own firmware tree. Its `.tar.gz` and `.zip` archives are generated deterministically from the source commit timestamp, and the accompanying SDK manifest records a SHA-256 digest for each archive so consumers can verify downloaded bytes.
@@ -232,15 +233,16 @@ The published bundle is not a chip-specific binary library. It is a versioned so
 
 ## Generated API reference
 
-The headers carry Doxygen-compatible documentation. Generate a browsable reference for the supported surface with:
+The headers carry Doxygen-compatible documentation. Generate a browsable reference for the supported surface from the repository root with:
 
 ```bash
-doxygen docs/Doxyfile
+mkdir -p docs/web/artifacts/sdk
+doxygen src/cpp/Doxyfile
 ```
 
-The output lands in `output/api/`. It is generated on demand and is not committed, so it never drifts from the headers.
+The output lands in `docs/web/artifacts/sdk/api/`. It is generated on demand and is not committed, so it never drifts from the headers.
 
-The same command works from an unpacked SDK bundle, which ships this guide and `docs/Doxyfile` alongside the sources. The published reference for the current release is at `https://espectre.dev/artifacts/sdk/api/`, rebuilt from source on every deploy.
+An unpacked SDK bundle ships this guide and `src/cpp/Doxyfile` rewritten to write `output/api/` instead, so `doxygen src/cpp/Doxyfile` works without the website tree. The published reference for the current release is at `https://espectre.dev/artifacts/sdk/api/`, rebuilt from source on every deploy.
 
 ## Licensing
 

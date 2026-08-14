@@ -38,11 +38,7 @@ runs:
       shell: bash
       run: |
         mkdir -p docs/web/artifacts/sdk
-        (
-          cat docs/Doxyfile
-          echo "OUTPUT_DIRECTORY=docs/web/artifacts/sdk"
-          echo "HTML_OUTPUT=api"
-        ) | doxygen -
+        doxygen src/cpp/Doxyfile
 
     - name: Generate sitemap lastmod values
       shell: bash

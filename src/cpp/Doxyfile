@@ -6,19 +6,21 @@
 # stability tiers documented in docs/EMBEDDING.md.
 #
 # Usage, from the repository root:
-#   doxygen docs/Doxyfile
+#   mkdir -p docs/web/artifacts/sdk
+#   doxygen src/cpp/Doxyfile
 #
-# Output is written to output/api/ and is not committed.
+# Output is written to docs/web/artifacts/sdk/api/ and is not committed.
+# SDK bundles rewrite OUTPUT_DIRECTORY to output so the same command works
+# offline without the website tree; see .github/scripts/build_sdk_package.py.
 
 PROJECT_NAME           = "ESPectre SDK"
 PROJECT_BRIEF          = "Wi-Fi CSI motion sensing for ESP32 firmware"
 PROJECT_NUMBER         = 3.0.0
 
-# Doxygen creates OUTPUT_DIRECTORY only one level deep, so this stays a single
-# segment and the nesting happens through HTML_OUTPUT. That is what lets
-# `doxygen docs/Doxyfile` work from an unpacked SDK bundle, where no output
-# tree exists yet.
-OUTPUT_DIRECTORY       = output
+# Create docs/web/artifacts/sdk before running Doxygen. OUTPUT_DIRECTORY is nested
+# under the committed docs/web/ tree, and Doxygen only creates the final segment.
+# HTML_OUTPUT stays a single segment under that directory.
+OUTPUT_DIRECTORY       = docs/web/artifacts/sdk
 HTML_OUTPUT            = api
 CREATE_SUBDIRS         = NO
 GENERATE_HTML          = YES

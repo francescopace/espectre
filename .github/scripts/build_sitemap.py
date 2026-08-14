@@ -22,7 +22,7 @@ SITEMAP_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9"
 SITE_HOST = "espectre.dev"
 STATIC_PAGE_BUILDER = Path(".github/scripts/build_static_pages.py")
 SDK_PAGE_BUILDER = Path(".github/scripts/stage_web_sdk.py")
-DOXYFILE = Path("docs/Doxyfile")
+DOXYFILE = Path("src/cpp/Doxyfile")
 
 ROUTE_SOURCES = {
     "/": (Path("docs/web/index.html"),),

@@ -48,7 +48,7 @@ SDK_REQUIRED_PATHS = (
     Path("src/cpp/core/ml_weights.h"),
     Path("src/cpp/runtime/espectre_sdk_version.h"),
     Path("docs/EMBEDDING.md"),
-    Path("docs/Doxyfile"),
+    Path("src/cpp/Doxyfile"),
     Path("src/cpp/runtime/espectre_protocol.h"),
     Path("src/cpp/runtime/esp_idf/runtime_sensing_kconfig.cpp"),
     Path("src/cpp/runtime/esp_idf/espectre_config/CMakeLists.txt"),
@@ -65,16 +65,20 @@ SDK_TOP_LEVEL_FILES = (
     Path("src/cpp/idf_component.yml"),
     Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
-    # The integration guide and the Doxygen config travel with the sources, so a
-    # bundle is self-contained: `doxygen docs/Doxyfile` from the bundle root
-    # rebuilds the API reference offline, because INPUT is relative to the
-    # working directory rather than to the config file.
+    Path("src/cpp/Doxyfile"),
+    # The integration guide travels with the sources so a bundle is
+    # self-contained: `doxygen src/cpp/Doxyfile` from the bundle root rebuilds
+    # the API reference offline. Packaging rewrites OUTPUT_DIRECTORY to output
+    # because the repo Doxyfile targets docs/web/artifacts/sdk.
     Path("docs/EMBEDDING.md"),
-    Path("docs/Doxyfile"),
     Path("LICENSE"),
     Path("LICENSING.md"),
     Path("THIRD_PARTY_NOTICES.md"),
 )
+
+# Repo Doxyfile writes under docs/web/; bundles rewrite to a single-segment path
+# Doxygen can create without the website tree.
+BUNDLE_DOXYFILE_OUTPUT_DIRECTORY = "output"
 
 
 def parse_args() -> argparse.Namespace:
@@ -213,6 +217,56 @@ def stamp_idf_component_manifest(path: Path, sdk_package_version: str) -> None:
     path.write_text("\n".join(output_lines) + "\n", encoding="utf-8")
 
 
+def rewrite_bundle_doxyfile(path: Path) -> None:
+    """Point the bundled Doxyfile at output/api for offline regeneration."""
+    text = path.read_text(encoding="utf-8")
+    if not re.search(r"(?m)^OUTPUT_DIRECTORY\s*=", text):
+        raise ValueError(f"Unable to rewrite OUTPUT_DIRECTORY in {path}")
+
+    # Replace the repository usage/output preamble with bundle-oriented guidance.
+    text, preamble_count = re.subn(
+        r"# Usage, from the repository root:.*?(?=\nPROJECT_NAME)",
+        (
+            "# Usage, from the unpacked SDK bundle root:\n"
+            "#   doxygen src/cpp/Doxyfile\n"
+            "#\n"
+            "# Output is written to output/api/. Packaging rewrote OUTPUT_DIRECTORY\n"
+            "# away from the repository website path so this works without docs/web/.\n"
+        ),
+        text,
+        count=1,
+        flags=re.DOTALL,
+    )
+    if preamble_count != 1:
+        raise ValueError(f"Unable to rewrite Doxyfile usage preamble in {path}")
+
+    text, output_count = re.subn(
+        r"(?m)^OUTPUT_DIRECTORY\s*=\s*.*$",
+        f"OUTPUT_DIRECTORY       = {BUNDLE_DOXYFILE_OUTPUT_DIRECTORY}",
+        text,
+        count=1,
+    )
+    if output_count != 1:
+        raise ValueError(f"Unable to rewrite OUTPUT_DIRECTORY in {path}")
+
+    # Drop the repository-only mkdir guidance that follows OUTPUT_DIRECTORY.
+    text, mkdir_count = re.subn(
+        r"(?m)^# Create docs/web/artifacts/sdk before running Doxygen\..*\n"
+        r"# under the committed docs/web/ tree, and Doxygen only creates the final segment\.\n"
+        r"# HTML_OUTPUT stays a single segment under that directory\.\n",
+        (
+            "# Doxygen creates OUTPUT_DIRECTORY only one level deep, so this stays a\n"
+            "# single segment and the nesting happens through HTML_OUTPUT.\n"
+        ),
+        text,
+        count=1,
+    )
+    if mkdir_count != 1:
+        raise ValueError(f"Unable to rewrite Doxyfile OUTPUT_DIRECTORY comments in {path}")
+
+    path.write_text(text, encoding="utf-8")
+
+
 def stage_bundle_tree(destination_root: Path, sdk_package_version: str, bundle_files: list[Path]) -> int:
     for relative_path in bundle_files:
         source = REPO_ROOT / relative_path
@@ -221,6 +275,7 @@ def stage_bundle_tree(destination_root: Path, sdk_package_version: str, bundle_f
         shutil.copy2(source, target)
 
     stamp_idf_component_manifest(destination_root / "src" / "cpp" / "idf_component.yml", sdk_package_version)
+    rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile")
     return len(bundle_files)
 
 

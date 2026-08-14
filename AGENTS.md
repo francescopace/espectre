@@ -150,7 +150,7 @@ must not include, query, or call higher layers.
 
 - Treat everything reachable from `src/cpp/espectre_sdk.h` as the published SDK
 surface. Adding a public type there means updating the facade include, the
-`docs/Doxyfile` INPUT list, and the header map in `docs/EMBEDDING.md` in the
+`src/cpp/Doxyfile` INPUT list, and the header map in `docs/EMBEDDING.md` in the
 same change. `test/python/test_sdk_surface_invariants.py` enforces this.
 - Forward declarations are fine inside the surface, but the definition must
 still arrive through the facade. A type an integrator can name in a signature
@@ -164,14 +164,15 @@ zeroed data because a build-time option is off, such as a Kconfig choice, must
 say so in its own comment; an integrator cannot see the `#if` from the header.
 Prefer removing the gate over documenting it when the data is cheap to collect.
 - Document a member fully or with a brief alone. `WARN_NO_PARAMDOC` is an error
-in `docs/Doxyfile`, so a half-filled `@param` list fails CI: partial
+in `src/cpp/Doxyfile`, so a half-filled `@param` list fails CI: partial
 documentation reads as complete and is worse than none.
 
 After changing the published surface, run both gates:
 
 ```bash
 .venv/bin/pytest test/python/test_sdk_surface_invariants.py -v
-doxygen docs/Doxyfile
+mkdir -p docs/web/artifacts/sdk
+doxygen src/cpp/Doxyfile
 ```
 
 

@@ -60,7 +60,7 @@ Outcome events use `result` values such as `accepted`, `success`, `failure`, `un
 
 ## Generated artifacts
 
-The website stages all downloadable output under the generated `artifacts/` tree. SDK downloads live under `artifacts/sdk/stable/` and `artifacts/sdk/main/`, the Doxygen reference lives under `artifacts/sdk/api/`, and firmware lives under `artifacts/firmware/<channel>/`. CI recreates the entire tree before deployment; none of its contents are tracked.
+The website stages all downloadable output under the generated `artifacts/` tree. SDK downloads live under `artifacts/sdk/stable/` and `artifacts/sdk/main/`, the Doxygen reference lives under `artifacts/sdk/api/` (also the default `src/cpp/Doxyfile` output in this repository), and firmware lives under `artifacts/firmware/<channel>/`. CI recreates the entire tree before deployment; none of its contents are tracked.
 
 CI, stable releases, and snapshots use the same local `build-pages` action. It stages pinned browser dependencies, runs the web tests, generates static routes and the Doxygen reference, and verifies the complete tree before it can be uploaded to Pages. Channel-aware verification also rejects incomplete firmware matrices, mismatched SDK manifests, missing artifacts, and obsolete `/sdk/api/` links.
 

@@ -65,6 +65,12 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     zip_path = next(outputs[0].glob("*.zip"))
     with zipfile.ZipFile(zip_path) as archive:
         archived = set(archive.namelist())
+        doxy_name = next(name for name in archived if name.endswith("/src/cpp/Doxyfile"))
+        bundled_doxyfile = archive.read(doxy_name).decode("utf-8")
+    assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", bundled_doxyfile)
+    assert "docs/web/artifacts/sdk" not in bundled_doxyfile
+    repo_doxyfile = (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8")
+    assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*docs/web/artifacts/sdk\s*$", repo_doxyfile)
     assert not any(path.endswith("/LICENSES/Apache-2.0.txt") for path in archived)
     assert any(path.endswith("/THIRD_PARTY_NOTICES.md") for path in archived)
     for artifact in manifest["artifacts"]:
