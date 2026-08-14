@@ -122,6 +122,8 @@ After deploy:
 
 **Product boundary**: the service supports local, self-hosted, and managed deployment profiles. Raw CSI and unnecessary radio identifiers remain outside the default service boundary.
 
+**Provider feasibility**: before locking the deployment architecture, evaluate low-cost MQTT deployment candidates, including self-hosted Eclipse Mosquitto, EMQX Cloud, HiveMQ Cloud, and AWS IoT Core, and assess full IoT platforms such as ESP RainMaker separately. Record a promotion or rejection decision based on representative fleet cost, ESPectre Protocol compatibility, TLS and per-device credentials, tenant isolation, regional availability, operational burden, licensing, portability, and migration risk.
+
 ### Delivery Sequence
 
 | Stage | Product scope | Completion condition |

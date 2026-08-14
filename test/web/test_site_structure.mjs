@@ -9,10 +9,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 const index = read('docs/web/index.html');
 const app = read('docs/web/assets/js/app.js');
+const browserSupportSource = read('docs/web/assets/js/browser-support.js');
 const routeRegistry = read('docs/web/assets/js/route-registry.js');
 const styles = read('docs/web/assets/css/styles.css');
 const GPL_HTML_HEADER = `<!--
@@ -29,9 +31,11 @@ describe('website security and asset policy', () => {
         assert.doesNotMatch(index, /unpkg\.com|jsdelivr\.net/);
         assert.match(index, /\/assets\/css\/styles\.css/);
         assert.match(index, /\/assets\/js\/app\.js/);
+        assert.match(index, /\/assets\/js\/browser-support\.js/);
         assert.match(index, /\/assets\/js\/route-registry\.js/);
         assert.ok(index.indexOf('/assets/js/route-registry.js') < index.indexOf('/assets/js/analytics.js'));
         assert.ok(index.indexOf('/assets/js/route-registry.js') < index.indexOf('/assets/js/app.js'));
+        assert.ok(index.indexOf('/assets/js/browser-support.js') < index.indexOf('/assets/js/app.js'));
         assert.match(app, /\/vendor\/esp-web-tools-10\.4\.0\/install-button\.js/);
         assert.match(app, /\/vendor\/mqtt-5\.3\.0\/mqtt\.min\.js/);
         assert.match(app, /\/vendor\/qrcodejs-1\.0\.0\/qrcode\.min\.js/);
@@ -113,6 +117,27 @@ describe('website accessibility and navigation', () => {
         assert.match(index, /class="toast js-toast"[^>]+role="status"[^>]+aria-live="polite"/);
     });
 
+    it('provides skip navigation, stable tool headings, and route focus management', () => {
+        assert.match(index, /<a class="skip-link" href="#main-content">Skip to content<\/a>/);
+        assert.match(index, /data-page="home" id="main-content" tabindex="-1"/);
+        for (const heading of ['Configure device', 'Motion theremin', 'Motion reaction game']) {
+            assert.match(index, new RegExp(`<h1 class="page-title">${heading}<\\/h1>`));
+        }
+        assert.doesNotMatch(index, /<h1>No device connected<\/h1>/);
+        assert.match(app, /link\.setAttribute\('aria-current', 'page'\)/);
+        assert.match(app, /target\.focus\(\{ preventScroll: true \}\)/);
+        assert.match(app, /page\.id = 'main-content'/);
+        for (const path of [
+            '.github/scripts/build_static_pages.py',
+            '.github/scripts/stage_web_sdk.py',
+            'docs/web/404.html',
+        ]) {
+            const source = read(path);
+            assert.match(source, /class=\"skip-link\" href=\"#main-content\"/);
+            assert.match(source, /id=\"main-content\" tabindex=\"-1\"/);
+        }
+    });
+
     it('associates every form label with a control', () => {
         const labels = [...index.matchAll(/<label\b([^>]*)>/g)];
         assert.ok(labels.length > 10);
@@ -133,6 +158,44 @@ describe('website UX and content contracts', () => {
         assert.deepEqual(captionIds, sceneIds);
         assert.deepEqual(markerIds, sceneIds.slice(1));
         assert.match(index, /<span>\/ 12<\/span>/);
+        assert.match(index, /href="#get-started" class="hero-skip">Skip the story/);
+        assert.match(index, /<section class="home-section" id="get-started">/);
+    });
+
+    it('labels research and preview concepts without presenting simulated evidence', () => {
+        assert.match(index, /Roadmap · Breathing/);
+        assert.match(index, /Experimental <em>R&amp;D only<\/em>/);
+        assert.doesNotMatch(index, /13\.2 <em>cycles\/min<\/em>/);
+        assert.match(index, /Matter · Limited validation/);
+        assert.match(index, /Controller-dependent/);
+        assert.doesNotMatch(index, /Apple Home|Google Home/);
+        const breathingCard = index.match(/<h2>Breathing research<\/h2>[\s\S]*?<\/a>/)?.[0] || '';
+        assert.match(breathingCard, /ROADMAP/);
+        assert.doesNotMatch(breathingCard, /js-ble-chip/);
+    });
+
+    it('enforces the supported desktop, Android, and iOS capability matrix', () => {
+        const detect = (navigator) => {
+            const context = { window: { navigator } };
+            runInNewContext(browserSupportSource, context);
+            return context.window.ESPectreBrowserSupport.current;
+        };
+        const bluetooth = { requestDevice() {} };
+        const serial = { requestPort() {} };
+        const desktop = detect({ userAgent: 'Chrome', platform: 'Linux x86_64', bluetooth, serial });
+        assert.equal(desktop.bluetooth, true);
+        assert.equal(desktop.flash, true);
+        const android = detect({ userAgent: 'Chrome Android Mobile', platform: 'Linux armv8', bluetooth, serial });
+        assert.equal(android.bluetooth, true);
+        assert.equal(android.flash, false);
+        const ios = detect({ userAgent: 'CriOS iPhone Mobile', platform: 'iPhone', bluetooth, serial });
+        assert.equal(ios.bluetooth, false);
+        assert.equal(ios.flash, false);
+        assert.doesNotMatch(app, /starting demo mode|connectDemo\(\);\s*return;[\s\S]{0,120}result: 'unsupported'/);
+        assert.match(app, /installTrigger\.disabled = !browserSupport\.flash/);
+        assert.match(app, /button\.disabled = !browserSupport\.bluetooth/);
+        assert.match(app, /if \(browserSupport\.flash\) \{\s*loadBrowserDependency/);
+        assert.match(index, /class="empty-alt js-demo-disconnected"><button class="link-btn js-demo">or try the demo/);
     });
 
     it('keeps privacy discoverable and serves a real 404 page', () => {
@@ -140,8 +203,8 @@ describe('website UX and content contracts', () => {
         assert.match(index, /data-content-url="content\/privacy\.html"/);
         assert.match(index, /<div class="footer-links">\s*<a href="#privacy">Privacy<\/a>/);
         assert.match(routeRegistry, /name: 'privacy'.*staticPath: '\/privacy\/'/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/#privacy">Privacy<\/a>/);
-        assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/#privacy">Privacy<\/a>/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/privacy\/">Privacy<\/a>/);
+        assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/privacy\/">Privacy<\/a>/);
         const sitemap = read('docs/web/sitemap.xml');
         assert.match(sitemap, /https:\/\/espectre\.dev\/privacy\//);
         assert.doesNotMatch(sitemap, /<(?:changefreq|lastmod)>/);
@@ -149,6 +212,7 @@ describe('website UX and content contracts', () => {
         const notFound = read('docs/web/404.html');
         assert.doesNotMatch(notFound, /http-equiv="refresh"|location\.replace/);
         assert.match(notFound, /404 · PAGE NOT FOUND/);
+        assert.match(notFound, /<footer class="site-footer">/);
     });
 
     it('treats top-level docs, roadmap, and privacy as pages, not articles', () => {
@@ -212,6 +276,30 @@ describe('website UX and content contracts', () => {
         assert.match(routeRegistry, /name: 'guide-detectors'.*staticPath: '\/guides\/detectors\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/detectors\.html"/);
         assert.match(read('docs/web/sitemap.xml'), /https:\/\/espectre\.dev\/guides\/detectors\//);
+    });
+
+    it('adds anchor navigation and intrinsic image sizes to long guides', () => {
+        const longPages = [
+            'docs/web/content/docs.html',
+            'docs/web/content/guides/setup.html',
+            'docs/web/content/guides/firmware.html',
+            'docs/web/content/guides/hardware.html',
+            'docs/web/content/guides/placement.html',
+            'docs/web/content/guides/detection.html',
+            'docs/web/content/guides/detectors.html',
+        ];
+        for (const path of longPages) {
+            assert.match(read(path), /<nav class="page-toc" aria-label="On this page">/);
+        }
+        for (const path of longPages.filter((path) => path.includes('/guides/'))) {
+            const images = [...read(path).matchAll(/<img\b[^>]*>/g)].map((match) => match[0]);
+            for (const image of images) {
+                assert.match(image, /\bwidth="\d+"/);
+                assert.match(image, /\bheight="\d+"/);
+            }
+        }
+        assert.match(styles, /\.page-toc \{/);
+        assert.match(read('docs/web/content/guides/detection.html'), /Raw CSI leaves the device only when you deliberately use the separate Streamer research workflow/);
     });
 
     it('loads generated firmware and SDK output from the shared artifacts tree', () => {

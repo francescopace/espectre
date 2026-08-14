@@ -89,6 +89,7 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
 <script src="/assets/js/analytics.js?v={styles_css_version}" defer></script>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to content</a>
 <header class="site-header">
   <div class="site-header-inner">
     <a href="/" class="brand">
@@ -102,14 +103,14 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
       <a href="/" class="nav-link">Home</a>
       <a href="/#tools" class="nav-link">Tools</a>
       <a href="/guides/" class="nav-link">Guides</a>
-      <a href="/docs/" class="nav-link active">Docs</a>
       <a href="/media/" class="nav-link">Media</a>
       <a href="/roadmap/" class="nav-link">Roadmap</a>
+      <a href="/docs/" class="nav-link active" aria-current="page">Docs</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
     </nav>
   </div>
 </header>
-<main class="page-narrow page-article">
+<main class="page-narrow page-article" id="main-content" tabindex="-1">
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">{title}</span></div>
   <article class="article">
     <span class="guide-tag">SDK · DOWNLOADS</span>
@@ -153,7 +154,7 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
       ESPectre © 2026 · Open source Wi-Fi sensing platform · GPLv3 + commercial licensing
     </div>
     <div class="footer-links">
-      <a href="/#privacy">Privacy</a>
+      <a href="/privacy/">Privacy</a>
       <button class="footer-link-button js-cookie-settings" type="button">Cookie settings</button>
       <a href="mailto:contact@espectre.dev">Contact/Commercial Licensing</a>
     </div>

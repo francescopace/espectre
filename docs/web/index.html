@@ -26,13 +26,16 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/styles.css?v=3.19.14">
-<script src="/assets/js/espectre-ble.js?v=3.19.14"></script>
-<script src="/assets/js/route-registry.js?v=3.19.14"></script>
-<script src="/assets/js/navigation.js?v=3.19.14" defer></script>
-<script src="/assets/js/analytics.js?v=3.19.14" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=3.19.16">
+<script src="/assets/js/espectre-ble.js?v=3.19.16"></script>
+<script src="/assets/js/browser-support.js?v=3.19.16"></script>
+<script src="/assets/js/route-registry.js?v=3.19.16"></script>
+<script src="/assets/js/navigation.js?v=3.19.16" defer></script>
+<script src="/assets/js/analytics.js?v=3.19.16" defer></script>
 </head>
 <body>
+
+<a class="skip-link" href="#main-content">Skip to content</a>
 
 <header class="site-header">
   <div class="site-header-inner">
@@ -56,7 +59,7 @@
       <span class="conn-idle-group js-conn-disconnected">
         <button class="conn-pill conn-disconnected js-connect">
           <span class="dot dot-idle"></span>
-          Connect device
+          <span class="js-connect-label">Connect device</span>
         </button>
       </span>
       <div class="conn-pill conn-connecting js-conn-connecting" hidden>
@@ -89,7 +92,7 @@
 </header>
 
 <!-- ============================== Home ============================== -->
-<main class="js-page" data-page="home">
+<main class="js-page" data-page="home" id="main-content" tabindex="-1">
   <section class="scrolly js-scrolly" id="use-cases" aria-label="ESPectre introduction and sensing use cases">
     <div class="scrolly-stage is-intro">
       <div class="scrolly-scenes" aria-hidden="true">
@@ -160,6 +163,7 @@
             <a href="#flash" class="hero-cta hero-cta-primary">Flash from browser</a>
             <a href="#docs" class="hero-cta hero-cta-secondary">Explore the SDK</a>
           </div>
+          <a href="#get-started" class="hero-skip">Skip the story <span aria-hidden="true">↓</span></a>
           <div class="hero-proof">
             <span>ESP32</span>
             <span>Channel State Information</span>
@@ -223,8 +227,8 @@
           <div class="scene-ui scene-ui-presence scene-ui-research">
             <span class="scene-ui-dot"></span>
             <span class="scene-ui-breathing">
-              <small>Breathing estimate · R&amp;D</small>
-              <strong>13.2 <em>cycles/min</em></strong>
+              <small>Micro-motion signal</small>
+              <strong>Experimental <em>R&amp;D only</em></strong>
               <span class="breathing-trace" aria-hidden="true">
                 <i style="--h: 3px"></i><i style="--h: 5px"></i><i style="--h: 9px"></i>
                 <i style="--h: 13px"></i><i style="--h: 8px"></i><i style="--h: 5px"></i>
@@ -241,7 +245,7 @@
         <article class="scrolly-caption js-scrolly-caption" data-scene="6">
           <div class="scrolly-kicker">Industrial analytics</div>
           <h2>Activity trends.<br>No worker tracking.</h2>
-          <p>Aggregate local motion energy across production zones to understand when activity rises or falls—without cameras, identities, or people counting.</p>
+          <p>Aggregate local motion energy across production zones to understand when activity rises or falls without cameras, identities, or people counting.</p>
           <div class="scene-ui scene-ui-industrial">
             <span class="scene-ui-dot"></span>
             <span><small>Assembly line</small><strong>Activity above baseline</strong></span>
@@ -277,8 +281,8 @@
           <p>Expose local motion through Matter’s standard occupancy sensor surface and use it with the ecosystems your home already understands.</p>
           <div class="scene-integrations">
             <span>Matter</span>
-            <span>Apple Home</span>
-            <span>Google Home</span>
+            <span>Occupancy sensor</span>
+            <span>Controller-dependent</span>
           </div>
           <div class="scene-ui scene-ui-integration">
             <span class="scene-ui-dot"></span>
@@ -352,7 +356,7 @@
     </div>
   </section>
 
-  <section class="home-section">
+  <section class="home-section" id="get-started">
     <div class="home-section-inner">
       <div class="home-section-head">
         <span class="home-kicker">START HERE</span>
@@ -383,7 +387,9 @@
               <div class="meter meter-lg"><span class="js-energy-fill"></span></div>
               <div class="demo-try">Continue with the <a href="#theremin">Theremin</a> or the <a href="#game">Game →</a></div>
             </div>
-            <button class="demo-connect js-connect js-demo-disconnected">Connect your Native device</button>
+            <p class="tool-note js-ble-support" role="status" hidden></p>
+            <button class="demo-connect js-connect js-demo-disconnected"><span class="js-connect-label">Connect your Native device</span></button>
+            <div class="empty-alt js-demo-disconnected"><button class="link-btn js-demo">or try the demo</button></div>
           </div>
         </article>
 
@@ -444,13 +450,13 @@
   <p class="page-sub">Flash, configure, and explore motion sensing from the browser.</p>
   <div class="tools-grid">
     <a href="#flash" class="tool-card tool-card-link">
-      <div class="tool-head"><h2>Flash</h2><span class="chip">WEB SERIAL</span></div>
-      <p>Install ESPHome, Native or Matter firmware over USB, from the browser.</p>
+      <div class="tool-head"><h2>Flash</h2><span class="chip js-flash-chip">WEB SERIAL</span></div>
+      <p>Install ESPHome, Native, or Matter firmware over USB from a supported desktop browser.</p>
       <span class="tool-open">Open →</span>
     </a>
     <a href="#configure" class="tool-card tool-card-link">
       <div class="tool-head"><h2>Configure</h2><span class="chip js-ble-chip">BLE</span></div>
-      <p>Provision Wi-Fi, MQTT and device settings over Bluetooth.</p>
+      <p>Provision Wi-Fi, MQTT, and device settings over Bluetooth.</p>
       <span class="tool-open">Open →</span>
     </a>
     <a href="#monitor" class="tool-card tool-card-link">
@@ -469,7 +475,7 @@
       <span class="tool-open">Open →</span>
     </a>
     <a href="/roadmap/" class="tool-card tool-card-link">
-      <div class="tool-head"><h2>Breathing research</h2><span class="chip js-ble-chip">BLE</span></div>
+      <div class="tool-head"><h2>Breathing research</h2><span class="chip">ROADMAP</span></div>
       <p>Explore whether breathing-related micro-motion can become a reliable local sensing signal.</p>
       <span class="tool-open">On the roadmap →</span>
     </a>
@@ -481,6 +487,7 @@
   <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash</span></div>
   <h1 class="page-title">Flash firmware</h1>
   <p class="page-sub">Pick a firmware, plug the board into USB, and install straight from the browser.</p>
+  <p class="support-notice js-flash-support" role="status" hidden></p>
   <div class="config-grid">
     <section class="panel">
       <h2>Firmware</h2>
@@ -505,7 +512,7 @@
         </esp-web-install-button>
         <a class="btn-ghost btn-sm js-flash-download" href="https://github.com/francescopace/espectre/releases" target="_blank" rel="noopener">Download binary</a>
       </div>
-      <p class="tool-note">Flashing needs a Chromium-based browser with Web Serial. <br>
+      <p class="tool-note">USB flashing is supported on desktop Chrome and Edge. <br>
         After flashing, provision Wi-Fi from <a href="#configure">Configure</a> over Bluetooth.</p>
     </section>
     <section class="panel js-matter-panel" hidden>
@@ -529,12 +536,15 @@
 <!-- ============================== Configure ============================== -->
 <main class="js-page page-narrow page-tool" data-page="configure" hidden>
   <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Configure</span></div>
+  <h1 class="page-title">Configure device</h1>
+  <p class="page-sub">Provision Wi-Fi, MQTT, and runtime settings over Bluetooth.</p>
+  <p class="support-notice js-ble-support" role="status" hidden></p>
 
   <div class="empty-state js-needs-conn">
     <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
-    <h1>No device connected</h1>
+    <h2>No device connected</h2>
     <p>Connect your ESPectre over Bluetooth to configure it. The connection stays alive across every tool and page.</p>
-    <button class="btn-primary js-connect">Connect device</button>
+    <button class="btn-primary js-connect"><span class="js-connect-label">Connect device</span></button>
     <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
   </div>
 
@@ -542,7 +552,7 @@
     <div class="device-banner">
       <div class="device-banner-id">
         <div>
-          <h1 class="js-device-name">ESPectre</h1>
+          <h2 class="js-device-name">ESPectre</h2>
           <div class="mono-sub js-device-banner-sub">—</div>
         </div>
       </div>
@@ -709,12 +719,15 @@
 <!-- ============================== Theremin ============================== -->
 <main class="js-page page-narrow page-tool" data-page="theremin" hidden>
   <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Theremin</span></div>
+  <h1 class="page-title">Motion theremin</h1>
+  <p class="page-sub">Turn live motion energy into sound, or explore the interaction in demo mode.</p>
+  <p class="support-notice js-ble-support" role="status" hidden></p>
 
   <div class="empty-state js-needs-conn">
     <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
-    <h1>No device connected</h1>
+    <h2>No device connected</h2>
     <p>The theremin turns live motion energy into sound. Connect your ESPectre — or run the demo — and start playing.</p>
-    <button class="btn-primary js-connect">Connect device</button>
+    <button class="btn-primary js-connect"><span class="js-connect-label">Connect device</span></button>
     <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
   </div>
 
@@ -744,12 +757,15 @@
 <!-- ============================== Game ============================== -->
 <main class="js-page page-narrow page-tool" data-page="game" hidden>
   <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Game</span></div>
+  <h1 class="page-title">Motion reaction game</h1>
+  <p class="page-sub">Use live Wi-Fi motion sensing as the controller, or play in demo mode.</p>
+  <p class="support-notice js-ble-support" role="status" hidden></p>
 
   <div class="empty-state js-needs-conn">
     <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
-    <h1>No device connected</h1>
+    <h2>No device connected</h2>
     <p>Your body is the controller: stand still, then move fast when the Spectre strikes. Connect your ESPectre — or run the demo.</p>
-    <button class="btn-primary js-connect">Connect device</button>
+    <button class="btn-primary js-connect"><span class="js-connect-label">Connect device</span></button>
     <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
   </div>
 
@@ -776,35 +792,35 @@
 
 <!-- ============================== Guides ============================== -->
 <main class="js-page page-narrow" data-page="guides" hidden>
-  <div class="js-static-content" data-content-url="content/guides.html" data-static-url="/guides/">
+  <div class="js-static-content" data-content-url="content/guides.html?v=3.19.16" data-static-url="/guides/">
     <p class="guide-loading">Loading guides…</p>
   </div>
 </main>
 
 <!-- ============================== Docs ============================== -->
 <main class="js-page page-narrow" data-page="docs" hidden>
-  <div class="js-static-content" data-content-url="content/docs.html" data-static-url="/docs/">
+  <div class="js-static-content" data-content-url="content/docs.html?v=3.19.16" data-static-url="/docs/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
 
 <!-- ============================== Media ============================== -->
 <main class="js-page page-narrow" data-page="media" hidden>
-  <div class="js-static-content" data-content-url="content/media.html" data-static-url="/media/">
+  <div class="js-static-content" data-content-url="content/media.html?v=3.19.16" data-static-url="/media/">
     <p class="guide-loading">Loading media…</p>
   </div>
 </main>
 
 <!-- ============================== Roadmap ============================== -->
 <main class="js-page page-narrow" data-page="roadmap" hidden>
-  <div class="js-static-content" data-content-url="content/roadmap.html" data-static-url="/roadmap/">
+  <div class="js-static-content" data-content-url="content/roadmap.html?v=3.19.16" data-static-url="/roadmap/">
     <p class="guide-loading">Loading roadmap…</p>
   </div>
 </main>
 
 <!-- ============================== Privacy ============================== -->
 <main class="js-page page-narrow" data-page="privacy" hidden>
-  <div class="js-static-content" data-content-url="content/privacy.html" data-static-url="/privacy/">
+  <div class="js-static-content" data-content-url="content/privacy.html?v=3.19.16" data-static-url="/privacy/">
     <p class="guide-loading">Loading privacy notice…</p>
   </div>
 </main>
@@ -812,7 +828,7 @@
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/hardware.html" data-static-url="/guides/hardware/">
+  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=3.19.16" data-static-url="/guides/hardware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -820,7 +836,7 @@
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html" data-static-url="/guides/setup/">
+  <div class="js-static-content" data-content-url="content/guides/setup.html?v=3.19.16" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -828,7 +844,7 @@
 <!-- ============================== Guide: Placement ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-placement" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Place your sensor</span></div>
-  <div class="js-static-content" data-content-url="content/guides/placement.html" data-static-url="/guides/placement/">
+  <div class="js-static-content" data-content-url="content/guides/placement.html?v=3.19.16" data-static-url="/guides/placement/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -836,7 +852,7 @@
 <!-- ============================== Guide: Detection ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detection" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How detection works</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detection.html" data-static-url="/guides/detection/">
+  <div class="js-static-content" data-content-url="content/guides/detection.html?v=3.19.16" data-static-url="/guides/detection/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -844,7 +860,7 @@
 <!-- ============================== Guide: Detection profiles ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detectors" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose a detection profile</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detectors.html" data-static-url="/guides/detectors/">
+  <div class="js-static-content" data-content-url="content/guides/detectors.html?v=3.19.16" data-static-url="/guides/detectors/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -852,7 +868,7 @@
 <!-- ============================== Guide: Custom firmware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-firmware" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Build custom firmware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/firmware.html" data-static-url="/guides/custom-firmware/">
+  <div class="js-static-content" data-content-url="content/guides/firmware.html?v=3.19.16" data-static-url="/guides/custom-firmware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -860,7 +876,7 @@
 <!-- ============================== Docs: API ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-api" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">API orientation</span></div>
-  <div class="js-static-content" data-content-url="content/docs/api.html" data-static-url="/docs/api/">
+  <div class="js-static-content" data-content-url="content/docs/api.html?v=3.19.16" data-static-url="/docs/api/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -868,7 +884,7 @@
 <!-- ============================== Docs: Examples ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-examples" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
-  <div class="js-static-content" data-content-url="content/docs/examples.html" data-static-url="/docs/examples/">
+  <div class="js-static-content" data-content-url="content/docs/examples.html?v=3.19.16" data-static-url="/docs/examples/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -876,7 +892,7 @@
 <!-- ============================== Docs: Architecture ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-architecture" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
-  <div class="js-static-content" data-content-url="content/docs/architecture.html" data-static-url="/docs/architecture/">
+  <div class="js-static-content" data-content-url="content/docs/architecture.html?v=3.19.16" data-static-url="/docs/architecture/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -936,6 +952,6 @@
 
 <div class="toast js-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
-<script src="/assets/js/app.js?v=3.19.14"></script>
+<script src="/assets/js/app.js?v=3.19.16"></script>
 </body>
 </html>

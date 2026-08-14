@@ -6,20 +6,24 @@
     <span class="guide-tag">THEORY · 12 MIN READ</span>
     <h1>How motion detection works</h1>
     <p class="article-lead">What the movement score actually measures, what happens during calibration, and how to place and tune the sensor so it behaves well in your room.</p>
+    <details class="page-toc" open>
+      <summary>On this page</summary>
+      <nav aria-label="On this page"><strong>On this page</strong><a href="#detection-idea">The idea</a><a href="#detection-signal">Signal path</a><a href="#detection-numbers">The numbers</a><a href="#detection-profiles">Profiles</a><a href="#detection-placement">Placement</a><a href="#detection-tuning">Tuning</a><a href="#detection-deeper">Going deeper</a></nav>
+    </details>
 
-    <h2>The idea in one minute</h2>
+    <h2 id="detection-idea">The idea in one minute</h2>
     <p>Wi-Fi signals reach the ESP32 over many paths at once: direct, bounced off walls, furniture, and people. Each received packet carries Channel State Information (CSI), a per-subcarrier measurement of how the radio channel looked at that instant. When nobody moves, those measurements are remarkably stable. When a person moves, the reflected paths change and the measurements start to scatter. ESPectre measures that scatter, on the device, packet by packet.</p>
     <figure>
-      <img src="/assets/images/guides/csi-multipath-motion.webp" alt="Wi-Fi signals traveling directly and reflecting around a person before reaching an ESP32" loading="lazy">
+      <img src="/assets/images/guides/csi-multipath-motion.webp" alt="Wi-Fi signals traveling directly and reflecting around a person before reaching an ESP32" width="1672" height="941" loading="lazy">
       <figcaption>The ESP32 receives the same Wi-Fi packet over several paths. Movement changes the reflected paths, making the measured channel vary over time.</figcaption>
     </figure>
     <figure>
-      <img src="/assets/images/guides/csi-amplitude-heatmap.webp" alt="Three CSI amplitude heatmaps comparing empty room, static presence, and motion" loading="lazy">
+      <img src="/assets/images/guides/csi-amplitude-heatmap.webp" alt="Three CSI amplitude heatmaps comparing empty room, static presence, and motion" width="2396" height="949" loading="lazy">
       <figcaption>What that looks like in CSI: empty and static presence stay mostly grainy and stable, while walking produces broad vertical bands of change across subcarriers.</figcaption>
     </figure>
 
-    <h2>The signal path</h2>
-    <p>Everything below runs on the ESP32. No raw radio data leaves the device; only the derived score and motion state are published.</p>
+    <h2 id="detection-signal">The signal path</h2>
+    <p>In the normal sensing frontends, everything below runs on the ESP32, and only the derived score and motion state are published. Raw CSI leaves the device only when you deliberately use the separate Streamer research workflow.</p>
     <div class="pipeline">
       <div><strong>Wi-Fi packets</strong><span>HT20 traffic</span></div>
       <div><strong>CSI capture</strong><span>Subcarrier samples</span></div>
@@ -29,7 +33,7 @@
     </div>
     <p>Conditioning matters because raw CSI is noisy: gain normalization compensates for the receiver's automatic gain control, a Hampel filter drops isolated outliers, and an optional low-pass filter removes fast noise while keeping the slower variations caused by human movement.</p>
 
-    <h2>What the numbers mean</h2>
+    <h2 id="detection-numbers">What the numbers mean</h2>
     <ul class="checklist">
       <li><strong>Movement score (0.0–1.0)</strong>: how strongly the channel is changing right now. It is a room-specific signal, not a physical unit: 0.3 in your living room and 0.3 in your office are not the same thing.</li>
       <li><strong>Threshold</strong>: the score level that counts as motion. Lightweight adapts it during calibration; you can adjust it at runtime from Home Assistant, the Configure page, or MQTT.</li>
@@ -37,11 +41,11 @@
       <li><strong>Calibration</strong>: Lightweight learns a quiet threshold at startup, taking up to about ten seconds at the default packet rate. High Accuracy uses its trained threshold and does not run this calibration, although its feature window still needs to fill.</li>
     </ul>
 
-    <h2>Choose a detection profile</h2>
+    <h2 id="detection-profiles">Choose a detection profile</h2>
     <p>Lightweight leaves more CPU and working-memory headroom for the rest of the device. High Accuracy spends additional feature state and inference work on stronger accuracy and generalization. Both run entirely on the ESP32 and use the same 0.0–1.0 output scale.</p>
     <p>Use the dedicated <a href="/guides/detectors/">detection profile guide</a> for the complete comparison, startup trade-offs, frontend support, and SDK configuration.</p>
 
-    <h2>Placement that works</h2>
+    <h2 id="detection-placement">Placement that works</h2>
     <ul class="checklist">
       <li>Keep the sensor roughly 3–8 meters from your Wi-Fi access point. Too close risks receiver saturation; too far means a weaker, noisier signal.</li>
       <li>Put it in the room you want to monitor, where people cross the space between the router and the sensor or move near the device.</li>
@@ -51,13 +55,13 @@
     </ul>
     <p>For antenna orientation, RSSI ranges, room layouts, and a repeatable comparison procedure, follow the dedicated <a href="/guides/placement/">sensor placement guide</a>.</p>
 
-    <h2>Quick tuning recipe</h2>
+    <h2 id="detection-tuning">Quick tuning recipe</h2>
     <div class="mini-cards">
       <article><h3>Triggers with nobody there</h3><ul><li>Raise the threshold a little.</li><li>With Lightweight, recalibrate with the room genuinely empty.</li><li>Look for fans, curtains in airflow, or pets: the sensor sees them too.</li></ul></article>
       <article><h3>Misses real motion</h3><ul><li>Lower the threshold a little.</li><li>Check placement: distance from the AP and obstacles matter most.</li><li>Verify the device receives steady traffic (the built-in traffic generator keeps ~100 packets/s by default).</li></ul></article>
     </div>
     <div class="note">Wi-Fi sensing detects changes in the radio environment. It does not identify people, count them, or replace a safety-certified presence sensor.</div>
 
-    <h2>Going deeper</h2>
+    <h2 id="detection-deeper">Going deeper</h2>
     <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md" target="_blank" rel="noopener">algorithm reference</a> covers the math, the feature definitions, and calibration in detail; the <a href="https://github.com/francescopace/espectre/blob/main/docs/TUNING.md" target="_blank" rel="noopener">tuning guide</a> covers every parameter with recommended ranges.</p>
   </article>

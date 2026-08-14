@@ -27,7 +27,7 @@
       </article>
     </div>
 
-    <h2>The practical difference</h2>
+    <h2 id="detectors-difference">The practical difference</h2>
     <div class="table-wrap"><table>
       <thead><tr><th>Product concern</th><th>Lightweight</th><th>High Accuracy</th></tr></thead>
       <tbody>
@@ -41,7 +41,7 @@
 
     <div class="note"><strong>These are resource profiles, not power modes.</strong> The project benchmarks detector CPU and memory separately; it does not claim that selecting a profile produces a measured whole-device energy saving. If both implementations are compiled into one image, Lightweight can reduce active detector work without removing the High Accuracy model and weights from flash.</div>
 
-    <h2>Choose in thirty seconds</h2>
+    <h2 id="detectors-choose">Choose in thirty seconds</h2>
     <ul class="checklist">
       <li><strong>Choose Lightweight</strong> when sensing shares a smaller chip with displays, connectivity, Matter, OTA, or other application services.</li>
       <li><strong>Choose High Accuracy</strong> when false-positive control, transfer across rooms, and detection quality are the priority.</li>
@@ -49,11 +49,11 @@
       <li><strong>Validate inside the complete product</strong>: placement, packet flow, CPU load, memory headroom, and the surrounding firmware all affect the final choice.</li>
     </ul>
 
-    <h2>Startup is different</h2>
+    <h2 id="detectors-startup">Startup is different</h2>
     <p>Lightweight observes a quiet room and adapts its threshold to the current session. Keep the room still after boot or when recalibrating, and recalibrate after moving the sensor to a substantially different position.</p>
     <p>High Accuracy uses the threshold validated with its trained model, so it skips quiet-room threshold calibration. It is not instant: CSI capture still has to become ready, and the feature window still has to fill before detection starts.</p>
 
-    <h2>Consumer and OEM controls</h2>
+    <h2 id="detectors-controls">Consumer and OEM controls</h2>
     <p>Published ESPHome and Native firmware include both profiles, can switch at runtime, and persist the selection. Matter supports both as build-time choices, publishes Lightweight by default, and does not currently expose a runtime profile control.</p>
     <p>For ESPHome configuration:</p>
     <pre class="code"><code>espectre:
@@ -64,6 +64,6 @@ config.detection_algorithm = espectre::DetectionAlgorithm::HIGH_ACCURACY;</code>
     <p>For the shared MQTT command:</p>
     <pre class="code"><code>{"command":"set_detector","detector":"high_accuracy"}</code></pre>
 
-    <h2>Evidence and deeper reference</h2>
+    <h2 id="detectors-evidence">Evidence and deeper reference</h2>
     <p>The generated <a href="https://github.com/francescopace/espectre/blob/main/docs/performance/README.md" target="_blank" rel="noopener">performance report</a> owns current replay and resource measurements. The <a href="https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md" target="_blank" rel="noopener">algorithm reference</a> documents the feature paths and startup behavior, while the <a href="/guides/detection/">detection guide</a> explains movement score, placement, and tuning.</p>
   </article>

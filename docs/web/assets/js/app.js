@@ -2,9 +2,9 @@
  * ESPectre - Website app shell
  *
  * Hash routing and a persistent device connection shared by every page. The
- * connection is real Web Bluetooth (espectre-ble.js) when available, with a
- * simulated demo mode as fallback for unsupported browsers or when no
- * hardware is around.
+ * connection is real Web Bluetooth (espectre-ble.js) when available. A
+ * simulated demo mode remains an explicit alternative when no hardware is
+ * around.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -16,6 +16,8 @@
 
     const routeRegistry = window.ESPectreRoutes;
     if (!routeRegistry) throw new Error('ESPectre route registry is unavailable');
+    const browserSupport = window.ESPectreBrowserSupport && window.ESPectreBrowserSupport.current;
+    if (!browserSupport) throw new Error('ESPectre browser capability policy is unavailable');
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -239,13 +241,13 @@
 
     async function connectBle() {
         if (conn.status !== 'disconnected') return;
-        if (!window.ESPectreBleClient || !window.ESPectreBleClient.supported) {
+        if (!browserSupport.bluetooth
+                || !window.ESPectreBleClient || !window.ESPectreBleClient.supported) {
             track('tool_connection', {
                 tool_name: activeToolName(), entry_point: route,
                 transport: 'bluetooth', result: 'unsupported'
             });
-            toast('Web Bluetooth is not available in this browser — starting demo mode.');
-            connectDemo();
+            toast(bleUnsupportedMessage());
             return;
         }
         rememberConnectionOrigin();
@@ -568,6 +570,68 @@
 
     let dropdownOpen = false;
 
+    function bleUnsupportedMessage() {
+        if (browserSupport.ios) {
+            return 'Bluetooth connection is unavailable on iPhone and iPad. Use the demo, desktop Chrome or Edge, or Chrome on Android.';
+        }
+        return 'Web Bluetooth is unavailable in this browser. Use the demo, desktop Chrome or Edge, or Chrome on Android.';
+    }
+
+    function flashUnsupportedMessage() {
+        if (browserSupport.mobile) {
+            return 'USB flashing is not supported on mobile. Use desktop Chrome or Edge; binary downloads remain available here.';
+        }
+        return 'USB flashing requires a desktop browser with Web Serial, such as Chrome or Edge. Binary downloads remain available.';
+    }
+
+    function renderBrowserSupport() {
+        $$('.js-connect').forEach((button) => {
+            button.disabled = !browserSupport.bluetooth;
+            button.setAttribute('aria-disabled', String(!browserSupport.bluetooth));
+            button.title = browserSupport.bluetooth ? '' : bleUnsupportedMessage();
+            const label = button.querySelector('.js-connect-label');
+            if (label) {
+                if (!label.dataset.supportedLabel) label.dataset.supportedLabel = label.textContent;
+                label.textContent = browserSupport.bluetooth
+                    ? label.dataset.supportedLabel
+                    : 'Bluetooth unavailable';
+            }
+        });
+        $$('.js-ble-chip').forEach((chip) => {
+            chip.classList.toggle('unavailable', !browserSupport.bluetooth);
+            if (!browserSupport.bluetooth) {
+                chip.classList.remove('ready');
+                chip.textContent = 'BLE · UNAVAILABLE';
+            }
+        });
+        $$('.js-ble-support').forEach((notice) => {
+            notice.hidden = browserSupport.bluetooth;
+            notice.textContent = browserSupport.bluetooth ? '' : bleUnsupportedMessage();
+        });
+
+        $$('.js-flash-chip').forEach((chip) => {
+            chip.classList.toggle('unavailable', !browserSupport.flash);
+            chip.textContent = browserSupport.flash
+                ? 'WEB SERIAL'
+                : browserSupport.mobile ? 'DESKTOP ONLY' : 'UNAVAILABLE';
+        });
+        $$('.js-flash-support').forEach((notice) => {
+            notice.hidden = browserSupport.flash;
+            notice.textContent = browserSupport.flash ? '' : flashUnsupportedMessage();
+        });
+        const installTrigger = $('.js-flash-install [slot="activate"]');
+        if (installTrigger) {
+            installTrigger.disabled = !browserSupport.flash;
+            installTrigger.setAttribute('aria-disabled', String(!browserSupport.flash));
+            installTrigger.title = browserSupport.flash ? '' : flashUnsupportedMessage();
+        }
+        const matterButton = $('.js-matter-read');
+        if (matterButton) {
+            matterButton.disabled = !browserSupport.flash;
+            matterButton.title = browserSupport.flash ? '' : flashUnsupportedMessage();
+        }
+    }
+
     function renderConnection() {
         const connected = conn.status === 'connected';
 
@@ -579,7 +643,7 @@
         $('.js-demo-tag').hidden = conn.mode !== 'demo';
 
         $('.js-demo-connected').hidden = !connected;
-        $('.js-demo-disconnected').hidden = connected;
+        $$('.js-demo-disconnected').forEach((el) => { el.hidden = connected; });
         $$('.js-needs-conn').forEach((el) => { el.hidden = connected; });
         $$('.js-has-conn').forEach((el) => { el.hidden = !connected; });
 
@@ -587,10 +651,11 @@
         $$('.js-device-banner-sub').forEach((el) => { el.textContent = conn.deviceBannerSub; });
         $$('.js-device-menu-sub').forEach((el) => { el.textContent = conn.deviceMenuSub; });
         $$('.js-ble-chip').forEach((chip) => {
-            chip.classList.toggle('ready', connected);
-            chip.textContent = connected ? 'BLE · READY' : 'BLE';
+            chip.classList.toggle('ready', connected && browserSupport.bluetooth);
+            chip.textContent = connected && browserSupport.bluetooth ? 'BLE · READY' : 'BLE';
         });
 
+        renderBrowserSupport();
         renderTelemetry();
     }
 
@@ -611,15 +676,28 @@
 
     /* ============================================================= routing */
 
-    function applyRoute() {
+    function focusRouteContent() {
+        const page = $(`[data-page="${route}"]`);
+        if (!page) return;
+        const target = page.querySelector('h1') || page;
+        if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+    }
+
+    function applyRoute({ focus = true } = {}) {
         $$('.js-page').forEach((page) => {
-            page.hidden = page.dataset.page !== route;
+            const current = page.dataset.page === route;
+            page.hidden = !current;
+            if (current) page.id = 'main-content';
+            else page.removeAttribute('id');
         });
         $$('[data-route-link]').forEach((link) => {
             const target = link.dataset.routeLink;
             const active = target === route
                 || routeRegistry.groupOf(route) === target;
             link.classList.toggle('active', active);
+            if (active) link.setAttribute('aria-current', 'page');
+            else link.removeAttribute('aria-current');
         });
         document.title = window.getRouteTitle
             ? window.getRouteTitle(route)
@@ -627,17 +705,21 @@
         window.scrollTo(0, 0);
         if (route !== 'theremin') thereminStop();
         if (route === 'monitor') monitorResizeChart();
-        if ($(`[data-page="${route}"] .js-static-content`)) loadStaticContent(route);
+        const contentPromise = $(`[data-page="${route}"] .js-static-content`)
+            ? loadStaticContent(route)
+            : Promise.resolve();
         if (route === 'home') updateReleaseBadge();
         if (route === 'flash') {
-            loadBrowserDependency(
-                '/vendor/esp-web-tools-10.4.0/install-button.js',
-                'https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module',
-                { module: true }
-            )
-                .catch((error) => flashStatus(error.message, 'is-error'));
+            if (browserSupport.flash) {
+                loadBrowserDependency(
+                    '/vendor/esp-web-tools-10.4.0/install-button.js',
+                    'https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module',
+                    { module: true }
+                ).catch((error) => flashStatus(error.message, 'is-error'));
+            }
             flashRefresh();
         }
+        if (focus) contentPromise.finally(focusRouteContent);
         // The router owns navigation, so it reports it.
         if (window.trackRouteView) window.trackRouteView(route);
     }
@@ -647,7 +729,7 @@
      * startup; without it a repeated route is ignored so one navigation never
      * reports two page views.
      */
-    function setRoute(next, { force = false } = {}) {
+    function setRoute(next, { force = false, focus = true } = {}) {
         const target = routeRegistry.has(next) ? next : 'home';
         if (!force && target === route) return;
         const previousRoute = route;
@@ -655,7 +737,7 @@
         if (previousRoute === 'monitor' && target !== 'monitor') monitorStopAll('route_change');
         route = target;
         dropdownOpen = false;
-        applyRoute();
+        applyRoute({ focus });
         renderConnection();
     }
 
@@ -685,6 +767,7 @@
             }
             container.innerHTML = staticContentCache.get(contentUrl);
             container.dataset.loaded = 'true';
+            if (window.initPageTocs) window.initPageTocs(container);
         } catch (error) {
             console.warn('Static content fetch failed:', error);
             container.innerHTML = '<p class="guide-loading">This page could not be loaded. '
@@ -697,7 +780,8 @@
      * the app those clicks become hash navigation, so the page never reloads
      * and an active connection survives; modified clicks (new tab) are left
      * to the browser. Root-anchored hash links are normalized for the same
-     * reason: from /index.html they would otherwise reload onto /.
+     * reason: from /index.html they would otherwise reload onto /. Same-page
+     * anchors scroll within the active SPA page without replacing its route.
      */
     function interceptCanonicalLinks(event) {
         if (event.defaultPrevented || event.button !== 0) return;
@@ -712,6 +796,20 @@
         } else if (href.startsWith('/#')) {
             event.preventDefault();
             location.hash = href.slice(1);
+        } else if (href.startsWith('#') && href.length > 1) {
+            const page = $(`[data-page="${route}"]`);
+            let targetId = '';
+            try {
+                targetId = decodeURIComponent(href.slice(1));
+            } catch (error) {
+                return;
+            }
+            const target = page && document.getElementById(targetId);
+            if (!target || !page.contains(target)) return;
+            event.preventDefault();
+            target.scrollIntoView();
+            if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+            target.focus({ preventScroll: true });
         }
     }
 
@@ -946,8 +1044,8 @@
             download.textContent = 'Download binary';
             flash.downloadReady = true;
 
-            if (!('serial' in navigator)) {
-                flashStatus('This browser does not expose Web Serial. Download the binary and flash manually.', 'is-error');
+            if (!browserSupport.flash) {
+                flashStatus(flashUnsupportedMessage(), 'is-error');
             } else {
                 flashStatus('Ready. Connect the board over USB, then install.', 'is-ready');
             }
@@ -1007,8 +1105,8 @@
         const status = $('.js-matter-status');
         const button = $('.js-matter-read');
         const result = $('.js-matter-result');
-        if (!('serial' in navigator)) {
-            status.textContent = 'Web Serial is not available in this browser.';
+        if (!browserSupport.flash) {
+            status.textContent = flashUnsupportedMessage();
             track('matter_qr_read', { result: 'unsupported' });
             return;
         }
@@ -1151,7 +1249,12 @@
                 flashRefresh();
             });
         });
-        $('.js-flash-install').addEventListener('click', () => {
+        $('.js-flash-install').addEventListener('click', (event) => {
+            if (!browserSupport.flash) {
+                event.preventDefault();
+                flashStatus(flashUnsupportedMessage(), 'is-error');
+                return;
+            }
             track('firmware_install_start', flashParams());
         });
         $('.js-flash-download').addEventListener('click', () => {
@@ -1160,7 +1263,7 @@
             }
         });
         $('.js-matter-read').addEventListener('click', matterReadQr);
-        observeFirmwareInstaller();
+        if (browserSupport.flash) observeFirmwareInstaller();
     }
 
     /* ============================================================= monitor */
@@ -2072,6 +2175,8 @@
     function init() {
         scrollyInit();
 
+        renderBrowserSupport();
+
         $$('.js-connect').forEach((btn) => btn.addEventListener('click', connectBle));
         $$('.js-demo').forEach((btn) => btn.addEventListener('click', connectDemo));
         $('.js-disconnect').addEventListener('click', disconnect);
@@ -2093,9 +2198,13 @@
         gameInit();
 
         document.addEventListener('click', interceptCanonicalLinks);
+        $('.skip-link').addEventListener('click', (event) => {
+            event.preventDefault();
+            focusRouteContent();
+        });
         document.addEventListener('mousemove', demoTrackMouse, { passive: true });
         window.addEventListener('hashchange', onHashChange);
-        setRoute((location.hash || '#home').slice(1), { force: true });
+        setRoute((location.hash || '#home').slice(1), { force: true, focus: false });
     }
 
     document.addEventListener('espectre:analytics-enabled', () => {

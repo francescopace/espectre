@@ -233,6 +233,8 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
 
+<a class="skip-link" href="#main-content">Skip to content</a>
+
 <header class="site-header">
   <div class="site-header-inner">
     <a href="/" class="brand">
@@ -245,16 +247,16 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
     <nav class="main-nav" id="main-navigation" aria-label="Main">
       <a href="/" class="nav-link">Home</a>
       <a href="/#tools" class="nav-link">Tools</a>
-      <a href="/guides/" class="nav-link{guides_active}">Guides</a>
-      <a href="/media/" class="nav-link{media_active}">Media</a>
-      <a href="/roadmap/" class="nav-link{roadmap_active}">Roadmap</a>
-      <a href="/docs/" class="nav-link{docs_active}">Docs</a>
+      <a href="/guides/" class="nav-link{guides_active}"{guides_current}>Guides</a>
+      <a href="/media/" class="nav-link{media_active}"{media_current}>Media</a>
+      <a href="/roadmap/" class="nav-link{roadmap_active}"{roadmap_current}>Roadmap</a>
+      <a href="/docs/" class="nav-link{docs_active}"{docs_current}>Docs</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
     </nav>
   </div>
 </header>
 
-<main class="{main_class}">
+<main class="{main_class}" id="main-content" tabindex="-1">
 {breadcrumb}
 {content}
 </main>
@@ -266,7 +268,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
       ESPectre © 2026 · Open source Wi-Fi sensing platform · GPLv3 + commercial licensing
     </div>
     <div class="footer-links">
-      <a href="/#privacy">Privacy</a>
+      <a href="/privacy/">Privacy</a>
       <button class="footer-link-button js-cookie-settings" type="button">Cookie settings</button>
       <a href="mailto:contact@espectre.dev">Contact/Commercial Licensing</a>
     </div>
@@ -333,6 +335,10 @@ def build() -> None:
             docs_active=" active" if spec["active_nav"] == "docs" else "",
             media_active=" active" if spec["active_nav"] == "media" else "",
             roadmap_active=" active" if spec["active_nav"] == "roadmap" else "",
+            guides_current=' aria-current="page"' if spec["active_nav"] == "guides" else "",
+            docs_current=' aria-current="page"' if spec["active_nav"] == "docs" else "",
+            media_current=' aria-current="page"' if spec["active_nav"] == "media" else "",
+            roadmap_current=' aria-current="page"' if spec["active_nav"] == "roadmap" else "",
             content_group=spec.get("content_group", "documentation"),
             main_class=spec.get("main_class", "page-narrow page-article"),
             content=content,

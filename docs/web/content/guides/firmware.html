@@ -6,8 +6,12 @@
     <span class="guide-tag">SDK · 15 MIN READ</span>
     <h1>Build or embed ESPectre firmware</h1>
     <p class="article-lead">For developers: build a frontend from source when the published images are not enough, or bring the sensing layers into your own ESP-IDF application.</p>
+    <details class="page-toc" open>
+      <summary>On this page</summary>
+      <nav aria-label="On this page"><strong>On this page</strong><a href="#firmware-path">Choose a path</a><a href="#firmware-frontends">Frontends</a><a href="#firmware-build">Build</a><a href="#firmware-change">Change map</a><a href="#firmware-embed">Embed</a><a href="#firmware-ship">Ship</a></nav>
+    </details>
 
-    <h2>Which path do you need?</h2>
+    <h2 id="firmware-path">Which path do you need?</h2>
     <div class="table-wrap"><table>
       <thead><tr><th>You want to...</th><th>Do this</th></tr></thead>
       <tbody>
@@ -17,7 +21,7 @@
       </tbody>
     </table></div>
 
-    <h2>The four frontends</h2>
+    <h2 id="firmware-frontends">The four frontends</h2>
     <div class="table-wrap"><table>
       <thead><tr><th>Frontend</th><th>Use it when</th><th>Toolchain</th></tr></thead>
       <tbody>
@@ -28,9 +32,9 @@
       </tbody>
     </table></div>
 
-    <h2>Build a frontend from source</h2>
+    <h2 id="firmware-build">Build a frontend from source</h2>
     <figure>
-      <img src="/assets/images/guides/custom-firmware-build.webp" alt="Source code on a laptop being built into a firmware image and flashed over USB to an ESP32 board" loading="lazy">
+      <img src="/assets/images/guides/custom-firmware-build.webp" alt="Source code on a laptop being built into a firmware image and flashed over USB to an ESP32 board" width="1672" height="941" loading="lazy">
       <figcaption>The shared wrapper turns the selected frontend and chip configuration into a firmware image, then flashes it to the board over USB.</figcaption>
     </figure>
     <ol class="steps-list">
@@ -52,7 +56,7 @@ cd espectre
     <p>Full prerequisites and command reference: <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">SETUP.md</a> and <a href="https://github.com/francescopace/espectre/blob/main/docs/CLI.md" target="_blank" rel="noopener">CLI.md</a>.</p>
     <div class="note">Streamer credentials are supplied at build time and Streamer binaries are not published by the browser flasher. Never commit local Wi-Fi or MQTT secrets.</div>
 
-    <h2>Where to change things</h2>
+    <h2 id="firmware-change">Where to change things</h2>
     <div class="table-wrap"><table>
       <thead><tr><th>You want to change...</th><th>Look in</th></tr></thead>
       <tbody>
@@ -63,7 +67,7 @@ cd espectre
       </tbody>
     </table></div>
 
-    <h2>Embed ESPectre in an existing firmware</h2>
+    <h2 id="firmware-embed">Embed ESPectre in an existing firmware</h2>
     <p>The reusable C++ layers let an ESP-IDF product own boot, networking, storage, OTA, and UI while ESPectre supplies the sensing path. The <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">embedding guide</a> documents the layers, the runtime contracts, and the build integration in detail.</p>
     <h3>Choose the detector against the complete product budget</h3>
     <p>Lightweight is the leaner production profile: it leaves more CPU time and working memory for connectivity, OTA, UI, or other application services, at the cost of lower detection accuracy and generalization. High Accuracy provides higher detection quality but maintains more feature state and runs neural inference. Lightweight adapts its threshold during up to about 10 seconds of quiet startup calibration; High Accuracy skips that calibration, although it still waits for CSI readiness and feature-window warmup.</p>
@@ -72,7 +76,7 @@ cd espectre
     <p>Today's firmware captures CSI through the APIs available on supported ESP32 devices. <a href="https://standards.ieee.org/ieee/802.11bf/11574/" target="_blank" rel="noopener">IEEE 802.11bf-2025</a> standardizes WLAN mechanisms for advertising sensing capabilities, coordinating sensing measurements, and exchanging sensing feedback. ESPectre does not currently implement 802.11bf.</p>
     <p>The separation between detector core, runtime, events, protocols, tooling, and frontends provides a migration boundary for future hardware. If an embedded vendor exposes practical 802.11bf measurements, or an equivalent documented sensing API, ESPectre can evaluate it as a new runtime backend without replacing the product-facing integration above it. Hardware support, measurement semantics, and detector quality would still require validation before that backend could be considered supported. The <a href="/roadmap/">roadmap</a> records this as a hardware-triggered direction rather than a release commitment.</p>
     <figure>
-      <img src="/assets/images/guides/embedded-firmware-layers.webp" alt="Wi-Fi CSI entering reusable sensing and runtime layers embedded inside product firmware" loading="lazy">
+      <img src="/assets/images/guides/embedded-firmware-layers.webp" alt="Wi-Fi CSI entering reusable sensing and runtime layers embedded inside product firmware" width="1672" height="941" loading="lazy">
       <figcaption>CSI enters the reusable sensing layers; the surrounding product firmware keeps control of the platform and consumes only the score, state, and diagnostics it needs.</figcaption>
     </figure>
     <ol class="steps-list">
@@ -83,7 +87,7 @@ cd espectre
     </ol>
     <div class="note">ESPectre exposes reusable source layers rather than a precompiled binary SDK, and it is dual-licensed: GPLv3 for open-source firmware, with <a href="https://github.com/francescopace/espectre/blob/main/LICENSING.md" target="_blank" rel="noopener">commercial licenses</a> available for embedding into proprietary products.</div>
 
-    <h2>Before you ship</h2>
+    <h2 id="firmware-ship">Before you ship</h2>
     <ul class="checklist">
       <li>Build the exact chip and frontend combination you will deploy.</li>
       <li>Run the shared C++ detection tests after changing core algorithms.</li>

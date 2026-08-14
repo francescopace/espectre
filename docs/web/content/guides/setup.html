@@ -6,8 +6,12 @@
     <span class="guide-tag">SETUP · 8 MIN READ</span>
     <h1>Flash and set up your device</h1>
     <p class="article-lead">This tutorial takes you from a blank ESP32 board to a working motion sensor. No toolchain, no compiler: everything happens in the browser.</p>
+    <details class="page-toc" open>
+      <summary>On this page</summary>
+      <nav aria-label="On this page"><strong>On this page</strong><a href="#setup-requirements">Requirements</a><a href="#setup-firmware">Choose firmware</a><a href="#setup-flash">Flash</a><a href="#setup-network">Network</a><a href="#setup-test">Test</a><a href="#setup-troubleshooting">Troubleshooting</a><a href="#setup-cli">CLI fallback</a><a href="#setup-next">Next steps</a></nav>
+    </details>
 
-    <h2>What you need</h2>
+    <h2 id="setup-requirements">What you need</h2>
     <ul class="checklist">
       <li>An ESP32, ESP32-C3, ESP32-C5, ESP32-C6, or ESP32-S3 board.</li>
       <li>A USB cable that carries data, not only power. If in doubt, try another cable first: it is the single most common problem.</li>
@@ -15,7 +19,7 @@
       <li>The name of a Wi-Fi network supported by the board, plus its password unless the network is open. Native firmware defaults to 2.4&nbsp;GHz; Configure offers 5&nbsp;GHz and automatic band selection only when an ESP32-C5 reports that capability.</li>
     </ul>
 
-    <h2>Step 1 — Choose your firmware</h2>
+    <h2 id="setup-firmware">Step 1 — Choose your firmware</h2>
     <p>Pick the row that matches how you want to use the sensor. You can always reflash later; switching firmware takes two minutes.</p>
     <div class="table-wrap"><table>
       <thead><tr><th>If you...</th><th>Flash</th><th>You get</th></tr></thead>
@@ -28,9 +32,9 @@
     </table></div>
     <div class="note">Not sure? Pick Native, the default in the flasher: it works on its own, supports Home Assistant through MQTT Discovery, and can use every tool on this website. Pick ESPHome when you want YAML configuration and the full Home Assistant control surface.</div>
 
-    <h2>Step 2 — Flash from the browser</h2>
+    <h2 id="setup-flash">Step 2 — Flash from the browser</h2>
     <figure>
-      <img src="/assets/images/guides/flash-connect-usb.webp" alt="A USB data cable connecting an ESP32 development board to a laptop" loading="lazy">
+      <img src="/assets/images/guides/flash-connect-usb.webp" alt="A USB data cable connecting an ESP32 development board to a laptop" width="1672" height="941" loading="lazy">
       <figcaption>Connect the board directly to the computer with a USB data cable before opening the browser flasher.</figcaption>
     </figure>
     <ol class="steps-list">
@@ -41,12 +45,12 @@
     </ol>
     <div class="note">If the port never appears or the connection fails right away, hold the <strong>BOOT</strong> button on the board while plugging the cable in, then release it and click <em>Connect</em> again. That forces the chip into download mode.</div>
 
-    <h2>Step 3 — Connect it to your network</h2>
+    <h2 id="setup-network">Step 3 — Connect it to your network</h2>
     <p>This step depends on the firmware you flashed.</p>
 
     <h3 class="subheading">Native</h3>
     <ol class="steps-list">
-      <li><h3>Open the Configure page</h3><p>Go to <a href="/#configure">Configure</a> in Chrome or Edge and click <em>Connect</em>. Pick the <code>ESPectre BLE</code> device from the Bluetooth list. The board must be powered but does not need Wi-Fi yet.</p></li>
+      <li><h3>Open the Configure page</h3><p>Go to <a href="/#configure">Configure</a> in desktop Chrome or Edge, or Chrome on Android, and click <em>Connect</em>. Pick the <code>ESPectre BLE</code> device from the Bluetooth list. Bluetooth connection is not available on iPhone or iPad. The board must be powered but does not need Wi-Fi yet.</p></li>
       <li><h3>Save Wi-Fi and MQTT</h3><p>Enter your network name and its password, or leave the password empty for an open network. On a dual-band ESP32-C5, choose 2.4&nbsp;GHz, 5&nbsp;GHz, or automatic selection; restart the device after changing the band. If you have an MQTT broker, add its host and port, with optional credentials, to get telemetry. If not, you can skip it and the sensor still works over Bluetooth.</p></li>
       <li><h3>Use Home Assistant or watch it live</h3><p>When Home Assistant uses the same broker, Native publishes MQTT Discovery for motion, movement score, and detector selection when the firmware supports switching detectors. Otherwise, use the same Configure page to see the live movement bar, or open the <a href="/#monitor">Monitor</a> to chart MQTT telemetry from the browser.</p></li>
     </ol>
@@ -63,7 +67,7 @@
       <li><h3>Place it in a room</h3><p>The device appears as an occupancy sensor. Use it in automations exactly like any other motion sensor.</p></li>
     </ol>
 
-    <h2>Step 4 — Let it calibrate, then test</h2>
+    <h2 id="setup-test">Step 4 — Let it calibrate, then test</h2>
     <ul class="checklist">
       <li>Published firmware defaults to Lightweight Detection. After joining Wi-Fi, it calibrates its quiet threshold for up to about ten seconds: keep the room still, then move normally. High-Accuracy Detection skips this threshold calibration but still waits for its feature window to fill.</li>
       <li>Wave an arm a few meters from the board: the motion state should turn active within about a second and clear shortly after you stop.</li>
@@ -71,7 +75,7 @@
     </ul>
     <div class="note">The movement level is a 0.0–1.0 score specific to your room. If the sensor is too eager or too lazy, adjust the threshold slightly instead of expecting one universal value: the <a href="/guides/detection/">detection guide</a> explains what the numbers mean.</div>
 
-    <h2>Troubleshooting</h2>
+    <h2 id="setup-troubleshooting">Troubleshooting</h2>
     <div class="mini-cards">
       <article><h3>No serial port appears</h3><ul><li>Try another USB cable: charge-only cables are the top cause.</li><li>Try another USB port, ideally directly on the computer.</li><li>Hold <strong>BOOT</strong> while plugging in, then retry Connect.</li></ul></article>
       <article><h3>Flashing starts but fails midway</h3><ul><li>Close other tabs or programs using the port and retry.</li><li>Use a rear USB port or a powered hub: unstable power interrupts flashing.</li><li>Retry with <em>Erase</em> enabled to start from a clean flash.</li></ul></article>
@@ -81,13 +85,13 @@
       <article><h3>Motion triggers with nobody there</h3><ul><li>With Lightweight, recalibrate with the room genuinely empty and still.</li><li>Raise the threshold a little.</li><li>Check for fans, curtains moving in airflow, or pets: the sensor sees them too.</li></ul></article>
     </div>
 
-    <h2>CLI flashing (fallback)</h2>
+    <h2 id="setup-cli">CLI flashing (fallback)</h2>
     <p>If browser flashing does not work on your system, clone the repository and flash with the ESPectre CLI. After <code>./espectre doctor</code> succeeds, build and flash the frontend you chose in Step&nbsp;1:</p>
     <pre class="code"><code>./espectre native build --chip c3
 ./espectre native flash --port /dev/cu.usbmodemXXXX</code></pre>
     <p>Use <code>esphome</code> or <code>matter</code> instead of <code>native</code> when that is your firmware. Full prerequisites and command reference are in the <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">setup reference</a>; the <a href="/guides/custom-firmware/">custom firmware guide</a> walks through the same local workflow.</p>
 
-    <h2>Next steps</h2>
+    <h2 id="setup-next">Next steps</h2>
     <ul class="checklist">
       <li>Choose Lightweight or High Accuracy: <a href="/guides/detectors/">Detection profiles</a>.</li>
       <li>Understand and tune the score: <a href="/guides/detection/">How detection works</a>.</li>
