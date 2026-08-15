@@ -16,8 +16,7 @@ from typing import Callable
 from urllib.parse import urlparse
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SITEMAP = REPO_ROOT / "docs" / "web" / "sitemap.xml"
+DEFAULT_SITEMAP = Path(__file__).resolve().with_name("sitemap.template.xml")
 INDEXNOW_ENDPOINT = "https://api.indexnow.org/indexnow"
 SITE_HOST = "espectre.dev"
 INDEXNOW_KEY = "1a2e73ccf9558a06830546c288699e0c"

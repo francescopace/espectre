@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
-"""Add evidence-based last-modified dates to the website sitemap."""
+"""Generate the deployable sitemap from the canonical URL inventory."""
 
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ from urllib.parse import urlparse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WEB_ROOT = REPO_ROOT / "docs" / "web"
-DEFAULT_SITEMAP = WEB_ROOT / "sitemap.xml"
+DEFAULT_SITEMAP_TEMPLATE = Path(__file__).resolve().with_name("sitemap.template.xml")
+DEFAULT_SITEMAP_OUTPUT = WEB_ROOT / "sitemap.xml"
 SITEMAP_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9"
 SITE_HOST = "espectre.dev"
 STATIC_PAGE_BUILDER = Path(".github/scripts/build_static_pages.py")
@@ -45,8 +46,17 @@ ROUTE_SOURCES = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate evidence-based sitemap lastmod values.")
-    parser.add_argument("--sitemap", default=str(DEFAULT_SITEMAP), help="Sitemap URL inventory to enrich.")
-    parser.add_argument("--output", help="Output path; defaults to overwriting --sitemap.")
+    parser.add_argument(
+        "--template",
+        "--sitemap",
+        default=str(DEFAULT_SITEMAP_TEMPLATE),
+        help="Canonical sitemap URL inventory to enrich.",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(DEFAULT_SITEMAP_OUTPUT),
+        help="Generated sitemap output path.",
+    )
     return parser.parse_args()
 
 
@@ -115,6 +125,8 @@ def lastmod_for_url(url: str) -> str | None:
 
 
 def build_sitemap(sitemap_path: Path, output_path: Path) -> None:
+    if sitemap_path.resolve() == output_path.resolve():
+        raise ValueError("Sitemap template and generated output must use separate paths")
     tree = ET.parse(sitemap_path)
     root = tree.getroot()
     expected_root = f"{{{SITEMAP_NAMESPACE}}}urlset"
@@ -147,8 +159,8 @@ def build_sitemap(sitemap_path: Path, output_path: Path) -> None:
 
 def main() -> int:
     args = parse_args()
-    sitemap_path = Path(args.sitemap)
-    output_path = Path(args.output) if args.output else sitemap_path
+    sitemap_path = Path(args.template)
+    output_path = Path(args.output)
     build_sitemap(sitemap_path, output_path)
     print(f"Sitemap lastmod values generated in {output_path}.")
     return 0

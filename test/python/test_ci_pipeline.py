@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -219,6 +220,65 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
     }
     assert root.findall("s:url/s:changefreq", namespace) == []
 
+    with pytest.raises(ValueError, match="must use separate paths"):
+        sitemap_builder.build_sitemap(sitemap, sitemap)
+
+
+def test_pages_build_outputs_do_not_overlap_committed_sources() -> None:
+    indexnow = load_script("notify_indexnow")
+    static_pages = load_script("build_static_pages")
+    sitemap_builder = load_script("build_sitemap")
+    source_paths = set(
+        subprocess.run(
+            [
+                "git",
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                ".github/scripts",
+                "docs/web",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+    source_paths.difference_update(
+        subprocess.run(
+            ["git", "ls-files", "--deleted", "docs/web"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+    generated_paths = {
+        "docs/web/artifacts",
+        "docs/web/node_modules",
+        "docs/web/sitemap.xml",
+        "docs/web/vendor",
+        *(
+            f"docs/web/{page['output'].strip('/')}"
+            for page in static_pages.PAGES
+        ),
+    }
+
+    assert sitemap_builder.DEFAULT_SITEMAP_TEMPLATE == (
+        REPO_ROOT / ".github" / "scripts" / "sitemap.template.xml"
+    )
+    assert sitemap_builder.DEFAULT_SITEMAP_OUTPUT == (
+        REPO_ROOT / "docs" / "web" / "sitemap.xml"
+    )
+    assert indexnow.DEFAULT_SITEMAP == sitemap_builder.DEFAULT_SITEMAP_TEMPLATE
+    assert ".github/scripts/sitemap.template.xml" in source_paths
+    for generated_path in generated_paths:
+        assert not any(
+            path == generated_path or path.startswith(f"{generated_path}/")
+            for path in source_paths
+        ), f"Pages build output overlaps committed source: {generated_path}"
+
 
 def test_generated_pages_have_sitemap_lastmod_ownership() -> None:
     static_pages = load_script("build_static_pages")
@@ -226,7 +286,7 @@ def test_generated_pages_have_sitemap_lastmod_ownership() -> None:
     verifier = load_script("verify_web_build")
 
     namespace = {"s": sitemap_builder.SITEMAP_NAMESPACE}
-    root = ET.parse(REPO_ROOT / "docs" / "web" / "sitemap.xml").getroot()
+    root = ET.parse(REPO_ROOT / ".github" / "scripts" / "sitemap.template.xml").getroot()
     sitemap_paths = {
         urlparse(location).path
         for location in (

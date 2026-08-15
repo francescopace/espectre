@@ -200,12 +200,12 @@ describe('website UX and content contracts', () => {
 
     it('keeps privacy discoverable and serves a real 404 page', () => {
         assert.match(index, /data-page="privacy"/);
-        assert.match(index, /data-content-url="content\/privacy\.html"/);
+        assert.match(index, /data-content-url="content\/privacy\.html(?:\?v=[0-9.]+)?"/);
         assert.match(index, /<div class="footer-links">\s*<a href="#privacy">Privacy<\/a>/);
         assert.match(routeRegistry, /name: 'privacy'.*staticPath: '\/privacy\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/privacy\/">Privacy<\/a>/);
         assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/privacy\/">Privacy<\/a>/);
-        const sitemap = read('docs/web/sitemap.xml');
+        const sitemap = read('.github/scripts/sitemap.template.xml');
         assert.match(sitemap, /https:\/\/espectre\.dev\/privacy\//);
         assert.doesNotMatch(sitemap, /<(?:changefreq|lastmod)>/);
         assert.match(read('docs/web/content/privacy.html'), /Never included:/);
@@ -275,7 +275,7 @@ describe('website UX and content contracts', () => {
         assert.match(index, /data-page="guide-detectors"/);
         assert.match(routeRegistry, /name: 'guide-detectors'.*staticPath: '\/guides\/detectors\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/detectors\.html"/);
-        assert.match(read('docs/web/sitemap.xml'), /https:\/\/espectre\.dev\/guides\/detectors\//);
+        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/detectors\//);
     });
 
     it('adds anchor navigation and intrinsic image sizes to long guides', () => {
@@ -289,7 +289,9 @@ describe('website UX and content contracts', () => {
             'docs/web/content/guides/detectors.html',
         ];
         for (const path of longPages) {
-            assert.match(read(path), /<nav class="page-toc" aria-label="On this page">/);
+            const content = read(path);
+            assert.match(content, /<details class="page-toc" open>/);
+            assert.match(content, /<nav aria-label="On this page">/);
         }
         for (const path of longPages.filter((path) => path.includes('/guides/'))) {
             const images = [...read(path).matchAll(/<img\b[^>]*>/g)].map((match) => match[0]);
