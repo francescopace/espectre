@@ -211,7 +211,9 @@ def test_run_esphome_command_uses_resolved_config_and_device(monkeypatch, tmp_pa
         argparse.Namespace(chip="c3", dev=True, config=None, esphome_command="flash", device="/dev/cu.usb")
     )
 
-    assert calls == [["esphome", "upload", str(config_path), "--device", "/dev/cu.usb"]]
+    assert calls == [
+        ["esphome", "--toolchain", "esp-idf", "upload", str(config_path), "--device", "/dev/cu.usb"]
+    ]
 
 
 def test_run_esphome_monitor_uses_logs_action(monkeypatch, tmp_path: Path) -> None:
@@ -226,7 +228,9 @@ def test_run_esphome_monitor_uses_logs_action(monkeypatch, tmp_path: Path) -> No
         argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="monitor", device="/dev/cu.usb")
     )
 
-    assert calls == [["esphome", "logs", str(config_path), "--device", "/dev/cu.usb"]]
+    assert calls == [
+        ["esphome", "--toolchain", "esp-idf", "logs", str(config_path), "--device", "/dev/cu.usb"]
+    ]
 
 
 def test_run_esphome_command_build_runs_esphome_clean_when_requested(monkeypatch, tmp_path: Path) -> None:
@@ -242,8 +246,8 @@ def test_run_esphome_command_build_runs_esphome_clean_when_requested(monkeypatch
     )
 
     assert calls == [
-        ["esphome", "clean", str(config_path)],
-        ["esphome", "compile", str(config_path)],
+        ["esphome", "--toolchain", "esp-idf", "clean", str(config_path)],
+        ["esphome", "--toolchain", "esp-idf", "compile", str(config_path)],
     ]
 
 
@@ -260,8 +264,8 @@ def test_run_esphome_command_build_runs_esphome_clean_all_when_requested(monkeyp
     )
 
     assert calls == [
-        ["esphome", "clean-all", str(config_path)],
-        ["esphome", "compile", str(config_path)],
+        ["esphome", "--toolchain", "esp-idf", "clean-all", str(config_path)],
+        ["esphome", "--toolchain", "esp-idf", "compile", str(config_path)],
     ]
 
 
@@ -1096,6 +1100,81 @@ def test_resolve_idf_environment_prefers_standard_export(monkeypatch, tmp_path: 
     assert env.source == "standard ESP-IDF install"
     assert env.export_script == export_script
     assert env.export_kind == "sh"
+
+
+def test_resolve_idf_environment_reuses_esphome_native_toolchain(monkeypatch, tmp_path: Path) -> None:
+    tools_path = tmp_path / "idf"
+    framework_path = tools_path / "frameworks" / idf_container.IDF_VERSION
+    python_env_path = tools_path / "penvs" / idf_container.IDF_VERSION
+    idf_py = framework_path / "tools" / "idf.py"
+    python_executable = python_env_path / "bin" / "python"
+    idf_py.parent.mkdir(parents=True)
+    python_executable.parent.mkdir(parents=True)
+    idf_py.write_text("", encoding="utf-8")
+    python_executable.write_text("", encoding="utf-8")
+    process_env = {"IDF_PATH": str(framework_path)}
+
+    monkeypatch.delenv("IDF_PATH", raising=False)
+    monkeypatch.setattr(idf.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(idf.shutil, "which", lambda _binary: None)
+    monkeypatch.setattr(idf, "get_esphome_idf_tools_path", lambda: tools_path)
+    monkeypatch.setattr(
+        idf,
+        "build_esphome_idf_process_environment",
+        lambda framework, python_env: process_env,
+    )
+
+    env = idf.resolve_idf_environment()
+
+    assert env.mode == "esphome"
+    assert env.install_dir == framework_path
+    assert env.idf_path_entry == str(idf_py)
+    assert env.python_executable == python_executable
+    assert env.process_env == process_env
+
+
+def test_run_idf_command_build_uses_esphome_managed_environment(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
+    framework_path = tmp_path / "idf" / "frameworks" / idf_container.IDF_VERSION
+    python_executable = tmp_path / "idf" / "penvs" / idf_container.IDF_VERSION / "bin" / "python"
+    idf_py = framework_path / "tools" / "idf.py"
+    process_env = {"IDF_PATH": str(framework_path)}
+    calls: list[tuple[list[str], Path, dict[str, str]]] = []
+    env = idf.ResolvedIdfEnvironment(
+        mode="esphome",
+        source="ESPHome-managed native toolchain",
+        install_dir=framework_path,
+        idf_path_entry=str(idf_py),
+        python_executable=python_executable,
+        process_env=process_env,
+    )
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(
+        idf.subprocess,
+        "run",
+        lambda cmd, cwd, check, env: calls.append((cmd, Path(cwd), env)),
+    )
+
+    idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
+
+    assert calls == [
+        (
+            [
+                str(python_executable),
+                str(idf_py),
+                "-B",
+                "build-esp32c3",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                "build",
+            ],
+            app_dir,
+            process_env,
+        )
+    ]
 
 
 def test_prepare_idf_subprocess_command_uses_standard_export(monkeypatch, tmp_path: Path) -> None:

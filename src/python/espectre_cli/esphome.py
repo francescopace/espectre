@@ -22,6 +22,9 @@ ACTION_MAP = {
     "monitor": "logs",
 }
 
+ESPHOME_COMMAND_PREFIX = ["esphome", "--toolchain", "esp-idf"]
+
+
 def run_esphome_command(args) -> None:
     """Run an ESPHome action against the resolved repository config."""
     try:
@@ -38,11 +41,11 @@ def run_esphome_command(args) -> None:
     commands: list[list[str]] = []
     if args.esphome_command == "build":
         if getattr(args, "clean_all", False):
-            commands.append(["esphome", "clean-all", str(config_path)])
+            commands.append([*ESPHOME_COMMAND_PREFIX, "clean-all", str(config_path)])
         elif getattr(args, "clean", False):
-            commands.append(["esphome", "clean", str(config_path)])
+            commands.append([*ESPHOME_COMMAND_PREFIX, "clean", str(config_path)])
 
-    command = ["esphome", action, str(config_path)]
+    command = [*ESPHOME_COMMAND_PREFIX, action, str(config_path)]
     if getattr(args, "device", None):
         command.extend(["--device", args.device])
     commands.append(command)

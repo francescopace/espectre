@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 from .common import Fore, REPO_ROOT, Style, cli_command, detect_chip_type, get_serial_port
-from .idf_container import DockerBackendError, ensure_docker_backend, run_idf_container
+from .idf_container import DockerBackendError, IDF_VERSION, ensure_docker_backend, run_idf_container
 from .targets import IDF_FRONTENDS, resolve_idf_target
 
 
@@ -39,6 +39,8 @@ class ResolvedIdfEnvironment:
     export_script: Path | None = None
     export_kind: str | None = None
     idf_path_entry: str | None = None
+    python_executable: Path | None = None
+    process_env: dict[str, str] | None = None
 
 
 def remove_idf_artifacts(app_path: Path, artifact_names: list[str]) -> None:
@@ -234,6 +236,62 @@ def resolve_idf_export_script_for_install(install_dir: Path) -> tuple[Path, str]
     return None
 
 
+def get_esphome_idf_tools_path() -> Path | None:
+    """Return ESPHome's native ESP-IDF cache path when ESPHome is available."""
+    try:
+        from esphome.espidf.framework import get_idf_tools_path
+    except ImportError:
+        return None
+
+    try:
+        return Path(get_idf_tools_path())
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def build_esphome_idf_process_environment(
+    framework_path: Path, python_env_path: Path
+) -> dict[str, str]:
+    """Build the subprocess environment for an ESPHome-managed ESP-IDF install."""
+    from esphome.core import CORE
+    from esphome.espidf.framework import get_framework_env
+
+    previous_build_path = CORE.build_path
+    CORE.build_path = REPO_ROOT
+    try:
+        return get_framework_env(framework_path, python_env_path, env=os.environ.copy())
+    finally:
+        CORE.build_path = previous_build_path
+
+
+def resolve_esphome_managed_idf_environment() -> ResolvedIdfEnvironment | None:
+    """Resolve the pinned native ESP-IDF toolchain already managed by ESPHome."""
+    tools_path = get_esphome_idf_tools_path()
+    if tools_path is None:
+        return None
+
+    framework_path = tools_path / "frameworks" / IDF_VERSION
+    python_env_path = tools_path / "penvs" / IDF_VERSION
+    idf_py = framework_path / "tools" / "idf.py"
+    python_executable = python_env_path / ("Scripts/python.exe" if is_windows_host() else "bin/python")
+    if not idf_py.is_file() or not python_executable.is_file():
+        return None
+
+    try:
+        process_env = build_esphome_idf_process_environment(framework_path, python_env_path)
+    except (ImportError, OSError, RuntimeError, ValueError):
+        return None
+
+    return ResolvedIdfEnvironment(
+        mode="esphome",
+        source="ESPHome-managed native toolchain",
+        install_dir=framework_path,
+        idf_path_entry=str(idf_py),
+        python_executable=python_executable,
+        process_env=process_env,
+    )
+
+
 def resolve_idf_environment() -> ResolvedIdfEnvironment:
     """Resolve how the CLI should launch idf.py on this host."""
     if is_idf_environment_active():
@@ -256,6 +314,9 @@ def resolve_idf_environment() -> ResolvedIdfEnvironment:
             export_kind=script_kind,
         )
 
+    if esphome_env := resolve_esphome_managed_idf_environment():
+        return esphome_env
+
     idf_on_path = shutil.which("idf.py")
     if idf_on_path:
         return ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry=idf_on_path)
@@ -269,17 +330,20 @@ def describe_idf_environment(env: ResolvedIdfEnvironment) -> str:
         return f"using active shell environment at {env.install_dir}"
     if env.mode == "export":
         return f"auto-loading {env.source} at {env.install_dir}"
+    if env.mode == "esphome":
+        return f"using {env.source} at {env.install_dir}"
     return f"using idf.py from PATH at {env.idf_path_entry}"
 
 
 def print_idf_recovery_instructions() -> None:
     """Print concise, platform-aware recovery guidance."""
     print(f"{Fore.YELLOW}Try one of these setup paths, then rerun {cli_command('doctor')}.{Style.RESET_ALL}")
+    print(f"  1. {cli_command('esphome', 'build', '--chip', 'c3')}")
     if is_windows_host():
-        print('  1. . "$env:USERPROFILE\\esp\\esp-idf\\export.ps1"')
+        print('  2. . "$env:USERPROFILE\\esp\\esp-idf\\export.ps1"')
         print(f"     {cli_command('doctor')}")
     else:
-        print("  1. source ~/esp/esp-idf/export.sh")
+        print("  2. source ~/esp/esp-idf/export.sh")
         print(f"     {cli_command('doctor')}")
 
 
@@ -292,6 +356,10 @@ def prepare_idf_subprocess_command(
     command: list[str], env: ResolvedIdfEnvironment
 ) -> tuple[list[str], Path | None]:
     """Prepare the subprocess command for the resolved ESP-IDF environment."""
+    if env.mode == "esphome":
+        assert env.python_executable is not None
+        assert env.idf_path_entry is not None
+        return [str(env.python_executable), env.idf_path_entry, *command[1:]], None
     if env.mode != "export":
         return command, None
 
@@ -367,7 +435,10 @@ def run_idf_doctor(_args) -> int:
         print(f"{Fore.CYAN}Export:   {export_script}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}Command:  {' '.join(command)}{Style.RESET_ALL}")
     try:
-        subprocess.run(subprocess_command, check=True)
+        if env.process_env is None:
+            subprocess.run(subprocess_command, check=True)
+        else:
+            subprocess.run(subprocess_command, check=True, env=env.process_env)
     except FileNotFoundError:
         print(f"{Fore.RED}❌ The resolved ESP-IDF launcher could not be started.{Style.RESET_ALL}")
         print_idf_recovery_instructions()
@@ -527,7 +598,10 @@ def run_idf_command(frontend: str, args) -> None:
             subprocess_command, export_script = prepare_idf_subprocess_command_sequence(commands, env)
             assert export_script is not None
             print(f"{Fore.CYAN}Export:  {export_script}{Style.RESET_ALL}")
-            subprocess.run(subprocess_command, cwd=app_dir, check=True)
+            if env.process_env is None:
+                subprocess.run(subprocess_command, cwd=app_dir, check=True)
+            else:
+                subprocess.run(subprocess_command, cwd=app_dir, check=True, env=env.process_env)
         else:
             fallback_notice_printed = False
             for command in commands:
@@ -536,7 +610,10 @@ def run_idf_command(frontend: str, args) -> None:
                 if export_script is not None and not fallback_notice_printed:
                     print(f"{Fore.CYAN}Export:  {export_script}{Style.RESET_ALL}")
                     fallback_notice_printed = True
-                subprocess.run(subprocess_command, cwd=app_dir, check=True)
+                if env.process_env is None:
+                    subprocess.run(subprocess_command, cwd=app_dir, check=True)
+                else:
+                    subprocess.run(subprocess_command, cwd=app_dir, check=True, env=env.process_env)
         if frontend == "matter" and args.idf_command == "flash" and flash_port is not None:
             read_matter_onboarding(flash_port)
     except FileNotFoundError:

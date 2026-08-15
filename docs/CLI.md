@@ -35,7 +35,7 @@ Run the CLI from the repository root.
 - Use `./espectre --help` for the current top-level command list.
 - Use `./espectre <namespace> --help` for namespace-specific flags.
 - The wrapper prefers repository defaults and shared host autodetection over long manual setup steps.
-- `Native`, `Matter`, and `Streamer` prefer the local ESP-IDF environment detected by the wrapper and fall back to Docker for builds when no local installation is available. Use `./espectre doctor` to inspect the local ESP-IDF path.
+- `Native`, `Matter`, and `Streamer` prefer the local ESP-IDF environment detected by the wrapper, including the native toolchain managed by the pinned ESPHome installation, and fall back to Docker for builds when no local installation is available. Use `./espectre doctor` to inspect the local ESP-IDF path.
 
 ## Frontend Workflow Commands
 
@@ -51,6 +51,8 @@ The `esphome` namespace exposes:
 | `monitor` | Open logs for the selected config |
 
 Common flags include `--chip`, `--dev`, `--config`, and `--device`.
+
+The wrapper explicitly selects ESPHome's native `esp-idf` toolchain for every command. It does not use the legacy PlatformIO build backend.
 
 For `build`, cleanup flags are:
 
